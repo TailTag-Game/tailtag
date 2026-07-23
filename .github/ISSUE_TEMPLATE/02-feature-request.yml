@@ -1,0 +1,94 @@
+name: Feature request
+description: Propose a new capability or a meaningful change to existing behavior.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form to describe a user or project need. Focus first on the problem rather than prescribing a specific implementation.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the user, contributor, convention, or operational problem.
+      placeholder: Explain who encounters the problem and why it matters.
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe what should become possible or easier.
+      placeholder: A player should be able to...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Primary audience
+      options:
+        - Players
+        - Fursuiters
+        - Convention organizers
+        - TailTag administrators
+        - Contributors or maintainers
+        - Multiple audiences
+        - Unknown
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Likely affected area
+      options:
+        - Mobile application
+        - Web application
+        - Admin or convention tools
+        - Backend or API
+        - Database
+        - Authentication or accounts
+        - Infrastructure or deployment
+        - Documentation or contributor experience
+        - Multiple areas
+        - Unknown
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Optional. Describe a potential solution without treating it as a final technical decision.
+      placeholder: One possible approach would be...
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: List other approaches, workarounds, or existing behavior you considered.
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add mockups, research, examples, related issues, or relevant Notion documents.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues for the same or a closely related request.
+          required: true
+        - label: I described the underlying problem, not only a preferred implementation.
+          required: true
