@@ -1,0 +1,97 @@
+name: Bug report
+description: Report reproducible behavior that is incorrect or unexpected.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a TailTag problem. Please provide enough detail for another contributor to reproduce and investigate it.
+
+        Do not include passwords, access tokens, private user information, or security vulnerabilities in this form.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the incorrect behavior and what you were doing when it occurred.
+      placeholder: Describe the problem clearly.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: Describe the behavior you expected instead.
+      placeholder: Explain the expected result.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide a minimal, numbered sequence that reproduces the problem.
+      placeholder: |
+        1. Open...
+        2. Select...
+        3. Observe...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected area
+      description: Select the area most closely related to the problem.
+      options:
+        - Mobile application
+        - Web application
+        - Admin or convention tools
+        - Backend or API
+        - Database
+        - Authentication or accounts
+        - Infrastructure or deployment
+        - Documentation
+        - Unknown
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version, branch, or commit
+      description: Provide the release version, branch, commit SHA, or approximate date tested.
+      placeholder: main at abc1234, internal build 12, or unknown
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include relevant device, operating system, browser, deployment environment, or convention context.
+      placeholder: iPhone 15 on iOS 19, Chrome on macOS, staging environment, etc.
+    validations:
+      required: false
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs or screenshots
+      description: Add sanitized logs, screenshots, recordings, or other useful evidence.
+      placeholder: Drag files here or paste sanitized output.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues and did not find an open report for the same problem.
+          required: true
+        - label: I removed credentials, private user data, and other sensitive information.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
