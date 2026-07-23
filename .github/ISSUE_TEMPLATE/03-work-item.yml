@@ -1,6 +1,7 @@
 name: Work item
 description: Track defined engineering, design, documentation, research, or operational work.
 title: "[Work]: "
+type: Task
 body:
   - type: markdown
     attributes:

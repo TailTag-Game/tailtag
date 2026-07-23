@@ -1,6 +1,7 @@
 name: Bug report
 description: Report reproducible behavior that is incorrect or unexpected.
 title: "[Bug]: "
+type: Bug
 body:
   - type: markdown
     attributes:
