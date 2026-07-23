@@ -1,5 +1,1 @@
 blank_issues_enabled: false
-contact_links:
-  - name: Report a security vulnerability
-    url: https://github.com/TailTag-Game/.github/blob/main/SECURITY.md
-    about: Do not disclose vulnerabilities in a public issue. Follow the private reporting instructions in the security policy.
