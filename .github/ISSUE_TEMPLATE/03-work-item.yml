@@ -1,0 +1,78 @@
+name: Work item
+description: Track defined engineering, design, documentation, research, or operational work.
+title: "[Work]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for a concrete piece of project work with a clear outcome and completion criteria.
+
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: State the result this work should produce.
+      placeholder: Establish, document, implement, investigate, or validate...
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Explain why this work is needed and link relevant decisions, discussions, or documentation.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: discipline
+    attributes:
+      label: Primary discipline
+      options:
+        - Backend or API
+        - Frontend or mobile
+        - Platform or DevOps
+        - Design or UX
+        - Product or gameplay
+        - Documentation
+        - QA or testing
+        - Community or project operations
+        - Cross-functional
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Describe what is included and, where useful, what is explicitly excluded.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List observable conditions that must be true for this work to be considered complete.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies or blockers
+      description: Link prerequisite issues, decisions, external systems, or people.
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Implementation notes
+      description: Optional constraints, suggestions, references, or technical notes.
+    validations:
+      required: false
