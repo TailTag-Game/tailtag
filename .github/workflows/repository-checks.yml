@@ -1,0 +1,100 @@
+name: Repository checks
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repository-policy:
+    name: Repository policy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Verify required repository files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_files=(
+            "README.md"
+            "CONTRIBUTING.md"
+            ".github/CODEOWNERS"
+            ".github/pull_request_template.md"
+            ".github/ISSUE_TEMPLATE/01-bug-report.yml"
+            ".github/ISSUE_TEMPLATE/02-feature-request.yml"
+            ".github/ISSUE_TEMPLATE/03-work-item.yml"
+            ".github/ISSUE_TEMPLATE/config.yml"
+          )
+
+          missing_files=()
+
+          for file in "${required_files[@]}"; do
+            if [[ ! -f "$file" ]]; then
+              missing_files+=("$file")
+            fi
+          done
+
+          if (( ${#missing_files[@]} > 0 )); then
+            echo "The following required files are missing:"
+            printf ' - %s\n' "${missing_files[@]}"
+            exit 1
+          fi
+
+      - name: Verify default code ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! grep -Eq '^[*][[:space:]]+@TailTag-Game/core-maintainers([[:space:]]|$)' \
+            .github/CODEOWNERS; then
+            echo "CODEOWNERS must include the default Core Maintainers rule:"
+            echo "* @TailTag-Game/core-maintainers"
+            exit 1
+          fi
+
+      - name: Reject committed environment files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t forbidden_files < <(
+            git ls-files \
+              | grep -E '(^|/)\.env($|\.)' \
+              | grep -Ev '(^|/)\.env\.(example|sample|template)$' \
+              || true
+          )
+
+          if (( ${#forbidden_files[@]} > 0 )); then
+            echo "Environment files must not be committed:"
+            printf ' - %s\n' "${forbidden_files[@]}"
+            echo
+            echo "Use .env.example, .env.sample, or .env.template for documented placeholders."
+            exit 1
+          fi
+
+      - name: Verify issue-form types
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          declare -A expected_types=(
+            [".github/ISSUE_TEMPLATE/01-bug-report.yml"]="Bug"
+            [".github/ISSUE_TEMPLATE/02-feature-request.yml"]="Feature"
+            [".github/ISSUE_TEMPLATE/03-work-item.yml"]="Task"
+          )
+
+          for file in "${!expected_types[@]}"; do
+            expected_type="${expected_types[$file]}"
+
+            if ! grep -Eq "^type:[[:space:]]+${expected_type}[[:space:]]*$" "$file"; then
+              echo "$file must contain:"
+              echo "type: $expected_type"
+              exit 1
+            fi
+          done
