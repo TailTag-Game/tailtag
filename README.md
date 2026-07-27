@@ -89,6 +89,6 @@ Participation in TailTag spaces is governed by the organization’s [Code of Con
 
 ## License
 
-A license has not yet been selected.
+TailTag is licensed under the [Apache License 2.0](LICENSE).
 
-Until a license is added, the source code is not licensed for reuse, redistribution, or incorporation into other projects.
+The TailTag name, logos, branding, artwork, and other non-code assets are not necessarily covered by the software license unless explicitly stated.

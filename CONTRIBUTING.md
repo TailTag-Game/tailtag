@@ -199,6 +199,14 @@ Use:
 
 Significant architectural decisions should be documented through the project’s approved decision process before implementation.
 
+## Licensing of contributions
+
+By submitting a contribution to this repository, you agree that your contribution may be distributed under the repository’s Apache License 2.0.
+
+Only submit work that you have the right to contribute. Do not include code, assets, documentation, or other material copied from sources with incompatible licensing or unclear ownership.
+
+When adapting third-party material, preserve any required attribution and identify the source in the pull request.
+
 ## Getting help
 
 Accepted contributors should ask questions in the appropriate TailTag Discord help or squad channel.
