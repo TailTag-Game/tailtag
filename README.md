@@ -77,6 +77,12 @@ The normal contribution flow is:
 
 Unsolicited implementation of large features may be declined when the underlying product or architecture decision has not been approved.
 
+## Getting started
+
+Accepted contributors should begin with the [Getting Started guide](docs/development/getting-started.md).
+
+The guide covers repository access, cloning, Git configuration, environment verification, and the standard issue-to-pull-request workflow.
+
 ## Security
 
 Do not disclose vulnerabilities through public issues, pull requests, Discord channels, or other public project spaces.
