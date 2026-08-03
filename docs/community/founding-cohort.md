@@ -7,3 +7,4 @@ Contributors may optionally add themselves below through their onboarding pull r
 | Contributor | Primary areas |
 |---|---|
 | [FinnThePanther](https://github.com/FinnThePanther) | Project leadership and product |
+| [diewolfswelpe](https://github.com/diewolfswelpe) | Mobile and frontend dev |
