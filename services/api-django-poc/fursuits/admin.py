@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from django.contrib import admin
 from django.http import HttpRequest
@@ -22,7 +22,7 @@ class FursuitAdmin(FursuitAdminBase):
     list_display = ("name", "species", "owner", "created_at", "updated_at")
     list_filter = ("species", "created_at")
     list_select_related = ("owner",)
-    readonly_fields = ("id", "created_at", "updated_at")
+    readonly_fields: ClassVar[tuple[str, ...]] = ("id", "created_at", "updated_at")
     search_fields = ("name", "species", "owner__email")
 
     def get_readonly_fields(
