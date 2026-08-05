@@ -8,3 +8,4 @@ Contributors may optionally add themselves below through their onboarding pull r
 |---|---|
 | [FinnThePanther](https://github.com/FinnThePanther) | Project leadership and product |
 | [diewolfswelpe](https://github.com/diewolfswelpe) | Mobile and frontend dev |
+| [nikwalton](https://github.com/nikwalton) | Mobile and frontend dev | 
