@@ -1,13 +1,9 @@
 name: Django API POC
 
 on:
+  # This check is required by main branch protection, so it must report on
+  # every pull request rather than being skipped by path filtering.
   pull_request:
-    paths:
-      - ".github/workflows/api-django-poc.yml"
-      - "services/api-django-poc/**"
-      - "docs/development/getting-started.md"
-      - "docs/architecture/backend/django-api-poc.md"
-      - "docs/specs/2026-08-04-django-api-auth-and-fursuits.md"
   workflow_dispatch:
 
 permissions:
