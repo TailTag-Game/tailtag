@@ -114,8 +114,14 @@ def test_contributor_commands_and_ci_cover_the_api_scaffold_contract() -> None:
 
     assert "pull_request:" in workflow
     assert "workflow_dispatch:" in workflow
-    triggers = workflow.split("permissions:", maxsplit=1)[0]
-    assert "    paths:" not in triggers
+    pull_request_trigger = re.search(
+        r"(?ms)^  pull_request:\n(?P<configuration>.*?)(?=^  \w+:\n)",
+        workflow,
+    )
+    assert pull_request_trigger
+    pull_request_configuration = pull_request_trigger.group("configuration")
+    assert "    paths:" not in pull_request_configuration
+    assert "    paths-ignore:" not in pull_request_configuration
     assert 'python-version: "3.13"' in workflow
     assert "postgres:17" in workflow
     assert "uv sync --all-groups --locked" in workflow
