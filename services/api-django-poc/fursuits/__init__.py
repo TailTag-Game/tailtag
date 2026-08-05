@@ -1,0 +1,1 @@
+"""Owned fursuit profile behavior."""

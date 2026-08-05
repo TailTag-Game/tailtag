@@ -27,11 +27,14 @@ package = false
 [tool.ruff]
 target-version = "py313"
 
+[tool.ruff.lint.per-file-ignores]
+"**/migrations/*.py" = ["RUF012"]
+
 [tool.mypy]
 python_version = "3.13"
 strict = true
 plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
-files = ["config", "health", "tests"]
+files = ["accounts", "config", "fursuits", "health", "tests"]
 
 [tool.django-stubs]
 django_settings_module = "config.settings.local"
