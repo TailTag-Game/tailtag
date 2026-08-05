@@ -10,3 +10,4 @@ Contributors may optionally add themselves below through their onboarding pull r
 | [diewolfswelpe](https://github.com/diewolfswelpe) | Mobile and frontend dev |
 | [nikwalton](https://github.com/nikwalton) | Mobile and frontend dev | 
 | [bdalleva](https://github.com/bdalleva) | Backend and Database |
+| [Derwin](https://github.com/grsmhiker) | Community Operations and Convention Outreach | 
