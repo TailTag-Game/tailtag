@@ -33,4 +33,11 @@ RUN uv sync --locked --no-dev --no-install-project
 
 COPY . ./
 
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]
+RUN DJANGO_SETTINGS_MODULE=config.settings.production \
+    DJANGO_SECRET_KEY=build-only-secret \
+    DATABASE_URL=postgresql://tailtag:tailtag@localhost:5432/tailtag \
+    DJANGO_ALLOWED_HOSTS=localhost \
+    DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost \
+    python manage.py collectstatic --noinput
+
+CMD ["sh", "-c", "exec gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000}"]

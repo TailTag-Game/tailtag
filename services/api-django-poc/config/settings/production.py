@@ -7,6 +7,8 @@ import os
 from .base import *
 from .base import database_from_url
 
+MIDDLEWARE.insert(1, "whitenoise.middleware.WhiteNoiseMiddleware")
+
 
 def required_environment_value(name: str) -> str:
     """Return a required environment variable or stop startup with a clear error."""
@@ -32,6 +34,14 @@ CSRF_TRUSTED_ORIGINS = comma_separated_values(
 )
 DATABASES = {
     "default": database_from_url(required_environment_value("DATABASE_URL")),
+}
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
 }
 
 SESSION_COOKIE_SECURE = True

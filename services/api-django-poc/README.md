@@ -118,3 +118,15 @@ uv run gunicorn config.wsgi:application --check-config
 If Docker or the Compose plugin is unavailable, install and start Docker Desktop (or a compatible Docker Engine) before using the containerized workflow. Do not substitute SQLite: PostgreSQL is part of the POC contract. After Docker is available, use `docker compose up --build` for the containerized API.
 
 If `/health/ready` reports `{"status": "unavailable"}`, confirm the database is running with `docker compose ps`, then check its logs with `docker compose logs db`.
+
+## Railway deployment adapter
+
+The Railway service should use `/services/api-django-poc` as its root directory.
+Configure the Railway config file path as `/services/api-django-poc/railway.toml`.
+That file runs migrations as a pre-deploy command and uses `/health/ready` as the
+deployment healthcheck. Railway provides the `PORT` environment variable; the
+production Gunicorn command consumes it and falls back to port `8000` locally.
+
+The production image collects Django admin static assets during the image build and
+serves them through WhiteNoise. Do not run `collectstatic` as a pre-deploy command:
+Railway pre-deploy containers do not persist filesystem changes to the web container.

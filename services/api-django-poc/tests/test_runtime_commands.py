@@ -36,6 +36,7 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
     dockerfile = (SERVICE_ROOT / "Dockerfile").read_text()
     compose_file = (SERVICE_ROOT / "compose.yaml").read_text()
     environment_template = (SERVICE_ROOT / ".env.example").read_text()
+    railway_config = (SERVICE_ROOT / "railway.toml").read_text()
 
     development = docker_stage(dockerfile, "development")
     production = docker_stage(dockerfile, "production")
@@ -51,9 +52,10 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
     assert "RUN uv sync --locked --no-dev --no-install-project" in production
     assert 'CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]' in development
     assert (
-        'CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]'
+        'CMD ["sh", "-c", "exec gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000}"]'
         in production
     )
+    assert "python manage.py collectstatic --noinput" in production
     assert "migrate" not in development
     assert "migrate" not in production
 
@@ -85,6 +87,8 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
         in environment_template
     )
     assert "POSTGRES_PASSWORD=replace-with-a-local-password" in environment_template
+    assert 'preDeployCommand = "python manage.py migrate"' in railway_config
+    assert 'healthcheckPath = "/health/ready"' in railway_config
 
 
 def test_contributor_commands_and_ci_cover_the_api_scaffold_contract() -> None:

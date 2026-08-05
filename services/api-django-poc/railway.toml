@@ -1,0 +1,5 @@
+[deploy]
+preDeployCommand = "python manage.py migrate"
+healthcheckPath = "/health/ready"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
