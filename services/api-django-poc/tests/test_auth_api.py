@@ -7,8 +7,10 @@ from typing import Protocol, cast
 
 import pytest
 from django.test import Client
+from rest_framework import serializers
 
 from accounts.models import User
+from accounts.serializers import SignupSerializer
 
 
 class JsonResponse(Protocol):
@@ -105,6 +107,30 @@ def test_signup_rejects_a_duplicate_canonical_email(csrf_client: Client) -> None
 
     assert response.status_code == 400
     assert "email" in response.json()
+
+
+@pytest.mark.django_db
+def test_signup_translates_a_concurrent_duplicate_email_conflict() -> None:
+    """A database uniqueness race remains a stable email validation error."""
+    serializer = SignupSerializer(
+        data={
+            "email": "player@example.test",
+            "display_name": "Player",
+            "password": "a secure password 123",
+        }
+    )
+    serializer.is_valid(raise_exception=True)
+
+    User.objects.create_user(
+        email="player@example.test",
+        password="a secure password 123",
+        display_name="Player",
+    )
+
+    with pytest.raises(serializers.ValidationError) as exc_info:
+        serializer.save()
+
+    assert "email" in exc_info.value.detail
 
 
 @pytest.mark.django_db

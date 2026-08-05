@@ -5,10 +5,8 @@ from __future__ import annotations
 from typing import cast
 
 from django.contrib.auth import authenticate, login, logout
-from django.http import HttpRequest, HttpResponse
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
-from django.views.decorators.http import require_GET
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -20,11 +18,16 @@ from .models import User
 from .serializers import LoginSerializer, PublicUserSerializer, SignupSerializer
 
 
-@require_GET
-@ensure_csrf_cookie
-def csrf(_: HttpRequest) -> HttpResponse:
+@method_decorator(ensure_csrf_cookie, name="dispatch")
+@extend_schema_view(get=extend_schema(auth=[], request=None, responses={204: None}))
+class CsrfView(APIView):
     """Ensure that a same-origin browser has a CSRF cookie."""
-    return HttpResponse(status=status.HTTP_204_NO_CONTENT)
+
+    permission_classes = (AllowAny,)
+
+    def get(self, _: Request) -> Response:
+        """Set the CSRF cookie without returning a response body."""
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @method_decorator(csrf_protect, name="dispatch")

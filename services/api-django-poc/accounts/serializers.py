@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from django.contrib.auth.password_validation import validate_password
+from django.db import IntegrityError, transaction
 from rest_framework import serializers
 
 from .models import User, UserManager
@@ -60,11 +61,20 @@ class SignupSerializer(AccountSerializer):
 
     def create(self, validated_data: dict[str, object]) -> User:
         """Create the user through the canonical-email manager."""
-        return User.objects.create_user(
-            email=str(validated_data["email"]),
-            password=str(validated_data["password"]),
-            display_name=str(validated_data["display_name"]),
-        )
+        email = str(validated_data["email"])
+        try:
+            with transaction.atomic():
+                return User.objects.create_user(
+                    email=email,
+                    password=str(validated_data["password"]),
+                    display_name=str(validated_data["display_name"]),
+                )
+        except IntegrityError:
+            if User.objects.filter(email=email).exists():
+                raise serializers.ValidationError(
+                    {"email": "An account with this email already exists."}
+                ) from None
+            raise
 
 
 class LoginSerializer(AccountSerializer):

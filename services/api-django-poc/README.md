@@ -22,20 +22,20 @@ uv sync --all-groups --locked
 
 ## Run locally
 
-With PostgreSQL 17 available on `localhost:5432` for the local `tailtag` database, run Django from the local environment:
+With PostgreSQL 17 available on `localhost:5432` for the local `tailtag` database, apply migrations and create an admin account:
+
+```bash
+uv run python manage.py migrate
+uv run python manage.py createsuperuser
+```
+
+Then start Django from the local environment:
 
 ```bash
 uv run python manage.py runserver
 ```
 
 The liveness endpoint is [http://localhost:8000/health/live](http://localhost:8000/health/live). The database-backed readiness endpoint is [http://localhost:8000/health/ready](http://localhost:8000/health/ready).
-
-Apply migrations before using account or fursuit endpoints:
-
-```bash
-uv run python manage.py migrate
-uv run python manage.py createsuperuser
-```
 
 The API schema is available at [http://localhost:8000/api/schema/](http://localhost:8000/api/schema/) and interactive documentation at [http://localhost:8000/api/docs/](http://localhost:8000/api/docs/). Django admin is at [http://localhost:8000/admin/](http://localhost:8000/admin/).
 
