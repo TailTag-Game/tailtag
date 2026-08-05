@@ -29,6 +29,12 @@ class PublicUserSerializer(UserModelSerializer):
         read_only_fields = fields
 
 
+class ErrorDetailSerializer(AccountSerializer):
+    """Document the stable error shape returned by public account endpoints."""
+
+    detail = serializers.CharField(read_only=True)
+
+
 class SignupSerializer(AccountSerializer):
     """Validate public account creation without accepting privileges."""
 

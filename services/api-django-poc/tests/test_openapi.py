@@ -17,9 +17,11 @@ def test_openapi_schema_includes_account_and_fursuit_routes(client: Client) -> N
     assert "/api/auth/csrf" in paths
     csrf = paths["/api/auth/csrf"]["get"]
     assert csrf["operationId"] == "auth_csrf_retrieve"
+    assert csrf.get("security", []) == []
     assert csrf["responses"]["204"]["description"] == "No response body"
 
     signup = paths["/api/auth/signup"]["post"]
+    assert signup.get("security", []) == []
     assert signup["requestBody"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/Signup"
     }
@@ -28,11 +30,15 @@ def test_openapi_schema_includes_account_and_fursuit_routes(client: Client) -> N
     }
 
     login = paths["/api/auth/login"]["post"]
+    assert login.get("security", []) == []
     assert login["requestBody"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/Login"
     }
     assert login["responses"]["200"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/PublicUser"
+    }
+    assert login["responses"]["400"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ErrorDetail"
     }
 
     logout = paths["/api/auth/logout"]["post"]
@@ -53,6 +59,7 @@ def test_openapi_schema_includes_account_and_fursuit_routes(client: Client) -> N
     ] == {"type": "array", "items": {"$ref": "#/components/schemas/Fursuit"}}
 
     fursuit_create = fursuits["post"]
+    assert fursuit_create["security"] == [{"cookieAuth": []}]
     assert fursuit_create["requestBody"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/Fursuit"
     }
@@ -61,6 +68,8 @@ def test_openapi_schema_includes_account_and_fursuit_routes(client: Client) -> N
     ] == {"$ref": "#/components/schemas/Fursuit"}
 
     fursuit_detail = paths["/api/fursuits/{fursuit_id}"]
+    for operation in ("get", "patch", "delete"):
+        assert fursuit_detail[operation]["security"] == [{"cookieAuth": []}]
     assert fursuit_detail["get"]["responses"]["200"]["content"]["application/json"][
         "schema"
     ] == {"$ref": "#/components/schemas/Fursuit"}

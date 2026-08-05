@@ -15,7 +15,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import User
-from .serializers import LoginSerializer, PublicUserSerializer, SignupSerializer
+from .serializers import (
+    ErrorDetailSerializer,
+    LoginSerializer,
+    PublicUserSerializer,
+    SignupSerializer,
+)
 
 
 @method_decorator(ensure_csrf_cookie, name="dispatch")
@@ -57,7 +62,7 @@ class SignupView(APIView):
     post=extend_schema(
         auth=[],
         request=LoginSerializer,
-        responses={200: PublicUserSerializer},
+        responses={200: PublicUserSerializer, 400: ErrorDetailSerializer},
     )
 )
 class LoginView(APIView):
