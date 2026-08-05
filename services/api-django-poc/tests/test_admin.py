@@ -4,9 +4,17 @@ from __future__ import annotations
 
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
+from django.test import Client
 
 from accounts.models import User
 from fursuits.models import Fursuit
+
+
+def test_admin_login_route_is_available(client: Client) -> None:
+    """Django admin is reachable at the documented login route."""
+    response = client.get("/admin/login/")
+
+    assert response.status_code == 200
 
 
 def test_user_and_fursuit_admin_are_registered_safely() -> None:
