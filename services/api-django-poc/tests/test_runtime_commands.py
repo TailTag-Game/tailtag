@@ -52,9 +52,11 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
     assert "RUN uv sync --locked --no-dev --no-install-project" in production
     assert 'CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]' in development
     assert (
-        'CMD ["sh", "-c", "exec gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000}"]'
+        'CMD ["sh", "-c", "exec gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --access-logfile - --error-logfile -"]'
         in production
     )
+    assert "--access-logfile -" in production
+    assert "--error-logfile -" in production
     assert "python manage.py collectstatic --noinput" in production
     assert "migrate" not in development
     assert "migrate" not in production
