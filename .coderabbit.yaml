@@ -1,0 +1,58 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+reviews:
+  # Keep CodeRabbit advisory while the repository establishes its review norms.
+  profile: quiet
+  request_changes_workflow: false
+  fail_commit_status: false
+  high_level_summary: true
+  changed_files_summary: true
+  collapse_walkthrough: true
+  review_details: false
+  sequence_diagrams: false
+  poem: false
+  suggested_labels: false
+  auto_apply_labels: false
+  suggested_reviewers: false
+  auto_assign_reviewers: false
+  slop_detection:
+    # Deliberately omit label so no public repository label is applied.
+    enabled: true
+  auto_review:
+    enabled: true
+    drafts: false
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 5
+  finishing_touches:
+    # These remain available on demand; CodeRabbit does not run them automatically.
+    autofix:
+      enabled: true
+    unit_tests:
+      enabled: true
+    fix_ci:
+      enabled: true
+  pre_merge_checks:
+    docstrings:
+      mode: "off"
+    title:
+      mode: warning
+    description:
+      mode: warning
+    issue_assessment:
+      mode: warning
+
+chat:
+  allow_non_org_members: true
+  auto_reply: false
+
+knowledge_base:
+  opt_out: false
+  code_guidelines:
+    enabled: true
+  learnings:
+    scope: local
+    approval_delay: 7
+  issues:
+    scope: local
+  pull_requests:
+    scope: local
