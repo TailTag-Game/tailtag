@@ -114,8 +114,8 @@ def test_contributor_commands_and_ci_cover_the_api_scaffold_contract() -> None:
 
     assert "pull_request:" in workflow
     assert "workflow_dispatch:" in workflow
-    assert '"docs/development/getting-started.md"' in workflow
-    assert '"docs/architecture/backend/django-api-poc.md"' in workflow
+    triggers = workflow.split("permissions:", maxsplit=1)[0]
+    assert "    paths:" not in triggers
     assert 'python-version: "3.13"' in workflow
     assert "postgres:17" in workflow
     assert "uv sync --all-groups --locked" in workflow
