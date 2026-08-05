@@ -1,13 +1,16 @@
 # Django API Proof of Concept
 
-**Status:** Draft  
+**Status:** Approved
 **Related issue:** [#17 — Define the Django API POC](https://github.com/TailTag-Game/tailtag/issues/17)  
 **Parent issue:** [#16 — Evaluate Django as TailTag’s backend framework](https://github.com/TailTag-Game/tailtag/issues/16)  
-**Blocks:** [#18 — Scaffold the Django API POC](https://github.com/TailTag-Game/tailtag/issues/18)
+**Implementation sequence:** [#18 — Scaffold the Django API POC](https://github.com/TailTag-Game/tailtag/issues/18), [#19 — Implement authentication and fursuit management](https://github.com/TailTag-Game/tailtag/issues/19), then [#20 — Deploy and evaluate the Django API POC](https://github.com/TailTag-Game/tailtag/issues/20)  
+**Scaffold:** [approved specification](../../specs/2026-08-04-django-api-poc-scaffold.md)
 
 ## 1. Purpose
 
 This document defines a limited, production-shaped Django API proof of concept for the TailTag rebuild.
+
+It describes the complete POC across issues #18, #19, and #20. Issue #18 is limited to the service scaffold and must not implement the authentication, fursuit, admin, or Railway behavior described in later sections.
 
 The POC is intended to answer:
 
@@ -196,6 +199,10 @@ Issue #18 must:
 5. Record any compatibility compromise in the POC README or pull request.
 
 The current proposal is to use Python 3.13 and Django 6.0 if the complete dependency set supports them without workarounds.
+
+### Scaffold compatibility result
+
+Issue #18 verified and locked a compatible Python 3.13 set: Django 6.0.8, Django REST Framework 3.17.1, django-stubs 6.0.7, djangorestframework-stubs 3.17.1, psycopg 3.2.13, drf-spectacular 0.30.0, Gunicorn 23.0.0, pytest 9.1.1, pytest-django 4.12.0, mypy 2.3.0, and Ruff 0.16.1. The exact transitive resolution is committed in the service `uv.lock`; routine upgrades must repeat this compatibility check.
 
 The service will initially be an independent uv project with its own `pyproject.toml` and `uv.lock`. A root uv workspace is unnecessary while the repository contains only one Python project. uv workspaces can be introduced later if the monorepo gains multiple related Python packages.
 
