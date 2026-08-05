@@ -59,6 +59,7 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
 
     assert "api:" in compose_file
     assert "db:" in compose_file
+    assert "DJANGO_SETTINGS_MODULE: config.settings.local" in api
     assert "postgres:17" in compose_file
     assert "healthcheck:" in compose_file
     assert "pg_isready" in compose_file

@@ -1,5 +1,8 @@
 .DS_Store
 
+.env
+!.env.example
+
 /AGENTS.md
 /CONTEXT.md
 /\.codex/

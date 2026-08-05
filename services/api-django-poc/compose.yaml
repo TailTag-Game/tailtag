@@ -20,7 +20,7 @@ services:
       context: .
       target: development
     environment:
-      DJANGO_SETTINGS_MODULE: config.settings.production
+      DJANGO_SETTINGS_MODULE: config.settings.local
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-replace-with-a-local-development-secret}
       DATABASE_URL: postgresql://${POSTGRES_USER:-tailtag}:${POSTGRES_PASSWORD:-tailtag}@db:5432/${POSTGRES_DB:-tailtag}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
