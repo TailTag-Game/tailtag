@@ -1,0 +1,40 @@
+[project]
+name = "tailtag-api-django-poc"
+version = "0.1.0"
+description = "TailTag Django API proof-of-concept foundation"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "Django>=6.0,<6.1",
+    "djangorestframework>=3.16",
+    "psycopg[binary]>=3.2",
+    "drf-spectacular>=0.28",
+    "gunicorn>=23.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14",
+    "mypy>=1.18",
+    "django-stubs>=5.2",
+    "djangorestframework-stubs>=3.16",
+    "pytest>=8.3",
+    "pytest-django>=4.11",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+target-version = "py313"
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
+files = ["config", "health", "tests"]
+
+[tool.django-stubs]
+django_settings_module = "config.settings.local"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.local"

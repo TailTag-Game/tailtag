@@ -13,7 +13,7 @@ Install:
 - GitHub CLI, recommended
 - An editor with Git support
 
-Docker and application-specific runtimes will be documented after the architecture and framework decisions are complete.
+The Django API proof-of-concept service has its own prerequisites and command guide. See [the API POC README](../../services/api-django-poc/README.md) when working on that service.
 
 ## Clone the repository
 
