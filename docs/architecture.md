@@ -4,9 +4,9 @@ Status: foundational; the Django API proof-of-concept scaffold is approved, but 
 
 ## Current repository
 
-The repository contains contributor documentation, GitHub policy files, shell-based repository checks, and an independent Django API proof-of-concept scaffold at `services/api-django-poc/`. The scaffold is a Python 3.13 `uv` project with Django, PostgreSQL 17 configuration, Docker Compose development tooling, health endpoints, quality tooling, and a dedicated GitHub Actions workflow.
+The repository contains contributor documentation, GitHub policy files, shell-based repository checks, and an independent Django API proof-of-concept at `services/api-django-poc/`. The POC is a Python 3.13 `uv` project with Django, PostgreSQL 17 configuration, Docker Compose development tooling, health endpoints, session-authenticated custom accounts, owner-scoped fursuit CRUD, Django admin, OpenAPI documentation, quality tooling, and a dedicated GitHub Actions workflow.
 
-The scaffold deliberately does not add domain models, migrations, authentication, CRUD, Django-admin behavior, public OpenAPI schema or documentation routes, Railway configuration, or deployment behavior. It evaluates a backend foundation; it does not select TailTag's final backend architecture. The candidate top-level areas in `README.md` remain directions for discussion rather than approved architecture.
+The POC deliberately does not add gameplay models, email verification/recovery, token authentication, CORS, images, conventions, catches, or deployment behavior. It evaluates a backend foundation; it does not select TailTag's final backend architecture. The candidate top-level areas in `README.md` remain directions for discussion rather than approved architecture.
 
 ## Architectural constraints
 

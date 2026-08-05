@@ -1,6 +1,6 @@
 # TailTag Django API POC
 
-This service is the reproducible foundation for the TailTag Django API proof of concept. It contains only configuration and health checks; it does not yet provide domain models, authentication, CRUD, admin behavior, or public OpenAPI schema or documentation routes.
+This service is the Django API proof of concept for TailTag. It provides same-origin, session-authenticated account access and owner-scoped fursuit management; it remains a framework evaluation rather than TailTag's final backend architecture.
 
 ## Prerequisites
 
@@ -29,6 +29,17 @@ uv run python manage.py runserver
 ```
 
 The liveness endpoint is [http://localhost:8000/health/live](http://localhost:8000/health/live). The database-backed readiness endpoint is [http://localhost:8000/health/ready](http://localhost:8000/health/ready).
+
+Apply migrations before using account or fursuit endpoints:
+
+```bash
+uv run python manage.py migrate
+uv run python manage.py createsuperuser
+```
+
+The API schema is available at [http://localhost:8000/api/schema/](http://localhost:8000/api/schema/) and interactive documentation at [http://localhost:8000/api/docs/](http://localhost:8000/api/docs/). Django admin is at [http://localhost:8000/admin/](http://localhost:8000/admin/).
+
+Browser clients first request `GET /api/auth/csrf`, then send the `csrftoken` cookie as `X-CSRFToken` with `credentials: "include"` for signup, login, logout, and every fursuit write. The POC is same-origin; CORS is intentionally unsupported.
 
 ## Run with Docker
 
