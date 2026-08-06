@@ -18,7 +18,7 @@ REQUIRED_SETTINGS = (
 
 VALID_ENVIRONMENT = {
     "DATABASE_URL": "postgresql://tailtag:password@localhost:5432/tailtag",
-    "DJANGO_SECRET_KEY": "test-secret-key",
+    "DJANGO_SECRET_KEY": "test-secret-key-with-more-than-fifty-characters-for-deploy-checks",
     "DJANGO_ALLOWED_HOSTS": "api.example.test,admin.example.test",
     "DJANGO_CSRF_TRUSTED_ORIGINS": "https://api.example.test,https://admin.example.test",
 }
@@ -58,5 +58,29 @@ def test_production_settings_reject_each_missing_required_value(
 def test_production_settings_accept_all_required_values() -> None:
     """A complete non-secret production configuration can initialize settings."""
     completed = run_settings_import(VALID_ENVIRONMENT)
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_production_settings_enforce_forwarded_https_and_hsts() -> None:
+    """The production proxy boundary must redirect HTTP and advertise HTTPS."""
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import config.settings.production as settings; "
+                "assert settings.SECURE_PROXY_SSL_HEADER == "
+                "('HTTP_X_FORWARDED_PROTO', 'https'); "
+                "assert settings.SECURE_SSL_REDIRECT is True; "
+                "assert settings.SECURE_HSTS_SECONDS == 31536000"
+            ),
+        ],
+        cwd=".",
+        env={"PATH": os.environ["PATH"], **VALID_ENVIRONMENT},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
     assert completed.returncode == 0, completed.stderr

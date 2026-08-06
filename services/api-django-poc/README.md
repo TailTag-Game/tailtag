@@ -106,7 +106,7 @@ Validate that the production Gunicorn configuration loads without starting a per
 
 ```bash
 DJANGO_SETTINGS_MODULE=config.settings.production \
-DJANGO_SECRET_KEY=not-a-real-secret \
+DJANGO_SECRET_KEY=replace-with-a-secret-at-least-fifty-characters-long \
 DATABASE_URL=postgresql://tailtag:tailtag@localhost:5432/tailtag \
 DJANGO_ALLOWED_HOSTS=localhost \
 DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost \
