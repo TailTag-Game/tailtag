@@ -73,7 +73,9 @@ def test_production_settings_enforce_forwarded_https_and_hsts() -> None:
                 "assert settings.SECURE_PROXY_SSL_HEADER == "
                 "('HTTP_X_FORWARDED_PROTO', 'https'); "
                 "assert settings.SECURE_SSL_REDIRECT is True; "
-                "assert settings.SECURE_HSTS_SECONDS == 31536000"
+                "assert settings.SECURE_HSTS_SECONDS == 31536000; "
+                "assert settings.SECURE_REDIRECT_EXEMPT == "
+                "[r'^health/(live|ready)$']"
             ),
         ],
         cwd=".",
