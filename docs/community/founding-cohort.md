@@ -9,5 +9,6 @@ Contributors may optionally add themselves below through their onboarding pull r
 | [FinnThePanther](https://github.com/FinnThePanther) | Project leadership and product |
 | [diewolfswelpe](https://github.com/diewolfswelpe) | Mobile and frontend dev |
 | [nikwalton](https://github.com/nikwalton) | Mobile and frontend dev | 
+| [gtrotsuka](https://github.com/gtrotsuka) | Product Designer and Frontend Dev | 
 | [Derwin](https://github.com/grsmhiker) | Community Operations and Convention Outreach |
 | [RadiantCyrus](https://github.com/radiantcyrus) | UI/UX and Graphic Design | 
