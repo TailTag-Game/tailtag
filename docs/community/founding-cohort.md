@@ -11,3 +11,4 @@ Contributors may optionally add themselves below through their onboarding pull r
 | [nikwalton](https://github.com/nikwalton) | Mobile and frontend dev | 
 | [Derwin](https://github.com/grsmhiker) | Community Operations and Convention Outreach |
 | [RadiantCyrus](https://github.com/radiantcyrus) | UI/UX and Graphic Design | 
+| [Striper](https://github.com/derek-cheung) | Mobile and frontend dev | 
