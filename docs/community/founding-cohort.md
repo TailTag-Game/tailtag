@@ -11,3 +11,4 @@ Contributors may optionally add themselves below through their onboarding pull r
 | [nikwalton](https://github.com/nikwalton) | Mobile and frontend dev | 
 | [bdalleva](https://github.com/bdalleva) | Backend and Database |
 | [Derwin](https://github.com/grsmhiker) | Community Operations and Convention Outreach | 
+| [RadiantCyrus](https://github.com/radiantcyrus) | UI/UX and Graphic Design | 
