@@ -2,6 +2,44 @@
 
 This service is the Django API proof of concept for TailTag. It provides same-origin, session-authenticated account access and owner-scoped fursuit management; it remains a framework evaluation rather than TailTag's final backend architecture.
 
+## What this is
+
+This is a small, deployable Python backend example for TailTag. It shows how a Django
+service can connect a PostgreSQL data model, authenticated API endpoints, admin tools,
+automated checks, and a production-shaped deployment without adding gameplay behavior
+or committing us to a final architecture.
+
+## Why Django is a good fit for TailTag
+
+TailTag will need more than HTTP handlers: it will need relational product data,
+accounts, ownership rules, permissions, migrations, administrative workflows, and
+clear interfaces for client applications. Django gives those concerns a coherent set
+of conventions, while Django REST Framework provides the API boundary and OpenAPI
+documentation.
+
+That makes the service approachable for a mixed-experience backend team. Contributors
+can learn one recognizable project structure, run the same checks locally and in CI,
+and inspect behavior through the API docs and Django admin. Django also leaves room for
+ASGI and async work if future realtime or long-running workloads justify it; those
+requirements still need to be evaluated rather than assumed.
+
+## What this POC demonstrates
+
+- Environment-specific settings with fail-fast production configuration
+- PostgreSQL-backed models, migrations, and schema-drift checks
+- Session authentication, CSRF protection, and owner-scoped authorization
+- Django admin, health/readiness endpoints, request logs, and static assets
+- DRF endpoints with generated OpenAPI schema and interactive documentation
+- Strict typing, focused behavior tests, Docker-based development, and Railway deployment
+
+This is a foundation to study and extend. It is not a production launch, a gameplay
+implementation, or a decision about TailTag's final client-authentication model.
+
+## Run it in ten minutes
+
+The shortest useful tour is: install the locked environment, start PostgreSQL, apply
+migrations, run the server, and open the health, API docs, and admin URLs below.
+
 ## Prerequisites
 
 Install Python 3.13, [uv](https://docs.astral.sh/uv/), and Docker Desktop (or another Docker Engine with the Compose plugin). PostgreSQL 17 is required for local tests and runtime checks; this POC intentionally has no SQLite fallback.
@@ -54,6 +92,42 @@ HTTP-safe development cookies. It does not use production settings or production
 secrets.
 
 Browser clients first request `GET /api/auth/csrf`, then send the `csrftoken` cookie as `X-CSRFToken` with `credentials: "include"` for signup, login, logout, and every fursuit write. The POC is same-origin; CORS is intentionally unsupported.
+
+## Where to explore
+
+- `config/settings/` — local versus production environment boundaries and security defaults
+- `accounts/` — account endpoints, session authentication, and CSRF handling
+- `fursuits/` — owner-scoped API behavior and authorization boundaries
+- `health/` — liveness and database-backed readiness checks
+- `tests/` — settings contracts, API behavior, runtime configuration, and regression coverage
+- `Dockerfile` — development and production image boundaries, static collection, and Gunicorn
+- `railway.toml` — disposable deployment adapter with pre-deploy migrations and healthchecks
+
+Start with the tests for the behavior you want to understand, then trace into the
+corresponding application package. The [architecture overview](../../docs/architecture.md)
+explains what this POC does and does not decide; the [issue evaluation report](../../docs/reviews/issue-20-django-api-poc-evaluation.md)
+records the deployment evidence and operational limitations.
+
+## Intentional boundaries
+
+This POC intentionally does not decide or implement final mobile-token authentication,
+gameplay models, conventions, catches, realtime gameplay, email recovery, CORS,
+background workers, media storage, or high availability. Those choices should follow
+approved product requirements and architecture decisions.
+
+Railway is used here as a disposable evaluation adapter, not as a final hosting
+commitment. Do not use the POC environment for production data or treat its deployment
+shape as a substitute for approved backup, recovery, monitoring, and authentication
+requirements.
+
+## Working agreements
+
+- Keep PostgreSQL as the local and CI database; do not add a SQLite fallback.
+- Keep secrets in local `.env` files or deployment variables, never in Git.
+- Run the [validation commands](#validate-the-service) before opening a PR.
+- Keep application behavior separate from Railway-specific deployment configuration.
+- Read the repository [architecture overview](../../docs/architecture.md) before making
+  a hard-to-reverse framework or infrastructure decision.
 
 ## Run with Docker
 
