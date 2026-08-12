@@ -55,6 +55,41 @@ If `.env` is absent, native Django fails at startup with a sanitized message
 naming the missing required setting. Invalid `DATABASE_URL` values also fail at
 startup without printing credentials. Do not substitute SQLite.
 
+## Canonical backend commands
+
+Run these commands from the repository root. They wrap the existing `uv`,
+Django, and validation tooling so contributors do not need to remember service
+paths or individual tool invocations.
+
+| Command | Purpose | Required state |
+| --- | --- | --- |
+| `make help` | List the supported backend commands. | None. |
+| `make api-setup` | Synchronize locked backend dependencies. | `uv` available; does not start services or change schema. |
+| `make api-run` | Run Django on port 8000. | Dependencies, `services/api/.env`, and PostgreSQL already available. |
+| `make api-test` | Run PostgreSQL-backed backend tests. | Dependencies, `services/api/.env`, and PostgreSQL already available. |
+| `make api-check` | Run the complete local pre-PR backend validation suite. | Dependencies, `services/api/.env`, and PostgreSQL already available. |
+| `make api-migrate` | **Apply existing Django migrations.** | Dependencies, `services/api/.env`, and PostgreSQL already available; mutates schema. |
+| `make api-migrations` | **Create Django migrations from model changes.** | Dependencies and `services/api/.env`; mutates migration state but does not apply migrations. |
+| `make api-migrations-check` | Check for migration drift. | Dependencies, `services/api/.env`, and PostgreSQL already available; does not create migrations. |
+| `make api-shell` | Open the Django shell. | Dependencies, `services/api/.env`, and PostgreSQL already available. |
+| `make api-smoke` | HTTP-check an already-running API. | API already running; it never starts services or applies migrations. |
+
+`api-check` includes Ruff formatting and linting, strict mypy, pytest, Django
+system checks, migration-drift detection, OpenAPI validation, and Gunicorn
+production-configuration loading. It does not create or apply migrations.
+
+`api-smoke` checks `/health/live`, `/health/ready`, `/api/schema/`, and
+`/api/docs/`, expecting HTTP 200 from each. It defaults to
+`http://127.0.0.1:8000`; target another already-running environment by setting
+`API_BASE_URL`, for example:
+
+```bash
+API_BASE_URL=https://example.internal make api-smoke
+```
+
+The canonical commands do not manage Docker or Compose lifecycle. Start the
+environment you intend to use first, then invoke the command that consumes it.
+
 ## Prerequisites
 
 ### Devcontainer
