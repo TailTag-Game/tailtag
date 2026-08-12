@@ -100,6 +100,7 @@ def test_repository_devcontainer_reuses_the_api_compose_topology() -> None:
     devcontainer_root = REPOSITORY_ROOT / ".devcontainer"
     devcontainer = json.loads((devcontainer_root / "devcontainer.json").read_text())
     override = (devcontainer_root / "compose.devcontainer.yaml").read_text()
+    api = compose_service((SERVICE_ROOT / "compose.yaml").read_text(), "api")
 
     assert devcontainer["dockerComposeFile"] == [
         "../services/api/compose.yaml",
@@ -107,6 +108,8 @@ def test_repository_devcontainer_reuses_the_api_compose_topology() -> None:
     ]
     assert devcontainer["service"] == "api"
     assert devcontainer["workspaceFolder"] == "/workspaces/tailtag"
+    assert devcontainer["remoteUser"] == "tailtag"
+    assert devcontainer["updateRemoteUserUID"] is True
     assert (
         devcontainer["workspaceMount"]
         == "source=${localWorkspaceFolder},target=/workspaces/tailtag,type=bind"
@@ -120,6 +123,7 @@ def test_repository_devcontainer_reuses_the_api_compose_topology() -> None:
     assert "services:" in override
     assert "api:" in override
     assert "command: sleep infinity" in override
+    assert "target: development" in api
     assert "db:" not in override
     assert "postgres_data:" not in override
     assert "migrate" not in override
@@ -148,6 +152,7 @@ def test_contributor_commands_and_ci_cover_the_api_foundation_contract() -> None
     ]
     for command in contributor_commands:
         assert command in readme
+    assert "cd services/api\nuv run python manage.py migrate" in readme
     assert "Docker" in readme
     assert "unavailable" in readme
 

@@ -34,7 +34,14 @@ is the editor workspace. The post-create hook runs
 or make any schema changes.
 
 The editor workspace is the repository root, so `services/api/`, `docs/`, and
-`scripts/` remain available. Start Django explicitly when needed:
+`scripts/` remain available. Apply migrations explicitly before starting Django:
+
+```bash
+cd services/api
+uv run python manage.py migrate
+```
+
+Then start Django when needed:
 
 ```bash
 cd services/api
@@ -98,7 +105,8 @@ Build and start the API and PostgreSQL services:
 docker compose up --build
 ```
 
-Migrations never run automatically. Run them explicitly after the services are available:
+For the plain Compose workflow, migrations never run automatically. Run them
+explicitly after the services are available:
 
 ```bash
 docker compose exec api python manage.py migrate
