@@ -53,6 +53,18 @@ class UnreadySmokeHandler(SmokeHandler):
         super().do_GET()
 
 
+class RedirectingSmokeHandler(SmokeHandler):
+    """Redirect liveness to ensure smoke checks inspect the original status."""
+
+    def do_GET(self) -> None:
+        if self.path == "/health/live":
+            self.send_response(302)
+            self.send_header("Location", "/api/docs/")
+            self.end_headers()
+            return
+        super().do_GET()
+
+
 @contextmanager
 def smoke_server(handler: type[BaseHTTPRequestHandler] = SmokeHandler) -> Iterator[str]:
     """Provide a local HTTP server with the expected smoke routes."""
@@ -158,3 +170,24 @@ def test_smoke_fails_clearly_when_an_endpoint_returns_an_unexpected_status() -> 
     assert (
         "FAIL /health/ready: expected HTTP 200, received HTTP 503" in completed.stderr
     )
+
+
+def test_smoke_rejects_redirects_from_required_endpoints() -> None:
+    """The smoke target does not treat a redirected response as HTTP 200."""
+    with smoke_server(RedirectingSmokeHandler) as base_url:
+        completed = run_make("api-smoke", environment={"API_BASE_URL": base_url})
+
+    assert completed.returncode != 0
+    assert "FAIL /health/live: expected HTTP 200, received HTTP 302" in completed.stderr
+
+
+def test_smoke_rejects_a_malformed_base_url_without_a_traceback() -> None:
+    """The smoke target reports invalid input without exposing a Python traceback."""
+    completed = run_make("api-smoke", environment={"API_BASE_URL": "not a URL"})
+
+    assert completed.returncode != 0
+    assert (
+        "FAIL API_BASE_URL: an absolute http or https URL is required"
+        in completed.stderr
+    )
+    assert "Traceback" not in completed.stderr

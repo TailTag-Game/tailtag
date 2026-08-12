@@ -6,18 +6,41 @@ from __future__ import annotations
 import os
 import sys
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.parse import urlparse
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8000"
 SMOKE_PATHS = ("/health/live", "/health/ready", "/api/schema/", "/api/docs/")
 
 
+class NoRedirectHandler(HTTPRedirectHandler):
+    """Treat redirects as failed endpoint responses instead of following them."""
+
+    def redirect_request(
+        self,
+        _request: Request,
+        _file_pointer: object,
+        _status: int,
+        _message: str,
+        _headers: object,
+        _new_url: str,
+    ) -> None:
+        """Leave the original response status available to the smoke check."""
+        return None
+
+
+def valid_base_url(value: str) -> bool:
+    """Return whether a base URL is absolute HTTP(S) without reporting its value."""
+    parsed = urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
 def check_endpoint(base_url: str, path: str) -> bool:
     """Return whether one endpoint responds successfully without exposing its URL."""
     request = Request(f"{base_url.rstrip('/')}{path}", method="GET")
     try:
-        with urlopen(request, timeout=5) as response:  # noqa: S310
+        with build_opener(NoRedirectHandler).open(request, timeout=5) as response:
             status = response.status
     except HTTPError as error:
         print(f"FAIL {path}: expected HTTP 200, received HTTP {error.code}", file=sys.stderr)
@@ -37,8 +60,11 @@ def check_endpoint(base_url: str, path: str) -> bool:
 def main() -> int:
     """Check the required API endpoints using the configured base URL."""
     base_url = os.environ.get("API_BASE_URL", DEFAULT_API_BASE_URL)
-    if not base_url:
-        print("FAIL API_BASE_URL: a non-empty URL is required", file=sys.stderr)
+    if not valid_base_url(base_url):
+        print(
+            "FAIL API_BASE_URL: an absolute http or https URL is required",
+            file=sys.stderr,
+        )
         return 1
 
     for path in SMOKE_PATHS:
