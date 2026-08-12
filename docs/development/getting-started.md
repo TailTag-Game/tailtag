@@ -2,7 +2,7 @@
 
 This guide verifies that you can access, clone, and contribute to the TailTag repository.
 
-The application development environment is still being finalized. This guide covers the repository workflow that applies regardless of the selected technology stack.
+The Django/DRF backend is now selected, but its final V0 development environment is still being established. This guide covers the repository workflow that applies today; backend-specific setup will be updated when Phase 0 lands the promoted `services/api` environment.
 
 ## Prerequisites
 
@@ -13,7 +13,7 @@ Install:
 - GitHub CLI, recommended
 - An editor with Git support
 
-The Django API proof-of-concept service has its own prerequisites and command guide. See [the API POC README](../../services/api-django-poc/README.md) when working on that service.
+The historical Django API proof of concept has its own evaluation README, but it is not the current backend development guide. Do not use it as a V0 setup contract. Backend-specific contributor instructions will move to the promoted service during Phase 0.
 
 ## Clone the repository
 

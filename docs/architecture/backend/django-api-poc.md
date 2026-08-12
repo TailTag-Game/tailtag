@@ -6,6 +6,8 @@
 **Implementation sequence:** [#18 — Scaffold the Django API POC](https://github.com/TailTag-Game/tailtag/issues/18), [#19 — Implement authentication and fursuit management](https://github.com/TailTag-Game/tailtag/issues/19), then [#20 — Deploy and evaluate the Django API POC](https://github.com/TailTag-Game/tailtag/issues/20)  
 **Scaffold:** [approved specification](../../specs/2026-08-04-django-api-poc-scaffold.md)
 
+> **Historical evaluation notice:** The Django evaluation is complete, and Django/DRF was selected for V0. This document remains historical evaluation evidence, not the V0 product or API specification. POC-only authentication, session/CSRF behavior, fursuit fields, API routes, deletion behavior, and other experimental choices are not authoritative V0 requirements. The current architecture is documented in [`docs/architecture.md`](../../architecture.md).
+
 ## 1. Purpose
 
 This document defines a limited, production-shaped Django API proof of concept for the TailTag rebuild.
