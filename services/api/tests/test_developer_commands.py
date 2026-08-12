@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_smoke.py"
 
 
 def run_make(
@@ -65,6 +66,17 @@ class RedirectingSmokeHandler(SmokeHandler):
         super().do_GET()
 
 
+class FailingSmokeHandler(SmokeHandler):
+    """Return failures from more than one required endpoint."""
+
+    def do_GET(self) -> None:
+        if self.path in {"/health/live", "/health/ready"}:
+            self.send_response(503)
+            self.end_headers()
+            return
+        super().do_GET()
+
+
 @contextmanager
 def smoke_server(handler: type[BaseHTTPRequestHandler] = SmokeHandler) -> Iterator[str]:
     """Provide a local HTTP server with the expected smoke routes."""
@@ -84,18 +96,20 @@ def test_help_lists_the_canonical_backend_commands() -> None:
     completed = run_make("help")
 
     assert completed.returncode == 0, completed.stderr
-    for target in (
-        "api-setup",
-        "api-run",
-        "api-test",
-        "api-check",
-        "api-migrate",
-        "api-migrations",
-        "api-migrations-check",
-        "api-shell",
-        "api-smoke",
-    ):
-        assert target in completed.stdout
+    expected_commands = {
+        "api-setup": "Sync locked backend dependencies.",
+        "api-run": "Run Django locally on port 8000; requires configured PostgreSQL.",
+        "api-test": "Run PostgreSQL-backed backend tests.",
+        "api-check": "Run the complete local pre-PR backend validation suite.",
+        "api-migrate": "Apply existing Django migrations (mutates schema).",
+        "api-migrations": "Create Django migrations (mutates migration state).",
+        "api-migrations-check": "Check for migration drift without creating migrations.",
+        "api-shell": "Open the Django shell; requires configured PostgreSQL.",
+        "api-smoke": "HTTP-check a running API (API_BASE_URL defaults to 127.0.0.1:8000).",
+    }
+    for target, description in expected_commands.items():
+        assert f"make {target}" in completed.stdout
+        assert description in completed.stdout
 
 
 def test_check_composes_every_required_backend_validation() -> None:
@@ -107,13 +121,16 @@ def test_check_composes_every_required_backend_validation() -> None:
         "ruff format --check .",
         "ruff check .",
         "mypy .",
+        f"mypy . {SMOKE_SCRIPT}",
         "pytest -q",
         "python manage.py check",
         "python manage.py makemigrations --check --dry-run",
-        "python manage.py spectacular --validate --file /tmp/openapi.yml",
+        "python manage.py spectacular --validate --file /dev/null",
         "gunicorn config.wsgi:application --check-config",
     ):
         assert command in completed.stdout
+    assert f"ruff format --check . {SMOKE_SCRIPT}" in completed.stdout
+    assert f"ruff check . {SMOKE_SCRIPT}" in completed.stdout
     assert "docker compose" not in completed.stdout
     assert "python manage.py migrate" not in completed.stdout
     assert "python manage.py makemigrations" in completed.stdout
@@ -191,3 +208,15 @@ def test_smoke_rejects_a_malformed_base_url_without_a_traceback() -> None:
         in completed.stderr
     )
     assert "Traceback" not in completed.stderr
+
+
+def test_smoke_reports_every_failing_required_endpoint() -> None:
+    """The smoke target continues checking after an endpoint fails."""
+    with smoke_server(FailingSmokeHandler) as base_url:
+        completed = run_make("api-smoke", environment={"API_BASE_URL": base_url})
+
+    assert completed.returncode != 0
+    assert "FAIL /health/live: expected HTTP 200, received HTTP 503" in completed.stderr
+    assert (
+        "FAIL /health/ready: expected HTTP 200, received HTTP 503" in completed.stderr
+    )

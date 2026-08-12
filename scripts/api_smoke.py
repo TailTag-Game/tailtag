@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """HTTP smoke checks for an already-running TailTag API."""
 
 from __future__ import annotations
@@ -9,7 +8,6 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8000"
 SMOKE_PATHS = ("/health/live", "/health/ready", "/api/schema/", "/api/docs/")
 
@@ -19,15 +17,15 @@ class NoRedirectHandler(HTTPRedirectHandler):
 
     def redirect_request(
         self,
-        _request: Request,
-        _file_pointer: object,
-        _status: int,
-        _message: str,
-        _headers: object,
-        _new_url: str,
+        req: Request,
+        fp: object,
+        code: int,
+        msg: str,
+        headers: object,
+        newurl: str,
     ) -> None:
         """Leave the original response status available to the smoke check."""
-        return None
+        return
 
 
 def valid_base_url(value: str) -> bool:
@@ -43,14 +41,22 @@ def check_endpoint(base_url: str, path: str) -> bool:
         with build_opener(NoRedirectHandler).open(request, timeout=5) as response:
             status = response.status
     except HTTPError as error:
-        print(f"FAIL {path}: expected HTTP 200, received HTTP {error.code}", file=sys.stderr)
+        print(
+            f"FAIL {path}: expected HTTP 200, received HTTP {error.code}",
+            file=sys.stderr,
+        )
         return False
     except URLError as error:
-        print(f"FAIL {path}: unable to reach the running API ({error.reason})", file=sys.stderr)
+        print(
+            f"FAIL {path}: unable to reach the running API ({error.reason})",
+            file=sys.stderr,
+        )
         return False
 
     if status != 200:
-        print(f"FAIL {path}: expected HTTP 200, received HTTP {status}", file=sys.stderr)
+        print(
+            f"FAIL {path}: expected HTTP 200, received HTTP {status}", file=sys.stderr
+        )
         return False
 
     print(f"PASS {path}: HTTP 200")
@@ -67,10 +73,11 @@ def main() -> int:
         )
         return 1
 
+    failed = False
     for path in SMOKE_PATHS:
         if not check_endpoint(base_url, path):
-            return 1
-    return 0
+            failed = True
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
