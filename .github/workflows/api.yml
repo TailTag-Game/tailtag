@@ -1,0 +1,78 @@
+name: TailTag API
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API foundation checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: tailtag
+          POSTGRES_USER: tailtag
+          POSTGRES_PASSWORD: tailtag
+        options: >-
+          --health-cmd "pg_isready -U tailtag -d tailtag"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgresql://tailtag:tailtag@localhost:5432/tailtag
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      DJANGO_SECRET_KEY: ci-not-a-real-secret
+      DJANGO_ALLOWED_HOSTS: localhost
+      DJANGO_CSRF_TRUSTED_ORIGINS: http://localhost
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install locked uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.9.17"
+          enable-cache: true
+
+      - name: Synchronize locked dependencies
+        run: uv sync --all-groups --locked
+
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Check strict types
+        run: uv run mypy .
+
+      - name: Run PostgreSQL-backed tests
+        run: uv run pytest -q
+
+      - name: Run Django system checks
+        run: uv run python manage.py check
+
+      - name: Check migration drift
+        run: uv run python manage.py makemigrations --check --dry-run
+
+      - name: Validate OpenAPI configuration
+        run: uv run python manage.py spectacular --validate --file /tmp/openapi.yml
+
+      - name: Smoke-test Gunicorn configuration
+        run: uv run gunicorn config.wsgi:application --check-config
