@@ -68,6 +68,7 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
 
     assert "api:" in compose_file
     assert "db:" in compose_file
+    assert 'command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]' in api
     assert "postgres:17" in compose_file
     assert "healthcheck:" in compose_file
     assert "pg_isready" in compose_file
@@ -79,20 +80,17 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
     assert database_ports == ["127.0.0.1:5432:5432"]
     assert re.search(r"^volumes:\n  postgres_data:\n", compose_file, re.MULTILINE)
 
+    assert "DJANGO_SECRET_KEY=tailtag-local-development-secret" in environment_template
     assert (
-        "DJANGO_SECRET_KEY=replace-with-a-local-development-secret"
+        "DATABASE_URL=postgresql://tailtag:tailtag-local-password@127.0.0.1:5432/tailtag"
         in environment_template
     )
-    assert (
-        "DATABASE_URL=postgresql://tailtag:replace-with-a-local-password@localhost:5432/tailtag"
-        in environment_template
-    )
-    assert "DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1" in environment_template
+    assert "DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,testserver" in environment_template
     assert (
         "DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000"
         in environment_template
     )
-    assert "POSTGRES_PASSWORD=replace-with-a-local-password" in environment_template
+    assert "POSTGRES_PASSWORD=tailtag-local-password" in environment_template
 
 
 def test_repository_devcontainer_reuses_the_api_compose_topology() -> None:
