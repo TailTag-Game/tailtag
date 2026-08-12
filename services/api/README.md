@@ -18,6 +18,43 @@ The POC application migrations were intentionally reset. On a clean database,
 `migrate` applies Django's framework migrations only; future TailTag domain
 migrations will be introduced by approved feature work.
 
+## Local configuration
+
+The V0 backend supports PostgreSQL 17 only. Before using either supported local
+workflow, create an ignored local environment file from the template:
+
+```bash
+cp .env.example .env
+```
+
+The template contains safe local-only defaults and no real secrets. Keep `.env`
+private: it is ignored by Git and must never be committed. Native local settings
+load this file automatically; production settings never load it implicitly.
+
+The configuration uses one shared vocabulary with separate ownership:
+
+| Setting | Required | Used by |
+| --- | --- | --- |
+| `DATABASE_URL` | Yes | Django. The native template uses `127.0.0.1:5432`. |
+| `DJANGO_SECRET_KEY` | Yes | Django. The template value is safe only for local development. |
+| `POSTGRES_DB` | Yes for Compose | PostgreSQL 17 bootstrap. |
+| `POSTGRES_USER` | Yes for Compose | PostgreSQL 17 bootstrap. |
+| `POSTGRES_PASSWORD` | Yes for Compose | PostgreSQL 17 bootstrap. |
+| `DJANGO_ALLOWED_HOSTS` | No | Django; local settings use safe defaults if it is omitted. |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | No | Django; local settings use safe defaults if it is omitted. |
+
+Django reads database configuration only through `DATABASE_URL`; it does not
+read `POSTGRES_*` settings. Compose uses `POSTGRES_*` to configure PostgreSQL
+and supplies Django with a container-network URL using `db:5432`. Native Django
+uses the explicit `DATABASE_URL` in `.env` and reaches the same published
+database at `127.0.0.1:5432`. The host difference is expected because native
+and container execution use different network namespaces, not different
+configuration contracts.
+
+If `.env` is absent, native Django fails at startup with a sanitized message
+naming the missing required setting. Invalid `DATABASE_URL` values also fail at
+startup without printing credentials. Do not substitute SQLite.
+
 ## Prerequisites
 
 ### Devcontainer
@@ -25,7 +62,8 @@ migrations will be introduced by approved feature work.
 For the supported container workflow, install Git, Docker Desktop (or another
 Docker Engine with the Compose plugin), and a devcontainer-capable editor. Open
 the repository root in that editor and choose its **Reopen in Container**
-action. Host Python and PostgreSQL are not required.
+action. Create `services/api/.env` from the template first. Host Python and
+PostgreSQL are not required.
 
 The devcontainer reuses `services/api/compose.yaml`: PostgreSQL starts with its
 existing health check and named `postgres_data` volume, while the `api` service
@@ -80,7 +118,15 @@ uv sync --all-groups --locked
 
 ## Run locally
 
-With PostgreSQL 17 available on `localhost:5432` for the local `tailtag` database, apply migrations and create a Django admin account:
+Start PostgreSQL 17 through Compose. Compose waits for its `pg_isready` health
+check before starting dependent containers, and publishes the database only at
+`127.0.0.1:5432` for native Django:
+
+```bash
+docker compose up -d db
+```
+
+With `.env` in place, apply migrations and create a Django admin account:
 
 ```bash
 uv run python manage.py migrate
@@ -118,9 +164,22 @@ Stop the services when finished while preserving the named local database volume
 docker compose down
 ```
 
+The `postgres_data` named volume preserves database data across normal
+stop/start, image rebuild, and devcontainer reopen/rebuild operations. Reset
+local database state only intentionally by stopping the Compose services and
+removing that named volume:
+
+```bash
+docker compose down --volumes
+```
+
+This destructive command removes local PostgreSQL data only; migrations remain
+an explicit contributor action afterward.
+
 ## Validate the service
 
-With PostgreSQL available at `localhost:5432`, run the same quality gates as CI:
+With PostgreSQL available at `127.0.0.1:5432` and `.env` present, run the same
+quality gates as CI:
 
 ```bash
 uv run ruff format --check .
