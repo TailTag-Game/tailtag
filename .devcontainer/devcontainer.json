@@ -1,0 +1,14 @@
+{
+  "name": "TailTag API",
+  "dockerComposeFile": [
+    "../services/api/compose.yaml",
+    "compose.devcontainer.yaml"
+  ],
+  "service": "api",
+  "workspaceFolder": "/workspaces/tailtag",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/tailtag,type=bind",
+  "remoteUser": "tailtag",
+  "updateRemoteUserUID": true,
+  "postCreateCommand": "cd services/api && uv sync --all-groups --locked",
+  "forwardPorts": [8000]
+}
