@@ -86,10 +86,10 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
     assert "POSTGRES_PASSWORD=replace-with-a-local-password" in environment_template
 
 
-def test_contributor_commands_and_ci_cover_the_api_scaffold_contract() -> None:
-    """Contributor guidance and CI retain every supported scaffold check."""
+def test_contributor_commands_and_ci_cover_the_api_foundation_contract() -> None:
+    """Contributor guidance and CI retain every supported foundation check."""
     readme = (SERVICE_ROOT / "README.md").read_text()
-    workflow = (REPOSITORY_ROOT / ".github/workflows/api-django-poc.yml").read_text()
+    workflow = (REPOSITORY_ROOT / ".github/workflows/api.yml").read_text()
 
     contributor_commands = [
         "uv sync --all-groups --locked",

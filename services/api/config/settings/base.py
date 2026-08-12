@@ -59,10 +59,6 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-AUTH_USER_MODEL = "accounts.User"
-CSRF_FAILURE_VIEW = "config.csrf.csrf_failure"
-CSRF_COOKIE_SAMESITE = "Lax"
-SESSION_COOKIE_SAMESITE = "Lax"
 
 AUTH_PASSWORD_VALIDATORS: list[dict[str, object]] = [
     {
@@ -81,18 +77,12 @@ AUTH_PASSWORD_VALIDATORS: list[dict[str, object]] = [
 ]
 
 REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework.authentication.SessionAuthentication",
-    ],
-    "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.IsAuthenticated",
-    ],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "TailTag API",
-    "DESCRIPTION": "TailTag Django API proof of concept.",
+    "DESCRIPTION": "TailTag V0 API foundation.",
     "VERSION": "0.1.0",
 }
 

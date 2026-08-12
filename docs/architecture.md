@@ -1,6 +1,6 @@
 # Architecture
 
-Status: accepted V0 direction; backend Phase 0 is about to begin.
+Status: accepted V0 direction; the initial backend Phase 0 foundation is present.
 
 ## Current direction
 
@@ -14,11 +14,11 @@ TailTag is a monorepo for the community-led rebuild of a social convention game.
 - A modular monolith backend
 - Railway for V0 backend hosting
 
-The completed Django POC at `services/api-django-poc/` is historical evaluation evidence. It is not the V0 product or API specification; its POC-only authentication, session/CSRF behavior, fursuit fields, routes, deletion behavior, and other experimental choices must be reset or reconsidered during promotion.
+The historical Django POC has been promoted and reset at `services/api/`. Its POC-only authentication, session/CSRF behavior, fursuit fields, routes, deletion behavior, and other experimental choices were evaluation evidence, not V0 requirements.
 
 ## Backend phases
 
-Phase 0 will promote and reset the POC into a clean `services/api` foundation and establish the local contributor environment. Phase 1 will establish CI/CD and the shared Railway development environment. Those implementation phases have not begun, so this document does not describe final developer commands, environment variables, deployment configuration, or application behavior.
+Phase 0 begins with the clean `services/api` foundation and will establish the local contributor environment. Phase 1 will establish CI/CD and the shared Railway development environment. This document does not describe final developer commands, environment variables, deployment configuration, or product application behavior.
 
 ## Architectural constraints
 
@@ -31,7 +31,7 @@ Phase 0 will promote and reset the POC into a clean `services/api` foundation an
 
 ## Current repository and open decisions
 
-The repository currently contains documentation, repository checks, and the historical POC. Before adding client applications, shared packages, gameplay capabilities, or other runtime areas, an approved spec and any necessary ADR should establish:
+The repository currently contains documentation, repository checks, and the minimal API foundation. Before adding client applications, shared packages, gameplay capabilities, or other runtime areas, an approved spec and any necessary ADR should establish:
 
 1. the user-visible behavior and trust boundaries;
 2. data ownership, retention, and privacy requirements;
@@ -43,9 +43,9 @@ Accepted backend choices do not settle every V0/V1 detail. Open decisions includ
 
 ## Verification architecture
 
-`scripts/doctor.sh` validates the local Git/GitHub setup, repository location, remote, branch, and working-tree state. The Django POC workflow (`.github/workflows/api-django-poc.yml`) runs the locked Python 3.13 environment against PostgreSQL 17 and checks Ruff formatting and linting, strict mypy, pytest, Django checks, migration drift, drf-spectacular configuration validation, and Gunicorn configuration loading. The same commands are documented in `services/api-django-poc/README.md`.
+`scripts/doctor.sh` validates the local Git/GitHub setup, repository location, remote, branch, and working-tree state. The API workflow (`.github/workflows/api.yml`) runs the locked Python 3.13 environment against PostgreSQL 17 and checks Ruff formatting and linting, strict mypy, pytest, Django checks, migration drift, drf-spectacular configuration validation, and Gunicorn configuration loading. The same commands are documented in `services/api/README.md`.
 
-The POC service uses PostgreSQL for runtime checks and does not provide a SQLite fallback. Keep its CI, Docker, and contributor commands aligned as the scaffold evolves; do not infer deployment behavior from this local/CI foundation.
+The API service uses PostgreSQL for runtime checks and does not provide a SQLite fallback. Keep its CI, Docker, and contributor commands aligned as the foundation evolves; do not infer deployment behavior from this local/CI foundation.
 
 ## Decision log
 

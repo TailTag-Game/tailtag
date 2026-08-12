@@ -1,4 +1,4 @@
-name: Django API POC
+name: TailTag API
 
 on:
   pull_request:
@@ -8,12 +8,12 @@ permissions:
   contents: read
 
 jobs:
-  api-django-poc:
-    name: API scaffold checks
+  api:
+    name: API foundation checks
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: services/api-django-poc
+        working-directory: services/api
     services:
       postgres:
         image: postgres:17

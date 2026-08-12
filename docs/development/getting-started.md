@@ -2,7 +2,7 @@
 
 This guide verifies that you can access, clone, and contribute to the TailTag repository.
 
-The Django/DRF backend is now selected, but its final V0 development environment is still being established. This guide covers the repository workflow that applies today; backend-specific setup will be updated when Phase 0 lands the promoted `services/api` environment.
+The Django/DRF backend is now available as the minimal `services/api` V0 foundation. This guide covers the repository workflow that applies today; the devcontainer and canonical contributor environment are still being established in subsequent Phase 0 work.
 
 ## Prerequisites
 
@@ -13,7 +13,7 @@ Install:
 - GitHub CLI, recommended
 - An editor with Git support
 
-The historical Django API proof of concept has its own evaluation README, but it is not the current backend development guide. Do not use it as a V0 setup contract. Backend-specific contributor instructions will move to the promoted service during Phase 0.
+The active service README is [`services/api/README.md`](../../services/api/README.md). Historical Django POC material remains evaluation evidence and is not a V0 setup contract.
 
 ## Clone the repository
 

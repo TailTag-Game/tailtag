@@ -1,4 +1,4 @@
-"""WSGI entry point for the TailTag Django API proof of concept."""
+"""WSGI entry point for the TailTag API."""
 
 from __future__ import annotations
 
