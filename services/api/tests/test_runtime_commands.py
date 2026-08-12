@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -55,6 +56,7 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
         assert "COPY --chown=tailtag:tailtag . ./" in stage
         assert "USER tailtag" in stage
     assert "RUN uv sync --locked --no-install-project" in development
+    assert "apt-get install --no-install-recommends -y git" in development
     assert "RUN uv sync --locked --no-dev --no-install-project" in production
     assert 'CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]' in development
     assert (
@@ -93,6 +95,40 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
     assert "POSTGRES_PASSWORD=replace-with-a-local-password" in environment_template
 
 
+def test_repository_devcontainer_reuses_the_api_compose_topology() -> None:
+    """The editor workspace adapts the API Compose stack without duplicating it."""
+    devcontainer_root = REPOSITORY_ROOT / ".devcontainer"
+    devcontainer = json.loads((devcontainer_root / "devcontainer.json").read_text())
+    override = (devcontainer_root / "compose.devcontainer.yaml").read_text()
+    api = compose_service((SERVICE_ROOT / "compose.yaml").read_text(), "api")
+
+    assert devcontainer["dockerComposeFile"] == [
+        "../services/api/compose.yaml",
+        "compose.devcontainer.yaml",
+    ]
+    assert devcontainer["service"] == "api"
+    assert devcontainer["workspaceFolder"] == "/workspaces/tailtag"
+    assert devcontainer["remoteUser"] == "tailtag"
+    assert devcontainer["updateRemoteUserUID"] is True
+    assert (
+        devcontainer["workspaceMount"]
+        == "source=${localWorkspaceFolder},target=/workspaces/tailtag,type=bind"
+    )
+    assert devcontainer["postCreateCommand"] == (
+        "cd services/api && uv sync --all-groups --locked"
+    )
+    assert devcontainer["forwardPorts"] == [8000]
+    assert "migrate" not in devcontainer["postCreateCommand"]
+
+    assert "services:" in override
+    assert "api:" in override
+    assert "command: sleep infinity" in override
+    assert "target: development" in api
+    assert "db:" not in override
+    assert "postgres_data:" not in override
+    assert "migrate" not in override
+
+
 def test_contributor_commands_and_ci_cover_the_api_foundation_contract() -> None:
     """Contributor guidance and CI retain every supported foundation check."""
     readme = (SERVICE_ROOT / "README.md").read_text()
@@ -116,6 +152,7 @@ def test_contributor_commands_and_ci_cover_the_api_foundation_contract() -> None
     ]
     for command in contributor_commands:
         assert command in readme
+    assert "cd services/api\nuv run python manage.py migrate" in readme
     assert "Docker" in readme
     assert "unavailable" in readme
 

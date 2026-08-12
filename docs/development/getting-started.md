@@ -2,7 +2,7 @@
 
 This guide verifies that you can access, clone, and contribute to the TailTag repository.
 
-The Django/DRF backend is now available as the minimal `services/api` V0 foundation. This guide covers the repository workflow that applies today; the devcontainer and canonical contributor environment are still being established in subsequent Phase 0 work.
+The Django/DRF backend is available as the minimal `services/api` V0 foundation. Backend contributors can use the repository devcontainer; its setup and usage are documented in the [API README](../../services/api/README.md#devcontainer). Canonical contributor commands and broader local-configuration policy remain subsequent Phase 0 work.
 
 ## Prerequisites
 

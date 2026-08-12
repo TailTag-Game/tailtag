@@ -1,5 +1,9 @@
 FROM python:3.13-slim-bookworm AS development
 
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y git \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=ghcr.io/astral-sh/uv:0.9.17 /uv /uvx /bin/
 
 ENV PATH="/app/.venv/bin:$PATH" \

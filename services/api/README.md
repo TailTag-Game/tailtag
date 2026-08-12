@@ -20,6 +20,48 @@ migrations will be introduced by approved feature work.
 
 ## Prerequisites
 
+### Devcontainer
+
+For the supported container workflow, install Git, Docker Desktop (or another
+Docker Engine with the Compose plugin), and a devcontainer-capable editor. Open
+the repository root in that editor and choose its **Reopen in Container**
+action. Host Python and PostgreSQL are not required.
+
+The devcontainer reuses `services/api/compose.yaml`: PostgreSQL starts with its
+existing health check and named `postgres_data` volume, while the `api` service
+is the editor workspace. The post-create hook runs
+`uv sync --all-groups --locked` from `services/api`; it does not run migrations
+or make any schema changes.
+
+The editor workspace is the repository root, so `services/api/`, `docs/`, and
+`scripts/` remain available. Apply migrations explicitly before starting Django:
+
+```bash
+cd services/api
+uv run python manage.py migrate
+```
+
+Then start Django when needed:
+
+```bash
+cd services/api
+uv run python manage.py runserver 0.0.0.0:8000
+```
+
+Port 8000 is forwarded by the devcontainer for the Django API. The named
+PostgreSQL volume is retained during normal container reopen and rebuild
+operations. To intentionally reset the local database, close the devcontainer
+services and run this destructive command from the repository root on the host:
+
+```bash
+docker compose -f services/api/compose.yaml -f .devcontainer/compose.devcontainer.yaml down --volumes
+```
+
+This removes the named local PostgreSQL volume and its data. Migrations remain
+an explicit contributor action after the environment is running.
+
+### Native API workflow
+
 Install Python 3.13, [uv](https://docs.astral.sh/uv/), and Docker Desktop (or another Docker Engine with the Compose plugin). PostgreSQL 17 is required for local tests and runtime checks; this API foundation intentionally has no SQLite fallback.
 
 Run all commands below from this directory:
@@ -63,7 +105,8 @@ Build and start the API and PostgreSQL services:
 docker compose up --build
 ```
 
-Migrations never run automatically. Run them explicitly after the services are available:
+For the plain Compose workflow, migrations never run automatically. Run them
+explicitly after the services are available:
 
 ```bash
 docker compose exec api python manage.py migrate
