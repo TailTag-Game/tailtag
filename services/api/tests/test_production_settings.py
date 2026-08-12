@@ -60,3 +60,19 @@ def test_production_settings_accept_all_required_values() -> None:
     completed = run_settings_import(VALID_ENVIRONMENT)
 
     assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.parametrize("invalid_value", (",", "   "))
+@pytest.mark.parametrize(
+    "setting_name", ("DJANGO_ALLOWED_HOSTS", "DJANGO_CSRF_TRUSTED_ORIGINS")
+)
+def test_production_settings_reject_required_lists_without_values(
+    setting_name: str, invalid_value: str
+) -> None:
+    """Required comma-separated settings must contain at least one value."""
+    environment = {**VALID_ENVIRONMENT, setting_name: invalid_value}
+
+    completed = run_settings_import(environment)
+
+    assert completed.returncode != 0
+    assert setting_name in completed.stderr

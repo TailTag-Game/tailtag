@@ -47,6 +47,13 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
     uv_copy = r"COPY --from=ghcr\.io/astral-sh/uv:\d+\.\d+\.\d+ /uv /uvx /bin/"
     assert re.search(uv_copy, development)
     assert re.search(uv_copy, production)
+    for stage in (development, production):
+        assert "groupadd --system tailtag" in stage
+        assert "useradd --system --gid tailtag --create-home tailtag" in stage
+        assert "chown tailtag:tailtag /app" in stage
+        assert "COPY --chown=tailtag:tailtag pyproject.toml uv.lock ./" in stage
+        assert "COPY --chown=tailtag:tailtag . ./" in stage
+        assert "USER tailtag" in stage
     assert "RUN uv sync --locked --no-install-project" in development
     assert "RUN uv sync --locked --no-dev --no-install-project" in production
     assert 'CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]' in development

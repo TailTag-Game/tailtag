@@ -9,10 +9,15 @@ ENV PATH="/app/.venv/bin:$PATH" \
 
 WORKDIR /app
 
-COPY pyproject.toml uv.lock ./
+RUN groupadd --system tailtag \
+    && useradd --system --gid tailtag --create-home tailtag \
+    && chown tailtag:tailtag /app
+
+COPY --chown=tailtag:tailtag pyproject.toml uv.lock ./
+USER tailtag
 RUN uv sync --locked --no-install-project
 
-COPY . ./
+COPY --chown=tailtag:tailtag . ./
 
 CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
 
@@ -28,9 +33,14 @@ ENV PATH="/app/.venv/bin:$PATH" \
 
 WORKDIR /app
 
-COPY pyproject.toml uv.lock ./
+RUN groupadd --system tailtag \
+    && useradd --system --gid tailtag --create-home tailtag \
+    && chown tailtag:tailtag /app
+
+COPY --chown=tailtag:tailtag pyproject.toml uv.lock ./
+USER tailtag
 RUN uv sync --locked --no-dev --no-install-project
 
-COPY . ./
+COPY --chown=tailtag:tailtag . ./
 
 CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]

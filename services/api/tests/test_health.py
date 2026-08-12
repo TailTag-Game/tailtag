@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import NoReturn
+from typing import NoReturn, Self
 
 import pytest
 from django.db import DatabaseError
@@ -39,15 +39,25 @@ def test_readiness_returns_success_when_postgresql_is_available(client: Client) 
     assert response["Cache-Control"] == "no-store"
 
 
+@pytest.mark.django_db
 def test_readiness_hides_database_failure(
     client: Client, monkeypatch: MonkeyPatch
 ) -> None:
-    """Readiness returns a generic unavailable response when PostgreSQL is down."""
+    """Readiness returns a generic unavailable response when its query fails."""
 
-    def fail_connection() -> NoReturn:
-        raise DatabaseError("database connection failed")
+    class FailingCursor:
+        """Minimal cursor context that fails only when executing the health query."""
 
-    monkeypatch.setattr("django.db.connection.ensure_connection", fail_connection)
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def execute(self, _: str) -> NoReturn:
+            raise DatabaseError("health query failed")
+
+    monkeypatch.setattr("django.db.connection.cursor", FailingCursor)
 
     response = client.get("/health/ready")
 

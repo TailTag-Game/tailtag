@@ -17,18 +17,23 @@ def required_environment_value(name: str) -> str:
     return value
 
 
-def comma_separated_values(value: str) -> list[str]:
-    """Parse a comma-separated environment value without accepting blanks."""
-    return [item.strip() for item in value.split(",") if item.strip()]
+def comma_separated_values(value: str, *, name: str) -> list[str]:
+    """Parse a required comma-separated environment value."""
+    values = [item.strip() for item in value.split(",") if item.strip()]
+    if not values:
+        message = f"Required environment variable {name} must contain a value."
+        raise RuntimeError(message)
+    return values
 
 
 DEBUG = False
 SECRET_KEY = required_environment_value("DJANGO_SECRET_KEY")
 ALLOWED_HOSTS = comma_separated_values(
-    required_environment_value("DJANGO_ALLOWED_HOSTS")
+    required_environment_value("DJANGO_ALLOWED_HOSTS"), name="DJANGO_ALLOWED_HOSTS"
 )
 CSRF_TRUSTED_ORIGINS = comma_separated_values(
     required_environment_value("DJANGO_CSRF_TRUSTED_ORIGINS"),
+    name="DJANGO_CSRF_TRUSTED_ORIGINS",
 )
 DATABASES = {
     "default": database_from_url(required_environment_value("DATABASE_URL")),

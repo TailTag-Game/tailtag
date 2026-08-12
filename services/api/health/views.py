@@ -19,9 +19,11 @@ def live(_: HttpRequest) -> JsonResponse:
 
 
 def ready(_: HttpRequest) -> JsonResponse:
-    """Report whether the process can connect to PostgreSQL."""
+    """Report whether PostgreSQL accepts a lightweight query."""
     try:
         connection.ensure_connection()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
     except DatabaseError:
         return health_response("unavailable", status_code=503)
     return health_response("ok")
