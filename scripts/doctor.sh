@@ -32,9 +32,13 @@ check_command() {
 
 check_required_path() {
   local path="$1"
+  local expected_type="$2"
 
-  if [[ -e "$path" ]]; then
+  if [[ "$expected_type" == "directory" && -d "$path" ]] || \
+    [[ "$expected_type" == "regular file" && -f "$path" ]]; then
     pass "Required foundation artifact exists: $path"
+  elif [[ -e "$path" ]]; then
+    fail "Required foundation artifact is not a $expected_type: $path"
   else
     fail "Required foundation artifact is missing: $path"
   fi
@@ -108,8 +112,7 @@ check_github_cli() {
 }
 
 check_foundation_structure() {
-  local required_paths=(
-    "services/api"
+  local required_files=(
     "services/api/Dockerfile"
     "services/api/compose.yaml"
     "services/api/pyproject.toml"
@@ -122,8 +125,10 @@ check_foundation_structure() {
   )
   local path
 
-  for path in "${required_paths[@]}"; do
-    check_required_path "$path"
+  check_required_path "services/api" "directory"
+
+  for path in "${required_files[@]}"; do
+    check_required_path "$path" "regular file"
   done
 }
 

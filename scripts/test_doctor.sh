@@ -137,6 +137,16 @@ assert_not_contains "$host_output" 'Python is'
 assert_not_contains "$host_output" 'uv is'
 assert_not_contains "$host_output" 'PostgreSQL is'
 
+rm "$host_fixture/services/api/Dockerfile"
+mkdir "$host_fixture/services/api/Dockerfile"
+wrong_artifact_type_result="$(run_doctor "$host_fixture" env -u TAILTAG_DEVCONTAINER)"
+wrong_artifact_type_status="${wrong_artifact_type_result%%$'\n'*}"
+wrong_artifact_type_output="${wrong_artifact_type_result#*$'\n'}"
+[[ "$wrong_artifact_type_status" == "1" ]] || fail 'expected a required file replaced by a directory to fail'
+assert_contains "$wrong_artifact_type_output" 'FAIL  Required foundation artifact is not a regular file: services/api/Dockerfile'
+rmdir "$host_fixture/services/api/Dockerfile"
+touch "$host_fixture/services/api/Dockerfile"
+
 remote_warning_result="$(FAKE_REMOTE_URL='https://private-token@github.com/example/fork.git' run_doctor "$host_fixture" env -u TAILTAG_DEVCONTAINER)"
 remote_warning_output="${remote_warning_result#*$'\n'}"
 assert_contains "$remote_warning_output" 'WARN  Origin points to an unexpected repository: https://github.com/example/fork.git'
