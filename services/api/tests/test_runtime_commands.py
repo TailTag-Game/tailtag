@@ -99,6 +99,7 @@ def test_repository_devcontainer_reuses_the_api_compose_topology() -> None:
     devcontainer = json.loads((devcontainer_root / "devcontainer.json").read_text())
     override = (devcontainer_root / "compose.devcontainer.yaml").read_text()
     api = compose_service((SERVICE_ROOT / "compose.yaml").read_text(), "api")
+    devcontainer_api = compose_service(override, "api")
 
     assert devcontainer["dockerComposeFile"] == [
         "../services/api/compose.yaml",
@@ -118,7 +119,7 @@ def test_repository_devcontainer_reuses_the_api_compose_topology() -> None:
     assert "services:" in override
     assert "api:" in override
     assert "command: sleep infinity" in override
-    assert "- ../..:/workspaces/tailtag:cached" in override
+    assert "- ../..:/workspaces/tailtag:cached" in devcontainer_api
     assert "target: development" in api
     assert "db:" not in override
     assert "postgres_data:" not in override
