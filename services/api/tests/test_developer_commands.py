@@ -159,13 +159,49 @@ def test_lifecycle_and_schema_changes_remain_explicit() -> None:
 
 
 def test_devcontainer_django_commands_derive_the_compose_database_url() -> None:
-    """Django Make targets can reach Compose PostgreSQL from devcontainer terminals."""
+    """The generated devcontainer migration recipe configures Compose PostgreSQL."""
     completed = run_make("-n", "api-migrate", environment={"TAILTAG_DEVCONTAINER": "1"})
 
     assert completed.returncode == 0, completed.stderr
     assert "config.compose_database_url" in completed.stdout
     assert "DJANGO_SETTINGS_MODULE=config.settings.production" in completed.stdout
     assert "python manage.py migrate" in completed.stdout
+
+
+def test_devcontainer_migrate_executes_with_the_compose_database_url(
+    tmp_path: Path,
+) -> None:
+    """The devcontainer migration recipe passes its Compose database URL to Django."""
+    uv = tmp_path / "uv"
+    uv.write_text(
+        """#!/bin/sh
+case "$*" in
+  *"config.compose_database_url")
+    printf '%s\\n' 'postgresql://tailtag:local@db:5432/tailtag'
+    ;;
+  *"python manage.py migrate")
+    printf 'DATABASE_URL=%s\\n' "$DATABASE_URL"
+    printf 'DJANGO_SETTINGS_MODULE=%s\\n' "$DJANGO_SETTINGS_MODULE"
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+"""
+    )
+    uv.chmod(0o755)
+
+    completed = run_make(
+        "api-migrate",
+        environment={
+            "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+            "TAILTAG_DEVCONTAINER": "1",
+        },
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "DATABASE_URL=postgresql://tailtag:local@db:5432/tailtag" in completed.stdout
+    assert "DJANGO_SETTINGS_MODULE=config.settings.production" in completed.stdout
 
 
 def test_smoke_checks_an_already_running_http_service() -> None:
