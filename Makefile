@@ -2,6 +2,16 @@ API_DIRECTORY := services/api
 UV := uv --directory $(API_DIRECTORY)
 SMOKE_SCRIPT := $(CURDIR)/scripts/api_smoke.py
 
+define run_django_command
+if [ "$${TAILTAG_DEVCONTAINER:-}" = "1" ]; then \
+	DATABASE_URL="$$($(UV) run --locked --no-sync python -m config.compose_database_url)" \
+	DJANGO_SETTINGS_MODULE=config.settings.production \
+	$(UV) run $(1); \
+else \
+	$(UV) run $(1); \
+fi
+endef
+
 .DEFAULT_GOAL := help
 .NOTPARALLEL: api-check
 
@@ -20,27 +30,27 @@ api-setup: ## Sync locked backend dependencies.
 
 api-run: ## Run Django locally on port 8000; requires configured PostgreSQL.
 	@printf '%s\n' 'Starting Django development server on port 8000...'
-	$(UV) run python manage.py runserver 0.0.0.0:8000
+	@$(call run_django_command,python manage.py runserver 0.0.0.0:8000)
 
 api-test: ## Run PostgreSQL-backed backend tests.
 	@printf '%s\n' 'Running backend tests...'
-	$(UV) run pytest -q
+	@$(call run_django_command,pytest -q)
 
 api-migrate: ## Apply existing Django migrations (mutates schema).
 	@printf '%s\n' 'Applying existing Django migrations...'
-	$(UV) run python manage.py migrate
+	@$(call run_django_command,python manage.py migrate)
 
 api-migrations: ## Create Django migrations (mutates migration state).
 	@printf '%s\n' 'Creating Django migrations from model changes...'
-	$(UV) run python manage.py makemigrations
+	@$(call run_django_command,python manage.py makemigrations)
 
 api-migrations-check: ## Check for migration drift without creating migrations.
 	@printf '%s\n' 'Checking for Django migration drift...'
-	$(UV) run python manage.py makemigrations --check --dry-run
+	@$(call run_django_command,python manage.py makemigrations --check --dry-run)
 
 api-shell: ## Open the Django shell; requires configured PostgreSQL.
 	@printf '%s\n' 'Opening the Django shell...'
-	$(UV) run python manage.py shell
+	@$(call run_django_command,python manage.py shell)
 
 api-smoke: ## HTTP-check a running API (API_BASE_URL defaults to 127.0.0.1:8000).
 	@printf '%s\n' 'Smoke-testing the already-running API...'
@@ -63,11 +73,11 @@ api-type-check:
 
 api-django-check:
 	@printf '%s\n' 'Running Django system checks...'
-	$(UV) run python manage.py check
+	@$(call run_django_command,python manage.py check)
 
 api-schema-check:
 	@printf '%s\n' 'Validating the OpenAPI schema configuration...'
-	$(UV) run python manage.py spectacular --validate --file /dev/null
+	@$(call run_django_command,python manage.py spectacular --validate --file /dev/null)
 
 api-gunicorn-check:
 	@printf '%s\n' 'Checking the production Gunicorn configuration...'

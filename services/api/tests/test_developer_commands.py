@@ -158,6 +158,55 @@ def test_lifecycle_and_schema_changes_remain_explicit() -> None:
     assert "python manage.py makemigrations" in run_make("-n", "api-migrations").stdout
 
 
+def test_devcontainer_django_commands_derive_the_compose_database_url() -> None:
+    """The generated devcontainer migration recipe configures Compose PostgreSQL."""
+    completed = run_make("-n", "api-migrate", environment={"TAILTAG_DEVCONTAINER": "1"})
+
+    assert completed.returncode == 0, completed.stderr
+    assert "config.compose_database_url" in completed.stdout
+    assert "DJANGO_SETTINGS_MODULE=config.settings.production" in completed.stdout
+    assert "python manage.py migrate" in completed.stdout
+
+
+def test_devcontainer_migrate_executes_with_the_compose_database_url(
+    tmp_path: Path,
+) -> None:
+    """The devcontainer migration recipe passes its Compose database URL to Django."""
+    uv = tmp_path / "uv"
+    uv.write_text(
+        """#!/bin/sh
+case "$*" in
+  *"config.compose_database_url")
+    printf '%s\\n' 'postgresql://tailtag:local@db:5432/tailtag'
+    ;;
+  *"python manage.py migrate")
+    printf 'DATABASE_URL=%s\\n' "$DATABASE_URL"
+    printf 'DJANGO_SETTINGS_MODULE=%s\\n' "$DJANGO_SETTINGS_MODULE"
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+"""
+    )
+    uv.chmod(0o755)
+
+    completed = run_make(
+        "api-migrate",
+        environment={
+            "DATABASE_URL": "postgresql://inherited:sentinel@localhost:5432/sentinel",
+            "DJANGO_SETTINGS_MODULE": "sentinel.settings",
+            "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+            "TAILTAG_DEVCONTAINER": "1",
+            "UV": "uv",
+        },
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "DATABASE_URL=postgresql://tailtag:local@db:5432/tailtag" in completed.stdout
+    assert "DJANGO_SETTINGS_MODULE=config.settings.production" in completed.stdout
+
+
 def test_smoke_checks_an_already_running_http_service() -> None:
     """The smoke target requests every health and documentation endpoint."""
     with smoke_server() as base_url:
