@@ -6,18 +6,9 @@ This repository contains the community-led rebuild of the TailTag platform, incl
 
 ## Project status
 
-TailTag is currently in its foundational rebuild phase.
+TailTag is in its foundational community-rebuild phase. V0 is a controlled convention beta, and the accepted backend direction is Python, Django, Django REST Framework, PostgreSQL, Clerk authentication, a modular monolith, and Railway hosting.
 
-The contributor team is establishing:
-
-* The product direction and V1 scope
-* Technical architecture
-* Development and review workflows
-* Contributor onboarding
-* The initial application structure
-* Testing and deployment foundations
-
-The repository may change significantly while these decisions are being made.
+The initial backend foundation is present. Client applications, TailTag-specific administrative tooling, and other V0/V1 details may continue to evolve as their issues and specifications are approved.
 
 ## Project principles
 
@@ -32,21 +23,15 @@ The rebuild is guided by several principles:
 
 ## Repository structure
 
-The final monorepo structure has not yet been established.
-
-Likely top-level areas include:
+The repository is a monorepo. Current top-level areas are:
 
 ```text
-apps/             Deployable user and administrative applications
-services/         Backend services and APIs
-packages/         Shared libraries, types, validation, and configuration
-database/         Schema, migrations, seeds, and database tooling
-infrastructure/   Deployment and infrastructure configuration
 docs/             Architecture and development documentation
 scripts/          Repository automation and developer utilities
+services/api/     TailTag V0 Django API foundation
 ```
 
-Directories will be added only after the relevant architecture decisions are approved.
+Additional application and shared-package directories will be added as their scope and implementation are approved; this list describes only directories that currently exist.
 
 ## Work tracking
 
