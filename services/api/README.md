@@ -1,246 +1,263 @@
 # TailTag API
 
-`services/api` is TailTag's V0 Django API foundation. It currently provides
-Django administration, PostgreSQL-backed liveness/readiness checks, and OpenAPI
+`services/api` is TailTag's V0 Django API foundation. It provides Django
+administration, PostgreSQL-backed liveness/readiness checks, and OpenAPI
 schema/documentation infrastructure. It intentionally does not implement player
 authentication, a TailTag application identity, or gameplay APIs.
 
-The service uses Python 3.13, Django, Django REST Framework, PostgreSQL, `uv`,
-Ruff, strict mypy, pytest, drf-spectacular, Gunicorn, and Docker.
+The service uses Python 3.13, Django, Django REST Framework, PostgreSQL 17,
+`uv`, Ruff, strict mypy, pytest, drf-spectacular, Gunicorn, and Docker. This is
+the detailed operating reference for API contributors; the concise fresh-clone
+journey is in [Getting Started](../../docs/development/getting-started.md).
 
 ## Current foundation boundary
 
 Django's built-in `auth.User` remains only so `/admin/` is operational. It is
-not the future Clerk-backed TailTag application identity. The neutral `accounts`
-and `fursuits` app shells contain no models, migrations, or public API behavior.
+not a TailTag player account or the future Clerk-backed TailTag application
+identity. The neutral `accounts` and `fursuits` app shells contain no models,
+migrations, or public API behavior. Current TailTag product-domain
+administration does not exist.
 
 The POC application migrations were intentionally reset. On a clean database,
-`migrate` applies Django's framework migrations only; future TailTag domain
-migrations will be introduced by approved feature work.
+`make api-migrate` applies Django framework migrations only; future TailTag
+domain migrations require approved feature work. Historical Django POC documents
+remain evaluation evidence and are not current setup instructions.
 
 ## Local configuration
 
-The V0 backend supports PostgreSQL 17 only. Before using either supported local
-workflow, create an ignored local environment file from the template:
+Before using either supported workflow, create the ignored local environment
+file from the repository root:
 
 ```bash
-cp .env.example .env
+cp services/api/.env.example services/api/.env
 ```
 
-The template contains safe local-only defaults and no real secrets. Keep `.env`
-private: it is ignored by Git and must never be committed. Native local settings
-load this file automatically; production settings never load it implicitly.
-
-The configuration uses one shared vocabulary with separate ownership:
+The template contains safe local-only defaults and no real secrets. `.env` is
+ignored by Git: never commit it, paste it into tickets, or share it as a log
+attachment. Local Django settings load `services/api/.env`; production settings
+do not load it implicitly.
 
 | Setting | Required | Used by |
 | --- | --- | --- |
-| `DATABASE_URL` | Yes | Django. The native template uses `127.0.0.1:5432`. |
+| `DATABASE_URL` | Yes | Django database connection. The native template uses `127.0.0.1:5432`. |
 | `DJANGO_SECRET_KEY` | Yes | Django. The template value is safe only for local development. |
 | `POSTGRES_DB` | Yes for Compose | PostgreSQL 17 bootstrap. |
 | `POSTGRES_USER` | Yes for Compose | PostgreSQL 17 bootstrap. |
 | `POSTGRES_PASSWORD` | Yes for Compose | PostgreSQL 17 bootstrap. |
-| `DJANGO_ALLOWED_HOSTS` | No | Django; local settings use safe defaults if it is omitted. |
-| `DJANGO_CSRF_TRUSTED_ORIGINS` | No | Django; local settings use safe defaults if it is omitted. |
+| `DJANGO_ALLOWED_HOSTS` | No | Django; local settings have safe defaults when omitted. |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | No | Django; local settings have safe defaults when omitted. |
 
-Django reads database configuration only through `DATABASE_URL`; it does not
-read `POSTGRES_*` settings. Compose uses `POSTGRES_*` to configure PostgreSQL
-and supplies Django with a container-network URL using `db:5432`. Native Django
-uses the explicit `DATABASE_URL` in `.env` and reaches the same published
-database at `127.0.0.1:5432`. The host difference is expected because native
-and container execution use different network namespaces, not different
-configuration contracts.
+Django reads its database connection only from `DATABASE_URL`; it does not read
+`POSTGRES_*`. Compose uses `POSTGRES_*` to bootstrap PostgreSQL and gives
+containerized Django a `db:5432` connection. Native Django uses the explicit
+`DATABASE_URL` in `.env` and reaches the same published database at
+`127.0.0.1:5432`. This hostname difference is expected: container and host
+processes are in different network namespaces.
 
-If `.env` is absent, native Django fails at startup with a sanitized message
-naming the missing required setting. Invalid `DATABASE_URL` values also fail at
-startup without printing credentials. Do not substitute SQLite.
+PostgreSQL 17 is the supported local major version. There is no SQLite fallback
+and host-installed PostgreSQL is not a supported contributor workflow. If `.env`
+is absent or `DATABASE_URL` is invalid, local Django stops with a sanitized
+configuration error that does not print credentials.
 
 ## Canonical backend commands
 
-Run these commands from the repository root. They wrap the existing `uv`,
-Django, and validation tooling so contributors do not need to remember service
-paths or individual tool invocations.
+Run these commands from the repository root. They are the supported interface
+for normal setup, Django operations, and validation; they avoid contributors
+having to remember `uv`, Django, or individual quality-tool invocations.
 
 | Command | Purpose | Required state |
 | --- | --- | --- |
-| `make help` | List the supported backend commands. | None. |
+| `make help` | List canonical backend commands. | None. |
 | `make api-setup` | Synchronize locked backend dependencies. | `uv` available; does not start services or change schema. |
-| `make api-run` | Run Django on port 8000. | Dependencies, `services/api/.env`, and PostgreSQL already available. |
-| `make api-test` | Run PostgreSQL-backed backend tests. | Dependencies, `services/api/.env`, and PostgreSQL already available. |
-| `make api-check` | Run the complete local pre-PR backend validation suite. | Dependencies, `services/api/.env`, and PostgreSQL already available. |
-| `make api-migrate` | **Apply existing Django migrations.** | Dependencies, `services/api/.env`, and PostgreSQL already available; mutates schema. |
+| `make api-run` | Run Django on port 8000. | Dependencies, `services/api/.env`, and PostgreSQL available. |
+| `make api-test` | Run PostgreSQL-backed backend tests. | Dependencies, `services/api/.env`, and PostgreSQL available. |
+| `make api-check` | Run complete local pre-PR backend validation. | Dependencies, `services/api/.env`, and PostgreSQL available. |
+| `make api-migrate` | **Apply existing Django migrations.** | Dependencies, `services/api/.env`, and PostgreSQL available; mutates schema. |
 | `make api-migrations` | **Create Django migrations from model changes.** | Dependencies and `services/api/.env`; mutates migration state but does not apply migrations. |
-| `make api-migrations-check` | Check for migration drift. | Dependencies, `services/api/.env`, and PostgreSQL already available; does not create migrations. |
-| `make api-shell` | Open the Django shell. | Dependencies, `services/api/.env`, and PostgreSQL already available. |
-| `make api-smoke` | HTTP-check an already-running API. | API already running; it never starts services or applies migrations. |
+| `make api-migrations-check` | Check for migration drift. | Dependencies, `services/api/.env`, and PostgreSQL available; does not create migrations. |
+| `make api-shell` | Open the Django shell. | Dependencies, `services/api/.env`, and PostgreSQL available. |
+| `make api-smoke` | HTTP-check an already-running API. | API already running; never starts services or applies migrations. |
 
-`api-check` includes Ruff formatting and linting, strict mypy, pytest, Django
-system checks, migration-drift detection, OpenAPI validation, and Gunicorn
-production-configuration loading. It does not create or apply migrations.
+`make api-check` runs formatting, linting, strict typing, PostgreSQL-backed
+tests, Django system checks, migration-drift detection, OpenAPI validation, and
+Gunicorn production-configuration loading. It neither creates nor applies
+migrations.
 
-`api-smoke` checks `/health/live`, `/health/ready`, `/api/schema/`, and
-`/api/docs/`, expecting HTTP 200 from each. It defaults to
-`http://127.0.0.1:8000`; target another already-running environment by setting
-`API_BASE_URL`, for example:
+Use the commands for distinct purposes:
+
+- `./scripts/doctor.sh` diagnoses environment readiness; it does not repair or
+  mutate the environment.
+- `make api-test` is the normal feedback loop while developing.
+- `make api-smoke` verifies an already-running API over HTTP.
+- `make api-check` is the pre-pull-request validation suite.
+
+## Recommended devcontainer workflow
+
+The repository devcontainer is the primary supported backend workflow. Install
+Git, Docker Desktop (or another Docker Engine with the Compose plugin), and use
+a devcontainer-capable editor. Host Python, `uv`, and PostgreSQL are not
+required.
+
+After creating `services/api/.env`, open the repository root in the editor and
+choose **Reopen in Container**. The devcontainer uses `services/api/compose.yaml`
+with the `api` service as the repository-root workspace, forwards port 8000, and
+starts the PostgreSQL service with its health check.
+
+Its post-create hook synchronizes locked dependencies. It does not apply
+migrations or make schema changes. Inside the devcontainer, run:
+
+```bash
+./scripts/doctor.sh
+make api-migrate
+make api-run
+```
+
+Leave `make api-run` running. In another terminal, run:
+
+```bash
+make api-smoke
+```
+
+Use `make api-test` while developing and `make api-check` before a pull request.
+Migrations remain explicit after a new, reopened, or rebuilt devcontainer.
+
+## Supported native workflow
+
+The secondary supported path is intentionally narrow:
+
+- Python 3.13 and `uv` installed on the host
+- Docker Engine with the Compose plugin available on the host
+- PostgreSQL 17 supplied by this repository's Compose `db` service
+- Django run natively on the host with `services/api/.env`
+
+From the repository root, start only the database infrastructure, then use the
+same canonical commands:
+
+```bash
+docker compose -f services/api/compose.yaml up -d db
+make api-setup
+make api-migrate
+make api-run
+```
+
+In a second terminal, use `make api-smoke`. The host connects to the
+Compose-published database at `127.0.0.1:5432`, as configured by `.env`.
+
+This support boundary excludes host-installed PostgreSQL, SQLite, Python versions
+other than 3.13, arbitrary environment managers, and OS-specific setup variants.
+Other arrangements may work, but they are not documented or supported contracts.
+
+## PostgreSQL lifecycle
+
+Compose stores local PostgreSQL data in the named `postgres_data` volume. Normal
+service stop/start, image rebuilds, and devcontainer reopen/rebuild operations
+preserve that volume and its data.
+
+For infrastructure lifecycle operations, run Compose from the repository root:
+
+```bash
+docker compose -f services/api/compose.yaml ps
+docker compose -f services/api/compose.yaml logs db
+docker compose -f services/api/compose.yaml down
+```
+
+`down` stops services while preserving the volume. To intentionally erase local
+database state, use the following **destructive** command:
+
+```bash
+docker compose -f services/api/compose.yaml down --volumes
+```
+
+This deletes local PostgreSQL data. Start the database again and run `make
+api-migrate` explicitly; no workflow automatically recreates schema state.
+
+## HTTP surfaces
+
+With `make api-run` running, local development surfaces are:
+
+| URL | Purpose |
+| --- | --- |
+| `http://127.0.0.1:8000/health/live` | Process/application liveness; does not query PostgreSQL. |
+| `http://127.0.0.1:8000/health/ready` | Readiness, including a lightweight PostgreSQL dependency check. |
+| `http://127.0.0.1:8000/api/schema/` | Generated OpenAPI schema. |
+| `http://127.0.0.1:8000/api/docs/` | Interactive OpenAPI documentation. |
+| `http://127.0.0.1:8000/admin/` | Django development/operational administration. |
+
+`make api-smoke` is the normal HTTP verification path. It requires an already
+running service and checks liveness, readiness, schema, and interactive docs for
+HTTP 200. It defaults to `http://127.0.0.1:8000`; target another running
+environment only when appropriate:
 
 ```bash
 API_BASE_URL=https://example.internal make api-smoke
 ```
 
-The canonical commands do not manage Docker or Compose lifecycle. Start the
-environment you intend to use first, then invoke the command that consumes it.
+If `/health/ready` returns `503`, Django is reachable but PostgreSQL is not
+ready. Diagnose the database before treating it as an API-route problem.
 
-## Prerequisites
+## Django admin
 
-### Devcontainer
+`/admin/` exists for Django framework, development, and operational
+administration. A Django superuser is not a TailTag player identity and is
+unrelated to the future Clerk-backed application identity. Do not infer current
+product administration for users, fursuits, conventions, or catches from this
+surface: those domain models and workflows do not yet exist.
 
-For the supported container workflow, install Git, Docker Desktop (or another
-Docker Engine with the Compose plugin), and a devcontainer-capable editor. Open
-the repository root in that editor and choose its **Reopen in Container**
-action. Create `services/api/.env` from the template first. Host Python and
-PostgreSQL are not required.
-
-The devcontainer reuses `services/api/compose.yaml`: PostgreSQL starts with its
-existing health check and named `postgres_data` volume, while the `api` service
-is the editor workspace. The post-create hook runs
-`uv sync --all-groups --locked` from `services/api`; it does not run migrations
-or make any schema changes.
-
-The editor workspace is the repository root, so `services/api/`, `docs/`, and
-`scripts/` remain available. Apply migrations explicitly before starting Django:
+Create a development-only Django superuser after PostgreSQL is available. There
+is no canonical Make target for this one Django operation, so use this narrow
+low-level command from the repository root:
 
 ```bash
-cd services/api
-uv run python manage.py migrate
+uv --directory services/api run python manage.py createsuperuser
 ```
 
-Then start Django when needed:
+Then sign in at `http://127.0.0.1:8000/admin/`.
+
+## Direct Compose usage
+
+Running the API service itself through plain Compose is lower-level reference
+material for infrastructure debugging; it is not a third onboarding workflow.
+To build and run the API and database services from the repository root:
 
 ```bash
-cd services/api
-uv run python manage.py runserver 0.0.0.0:8000
+docker compose -f services/api/compose.yaml up --build
 ```
 
-Port 8000 is forwarded by the devcontainer for the Django API. The named
-PostgreSQL volume is retained during normal container reopen and rebuild
-operations. To intentionally reset the local database, close the devcontainer
-services and run this destructive command from the repository root on the host:
+Compose waits for database health before starting its dependent API service, but
+migrations never run automatically. After the services are available, apply them
+explicitly with this low-level command:
 
 ```bash
-docker compose -f services/api/compose.yaml -f .devcontainer/compose.devcontainer.yaml down --volumes
+docker compose -f services/api/compose.yaml exec api python manage.py migrate
 ```
 
-This removes the named local PostgreSQL volume and its data. Migrations remain
-an explicit contributor action after the environment is running.
+Use `docker compose -f services/api/compose.yaml down` to stop these services
+while retaining database data. See [PostgreSQL lifecycle](#postgresql-lifecycle)
+before resetting a volume.
 
-### Native API workflow
+## Troubleshooting
 
-Install Python 3.13, [uv](https://docs.astral.sh/uv/), and Docker Desktop (or another Docker Engine with the Compose plugin). PostgreSQL 17 is required for local tests and runtime checks; this API foundation intentionally has no SQLite fallback.
+Use this compact pattern: identify the symptom, run a safe diagnostic, then
+apply the recovery for the supported workflow.
 
-Run all commands below from this directory:
+| Symptom | Likely cause and diagnostic | Safe recovery |
+| --- | --- | --- |
+| `doctor.sh` reports Docker or Compose `FAIL` | Docker CLI is missing, daemon is stopped, or the Compose plugin is unavailable. Re-run `./scripts/doctor.sh` after checking Docker Desktop/Engine. | Install or start a compatible Docker Engine with Compose, then re-run doctor. A missing Dev Container CLI is only a `WARN` when a compatible editor is used. |
+| Devcontainer cannot open or build | Docker/Compose is unhealthy, or `services/api/.env` is missing. Check host `./scripts/doctor.sh` and the editor's devcontainer build output. | Restore Docker/Compose, create `.env` from the template, then rebuild or reopen the container. |
+| Devcontainer post-create dependency sync fails | Locked dependencies could not synchronize. Inside the container, run `./scripts/doctor.sh` to distinguish dependency and database readiness. | Resolve the reported environment problem, then run `make api-setup`; reopen or rebuild only if the editor environment itself is stale. |
+| Django reports missing configuration or an invalid `DATABASE_URL` | `services/api/.env` is missing, incomplete, or malformed. | Recopy the template if appropriate and edit only local values. Do not paste `.env` contents into logs or commit the file. |
+| Database is unreachable or unhealthy | The `db` service is not running or has failed its health check. Run `docker compose -f services/api/compose.yaml ps` and `docker compose -f services/api/compose.yaml logs db`. | Start it with `docker compose -f services/api/compose.yaml up -d db`, then retry the canonical command. |
+| Port 5432 is already in use | Another host process is using the published PostgreSQL port. Check the host process or Compose output. | Stop or reconfigure the conflicting local process; do not substitute a host-installed PostgreSQL workflow. |
+| Port 8000 is already in use | Another Django/API process is still listening. | Stop that process, then rerun `make api-run`; `make api-smoke` must target the API instance you intend to verify. |
+| Migration errors or drift | Existing migrations have not been applied, or model changes need review. | Use `make api-migrate` for existing migrations. Use `make api-migrations-check` to inspect drift; create migrations only with `make api-migrations` when approved work changes models. |
+| `/health/ready` is unavailable or `make api-smoke` fails | The service is not running, PostgreSQL is not ready, or the target URL/status is wrong. Run `make api-smoke` against the running service and inspect `db` status/logs. | Start or repair the intended service/database, then rerun smoke. Use `API_BASE_URL` only for another already-running target. |
+| Local database state must be discarded | The named volume intentionally persists through normal stops and rebuilds. | Use the destructive `down --volumes` command in [PostgreSQL lifecycle](#postgresql-lifecycle), then explicitly run `make api-migrate`. |
 
-```bash
-cd services/api
-```
+`FAIL` from `doctor.sh` means a required condition for the environment it is
+checking is absent. `WARN` is advisory and does not cause the command to fail.
 
-## Install dependencies
+## Validation boundary
 
-Create the locked development environment:
-
-```bash
-uv sync --all-groups --locked
-```
-
-## Run locally
-
-Start PostgreSQL 17 through Compose. Compose waits for its `pg_isready` health
-check before starting dependent containers, and publishes the database only at
-`127.0.0.1:5432` for native Django:
-
-```bash
-docker compose up -d db
-```
-
-With `.env` in place, apply migrations and create a Django admin account:
-
-```bash
-uv run python manage.py migrate
-uv run python manage.py createsuperuser
-```
-
-Then start Django:
-
-```bash
-uv run python manage.py runserver
-```
-
-The liveness endpoint is [http://localhost:8000/health/live](http://localhost:8000/health/live). The database-backed readiness endpoint is [http://localhost:8000/health/ready](http://localhost:8000/health/ready).
-
-The API schema is available at [http://localhost:8000/api/schema/](http://localhost:8000/api/schema/), interactive documentation at [http://localhost:8000/api/docs/](http://localhost:8000/api/docs/), and Django admin at [http://localhost:8000/admin/](http://localhost:8000/admin/).
-
-## Run with Docker
-
-Build and start the API and PostgreSQL services:
-
-```bash
-docker compose up --build
-```
-
-For the plain Compose workflow, migrations never run automatically. Run them
-explicitly after the services are available:
-
-```bash
-docker compose exec api python manage.py migrate
-```
-
-Stop the services when finished while preserving the named local database volume:
-
-```bash
-docker compose down
-```
-
-The `postgres_data` named volume preserves database data across normal
-stop/start, image rebuild, and devcontainer reopen/rebuild operations. Reset
-local database state only intentionally by stopping the Compose services and
-removing that named volume:
-
-```bash
-docker compose down --volumes
-```
-
-This destructive command removes local PostgreSQL data only; migrations remain
-an explicit contributor action afterward.
-
-## Validate the service
-
-With PostgreSQL available at `127.0.0.1:5432` and `.env` present, run the same
-quality gates as CI:
-
-```bash
-uv run ruff format --check .
-uv run ruff check .
-uv run mypy .
-uv run pytest -q
-uv run python manage.py check
-uv run python manage.py makemigrations --check --dry-run
-uv run python manage.py spectacular --validate --file /tmp/openapi.yml
-```
-
-The OpenAPI command validates the published schema configuration.
-
-Validate that the production Gunicorn configuration loads without starting a persistent server:
-
-```bash
-DJANGO_SETTINGS_MODULE=config.settings.production \
-DJANGO_SECRET_KEY=not-a-real-secret \
-DATABASE_URL=postgresql://tailtag:tailtag@localhost:5432/tailtag \
-DJANGO_ALLOWED_HOSTS=localhost \
-DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost \
-uv run gunicorn config.wsgi:application --check-config
-```
-
-## Docker troubleshooting
-
-If Docker or the Compose plugin is unavailable, install and start Docker Desktop (or a compatible Docker Engine) before using the containerized workflow. Do not substitute SQLite: PostgreSQL is part of the API foundation contract. After Docker is available, use `docker compose up --build` for the containerized API.
-
-If `/health/ready` reports `{"status": "unavailable"}`, confirm the database is running with `docker compose ps`, then check its logs with `docker compose logs db`.
+These instructions document the implemented Phase 0 workflow. Independent
+clean-environment onboarding validation is tracked separately and may result in
+documentation corrections. Do not treat that validation as already complete.
