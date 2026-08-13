@@ -1,95 +1,164 @@
 # Getting Started
 
-This guide verifies that you can access, clone, and contribute to the TailTag repository.
+This guide takes an accepted TailTag contributor from repository access to a
+usable V0 backend development environment. For the detailed backend operating
+reference—including configuration, database lifecycle, commands, and
+troubleshooting—see the [API README](../../services/api/README.md).
 
-The Django/DRF backend is available as the minimal `services/api` V0 foundation. Backend contributors can use the repository devcontainer; its setup and usage are documented in the [API README](../../services/api/README.md#devcontainer). Canonical contributor commands and broader local-configuration policy remain subsequent Phase 0 work.
+The Django/DRF service at `services/api` is a minimal V0 foundation. Historical
+Django POC documents are evaluation evidence, not current setup instructions or
+the V0 product/API contract.
 
 ## Prerequisites
 
-Install:
+All contributors need:
 
 - Git
-- A GitHub account with secure two-factor authentication
-- GitHub CLI, recommended
-- An editor with Git support
+- a GitHub account with secure two-factor authentication
+- an editor with Git support
 
-The active service README is [`services/api/README.md`](../../services/api/README.md). Historical Django POC material remains evaluation evidence and is not a V0 setup contract.
+For the **recommended devcontainer workflow**, also install Docker Desktop (or
+another Docker Engine with the Compose plugin) and use a devcontainer-capable
+editor. Host Python, `uv`, and PostgreSQL are not required for this workflow.
 
-## Clone the repository
+GitHub CLI is recommended for contribution work, but it is not required to open
+the devcontainer.
 
-Using SSH:
+## Clone and diagnose the repository
+
+Clone with SSH:
 
 ```bash
 git clone git@github.com:TailTag-Game/tailtag.git
 cd tailtag
 ```
 
-Using HTTPS:
+Or clone with HTTPS:
 
 ```bash
 git clone https://github.com/TailTag-Game/tailtag.git
 cd tailtag
 ```
 
-## Verify the remote
-
-```bash
-git remote -v
-```
-
-The remote should point to:
-
-```text
-TailTag-Game/tailtag
-```
-
-## Run the repository checks
+Run the host diagnostic before opening the backend environment:
 
 ```bash
 ./scripts/doctor.sh
 ```
 
-When run on the host, this checks the repository plus Docker, Compose, and an
-optionally detectable Dev Container CLI. Host Python, `uv`, and PostgreSQL are
-not required. Run it again inside the TailTag devcontainer for non-mutating
-backend checks of Python, `uv`, locked dependencies, and PostgreSQL
-connectivity. `FAIL` means the current environment cannot support its intended
-workflow; `WARN` is advisory and does not make the command fail.
+On the host, `doctor.sh` checks the repository, Docker, Compose, and an
+optionally detectable Dev Container CLI. It does not require host Python, `uv`,
+or PostgreSQL. `FAIL` identifies a required condition that prevents the intended
+workflow; `WARN` is advisory. The script diagnoses the environment only—it does
+not install dependencies, start services, or repair configuration.
 
-## Configure Git
+## Configure the backend environment
 
-Set the name and email that should appear on your commits:
+Create your local-only backend environment file before starting either supported
+workflow:
+
+```bash
+cp services/api/.env.example services/api/.env
+```
+
+The copied file contains safe local defaults. It is ignored by Git: never
+commit it or share its contents. See [Local configuration in the API
+README](../../services/api/README.md#local-configuration) for the contract and
+safe handling of environment values.
+
+## Recommended: open the devcontainer
+
+Open the repository root in your devcontainer-capable editor and choose its
+**Reopen in Container** action. The devcontainer provides Python 3.13, `uv`,
+locked dependencies, and the Compose-backed PostgreSQL 17 service. Its
+post-create setup synchronizes dependencies but does not apply migrations.
+
+Inside the devcontainer, confirm the backend environment:
+
+```bash
+./scripts/doctor.sh
+```
+
+Then use the canonical repository-root commands to prepare and verify the API:
+
+```bash
+make api-migrate
+make api-run
+```
+
+Leave `make api-run` running. In another devcontainer terminal, verify the
+running service:
+
+```bash
+make api-smoke
+```
+
+During development, run:
+
+```bash
+make api-test
+```
+
+Before opening or updating a pull request, run:
+
+```bash
+make api-check
+```
+
+Migrations are always explicit; neither opening the devcontainer nor running
+`doctor.sh` applies them. The [Devcontainer](../../services/api/README.md#recommended-devcontainer-workflow),
+[HTTP surfaces](../../services/api/README.md#http-surfaces), and [canonical
+commands](../../services/api/README.md#canonical-backend-commands) sections
+explain the expected outcomes and operating details.
+
+## Secondary supported path: native Django with Compose PostgreSQL
+
+The supported native alternative is deliberately narrow: host Python 3.13 and
+`uv`, plus Docker with the Compose plugin. PostgreSQL 17 is supplied by this
+repository's Compose `db` service; Django runs on the host and consumes
+`services/api/.env`.
+
+Start the database service, then use the same root `make api-*` commands shown
+above:
+
+```bash
+docker compose -f services/api/compose.yaml up -d db
+make api-setup
+make api-migrate
+make api-run
+```
+
+This is not support for host-installed PostgreSQL, SQLite, other Python
+versions, or arbitrary environment managers. See [Supported native
+workflow](../../services/api/README.md#supported-native-workflow) for the
+configuration and lifecycle details.
+
+## Contribute changes
+
+Configure the name and email recorded in your commits if needed:
 
 ```bash
 git config user.name "Your Name"
 git config user.email "your-github-email@example.com"
 ```
 
-You may use GitHub's private no-reply email if you do not want your personal email address included in commits.
+Then follow the repository workflow:
 
-## Contribution workflow
+1. Select an approved issue with Project status `Ready` and coordinate ownership.
+2. Create a focused branch from the latest `main`.
+3. Make and validate the change with the checks appropriate to its scope.
+4. Open a draft pull request and link the issue with `Closes #123`.
+5. Address checks and review feedback before marking the pull request ready.
 
-1. Select an issue with Project status `Ready`.
-2. Assign yourself to the issue.
-3. Move it to `In progress`.
-4. Create a branch from the latest `main`.
-5. Make and validate the change.
-6. Open a draft pull request.
-7. Link the issue using `Closes #123`.
-8. Mark the pull request ready for review.
-9. Address checks and review feedback.
-10. Squash-merge after all requirements pass.
-
-See [CONTRIBUTING.md](../../CONTRIBUTING.md) for the complete workflow.
+See [CONTRIBUTING.md](../../CONTRIBUTING.md) for the complete contribution
+policy.
 
 ## Getting help
 
-Include the following when requesting help:
+When requesting help, include the issue or pull-request link, operating system,
+command, complete sanitized error, and what you already attempted. Never publish
+passwords, tokens, private keys, `.env` contents, or user data.
 
-- The issue or pull-request link
-- Your operating system
-- The command you ran
-- The complete sanitized error
-- What you already attempted
-
-Never publish passwords, tokens, private keys, `.env` contents, or user data.
+These instructions describe the implemented Phase 0 workflow. Independent
+clean-environment onboarding validation is tracked separately and may lead to
+documentation corrections.
