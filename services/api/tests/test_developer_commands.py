@@ -194,8 +194,11 @@ esac
     completed = run_make(
         "api-migrate",
         environment={
+            "DATABASE_URL": "postgresql://inherited:sentinel@localhost:5432/sentinel",
+            "DJANGO_SETTINGS_MODULE": "sentinel.settings",
             "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
             "TAILTAG_DEVCONTAINER": "1",
+            "UV": "uv",
         },
     )
 
