@@ -160,9 +160,7 @@ def test_lifecycle_and_schema_changes_remain_explicit() -> None:
 
 def test_devcontainer_django_commands_derive_the_compose_database_url() -> None:
     """Django Make targets can reach Compose PostgreSQL from devcontainer terminals."""
-    completed = run_make(
-        "-n", "api-migrate", environment={"TAILTAG_DEVCONTAINER": "1"}
-    )
+    completed = run_make("-n", "api-migrate", environment={"TAILTAG_DEVCONTAINER": "1"})
 
     assert completed.returncode == 0, completed.stderr
     assert "config.compose_database_url" in completed.stdout
