@@ -56,7 +56,7 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
         assert "COPY --chown=tailtag:tailtag . ./" in stage
         assert "USER tailtag" in stage
     assert "RUN uv sync --locked --no-install-project" in development
-    assert "apt-get install --no-install-recommends -y git" in development
+    assert "apt-get install --no-install-recommends -y git make" in development
     assert "RUN uv sync --locked --no-dev --no-install-project" in production
     assert 'CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]' in development
     assert (
