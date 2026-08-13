@@ -9,6 +9,9 @@
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/tailtag,type=bind",
   "remoteUser": "tailtag",
   "updateRemoteUserUID": true,
+  "remoteEnv": {
+    "TAILTAG_DEVCONTAINER": "1"
+  },
   "postCreateCommand": "cd services/api && uv sync --all-groups --locked",
   "forwardPorts": [8000]
 }

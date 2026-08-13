@@ -49,6 +49,13 @@ TailTag-Game/tailtag
 ./scripts/doctor.sh
 ```
 
+When run on the host, this checks the repository plus Docker, Compose, and an
+optionally detectable Dev Container CLI. Host Python, `uv`, and PostgreSQL are
+not required. Run it again inside the TailTag devcontainer for non-mutating
+backend checks of Python, `uv`, locked dependencies, and PostgreSQL
+connectivity. `FAIL` means the current environment cannot support its intended
+workflow; `WARN` is advisory and does not make the command fail.
+
 ## Configure Git
 
 Set the name and email that should appear on your commits:
