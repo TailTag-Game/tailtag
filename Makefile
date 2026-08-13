@@ -68,8 +68,8 @@ api-lint-check:
 	$(UV) run ruff check . $(SMOKE_SCRIPT)
 
 api-type-check:
-	@printf '%s\n' 'Running strict mypy...'
-	$(UV) run mypy . $(SMOKE_SCRIPT)
+	@printf '%s\n' 'Running strict Pyright...'
+	$(UV) run pyright
 
 api-django-check:
 	@printf '%s\n' 'Running Django system checks...'

@@ -6,7 +6,7 @@ schema/documentation infrastructure. It intentionally does not implement player
 authentication, a TailTag application identity, or gameplay APIs.
 
 The service uses Python 3.13, Django, Django REST Framework, PostgreSQL 17,
-`uv`, Ruff, strict mypy, pytest, drf-spectacular, Gunicorn, and Docker. This is
+`uv`, Ruff, strict Pyright, pytest, drf-spectacular, Gunicorn, and Docker. This is
 the detailed operating reference for API contributors; the concise fresh-clone
 journey is in [Getting Started](../../docs/development/getting-started.md).
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -39,7 +39,7 @@ class SmokeHandler(BaseHTTPRequestHandler):
         self.send_response(404)
         self.end_headers()
 
-    def log_message(self, _format: str, *_args: object) -> None:
+    def log_message(self, format: str, *_args: object) -> None:
         """Keep test output focused on command behavior."""
 
 
@@ -78,7 +78,9 @@ class FailingSmokeHandler(SmokeHandler):
 
 
 @contextmanager
-def smoke_server(handler: type[BaseHTTPRequestHandler] = SmokeHandler) -> Iterator[str]:
+def smoke_server(
+    handler: type[BaseHTTPRequestHandler] = SmokeHandler,
+) -> Generator[str]:
     """Provide a local HTTP server with the expected smoke routes."""
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -120,8 +122,7 @@ def test_check_composes_every_required_backend_validation() -> None:
     for command in (
         "ruff format --check .",
         "ruff check .",
-        "mypy .",
-        f"mypy . {SMOKE_SCRIPT}",
+        "pyright",
         "pytest -q",
         "python manage.py check",
         "python manage.py makemigrations --check --dry-run",
