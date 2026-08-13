@@ -158,6 +158,18 @@ def test_lifecycle_and_schema_changes_remain_explicit() -> None:
     assert "python manage.py makemigrations" in run_make("-n", "api-migrations").stdout
 
 
+def test_devcontainer_django_commands_derive_the_compose_database_url() -> None:
+    """Django Make targets can reach Compose PostgreSQL from devcontainer terminals."""
+    completed = run_make(
+        "-n", "api-migrate", environment={"TAILTAG_DEVCONTAINER": "1"}
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "config.compose_database_url" in completed.stdout
+    assert "DJANGO_SETTINGS_MODULE=config.settings.production" in completed.stdout
+    assert "python manage.py migrate" in completed.stdout
+
+
 def test_smoke_checks_an_already_running_http_service() -> None:
     """The smoke target requests every health and documentation endpoint."""
     with smoke_server() as base_url:
