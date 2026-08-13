@@ -126,8 +126,8 @@ def test_repository_devcontainer_reuses_the_api_compose_topology() -> None:
     assert "migrate" not in override
 
 
-def test_contributor_commands_and_ci_cover_the_api_foundation_contract() -> None:
-    """Contributor guidance and CI retain every supported foundation check."""
+def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None:
+    """Contributor guidance and CI use one backend validation contract."""
     readme = (SERVICE_ROOT / "README.md").read_text()
     workflow = (REPOSITORY_ROOT / ".github/workflows/api.yml").read_text()
 
@@ -154,7 +154,9 @@ def test_contributor_commands_and_ci_cover_the_api_foundation_contract() -> None
     )
     assert "uv --directory services/api run python manage.py createsuperuser" in readme
 
-    ci_commands = [
+    assert "name: API foundation checks" in workflow
+    assert "run: make api-check" in workflow
+    for duplicated_command in (
         "uv run pytest -q",
         "uv run ruff format --check .",
         "uv run ruff check .",
@@ -163,9 +165,8 @@ def test_contributor_commands_and_ci_cover_the_api_foundation_contract() -> None
         "uv run python manage.py makemigrations --check --dry-run",
         "uv run python manage.py spectacular --validate",
         "uv run gunicorn config.wsgi:application --check-config",
-    ]
-    for command in ci_commands:
-        assert command in workflow
+    ):
+        assert duplicated_command not in workflow
 
     supported_surfaces = [
         "/health/live",
@@ -182,6 +183,11 @@ def test_contributor_commands_and_ci_cover_the_api_foundation_contract() -> None
 
     assert "pull_request:" in workflow
     assert "workflow_dispatch:" in workflow
+    assert "scripts/backend_ci_relevance.py" in workflow
+    assert (
+        "No backend-relevant changes detected; backend validation skipped." in workflow
+    )
+    assert "git diff --name-only -z" in workflow
     pull_request_trigger = re.search(
         r"(?ms)^  pull_request:\n(?P<configuration>.*?)(?=^  \w+:\n)",
         workflow,
@@ -192,4 +198,4 @@ def test_contributor_commands_and_ci_cover_the_api_foundation_contract() -> None
     assert "    paths-ignore:" not in pull_request_configuration
     assert 'python-version: "3.13"' in workflow
     assert "postgres:17" in workflow
-    assert "uv sync --all-groups --locked" in workflow
+    assert "uv --directory services/api sync --all-groups --locked" in workflow
