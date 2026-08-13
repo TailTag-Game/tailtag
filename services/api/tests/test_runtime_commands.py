@@ -132,11 +132,30 @@ def test_contributor_commands_and_ci_cover_the_api_foundation_contract() -> None
     readme = (SERVICE_ROOT / "README.md").read_text()
     workflow = (REPOSITORY_ROOT / ".github/workflows/api.yml").read_text()
 
-    contributor_commands = [
-        "uv sync --all-groups --locked",
-        "uv run python manage.py runserver",
-        "docker compose up --build",
-        "docker compose exec api python manage.py migrate",
+    canonical_contributor_commands = [
+        "make api-setup",
+        "make api-run",
+        "make api-test",
+        "make api-check",
+        "make api-migrate",
+        "make api-migrations",
+        "make api-migrations-check",
+        "make api-shell",
+        "make api-smoke",
+    ]
+    for command in canonical_contributor_commands:
+        assert command in readme
+
+    assert "uv sync --all-groups --locked" not in readme
+    assert "uv run python manage.py runserver" not in readme
+    assert "docker compose -f services/api/compose.yaml up --build" in readme
+    assert (
+        "docker compose -f services/api/compose.yaml exec api python manage.py migrate"
+        in readme
+    )
+    assert "uv --directory services/api run python manage.py createsuperuser" in readme
+
+    ci_commands = [
         "uv run pytest -q",
         "uv run ruff format --check .",
         "uv run ruff check .",
@@ -145,12 +164,20 @@ def test_contributor_commands_and_ci_cover_the_api_foundation_contract() -> None
         "uv run python manage.py makemigrations --check --dry-run",
         "uv run python manage.py spectacular --validate",
         "uv run gunicorn config.wsgi:application --check-config",
+    ]
+    for command in ci_commands:
+        assert command in workflow
+
+    supported_surfaces = [
         "/health/live",
         "/health/ready",
+        "/api/schema/",
+        "/api/docs/",
+        "/admin/",
     ]
-    for command in contributor_commands:
-        assert command in readme
-    assert "cd services/api\nuv run python manage.py migrate" in readme
+    for surface in supported_surfaces:
+        assert surface in readme
+
     assert "Docker" in readme
     assert "unavailable" in readme
 
@@ -167,5 +194,3 @@ def test_contributor_commands_and_ci_cover_the_api_foundation_contract() -> None
     assert 'python-version: "3.13"' in workflow
     assert "postgres:17" in workflow
     assert "uv sync --all-groups --locked" in workflow
-    for command in contributor_commands[4:12]:
-        assert command in workflow
