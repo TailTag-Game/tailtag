@@ -18,7 +18,7 @@ The historical Django POC has been promoted and reset at `services/api/`. Its PO
 
 ## Backend phases
 
-Phase 0 established the clean `services/api` foundation and local contributor environment. Phase 1 now has its persistent Railway development environment; backend CI, controlled migration behavior, post-deploy verification, and the formal merge-to-development delivery contract remain separate Stage 1 work. This document does not define production deployment configuration or product application behavior.
+Phase 0 established the clean `services/api` foundation and local contributor environment. Phase 1 now has authoritative backend pull-request CI and pre-merge GitHub validation through `make api-check`, plus its persistent Railway development environment. Railway-specific controlled migration behavior, post-deploy verification, and the formal merge-to-development delivery policy remain separate Stage 1 work. This document does not define production deployment configuration or product application behavior.
 
 ## Shared Railway development environment
 

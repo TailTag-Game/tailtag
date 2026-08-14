@@ -47,7 +47,8 @@ Railway's GitHub source connection is intentionally present so the service can
 build the current foundation. Its default `main` trigger is recorded as actual
 platform behavior, not as a claim that the formal automated delivery behavior
 or failure handling is designed; issue #78 owns that work. No migration command
-was run because the current `/health/ready` endpoint only verifies PostgreSQL
-connectivity and no current API behavior requires Django tables to prove this
-foundation. Issue #76 must define the permanent, explicit migration step before
-product migrations are delivered.
+was run because health, schema, and documentation routes do not access
+application models, so product migrations are unnecessary for this foundation.
+Django framework migrations are still required before `/admin/` can be used for
+administrative work. Issue #76 must define the permanent, explicit migration
+step before framework or future product migrations are delivered.
