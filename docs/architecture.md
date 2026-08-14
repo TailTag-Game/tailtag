@@ -18,7 +18,7 @@ The historical Django POC has been promoted and reset at `services/api/`. Its PO
 
 ## Backend phases
 
-Phase 0 established the clean `services/api` foundation and local contributor environment. Phase 1 now has authoritative backend pull-request CI and pre-merge GitHub validation through `make api-check`, plus its persistent Railway development environment. Railway-specific controlled migration behavior, post-deploy verification, and the formal merge-to-development delivery policy remain separate Stage 1 work. This document does not define production deployment configuration or product application behavior.
+Phase 0 established the clean `services/api` foundation and local contributor environment. Phase 1 now has authoritative backend pull-request CI and pre-merge GitHub validation through `make api-check`, its persistent Railway development environment, and an explicit Railway pre-deploy migration step. Post-deploy verification and the formal merge-to-development delivery policy remain separate Stage 1 work. This document does not define production deployment configuration or product application behavior.
 
 ## Shared Railway development environment
 
@@ -46,14 +46,31 @@ binding; it is not a Django application variable. `healthcheck.railway.app` is
 an allowed host so Railway can evaluate deployment readiness. No SQLite fallback
 or public database endpoint is configured.
 
+The `api` service's Railway service settings configure the pre-deploy command
+`python manage.py migrate --settings=config.settings.production --noinput`.
+Railway runs it for each API deployment attempt after the candidate image is
+built and before the candidate Gunicorn process starts. It uses the same
+production settings and `DATABASE_URL` reference as the API process; no
+migration-specific database configuration exists. This is an explicit deployment
+migration step, not a global exactly-once guarantee: a redeploy is a new attempt
+and may run the command again. Django records applied migrations, so an
+already-current schema normally makes a subsequent invocation a no-op.
+
+The Docker CMD, Gunicorn process, Django startup, health endpoints, and local
+`make api-run` command do not run migrations. A non-zero pre-deploy command
+fails the candidate deployment before it becomes active; deployment state and
+deployment logs provide the diagnostic record. See the [Railway development
+environment review](reviews/2026-08-13-railway-development-environment.md) for
+the observed recovery and rollback boundaries.
+
 Connecting the API service to the repository establishes the build source but
 does not complete the delivery policy. Railway created its normal GitHub
 `main` trigger (`checkSuites: false`) with that source connection; this observed
 platform default permits the foundation to build, but is not the reviewed
-delivery and failure-surfacing contract. Issue #76 owns durable migration
-orchestration; #77 owns post-deploy HTTP smoke verification; and #78 owns the
-delivery policy. This environment contains no production environment, preview
-environment, Redis, workers, cron service, or other application infrastructure.
+delivery and failure-surfacing contract. Issue #77 owns post-deploy HTTP smoke
+verification, and #78 owns the delivery policy. This environment contains no
+production environment, preview environment, Redis, workers, cron service, or
+other application infrastructure.
 
 ## Architectural constraints
 

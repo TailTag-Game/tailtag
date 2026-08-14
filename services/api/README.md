@@ -83,6 +83,81 @@ tests, Django system checks, migration-drift detection, OpenAPI validation, and
 Gunicorn production-configuration loading. It neither creates nor applies
 migrations.
 
+## Railway development migrations
+
+The shared Railway `development` API service applies Django migrations through
+its service-level **Pre-Deploy Command**:
+
+```text
+python manage.py migrate --settings=config.settings.production --noinput
+```
+
+This is configured in Railway service settings, not in `railway.toml` or
+`railway.json`. The Django `--settings` option explicitly selects the same
+production settings as Gunicorn. Railway builds the candidate API image, runs
+the command in its pre-deploy container using the API service's existing
+`DATABASE_URL` reference, then starts Gunicorn only when the command exits
+successfully. Railway readiness checks `/health/ready` after the candidate
+application starts.
+
+```text
+build candidate image
+-> run Django migrations in Railway pre-deploy
+-> start candidate Gunicorn process
+-> Railway readiness check
+-> #77 post-deploy HTTP smoke verification
+```
+
+The pre-deploy command runs for each API deployment attempt. A manual redeploy
+is a new attempt and can run it again; Django's migration table normally makes
+already-applied migrations a no-op. This is deliberately not a global
+exactly-once guarantee and does not require distributed locking for V0.
+
+Migrations must remain absent from Docker CMD/entrypoint, Gunicorn and Django
+startup, health/readiness endpoints, and normal local commands such as `make
+api-run`. Local contributors continue to run `make api-migrate` explicitly.
+The Railway pre-deploy container uses the same private Railway database
+configuration as the API; do not add a second database URL, expose a public
+PostgreSQL endpoint, or put database credentials in source or logs.
+
+### Railway migration failures and recovery
+
+A non-zero pre-deploy command fails the candidate deployment before it becomes
+the active application deployment. Inspect the deployment's state and logs in
+the Railway dashboard, or use the Railway CLI without printing service
+variables:
+
+```bash
+railway deployment list --service api --environment development --json
+railway logs <deployment-id> --deployment --lines 200
+```
+
+Do not blindly redeploy a failed migration. Inspect the migration or
+configuration error, correct it in a reviewed change, run the normal CI checks,
+then inspect and reconcile the database state before retrying deployment.
+Django records a migration only after it completes, so a failed, unrecorded
+migration is rerun from its first operation rather than resumed at the failed
+operation. This is especially important after non-transactional operations,
+which can leave state that requires direct inspection of the specific migration
+and database; no automatic repair is provided.
+
+Rolling back or redeploying an older application revision does **not** roll back
+the PostgreSQL schema. Only redeploy an older revision when it remains compatible
+with the current schema. Do not automatically run reverse Django migrations:
+they can be destructive, irreversible, or data-losing. A schema reversal is a
+reviewed operator action for the specific migration.
+
+Prefer forward-compatible migrations during deployment transitions where
+practical: add tables or columns before code requires them, use nullable columns
+or safe defaults when appropriate, and defer destructive cleanup until older
+revisions no longer use the old schema. This is guidance, not a claim that every
+schema change is backward compatible or a mandate for a separate migration
+framework.
+
+Issue #77 owns post-deploy HTTP smoke verification; #78 owns the full automatic
+`main`-to-development delivery orchestration. This migration gate does not
+implement either responsibility.
+
 Use the commands for distinct purposes:
 
 - `./scripts/doctor.sh` diagnoses environment readiness; it does not repair or
