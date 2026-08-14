@@ -89,7 +89,9 @@ assumed automatic recovery.
 Prefer forward-compatible migration changes where practical: add tables or
 columns before code requires them, use nullable fields or safe defaults when
 appropriate, and defer destructive removal until no still-serving revision needs
-the old schema. A Railway application rollback or redeploy changes application
-code only; it does not roll back PostgreSQL schema. Reverse migrations are not
-automatic and may be destructive, irreversible, or data-losing, so any schema
-reversal is a reviewed operator action for the specific migration.
+the old schema. A Railway application rollback or redeploy selects application
+code, and its pre-deploy step may apply forward migrations included in that
+selected image; it does not reverse existing PostgreSQL schema migrations.
+Reverse migrations are not automatic and may be destructive, irreversible, or
+data-losing, so any schema reversal is a reviewed operator action for the
+specific migration.

@@ -134,10 +134,12 @@ railway logs <deployment-id> --deployment --lines 200
 
 Do not blindly redeploy a failed migration. Inspect the migration or
 configuration error, correct it in a reviewed change, run the normal CI checks,
-then redeploy. Django resumes from its recorded migration state. A migration
-containing non-transactional operations can leave state that requires direct
-inspection of that specific migration and database; no automatic repair is
-provided.
+then inspect and reconcile the database state before retrying deployment.
+Django records a migration only after it completes, so a failed, unrecorded
+migration is rerun from its first operation rather than resumed at the failed
+operation. This is especially important after non-transactional operations,
+which can leave state that requires direct inspection of the specific migration
+and database; no automatic repair is provided.
 
 Rolling back or redeploying an older application revision does **not** roll back
 the PostgreSQL schema. Only redeploy an older revision when it remains compatible
