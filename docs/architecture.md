@@ -18,7 +18,40 @@ The historical Django POC has been promoted and reset at `services/api/`. Its PO
 
 ## Backend phases
 
-Phase 0 begins with the clean `services/api` foundation and will establish the local contributor environment. Phase 1 will establish CI/CD and the shared Railway development environment. This document does not describe final developer commands, environment variables, deployment configuration, or product application behavior.
+Phase 0 established the clean `services/api` foundation and local contributor environment. Phase 1 now has its persistent Railway development environment; backend CI, controlled migration behavior, post-deploy verification, and the formal merge-to-development delivery contract remain separate Stage 1 work. This document does not define production deployment configuration or product application behavior.
+
+## Shared Railway development environment
+
+The V0 development environment is a single, explicitly non-production Railway
+project and environment:
+
+| Item | Established configuration |
+| --- | --- |
+| Workspace | `Finn the Panther's Projects` |
+| Project / environment | `TailTag` / `development` |
+| API service | `api`, sourced from `TailTag-Game/tailtag` on `main` |
+| API service root | `/services/api` |
+| Runtime | The existing `services/api/Dockerfile` production image and its Gunicorn CMD; Railway also sets `PORT=8000` for platform health checking. |
+| PostgreSQL service | Railway-managed `Postgres` service, reachable only through the API's Railway reference variable. |
+| Public API endpoint | `https://api-development-8fa7.up.railway.app` |
+| Platform health check | `/health/ready` |
+
+The API service owns these development variable names without recording their
+rendered values: `DATABASE_URL` references `${{Postgres.DATABASE_URL}}`,
+`DJANGO_SECRET_KEY` is generated and managed in Railway, and
+`DJANGO_ALLOWED_HOSTS` plus `DJANGO_CSRF_TRUSTED_ORIGINS` derive from the
+Railway development domain. `healthcheck.railway.app` is an allowed host so
+Railway can evaluate deployment readiness. No SQLite fallback or public
+database endpoint is configured.
+
+Connecting the API service to the repository establishes the build source but
+does not complete the delivery policy. Railway created its normal GitHub
+`main` trigger (`checkSuites: false`) with that source connection; this observed
+platform default permits the foundation to build, but is not the reviewed
+delivery and failure-surfacing contract. Issue #76 owns durable migration
+orchestration; #77 owns post-deploy HTTP smoke verification; and #78 owns the
+delivery policy. This environment contains no production environment, preview
+environment, Redis, workers, cron service, or other application infrastructure.
 
 ## Architectural constraints
 
