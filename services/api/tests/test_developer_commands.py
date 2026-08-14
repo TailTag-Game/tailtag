@@ -12,6 +12,7 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_smoke.py"
+CI_RELEVANCE_SCRIPT = REPOSITORY_ROOT / "scripts" / "backend_ci_relevance.py"
 
 
 def run_make(
@@ -132,9 +133,17 @@ def test_check_composes_every_required_backend_validation() -> None:
         assert command in completed.stdout
     assert f"ruff format --check . {SMOKE_SCRIPT}" in completed.stdout
     assert f"ruff check . {SMOKE_SCRIPT}" in completed.stdout
+    assert str(CI_RELEVANCE_SCRIPT) in completed.stdout
     assert "docker compose" not in completed.stdout
     assert "python manage.py migrate" not in completed.stdout
     assert "python manage.py makemigrations" in completed.stdout
+
+
+def test_strict_type_check_includes_the_ci_relevance_helper() -> None:
+    """The repo-owned CI classifier receives the same strict type coverage as scripts."""
+    pyproject = (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml").read_text()
+
+    assert '"../../scripts/backend_ci_relevance.py"' in pyproject
 
 
 def test_lifecycle_and_schema_changes_remain_explicit() -> None:

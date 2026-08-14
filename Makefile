@@ -1,6 +1,7 @@
 API_DIRECTORY := services/api
 UV := uv --directory $(API_DIRECTORY)
 SMOKE_SCRIPT := $(CURDIR)/scripts/api_smoke.py
+CI_RELEVANCE_SCRIPT := $(CURDIR)/scripts/backend_ci_relevance.py
 
 define run_django_command
 if [ "$${TAILTAG_DEVCONTAINER:-}" = "1" ]; then \
@@ -61,11 +62,11 @@ api-check: api-format-check api-lint-check api-type-check api-test api-django-ch
 
 api-format-check:
 	@printf '%s\n' 'Checking Ruff formatting...'
-	$(UV) run ruff format --check . $(SMOKE_SCRIPT)
+	$(UV) run ruff format --check . $(SMOKE_SCRIPT) $(CI_RELEVANCE_SCRIPT)
 
 api-lint-check:
 	@printf '%s\n' 'Running Ruff lint...'
-	$(UV) run ruff check . $(SMOKE_SCRIPT)
+	$(UV) run ruff check . $(SMOKE_SCRIPT) $(CI_RELEVANCE_SCRIPT)
 
 api-type-check:
 	@printf '%s\n' 'Running strict Pyright...'
