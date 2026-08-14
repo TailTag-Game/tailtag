@@ -28,8 +28,7 @@ to #76, #78, and #77 respectively.
 
 - The initial Git-source deployment was created before the required variables
   were configured and failed fast at Django startup for the missing
-  `DJANGO_SECRET_KEY`; this confirmed the production configuration boundary
-  without exposing a secret.
+  `DJANGO_SECRET_KEY` runtime variable.
 - The subsequent deployment `4777bbfe-251f-4786-88c6-c5127e06bdf5` completed
   successfully. Its Railway logs show Gunicorn listening on `0.0.0.0:8000` and
   a booted worker.
