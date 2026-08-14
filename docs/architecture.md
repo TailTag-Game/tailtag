@@ -31,7 +31,7 @@ project and environment:
 | Project / environment | `TailTag` / `development` |
 | API service | `api`, sourced from `TailTag-Game/tailtag` on `main` |
 | API service root | `/services/api` |
-| Runtime | The existing `services/api/Dockerfile` production image and its Gunicorn CMD; Railway also sets `PORT=8000` for platform health checking. |
+| Runtime | The existing `services/api/Dockerfile` production image and its Gunicorn CMD on port 8000. Railway supplies `PORT=8000` to the container as platform runtime configuration for networking and health checking. |
 | PostgreSQL service | Railway-managed `Postgres` service, reachable only through the API's Railway reference variable. |
 | Public API endpoint | `https://api-development-8fa7.up.railway.app` |
 | Platform health check | `/health/ready` |
@@ -40,9 +40,11 @@ The API service owns these development variable names without recording their
 rendered values: `DATABASE_URL` references `${{Postgres.DATABASE_URL}}`,
 `DJANGO_SECRET_KEY` is generated and managed in Railway, and
 `DJANGO_ALLOWED_HOSTS` plus `DJANGO_CSRF_TRUSTED_ORIGINS` derive from the
-Railway development domain. `healthcheck.railway.app` is an allowed host so
-Railway can evaluate deployment readiness. No SQLite fallback or public
-database endpoint is configured.
+Railway development domain. `PORT=8000` is Railway platform runtime
+configuration, supplied to the container to match the existing Gunicorn
+binding; it is not a Django application variable. `healthcheck.railway.app` is
+an allowed host so Railway can evaluate deployment readiness. No SQLite fallback
+or public database endpoint is configured.
 
 Connecting the API service to the repository establishes the build source but
 does not complete the delivery policy. Railway created its normal GitHub
