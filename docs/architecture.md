@@ -18,7 +18,7 @@ The historical Django POC has been promoted and reset at `services/api/`. Its PO
 
 ## Backend phases
 
-Phase 0 established the clean `services/api` foundation and local contributor environment. Phase 1 now has authoritative backend pull-request CI and pre-merge GitHub validation through `make api-check`, its persistent Railway development environment, and an explicit Railway pre-deploy migration step. Post-deploy verification and the formal merge-to-development delivery policy remain separate Stage 1 work. This document does not define production deployment configuration or product application behavior.
+Phase 0 established the clean `services/api` foundation and local contributor environment. Phase 1 now has authoritative backend pull-request CI and pre-merge GitHub validation through `make api-check`, its persistent Railway development environment, an explicit Railway pre-deploy migration step, and post-deploy HTTP smoke verification. The formal merge-to-development delivery policy remains separate Stage 1 work. This document does not define production deployment configuration or product application behavior.
 
 ## Shared Railway development environment
 
@@ -67,10 +67,25 @@ Connecting the API service to the repository establishes the build source but
 does not complete the delivery policy. Railway created its normal GitHub
 `main` trigger (`checkSuites: false`) with that source connection; this observed
 platform default permits the foundation to build, but is not the reviewed
-delivery and failure-surfacing contract. Issue #77 owns post-deploy HTTP smoke
-verification, and #78 owns the delivery policy. This environment contains no
-production environment, preview environment, Redis, workers, cron service, or
-other application infrastructure.
+automatic delivery contract.
+
+The dedicated GitHub Actions post-deploy smoke workflow reacts only when the
+observed Railway GitHub integration reports a `success` deployment status for
+`TailTag / development` created by `railway-app[bot]`. It also supports a manual
+rerun. Both paths use the non-secret repository Actions variable
+`TAILTAG_DEVELOPMENT_API_BASE_URL` and invoke `make api-smoke` against the
+already-running public API; they neither deploy, migrate, provision PostgreSQL,
+nor control Railway. A smoke failure is a clear failed Actions run with
+endpoint-level diagnostics, not an automatic rollback or redeploy.
+
+The event identifies the Railway deployment that caused verification, while the
+HTTP check proves the shared development endpoint satisfied the smoke contract
+after that event. A stable-endpoint response is not independently tied to the
+triggering commit SHA. Stronger delivery or active-revision correlation belongs
+to #78 if it becomes necessary. Railway's `/health/ready` platform health check
+remains distinct from this broader external smoke verification. This environment
+contains no production environment, preview environment, Redis, workers, cron
+service, or other application infrastructure.
 
 ## Architectural constraints
 

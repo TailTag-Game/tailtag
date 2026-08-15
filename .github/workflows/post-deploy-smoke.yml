@@ -1,0 +1,126 @@
+name: TailTag post-deploy smoke
+
+on:
+  deployment_status:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  classify:
+    name: Classify post-deploy event
+    runs-on: ubuntu-latest
+    outputs:
+      should_verify: ${{ steps.classify.outputs.should_verify }}
+      checkout_ref: ${{ steps.classify.outputs.checkout_ref }}
+      deployment_id: ${{ steps.classify.outputs.deployment_id }}
+      deployment_status_id: ${{ steps.classify.outputs.deployment_status_id }}
+      deployment_ref: ${{ steps.classify.outputs.deployment_ref }}
+      deployment_environment: ${{ steps.classify.outputs.deployment_environment }}
+
+    steps:
+      - name: Classify the trigger
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DEPLOYMENT_STATE: ${{ github.event.deployment_status.state }}
+          DEPLOYMENT_ENVIRONMENT: ${{ github.event.deployment.environment }}
+          DEPLOYMENT_CREATOR: ${{ github.event.deployment.creator.login }}
+          DEPLOYMENT_ID: ${{ github.event.deployment.id }}
+          DEPLOYMENT_STATUS_ID: ${{ github.event.deployment_status.id }}
+          DEPLOYMENT_SHA: ${{ github.event.deployment.sha }}
+          DEPLOYMENT_REF: ${{ github.event.deployment.ref }}
+        run: |
+          set -euo pipefail
+
+          should_verify=false
+          checkout_ref=""
+          deployment_id="$DEPLOYMENT_ID"
+          deployment_status_id="$DEPLOYMENT_STATUS_ID"
+          deployment_ref="$DEPLOYMENT_REF"
+          deployment_environment="$DEPLOYMENT_ENVIRONMENT"
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            should_verify=true
+            checkout_ref="$GITHUB_SHA"
+            deployment_id="manual"
+            deployment_status_id="manual"
+            deployment_ref="$GITHUB_SHA"
+            deployment_environment="TailTag / development"
+            echo "Manual post-deploy smoke requested for TailTag / development."
+          elif [[ "$EVENT_NAME" != "deployment_status" ]]; then
+            echo "Skipping post-deploy smoke: unsupported trigger '$EVENT_NAME'."
+          elif [[ "$DEPLOYMENT_STATE" != "success" ]]; then
+            echo "Skipping post-deploy smoke: deployment status is not success."
+          elif [[ "$DEPLOYMENT_ENVIRONMENT" != "TailTag / development" ]]; then
+            echo "Skipping post-deploy smoke: deployment environment is not TailTag / development."
+          elif [[ "$DEPLOYMENT_CREATOR" != "railway-app[bot]" ]]; then
+            echo "Skipping post-deploy smoke: deployment creator is not railway-app[bot]."
+          elif [[ -z "$DEPLOYMENT_SHA" ]]; then
+            echo "Skipping post-deploy smoke: successful development deployment has no commit SHA."
+          else
+            should_verify=true
+            checkout_ref="$DEPLOYMENT_SHA"
+            echo "Accepted Railway development deployment for post-deploy smoke."
+          fi
+
+          {
+            echo "should_verify=$should_verify"
+            echo "checkout_ref=$checkout_ref"
+            echo "deployment_id=$deployment_id"
+            echo "deployment_status_id=$deployment_status_id"
+            echo "deployment_ref=$deployment_ref"
+            echo "deployment_environment=$deployment_environment"
+          } >> "$GITHUB_OUTPUT"
+
+  verify:
+    name: Verify development API over HTTP
+    needs: classify
+    if: needs.classify.outputs.should_verify == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Report verification context
+        env:
+          DEPLOYMENT_ID: ${{ needs.classify.outputs.deployment_id }}
+          DEPLOYMENT_STATUS_ID: ${{ needs.classify.outputs.deployment_status_id }}
+          DEPLOYMENT_REF: ${{ needs.classify.outputs.deployment_ref }}
+          DEPLOYMENT_ENVIRONMENT: ${{ needs.classify.outputs.deployment_environment }}
+          API_BASE_URL: ${{ vars.TAILTAG_DEVELOPMENT_API_BASE_URL }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$API_BASE_URL" ]]; then
+            echo "::error title=Missing development API URL::Set the non-secret TAILTAG_DEVELOPMENT_API_BASE_URL repository variable."
+            exit 1
+          fi
+
+          printf '%s\n' "Deployment ID: $DEPLOYMENT_ID"
+          printf '%s\n' "Deployment status ID: $DEPLOYMENT_STATUS_ID"
+          printf '%s\n' "Deployment ref: $DEPLOYMENT_REF"
+          printf '%s\n' "Deployment environment: $DEPLOYMENT_ENVIRONMENT"
+          printf '%s\n' "Development API base URL: $API_BASE_URL"
+
+      - name: Check out verifier revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.classify.outputs.checkout_ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install locked uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.9.17"
+
+      - name: Run canonical HTTP smoke verification
+        env:
+          API_BASE_URL: ${{ vars.TAILTAG_DEVELOPMENT_API_BASE_URL }}
+        run: |
+          set -euo pipefail
+          uv --directory services/api sync --locked --no-dev
+          API_BASE_URL="$API_BASE_URL" make api-smoke
