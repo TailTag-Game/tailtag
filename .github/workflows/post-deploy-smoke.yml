@@ -48,8 +48,8 @@ jobs:
             checkout_ref="$GITHUB_SHA"
             deployment_id="manual"
             deployment_status_id="manual"
-            deployment_sha="$GITHUB_SHA"
-            deployment_ref="$GITHUB_SHA"
+            deployment_sha="not-applicable"
+            deployment_ref="not-applicable"
             deployment_environment="TailTag / development"
             echo "Manual post-deploy smoke requested for TailTag / development."
           elif [[ "$EVENT_NAME" != "deployment_status" ]]; then
@@ -83,6 +83,7 @@ jobs:
     needs: classify
     if: needs.classify.outputs.should_verify == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Report verification context
@@ -109,18 +110,18 @@ jobs:
           printf '%s\n' "Development API base URL: $API_BASE_URL"
 
       - name: Check out verifier revision
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.classify.outputs.checkout_ref }}
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
 
       - name: Install locked uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           version: "0.9.17"
 

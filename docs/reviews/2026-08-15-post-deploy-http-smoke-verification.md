@@ -51,6 +51,7 @@ exception, hostname, credential, or topology detail is exposed.
 | Focused workflow-contract test before implementation | EXPECTED FAIL — workflow file absent. |
 | Focused workflow-contract and developer-command regression tests | PASS — 13 tests. |
 | Direct canonical smoke run against the public Railway development API | PASS — liveness, readiness, schema, and docs each returned HTTP 200. |
+| Immutable action pins | VERIFIED — GitHub tag refs resolve `actions/checkout@v6` to `d23441a48e516b6c34aea4fa41551a30e30af803`, `actions/setup-python@v6` to `ece7cb06caefa5fff74198d8649806c4678c61a1`, and annotated `astral-sh/setup-uv@v7` to commit `37802adc94f370d6bfd71619e3f0bf239e1f3b78`. |
 | `actionlint` | Not run — not installed in the local environment. |
 | Healthy remote Actions verifier | Pending a committed/pushed workflow, repository variable configuration, and authorized manual dispatch. |
 | Safe failed remote Actions verifier | Pending separate authorization for a temporary repository-variable change; no Railway or PostgreSQL disruption is permitted. |
