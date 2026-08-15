@@ -16,6 +16,7 @@ jobs:
       checkout_ref: ${{ steps.classify.outputs.checkout_ref }}
       deployment_id: ${{ steps.classify.outputs.deployment_id }}
       deployment_status_id: ${{ steps.classify.outputs.deployment_status_id }}
+      deployment_sha: ${{ steps.classify.outputs.deployment_sha }}
       deployment_ref: ${{ steps.classify.outputs.deployment_ref }}
       deployment_environment: ${{ steps.classify.outputs.deployment_environment }}
 
@@ -38,6 +39,7 @@ jobs:
           checkout_ref=""
           deployment_id="$DEPLOYMENT_ID"
           deployment_status_id="$DEPLOYMENT_STATUS_ID"
+          deployment_sha="$DEPLOYMENT_SHA"
           deployment_ref="$DEPLOYMENT_REF"
           deployment_environment="$DEPLOYMENT_ENVIRONMENT"
 
@@ -46,6 +48,7 @@ jobs:
             checkout_ref="$GITHUB_SHA"
             deployment_id="manual"
             deployment_status_id="manual"
+            deployment_sha="$GITHUB_SHA"
             deployment_ref="$GITHUB_SHA"
             deployment_environment="TailTag / development"
             echo "Manual post-deploy smoke requested for TailTag / development."
@@ -70,6 +73,7 @@ jobs:
             echo "checkout_ref=$checkout_ref"
             echo "deployment_id=$deployment_id"
             echo "deployment_status_id=$deployment_status_id"
+            echo "deployment_sha=$deployment_sha"
             echo "deployment_ref=$deployment_ref"
             echo "deployment_environment=$deployment_environment"
           } >> "$GITHUB_OUTPUT"
@@ -85,6 +89,7 @@ jobs:
         env:
           DEPLOYMENT_ID: ${{ needs.classify.outputs.deployment_id }}
           DEPLOYMENT_STATUS_ID: ${{ needs.classify.outputs.deployment_status_id }}
+          DEPLOYMENT_SHA: ${{ needs.classify.outputs.deployment_sha }}
           DEPLOYMENT_REF: ${{ needs.classify.outputs.deployment_ref }}
           DEPLOYMENT_ENVIRONMENT: ${{ needs.classify.outputs.deployment_environment }}
           API_BASE_URL: ${{ vars.TAILTAG_DEVELOPMENT_API_BASE_URL }}
@@ -98,6 +103,7 @@ jobs:
 
           printf '%s\n' "Deployment ID: $DEPLOYMENT_ID"
           printf '%s\n' "Deployment status ID: $DEPLOYMENT_STATUS_ID"
+          printf '%s\n' "Deployment SHA: $DEPLOYMENT_SHA"
           printf '%s\n' "Deployment ref: $DEPLOYMENT_REF"
           printf '%s\n' "Deployment environment: $DEPLOYMENT_ENVIRONMENT"
           printf '%s\n' "Development API base URL: $API_BASE_URL"
@@ -106,6 +112,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.classify.outputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v6

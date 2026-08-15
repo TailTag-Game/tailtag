@@ -22,9 +22,14 @@ def test_post_deploy_smoke_workflow_uses_the_approved_contract() -> None:
         '"$DEPLOYMENT_ENVIRONMENT" != "TailTag / development"',
         '"$DEPLOYMENT_CREATOR" != "railway-app[bot]"',
         "github.event.deployment.sha",
+        "deployment_sha: ${{ steps.classify.outputs.deployment_sha }}",
+        'echo "deployment_sha=$deployment_sha"',
+        "DEPLOYMENT_SHA: ${{ needs.classify.outputs.deployment_sha }}",
+        '"Deployment SHA: $DEPLOYMENT_SHA"',
         "Skipping post-deploy smoke:",
         "TAILTAG_DEVELOPMENT_API_BASE_URL",
         'API_BASE_URL="$API_BASE_URL" make api-smoke',
+        "persist-credentials: false",
     ):
         assert required in workflow
 

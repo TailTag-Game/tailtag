@@ -62,8 +62,7 @@ commit SHA.
 
 ## Remaining risk
 
-Because the workflow has not yet been committed, pushed, or dispatched, GitHub
-Actions runtime parsing and remote pass/fail signaling remain to be exercised.
+Remote GitHub Actions execution and pass/fail signaling remain to be exercised.
 This is intentionally not hidden by a local approximation. The stable public
 endpoint also cannot independently prove exact active revision without stronger
 orchestration or platform integration, which is deferred to #78 if needed.
