@@ -154,7 +154,9 @@ revisions no longer use the old schema. This is guidance, not a claim that every
 schema change is backward compatible or a mandate for a separate migration
 framework.
 
-Issue #77 owns post-deploy HTTP smoke verification; #78 owns the full automatic
+The GitHub Actions post-deploy smoke workflow verifies a successful Railway
+development deployment with the same `make api-smoke` contract. It does not
+deploy, migrate, or start the API; #78 owns the full automatic
 `main`-to-development delivery orchestration. This migration gate does not
 implement either responsibility.
 
@@ -269,6 +271,23 @@ API_BASE_URL=https://example.internal make api-smoke
 
 If `/health/ready` returns `503`, Django is reachable but PostgreSQL is not
 ready. Diagnose the database before treating it as an API-route problem.
+
+### Post-deploy development verification
+
+`.github/workflows/post-deploy-smoke.yml` reacts to an observed successful
+Railway `deployment_status` event only when the deployment environment is
+`TailTag / development` and its creator is `railway-app[bot]`. It can also be
+run manually without initiating a deployment. Both paths use the non-secret
+repository Actions variable `TAILTAG_DEVELOPMENT_API_BASE_URL` and run the
+canonical `API_BASE_URL=... make api-smoke` command.
+
+The workflow logs the triggering deployment/status identifiers, ref, and public
+target URL, then fails its GitHub Actions job if any smoke endpoint fails. It
+does not print the raw GitHub event, use Railway credentials, provision a
+database, migrate, roll back, redeploy, or stop the service. The deployment
+event identifies what triggered verification; the resulting stable-URL requests
+show that the shared development endpoint met the smoke contract after that
+event, not that each response is provably served by that deployment's SHA.
 
 ## Django admin
 
