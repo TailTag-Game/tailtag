@@ -182,8 +182,12 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
     assert "unavailable" in readme
 
     assert "pull_request:" in workflow
+    assert "push:\n    branches:\n      - main" in workflow
     assert "workflow_dispatch:" in workflow
+    assert workflow.count("name: API foundation checks") == 1
+    assert workflow.count("run: make api-check") == 1
     assert "scripts/backend_ci_relevance.py" in workflow
+    assert "--force-run" in workflow
     assert (
         "No backend-relevant changes detected; backend validation skipped." in workflow
     )

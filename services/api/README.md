@@ -156,9 +156,8 @@ framework.
 
 The GitHub Actions post-deploy smoke workflow verifies a successful Railway
 development deployment with the same `make api-smoke` contract. It does not
-deploy, migrate, or start the API; #78 owns the full automatic
-`main`-to-development delivery orchestration. This migration gate does not
-implement either responsibility.
+deploy, migrate, or start the API. The protected `main`-to-development
+delivery chain owns those separate responsibilities.
 
 Use the commands for distinct purposes:
 
@@ -288,6 +287,62 @@ database, migrate, roll back, redeploy, or stop the service. The deployment
 event identifies what triggered verification; the resulting stable-URL requests
 show that the shared development endpoint met the smoke contract after that
 event, not that each response is provably served by that deployment's SHA.
+
+### Protected main-to-development delivery
+
+Normal contributor delivery is a composed GitHub and Railway control path:
+
+1. A contributor opens a pull request. The active `Protect main` ruleset
+   requires one approval, resolved review conversations, squash merge, and the
+   stable `API foundation checks` status check.
+2. The API workflow runs that one named job on every pull request. Relevant
+   changes run `make api-check`; irrelevant changes take the explicit
+   successful skip path.
+3. A normal merge creates a `main` commit. The same workflow force-runs the
+   canonical `make api-check` contract for that push.
+4. Railway's development `api` service autodeploys only
+   `TailTag-Game/tailtag` `main` commits and has Wait for CI enabled. It
+   waits while GitHub workflows run, skips the candidate when a workflow fails,
+   and proceeds only after they succeed.
+5. Railway runs the existing pre-deploy migration command, checks
+   `/health/ready`, then reports its deployment status. The #77 workflow
+   performs the independent real-HTTP smoke verification after a successful
+   Railway deployment.
+
+Railway watches only `services/api/**` for this service. Its deployment
+relevance is intentionally narrower than backend CI relevance: a change only to
+the root `Makefile`, `scripts/api_smoke.py`, `.github/workflows/api.yml`,
+documentation, or frontend code does not rebuild the running API unless an
+approved runtime build change makes that path relevant.
+
+The repository owner retains a pull-request-only bypass for exceptional,
+auditable administrative or recovery use. It is not a normal development or
+delivery shortcut and must not be used to validate this path. The guarantee is
+for normal contributors, not an assertion that a privileged administrator can
+never intentionally override repository protections.
+
+Use the first failing boundary to diagnose delivery:
+
+| Symptom | First place to inspect |
+| --- | --- |
+| PR cannot merge because backend CI failed | The GitHub `API foundation checks` job. |
+| PR cannot merge because review is incomplete | GitHub ruleset and PR merge requirements. |
+| Railway candidate waits or is skipped | GitHub Actions for the pushed `main` SHA, then the Railway deployment trigger state. |
+| Candidate fails before app startup | Railway pre-deploy migration logs/status. |
+| Candidate build, deploy, or readiness fails | Railway deployment state/logs. |
+| Railway succeeds but API verification fails | The #77 post-deploy smoke workflow run. |
+
+No automatic rollback occurs. A failed migration, deployment, readiness check,
+or smoke run must be diagnosed through its owning surface before any deliberate
+recovery action.
+
+For revision evidence, match the merged `main` SHA to the push workflow SHA,
+Railway Git-triggered deployment metadata, and the `deployment_status`
+SHA/ref that #77 logs. That metadata proves what Railway deployed. A stable
+development-domain smoke result proves the HTTP contract after that deployment,
+not a cryptographic response-to-SHA binding; record a later superseding
+deployment as a race limitation rather than adding an application version
+endpoint.
 
 ## Django admin
 
