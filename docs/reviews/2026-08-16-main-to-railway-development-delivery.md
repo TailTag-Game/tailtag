@@ -122,6 +122,36 @@ leave #78 open and escalate the captured SHA, Railway deployment ID, trigger
 ID, and timestamps to Railway support rather than treating `checkSuites: true`
 as an enforceable control.
 
+## #88 controlled evidence exercises
+
+Issue [#88](https://github.com/TailTag-Game/tailtag/issues/88) owns the two
+behavioral exercises that remain after #78: a backend-irrelevant merge that
+must create no API deployment and a runtime-relevant merge that must use the
+normal protected contributor path. Run them sequentially so one merge cannot
+obscure the other's Railway evidence.
+
+Recent runtime-relevant merges established the candidate-creation baseline:
+
+| Merge | Merge time (UTC) | Railway candidate/deployment creation (UTC) | Observed delay |
+| --- | --- | --- | --- |
+| `4022f2635ce1f11f0f26493ea181cb694e5556f2` | 20:04:35 | 20:04:37.298 | about 2.3 seconds |
+| `de499ec96302ae84162d597865fb11927afe9957` | 21:39:03 | 21:39:05.260 | about 2.3 seconds |
+
+For the backend-irrelevant exercise, start observation at the merge time and
+wait for the same-SHA push workflow to reach a terminal state. Then continue
+checking for five additional minutes, which comfortably exceeds the longest
+recent candidate-creation delay. During that quiet window, do not merge a
+runtime-relevant change. Query the development API's Railway candidates and
+deployments plus GitHub deployment records by exact merge SHA; the stable URL
+remaining unchanged is not evidence.
+
+The documentation-only pull request that adds this protocol is the planned
+backend-irrelevant exercise. Its changed path is outside `services/api/**`,
+the root backend CI relevance files, and the Railway runtime watch path. Its PR
+must therefore receive the stable `API foundation checks` job through the
+explicit successful skip path while its pushed `main` SHA still receives the
+normal push workflow.
+
 ## Existing revision-correlation evidence
 
 The currently active Railway deployment provides a verified metadata chain for
