@@ -52,9 +52,12 @@ squash-merge requirements. The check name must not change.
 ## Railway delivery
 
 The existing Railway `TailTag / development` `api` service remains connected
-to `TailTag-Game/tailtag` on `main`, with normal GitHub autodeploy enabled.
-Enable Railway's native Wait for CI/check-suite behavior when the live service
-integration supports it.
+to `TailTag-Game/tailtag` on `main`, with normal GitHub autodeploy and
+native Wait for CI/check-suite behavior enabled. Wait for CI is required for
+this delivery invariant: Railway must hold a runtime-relevant `main`
+candidate until the pushed-main `API foundation checks` and other applicable
+GitHub workflows complete. With Wait for CI active, a failed workflow makes
+Railway skip the candidate rather than promote it.
 
 Use runtime/deployment relevance rather than the broader CI relevance contract.
 The minimum Railway watch path is:
