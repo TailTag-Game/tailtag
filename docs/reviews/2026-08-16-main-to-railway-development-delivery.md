@@ -102,8 +102,8 @@ GitHub approval and required PR check
 -> Railway candidate SHA equals squash merge SHA; status WAITING
 -> same-SHA push API foundation checks concludes SUCCESS
 -> Railway SUCCESS
--> same-SHA successful deployment_status event
--> same-SHA smoke result
+-> same-SHA successful deployment_status event for TailTag / development from railway-app[bot]
+-> successful smoke workflow run triggered by that qualifying deployment_status event
 ~~~
 
 A deliberate post-merge CI failure must instead produce Railway `SKIPPED`; no
