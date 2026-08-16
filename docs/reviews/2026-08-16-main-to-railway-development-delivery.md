@@ -63,12 +63,57 @@ only the trigger's checkSuites flag and the API service's watchPatterns. The
 Railway API re-read confirms the source repository and branch, enabled
 autodeploy, migration command, and health check remain intact.
 
-Railway documents the resulting behavior: a runtime-relevant main candidate is
+Railway documents the intended behavior: a runtime-relevant main candidate is
 WAITING while GitHub workflows run; a failed workflow makes it SKIPPED;
 successful workflows permit it to continue. The watch path intentionally
 excludes CI-only, smoke-only, documentation, and frontend changes from API
 delivery unless a later approved runtime build configuration adds a directly
 consumed path.
+
+## Verification lapse and remediation
+
+Configuration inspection is not sufficient evidence for Wait for CI. The
+first post-configuration merge, `4022f2635ce1f11f0f26493ea181cb694e5556f2`,
+showed why:
+
+| Evidence | Observed UTC time / state |
+| --- | --- |
+| Railway deployment `c3fe2cb6-d818-4a18-9445-c1f210481506` | `SUCCESS` at 20:04:37, duration one second |
+| GitHub `API foundation checks` push job | started at 20:04:40; completed successfully at 20:05:18 |
+| Railway GitHub check suite | created queued at 20:04:37 and remained queued when inspected |
+
+The candidate therefore completed before the applicable push validation. This
+does not prove the required post-merge gate and must not be cited as #78 or
+#80 normal-path evidence. The pull request also had no recorded human approval,
+so it did not exercise the protected normal contributor path.
+
+On 2026-08-16 the GitHub deployment trigger was refreshed using the same
+repository, `main` branch, `/services/api` root directory, and
+`checkSuites: true` setting. The refreshed trigger ID is
+`4413b1bb-104e-4f50-bdcf-eb1723c570a1`. Railway source, watch path,
+pre-deploy migration, and readiness configuration were re-read afterward.
+
+Before declaring the gate effective, the next controlled normal reviewed PR
+must collect the following ordered evidence:
+
+~~~text
+GitHub approval and required PR check
+-> squash merge SHA
+-> Railway candidate status WAITING
+-> same-SHA push API foundation checks completion
+-> Railway success (or SKIPPED when deliberately testing failure)
+-> same-SHA deployment_status smoke result
+~~~
+
+The validating change is limited to a production-image
+`org.tailtag.delivery-probe` label. It changes image metadata and exercises the
+API Docker build/watch path without changing Django runtime behavior or adding
+an application version endpoint.
+
+If the refreshed trigger again deploys before the push check begins, leave #78
+open and escalate the captured SHA, Railway deployment ID, trigger ID, and
+timestamps to Railway support rather than treating `checkSuites: true` as an
+enforceable control.
 
 ## Existing revision-correlation evidence
 

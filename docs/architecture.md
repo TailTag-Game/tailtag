@@ -64,11 +64,14 @@ environment review](reviews/2026-08-13-railway-development-environment.md) for
 the observed recovery and rollback boundaries.
 
 The API service has normal GitHub autodeploy enabled for the
-`TailTag-Game/tailtag` `main` branch. Its Railway trigger has Wait for CI
-(`checkSuites: true`) enabled, so a candidate waits while GitHub workflows
-for the pushed `main` commit run. Railway skips the candidate if any such
-workflow fails and proceeds only when they all succeed. This is defense in
-depth after, not a replacement for, GitHub's pre-merge protections.
+`TailTag-Game/tailtag` `main` branch. Its Railway trigger is configured with
+Wait for CI (`checkSuites: true`), which Railway documents as holding a
+candidate while the pushed-`main` GitHub workflows run, then skipping it on
+failure. This is defense in depth after, not a replacement for, GitHub's
+pre-merge protections. Configuration alone is not proof of that temporal
+gate: a fresh normal reviewed merge must show Railway `WAITING` before the
+push validation completes; see the main-to-Railway delivery review for the
+observed verification boundary.
 
 Railway evaluates API deployment relevance independently from the broader CI
 relevance contract. Its only API watch path is `services/api/**`. Therefore,
