@@ -99,8 +99,8 @@ must collect the following ordered evidence for a successful candidate:
 ~~~text
 GitHub approval and required PR check
 -> squash merge SHA
--> Railway candidate status WAITING
--> same-SHA push API foundation checks completion
+-> Railway candidate SHA equals squash merge SHA; status WAITING
+-> same-SHA push API foundation checks concludes SUCCESS
 -> Railway SUCCESS
 -> same-SHA successful deployment_status event
 -> same-SHA smoke result
@@ -110,15 +110,17 @@ A deliberate post-merge CI failure must instead produce Railway `SKIPPED`; no
 deployment promotion, successful deployment-status event, or smoke result is
 expected for that path.
 
-The validating change is limited to a production-image
-`org.tailtag.delivery-probe` label. It changes image metadata and exercises the
-API Docker build/watch path without changing Django runtime behavior or adding
-an application version endpoint.
+The validating change is limited to the production-image label
+`org.tailtag.delivery-probe=wait-for-ci-trigger-refresh-2026-08-16`. It
+changes image metadata and exercises the API Docker build/watch path without
+changing Django runtime behavior or adding an application version endpoint.
 
-If the refreshed trigger again deploys before the push check begins, leave #78
-open and escalate the captured SHA, Railway deployment ID, trigger ID, and
-timestamps to Railway support rather than treating `checkSuites: true` as an
-enforceable control.
+If Railway creates a candidate before the same-SHA push check concludes
+success, it must remain `WAITING`. If it enters deployment or promotion before
+that conclusion, including after the check starts but before it completes,
+leave #78 open and escalate the captured SHA, Railway deployment ID, trigger
+ID, and timestamps to Railway support rather than treating `checkSuites: true`
+as an enforceable control.
 
 ## Existing revision-correlation evidence
 
