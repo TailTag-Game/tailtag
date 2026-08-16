@@ -83,9 +83,9 @@ showed why:
 | Railway GitHub check suite | created queued at 20:04:37 and remained queued when inspected |
 
 The candidate therefore completed before the applicable push validation. This
-does not prove the required post-merge gate and must not be cited as #78 or
-#80 normal-path evidence. The pull request also had no recorded human approval,
-so it did not exercise the protected normal contributor path.
+does not prove the required post-merge gate and must not be cited as normal-path
+evidence for either #78 or #80. The pull request also had no recorded human
+approval, so it did not exercise the protected normal contributor path.
 
 On 2026-08-16 the GitHub deployment trigger was refreshed using the same
 repository, `main` branch, `/services/api` root directory, and
@@ -94,16 +94,21 @@ repository, `main` branch, `/services/api` root directory, and
 pre-deploy migration, and readiness configuration were re-read afterward.
 
 Before declaring the gate effective, the next controlled normal reviewed PR
-must collect the following ordered evidence:
+must collect the following ordered evidence for a successful candidate:
 
 ~~~text
 GitHub approval and required PR check
 -> squash merge SHA
 -> Railway candidate status WAITING
 -> same-SHA push API foundation checks completion
--> Railway success (or SKIPPED when deliberately testing failure)
--> same-SHA deployment_status smoke result
+-> Railway SUCCESS
+-> same-SHA successful deployment_status event
+-> same-SHA smoke result
 ~~~
+
+A deliberate post-merge CI failure must instead produce Railway `SKIPPED`; no
+deployment promotion, successful deployment-status event, or smoke result is
+expected for that path.
 
 The validating change is limited to a production-image
 `org.tailtag.delivery-probe` label. It changes image metadata and exercises the
