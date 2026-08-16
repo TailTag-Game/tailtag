@@ -69,10 +69,12 @@ to `Makefile`, `scripts/api_smoke.py`, `.github/workflows/api.yml`,
 documentation, or frontend code.
 
 The existing pre-deploy migration command and `/health/ready` Railway health
-check remain unchanged. The existing post-deploy `deployment_status` smoke
-workflow remains independent: it verifies the shared endpoint only after
-Railway reports a successful deployment; it does not deploy, migrate, or
-control Railway.
+check remain unchanged. The existing post-deploy smoke workflow remains
+independent: its `deployment_status` runs verify the shared endpoint only
+after Railway reports a successful deployment, while its `workflow_dispatch`
+runs recheck the already-running shared endpoint without requiring or
+initiating a new Railway deployment. Neither path deploys, migrates, or
+controls Railway.
 
 ## Failure model
 
@@ -132,4 +134,3 @@ Before closing #78, inspect and record:
 
 #80 performs the final controlled end-to-end proof. #78 establishes the
 configuration and evidence path needed for it.
-

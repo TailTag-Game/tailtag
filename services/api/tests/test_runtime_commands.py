@@ -182,7 +182,15 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
     assert "unavailable" in readme
 
     assert "pull_request:" in workflow
-    assert "push:\n    branches:\n      - main" in workflow
+    push_trigger = re.search(
+        r"(?ms)^  push:\n(?P<configuration>.*?)(?=^  \w+:\n)",
+        workflow,
+    )
+    assert push_trigger
+    push_configuration = push_trigger.group("configuration")
+    assert "    branches:\n      - main" in push_configuration
+    assert "    paths:" not in push_configuration
+    assert "    paths-ignore:" not in push_configuration
     assert "workflow_dispatch:" in workflow
     assert workflow.count("name: API foundation checks") == 1
     assert workflow.count("run: make api-check") == 1
