@@ -6,7 +6,6 @@
   ],
   "service": "api",
   "workspaceFolder": "/workspaces/tailtag",
-  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/tailtag,type=bind",
   "remoteUser": "tailtag",
   "updateRemoteUserUID": true,
   "remoteEnv": {

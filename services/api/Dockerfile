@@ -28,6 +28,11 @@ CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
 
 FROM python:3.13-slim-bookworm AS production
 
+LABEL org.opencontainers.image.source="https://github.com/TailTag-Game/tailtag" \
+    org.opencontainers.image.title="TailTag API" \
+    org.opencontainers.image.description="TailTag development API" \
+    org.tailtag.delivery-probe="wait-for-ci-trigger-refresh-2026-08-16"
+
 COPY --from=ghcr.io/astral-sh/uv:0.9.17 /uv /uvx /bin/
 
 ENV PATH="/app/.venv/bin:$PATH" \

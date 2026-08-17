@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -16,7 +16,7 @@ LOCAL_ENVIRONMENT_FILE = SERVICE_ROOT / ".env"
 
 
 @contextmanager
-def local_environment(contents: str) -> Iterator[None]:
+def local_environment(contents: str) -> Generator[None]:
     """Provide a temporary native-development environment file."""
     previous_contents = (
         LOCAL_ENVIRONMENT_FILE.read_text() if LOCAL_ENVIRONMENT_FILE.exists() else None

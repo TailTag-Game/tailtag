@@ -15,7 +15,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "ruff>=0.14",
-    "mypy>=1.18",
+    "pyright>=1.1",
     "django-stubs>=5.2",
     "djangorestframework-stubs>=3.16",
     "pytest>=8.3",
@@ -31,14 +31,10 @@ target-version = "py313"
 [tool.ruff.lint.per-file-ignores]
 "**/migrations/*.py" = ["RUF012"]
 
-[tool.mypy]
-python_version = "3.13"
-strict = true
-plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
-files = ["accounts", "config", "fursuits", "health", "tests"]
-
-[tool.django-stubs]
-django_settings_module = "config.settings.local"
+[tool.pyright]
+pythonVersion = "3.13"
+typeCheckingMode = "strict"
+include = ["accounts", "config", "fursuits", "health", "tests", "../../scripts/api_smoke.py", "../../scripts/backend_ci_relevance.py"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.local"

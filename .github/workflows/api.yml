@@ -2,6 +2,9 @@ name: TailTag API
 
 on:
   pull_request:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -11,9 +14,6 @@ jobs:
   api:
     name: API foundation checks
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: services/api
     services:
       postgres:
         image: postgres:17
@@ -38,41 +38,51 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Determine backend validation relevance
+        id: relevance
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            changed_files="$RUNNER_TEMP/backend-changed-files"
+            git diff --name-only -z "$PR_BASE_SHA" "$PR_HEAD_SHA" > "$changed_files"
+            python3 scripts/backend_ci_relevance.py \
+              --changed-files "$changed_files" \
+              --github-output "$GITHUB_OUTPUT"
+          else
+            python3 scripts/backend_ci_relevance.py \
+              --force-run \
+              --github-output "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up Python
+        if: steps.relevance.outputs.backend_relevant == 'true'
         uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
       - name: Install locked uv
+        if: steps.relevance.outputs.backend_relevant == 'true'
         uses: astral-sh/setup-uv@v7
         with:
           version: "0.9.17"
           enable-cache: true
 
       - name: Synchronize locked dependencies
-        run: uv sync --all-groups --locked
+        if: steps.relevance.outputs.backend_relevant == 'true'
+        run: uv --directory services/api sync --all-groups --locked
 
-      - name: Check formatting
-        run: uv run ruff format --check .
+      - name: Run canonical API validation
+        if: steps.relevance.outputs.backend_relevant == 'true'
+        run: make api-check
 
-      - name: Lint
-        run: uv run ruff check .
-
-      - name: Check strict types
-        run: uv run mypy .
-
-      - name: Run PostgreSQL-backed tests
-        run: uv run pytest -q
-
-      - name: Run Django system checks
-        run: uv run python manage.py check
-
-      - name: Check migration drift
-        run: uv run python manage.py makemigrations --check --dry-run
-
-      - name: Validate OpenAPI configuration
-        run: uv run python manage.py spectacular --validate --file /tmp/openapi.yml
-
-      - name: Smoke-test Gunicorn configuration
-        run: uv run gunicorn config.wsgi:application --check-config
+      - name: Report skipped backend validation
+        if: steps.relevance.outputs.backend_relevant != 'true'
+        run: echo "No backend-relevant changes detected; backend validation skipped."

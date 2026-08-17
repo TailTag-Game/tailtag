@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from pathlib import Path
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +20,29 @@ def docker_stage(dockerfile: str, name: str) -> str:
     )
     assert match, f"Dockerfile must define a {name} stage"
     return match.group("contents")
+
+
+def docker_labels(stage: str) -> dict[str, str]:
+    """Return key/value pairs from LABEL instructions in one Docker stage."""
+    labels: dict[str, str] = {}
+    lines = iter(stage.splitlines())
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped.startswith("LABEL "):
+            continue
+
+        instruction = stripped.removeprefix("LABEL ")
+        while instruction.endswith("\\"):
+            instruction = instruction.removesuffix("\\").rstrip()
+            instruction = f"{instruction} {next(lines).strip()}"
+
+        for token in shlex.split(instruction):
+            key, separator, value = token.partition("=")
+            assert separator, f"LABEL entry must use key=value syntax: {token}"
+            labels[key] = value
+
+    return labels
 
 
 def compose_service(compose_file: str, name: str) -> str:
@@ -93,12 +117,29 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
     assert "POSTGRES_PASSWORD=tailtag-local-password" in environment_template
 
 
+def test_production_image_records_oci_attribution() -> None:
+    """The deployable image identifies its repository and runtime purpose."""
+    dockerfile = (SERVICE_ROOT / "Dockerfile").read_text()
+    production = docker_stage(dockerfile, "production")
+    labels = docker_labels(production)
+
+    assert labels["org.opencontainers.image.source"] == (
+        "https://github.com/TailTag-Game/tailtag"
+    )
+    assert labels["org.opencontainers.image.title"] == "TailTag API"
+    assert labels["org.opencontainers.image.description"] == "TailTag development API"
+    assert labels["org.tailtag.delivery-probe"] == (
+        "wait-for-ci-trigger-refresh-2026-08-16"
+    )
+
+
 def test_repository_devcontainer_reuses_the_api_compose_topology() -> None:
     """The editor workspace adapts the API Compose stack without duplicating it."""
     devcontainer_root = REPOSITORY_ROOT / ".devcontainer"
     devcontainer = json.loads((devcontainer_root / "devcontainer.json").read_text())
     override = (devcontainer_root / "compose.devcontainer.yaml").read_text()
     api = compose_service((SERVICE_ROOT / "compose.yaml").read_text(), "api")
+    devcontainer_api = compose_service(override, "api")
 
     assert devcontainer["dockerComposeFile"] == [
         "../services/api/compose.yaml",
@@ -108,10 +149,7 @@ def test_repository_devcontainer_reuses_the_api_compose_topology() -> None:
     assert devcontainer["workspaceFolder"] == "/workspaces/tailtag"
     assert devcontainer["remoteUser"] == "tailtag"
     assert devcontainer["updateRemoteUserUID"] is True
-    assert (
-        devcontainer["workspaceMount"]
-        == "source=${localWorkspaceFolder},target=/workspaces/tailtag,type=bind"
-    )
+    assert "workspaceMount" not in devcontainer
     assert devcontainer["postCreateCommand"] == (
         "cd services/api && uv sync --all-groups --locked"
     )
@@ -121,14 +159,15 @@ def test_repository_devcontainer_reuses_the_api_compose_topology() -> None:
     assert "services:" in override
     assert "api:" in override
     assert "command: sleep infinity" in override
+    assert "- ../..:/workspaces/tailtag:cached" in devcontainer_api
     assert "target: development" in api
     assert "db:" not in override
     assert "postgres_data:" not in override
     assert "migrate" not in override
 
 
-def test_contributor_commands_and_ci_cover_the_api_foundation_contract() -> None:
-    """Contributor guidance and CI retain every supported foundation check."""
+def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None:
+    """Contributor guidance and CI use one backend validation contract."""
     readme = (SERVICE_ROOT / "README.md").read_text()
     workflow = (REPOSITORY_ROOT / ".github/workflows/api.yml").read_text()
 
@@ -155,18 +194,19 @@ def test_contributor_commands_and_ci_cover_the_api_foundation_contract() -> None
     )
     assert "uv --directory services/api run python manage.py createsuperuser" in readme
 
-    ci_commands = [
+    assert "name: API foundation checks" in workflow
+    assert "run: make api-check" in workflow
+    for duplicated_command in (
         "uv run pytest -q",
         "uv run ruff format --check .",
         "uv run ruff check .",
-        "uv run mypy .",
+        "uv run pyright",
         "uv run python manage.py check",
         "uv run python manage.py makemigrations --check --dry-run",
         "uv run python manage.py spectacular --validate",
         "uv run gunicorn config.wsgi:application --check-config",
-    ]
-    for command in ci_commands:
-        assert command in workflow
+    ):
+        assert duplicated_command not in workflow
 
     supported_surfaces = [
         "/health/live",
@@ -182,7 +222,24 @@ def test_contributor_commands_and_ci_cover_the_api_foundation_contract() -> None
     assert "unavailable" in readme
 
     assert "pull_request:" in workflow
+    push_trigger = re.search(
+        r"(?ms)^  push:\n(?P<configuration>.*?)(?=^  \w+:\n)",
+        workflow,
+    )
+    assert push_trigger
+    push_configuration = push_trigger.group("configuration")
+    assert "    branches:\n      - main" in push_configuration
+    assert "    paths:" not in push_configuration
+    assert "    paths-ignore:" not in push_configuration
     assert "workflow_dispatch:" in workflow
+    assert workflow.count("name: API foundation checks") == 1
+    assert workflow.count("run: make api-check") == 1
+    assert "scripts/backend_ci_relevance.py" in workflow
+    assert "--force-run" in workflow
+    assert (
+        "No backend-relevant changes detected; backend validation skipped." in workflow
+    )
+    assert "git diff --name-only -z" in workflow
     pull_request_trigger = re.search(
         r"(?ms)^  pull_request:\n(?P<configuration>.*?)(?=^  \w+:\n)",
         workflow,
@@ -193,4 +250,4 @@ def test_contributor_commands_and_ci_cover_the_api_foundation_contract() -> None
     assert "    paths-ignore:" not in pull_request_configuration
     assert 'python-version: "3.13"' in workflow
     assert "postgres:17" in workflow
-    assert "uv sync --all-groups --locked" in workflow
+    assert "uv --directory services/api sync --all-groups --locked" in workflow

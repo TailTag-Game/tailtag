@@ -5,13 +5,14 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_smoke.py"
+CI_RELEVANCE_SCRIPT = REPOSITORY_ROOT / "scripts" / "backend_ci_relevance.py"
 
 
 def run_make(
@@ -39,7 +40,7 @@ class SmokeHandler(BaseHTTPRequestHandler):
         self.send_response(404)
         self.end_headers()
 
-    def log_message(self, _format: str, *_args: object) -> None:
+    def log_message(self, format: str, *_args: object) -> None:
         """Keep test output focused on command behavior."""
 
 
@@ -78,7 +79,9 @@ class FailingSmokeHandler(SmokeHandler):
 
 
 @contextmanager
-def smoke_server(handler: type[BaseHTTPRequestHandler] = SmokeHandler) -> Iterator[str]:
+def smoke_server(
+    handler: type[BaseHTTPRequestHandler] = SmokeHandler,
+) -> Generator[str]:
     """Provide a local HTTP server with the expected smoke routes."""
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -120,8 +123,7 @@ def test_check_composes_every_required_backend_validation() -> None:
     for command in (
         "ruff format --check .",
         "ruff check .",
-        "mypy .",
-        f"mypy . {SMOKE_SCRIPT}",
+        "pyright",
         "pytest -q",
         "python manage.py check",
         "python manage.py makemigrations --check --dry-run",
@@ -131,9 +133,17 @@ def test_check_composes_every_required_backend_validation() -> None:
         assert command in completed.stdout
     assert f"ruff format --check . {SMOKE_SCRIPT}" in completed.stdout
     assert f"ruff check . {SMOKE_SCRIPT}" in completed.stdout
+    assert str(CI_RELEVANCE_SCRIPT) in completed.stdout
     assert "docker compose" not in completed.stdout
     assert "python manage.py migrate" not in completed.stdout
     assert "python manage.py makemigrations" in completed.stdout
+
+
+def test_strict_type_check_includes_the_ci_relevance_helper() -> None:
+    """The repo-owned CI classifier receives the same strict type coverage as scripts."""
+    pyproject = (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml").read_text()
+
+    assert '"../../scripts/backend_ci_relevance.py"' in pyproject
 
 
 def test_lifecycle_and_schema_changes_remain_explicit() -> None:

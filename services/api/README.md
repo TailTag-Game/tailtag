@@ -6,9 +6,12 @@ schema/documentation infrastructure. It intentionally does not implement player
 authentication, a TailTag application identity, or gameplay APIs.
 
 The service uses Python 3.13, Django, Django REST Framework, PostgreSQL 17,
-`uv`, Ruff, strict mypy, pytest, drf-spectacular, Gunicorn, and Docker. This is
+`uv`, Ruff, strict Pyright, pytest, drf-spectacular, Gunicorn, and Docker. This is
 the detailed operating reference for API contributors; the concise fresh-clone
 journey is in [Getting Started](../../docs/development/getting-started.md).
+
+Maintainers operating or recovering the shared Railway development backend
+should use the [backend development delivery operations guide](../../docs/development/backend-delivery-operations.md).
 
 ## Current foundation boundary
 
@@ -82,6 +85,82 @@ having to remember `uv`, Django, or individual quality-tool invocations.
 tests, Django system checks, migration-drift detection, OpenAPI validation, and
 Gunicorn production-configuration loading. It neither creates nor applies
 migrations.
+
+## Railway development migrations
+
+The shared Railway `development` API service applies Django migrations through
+its service-level **Pre-Deploy Command**:
+
+```text
+python manage.py migrate --settings=config.settings.production --noinput
+```
+
+This is configured in Railway service settings, not in `railway.toml` or
+`railway.json`. The Django `--settings` option explicitly selects the same
+production settings as Gunicorn. Railway builds the candidate API image, runs
+the command in its pre-deploy container using the API service's existing
+`DATABASE_URL` reference, then starts Gunicorn only when the command exits
+successfully. Railway readiness checks `/health/ready` after the candidate
+application starts.
+
+```text
+build candidate image
+-> run Django migrations in Railway pre-deploy
+-> start candidate Gunicorn process
+-> Railway readiness check
+-> #77 post-deploy HTTP smoke verification
+```
+
+The pre-deploy command runs for each API deployment attempt. A manual redeploy
+is a new attempt and can run it again; Django's migration table normally makes
+already-applied migrations a no-op. This is deliberately not a global
+exactly-once guarantee and does not require distributed locking for V0.
+
+Migrations must remain absent from Docker CMD/entrypoint, Gunicorn and Django
+startup, health/readiness endpoints, and normal local commands such as `make
+api-run`. Local contributors continue to run `make api-migrate` explicitly.
+The Railway pre-deploy container uses the same private Railway database
+configuration as the API; do not add a second database URL, expose a public
+PostgreSQL endpoint, or put database credentials in source or logs.
+
+### Railway migration failures and recovery
+
+A non-zero pre-deploy command fails the candidate deployment before it becomes
+the active application deployment. Inspect the deployment's state and logs in
+the Railway dashboard, or use the Railway CLI without printing service
+variables:
+
+```bash
+railway deployment list --service api --environment development --json
+railway logs <deployment-id> --deployment --lines 200
+```
+
+Do not blindly redeploy a failed migration. Inspect the migration or
+configuration error, correct it in a reviewed change, run the normal CI checks,
+then inspect and reconcile the database state before retrying deployment.
+Django records a migration only after it completes, so a failed, unrecorded
+migration is rerun from its first operation rather than resumed at the failed
+operation. This is especially important after non-transactional operations,
+which can leave state that requires direct inspection of the specific migration
+and database; no automatic repair is provided.
+
+Rolling back or redeploying an older application revision does **not** roll back
+the PostgreSQL schema. Only redeploy an older revision when it remains compatible
+with the current schema. Do not automatically run reverse Django migrations:
+they can be destructive, irreversible, or data-losing. A schema reversal is a
+reviewed operator action for the specific migration.
+
+Prefer forward-compatible migrations during deployment transitions where
+practical: add tables or columns before code requires them, use nullable columns
+or safe defaults when appropriate, and defer destructive cleanup until older
+revisions no longer use the old schema. This is guidance, not a claim that every
+schema change is backward compatible or a mandate for a separate migration
+framework.
+
+The GitHub Actions post-deploy smoke workflow verifies a successful Railway
+development deployment with the same `make api-smoke` contract. It does not
+deploy, migrate, or start the API. The protected `main`-to-development
+delivery chain owns those separate responsibilities.
 
 Use the commands for distinct purposes:
 
@@ -194,6 +273,79 @@ API_BASE_URL=https://example.internal make api-smoke
 
 If `/health/ready` returns `503`, Django is reachable but PostgreSQL is not
 ready. Diagnose the database before treating it as an API-route problem.
+
+### Post-deploy development verification
+
+`.github/workflows/post-deploy-smoke.yml` reacts to an observed successful
+Railway `deployment_status` event only when the deployment environment is
+`TailTag / development` and its creator is `railway-app[bot]`. It can also be
+run manually without initiating a deployment. Both paths use the non-secret
+repository Actions variable `TAILTAG_DEVELOPMENT_API_BASE_URL` and run the
+canonical `API_BASE_URL=... make api-smoke` command.
+
+The workflow logs the triggering deployment/status identifiers, ref, and public
+target URL, then fails its GitHub Actions job if any smoke endpoint fails. It
+does not print the raw GitHub event, use Railway credentials, provision a
+database, migrate, roll back, redeploy, or stop the service. The deployment
+event identifies what triggered verification; the resulting stable-URL requests
+show that the shared development endpoint met the smoke contract after that
+event, not that each response is provably served by that deployment's SHA.
+
+### Protected main-to-development delivery
+
+Normal contributor delivery is a composed GitHub and Railway control path:
+
+1. A contributor opens a pull request. The active `Protect main` ruleset
+   requires one approval, resolved review conversations, squash merge, and the
+   stable `API foundation checks` status check.
+2. The API workflow runs that one named job on every pull request. Relevant
+   changes run `make api-check`; irrelevant changes take the explicit
+   successful skip path.
+3. A normal merge creates a `main` commit. The same workflow force-runs the
+   canonical `make api-check` contract for that push.
+4. Railway's development `api` service autodeploys only
+   `TailTag-Game/tailtag` `main` commits and has Wait for CI enabled. It
+   waits while GitHub workflows run, skips the candidate when a workflow fails,
+   and proceeds only after they succeed.
+5. Railway runs the existing pre-deploy migration command, checks
+   `/health/ready`, then reports its deployment status. The #77 workflow
+   performs the independent real-HTTP smoke verification after a successful
+   Railway deployment.
+
+Railway watches only `services/api/**` for this service. Its deployment
+relevance is intentionally narrower than backend CI relevance: a change only to
+the root `Makefile`, `scripts/api_smoke.py`, `.github/workflows/api.yml`,
+documentation, or frontend code does not rebuild the running API unless an
+approved runtime build change makes that path relevant.
+
+The repository owner retains a pull-request-only bypass for exceptional,
+auditable administrative or recovery use. It is not a normal development or
+delivery shortcut and must not be used to validate this path. The guarantee is
+for normal contributors, not an assertion that a privileged administrator can
+never intentionally override repository protections.
+
+Use the first failing boundary to diagnose delivery:
+
+| Symptom | First place to inspect |
+| --- | --- |
+| PR cannot merge because backend CI failed | The GitHub `API foundation checks` job. |
+| PR cannot merge because review is incomplete | GitHub ruleset and PR merge requirements. |
+| Railway candidate waits or is skipped | GitHub Actions for the pushed `main` SHA, then the Railway deployment trigger state. |
+| Candidate fails before app startup | Railway pre-deploy migration logs/status. |
+| Candidate build, deploy, or readiness fails | Railway deployment state/logs. |
+| Railway succeeds but API verification fails | The #77 post-deploy smoke workflow run. |
+
+No automatic rollback occurs. A failed migration, deployment, readiness check,
+or smoke run must be diagnosed through its owning surface before any deliberate
+recovery action.
+
+For revision evidence, match the merged `main` SHA to the push workflow SHA,
+Railway Git-triggered deployment metadata, and the `deployment_status`
+SHA/ref that #77 logs. That metadata proves what Railway deployed. A stable
+development-domain smoke result proves the HTTP contract after that deployment,
+not a cryptographic response-to-SHA binding; record a later superseding
+deployment as a race limitation rather than adding an application version
+endpoint.
 
 ## Django admin
 
