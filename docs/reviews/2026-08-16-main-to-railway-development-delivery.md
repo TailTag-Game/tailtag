@@ -126,9 +126,9 @@ as an enforceable control.
 
 Issue [#88](https://github.com/TailTag-Game/tailtag/issues/88) owns the two
 behavioral exercises that remain after #78: a backend-irrelevant merge that
-must create no API deployment and a runtime-relevant merge that must use the
-normal protected contributor path. Run them sequentially so one merge cannot
-obscure the other's Railway evidence.
+must perform no executable API delivery work and a runtime-relevant merge that
+must use the normal protected contributor path. Run them sequentially so one
+merge cannot obscure the other's Railway evidence.
 
 Recent runtime-relevant merges established the integration timing baseline.
 The timestamps distinguish Railway candidate creation from deployment execution
@@ -156,20 +156,27 @@ wait for the same-SHA push workflow to reach a terminal state. Then continue
 checking for five additional minutes, which comfortably exceeds the longest
 recent candidate-creation delay. During that quiet window, do not merge a
 runtime-relevant change. Query the development API's Railway candidates and
-deployments plus GitHub deployment records by exact merge SHA; the stable URL
-remaining unchanged is not evidence.
+deployments, deployment events, GitHub deployment records, and qualifying smoke
+runs by exact merge SHA; the stable URL remaining unchanged is not evidence.
+The expected Railway result is a metadata-only record with status `SKIPPED` and
+reason `No changes to watched files`. No build, migration, readiness check,
+application deployment, Railway-created GitHub deployment, or post-deploy smoke
+workflow may occur.
 
-If an exact-merge-SHA Railway candidate, Railway deployment, or Railway-created
-GitHub deployment record appears after the observation ends, record the later
-discovery timestamp and mark the exercise inconclusive. Do not use that result
-to complete #88 or the corresponding #78 acceptance criterion.
+If the exact-SHA Railway result changes after the observation ends, or any later
+record shows executable delivery or downstream deployment/smoke activity,
+record the discovery timestamp and mark the exercise inconclusive. Do not use
+that result to complete #88 or the corresponding #78 acceptance criterion.
 
-The documentation-only pull request that adds this protocol is the planned
-backend-irrelevant exercise. Its changed path is outside `services/api/**`,
-the root backend CI relevance files, and the Railway runtime watch path. Its PR
-must therefore receive the stable `API foundation checks` job through the
-explicit successful skip path while its pushed `main` SHA still receives the
-normal push workflow.
+PR #89 established the observed metadata-only `SKIPPED` behavior but did not
+qualify as the controlled exercise because GitHub recorded no human approval.
+The replacement documentation-only pull request that records this native
+watch-path boundary is the planned backend-irrelevant exercise. Its changed
+paths are outside `services/api/**`, the root backend CI relevance files, and
+the Railway runtime watch path. It must receive the stable
+`API foundation checks` job through the explicit successful skip path and a
+non-bot human approval before ordinary squash merge; its pushed `main` SHA must
+still receive the normal push workflow.
 
 ## Existing revision-correlation evidence
 
@@ -205,7 +212,8 @@ PR -> required API foundation checks -> approval -> squash merge
 -> deployment_status SHA/ref -> successful HTTP smoke
 ~~~
 
-It should also capture a backend-irrelevant normal merge with no Railway API
-deployment, where practical. If a subsequent deployment supersedes the
+It should also capture a backend-irrelevant normal merge whose Railway
+evaluation is explicitly `SKIPPED` for `No changes to watched files` before any
+executable API delivery occurs. If a subsequent deployment supersedes the
 candidate before smoke requests complete, record that limitation rather than
 adding application-level versioning.
