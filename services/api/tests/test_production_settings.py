@@ -52,7 +52,11 @@ def run_settings_import(
             else "import config.settings.production",
         ],
         cwd=".",
-        env={"PATH": os.environ["PATH"], **environment},
+        env={
+            "PATH": os.environ["PATH"],
+            "DJANGO_SETTINGS_MODULE": "config.settings.production",
+            **environment,
+        },
         capture_output=True,
         text=True,
         check=False,
