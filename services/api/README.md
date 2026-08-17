@@ -2,8 +2,9 @@
 
 `services/api` is TailTag's V0 Django API foundation. It provides Django
 administration, PostgreSQL-backed liveness/readiness checks, and OpenAPI
-schema/documentation infrastructure. It intentionally does not implement player
-authentication, a TailTag application identity, or gameplay APIs.
+schema/documentation infrastructure. It also defines TailTag's application-user
+identity. It intentionally does not implement Clerk request authentication,
+Clerk-to-user request resolution, player profiles, or gameplay APIs.
 
 The service uses Python 3.13, Django, Django REST Framework, PostgreSQL 17,
 `uv`, Ruff, strict Pyright, pytest, drf-spectacular, Gunicorn, and Docker. This is
@@ -15,16 +16,73 @@ should use the [backend development delivery operations guide](../../docs/develo
 
 ## Current foundation boundary
 
-Django's built-in `auth.User` remains only so `/admin/` is operational. It is
-not a TailTag player account or the future Clerk-backed TailTag application
-identity. The neutral `accounts` and `fursuits` app shells contain no models,
+`accounts.User` is Django's configured user model and TailTag's canonical
+application identity. The `fursuits` app remains a neutral shell with no models,
 migrations, or public API behavior. Current TailTag product-domain
 administration does not exist.
 
 The POC application migrations were intentionally reset. On a clean database,
-`make api-migrate` applies Django framework migrations only; future TailTag
-domain migrations require approved feature work. Historical Django POC documents
-remain evaluation evidence and are not current setup instructions.
+`make api-migrate` applies the initial `accounts.User` migration and Django
+framework migrations; future TailTag domain migrations require approved feature
+work. Historical Django POC documents remain evaluation evidence and are not
+current setup instructions.
+
+## Application identity contract
+
+A TailTag application user and a Clerk user are related identities with
+different responsibilities:
+
+- `accounts.User.id` is the repository-standard `BigAutoField` primary key and
+  canonical identity inside TailTag.
+- `accounts.User.clerk_user_id` is the required, unique link to the external
+  Clerk authentication-provider identity. It is opaque, case-sensitive, and is
+  neither a TailTag primary key nor a domain foreign identity.
+- `accounts.User.is_staff` and the inherited Django password, last-login,
+  superuser, group, and permission fields support Django administration. They do
+  not define TailTag product roles or account lifecycle behavior.
+- Ordinary application-user creation rejects Django privilege flags and local
+  Django passwords. The model rejects usable passwords for non-superusers and
+  clears the local password when a superuser is demoted. Only the Django
+  superuser bootstrap path accepts a local password for administration, and
+  configured password validation compares that password with the administrative
+  user's Clerk ID.
+- No email address, username, display name, avatar, biography, profile state, or
+  gameplay data is stored on the application-user model.
+
+After the later Clerk authentication and identity-resolution work in issues #96
+and #97, authenticated DRF code will receive the resolved `accounts.User`
+instance as `request.user`. That behavior is not implemented by #95.
+
+Model declarations must refer to the configured user model, never to a Clerk ID:
+
+```python
+from django.conf import settings
+from django.db import models
+
+
+class FutureDomainModel(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+```
+
+Runtime code that needs the model class uses
+`django.contrib.auth.get_user_model()`. Domain rows store the resulting TailTag
+primary key in their foreign-key columns. Do not use `clerk_user_id` as a domain
+foreign key, expose it as TailTag's canonical identity, or copy other fields from
+Clerk into this model without a separately approved requirement.
+
+### Existing development database prerequisite
+
+The initial custom-user migration is the supported baseline for a fresh
+PostgreSQL database. A database that already applied Django's admin migrations
+while `AUTH_USER_MODEL` was `auth.User` has an incompatible applied migration
+graph and admin-log foreign key; #95 intentionally does not rewrite that history
+in place.
+
+Do not deploy this user-model switch to an already-migrated development database
+until maintainers have separately authorized and coordinated its reset or
+transition. The normal `make api-migrate` and Railway pre-deploy migration command
+do not perform that operation. This repository contains no production
+environment, and #95 does not authorize any database or environment reset.
 
 ## Local configuration
 
@@ -350,10 +408,16 @@ endpoint.
 ## Django admin
 
 `/admin/` exists for Django framework, development, and operational
-administration. A Django superuser is not a TailTag player identity and is
-unrelated to the future Clerk-backed application identity. Do not infer current
-product administration for users, fursuits, conventions, or catches from this
-surface: those domain models and workflows do not yet exist.
+administration. It provides read-oriented inspection of TailTag application-user
+IDs and their Clerk identity links without rendering password material. User
+creation and deletion are not available through the admin; just-in-time
+application-user provisioning and account deletion remain outside #95.
+
+A Django superuser is an `accounts.User` with Django's staff and superuser flags
+and a local admin password. Those flags are Django administration infrastructure,
+not TailTag product roles, and the local password does not implement Clerk player
+authentication. Do not infer administration for profiles, fursuits, conventions,
+or catches from this surface: those domain models and workflows do not yet exist.
 
 Create a development-only Django superuser after PostgreSQL is available. There
 is no canonical Make target for this one Django operation, so use this narrow
@@ -363,7 +427,9 @@ low-level command from the repository root:
 uv --directory services/api run python manage.py createsuperuser
 ```
 
-Then sign in at `http://127.0.0.1:8000/admin/`.
+Supply a unique Clerk user ID for the administrative user when prompted, then
+sign in at `http://127.0.0.1:8000/admin/` with that ID and the local admin
+password.
 
 ## Direct Compose usage
 
