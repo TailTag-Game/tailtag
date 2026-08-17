@@ -282,7 +282,11 @@ def test_production_settings_reject_malformed_or_non_rsa_jwt_public_key(
         "https://app.example.test/path",
         "https://user:password@app.example.test",
         "https://app.example.test?unexpected=query",
+        "https://app.example.test?",
         "https://app.example.test#unexpected-fragment",
+        "https://app.example.test#",
+        r"https://app.example.test\not-a-path",
+        "https://exa mple.test",
     ),
     ids=(
         "empty",
@@ -291,7 +295,11 @@ def test_production_settings_reject_malformed_or_non_rsa_jwt_public_key(
         "non-root-path",
         "credentials",
         "query",
+        "empty-query",
         "fragment",
+        "empty-fragment",
+        "backslash-authority-or-path",
+        "space-in-hostname",
     ),
 )
 def test_production_settings_reject_empty_or_invalid_authorized_party_origins(
