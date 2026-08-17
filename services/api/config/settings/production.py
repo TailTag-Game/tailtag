@@ -6,6 +6,7 @@ import os
 
 from .base import *
 from .base import database_from_url
+from .clerk import load_clerk_authentication_configuration
 
 
 def required_environment_value(name: str) -> str:
@@ -38,6 +39,8 @@ CSRF_TRUSTED_ORIGINS = comma_separated_values(
 DATABASES = {
     "default": database_from_url(required_environment_value("DATABASE_URL")),
 }
+
+CLERK_AUTHENTICATION = load_clerk_authentication_configuration(os.environ)
 
 SESSION_COOKIE_SECURE = True
 SESSION_COOKIE_HTTPONLY = True
