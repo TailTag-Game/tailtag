@@ -64,11 +64,14 @@ environment review](reviews/2026-08-13-railway-development-environment.md) for
 the observed recovery and rollback boundaries.
 
 The API service has normal GitHub autodeploy enabled for the
-`TailTag-Game/tailtag` `main` branch. Its Railway trigger has Wait for CI
-(`checkSuites: true`) enabled, so a candidate waits while GitHub workflows
-for the pushed `main` commit run. Railway skips the candidate if any such
-workflow fails and proceeds only when they all succeed. This is defense in
-depth after, not a replacement for, GitHub's pre-merge protections.
+`TailTag-Game/tailtag` `main` branch. Its Railway trigger is configured with
+Wait for CI (`checkSuites: true`), which Railway documents as holding a
+candidate while the pushed-`main` GitHub workflows run, then skipping it on
+failure. This is defense in depth after, not a replacement for, GitHub's
+pre-merge protections. Configuration alone is not proof of that temporal
+gate: a fresh normal reviewed merge must show Railway `WAITING` before the
+push validation completes; see the main-to-Railway delivery review for the
+observed verification boundary.
 
 Railway evaluates API deployment relevance independently from the broader CI
 relevance contract. Its only API watch path is `services/api/**`. Therefore,
@@ -76,6 +79,14 @@ changes only to the root `Makefile`, `scripts/api_smoke.py`,
 `.github/workflows/api.yml`, documentation, or a future frontend do not
 create an unnecessary API deployment unless a later approved runtime build
 change makes one of those paths directly relevant.
+
+For a Git-triggered `main` commit outside that watch path, the expected
+no-delivery result is an exact-SHA metadata-only Railway evaluation record with
+status `SKIPPED` and reason `No changes to watched files`. If that record is
+absent after the defined observation window, the exercise is inconclusive.
+Railway must not run an API build, pre-deploy migration, readiness check, or
+application deployment, and it must not create the GitHub deployment that
+would trigger the post-deploy smoke workflow.
 
 For normal contributor delivery, the active `Protect main` GitHub ruleset
 requires a pull request, one approval, resolved review conversations, squash
@@ -89,10 +100,13 @@ resulting `main` commit before deploying it.
 The repository owner retains a pull-request-only ruleset bypass as an
 exceptional, auditable administrative or recovery override. It is outside the
 normal contributor delivery path and must not be used for routine development,
-delivery, or the #78/#80 validation. This design does not claim that a
-deliberately privileged administrator can never override GitHub protections;
-it ensures that a normal contributor cannot cause Railway development delivery
-while bypassing required pull-request CI and review.
+or delivery. Owner-operated #78/#80 validation changes may use the bypass when
+the override is intentional and recorded, but those merges validate delivery
+mechanics rather than the human-review path. The active ruleset remains the
+evidence that normal contributors require review. This design does not claim
+that a deliberately privileged administrator can never override GitHub
+protections; it ensures that a normal contributor cannot cause Railway
+development delivery while bypassing required pull-request CI and review.
 
 The dedicated GitHub Actions post-deploy smoke workflow reacts only when the
 observed Railway GitHub integration reports a `success` deployment status for

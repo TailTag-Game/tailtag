@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from pathlib import Path
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +20,29 @@ def docker_stage(dockerfile: str, name: str) -> str:
     )
     assert match, f"Dockerfile must define a {name} stage"
     return match.group("contents")
+
+
+def docker_labels(stage: str) -> dict[str, str]:
+    """Return key/value pairs from LABEL instructions in one Docker stage."""
+    labels: dict[str, str] = {}
+    lines = iter(stage.splitlines())
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped.startswith("LABEL "):
+            continue
+
+        instruction = stripped.removeprefix("LABEL ")
+        while instruction.endswith("\\"):
+            instruction = instruction.removesuffix("\\").rstrip()
+            instruction = f"{instruction} {next(lines).strip()}"
+
+        for token in shlex.split(instruction):
+            key, separator, value = token.partition("=")
+            assert separator, f"LABEL entry must use key=value syntax: {token}"
+            labels[key] = value
+
+    return labels
 
 
 def compose_service(compose_file: str, name: str) -> str:
@@ -91,6 +115,22 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
         in environment_template
     )
     assert "POSTGRES_PASSWORD=tailtag-local-password" in environment_template
+
+
+def test_production_image_records_oci_attribution() -> None:
+    """The deployable image identifies its repository and runtime purpose."""
+    dockerfile = (SERVICE_ROOT / "Dockerfile").read_text()
+    production = docker_stage(dockerfile, "production")
+    labels = docker_labels(production)
+
+    assert labels["org.opencontainers.image.source"] == (
+        "https://github.com/TailTag-Game/tailtag"
+    )
+    assert labels["org.opencontainers.image.title"] == "TailTag API"
+    assert labels["org.opencontainers.image.description"] == "TailTag development API"
+    assert labels["org.tailtag.delivery-probe"] == (
+        "wait-for-ci-trigger-refresh-2026-08-16"
+    )
 
 
 def test_repository_devcontainer_reuses_the_api_compose_topology() -> None:
