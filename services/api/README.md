@@ -10,6 +10,9 @@ The service uses Python 3.13, Django, Django REST Framework, PostgreSQL 17,
 the detailed operating reference for API contributors; the concise fresh-clone
 journey is in [Getting Started](../../docs/development/getting-started.md).
 
+Maintainers operating or recovering the shared Railway development backend
+should use the [backend development delivery operations guide](../../docs/development/backend-delivery-operations.md).
+
 ## Current foundation boundary
 
 Django's built-in `auth.User` remains only so `/admin/` is operational. It is
