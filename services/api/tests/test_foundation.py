@@ -14,7 +14,7 @@ def test_foundation_exposes_only_administrative_and_infrastructure_routes(
     """The promoted service has no POC player or fursuit API contract."""
     schema_response = client.get("/api/schema/")
 
-    assert settings.AUTH_USER_MODEL == "auth.User"
+    assert settings.AUTH_USER_MODEL == "accounts.User"
     assert len(settings.AUTH_PASSWORD_VALIDATORS) == 4
     assert {"accounts", "fursuits"}.issubset(apps.app_configs)
     assert client.get("/admin/").status_code == 302
