@@ -60,9 +60,9 @@ alone. Django's applied admin migration has a dynamic dependency on the
 configured user model, so changing that setting retroactively changes the
 migration graph.
 
-#95 does not reset or rewrite any existing database or migration history. A
-fresh database is the supported migration baseline for this initial identity
-contract. Existing development databases require a separately authorized and
-coordinated reset or transition before a revision containing this change is
-deployed. No production environment exists, and this specification does not
-authorize any environment operation.
+Issue `#95` does not reset or rewrite any existing database or migration
+history. A fresh database is the supported migration baseline for this initial
+identity contract. Existing development databases require a separately
+authorized and coordinated reset or transition before a revision containing
+this change is deployed. No production environment exists, and this
+specification does not authorize any environment operation.

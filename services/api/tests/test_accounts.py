@@ -8,6 +8,7 @@ import pytest
 from django.conf import settings
 from django.contrib.admin.models import CHANGE, LogEntry
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group, Permission
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
@@ -303,3 +304,66 @@ def test_admin_inspects_identity_without_exposing_password_material(
     )
     assert admin_password_hash.encode() not in rendered_responses
     assert ordinary_password_hash.encode() not in rendered_responses
+
+
+@pytest.mark.django_db
+def test_staff_admin_cannot_edit_application_identity(
+    client: Client,
+) -> None:
+    """Change permission permits inspection but never identity mutation."""
+    staff_user = User.objects.create_user(clerk_user_id="user_staff_inspector")
+    staff_user.is_staff = True
+    staff_user.save(update_fields={"is_staff"})
+    change_user_permission = Permission.objects.get(
+        content_type__app_label="accounts",
+        codename="change_user",
+    )
+    staff_user.user_permissions.add(  # pyright: ignore[reportUnknownMemberType]
+        change_user_permission,
+    )
+
+    protected_user = User.objects.create_user(
+        clerk_user_id="user_protected_identity",
+    )
+    protected_group = Group.objects.create(name="protected identity group")
+    protected_permission = Permission.objects.get(
+        content_type__app_label="accounts",
+        codename="view_user",
+    )
+    protected_user.groups.add(  # pyright: ignore[reportUnknownMemberType]
+        protected_group,
+    )
+    protected_user.user_permissions.add(  # pyright: ignore[reportUnknownMemberType]
+        protected_permission,
+    )
+    client.force_login(staff_user)
+    change_url = reverse(
+        "admin:accounts_user_change",
+        args=(protected_user.pk,),
+    )
+
+    get_response = client.get(change_url)
+    post_response = client.post(
+        change_url,
+        {
+            "is_superuser": "on",
+            "groups": [],
+            "user_permissions": [],
+        },
+    )
+    protected_user.refresh_from_db()
+
+    assert get_response.status_code == 200
+    assert post_response.status_code == 403
+    assert not cast(
+        bool,
+        protected_user.is_superuser,  # pyright: ignore[reportUnknownMemberType]
+    )
+    assert set(
+        protected_user.groups.all(),  # pyright: ignore[reportUnknownMemberType]
+    ) == {protected_group}
+    assert set(
+        protected_user.user_permissions.all(),  # pyright: ignore[reportUnknownMemberType]
+    ) == {
+        protected_permission,
+    }
