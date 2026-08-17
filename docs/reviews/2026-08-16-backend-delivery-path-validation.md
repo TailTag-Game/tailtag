@@ -81,8 +81,9 @@ The controlled runtime-relevant exercise followed this sequence:
 The transient Railway `WAITING` label was not directly sampled, but
 deployment-event timing shows the candidate was created before CI completed
 and no build or deployment execution began until after the same-SHA CI
-succeeded. This is behavioral evidence that the Wait for CI gate functioned;
-it is not a claim that the ephemeral label was directly observed.
+succeeded. This timing is consistent with the Wait for CI gate holding
+execution until CI succeeded; neither the transient label nor a direct gate
+evaluation was observed.
 
 ## Governance boundary
 
@@ -164,8 +165,8 @@ Repository verification for this documentation change:
 ## Limitations
 
 - The transient Railway `WAITING` label was inferred from retained event timing
-  rather than directly sampled. The evidence establishes that execution was
-  held until same-SHA CI succeeded.
+  rather than directly sampled. The timing is consistent with execution being
+  held until same-SHA CI succeeded, but no direct gate evaluation was observed.
 - Real-HTTP smoke targets the stable development endpoint after the qualifying
   deployment event. The response does not independently identify the serving
   application revision.
