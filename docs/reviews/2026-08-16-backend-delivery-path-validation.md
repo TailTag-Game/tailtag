@@ -156,7 +156,8 @@ sanitized #75/#76, #78, and #88 records; Railway was not mutated or re-exercised
 
 Repository verification for this documentation change:
 
-- `git diff --check` — passed;
+- `git diff --check` — passed for the working-tree report;
+- `git diff --cached --check` — passed after the report was staged;
 - `./scripts/doctor.sh` — passed; during pre-commit validation it reported the
   expected uncommitted-working-tree warning; and
 - every relative documentation link in this report was resolved to an existing
@@ -177,7 +178,8 @@ Repository verification for this documentation change:
 ## Follow-ups
 
 No #80 acceptance criterion remains unsupported, and no new controlled
-exercise is required. No small functional or documentation defect was found
-during consolidation. Future work should create a follow-up issue only if new
-evidence contradicts this record or the approved Stage 1 delivery contract
-changes.
+exercise is required. PR review corrected documentation precision defects in
+the Wait for CI conclusion and verification-command record; no functional
+delivery defect or follow-up work was identified. Future work should create a
+follow-up issue only if new evidence contradicts this record or the approved
+Stage 1 delivery contract changes.
