@@ -71,6 +71,9 @@ def _authorized_parties(value: str) -> tuple[str, ...]:
 
 
 def _is_plain_origin(value: str) -> bool:
+    if any(character.isspace() or character in {"?", "#", "\\"} for character in value):
+        return False
+
     try:
         parsed = urlparse(value)
         port = parsed.port
