@@ -40,8 +40,9 @@ and command.
 
 The repository owner retains the existing pull_request ruleset bypass. It is an
 exceptional, auditable administrative/recovery override. It was retained by
-explicit #78 policy and is not part of routine contributor delivery or #78/#80
-validation.
+explicit #78 policy and is not part of routine contributor delivery.
+Owner-operated #78/#80 validation changes may use it when the override is
+intentional and recorded, but those merges do not prove human review.
 
 ## Railway development API controls
 
@@ -209,8 +210,10 @@ The final owner-operated controlled exercise must record the administrative
 bypass and collect:
 
 ~~~text
-PR -> required API foundation checks -> resolved conversations -> squash merge
--> main push API foundation checks -> Railway WAITING
+PR -> required API foundation checks -> resolved conversations
+-> squash merge SHA X -> main push SHA X
+-> Railway candidate SHA X -> Railway WAITING
+-> same-SHA push API foundation checks succeed
 -> successful deployment and controlled migration -> readiness
 -> deployment_status SHA/ref -> successful HTTP smoke
 ~~~
