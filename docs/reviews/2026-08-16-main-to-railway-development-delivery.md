@@ -40,8 +40,9 @@ and command.
 
 The repository owner retains the existing pull_request ruleset bypass. It is an
 exceptional, auditable administrative/recovery override. It was retained by
-explicit #78 policy and is not part of routine contributor delivery or #78/#80
-validation.
+explicit #78 policy and is not part of routine contributor delivery.
+Owner-operated #78/#80 validation changes may use it when the override is
+intentional and recorded, but those merges do not prove human review.
 
 ## Railway development API controls
 
@@ -127,8 +128,10 @@ as an enforceable control.
 Issue [#88](https://github.com/TailTag-Game/tailtag/issues/88) owns the two
 behavioral exercises that remain after #78: a backend-irrelevant merge that
 must perform no executable API delivery work and a runtime-relevant merge that
-must use the normal protected contributor path. Run them sequentially so one
-merge cannot obscure the other's Railway evidence.
+must exercise the complete delivery chain. Run them sequentially so one merge
+cannot obscure the other's Railway evidence. The repository owner may use the
+documented administrative bypass for these validation changes; that override
+must be recorded and is not evidence of a reviewed normal-contributor merge.
 
 Recent runtime-relevant merges established the integration timing baseline.
 The timestamps distinguish Railway candidate creation from deployment execution
@@ -172,15 +175,12 @@ record shows executable delivery or downstream deployment/smoke activity,
 record the discovery timestamp and mark the exercise inconclusive. Do not use
 that result to complete #88 or the corresponding #78 acceptance criterion.
 
-PR #89 established the observed metadata-only `SKIPPED` behavior but did not
-qualify as the controlled exercise because GitHub recorded no human approval.
-The replacement documentation-only pull request that records this native
-watch-path boundary is the planned backend-irrelevant exercise. Its changed
-paths are outside `services/api/**`, the root backend CI relevance files, and
-the Railway runtime watch path. It must receive the stable
-`API foundation checks` job through the explicit successful skip path and a
-non-bot human approval before ordinary squash merge; its pushed `main` SHA must
-still receive the normal push workflow.
+PR #90 is the completed backend-irrelevant exercise. Its changed paths were
+outside `services/api/**`, the root backend CI relevance files, and the Railway
+runtime watch path. It received the stable `API foundation checks` job through
+the explicit successful skip path, was squash-merged using the documented owner
+administrative override, and produced the required exact-SHA Railway `SKIPPED`
+record without executable delivery or downstream deployment/smoke activity.
 
 ## Existing revision-correlation evidence
 
@@ -206,15 +206,29 @@ revision-attribution evidence only.
 
 ## Remaining #80 validation
 
-The final controlled exercise must use the normal protected path without the
-owner bypass and collect:
+The final owner-operated controlled exercise must record the administrative
+bypass and collect:
 
 ~~~text
-PR -> required API foundation checks -> approval -> squash merge
--> main push API foundation checks -> Railway WAITING
+PR -> required API foundation checks -> resolved conversations
+-> squash merge SHA X -> main push SHA X
+-> Railway candidate SHA X -> Railway WAITING
+-> same-SHA push API foundation checks succeed
 -> successful deployment and controlled migration -> readiness
--> deployment_status SHA/ref -> successful HTTP smoke
+-> successful deployment_status for TailTag / development
+   from railway-app[bot], matching SHA/ref X
+-> #77 smoke workflow triggered by that qualifying event -> successful HTTP smoke
 ~~~
+
+Separately, inspect the active ruleset to verify that normal contributors still
+require the stable check, one human approval, resolved conversations, and squash
+merge. The owner-operated delivery exercise does not prove human review.
+
+Live inspection on 2026-08-17 confirmed that `Protect main` remains active on
+the default branch and requires pull requests, one approving review, resolved
+review conversations, squash merge, and the stable `API foundation checks`
+status check. Its repository-user `pull_request` bypass remains the documented
+owner administrative override; code-owner review is not separately required.
 
 It must also capture a backend-irrelevant normal merge whose exact-SHA Railway
 evaluation is explicitly `SKIPPED` for `No changes to watched files` before any

@@ -100,10 +100,13 @@ resulting `main` commit before deploying it.
 The repository owner retains a pull-request-only ruleset bypass as an
 exceptional, auditable administrative or recovery override. It is outside the
 normal contributor delivery path and must not be used for routine development,
-delivery, or the #78/#80 validation. This design does not claim that a
-deliberately privileged administrator can never override GitHub protections;
-it ensures that a normal contributor cannot cause Railway development delivery
-while bypassing required pull-request CI and review.
+or delivery. Owner-operated #78/#80 validation changes may use the bypass when
+the override is intentional and recorded, but those merges validate delivery
+mechanics rather than the human-review path. The active ruleset remains the
+evidence that normal contributors require review. This design does not claim
+that a deliberately privileged administrator can never override GitHub
+protections; it ensures that a normal contributor cannot cause Railway
+development delivery while bypassing required pull-request CI and review.
 
 The dedicated GitHub Actions post-deploy smoke workflow reacts only when the
 observed Railway GitHub integration reports a `success` deployment status for
