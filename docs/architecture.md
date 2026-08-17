@@ -80,9 +80,10 @@ changes only to the root `Makefile`, `scripts/api_smoke.py`,
 create an unnecessary API deployment unless a later approved runtime build
 change makes one of those paths directly relevant.
 
-For a Git-triggered `main` commit outside that watch path, Railway may retain a
-metadata-only evaluation record with status `SKIPPED` and reason
-`No changes to watched files`. That record is the expected no-delivery result:
+For a Git-triggered `main` commit outside that watch path, the expected
+no-delivery result is an exact-SHA metadata-only Railway evaluation record with
+status `SKIPPED` and reason `No changes to watched files`. If that record is
+absent after the defined observation window, the exercise is inconclusive.
 Railway must not run an API build, pre-deploy migration, readiness check, or
 application deployment, and it must not create the GitHub deployment that
 would trigger the post-deploy smoke workflow.

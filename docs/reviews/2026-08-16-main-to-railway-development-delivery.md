@@ -158,10 +158,14 @@ recent candidate-creation delay. During that quiet window, do not merge a
 runtime-relevant change. Query the development API's Railway candidates and
 deployments, deployment events, GitHub deployment records, and qualifying smoke
 runs by exact merge SHA; the stable URL remaining unchanged is not evidence.
-The expected Railway result is a metadata-only record with status `SKIPPED` and
-reason `No changes to watched files`. No build, migration, readiness check,
-application deployment, Railway-created GitHub deployment, or post-deploy smoke
-workflow may occur.
+Acceptance requires an exact-SHA Railway metadata record with status `SKIPPED`
+and reason `No changes to watched files`; if it is absent when the observation
+window ends, mark the exercise inconclusive. No build, migration, readiness
+check, application deployment, Railway-created GitHub deployment, or
+deployment-triggered post-deploy smoke workflow may occur. Do not manually
+dispatch the post-deploy smoke workflow during the observation window. If a
+manual run occurs despite that restriction, record it separately and mark the
+exercise inconclusive rather than treating it as deployment evidence.
 
 If the exact-SHA Railway result changes after the observation ends, or any later
 record shows executable delivery or downstream deployment/smoke activity,
@@ -212,7 +216,7 @@ PR -> required API foundation checks -> approval -> squash merge
 -> deployment_status SHA/ref -> successful HTTP smoke
 ~~~
 
-It should also capture a backend-irrelevant normal merge whose Railway
+It must also capture a backend-irrelevant normal merge whose exact-SHA Railway
 evaluation is explicitly `SKIPPED` for `No changes to watched files` before any
 executable API delivery occurs. If a subsequent deployment supersedes the
 candidate before smoke requests complete, record that limitation rather than
