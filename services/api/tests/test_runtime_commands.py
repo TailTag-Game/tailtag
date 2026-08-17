@@ -93,6 +93,21 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
     assert "POSTGRES_PASSWORD=tailtag-local-password" in environment_template
 
 
+def test_production_image_records_oci_attribution() -> None:
+    """The deployable image identifies its repository and runtime purpose."""
+    dockerfile = (SERVICE_ROOT / "Dockerfile").read_text()
+    production = docker_stage(dockerfile, "production")
+
+    assert (
+        'org.opencontainers.image.source="https://github.com/TailTag-Game/tailtag"'
+        in production
+    )
+    assert 'org.opencontainers.image.title="TailTag API"' in production
+    assert (
+        'org.opencontainers.image.description="TailTag development API"' in production
+    )
+
+
 def test_repository_devcontainer_reuses_the_api_compose_topology() -> None:
     """The editor workspace adapts the API Compose stack without duplicating it."""
     devcontainer_root = REPOSITORY_ROOT / ".devcontainer"
