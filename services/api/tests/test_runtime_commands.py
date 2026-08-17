@@ -128,6 +128,9 @@ def test_production_image_records_oci_attribution() -> None:
     )
     assert labels["org.opencontainers.image.title"] == "TailTag API"
     assert labels["org.opencontainers.image.description"] == "TailTag development API"
+    assert labels["org.tailtag.delivery-probe"] == (
+        "wait-for-ci-trigger-refresh-2026-08-16"
+    )
 
 
 def test_repository_devcontainer_reuses_the_api_compose_topology() -> None:

@@ -215,7 +215,9 @@ PR -> required API foundation checks -> resolved conversations
 -> Railway candidate SHA X -> Railway WAITING
 -> same-SHA push API foundation checks succeed
 -> successful deployment and controlled migration -> readiness
--> deployment_status SHA/ref -> successful HTTP smoke
+-> successful deployment_status for TailTag / development
+   from railway-app[bot], matching SHA/ref X
+-> #77 smoke workflow triggered by that qualifying event -> successful HTTP smoke
 ~~~
 
 Separately, inspect the active ruleset to verify that normal contributors still
