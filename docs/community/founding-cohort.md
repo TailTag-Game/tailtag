@@ -15,3 +15,4 @@ Contributors may optionally add themselves below through their onboarding pull r
 | [RadiantCyrus](https://github.com/radiantcyrus)     | UI/UX and Graphic Design | 
 | [KaitoDarksnow](https://github.com/kaitodarksnow)   | Backend and Database |
 | [Falcon-Darkshadow](https://github.com/Falcon-Darkshadow) | QA/Testing and Community Operations |
+| [Striper](https://github.com/derek-cheung) | Mobile and frontend dev | 
