@@ -1,0 +1,88 @@
+name: TailTag API
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API foundation checks
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: tailtag
+          POSTGRES_USER: tailtag
+          POSTGRES_PASSWORD: tailtag
+        options: >-
+          --health-cmd "pg_isready -U tailtag -d tailtag"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgresql://tailtag:tailtag@localhost:5432/tailtag
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      DJANGO_SECRET_KEY: ci-not-a-real-secret
+      DJANGO_ALLOWED_HOSTS: localhost
+      DJANGO_CSRF_TRUSTED_ORIGINS: http://localhost
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Determine backend validation relevance
+        id: relevance
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            changed_files="$RUNNER_TEMP/backend-changed-files"
+            git diff --name-only -z "$PR_BASE_SHA" "$PR_HEAD_SHA" > "$changed_files"
+            python3 scripts/backend_ci_relevance.py \
+              --changed-files "$changed_files" \
+              --github-output "$GITHUB_OUTPUT"
+          else
+            python3 scripts/backend_ci_relevance.py \
+              --force-run \
+              --github-output "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Python
+        if: steps.relevance.outputs.backend_relevant == 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install locked uv
+        if: steps.relevance.outputs.backend_relevant == 'true'
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.9.17"
+          enable-cache: true
+
+      - name: Synchronize locked dependencies
+        if: steps.relevance.outputs.backend_relevant == 'true'
+        run: uv --directory services/api sync --all-groups --locked
+
+      - name: Run canonical API validation
+        if: steps.relevance.outputs.backend_relevant == 'true'
+        run: make api-check
+
+      - name: Report skipped backend validation
+        if: steps.relevance.outputs.backend_relevant != 'true'
+        run: echo "No backend-relevant changes detected; backend validation skipped."

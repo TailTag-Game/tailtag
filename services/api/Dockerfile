@@ -1,0 +1,55 @@
+FROM python:3.13-slim-bookworm AS development
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y git make \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:0.9.17 /uv /uvx /bin/
+
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
+
+WORKDIR /app
+
+RUN groupadd --system tailtag \
+    && useradd --system --gid tailtag --create-home tailtag \
+    && chown tailtag:tailtag /app
+
+COPY --chown=tailtag:tailtag pyproject.toml uv.lock ./
+USER tailtag
+RUN uv sync --locked --no-install-project
+
+COPY --chown=tailtag:tailtag . ./
+
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+
+
+FROM python:3.13-slim-bookworm AS production
+
+LABEL org.opencontainers.image.source="https://github.com/TailTag-Game/tailtag" \
+    org.opencontainers.image.title="TailTag API" \
+    org.opencontainers.image.description="TailTag development API" \
+    org.tailtag.delivery-probe="wait-for-ci-trigger-refresh-2026-08-16"
+
+COPY --from=ghcr.io/astral-sh/uv:0.9.17 /uv /uvx /bin/
+
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
+
+WORKDIR /app
+
+RUN groupadd --system tailtag \
+    && useradd --system --gid tailtag --create-home tailtag \
+    && chown tailtag:tailtag /app
+
+COPY --chown=tailtag:tailtag pyproject.toml uv.lock ./
+USER tailtag
+RUN uv sync --locked --no-dev --no-install-project
+
+COPY --chown=tailtag:tailtag . ./
+
+CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]

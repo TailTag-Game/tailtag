@@ -1,7 +1,7 @@
+# Mac Artifacts
 .DS_Store
 
-/AGENTS.md
-/CONTEXT.md
+# Coding Tools
 /\.codex/
 /.superpowers/
 /.vscode/

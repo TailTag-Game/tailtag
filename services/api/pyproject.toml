@@ -1,0 +1,40 @@
+[project]
+name = "tailtag-api"
+version = "0.1.0"
+description = "TailTag V0 API foundation"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "Django>=6.0,<6.1",
+    "djangorestframework>=3.16",
+    "psycopg[binary]>=3.2",
+    "drf-spectacular>=0.28",
+    "gunicorn>=23.0",
+    "python-dotenv>=1.1,<2",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14",
+    "pyright>=1.1",
+    "django-stubs>=5.2",
+    "djangorestframework-stubs>=3.16",
+    "pytest>=8.3",
+    "pytest-django>=4.11",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+target-version = "py313"
+
+[tool.ruff.lint.per-file-ignores]
+"**/migrations/*.py" = ["RUF012"]
+
+[tool.pyright]
+pythonVersion = "3.13"
+typeCheckingMode = "strict"
+include = ["accounts", "config", "fursuits", "health", "tests", "../../scripts/api_smoke.py", "../../scripts/backend_ci_relevance.py"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.local"

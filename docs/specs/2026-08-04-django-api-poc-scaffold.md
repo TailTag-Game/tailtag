@@ -3,6 +3,8 @@
 **Issue:** [#18 — Scaffold the Django API POC](https://github.com/TailTag-Game/tailtag/issues/18)  
 **Status:** Approved for implementation
 
+> **Historical POC notice:** This completed specification records the Django evaluation scaffold. It must not be used as the current V0 product or API specification. See [`docs/architecture.md`](../architecture.md) for the accepted current direction.
+
 ## Goal
 
 Create a reproducible, production-shaped foundation for the Django API proof of concept. Contributors must be able to install, run, test, type-check, lint, inspect health, and build the service with PostgreSQL before account or fursuit behavior exists.

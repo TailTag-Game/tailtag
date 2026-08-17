@@ -3,6 +3,8 @@
 **Issue:** [#19 — Implement authentication and fursuit management](https://github.com/TailTag-Game/tailtag/issues/19)  
 **Status:** Approved for implementation
 
+> **Historical POC notice:** This completed specification records POC-only authentication and fursuit behavior. It must not be used as the current V0 product or API specification. See [`docs/architecture.md`](../architecture.md) for the accepted current direction.
+
 ## Goal
 
 Implement the Django POC's complete, same-origin browser workflow: account signup and session access, plus authenticated ownership-scoped fursuit management. The work evaluates Django's security defaults, relational modeling, REST API ergonomics, typing, administration, and testing; it does not establish TailTag gameplay or final mobile authentication architecture.

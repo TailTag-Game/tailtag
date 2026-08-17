@@ -1,0 +1,5 @@
+services:
+  api:
+    command: sleep infinity
+    volumes:
+      - ../..:/workspaces/tailtag:cached
