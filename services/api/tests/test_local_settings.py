@@ -254,10 +254,19 @@ def test_local_settings_reject_clerk_values_when_authentication_is_disabled(
     ids=("jwt-key", "authorized-parties"),
 )
 def test_local_settings_require_each_enabled_clerk_value(
-    missing_name: str, extra_lines: tuple[str, ...]
+    missing_name: str,
+    extra_lines: tuple[str, ...],
+    valid_clerk_public_key: str,
 ) -> None:
     """Enabling Clerk is fail-closed until both verification inputs are present."""
-    with local_environment(local_dotenv(*extra_lines)):
+    required_inputs = extra_lines
+    if missing_name == "CLERK_AUTHORIZED_PARTIES":
+        required_inputs = (
+            *extra_lines,
+            f'CLERK_JWT_KEY="{dotenv_value(valid_clerk_public_key)}"',
+        )
+
+    with local_environment(local_dotenv(*required_inputs)):
         completed = import_local_settings(inspect_clerk_configuration=True)
 
     assert_sanitized_configuration_error(completed, missing_name, "")

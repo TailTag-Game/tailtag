@@ -233,11 +233,17 @@ def test_production_settings_reject_clerk_values_when_authentication_is_disabled
     ids=("jwt-key", "authorized-parties"),
 )
 def test_production_settings_require_each_enabled_clerk_value(
-    missing_name: str, additional_environment: Mapping[str, str]
+    missing_name: str,
+    additional_environment: Mapping[str, str],
+    valid_clerk_public_key: str,
 ) -> None:
     """Enabled production configuration fails closed until both inputs are present."""
+    required_inputs = dict(additional_environment)
+    if missing_name == "CLERK_AUTHORIZED_PARTIES":
+        required_inputs["CLERK_JWT_KEY"] = valid_clerk_public_key
+
     completed = run_settings_import(
-        {**VALID_ENVIRONMENT, **additional_environment},
+        {**VALID_ENVIRONMENT, **required_inputs},
         inspect_clerk_configuration=True,
     )
 
