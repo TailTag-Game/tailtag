@@ -6,11 +6,13 @@ import logging
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import FrozenInstanceError, fields
-from typing import NoReturn
+from typing import NoReturn, Protocol, cast
 
 import httpx
 import jwt
 import pytest
+import yaml
+from authentication import clerk as clerk_adapter
 from authentication.clerk import (
     ClerkSessionVerifier,
     ClerkVerificationConfiguration,
@@ -18,9 +20,13 @@ from authentication.clerk import (
 )
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from django.conf import settings
 from django.http import HttpRequest
+from django.test import Client
 from pytest import LogCaptureFixture, MonkeyPatch
 from rest_framework.exceptions import AuthenticationFailed
+
+from accounts.models import User
 
 DEFAULT_CLAIMS = {
     "sub": "user_test_subject",
@@ -29,6 +35,12 @@ DEFAULT_CLAIMS = {
 }
 GENERIC_FAILURE_DETAIL = AuthenticationFailed().detail
 TokenIssuer = Callable[..., str]
+
+
+class ClerkAuthenticationOptions(Protocol):
+    """The only Clerk SDK option observed by the session-token contract test."""
+
+    accepts_token: list[str]
 
 
 @pytest.fixture(scope="module")
@@ -129,8 +141,21 @@ def prohibit_network(monkeypatch: MonkeyPatch) -> None:
             "Clerk verification must not make an outbound HTTP request"
         )
 
-    monkeypatch.setattr(httpx.Client, "request", no_network)
-    monkeypatch.setattr(httpx.AsyncClient, "request", no_network)
+    for helper_name in (
+        "request",
+        "get",
+        "options",
+        "head",
+        "post",
+        "put",
+        "patch",
+        "delete",
+        "stream",
+    ):
+        monkeypatch.setattr(httpx, helper_name, no_network)
+    for client_type in (httpx.Client, httpx.AsyncClient):
+        monkeypatch.setattr(client_type, "request", no_network)
+        monkeypatch.setattr(client_type, "send", no_network)
 
 
 def test_verified_identity_is_subject_only_and_immutable() -> None:
@@ -152,6 +177,80 @@ def test_valid_session_token_returns_exact_subject_identity(
     identity = verifier.verify(request_with_authorization(f"Bearer {issue_token()}"))
 
     assert identity == VerifiedClerkIdentity(subject="user_test_subject")
+
+
+def test_verifier_explicitly_accepts_only_clerk_session_tokens(
+    verifier: ClerkSessionVerifier,
+    issue_token: TokenIssuer,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """The Clerk SDK call cannot silently fall back to its broader token defaults."""
+    captured_options: list[ClerkAuthenticationOptions] = []
+    authenticate_request = clerk_adapter.authenticate_request
+
+    def observe_authentication_options(*args: object, **kwargs: object) -> object:
+        options = kwargs.get("options")
+        if options is None:
+            assert len(args) >= 2
+            options = args[1]
+        captured_options.append(cast(ClerkAuthenticationOptions, options))
+        return authenticate_request(*args, **kwargs)
+
+    monkeypatch.setattr(
+        clerk_adapter,
+        "authenticate_request",
+        observe_authentication_options,
+    )
+
+    assert verifier.verify(
+        request_with_authorization(f"Bearer {issue_token()}")
+    ) == VerifiedClerkIdentity(subject="user_test_subject")
+    assert len(captured_options) == 1
+    assert captured_options[0].accepts_token == ["session_token"]
+
+
+def test_verification_does_not_mutate_request_or_resolve_a_tailtag_user(
+    verifier: ClerkSessionVerifier,
+    issue_token: TokenIssuer,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Request verification returns an external identity without account side effects."""
+
+    def prohibit_account_access(*_: object, **__: object) -> NoReturn:
+        raise AssertionError("request authentication must not access TailTag accounts")
+
+    for method_name in (
+        "get",
+        "filter",
+        "create",
+        "create_user",
+        "get_or_create",
+        "update_or_create",
+        "get_by_natural_key",
+    ):
+        monkeypatch.setattr(User.objects, method_name, prohibit_account_access)
+
+    request = request_with_authorization(f"Bearer {issue_token()}")
+    assert not hasattr(request, "user")
+
+    assert verifier.verify(request) == VerifiedClerkIdentity(
+        subject="user_test_subject"
+    )
+    assert not hasattr(request, "user")
+
+
+def test_authentication_boundary_adds_no_routes_or_global_drf_policy(
+    client: Client,
+) -> None:
+    """Request verification is not yet an endpoint or a global DRF policy change."""
+    schema_response = client.get("/api/schema/")
+
+    assert client.post("/api/auth/signup", data={}).status_code == 404
+    assert client.get("/api/fursuits").status_code == 404
+    assert schema_response.status_code == 200
+    assert set(yaml.safe_load(schema_response.content)["paths"]) == {"/api/schema/"}
+    assert "DEFAULT_AUTHENTICATION_CLASSES" not in settings.REST_FRAMEWORK
+    assert "DEFAULT_PERMISSION_CLASSES" not in settings.REST_FRAMEWORK
 
 
 @pytest.mark.parametrize(
