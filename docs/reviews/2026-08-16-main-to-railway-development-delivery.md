@@ -122,6 +122,55 @@ leave #78 open and escalate the captured SHA, Railway deployment ID, trigger
 ID, and timestamps to Railway support rather than treating `checkSuites: true`
 as an enforceable control.
 
+## #88 controlled evidence exercises
+
+Issue [#88](https://github.com/TailTag-Game/tailtag/issues/88) owns the two
+behavioral exercises that remain after #78: a backend-irrelevant merge that
+must create no API deployment and a runtime-relevant merge that must use the
+normal protected contributor path. Run them sequentially so one merge cannot
+obscure the other's Railway evidence.
+
+Recent runtime-relevant merges established the integration timing baseline.
+The timestamps distinguish Railway candidate creation from deployment execution
+and the later GitHub events:
+
+| Merge | Event | Timestamp (UTC) |
+| --- | --- | --- |
+| `4022f2635ce1f11f0f26493ea181cb694e5556f2` | Squash merge | 2026-08-16 20:04:35 |
+| same SHA | Railway candidate record created | 2026-08-16 20:04:37.298 |
+| same SHA | Railway and API push check suites created | 2026-08-16 20:04:37 / 20:04:38 |
+| same SHA | Railway-created GitHub deployment created | 2026-08-16 20:04:39 |
+| same SHA | Railway deployment execution began | 2026-08-16 20:05:22.069 |
+| same SHA | Railway deployment reached `SUCCESS` | By 2026-08-16 20:05:54.292; the original status-transition timestamp is no longer retained after removal |
+| same SHA | Successful GitHub `deployment_status` propagated | 2026-08-16 20:05:56 |
+| `de499ec96302ae84162d597865fb11927afe9957` | Squash merge | 2026-08-16 21:39:03 |
+| same SHA | Railway candidate record created | 2026-08-16 21:39:05.260 |
+| same SHA | Railway and API push check suites created | 2026-08-16 21:39:05 / 21:39:06 |
+| same SHA | Railway-created GitHub deployment created | 2026-08-16 21:39:08 |
+| same SHA | Railway deployment execution began | 2026-08-16 21:39:58.203 |
+| same SHA | Railway deployment reached `SUCCESS` | 2026-08-16 21:40:21.090 |
+| same SHA | Successful GitHub `deployment_status` propagated | 2026-08-16 21:40:24 |
+
+For the backend-irrelevant exercise, start observation at the merge time and
+wait for the same-SHA push workflow to reach a terminal state. Then continue
+checking for five additional minutes, which comfortably exceeds the longest
+recent candidate-creation delay. During that quiet window, do not merge a
+runtime-relevant change. Query the development API's Railway candidates and
+deployments plus GitHub deployment records by exact merge SHA; the stable URL
+remaining unchanged is not evidence.
+
+If an exact-merge-SHA Railway candidate, Railway deployment, or Railway-created
+GitHub deployment record appears after the observation ends, record the later
+discovery timestamp and mark the exercise inconclusive. Do not use that result
+to complete #88 or the corresponding #78 acceptance criterion.
+
+The documentation-only pull request that adds this protocol is the planned
+backend-irrelevant exercise. Its changed path is outside `services/api/**`,
+the root backend CI relevance files, and the Railway runtime watch path. Its PR
+must therefore receive the stable `API foundation checks` job through the
+explicit successful skip path while its pushed `main` SHA still receives the
+normal push workflow.
+
 ## Existing revision-correlation evidence
 
 The currently active Railway deployment provides a verified metadata chain for
