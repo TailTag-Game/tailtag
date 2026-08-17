@@ -79,8 +79,20 @@ then open the `api` service.
   wrong target. A deployment ID is optional for the latest applicable
   deployment and useful when correlating one failed attempt.
 
+Before any CLI diagnostic or recovery command, verify the linked context:
+
 ```bash
 railway status --json
+```
+
+Confirm that it reports workspace `Finn the Panther's Projects`, project
+`TailTag`, environment `development`, and service `api`. Stop if any target
+differs or is missing. The service and environment selectors in the commands
+below only narrow the target within a project; they do not make a stale linked
+project safe. Resolve the project link with a maintainer before continuing
+rather than guessing a project ID or name.
+
+```bash
 railway deployment list --service api --environment development --json
 railway logs --service api --environment development --build --lines 100 <deployment-id>
 railway logs --service api --environment development --deployment --lines 100 <deployment-id>
@@ -141,7 +153,8 @@ Before redeploying:
 
 In Railway, open `api` **→ Deployments**, find the intended deployment, open
 its three-dot action menu, and choose **Redeploy**. For the latest deployment,
-the CLI equivalent is:
+the CLI equivalent is below. Repeat the linked-context preflight immediately
+before running it.
 
 ```bash
 railway redeploy --service api --environment development
