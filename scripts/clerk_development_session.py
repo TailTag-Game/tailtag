@@ -21,6 +21,7 @@ from urllib.parse import SplitResult, urlsplit, urlunsplit
 import httpx
 from clerk_backend_api import Clerk
 from clerk_backend_api.models import CreateSignInTokenRequestBody
+from clerk_backend_api.utils import BackoffStrategy, RetryConfig
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from django.http import HttpRequest
@@ -77,8 +78,10 @@ class ClerkDevelopmentSession:
     _http_client: httpx.Client | None = field(default=None, repr=False)
     _fapi_authority: str | None = field(default=None, repr=False)
     _ticket_id: str | None = field(default=None, repr=False)
+    _ticket_cleanup_uncertain: bool = False
     _ticket_consumed: bool = False
     _session_id: str | None = field(default=None, repr=False)
+    _session_cleanup_uncertain: bool = False
     _token: str | None = field(default=None, repr=False)
 
     @classmethod
@@ -134,6 +137,7 @@ class ClerkDevelopmentSession:
         ticket_url = getattr(ticket, "url", None)
         if isinstance(ticket_id, str) and ticket_id:
             self._ticket_id = ticket_id
+            self._ticket_cleanup_uncertain = False
         if (
             not isinstance(ticket_value, str)
             or not ticket_value
@@ -148,10 +152,14 @@ class ClerkDevelopmentSession:
         try:
             client, opener, dev_token = self._run_frontend_ticket_flow(ticket_value)
             self._ticket_consumed = True
-            session_id = _completed_sign_in_session_id(client, self._user_id)
+            self._session_cleanup_uncertain = True
+            session_id = _completed_sign_in_created_session_id(client)
             if session_id is None:
                 raise ValueError
             self._session_id = session_id
+            if not _is_owned_active_session(client, self._user_id, session_id):
+                raise ValueError
+            self._session_cleanup_uncertain = False
             token = self._request_session_token(opener, dev_token, session_id)
         except ClerkFlowFailure:
             raise
@@ -170,11 +178,15 @@ class ClerkDevelopmentSession:
                 self._transport.sessions.revoke(session_id=self._session_id)
             except Exception:  # noqa: BLE001 - cleanup must attempt both resources
                 failed = True
+        elif self._session_cleanup_uncertain:
+            failed = True
         if self._ticket_id is not None and not self._ticket_consumed:
             try:
                 self._transport.sign_in_tokens.revoke(sign_in_token_id=self._ticket_id)
             except Exception:  # noqa: BLE001 - cleanup must attempt both resources
                 failed = True
+        elif self._ticket_cleanup_uncertain:
+            failed = True
         if not _close_client(self._http_client):
             failed = True
         self._http_client = None
@@ -182,6 +194,7 @@ class ClerkDevelopmentSession:
             raise ClerkFlowFailure(ClerkFlowStage.CLEANUP)
 
     def _create_ticket(self) -> object:
+        self._ticket_cleanup_uncertain = True
         try:
             return cast(
                 object,
@@ -189,7 +202,12 @@ class ClerkDevelopmentSession:
                     request=CreateSignInTokenRequestBody(
                         user_id=self._user_id,
                         expires_in_seconds=SIGN_IN_TICKET_LIFETIME_SECONDS,
-                    )
+                    ),
+                    retries=RetryConfig(
+                        strategy="none",
+                        backoff=BackoffStrategy(0, 0, 1, 0),
+                        retry_connection_errors=False,
+                    ),
                 ),
             )
         except Exception:  # noqa: BLE001 - third-party errors are intentionally opaque
@@ -371,9 +389,7 @@ def _field(payload: dict[str, object], name: str) -> object:
     return payload.get(name)
 
 
-def _completed_sign_in_session_id(
-    client: dict[str, object], user_id: str
-) -> str | None:
+def _completed_sign_in_created_session_id(client: dict[str, object]) -> str | None:
     sign_in = client.get("sign_in")
     if not isinstance(sign_in, dict):
         return None
@@ -385,9 +401,15 @@ def _completed_sign_in_session_id(
         or not created_session_id
     ):
         return None
+    return created_session_id
+
+
+def _is_owned_active_session(
+    client: dict[str, object], user_id: str, created_session_id: str
+) -> bool:
     sessions = client.get("sessions")
     if not isinstance(sessions, list):
-        return None
+        return False
     for session in cast(list[object], sessions):
         if not isinstance(session, dict):
             continue
@@ -398,8 +420,8 @@ def _completed_sign_in_session_id(
             continue
         session_id = session_data.get("id")
         if session_id == created_session_id:
-            return created_session_id
-    return None
+            return True
+    return False
 
 
 def _close_client(client: httpx.Client | None) -> bool:
