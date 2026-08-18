@@ -3,8 +3,8 @@
 `services/api` is TailTag's V0 Django API foundation. It provides Django
 administration, PostgreSQL-backed liveness/readiness checks, and OpenAPI
 schema/documentation infrastructure. It also defines TailTag's application-user
-identity and Clerk request verification. It intentionally does not implement
-Clerk-to-user request resolution, player profiles, or gameplay APIs.
+identity, verifies Clerk requests, and resolves verified identities for DRF
+requests. It intentionally does not implement player profiles or gameplay APIs.
 
 The service uses Python 3.13, Django, Django REST Framework, PostgreSQL 17,
 `uv`, Ruff, strict Pyright, pytest, drf-spectacular, Gunicorn, and Docker. This is
@@ -49,10 +49,18 @@ different responsibilities:
 - No email address, username, display name, avatar, biography, profile state, or
   gameplay data is stored on the application-user model.
 
-Issue #96 verifies Clerk requests but does not resolve a TailTag user. Issue `#97`
-alone resolves or provisions `accounts.User` and creates final DRF
-authentication; only then will authenticated DRF code receive the resolved user
-as `request.user`.
+When Clerk request authentication is enabled, the completed request flow is:
+
+```text
+Bearer token -> verified Clerk subject -> exact TailTag user resolution or
+minimal first-use provisioning -> accounts.User as request.user
+```
+
+The application-facing contract is provider-neutral: successful DRF
+authentication exposes the resolved `accounts.User` as `request.user` and
+leaves `request.auth` as `None`. Request code must use the TailTag application
+identity rather than treating an external provider identity as a domain foreign
+key.
 
 Model declarations must refer to the configured user model, never to a Clerk ID:
 
@@ -121,7 +129,7 @@ and host-installed PostgreSQL is not a supported contributor workflow. If `.env`
 is absent or `DATABASE_URL` is invalid, local Django stops with a sanitized
 configuration error that does not print credentials.
 
-## Clerk request-authentication configuration (#96)
+## Clerk request authentication and identity resolution (#96/#97)
 
 Clerk request authentication is disabled by default. Set
 `CLERK_AUTHENTICATION_ENABLED=true` only when the following complete
@@ -149,10 +157,38 @@ discriminator and nonempty `sub`. The resulting
 `VerifiedClerkIdentity` is immutable and exposes only the subject; it never
 exposes `sid` or raw claims downstream.
 
-This issue deliberately stops at request verification. Issue #97 resolves or
-provisions `accounts.User` and creates the final DRF authentication. Issue #98
-owns protected-endpoint `401` proof, and issue #100 owns Railway development
-enablement.
+When enabled, `TailTagAuthentication` is the sole global DRF authentication
+class. It verifies a supplied credential, passes only the verified subject to
+the resolver, and returns the resolved application user with `request.auth` set
+to `None`. Authentication is global, but authorization is not: this change adds
+no global permission class, so existing `AllowAny` views remain public for
+headerless requests. A supplied invalid Bearer credential still fails
+authentication before permissions run.
+
+When authentication is explicitly disabled, the authenticator does no Clerk
+verification or database resolution and the request remains anonymous. Enabled
+authentication still requires the complete configuration above; missing or
+invalid enabled configuration fails closed while settings load rather than
+silently making requests anonymous.
+
+The resolver matches the verified subject exactly and, on first use, provisions
+only the minimal application user. PostgreSQL's Clerk-ID uniqueness constraint
+is the authoritative guard for simultaneous first use: the resolver recovers
+only the expected duplicate-insert race and returns the row created by the
+winning request. Other integrity failures are not treated as successful
+provisioning.
+
+A conservatively classified transient persistence dependency failure becomes a
+fixed generic `503 Service Unavailable` response. Unexpected persistence,
+invariant, programming, schema, integrity, or unclassified database failures
+remain on the generic `500` path. Public responses do not expose credentials,
+external subjects, SQL, connection information, constraint details, or provider
+internals.
+
+Issue #98 owns the protected current-user endpoint and permission convention.
+Issue #99 owns reusable and live developer tooling. Issue #100 owns Railway
+validation. This README makes no claim about profiles, provider metadata sync,
+account lifecycle, webhooks, or production operations.
 
 ## Canonical backend commands
 
