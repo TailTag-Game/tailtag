@@ -138,6 +138,34 @@ def test_distinct_and_case_distinct_subjects_get_distinct_users() -> None:
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("first_subject", "second_subject"),
+    (
+        ("opaque_subject", " opaque_subject "),
+        ("opaque_caf\u00e9", "opaque_cafe\u0301"),
+    ),
+    ids=("surrounding-whitespace", "canonically-distinct-unicode"),
+)
+def test_exact_subject_variants_provision_distinct_stable_users(
+    first_subject: str, second_subject: str
+) -> None:
+    first = resolve_application_user(first_subject)
+    second = resolve_application_user(second_subject)
+
+    assert first.pk == resolve_application_user(first_subject).pk
+    assert second.pk == resolve_application_user(second_subject).pk
+    assert first.pk != second.pk
+    assert {first.clerk_user_id, second.clerk_user_id} == {
+        first_subject,
+        second_subject,
+    }
+    assert (
+        User.objects.filter(clerk_user_id__in=(first_subject, second_subject)).count()
+        == 2
+    )
+
+
+@pytest.mark.django_db
 def test_existing_administrative_user_is_returned_without_any_mutation() -> None:
     existing = User.objects.create_superuser(
         "user_existing_admin", password="deliberately-local-test-password"
