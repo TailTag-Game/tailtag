@@ -12,6 +12,7 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_smoke.py"
+AUTH_SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_auth_smoke.py"
 CI_RELEVANCE_SCRIPT = REPOSITORY_ROOT / "scripts" / "backend_ci_relevance.py"
 
 
@@ -109,6 +110,7 @@ def test_help_lists_the_canonical_backend_commands() -> None:
         "api-migrations-check": "Check for migration drift without creating migrations.",
         "api-shell": "Open the Django shell; requires configured PostgreSQL.",
         "api-smoke": "HTTP-check a running API (API_BASE_URL defaults to 127.0.0.1:8000).",
+        "api-auth-smoke": "Authenticated smoke test with an interactive Clerk Development secret.",
     }
     for target, description in expected_commands.items():
         assert f"make {target}" in completed.stdout
@@ -137,6 +139,9 @@ def test_check_composes_every_required_backend_validation() -> None:
     assert "docker compose" not in completed.stdout
     assert "python manage.py migrate" not in completed.stdout
     assert "python manage.py makemigrations" in completed.stdout
+    assert "api-auth-smoke" not in completed.stdout
+    assert "Clerk Development secret:" not in completed.stdout
+    assert "CLERK_SECRET" not in completed.stdout
 
 
 def test_strict_type_check_includes_the_ci_relevance_helper() -> None:
@@ -166,6 +171,33 @@ def test_lifecycle_and_schema_changes_remain_explicit() -> None:
 
     assert "python manage.py migrate" in run_make("-n", "api-migrate").stdout
     assert "python manage.py makemigrations" in run_make("-n", "api-migrations").stdout
+
+
+def test_authenticated_smoke_is_a_separate_locked_atomic_command() -> None:
+    """The only live Clerk path is explicit and never piggybacks on ordinary work."""
+    completed = run_make("-n", "api-auth-smoke")
+
+    assert completed.returncode == 0, completed.stderr
+    assert (
+        "uv run --project services/api --locked --no-sync python -m scripts.api_auth_smoke"
+        in completed.stdout
+    )
+    assert str(AUTH_SMOKE_SCRIPT) not in run_make("-n", "api-smoke").stdout
+
+
+def test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free() -> None:
+    """CI must not gain a secret, prompt, or live authenticated smoke dependency."""
+    ordinary = run_make("-n", "api-smoke").stdout
+    api_check = run_make("-n", "api-check").stdout
+    workflow_text = "\n".join(
+        path.read_text()
+        for path in (REPOSITORY_ROOT / ".github" / "workflows").glob("*.yml")
+    )
+
+    for text in (ordinary, api_check, workflow_text):
+        assert "api-auth-smoke" not in text
+        assert "Clerk Development secret:" not in text
+        assert "CLERK_SECRET" not in text
 
 
 def test_devcontainer_django_commands_derive_the_compose_database_url() -> None:
