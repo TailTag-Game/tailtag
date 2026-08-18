@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 
 import httpx
 import pytest
+from _pytest.capture import CaptureResult
 from clerk_backend_api.utils import RetryConfig
 from pytest import MonkeyPatch
 
@@ -187,6 +188,27 @@ class _FrontendOpener:
         return _FrontendResponse(payload, request.full_url)
 
 
+@dataclass
+class _MalformedJsonResponse:
+    url: str
+    status: int = 200
+
+    def read(self) -> bytes:
+        return b'{"raw_provider_body":"sk_test_synthetic_credential_material'
+
+    def getcode(self) -> int:
+        return self.status
+
+    def geturl(self) -> str:
+        return self.url
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+
 class _OrchestrationRuntime:
     """Offline command boundary that exposes only one already-validated session."""
 
@@ -209,6 +231,38 @@ class _OrchestrationRuntime:
 
     def request_current_user(self, *, base_url: str, bearer_token: str) -> None:
         raise AssertionError("failed ticket/session ownership must not call the API")
+
+
+def run_main_with_session(
+    monkeypatch: MonkeyPatch,
+    session: development_session.ClerkDevelopmentSession,
+) -> int:
+    """Exercise the command's public stdout/stderr boundary with an offline session."""
+
+    def default_runtime() -> _OrchestrationRuntime:
+        return _OrchestrationRuntime(session)
+
+    monkeypatch.setattr(auth_smoke, "DefaultSmokeRuntime", default_runtime)
+    monkeypatch.setattr(sys, "argv", ["api_auth_smoke.py"])
+    monkeypatch.setenv("API_BASE_URL", "http://127.0.0.1:8000")
+    monkeypatch.setenv("CLERK_SMOKE_USER_ID", SYNTHETIC_USER)
+    monkeypatch.delenv("TAILTAG_DEVELOPMENT_API_BASE_URL", raising=False)
+    return auth_smoke.main()
+
+
+def assert_fapi_failure_output_is_sanitized(
+    captured: CaptureResult[str],
+) -> None:
+    rendered = captured.out + captured.err
+    for sensitive_value in (
+        SYNTHETIC_SECRET,
+        SYNTHETIC_TICKET,
+        SYNTHETIC_NEW_SESSION,
+        "https://development-synthetic.clerk.accounts.dev/sensitive-path",
+        "raw_provider_body",
+        "503",
+    ):
+        assert sensitive_value not in rendered
 
 
 def test_actual_make_entry_point_imports_and_rejects_an_invalid_target_first() -> None:
@@ -307,6 +361,90 @@ def test_invalid_prompted_credential_reports_its_exact_sanitized_stage() -> None
 
     assert outcome.primary_stage == "credential form invalid"
     assert not outcome.cleanup_incomplete
+
+
+@pytest.mark.parametrize("failure", ("http", "malformed-json", "missing-id"))
+def test_development_browser_failures_have_one_sanitized_public_stage(
+    monkeypatch: MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    failure: str,
+) -> None:
+    """Dev-browser details never collapse into the generic ticket-flow outcome."""
+    session, _transport = validated_session(_Ticket())
+
+    class DevelopmentBrowserFailureOpener:
+        def open(
+            self, request: urllib.request.Request, **_kwargs: object
+        ) -> _FrontendResponse | _MalformedJsonResponse:
+            assert urlsplit(request.full_url).path == "/v1/dev_browser"
+            if failure == "http":
+                return _FrontendResponse(
+                    {"raw_provider_body": SYNTHETIC_SECRET},
+                    request.full_url,
+                    status=503,
+                )
+            if failure == "malformed-json":
+                return _MalformedJsonResponse(request.full_url)
+            return _FrontendResponse(
+                {"raw_provider_body": SYNTHETIC_SECRET}, request.full_url
+            )
+
+    opener = DevelopmentBrowserFailureOpener()
+
+    def build_opener(
+        *_handlers: urllib.request.BaseHandler,
+    ) -> DevelopmentBrowserFailureOpener:
+        return opener
+
+    monkeypatch.setattr(urllib.request, "build_opener", build_opener)
+
+    assert run_main_with_session(monkeypatch, session) == 1
+    captured = capsys.readouterr()
+
+    assert captured.out == ""
+    assert_fapi_failure_output_is_sanitized(captured)
+    assert captured.err == "FAIL provider development-browser flow unsuccessful\n"
+
+
+def test_client_initialization_failure_has_one_sanitized_public_stage(
+    monkeypatch: MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """After a valid dev-browser ID, client initialization has its own failure stage."""
+    session, _transport = validated_session(_Ticket())
+
+    class ClientInitializationFailureOpener:
+        def open(
+            self, request: urllib.request.Request, **_kwargs: object
+        ) -> _FrontendResponse:
+            path = urlsplit(request.full_url).path
+            if path == "/v1/dev_browser":
+                return _FrontendResponse(
+                    {"id": "dev_browser_synthetic"}, request.full_url
+                )
+            if path == "/v1/client":
+                raise OSError(
+                    f"{SYNTHETIC_SECRET} {SYNTHETIC_TICKET} "
+                    f"{SYNTHETIC_NEW_SESSION} "
+                    "https://development-synthetic.clerk.accounts.dev/sensitive-path"
+                )
+            raise AssertionError(f"unexpected Frontend API path {path}")
+
+    opener = ClientInitializationFailureOpener()
+
+    def build_opener(
+        *_handlers: urllib.request.BaseHandler,
+    ) -> ClientInitializationFailureOpener:
+        return opener
+
+    monkeypatch.setattr(urllib.request, "build_opener", build_opener)
+
+    assert run_main_with_session(monkeypatch, session) == 1
+    captured = capsys.readouterr()
+
+    assert captured.out == ""
+    assert_fapi_failure_output_is_sanitized(captured)
+    assert captured.err == "FAIL provider client initialization unsuccessful\n"
 
 
 def test_malformed_ticket_after_a_valid_id_is_still_revoked_during_cleanup() -> None:
