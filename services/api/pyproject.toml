@@ -37,7 +37,7 @@ target-version = "py313"
 [tool.pyright]
 pythonVersion = "3.13"
 typeCheckingMode = "strict"
-include = ["accounts", "config", "fursuits", "health", "tests", "../../scripts/api_smoke.py", "../../scripts/backend_ci_relevance.py"]
+include = ["accounts", "authentication", "config", "fursuits", "health", "tests", "../../scripts/api_smoke.py", "../../scripts/backend_ci_relevance.py"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.local"
