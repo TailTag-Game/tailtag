@@ -607,9 +607,9 @@ def test_main_uses_hidden_tty_prompt_with_exact_copy_and_never_echoes_secret(
     monkeypatch.setattr(sys, "stderr", TtyStream())
 
     assert fresh_module.main() == 0
-    assert calls[0] == secret
-    assert calls[1] == "Clerk Development secret:"
-    assert calls[2] is sys.stderr
+    assert calls[0] == "Clerk Development secret:"
+    assert calls[1] is sys.stderr
+    assert calls[2] == secret
     rendered = capsys.readouterr()
     assert secret not in rendered.out
     assert secret not in rendered.err
