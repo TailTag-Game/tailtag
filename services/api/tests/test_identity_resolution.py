@@ -139,7 +139,8 @@ def test_existing_administrative_user_is_returned_without_any_mutation() -> None
 
     assert resolved.pk == existing.pk
     assert {
-        field.name: getattr(existing, field.name) for field in User._meta.concrete_fields
+        field.name: getattr(existing, field.name)
+        for field in User._meta.concrete_fields
     } == before
     assert existing.is_staff
     assert existing.is_superuser
@@ -171,7 +172,9 @@ def test_simultaneous_first_resolution_uses_the_database_unique_guard(
             connection.close()
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        returned_primary_keys = list(executor.map(lambda _: resolve_in_worker(), range(2)))
+        returned_primary_keys = list(
+            executor.map(lambda _: resolve_in_worker(), range(2))
+        )
 
     winning_primary_key = User.objects.get(clerk_user_id=subject).pk
     assert set(returned_primary_keys) == {winning_primary_key}
@@ -284,7 +287,9 @@ def test_integrity_error_without_the_expected_structured_metadata_propagates(
 ) -> None:
     original = IntegrityError("test-only integrity sentinel")
     error = original if cause is None else _with_cause(original, cause)
-    monkeypatch.setattr(User.objects, "create_user", lambda *_args, **_kwargs: _raise(error))
+    monkeypatch.setattr(
+        User.objects, "create_user", lambda *_args, **_kwargs: _raise(error)
+    )
 
     with pytest.raises(IntegrityError) as raised:
         resolve_application_user("user_bad_integrity_metadata")
@@ -296,8 +301,12 @@ def test_integrity_error_without_the_expected_structured_metadata_propagates(
 def test_expected_unique_metadata_without_a_winner_reraises_the_original_failure(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    original = _with_cause(IntegrityError("test-only original failure"), _expected_unique_violation())
-    monkeypatch.setattr(User.objects, "create_user", lambda *_args, **_kwargs: _raise(original))
+    original = _with_cause(
+        IntegrityError("test-only original failure"), _expected_unique_violation()
+    )
+    monkeypatch.setattr(
+        User.objects, "create_user", lambda *_args, **_kwargs: _raise(original)
+    )
 
     with pytest.raises(IntegrityError) as raised:
         resolve_application_user("user_missing_winner")
