@@ -8,8 +8,19 @@ import sys
 from collections.abc import Mapping
 
 import pytest
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
+
+from tests.clerk_settings_contract import (
+    INVALID_AUTHORIZED_PARTY_ORIGIN_IDS,
+    INVALID_AUTHORIZED_PARTY_ORIGINS,
+    assert_sanitized_configuration_error,
+    assert_unsupported_public_key_loader_is_sanitized,
+)
+from tests.clerk_settings_contract import (
+    non_rsa_public_key as _non_rsa_public_key,  # noqa: F401  # pyright: ignore[reportUnusedImport]
+)
+from tests.clerk_settings_contract import (
+    valid_clerk_public_key as _valid_clerk_public_key,  # noqa: F401  # pyright: ignore[reportUnusedImport]
+)
 
 REQUIRED_SETTINGS = (
     "DATABASE_URL",
@@ -61,48 +72,6 @@ def run_settings_import(
         text=True,
         check=False,
     )
-
-
-@pytest.fixture(scope="module")
-def valid_clerk_public_key() -> str:
-    """Create an ephemeral RSA public key suitable only for settings tests."""
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    return (
-        private_key.public_key()
-        .public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        .decode("ascii")
-    )
-
-
-@pytest.fixture(scope="module")
-def non_rsa_public_key() -> str:
-    """Create an ephemeral PEM public key that cannot become a JWT trust anchor."""
-    private_key = ec.generate_private_key(ec.SECP256R1())
-    return (
-        private_key.public_key()
-        .public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        .decode("ascii")
-    )
-
-
-def assert_sanitized_configuration_error(
-    completed: subprocess.CompletedProcess[str],
-    name: str | tuple[str, ...],
-    supplied_value: str,
-) -> None:
-    """Configuration errors may identify variables but must not disclose values."""
-    assert completed.returncode != 0
-    assert "ImproperlyConfigured" in completed.stderr
-    names = (name,) if isinstance(name, str) else name
-    assert any(candidate in completed.stderr for candidate in names)
-    if supplied_value:
-        assert supplied_value not in completed.stderr
 
 
 @pytest.mark.parametrize("missing_variable", REQUIRED_SETTINGS)
@@ -275,32 +244,8 @@ def test_production_settings_reject_malformed_or_non_rsa_jwt_public_key(
 
 @pytest.mark.parametrize(
     "origins",
-    (
-        "",
-        " , ",
-        "ftp://app.example.test",
-        "https://app.example.test/path",
-        "https://user:password@app.example.test",
-        "https://app.example.test?unexpected=query",
-        "https://app.example.test?",
-        "https://app.example.test#unexpected-fragment",
-        "https://app.example.test#",
-        r"https://app.example.test\not-a-path",
-        "https://exa mple.test",
-    ),
-    ids=(
-        "empty",
-        "whitespace-only",
-        "unsupported-scheme",
-        "non-root-path",
-        "credentials",
-        "query",
-        "empty-query",
-        "fragment",
-        "empty-fragment",
-        "backslash-authority-or-path",
-        "space-in-hostname",
-    ),
+    INVALID_AUTHORIZED_PARTY_ORIGINS,
+    ids=INVALID_AUTHORIZED_PARTY_ORIGIN_IDS,
 )
 def test_production_settings_reject_empty_or_invalid_authorized_party_origins(
     valid_clerk_public_key: str, origins: str
@@ -317,6 +262,13 @@ def test_production_settings_reject_empty_or_invalid_authorized_party_origins(
     )
 
     assert_sanitized_configuration_error(completed, "CLERK_AUTHORIZED_PARTIES", origins)
+
+
+def test_production_settings_sanitize_unsupported_public_key_loader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Production Clerk settings map loader-specific crypto errors to the JWT key."""
+    assert_unsupported_public_key_loader_is_sanitized(monkeypatch)
 
 
 def test_production_settings_expose_immutable_clerk_configuration_when_enabled(
