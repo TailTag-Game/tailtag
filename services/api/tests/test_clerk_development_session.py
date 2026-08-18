@@ -245,15 +245,11 @@ class SuccessfulFrontendOpener:
             "object": "client",
             "id": "client_synthetic",
             "sessions": [session],
-            "sign_in": sign_in,
         }
         responses = {
-            "/v1/dev_browser": {
-                "object": "dev_browser",
-                "token": "dev_browser_synthetic",
-            },
+            "/v1/dev_browser": {"id": "dev_browser_synthetic"},
             "/v1/client": client,
-            "/v1/client/sign_ins": client,
+            "/v1/client/sign_ins": {"response": sign_in, "client": client},
             "/v1/client/sessions/sess_synthetic_sensitive_identifier/tokens": {
                 "object": "token",
                 "jwt": self.token,
@@ -262,7 +258,7 @@ class SuccessfulFrontendOpener:
         if path not in responses:
             raise AssertionError(f"unsupported Frontend API operation: {path}")
         response = responses[path]
-        return _JsonResponse({**response, "response": response}, url=request.full_url)
+        return _JsonResponse(response, url=request.full_url)
 
 
 class OfficialEnvelopeFrontendOpener:

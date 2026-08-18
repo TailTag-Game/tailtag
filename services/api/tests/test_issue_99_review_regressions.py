@@ -184,7 +184,7 @@ class _FrontendOpener:
             payload = self._responses[path]
         except KeyError as error:
             raise AssertionError(f"unexpected FAPI path {path}") from error
-        return _FrontendResponse({"response": payload}, request.full_url)
+        return _FrontendResponse(payload, request.full_url)
 
 
 class _OrchestrationRuntime:
@@ -365,13 +365,14 @@ def test_created_session_id_is_revoked_when_ticket_response_omits_sessions(
     session, transport = validated_session(_Ticket())
     opener = _FrontendOpener(
         {
-            "/v1/dev_browser": {"token": "dev_browser_synthetic"},
+            "/v1/dev_browser": {"id": "dev_browser_synthetic"},
             "/v1/client": {"sessions": []},
             "/v1/client/sign_ins": {
-                "sign_in": {
+                "response": {
                     "status": "complete",
                     "created_session_id": SYNTHETIC_NEW_SESSION,
-                }
+                },
+                "client": {},
             },
         }
     )
@@ -396,11 +397,11 @@ def test_missing_created_session_id_makes_cleanup_incomplete_after_ticket_sign_i
     session, transport = validated_session(_Ticket())
     opener = _FrontendOpener(
         {
-            "/v1/dev_browser": {"token": "dev_browser_synthetic"},
+            "/v1/dev_browser": {"id": "dev_browser_synthetic"},
             "/v1/client": {"sessions": []},
             "/v1/client/sign_ins": {
-                "sign_in": {"status": "complete"},
-                "sessions": [],
+                "response": {"status": "complete"},
+                "client": {"sessions": []},
             },
         }
     )
@@ -427,19 +428,21 @@ def test_ticket_is_consumed_before_later_session_token_validation_failure(
     session, transport = validated_session(_Ticket())
     opener = _FrontendOpener(
         {
-            "/v1/dev_browser": {"token": "dev_browser_synthetic"},
+            "/v1/dev_browser": {"id": "dev_browser_synthetic"},
             "/v1/client": {"sessions": []},
             "/v1/client/sign_ins": {
-                "sessions": [
-                    {
-                        "id": SYNTHETIC_NEW_SESSION,
-                        "status": "active",
-                        "user_id": SYNTHETIC_USER,
-                    }
-                ],
-                "sign_in": {
+                "response": {
                     "status": "complete",
                     "created_session_id": SYNTHETIC_NEW_SESSION,
+                },
+                "client": {
+                    "sessions": [
+                        {
+                            "id": SYNTHETIC_NEW_SESSION,
+                            "status": "active",
+                            "user_id": SYNTHETIC_USER,
+                        }
+                    ]
                 },
             },
             f"/v1/client/sessions/{SYNTHETIC_NEW_SESSION}/tokens": {},
@@ -466,24 +469,26 @@ def test_created_session_id_prevents_an_older_active_session_from_being_used_or_
     session, transport = validated_session(_Ticket())
     opener = _FrontendOpener(
         {
-            "/v1/dev_browser": {"token": "dev_browser_synthetic"},
+            "/v1/dev_browser": {"id": "dev_browser_synthetic"},
             "/v1/client": {"sessions": []},
             "/v1/client/sign_ins": {
-                "sessions": [
-                    {
-                        "id": SYNTHETIC_OLD_SESSION,
-                        "status": "active",
-                        "user_id": SYNTHETIC_USER,
-                    },
-                    {
-                        "id": SYNTHETIC_NEW_SESSION,
-                        "status": "active",
-                        "user_id": SYNTHETIC_USER,
-                    },
-                ],
-                "sign_in": {
+                "response": {
                     "status": "complete",
                     "created_session_id": SYNTHETIC_NEW_SESSION,
+                },
+                "client": {
+                    "sessions": [
+                        {
+                            "id": SYNTHETIC_OLD_SESSION,
+                            "status": "active",
+                            "user_id": SYNTHETIC_USER,
+                        },
+                        {
+                            "id": SYNTHETIC_NEW_SESSION,
+                            "status": "active",
+                            "user_id": SYNTHETIC_USER,
+                        },
+                    ]
                 },
             },
             f"/v1/client/sessions/{SYNTHETIC_NEW_SESSION}/tokens": {
@@ -550,9 +555,12 @@ def test_frontend_api_http_disables_environment_proxies_and_redirects(
         captured.append(handlers)
         return _FrontendOpener(
             {
-                "/v1/dev_browser": {"token": "dev_browser_synthetic"},
+                "/v1/dev_browser": {"id": "dev_browser_synthetic"},
                 "/v1/client": {"sessions": []},
-                "/v1/client/sign_ins": {"sessions": []},
+                "/v1/client/sign_ins": {
+                    "response": {"status": "complete"},
+                    "client": {"sessions": []},
+                },
             }
         )
 
