@@ -8,18 +8,19 @@ from typing import Any, Protocol, cast
 import pytest
 import yaml
 from django.conf import settings
-from django.http import HttpRequest
 from django.test import Client, override_settings
 from django.urls import resolve
 from pytest import MonkeyPatch
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.test import APIClient
 
 from accounts.models import User
 from authentication.clerk import (
-    ClerkSessionVerifier,
     ClerkVerificationConfiguration,
-    VerifiedClerkIdentity,
+)
+from tests.authentication_support import (
+    create_test_user,
+    fake_clerk_session_verification,
+    force_authenticated_client,
 )
 
 TEST_CLERK_CONFIGURATION = ClerkVerificationConfiguration(
@@ -60,11 +61,9 @@ def test_current_user_view_returns_exactly_the_tailtag_user_id_and_declares_perm
     None
 ):
     """The representation is isolated from Clerk and profile concerns."""
-    user = User.objects.create_user(clerk_user_id="user_current_user_view")
-    client = APIClient()
-    client.force_authenticate(user=user)
+    user = create_test_user(clerk_user_id="user_current_user_view")
 
-    response = client.get("/api/me/")
+    response = force_authenticated_client(user=user).get("/api/me/")
 
     assert response.status_code == 200
     assert response.json() == {"id": user.pk}
@@ -96,15 +95,10 @@ def test_current_user_composes_bearer_verification_resolution_and_request_identi
     monkeypatch: MonkeyPatch,
 ) -> None:
     """Only the Clerk verification boundary is faked; DRF and resolution stay real."""
-    verified_requests: list[HttpRequest] = []
-
-    def verify(
-        _verifier: ClerkSessionVerifier, request: HttpRequest
-    ) -> VerifiedClerkIdentity:
-        verified_requests.append(request)
-        return VerifiedClerkIdentity(subject="user_current_user_composed")
-
-    monkeypatch.setattr(ClerkSessionVerifier, "verify", verify)
+    verified_requests = fake_clerk_session_verification(
+        monkeypatch,
+        subject="user_current_user_composed",
+    )
 
     response = Client().get("/api/me/", HTTP_AUTHORIZATION="Bearer test-token")
     resolved_user = User.objects.get(clerk_user_id="user_current_user_composed")

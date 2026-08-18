@@ -33,6 +33,7 @@ from authentication.clerk import (
     ClerkVerificationConfiguration,
     VerifiedClerkIdentity,
 )
+from tests.authentication_support import fake_clerk_session_verification
 
 
 class RequestIdentityView(APIView):
@@ -86,18 +87,9 @@ def _raise(error: BaseException) -> NoReturn:
 def test_successful_authentication_exposes_only_the_resolved_application_user(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    verified_requests: list[HttpRequest] = []
-
-    def verify(
-        _verifier: ClerkSessionVerifier, request: HttpRequest
-    ) -> VerifiedClerkIdentity:
-        verified_requests.append(request)
-        return VerifiedClerkIdentity(subject="user_test_subject")
-
-    monkeypatch.setattr(
-        ClerkSessionVerifier,
-        "verify",
-        verify,
+    verified_requests = fake_clerk_session_verification(
+        monkeypatch,
+        subject="user_test_subject",
     )
 
     response = Client().get("/test/identity", HTTP_AUTHORIZATION="Bearer test")
