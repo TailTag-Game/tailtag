@@ -30,10 +30,8 @@ TOOLING_ORIGIN: Final = "http://localhost:3000"
 MAX_SESSION_TOKEN_LIFETIME_SECONDS: Final = 60
 SIGN_IN_TICKET_LIFETIME_SECONDS: Final = 60
 _REQUEST_TIMEOUT_SECONDS: Final = 10
-_DEVELOPMENT_FAPI_HOST_SUFFIXES: Final = (
-    ".clerk.accounts.dev",
-    ".clerk.example",  # Offline provider fixture namespace.
-)
+_FAPI_API_VERSION: Final = "2026-05-12"
+_DEVELOPMENT_FAPI_HOST_SUFFIX: Final = ".clerk.accounts.dev"
 
 
 class ClerkFlowStage(StrEnum):
@@ -75,7 +73,7 @@ class ClerkDevelopmentSession:
     _secret: str = field(repr=False)
     _user_id: str = field(repr=False)
     _transport: Any = field(repr=False)
-    _sign_in_url: str | None = field(repr=False)
+    _fapi_authority: str | None = field(default=None, repr=False)
     _ticket_id: str | None = field(default=None, repr=False)
     _ticket_consumed: bool = False
     _session_id: str | None = field(default=None, repr=False)
@@ -100,14 +98,6 @@ class ClerkDevelopmentSession:
 
         if getattr(instance, "environment_type", None) != "development":
             raise ClerkFlowFailure(ClerkFlowStage.INSTANCE)
-        # Production SDK models do not document this field.  The optional value
-        # supports the offline transport seam; live flows use SignInToken.url.
-        sign_in_url = getattr(instance, "sign_in_url", None)
-        if sign_in_url is not None and (
-            not isinstance(sign_in_url, str) or not _is_development_fapi_url(sign_in_url)
-        ):
-            raise ClerkFlowFailure(ClerkFlowStage.INSTANCE)
-
         try:
             user: object = cast(object, clerk.users.get(user_id=user_id))
         except Exception:  # noqa: BLE001 - third-party errors are intentionally opaque
@@ -118,26 +108,25 @@ class ClerkDevelopmentSession:
             _secret=secret,
             _user_id=user_id,
             _transport=clerk,
-            _sign_in_url=sign_in_url,
         )
 
     def create_verified_token(self) -> str:
         """Issue a normal FAPI session token and verify it with the existing verifier."""
         ticket = self._create_ticket()
-        ticket_value = getattr(ticket, "token", None) or getattr(ticket, "id", None)
+        ticket_value = getattr(ticket, "token", None)
         ticket_id = getattr(ticket, "id", None)
-        if not isinstance(ticket_value, str) or not isinstance(ticket_id, str):
-            raise ClerkFlowFailure(ClerkFlowStage.TICKET)
-        self._ticket_id = ticket_id
         ticket_url = getattr(ticket, "url", None)
-        if ticket_url is not None and (
-            not isinstance(ticket_url, str) or not _is_development_fapi_url(ticket_url)
+        if (
+            not isinstance(ticket_value, str)
+            or not ticket_value
+            or not isinstance(ticket_id, str)
+            or not ticket_id
+            or not isinstance(ticket_url, str)
+            or not _is_development_fapi_url(ticket_url)
         ):
             raise ClerkFlowFailure(ClerkFlowStage.TICKET)
-        if isinstance(ticket_url, str):
-            self._sign_in_url = ticket_url
-        if self._sign_in_url is None:
-            raise ClerkFlowFailure(ClerkFlowStage.TICKET)
+        self._ticket_id = ticket_id
+        self._fapi_authority = ticket_url
 
         try:
             client, opener, dev_token = self._run_frontend_ticket_flow(ticket_value)
@@ -237,12 +226,15 @@ class ClerkDevelopmentSession:
         form: dict[str, str] | None = None,
         failure_stage: ClerkFlowStage = ClerkFlowStage.TICKET,
     ) -> dict[str, object]:
-        url = _fapi_url(self._sign_in_url, path, query)
+        url = _fapi_url(self._fapi_authority, path, query)
         data = None if form is None else urllib.parse.urlencode(form).encode("ascii")
         request = urllib.request.Request(
             url,
             data=data,
-            headers={"Origin": TOOLING_ORIGIN},
+            headers={
+                "Clerk-API-Version": _FAPI_API_VERSION,
+                "Origin": TOOLING_ORIGIN,
+            },
             method="POST",
         )
         try:
@@ -323,7 +315,8 @@ def _is_development_fapi_url(value: str) -> bool:
     return (
         parsed.scheme == "https"
         and host is not None
-        and any(host.endswith(suffix) and host != suffix[1:] for suffix in _DEVELOPMENT_FAPI_HOST_SUFFIXES)
+        and host.endswith(_DEVELOPMENT_FAPI_HOST_SUFFIX)
+        and host != _DEVELOPMENT_FAPI_HOST_SUFFIX[1:]
         and parsed.username is None
         and parsed.password is None
         and parsed.port is None
