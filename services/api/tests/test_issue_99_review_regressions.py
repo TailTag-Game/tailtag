@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 
 import httpx
 import pytest
+from clerk_backend_api.utils import RetryConfig
 from pytest import MonkeyPatch
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -87,12 +88,20 @@ class _Users:
 
 class _SignInTokens:
     def __init__(
-        self, ticket: _Ticket, events: list[tuple[str, dict[str, object]]]
+        self,
+        ticket: _Ticket,
+        events: list[tuple[str, dict[str, object]]],
+        create_error: BaseException | None = None,
     ) -> None:
         self._ticket = ticket
         self._events = events
+        self._create_error = create_error
+        self.create_calls: list[dict[str, object]] = []
 
-    def create(self, **_kwargs: object) -> _Ticket:
+    def create(self, **kwargs: object) -> _Ticket:
+        self.create_calls.append(kwargs)
+        if self._create_error is not None:
+            raise self._create_error
         return self._ticket
 
     def revoke(self, **kwargs: object) -> None:
@@ -110,18 +119,22 @@ class _Sessions:
 class _Transport:
     """The documented test transport seam, limited to synthetic provider values."""
 
-    def __init__(self, ticket: _Ticket) -> None:
+    def __init__(
+        self, ticket: _Ticket, *, create_error: BaseException | None = None
+    ) -> None:
         self.events: list[tuple[str, dict[str, object]]] = []
         self.instance_settings = _InstanceSettings()
         self.users = _Users()
-        self.sign_in_tokens = _SignInTokens(ticket, self.events)
+        self.sign_in_tokens = _SignInTokens(ticket, self.events, create_error)
         self.sessions = _Sessions(self.events)
 
 
 def validated_session(
     ticket: _Ticket,
+    *,
+    create_error: BaseException | None = None,
 ) -> tuple[development_session.ClerkDevelopmentSession, _Transport]:
-    transport = _Transport(ticket)
+    transport = _Transport(ticket, create_error=create_error)
     session = development_session.ClerkDevelopmentSession.validate(
         secret=SYNTHETIC_SECRET,
         user_id=SYNTHETIC_USER,
@@ -172,6 +185,30 @@ class _FrontendOpener:
         except KeyError as error:
             raise AssertionError(f"unexpected FAPI path {path}") from error
         return _FrontendResponse({"response": payload}, request.full_url)
+
+
+class _OrchestrationRuntime:
+    """Offline command boundary that exposes only one already-validated session."""
+
+    def __init__(self, session: development_session.ClerkDevelopmentSession) -> None:
+        self._session = session
+
+    def run_baseline(self, *, base_url: str) -> bool:
+        assert base_url == "http://127.0.0.1:8000"
+        return True
+
+    def prompt_secret(self) -> str:
+        return SYNTHETIC_SECRET
+
+    def validate_clerk(
+        self, *, secret: str, user_id: str
+    ) -> development_session.ClerkDevelopmentSession:
+        assert secret == SYNTHETIC_SECRET
+        assert user_id == SYNTHETIC_USER
+        return self._session
+
+    def request_current_user(self, *, base_url: str, bearer_token: str) -> None:
+        raise AssertionError("failed ticket/session ownership must not call the API")
 
 
 def test_actual_make_entry_point_imports_and_rejects_an_invalid_target_first() -> None:
@@ -283,6 +320,104 @@ def test_malformed_ticket_after_a_valid_id_is_still_revoked_during_cleanup() -> 
     assert transport.events == [
         ("ticket", {"sign_in_token_id": SYNTHETIC_TICKET}),
     ]
+
+
+def test_ticket_create_disables_the_sdk_default_retry_for_the_nonidempotent_post() -> (
+    None
+):
+    """An ambiguous POST must be attempted once, never retried by SDK defaults."""
+    session, transport = validated_session(_Ticket(url="not-a-development-url"))
+
+    with pytest.raises(development_session.ClerkFlowFailure) as raised:
+        session.create_verified_token()
+
+    assert raised.value.stage.value == "provider ticket flow unsuccessful"
+    assert len(transport.sign_in_tokens.create_calls) == 1
+    retries = transport.sign_in_tokens.create_calls[0]["retries"]
+    assert isinstance(retries, RetryConfig)
+    assert retries.strategy == "none"
+    assert retries.retry_connection_errors is False
+
+
+def test_ambiguous_ticket_creation_marks_cleanup_incomplete_at_command_boundary() -> (
+    None
+):
+    """A connection failure before a ticket ID is known cannot prove no ticket exists."""
+    session, transport = validated_session(
+        _Ticket(),
+        create_error=OSError("synthetic ambiguous ticket creation failure"),
+    )
+
+    outcome = auth_smoke.run(
+        {"CLERK_SMOKE_USER_ID": SYNTHETIC_USER},
+        _OrchestrationRuntime(session),
+    )
+
+    assert outcome.primary_stage == "provider ticket flow unsuccessful"
+    assert outcome.cleanup_incomplete
+    assert transport.events == []
+
+
+def test_created_session_id_is_revoked_when_ticket_response_omits_sessions(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Provider ownership wins over malformed session listings during cleanup."""
+    session, transport = validated_session(_Ticket())
+    opener = _FrontendOpener(
+        {
+            "/v1/dev_browser": {"token": "dev_browser_synthetic"},
+            "/v1/client": {"sessions": []},
+            "/v1/client/sign_ins": {
+                "sign_in": {
+                    "status": "complete",
+                    "created_session_id": SYNTHETIC_NEW_SESSION,
+                }
+            },
+        }
+    )
+
+    def build_opener(*_handlers: urllib.request.BaseHandler) -> _FrontendOpener:
+        return opener
+
+    monkeypatch.setattr(urllib.request, "build_opener", build_opener)
+
+    with pytest.raises(development_session.ClerkFlowFailure) as raised:
+        session.create_verified_token()
+    session.cleanup()
+
+    assert raised.value.stage.value == "provider ticket flow unsuccessful"
+    assert transport.events == [("session", {"session_id": SYNTHETIC_NEW_SESSION})]
+
+
+def test_missing_created_session_id_makes_cleanup_incomplete_after_ticket_sign_in(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Successful ticket consumption without an owned session must fail closed."""
+    session, transport = validated_session(_Ticket())
+    opener = _FrontendOpener(
+        {
+            "/v1/dev_browser": {"token": "dev_browser_synthetic"},
+            "/v1/client": {"sessions": []},
+            "/v1/client/sign_ins": {
+                "sign_in": {"status": "complete"},
+                "sessions": [],
+            },
+        }
+    )
+
+    def build_opener(*_handlers: urllib.request.BaseHandler) -> _FrontendOpener:
+        return opener
+
+    monkeypatch.setattr(urllib.request, "build_opener", build_opener)
+
+    outcome = auth_smoke.run(
+        {"CLERK_SMOKE_USER_ID": SYNTHETIC_USER},
+        _OrchestrationRuntime(session),
+    )
+
+    assert outcome.primary_stage == "provider ticket flow unsuccessful"
+    assert outcome.cleanup_incomplete
+    assert transport.events == []
 
 
 def test_ticket_is_consumed_before_later_session_token_validation_failure(
