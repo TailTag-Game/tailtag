@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 import socket
 import sys
 from collections.abc import Mapping
+from dataclasses import dataclass
+from io import StringIO
 from pathlib import Path
 from typing import NoReturn
 
 import pytest
+from _pytest.capture import CaptureResult
+from _pytest.logging import LogCaptureFixture
 from pytest import MonkeyPatch
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -106,8 +111,42 @@ class RecordingRuntime:
             raise self.api_me_error
 
 
-def assert_sanitized(outcome: object) -> None:
-    rendered = repr(outcome)
+def prohibit_outbound_network(monkeypatch: MonkeyPatch) -> None:
+    """Every ordinary test must replace every external boundary explicitly."""
+
+    def no_network(*_: object, **__: object) -> NoReturn:
+        raise AssertionError("ordinary authenticated smoke tests must remain offline")
+
+    import http.client
+    import urllib.request
+
+    monkeypatch.setattr(socket, "create_connection", no_network)
+    monkeypatch.setattr(http.client.HTTPConnection, "request", no_network)
+    monkeypatch.setattr(http.client.HTTPSConnection, "request", no_network)
+    monkeypatch.setattr(urllib.request, "urlopen", no_network)
+    monkeypatch.setattr(urllib.request.OpenerDirector, "open", no_network)
+
+
+@pytest.fixture(autouse=True)
+def no_ordinary_outbound_network(monkeypatch: MonkeyPatch) -> None:
+    prohibit_outbound_network(monkeypatch)
+
+
+def assert_supported_outputs_are_sanitized(
+    outcome: object,
+    captured: CaptureResult[str],
+    caplog: LogCaptureFixture,
+    *rendered_exceptions: BaseException,
+) -> None:
+    rendered = "\n".join(
+        (
+            repr(outcome),
+            captured.out,
+            captured.err,
+            caplog.text,
+            *(f"{error!s}\n{error!r}" for error in rendered_exceptions),
+        )
+    )
     for value in SENSITIVE_VALUES:
         assert value not in rendered
 
@@ -136,6 +175,10 @@ def test_target_policy_accepts_only_the_default_or_exact_development_root(
 DISALLOWED_TARGETS = (
     {"API_BASE_URL": ""},
     {"API_BASE_URL": "http://localhost:8000"},
+    {"API_BASE_URL": "http://127.0.0.2:8000"},
+    {"API_BASE_URL": "http://127.1:8000"},
+    {"API_BASE_URL": "http://127.000.000.001:8000"},
+    {"API_BASE_URL": "http://2130706433:8000"},
     {"API_BASE_URL": "http://[::1]:8000"},
     {"API_BASE_URL": "http://127.0.0.1:8000//"},
     {"API_BASE_URL": "http://127.0.0.1:8000/path"},
@@ -164,6 +207,18 @@ DISALLOWED_TARGETS = (
     {
         "API_BASE_URL": "https://development.tailtag.example/%2e",
         "TAILTAG_DEVELOPMENT_API_BASE_URL": "https://development.tailtag.example",
+    },
+    {
+        "API_BASE_URL": "https://development.tailtag.example/%2F",
+        "TAILTAG_DEVELOPMENT_API_BASE_URL": "https://development.tailtag.example",
+    },
+    {
+        "API_BASE_URL": "https://development.tailtag.example//",
+        "TAILTAG_DEVELOPMENT_API_BASE_URL": "https://development.tailtag.example",
+    },
+    {
+        "API_BASE_URL": "https://development.tailtag.example",
+        "TAILTAG_DEVELOPMENT_API_BASE_URL": "https://other-development.tailtag.example",
     },
     {
         "API_BASE_URL": "https://development.tailtag.example",
@@ -265,10 +320,13 @@ def test_sanitized_failure_categories_preserve_required_cleanup(
     assert outcome.primary_stage == expected_stage
     assert not outcome.succeeded
     assert runtime.events == expected_events
-    assert_sanitized(outcome)
+    assert "sk_test_synthetic_credential_material" not in repr(outcome)
 
 
-def test_primary_and_cleanup_failures_are_both_sanitized() -> None:
+def test_primary_and_cleanup_failures_are_both_sanitized(
+    capsys: pytest.CaptureFixture[str], caplog: LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
     error = SensitiveSyntheticError(" ".join(SENSITIVE_VALUES))
     runtime = RecordingRuntime(api_me_error=error, cleanup_error=error)
 
@@ -278,7 +336,7 @@ def test_primary_and_cleanup_failures_are_both_sanitized() -> None:
     assert outcome.cleanup_incomplete
     assert not outcome.succeeded
     assert runtime.events[-2:] == ["api-me", "cleanup"]
-    assert_sanitized(outcome)
+    assert_supported_outputs_are_sanitized(outcome, capsys.readouterr(), caplog, error)
 
 
 def test_cleanup_failure_alone_makes_an_otherwise_valid_run_unsuccessful() -> None:
@@ -291,13 +349,120 @@ def test_cleanup_failure_alone_makes_an_otherwise_valid_run_unsuccessful() -> No
     assert not outcome.succeeded
 
 
-def test_orchestration_uses_no_network_when_every_boundary_is_fake(
+@dataclass
+class _SuccessfulOutcome:
+    succeeded: bool = True
+
+
+def test_main_rejects_all_arguments_before_running_any_live_boundary(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    def no_network(*_: object, **__: object) -> NoReturn:
-        raise AssertionError("ordinary authenticated smoke tests must remain offline")
+    calls: list[str] = []
 
-    monkeypatch.setattr(socket, "create_connection", no_network)
+    def run_if_called(*_: object, **__: object) -> _SuccessfulOutcome:
+        calls.append("run")
+        return _SuccessfulOutcome()
+
+    monkeypatch.setattr(auth_smoke, "run", run_if_called)
+    for argument in ("unexpected", "--secret=synthetic", "--token", "-x"):
+        monkeypatch.setattr(sys, "argv", ["api_auth_smoke.py", argument])
+        assert auth_smoke.main() != 0
+
+    assert calls == []
+
+
+def test_main_uses_hidden_tty_prompt_with_exact_copy_and_never_echoes_secret(
+    monkeypatch: MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    calls: list[object] = []
+    secret = "sk_test_synthetic_credential_material"
+
+    class TtyStream(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    def run_prompt_probe(
+        _environment: Mapping[str, str], runtime: object
+    ) -> _SuccessfulOutcome:
+        prompt = runtime.prompt_secret  # type: ignore[attr-defined]
+        calls.append(prompt())
+        return _SuccessfulOutcome()
+
+    def hidden_prompt(prompt: str, *, stream: object) -> str:
+        calls.extend((prompt, stream))
+        return secret
+
+    monkeypatch.setattr(auth_smoke, "run", run_prompt_probe)
+    monkeypatch.setattr(sys, "argv", ["api_auth_smoke.py"])
+    monkeypatch.setattr(sys, "stdin", TtyStream())
+    monkeypatch.setattr(sys, "stderr", TtyStream())
+    monkeypatch.setattr(auth_smoke.getpass, "getpass", hidden_prompt)
+
+    assert auth_smoke.main() == 0
+    assert calls[0] == secret
+    assert calls[1] == "Clerk Development secret:"
+    assert calls[2] is sys.stderr
+    rendered = capsys.readouterr()
+    assert secret not in rendered.out
+    assert secret not in rendered.err
+
+
+@pytest.mark.parametrize("stream_name", ("stdin", "stderr"))
+def test_main_fails_closed_without_both_required_tty_streams(
+    monkeypatch: MonkeyPatch, stream_name: str
+) -> None:
+    calls: list[str] = []
+
+    class NonTty(StringIO):
+        def isatty(self) -> bool:
+            return False
+
+    def run_prompt_probe(
+        _environment: Mapping[str, str], runtime: object
+    ) -> _SuccessfulOutcome:
+        calls.append(runtime.prompt_secret())  # type: ignore[attr-defined]
+        return _SuccessfulOutcome()
+
+    monkeypatch.setattr(auth_smoke, "run", run_prompt_probe)
+    monkeypatch.setattr(sys, "argv", ["api_auth_smoke.py"])
+    monkeypatch.setattr(sys, stream_name, NonTty())
+
+    assert auth_smoke.main() != 0
+    assert calls == []
+
+
+def test_main_never_accepts_a_secret_environment_value(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    observed: list[str] = []
+
+    def run_prompt_probe(
+        _environment: Mapping[str, str], runtime: object
+    ) -> _SuccessfulOutcome:
+        observed.append(runtime.prompt_secret())  # type: ignore[attr-defined]
+        return _SuccessfulOutcome()
+
+    monkeypatch.setattr(auth_smoke, "run", run_prompt_probe)
+    monkeypatch.setattr(sys, "argv", ["api_auth_smoke.py"])
+    monkeypatch.setenv("CLERK_SECRET_KEY", "sk_test_synthetic_credential_material")
+
+    class TtyStream(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    monkeypatch.setattr(sys, "stdin", TtyStream())
+    monkeypatch.setattr(sys, "stderr", TtyStream())
+    monkeypatch.setattr(
+        auth_smoke.getpass,
+        "getpass",
+        lambda _prompt, *, stream: "sk_test_prompt_only_value",
+    )
+
+    assert auth_smoke.main() == 0
+    assert observed == ["sk_test_prompt_only_value"]
+
+
+def test_orchestration_uses_no_network_when_every_boundary_is_fake() -> None:
 
     outcome = auth_smoke.run(VALID_ENVIRONMENT, RecordingRuntime())
 

@@ -191,13 +191,15 @@ def test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free() -> No
     api_check = run_make("-n", "api-check").stdout
     workflow_text = "\n".join(
         path.read_text()
-        for path in (REPOSITORY_ROOT / ".github" / "workflows").glob("*.yml")
+        for suffix in ("*.yml", "*.yaml")
+        for path in (REPOSITORY_ROOT / ".github" / "workflows").glob(suffix)
     )
 
     for text in (ordinary, api_check, workflow_text):
         assert "api-auth-smoke" not in text
         assert "Clerk Development secret:" not in text
-        assert "CLERK_SECRET" not in text
+        assert "CLERK_SMOKE_USER_ID" not in text
+        assert "sk_test_" not in text
 
 
 def test_devcontainer_django_commands_derive_the_compose_database_url() -> None:
