@@ -133,7 +133,7 @@ configuration is available:
 | `CLERK_JWT_KEY` | Yes when enabled | Configured Clerk instance JWT public key used for verification. |
 | `CLERK_AUTHORIZED_PARTIES` | Yes when enabled | Comma-separated list of authorized parties. |
 
-Verification uses Clerk backend SDK 6.0.1 with the configured instance JWT
+Verification uses Clerk backend SDK 7.0.0 with the configured instance JWT
 public key and does not make network requests. It does not require, read, or
 document a Clerk secret key or publishable key. TailTag does not independently
 validate or claim to validate `iss`.

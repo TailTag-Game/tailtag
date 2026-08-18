@@ -6,3 +6,5 @@
 /.superpowers/
 /.vscode/
 /docs/plans/
+/.agents/
+skills-lock.json
