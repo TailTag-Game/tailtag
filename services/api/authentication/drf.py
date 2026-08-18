@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from django.conf import settings
+from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from rest_framework import status
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import APIException
@@ -46,3 +47,16 @@ class TailTagAuthentication(BaseAuthentication):
 
     def authenticate_header(self, request: Request) -> str:
         return "Bearer"
+
+
+class TailTagAuthenticationScheme(OpenApiAuthenticationExtension):
+    """Describe TailTag's configured DRF authentication for OpenAPI consumers."""
+
+    target_class = "authentication.drf.TailTagAuthentication"
+    name = "BearerAuth"
+
+    def get_security_definition(self, auto_schema: object) -> dict[str, str]:
+        return {
+            "type": "http",
+            "scheme": "bearer",
+        }

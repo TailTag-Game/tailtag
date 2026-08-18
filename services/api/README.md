@@ -1,10 +1,11 @@
 # TailTag API
 
 `services/api` is TailTag's V0 Django API foundation. It provides Django
-administration, PostgreSQL-backed liveness/readiness checks, and OpenAPI
-schema/documentation infrastructure. It also defines TailTag's application-user
-identity, verifies Clerk requests, and resolves verified identities for DRF
-requests. It intentionally does not implement player profiles or gameplay APIs.
+administration, PostgreSQL-backed liveness/readiness checks, the authenticated
+identity-proof endpoint at `GET /api/me/`, and OpenAPI schema/documentation
+infrastructure. It also defines TailTag's application-user identity, verifies
+Clerk requests, and resolves verified identities for DRF requests. It
+intentionally does not implement player profiles or gameplay APIs.
 
 The service uses Python 3.13, Django, Django REST Framework, PostgreSQL 17,
 `uv`, Ruff, strict Pyright, pytest, drf-spectacular, Gunicorn, and Docker. This is
@@ -165,6 +166,23 @@ no global permission class, so existing `AllowAny` views remain public for
 headerless requests. A supplied invalid Bearer credential still fails
 authentication before permissions run.
 
+### V0 product API boundary
+
+`/api/` is the current V0 product API namespace. No URL API-version prefix is
+established: do not infer `/api/v0/`, `/api/v1/`, or another versioned path from
+the V0 product milestone.
+
+`GET /api/me/` is the first product endpoint. It explicitly declares
+`IsAuthenticated` and returns only the authenticated TailTag application-user
+primary key as `{"id": <integer>}`. It is an identity-proof endpoint, not a
+player profile, user-directory, or reusable user representation; it never
+exposes Clerk identifiers or other account/profile fields.
+
+TailTag authentication is globally available through the configured
+authentication class. Endpoints requiring an authenticated TailTag user
+explicitly declare `IsAuthenticated`; there is no global default permission
+class. Public health, OpenAPI schema, and documentation views remain public.
+
 When authentication is explicitly disabled, the authenticator does no Clerk
 verification or database resolution and the request remains anonymous. Enabled
 authentication still requires the complete configuration above; missing or
@@ -185,7 +203,6 @@ remain on the generic `500` path. Public responses do not expose credentials,
 external subjects, SQL, connection information, constraint details, or provider
 internals.
 
-Issue #98 owns the protected current-user endpoint and permission convention.
 Issue #99 owns reusable and live developer tooling. Issue #100 owns Railway
 validation. This README makes no claim about profiles, provider metadata sync,
 account lifecycle, webhooks, or production operations.
@@ -386,6 +403,7 @@ With `make api-run` running, local development surfaces are:
 | --- | --- |
 | `http://127.0.0.1:8000/health/live` | Process/application liveness; does not query PostgreSQL. |
 | `http://127.0.0.1:8000/health/ready` | Readiness, including a lightweight PostgreSQL dependency check. |
+| `http://127.0.0.1:8000/api/me/` | Authenticated TailTag identity proof; not a profile endpoint. |
 | `http://127.0.0.1:8000/api/schema/` | Generated OpenAPI schema. |
 | `http://127.0.0.1:8000/api/docs/` | Interactive OpenAPI documentation. |
 | `http://127.0.0.1:8000/admin/` | Django development/operational administration. |

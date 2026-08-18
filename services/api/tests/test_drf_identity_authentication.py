@@ -306,10 +306,15 @@ def test_global_authentication_contract_has_one_tailtag_class_and_no_permission_
     assert "DEFAULT_PERMISSION_CLASSES" not in settings.REST_FRAMEWORK
 
 
-def test_identity_authentication_adds_no_production_routes(client: Client) -> None:
+def test_identity_authentication_adds_only_the_current_user_production_route(
+    client: Client,
+) -> None:
     schema_response = client.get("/api/schema/")
 
     assert client.post("/api/auth/signup", data={}).status_code == 404
     assert client.get("/api/fursuits").status_code == 404
     assert schema_response.status_code == 200
-    assert set(yaml.safe_load(schema_response.content)["paths"]) == {"/api/schema/"}
+    assert set(yaml.safe_load(schema_response.content)["paths"]) == {
+        "/api/me/",
+        "/api/schema/",
+    }
