@@ -310,7 +310,11 @@ def test_ticket_is_consumed_before_later_session_token_validation_failure(
             f"/v1/client/sessions/{SYNTHETIC_NEW_SESSION}/tokens": {},
         }
     )
-    monkeypatch.setattr(urllib.request, "build_opener", lambda *_handlers: opener)
+
+    def build_opener(*_handlers: urllib.request.BaseHandler) -> _FrontendOpener:
+        return opener
+
+    monkeypatch.setattr(urllib.request, "build_opener", build_opener)
 
     with pytest.raises(development_session.ClerkFlowFailure) as raised:
         session.create_verified_token()
@@ -352,7 +356,11 @@ def test_created_session_id_prevents_an_older_active_session_from_being_used_or_
             },
         }
     )
-    monkeypatch.setattr(urllib.request, "build_opener", lambda *_handlers: opener)
+
+    def build_opener(*_handlers: urllib.request.BaseHandler) -> _FrontendOpener:
+        return opener
+
+    monkeypatch.setattr(urllib.request, "build_opener", build_opener)
 
     with pytest.raises(development_session.ClerkFlowFailure) as raised:
         session.create_verified_token()
