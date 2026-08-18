@@ -62,7 +62,8 @@ def _is_transient_availability_error(error: OperationalError) -> bool:
     if driver_error is None:
         return False
 
-    if sqlstate := driver_error.sqlstate:
+    sqlstate = driver_error.sqlstate
+    if sqlstate is not None:
         return sqlstate.startswith("08") or sqlstate in {"57P01", "57P02", "57P03"}
 
     return driver_error.pgconn is None or driver_error.pgconn.status is ConnStatus.BAD
