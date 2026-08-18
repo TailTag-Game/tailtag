@@ -265,6 +265,55 @@ class SuccessfulFrontendOpener:
         return _JsonResponse({**response, "response": response}, url=request.full_url)
 
 
+class OfficialEnvelopeFrontendOpener:
+    """FAPI responses shaped like Clerk's 2026-05-12 client/OpenAPI contract."""
+
+    def __init__(self, token: str) -> None:
+        self.token = token
+        self.requests: list[urllib.request.Request] = []
+
+    def open(self, request: urllib.request.Request, **_kwargs: object) -> _JsonResponse:
+        self.requests.append(request)
+        path = urlsplit(request.full_url).path
+        created_session = {
+            "object": "session",
+            "id": "sess_synthetic_created_by_ticket",
+            "status": "active",
+            "user_id": "user_synthetic_sensitive_identifier",
+        }
+        older_session = {
+            "object": "session",
+            "id": "sess_synthetic_older_active_session",
+            "status": "active",
+            "user_id": "user_synthetic_sensitive_identifier",
+        }
+        responses = {
+            # clerk-js createDevBrowser() reads the top-level `id` value.
+            "/v1/dev_browser": {"id": "dev_browser_synthetic"},
+            "/v1/client": {"object": "client", "sessions": []},
+            # ClientWrappedSignIn preserves the direct sign-in under `response`
+            # and the updated client (including sessions) as a sibling.
+            "/v1/client/sign_ins": {
+                "response": {
+                    "object": "sign_in_attempt",
+                    "status": "complete",
+                    "created_session_id": "sess_synthetic_created_by_ticket",
+                },
+                "client": {
+                    "object": "client",
+                    "sessions": [older_session, created_session],
+                },
+            },
+            "/v1/client/sessions/sess_synthetic_created_by_ticket/tokens": {
+                "object": "token",
+                "jwt": self.token,
+            },
+        }
+        if path not in responses:
+            raise AssertionError(f"unsupported Frontend API operation: {path}")
+        return _JsonResponse(responses[path], url=request.full_url)
+
+
 @dataclass
 class _Ticket:
     id: str = "ticket_synthetic_sensitive_material"
@@ -540,6 +589,48 @@ def test_successful_normal_session_token_is_verified_and_cleaned_up(
         "revoke",
         {"session_id": "sess_synthetic_sensitive_identifier"},
     )
+
+
+def test_official_fapi_envelopes_preserve_created_session_ownership(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """The ticket flow consumes Clerk's documented id/sign-in/client envelopes."""
+    now = int(time.time())
+    token = synthetic_token(
+        {
+            "sid": "sess_synthetic_created_by_ticket",
+            "sub": "user_synthetic_sensitive_identifier",
+            "azp": "http://localhost:3000",
+            "iat": now,
+            "exp": now + 60,
+        }
+    )
+    transport = RecordingTransport()
+    _ticket_requests, revocations = configure_successful_provider(transport)
+    opener = OfficialEnvelopeFrontendOpener(token)
+
+    def build_opener(*_handlers: object) -> OfficialEnvelopeFrontendOpener:
+        return opener
+
+    def verify(
+        _verifier: ClerkSessionVerifier, _request: HttpRequest
+    ) -> VerifiedClerkIdentity:
+        return VerifiedClerkIdentity(subject="user_synthetic_sensitive_identifier")
+
+    monkeypatch.setattr(urllib.request, "build_opener", build_opener)
+    monkeypatch.setattr(ClerkSessionVerifier, "verify", verify)
+    session = validate_with(transport)
+
+    assert session.create_verified_token() == token
+    session.cleanup()
+
+    assert [urlsplit(request.full_url).path for request in opener.requests] == [
+        "/v1/dev_browser",
+        "/v1/client",
+        "/v1/client/sign_ins",
+        "/v1/client/sessions/sess_synthetic_created_by_ticket/tokens",
+    ]
+    assert revocations == [{"session_id": "sess_synthetic_created_by_ticket"}]
 
 
 _MISSING = object()
