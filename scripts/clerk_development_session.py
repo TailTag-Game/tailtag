@@ -154,7 +154,6 @@ class ClerkDevelopmentSession:
                 ticket_value
             )
             self._ticket_consumed = True
-            self._session_cleanup_uncertain = True
             session_id = _completed_sign_in_created_session_id(sign_in)
             if session_id is None:
                 raise ValueError
@@ -235,6 +234,7 @@ class ClerkDevelopmentSession:
         self._frontend_request(
             opener, "/v1/client", query={"__dev_session": dev_browser_id}
         )
+        self._session_cleanup_uncertain = True
         client_wrapped_sign_in = self._frontend_request(
             opener,
             "/v1/client/sign_ins",
