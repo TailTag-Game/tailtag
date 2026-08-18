@@ -399,6 +399,8 @@ def test_default_api_me_boundary_never_follows_redirects(status: int) -> None:
     (
         {"id": True},
         {"id": "123"},
+        {"id": 1.5},
+        {"id": None},
         {"id": 123, "extra": "synthetic"},
         {},
         [123],
@@ -409,6 +411,8 @@ def test_default_api_me_boundary_never_follows_redirects(status: int) -> None:
     ids=(
         "bool-id",
         "string-id",
+        "float-id",
+        "null-id",
         "extra-key",
         "missing-id",
         "array",
