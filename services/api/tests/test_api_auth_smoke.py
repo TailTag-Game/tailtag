@@ -265,6 +265,10 @@ DISALLOWED_TARGETS = (
         "TAILTAG_DEVELOPMENT_API_BASE_URL": "https://development.tailtag.example",
     },
     {
+        "API_BASE_URL": "HTTPS://development.tailtag.example",
+        "TAILTAG_DEVELOPMENT_API_BASE_URL": "HTTPS://development.tailtag.example",
+    },
+    {
         "API_BASE_URL": "https://development.tailtag.example:443",
         "TAILTAG_DEVELOPMENT_API_BASE_URL": "https://development.tailtag.example",
     },
@@ -643,6 +647,42 @@ def test_main_fails_closed_without_both_required_tty_streams(
 
     assert auth_smoke.main() != 0
     assert calls == []
+
+
+def test_main_validates_target_before_reporting_noninteractive_terminal(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Target policy is the first live-command stage, even without a TTY."""
+
+    class NonTty(StringIO):
+        def isatty(self) -> bool:
+            return False
+
+    stdin = NonTty()
+    stderr = NonTty()
+    monkeypatch.setattr(sys, "argv", ["api_auth_smoke.py"])
+    monkeypatch.setattr(sys, "stdin", stdin)
+    monkeypatch.setattr(sys, "stderr", stderr)
+    monkeypatch.setenv("API_BASE_URL", "")
+
+    assert auth_smoke.main() != 0
+    assert "target configuration invalid" in stderr.getvalue()
+    assert "interactive terminal unavailable" not in stderr.getvalue()
+
+
+def test_valid_target_runs_baseline_before_a_tty_prompt_failure() -> None:
+    """A prompt failure is after the target and credential-free baseline stages."""
+
+    class TtyFailingRuntime(RecordingRuntime):
+        def prompt_secret(self) -> str:
+            self.events.append("prompt")
+            raise SensitiveSyntheticError("interactive terminal unavailable")
+
+    runtime = TtyFailingRuntime()
+    outcome = auth_smoke.run(VALID_ENVIRONMENT, runtime)
+
+    assert not outcome.succeeded
+    assert runtime.events == ["baseline:http://127.0.0.1:8000", "prompt"]
 
 
 def test_main_never_accepts_a_secret_environment_value(
