@@ -151,6 +151,20 @@ def test_strict_type_check_includes_the_ci_relevance_helper() -> None:
     assert '"../../scripts/backend_ci_relevance.py"' in pyproject
 
 
+def test_static_checks_include_all_authenticated_smoke_helpers() -> None:
+    """Live-tool scripts receive the same static checks as existing root helpers."""
+    completed = run_make("-n", "api-format-check", "api-lint-check")
+    pyproject = (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml").read_text()
+
+    assert completed.returncode == 0, completed.stderr
+    for script in (
+        AUTH_SMOKE_SCRIPT,
+        REPOSITORY_ROOT / "scripts" / "clerk_development_session.py",
+    ):
+        assert str(script) in completed.stdout
+        assert f'"../../scripts/{script.name}"' in pyproject
+
+
 def test_lifecycle_and_schema_changes_remain_explicit() -> None:
     """Only named migration targets can change migration or schema state."""
     non_mutating_targets = (
@@ -198,7 +212,6 @@ def test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free() -> No
     for text in (ordinary, api_check, workflow_text):
         assert "api-auth-smoke" not in text
         assert "scripts.api_auth_smoke" not in text
-        assert "scripts/api_auth_smoke.py" not in text
         assert "Clerk Development secret:" not in text
         assert "sk_test_" not in text
         for forbidden_name in (
@@ -208,6 +221,11 @@ def test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free() -> No
             "CLERK_BACKEND_API_KEY",
         ):
             assert forbidden_name not in text
+
+    # Static analysis may inspect the helper source in api-check; it must not
+    # invoke the module or live target. Ordinary smoke and CI do neither.
+    for text in (ordinary, workflow_text):
+        assert "scripts/api_auth_smoke.py" not in text
 
 
 def test_devcontainer_django_commands_derive_the_compose_database_url() -> None:

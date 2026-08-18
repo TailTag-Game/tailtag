@@ -68,6 +68,44 @@ Accepted contributors should begin with the [Getting Started guide](docs/develop
 
 The guide covers repository access, cloning, Git configuration, environment verification, and the standard issue-to-pull-request workflow.
 
+## Authenticated Development API smoke
+
+`make api-auth-smoke` is the sole manual, interactive check of Clerk
+Development authentication against `GET /api/me/`; it is excluded from normal
+tests, CI, and production operations. A maintainer must first create and retain
+one dedicated user in the Clerk Development instance, copy its opaque user ID
+(not an email or other mutable profile attribute), and retain the corresponding
+TailTag user created by the API. Configure only the non-secret
+`CLERK_SMOKE_USER_ID`; the Clerk Development secret is requested invisibly on
+every invocation and is never stored in configuration.
+
+The helper always uses `http://localhost:3000` as a fixed synthetic tooling
+origin. Add that exact origin to `CLERK_AUTHORIZED_PARTIES` in both local and
+Railway development API settings. It does not require a frontend to be running
+on port 3000, and production configuration must not gain that allowance.
+
+Local development:
+
+```bash
+CLERK_SMOKE_USER_ID=<opaque-development-user-id> make api-auth-smoke
+```
+
+Railway development (the URL must be the exact approved API root):
+
+```bash
+API_BASE_URL=https://<exact-development-api-host> \
+TAILTAG_DEVELOPMENT_API_BASE_URL=https://<exact-development-api-host> \
+CLERK_SMOKE_USER_ID=<opaque-development-user-id> \
+make api-auth-smoke
+```
+
+The dedicated Clerk and TailTag users are persistent test state. Each run uses
+only ephemeral sign-in ticket, session, and bearer-token state, cleans up its
+supported authentication resources, and reports only sanitized failure stages.
+See the [API operating reference](services/api/README.md#authenticated-development-api-smoke)
+for setup, target, and cleanup details. The production TailTag API verifier
+itself requires no Clerk secret.
+
 ## Security
 
 Do not disclose vulnerabilities through public issues, pull requests, Discord channels, or other public project spaces.

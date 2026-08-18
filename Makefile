@@ -1,6 +1,8 @@
 API_DIRECTORY := services/api
 UV := uv --directory $(API_DIRECTORY)
 SMOKE_SCRIPT := $(CURDIR)/scripts/api_smoke.py
+AUTH_SMOKE_SCRIPT := $(CURDIR)/scripts/api_auth_smoke.py
+CLERK_DEVELOPMENT_SESSION_SCRIPT := $(CURDIR)/scripts/clerk_development_session.py
 CI_RELEVANCE_SCRIPT := $(CURDIR)/scripts/backend_ci_relevance.py
 
 define run_django_command
@@ -18,7 +20,7 @@ endef
 
 .PHONY: help \
 	api-setup api-run api-test api-check api-migrate api-migrations \
-	api-migrations-check api-shell api-smoke \
+	api-migrations-check api-shell api-smoke api-auth-smoke \
 	api-format-check api-lint-check api-type-check api-django-check \
 	api-schema-check api-gunicorn-check
 
@@ -57,16 +59,19 @@ api-smoke: ## HTTP-check a running API (API_BASE_URL defaults to 127.0.0.1:8000)
 	@printf '%s\n' 'Smoke-testing the already-running API...'
 	$(UV) run python $(SMOKE_SCRIPT)
 
+api-auth-smoke: ## Authenticated smoke test with an interactive Clerk Development secret.
+	uv run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_auth_smoke
+
 api-check: api-format-check api-lint-check api-type-check api-test api-django-check api-migrations-check api-schema-check api-gunicorn-check ## Run the complete local pre-PR backend validation suite.
 	@printf '%s\n' 'Backend pre-PR validation completed.'
 
 api-format-check:
 	@printf '%s\n' 'Checking Ruff formatting...'
-	$(UV) run ruff format --check . $(SMOKE_SCRIPT) $(CI_RELEVANCE_SCRIPT)
+	$(UV) run ruff format --check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT)
 
 api-lint-check:
 	@printf '%s\n' 'Running Ruff lint...'
-	$(UV) run ruff check . $(SMOKE_SCRIPT) $(CI_RELEVANCE_SCRIPT)
+	$(UV) run ruff check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT)
 
 api-type-check:
 	@printf '%s\n' 'Running strict Pyright...'
