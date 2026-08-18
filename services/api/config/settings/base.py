@@ -80,6 +80,9 @@ AUTH_PASSWORD_VALIDATORS: list[dict[str, object]] = [
 
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "authentication.drf.TailTagAuthentication",
+    ],
 }
 
 SPECTACULAR_SETTINGS = {
