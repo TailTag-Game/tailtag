@@ -275,14 +275,39 @@ class _OrchestrationRuntime:
         raise AssertionError("failed ticket/session ownership must not call the API")
 
 
-def run_main_with_session(
-    monkeypatch: MonkeyPatch,
-    session: development_session.ClerkDevelopmentSession,
-) -> int:
-    """Exercise the command's public stdout/stderr boundary with an offline session."""
+class _ValidationRuntime:
+    """Offline runtime that exercises the command's real validation boundary."""
 
-    def default_runtime() -> _OrchestrationRuntime:
-        return _OrchestrationRuntime(session)
+    def __init__(self, transport: _Transport) -> None:
+        self._transport = transport
+
+    def run_baseline(self, *, base_url: str) -> bool:
+        assert base_url == "http://127.0.0.1:8000"
+        return True
+
+    def prompt_secret(self) -> str:
+        return SYNTHETIC_SECRET
+
+    def validate_clerk(
+        self, *, secret: str, user_id: str
+    ) -> development_session.ClerkDevelopmentSession:
+        return development_session.ClerkDevelopmentSession.validate(
+            secret=secret,
+            user_id=user_id,
+            transport=self._transport,
+        )
+
+    def request_current_user(self, *, base_url: str, bearer_token: str) -> None:
+        raise AssertionError("validation failure must not call the authenticated API")
+
+
+def run_main_with_runtime(
+    monkeypatch: MonkeyPatch, runtime: auth_smoke.SmokeRuntime
+) -> int:
+    """Exercise the command boundary with a fully offline runtime."""
+
+    def default_runtime() -> auth_smoke.SmokeRuntime:
+        return runtime
 
     monkeypatch.setattr(auth_smoke, "DefaultSmokeRuntime", default_runtime)
     monkeypatch.setattr(sys, "argv", ["api_auth_smoke.py"])
@@ -290,6 +315,14 @@ def run_main_with_session(
     monkeypatch.setenv("CLERK_SMOKE_USER_ID", SYNTHETIC_USER)
     monkeypatch.delenv("TAILTAG_DEVELOPMENT_API_BASE_URL", raising=False)
     return auth_smoke.main()
+
+
+def run_main_with_session(
+    monkeypatch: MonkeyPatch,
+    session: development_session.ClerkDevelopmentSession,
+) -> int:
+    """Exercise the command's public stdout/stderr boundary with an offline session."""
+    return run_main_with_runtime(monkeypatch, _OrchestrationRuntime(session))
 
 
 def assert_fapi_failure_output_is_sanitized(
@@ -447,21 +480,22 @@ def test_primary_domain_authority_unavailable_has_one_sanitized_public_stage(
     domain_data: object,
 ) -> None:
     """Only the validated primary domain may authorize the Frontend API."""
-    ticket = _Ticket()
-    ticket.url = "https://untrusted-synthetic.invalid/ignored-ticket-url"
-    session, transport = validated_session(ticket, domain_data=domain_data)
+    transport = _Transport(_Ticket(), domain_data=domain_data)
 
     def prohibit_frontend_api(*_handlers: urllib.request.BaseHandler) -> NoReturn:
         raise AssertionError("invalid primary domain must stop before Frontend API")
 
     monkeypatch.setattr(urllib.request, "build_opener", prohibit_frontend_api)
 
-    assert run_main_with_session(monkeypatch, session) == 1
+    assert run_main_with_runtime(monkeypatch, _ValidationRuntime(transport)) == 1
     captured = capsys.readouterr()
 
     assert captured.out == ""
     assert_fapi_failure_output_is_sanitized(captured)
     assert captured.err == "FAIL provider Frontend API authority unavailable\n"
+    assert "satellite-synthetic.invalid" not in captured.err
+    assert "untrusted-synthetic.invalid" not in captured.err
+    assert transport.sign_in_tokens.create_calls == []
     assert transport.events == []
 
 
@@ -884,6 +918,10 @@ def test_backend_sdk_uses_a_client_that_disables_environment_proxies_and_redirec
             captured_client.append(client)
             self.instance_settings = _InstanceSettings()
             self.users = _Users()
+            self.domains = _DomainsResource(
+                data=[_Domain(False, DEFAULT_PRIMARY_FRONTEND_API_URL)],
+                error=None,
+            )
 
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.synthetic.invalid:8080")
     monkeypatch.setattr(development_session, "Clerk", FakeClerk)
