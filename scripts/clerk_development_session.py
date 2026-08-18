@@ -126,11 +126,17 @@ class ClerkDevelopmentSession:
         if getattr(user, "id", None) != user_id:
             _close_client(http_client)
             raise ClerkFlowFailure(ClerkFlowStage.USER)
+        try:
+            fapi_authority = _primary_development_fapi_authority(clerk)
+        except Exception:  # noqa: BLE001 - provider details remain private
+            _close_client(http_client)
+            raise ClerkFlowFailure(ClerkFlowStage.FAPI_AUTHORITY) from None
         return cls(
             _secret=secret,
             _user_id=user_id,
             _transport=clerk,
             _http_client=http_client,
+            _fapi_authority=fapi_authority,
         )
 
     def create_verified_token(self) -> str:
@@ -138,7 +144,6 @@ class ClerkDevelopmentSession:
         ticket = self._create_ticket()
         ticket_value = _ticket_field(ticket, "token")
         ticket_id = _ticket_field(ticket, "id")
-        ticket_url = _ticket_field(ticket, "url")
         if isinstance(ticket_id, str) and ticket_id:
             self._ticket_id = ticket_id
             self._ticket_cleanup_uncertain = False
@@ -146,9 +151,6 @@ class ClerkDevelopmentSession:
             raise ClerkFlowFailure(ClerkFlowStage.TICKET)
         if not isinstance(ticket_value, str) or not ticket_value:
             raise ClerkFlowFailure(ClerkFlowStage.TICKET_CREDENTIAL)
-        if not isinstance(ticket_url, str) or not _is_development_fapi_url(ticket_url):
-            raise ClerkFlowFailure(ClerkFlowStage.FAPI_AUTHORITY)
-        self._fapi_authority = ticket_url
 
         try:
             sign_in, client, opener, dev_browser_id = self._run_frontend_ticket_flow(
@@ -396,6 +398,27 @@ def _is_development_fapi_url(value: str) -> bool:
         and parsed.password is None
         and port is None
     )
+
+
+def _primary_development_fapi_authority(clerk: Any) -> str:
+    domains = clerk.domains.list()
+    data = cast(object, getattr(domains, "data", None))
+    if not isinstance(data, list):
+        raise TypeError
+    domain_data = cast(list[object], data)
+    primaries = [
+        domain
+        for domain in domain_data
+        if getattr(domain, "is_satellite", None) is False
+    ]
+    if len(primaries) != 1:
+        raise ValueError
+    authority = getattr(primaries[0], "frontend_api_url", None)
+    if not isinstance(authority, str) or not authority:
+        raise TypeError
+    if not _is_development_fapi_url(authority):
+        raise ValueError
+    return authority
 
 
 def _fapi_url(base_url: str | None, path: str, query: dict[str, str] | None) -> str:
