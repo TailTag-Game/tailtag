@@ -7,12 +7,15 @@ from typing import ClassVar, NoReturn
 import pytest
 import yaml
 from django.conf import settings
+from django.http import HttpRequest
 from django.test import Client, override_settings
 from django.urls import path
 from pytest import MonkeyPatch
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.test import APIRequestFactory
 from rest_framework.views import APIView
 
 from accounts.models import User
@@ -71,10 +74,18 @@ def _raise(error: BaseException) -> NoReturn:
 def test_successful_authentication_exposes_only_the_resolved_application_user(
     monkeypatch: MonkeyPatch,
 ) -> None:
+    verified_requests: list[HttpRequest] = []
+
+    def verify(
+        _verifier: ClerkSessionVerifier, request: HttpRequest
+    ) -> VerifiedClerkIdentity:
+        verified_requests.append(request)
+        return VerifiedClerkIdentity(subject="user_test_subject")
+
     monkeypatch.setattr(
         ClerkSessionVerifier,
         "verify",
-        lambda *_args, **_kwargs: VerifiedClerkIdentity(subject="user_test_subject"),
+        verify,
     )
 
     response = Client().get("/test/identity", HTTP_AUTHORIZATION="Bearer test")
@@ -82,11 +93,16 @@ def test_successful_authentication_exposes_only_the_resolved_application_user(
 
     assert response.status_code == 200
     assert response.json() == {"user_id": resolved_user.pk, "auth_is_none": True}
+    assert len(verified_requests) == 1
+    assert isinstance(verified_requests[0], HttpRequest)
+    assert not isinstance(verified_requests[0], Request)
 
 
 @pytest.mark.django_db
 @override_settings(
-    ROOT_URLCONF=__name__, REST_FRAMEWORK=AUTHENTICATION_SETTINGS, CLERK_AUTHENTICATION=None
+    ROOT_URLCONF=__name__,
+    REST_FRAMEWORK=AUTHENTICATION_SETTINGS,
+    CLERK_AUTHENTICATION=None,
 )
 def test_explicitly_disabled_authentication_remains_anonymous_without_boundary_calls(
     monkeypatch: MonkeyPatch,
@@ -113,7 +129,9 @@ def test_enabled_headerless_authentication_remains_anonymous_without_resolution(
     monkeypatch: MonkeyPatch,
 ) -> None:
     def fail_if_resolved(*_: object, **__: object) -> NoReturn:
-        raise AssertionError("headerless authentication must not resolve a TailTag user")
+        raise AssertionError(
+            "headerless authentication must not resolve a TailTag user"
+        )
 
     monkeypatch.setattr(ClerkSessionVerifier, "verify", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(drf_adapter, "resolve_application_user", fail_if_resolved)
@@ -153,6 +171,7 @@ def test_resolution_unavailable_has_one_fixed_sanitized_503_body(
         (
             ("user_503_first_subject", "first psycopg cause detail sentinel"),
             ("user_503_second_subject", "second psycopg cause detail sentinel"),
+            ("user_503_detail_subject", "fixed DRF detail code sentinel"),
         )
     )
     active_subject = ""
@@ -166,13 +185,16 @@ def test_resolution_unavailable_has_one_fixed_sanitized_503_body(
         (
             "first psycopg cause detail sentinel",
             "second psycopg cause detail sentinel",
+            "fixed DRF detail code sentinel",
         )
     )
     monkeypatch.setattr(ClerkSessionVerifier, "verify", verify)
     monkeypatch.setattr(
         drf_adapter,
         "resolve_application_user",
-        lambda *_args, **_kwargs: _raise(ApplicationUserResolutionUnavailable(next(details))),
+        lambda *_args, **_kwargs: _raise(
+            ApplicationUserResolutionUnavailable(next(details))
+        ),
     )
 
     responses = [
@@ -193,6 +215,15 @@ def test_resolution_unavailable_has_one_fixed_sanitized_503_body(
     ):
         assert subject not in body
         assert detail not in body
+
+    drf_response = RequestIdentityView.as_view()(
+        APIRequestFactory().get("/test/identity", HTTP_AUTHORIZATION="Bearer test")
+    )
+    detail = drf_response.data["detail"]
+
+    assert drf_response.status_code == 503
+    assert str(detail) == "Service temporarily unavailable."
+    assert detail.code == "service_unavailable"
 
 
 @pytest.mark.django_db
@@ -241,7 +272,9 @@ def test_missing_credentials_on_a_protected_view_receive_a_bearer_challenge() ->
     assert response["WWW-Authenticate"] == "Bearer"
 
 
-def test_global_authentication_contract_has_one_tailtag_class_and_no_permission_default() -> None:
+def test_global_authentication_contract_has_one_tailtag_class_and_no_permission_default() -> (
+    None
+):
     assert settings.REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"] == [
         "authentication.drf.TailTagAuthentication"
     ]
