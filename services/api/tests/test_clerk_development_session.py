@@ -228,25 +228,25 @@ class SuccessfulFrontendOpener:
     def open(self, request: urllib.request.Request, **_kwargs: object) -> _JsonResponse:
         self.requests.append(request)
         path = urlsplit(request.full_url).path
-        session = {
+        session: dict[str, object] = {
             "object": "session",
             "id": "sess_synthetic_sensitive_identifier",
             "status": "active",
             "user_id": "user_synthetic_sensitive_identifier",
             "user": {"id": "user_synthetic_sensitive_identifier"},
         }
-        sign_in = {
+        sign_in: dict[str, object] = {
             "object": "sign_in_attempt",
             "status": "complete",
             "created_session_id": "sess_synthetic_sensitive_identifier",
             "user_data": {"id": "user_synthetic_sensitive_identifier"},
         }
-        client = {
+        client: dict[str, object] = {
             "object": "client",
             "id": "client_synthetic",
             "sessions": [session],
         }
-        responses = {
+        responses: dict[str, dict[str, object]] = {
             "/v1/dev_browser": {"id": "dev_browser_synthetic"},
             "/v1/client": client,
             "/v1/client/sign_ins": {"response": sign_in, "client": client},
@@ -271,19 +271,19 @@ class OfficialEnvelopeFrontendOpener:
     def open(self, request: urllib.request.Request, **_kwargs: object) -> _JsonResponse:
         self.requests.append(request)
         path = urlsplit(request.full_url).path
-        created_session = {
+        created_session: dict[str, object] = {
             "object": "session",
             "id": "sess_synthetic_created_by_ticket",
             "status": "active",
             "user_id": "user_synthetic_sensitive_identifier",
         }
-        older_session = {
+        older_session: dict[str, object] = {
             "object": "session",
             "id": "sess_synthetic_older_active_session",
             "status": "active",
             "user_id": "user_synthetic_sensitive_identifier",
         }
-        responses = {
+        responses: dict[str, dict[str, object]] = {
             # clerk-js createDevBrowser() reads the top-level `id` value.
             "/v1/dev_browser": {"id": "dev_browser_synthetic"},
             "/v1/client": {"object": "client", "sessions": []},
