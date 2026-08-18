@@ -25,7 +25,11 @@
 - `services/api/accounts/resolution.py`: application-user lookup, provisioning, exact race recovery, and availability classification.
 - `services/api/authentication/drf.py`: DRF `BaseAuthentication` adapter and generic `503` translation.
 - `services/api/config/settings/base.py`: global DRF authentication-class installation without permission changes.
-- `services/api/tests/test_identity_resolution.py`: independent resolution, concurrency, failure, and assembled-DRF acceptance tests.
+- `services/api/tests/test_identity_resolution.py`: independent resolution,
+  concurrency, integrity, and availability-classification acceptance tests.
+- `services/api/tests/test_drf_identity_authentication.py`: independent
+  assembled-DRF, response-sanitization, global-policy, and production-surface
+  acceptance tests.
 - `services/api/tests/test_clerk_authentication.py`: replace only issue #96's temporary assertion that no global authentication class exists; retain its verification-only boundary assertions.
 - `services/api/README.md`: implementation-coupled final identity flow and issue boundaries.
 - `docs/specs/2026-08-17-clerk-identity-resolution.md`: approved canonical design and Acceptance Contract; no behavioral edits during implementation.
@@ -36,11 +40,16 @@
 
 **Files:**
 - Create: `services/api/tests/test_identity_resolution.py`
+- Create: `services/api/tests/test_drf_identity_authentication.py`
 - Modify: `services/api/tests/test_clerk_authentication.py`
 
 **Interfaces:**
 - Consumes: only issue #97 and the approved spec; do not inspect a proposed production implementation.
-- Produces: locked behavioral tests for `resolve_application_user(clerk_user_id: str) -> accounts.User`, `ApplicationUserResolutionUnavailable`, `EXPECTED_CLERK_USER_ID_UNIQUE_CONSTRAINT`, and `authentication.drf.TailTagAuthentication`.
+- Produces: separately collectable locked behavioral tests for
+  `resolve_application_user(clerk_user_id: str) -> accounts.User`,
+  `ApplicationUserResolutionUnavailable`,
+  `EXPECTED_CLERK_USER_ID_UNIQUE_CONSTRAINT`, and
+  `authentication.drf.TailTagAuthentication`.
 
 - [ ] **Step 1: Add first-use, repeat, distinct, case-sensitive, and no-side-effect tests**
 
@@ -138,9 +147,16 @@ arbitrary DatabaseError/IntegrityError      -> original exception
 
 Assert the provider-neutral exception string and representation contain none of the original error text, subject, SQLSTATE, connection information, or constraint name.
 
-- [ ] **Step 5: Add a test-only DRF request harness**
+- [ ] **Step 5: Add a separately collectable test-only DRF request harness**
 
-Define test-local `APIView` classes and a test-local URL configuration. Use one `AllowAny` view to inspect anonymous/successful request state and one `IsAuthenticated` view only to prove the standard Bearer challenge; do not add a production route.
+Define the DRF imports, test-local `APIView` classes, test-local URL
+configuration, and assembled request tests in
+`tests/test_drf_identity_authentication.py`. Keep
+`tests/test_identity_resolution.py` free of `authentication.drf` imports so
+resolver tests collect and run before the adapter exists. Use one `AllowAny`
+view to inspect anonymous/successful request state and one `IsAuthenticated`
+view only to prove the standard Bearer challenge; do not add a production
+route.
 
 Tests must establish:
 
@@ -183,7 +199,9 @@ Run:
 
 ```bash
 uv --directory services/api run --locked --no-sync pytest \
-  tests/test_identity_resolution.py tests/test_clerk_authentication.py -q
+  tests/test_identity_resolution.py \
+  tests/test_drf_identity_authentication.py \
+  tests/test_clerk_authentication.py -q
 ```
 
 Expected: collection or focused assertion failures because `accounts.resolution`, `authentication.drf`, and global configuration do not exist. Existing issue #96 verifier tests should otherwise remain green. Review every failure and confirm it represents missing approved behavior rather than a fixture defect.
@@ -192,6 +210,7 @@ Expected: collection or focused assertion failures because `accounts.resolution`
 
 ```bash
 git add services/api/tests/test_identity_resolution.py \
+  services/api/tests/test_drf_identity_authentication.py \
   services/api/tests/test_clerk_authentication.py
 git commit -m "test(api): lock Clerk identity resolution contract"
 ```
@@ -293,7 +312,7 @@ git commit -m "feat(api): resolve Clerk identities to application users"
 **Files:**
 - Create: `services/api/authentication/drf.py`
 - Modify: `services/api/config/settings/base.py`
-- Test: `services/api/tests/test_identity_resolution.py`
+- Test: `services/api/tests/test_drf_identity_authentication.py`
 - Test: `services/api/tests/test_clerk_authentication.py`
 
 **Interfaces:**
@@ -304,7 +323,9 @@ git commit -m "feat(api): resolve Clerk identities to application users"
 
 ```bash
 uv --directory services/api run --locked --no-sync pytest \
-  tests/test_identity_resolution.py tests/test_clerk_authentication.py -q
+  tests/test_identity_resolution.py \
+  tests/test_drf_identity_authentication.py \
+  tests/test_clerk_authentication.py -q
 ```
 
 Expected: resolver behavior passes; adapter imports, request propagation, failures, challenge, and settings assertions fail.
@@ -351,7 +372,8 @@ Do not add `DEFAULT_PERMISSION_CLASSES` and do not conditionally remove the clas
 
 ```bash
 uv --directory services/api run --locked --no-sync pytest \
-  tests/test_identity_resolution.py tests/test_clerk_authentication.py \
+  tests/test_identity_resolution.py \
+  tests/test_drf_identity_authentication.py tests/test_clerk_authentication.py \
   tests/test_local_settings.py tests/test_production_settings.py -q
 ```
 
@@ -417,7 +439,8 @@ Expected: the diff has no whitespace errors; required contributor checks pass, w
 
 ```bash
 uv --directory services/api run --locked --no-sync pytest --create-db \
-  tests/test_identity_resolution.py tests/test_clerk_authentication.py \
+  tests/test_identity_resolution.py \
+  tests/test_drf_identity_authentication.py tests/test_clerk_authentication.py \
   tests/test_local_settings.py tests/test_production_settings.py -q
 ```
 
