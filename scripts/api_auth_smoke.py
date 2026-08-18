@@ -99,6 +99,8 @@ class DefaultSmokeRuntime:
         return result.returncode == 0
 
     def prompt_secret(self) -> str:
+        if not sys.stdin.isatty() or not sys.stderr.isatty():
+            raise SmokeFailure(_PROMPT_FAILURE)
         return getpass.getpass("Clerk Development secret:", stream=sys.stderr)
 
     def validate_clerk(self, *, secret: str, user_id: str) -> ClerkDevelopmentSession:
@@ -163,6 +165,9 @@ def _validate_https_root_url(value: str) -> str:
 
 def _root_url_parts(value: str) -> SplitResult:
     if not value or any(character.isspace() for character in value) or "\\" in value:
+        raise SmokeFailure(_TARGET_FAILURE)
+    raw_scheme, separator, _remainder = value.partition(":")
+    if separator != ":" or raw_scheme not in {"http", "https"}:
         raise SmokeFailure(_TARGET_FAILURE)
     try:
         parsed = urlsplit(value)
@@ -280,14 +285,11 @@ def main() -> int:
     if len(sys.argv) != 1:
         print("FAIL authenticated API smoke arguments invalid", file=sys.stderr)
         return 1
-    if not sys.stdin.isatty() or not sys.stderr.isatty():
-        print(
-            "FAIL authenticated API smoke requires an interactive terminal",
-            file=sys.stderr,
-        )
-        return 1
 
-    outcome = run(os.environ, DefaultSmokeRuntime())
+    try:
+        outcome = run(os.environ, DefaultSmokeRuntime())
+    except SmokeFailure as error:
+        outcome = SmokeOutcome(primary_stage=error.stage)
     if outcome.succeeded:
         print("PASS authenticated API smoke")
         return 0
