@@ -30,10 +30,12 @@ from accounts.resolution import ApplicationUserResolutionUnavailable
 from authentication import drf as drf_adapter
 from authentication.clerk import (
     ClerkSessionVerifier,
-    ClerkVerificationConfiguration,
     VerifiedClerkIdentity,
 )
-from tests.authentication_support import fake_clerk_session_verification
+from tests.authentication_support import (
+    TEST_CLERK_CONFIGURATION,
+    fake_clerk_session_verification,
+)
 
 
 class RequestIdentityView(APIView):
@@ -68,10 +70,6 @@ urlpatterns = [
 AUTHENTICATION_SETTINGS = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["authentication.drf.TailTagAuthentication"],
 }
-TEST_CLERK_CONFIGURATION = ClerkVerificationConfiguration(
-    jwt_key="test-only-not-used-by-patched-verifier",
-    authorized_parties=("http://testserver",),
-)
 
 
 def _raise(error: BaseException) -> NoReturn:

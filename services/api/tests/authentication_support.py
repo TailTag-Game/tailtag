@@ -4,12 +4,22 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from django.conf import settings
 from django.http import HttpRequest
 from pytest import MonkeyPatch
 from rest_framework.test import APIClient
 
 from accounts.models import User
-from authentication.clerk import ClerkSessionVerifier, VerifiedClerkIdentity
+from authentication.clerk import (
+    ClerkSessionVerifier,
+    ClerkVerificationConfiguration,
+    VerifiedClerkIdentity,
+)
+
+TEST_CLERK_CONFIGURATION = ClerkVerificationConfiguration(
+    jwt_key="test-only-not-used-by-patched-verifier",
+    authorized_parties=("http://testserver",),
+)
 
 
 def create_test_user(*, clerk_user_id: str | None = None) -> User:
@@ -32,6 +42,11 @@ def fake_clerk_session_verification(
 ) -> list[HttpRequest]:
     """Fake only Clerk verification while retaining the real auth composition."""
     requests: list[HttpRequest] = []
+    monkeypatch.setattr(
+        settings,
+        "CLERK_AUTHENTICATION",
+        TEST_CLERK_CONFIGURATION,
+    )
 
     def verify(
         _verifier: ClerkSessionVerifier,

@@ -14,18 +14,11 @@ from pytest import MonkeyPatch
 from rest_framework.permissions import IsAuthenticated
 
 from accounts.models import User
-from authentication.clerk import (
-    ClerkVerificationConfiguration,
-)
 from tests.authentication_support import (
+    TEST_CLERK_CONFIGURATION,
     create_test_user,
     fake_clerk_session_verification,
     force_authenticated_client,
-)
-
-TEST_CLERK_CONFIGURATION = ClerkVerificationConfiguration(
-    jwt_key="test-only-not-used-by-patched-verifier",
-    authorized_parties=("http://testserver",),
 )
 
 
