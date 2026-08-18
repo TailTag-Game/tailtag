@@ -499,6 +499,68 @@ def test_primary_domain_authority_unavailable_has_one_sanitized_public_stage(
     assert transport.events == []
 
 
+@pytest.mark.parametrize(
+    "authority",
+    (
+        "https://development-synthetic.clerk.accounts.dev/non-root",
+        "https://development-synthetic.clerk.accounts.dev//",
+        "https://development-synthetic.clerk.accounts.dev?synthetic-query",
+        "https://development-synthetic.clerk.accounts.dev#synthetic-fragment",
+        "https://development-synthetic.clerk.accounts.dev?",
+        "https://development-synthetic.clerk.accounts.dev#",
+        " https://development-synthetic.clerk.accounts.dev",
+        "https://development-synthetic.clerk.accounts.dev ",
+    ),
+    ids=(
+        "non-root-path",
+        "multiple-trailing-slashes",
+        "query",
+        "fragment",
+        "empty-query-delimiter",
+        "empty-fragment-delimiter",
+        "leading-whitespace",
+        "trailing-whitespace",
+    ),
+)
+def test_noncanonical_primary_authority_fails_before_ticket_creation(
+    monkeypatch: MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    authority: str,
+) -> None:
+    """A primary FAPI authority is an exact HTTPS root, never a relative target."""
+    transport = _Transport(_Ticket(), domain_data=[_Domain(False, authority)])
+
+    assert run_main_with_runtime(monkeypatch, _ValidationRuntime(transport)) == 1
+    captured = capsys.readouterr()
+
+    assert captured.out == ""
+    assert_fapi_failure_output_is_sanitized(captured)
+    assert captured.err == "FAIL provider Frontend API authority unavailable\n"
+    assert authority not in captured.err
+    assert transport.sign_in_tokens.create_calls == []
+    assert transport.events == []
+
+
+@pytest.mark.parametrize(
+    "authority",
+    (DEFAULT_PRIMARY_FRONTEND_API_URL, f"{DEFAULT_PRIMARY_FRONTEND_API_URL}/"),
+    ids=("root", "single-trailing-slash"),
+)
+def test_canonical_primary_authority_roots_are_accepted(authority: str) -> None:
+    """The one optional root slash remains valid without normalizing authority."""
+    transport = _Transport(_Ticket(), domain_data=[_Domain(False, authority)])
+
+    session = development_session.ClerkDevelopmentSession.validate(
+        secret=SYNTHETIC_SECRET,
+        user_id=SYNTHETIC_USER,
+        transport=transport,
+    )
+
+    assert session is not None
+    assert transport.sign_in_tokens.create_calls == []
+    assert transport.events == []
+
+
 @pytest.mark.parametrize("failure", ("http", "malformed-json", "missing-id"))
 def test_development_browser_failures_have_one_sanitized_public_stage(
     monkeypatch: MonkeyPatch,
