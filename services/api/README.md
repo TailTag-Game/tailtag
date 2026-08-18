@@ -3,7 +3,7 @@
 `services/api` is TailTag's V0 Django API foundation. It provides Django
 administration, PostgreSQL-backed liveness/readiness checks, and OpenAPI
 schema/documentation infrastructure. It also defines TailTag's application-user
-identity. It intentionally does not implement Clerk request authentication,
+identity and Clerk request verification. It intentionally does not implement
 Clerk-to-user request resolution, player profiles, or gameplay APIs.
 
 The service uses Python 3.13, Django, Django REST Framework, PostgreSQL 17,
@@ -49,9 +49,10 @@ different responsibilities:
 - No email address, username, display name, avatar, biography, profile state, or
   gameplay data is stored on the application-user model.
 
-After the later Clerk authentication and identity-resolution work in issues #96
-and #97, authenticated DRF code will receive the resolved `accounts.User`
-instance as `request.user`. That behavior is not implemented by #95.
+Issue #96 verifies Clerk requests but does not resolve a TailTag user. Issue `#97`
+alone resolves or provisions `accounts.User` and creates final DRF
+authentication; only then will authenticated DRF code receive the resolved user
+as `request.user`.
 
 Model declarations must refer to the configured user model, never to a Clerk ID:
 
@@ -119,6 +120,39 @@ PostgreSQL 17 is the supported local major version. There is no SQLite fallback
 and host-installed PostgreSQL is not a supported contributor workflow. If `.env`
 is absent or `DATABASE_URL` is invalid, local Django stops with a sanitized
 configuration error that does not print credentials.
+
+## Clerk request-authentication configuration (#96)
+
+Clerk request authentication is disabled by default. Set
+`CLERK_AUTHENTICATION_ENABLED=true` only when the following complete
+configuration is available:
+
+| Setting | Required | Purpose |
+| --- | --- | --- |
+| `CLERK_AUTHENTICATION_ENABLED` | No; defaults to `false` | Enables Clerk bearer-token verification. |
+| `CLERK_JWT_KEY` | Yes when enabled | Configured Clerk instance JWT public key used for verification. |
+| `CLERK_AUTHORIZED_PARTIES` | Yes when enabled | Comma-separated list of authorized parties. |
+
+Verification uses Clerk backend SDK 6.0.1 with the configured instance JWT
+public key and does not make network requests. It does not require, read, or
+document a Clerk secret key or publishable key. TailTag does not independently
+validate or claim to validate `iss`.
+
+TailTag accepts exactly one `Bearer` token68 credential in the `Authorization`
+header; the scheme is case-insensitive. An absent header causes no verification
+attempt. Every supplied malformed or invalid credential fails with the same
+generic authentication failure.
+
+The SDK is explicitly configured to accept a `session_token`. TailTag also
+requires the verified claims to include nonempty `sid` as a session-bound
+discriminator and nonempty `sub`. The resulting
+`VerifiedClerkIdentity` is immutable and exposes only the subject; it never
+exposes `sid` or raw claims downstream.
+
+This issue deliberately stops at request verification. Issue #97 resolves or
+provisions `accounts.User` and creates the final DRF authentication. Issue #98
+owns protected-endpoint `401` proof, and issue #100 owns Railway development
+enablement.
 
 ## Canonical backend commands
 

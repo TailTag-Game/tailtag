@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "TailTag V0 API foundation"
 requires-python = ">=3.13,<3.14"
 dependencies = [
+    "clerk-backend-api==6.0.1",
+    "cryptography>=45,<49",
     "Django>=6.0,<6.1",
     "djangorestframework>=3.16",
     "psycopg[binary]>=3.2",
@@ -20,6 +22,7 @@ dev = [
     "djangorestframework-stubs>=3.16",
     "pytest>=8.3",
     "pytest-django>=4.11",
+    "PyJWT>=2.9,<3",
 ]
 
 [tool.uv]
@@ -34,7 +37,7 @@ target-version = "py313"
 [tool.pyright]
 pythonVersion = "3.13"
 typeCheckingMode = "strict"
-include = ["accounts", "config", "fursuits", "health", "tests", "../../scripts/api_smoke.py", "../../scripts/backend_ci_relevance.py"]
+include = ["accounts", "authentication", "config", "fursuits", "health", "tests", "../../scripts/api_smoke.py", "../../scripts/backend_ci_relevance.py"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.local"
