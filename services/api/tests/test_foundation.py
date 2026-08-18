@@ -8,10 +8,10 @@ from django.conf import settings
 from django.test import Client
 
 
-def test_foundation_exposes_only_administrative_and_infrastructure_routes(
+def test_foundation_exposes_current_user_and_infrastructure_routes(
     client: Client,
 ) -> None:
-    """The promoted service has no POC player or fursuit API contract."""
+    """The promoted service has only the identity proof, not POC player resources."""
     schema_response = client.get("/api/schema/")
 
     assert settings.AUTH_USER_MODEL == "accounts.User"
@@ -25,4 +25,4 @@ def test_foundation_exposes_only_administrative_and_infrastructure_routes(
 
     schema = yaml.safe_load(schema_response.content)
     assert schema_response.status_code == 200
-    assert set(schema["paths"]) == {"/api/schema/"}
+    assert set(schema["paths"]) == {"/api/me/", "/api/schema/"}
