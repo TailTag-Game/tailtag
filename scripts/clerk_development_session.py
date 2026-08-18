@@ -18,6 +18,7 @@ from http.cookiejar import CookieJar
 from typing import Any, Final, cast
 from urllib.parse import SplitResult, urlsplit, urlunsplit
 
+import httpx
 from clerk_backend_api import Clerk
 from clerk_backend_api.models import CreateSignInTokenRequestBody
 from cryptography.hazmat.primitives import serialization
@@ -73,6 +74,7 @@ class ClerkDevelopmentSession:
     _secret: str = field(repr=False)
     _user_id: str = field(repr=False)
     _transport: Any = field(repr=False)
+    _http_client: httpx.Client | None = field(default=None, repr=False)
     _fapi_authority: str | None = field(default=None, repr=False)
     _ticket_id: str | None = field(default=None, repr=False)
     _ticket_consumed: bool = False
@@ -90,26 +92,38 @@ class ClerkDevelopmentSession:
         """Validate the fixed Development instance and its already-provisioned user."""
         if not secret.startswith("sk_test_"):
             raise ClerkCredentialFailure()
+        http_client = (
+            None
+            if transport is not None
+            else httpx.Client(trust_env=False, follow_redirects=False)
+        )
         try:
             clerk: Any = (
-                transport if transport is not None else Clerk(bearer_auth=secret)
+                transport
+                if transport is not None
+                else Clerk(bearer_auth=secret, client=http_client)
             )
             instance: object = cast(object, clerk.instance_settings.get())
         except Exception:  # noqa: BLE001 - third-party errors are intentionally opaque
+            _close_client(http_client)
             raise ClerkFlowFailure(ClerkFlowStage.INSTANCE) from None
 
         if getattr(instance, "environment_type", None) != "development":
+            _close_client(http_client)
             raise ClerkFlowFailure(ClerkFlowStage.INSTANCE)
         try:
             user: object = cast(object, clerk.users.get(user_id=user_id))
         except Exception:  # noqa: BLE001 - third-party errors are intentionally opaque
+            _close_client(http_client)
             raise ClerkFlowFailure(ClerkFlowStage.USER) from None
         if getattr(user, "id", None) != user_id:
+            _close_client(http_client)
             raise ClerkFlowFailure(ClerkFlowStage.USER)
         return cls(
             _secret=secret,
             _user_id=user_id,
             _transport=clerk,
+            _http_client=http_client,
         )
 
     def create_verified_token(self) -> str:
@@ -118,6 +132,8 @@ class ClerkDevelopmentSession:
         ticket_value = getattr(ticket, "token", None)
         ticket_id = getattr(ticket, "id", None)
         ticket_url = getattr(ticket, "url", None)
+        if isinstance(ticket_id, str) and ticket_id:
+            self._ticket_id = ticket_id
         if (
             not isinstance(ticket_value, str)
             or not ticket_value
@@ -127,16 +143,15 @@ class ClerkDevelopmentSession:
             or not _is_development_fapi_url(ticket_url)
         ):
             raise ClerkFlowFailure(ClerkFlowStage.TICKET)
-        self._ticket_id = ticket_id
         self._fapi_authority = ticket_url
 
         try:
             client, opener, dev_token = self._run_frontend_ticket_flow(ticket_value)
-            session_id = _active_session_id(client, self._user_id)
+            self._ticket_consumed = True
+            session_id = _completed_sign_in_session_id(client, self._user_id)
             if session_id is None:
                 raise ValueError
             self._session_id = session_id
-            self._ticket_consumed = True
             token = self._request_session_token(opener, dev_token, session_id)
         except ClerkFlowFailure:
             raise
@@ -160,6 +175,9 @@ class ClerkDevelopmentSession:
                 self._transport.sign_in_tokens.revoke(sign_in_token_id=self._ticket_id)
             except Exception:  # noqa: BLE001 - cleanup must attempt both resources
                 failed = True
+        if not _close_client(self._http_client):
+            failed = True
+        self._http_client = None
         if failed:
             raise ClerkFlowFailure(ClerkFlowStage.CLEANUP)
 
@@ -181,7 +199,9 @@ class ClerkDevelopmentSession:
         self, ticket: str
     ) -> tuple[dict[str, object], urllib.request.OpenerDirector, str]:
         opener = urllib.request.build_opener(
-            urllib.request.HTTPCookieProcessor(CookieJar()), _NoRedirect()
+            urllib.request.ProxyHandler({}),
+            urllib.request.HTTPCookieProcessor(CookieJar()),
+            _NoRedirect(),
         )
         dev_browser = self._frontend_request(opener, "/v1/dev_browser")
         dev_token = _field(dev_browser, "token")
@@ -315,7 +335,11 @@ class ClerkDevelopmentSession:
 
 
 def _is_development_fapi_url(value: str) -> bool:
-    parsed = urlsplit(value)
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return False
     host = parsed.hostname
     return (
         parsed.scheme == "https"
@@ -324,7 +348,7 @@ def _is_development_fapi_url(value: str) -> bool:
         and host != _DEVELOPMENT_FAPI_HOST_SUFFIX[1:]
         and parsed.username is None
         and parsed.password is None
-        and parsed.port is None
+        and port is None
     )
 
 
@@ -347,7 +371,20 @@ def _field(payload: dict[str, object], name: str) -> object:
     return payload.get(name)
 
 
-def _active_session_id(client: dict[str, object], user_id: str) -> str | None:
+def _completed_sign_in_session_id(
+    client: dict[str, object], user_id: str
+) -> str | None:
+    sign_in = client.get("sign_in")
+    if not isinstance(sign_in, dict):
+        return None
+    sign_in_data = cast(dict[str, object], sign_in)
+    created_session_id = sign_in_data.get("created_session_id")
+    if (
+        sign_in_data.get("status") != "complete"
+        or not isinstance(created_session_id, str)
+        or not created_session_id
+    ):
+        return None
     sessions = client.get("sessions")
     if not isinstance(sessions, list):
         return None
@@ -360,9 +397,19 @@ def _active_session_id(client: dict[str, object], user_id: str) -> str | None:
         if session_data.get("user_id") != user_id:
             continue
         session_id = session_data.get("id")
-        if isinstance(session_id, str):
-            return session_id
+        if session_id == created_session_id:
+            return created_session_id
     return None
+
+
+def _close_client(client: httpx.Client | None) -> bool:
+    if client is None:
+        return True
+    try:
+        client.close()
+    except Exception:  # noqa: BLE001 - cleanup must remain bounded
+        return False
+    return True
 
 
 def _unverified_jwt_parts(token: str) -> tuple[dict[str, object], dict[str, object]]:

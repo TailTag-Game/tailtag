@@ -60,7 +60,7 @@ api-smoke: ## HTTP-check a running API (API_BASE_URL defaults to 127.0.0.1:8000)
 	$(UV) run python $(SMOKE_SCRIPT)
 
 api-auth-smoke: ## Authenticated smoke test with an interactive Clerk Development secret.
-	uv run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_auth_smoke
+	PYTHONPATH="$(CURDIR):$(CURDIR)/$(API_DIRECTORY)" uv run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_auth_smoke
 
 api-check: api-format-check api-lint-check api-type-check api-test api-django-check api-migrations-check api-schema-check api-gunicorn-check ## Run the complete local pre-PR backend validation suite.
 	@printf '%s\n' 'Backend pre-PR validation completed.'

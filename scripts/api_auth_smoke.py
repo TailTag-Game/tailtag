@@ -13,14 +13,18 @@ from dataclasses import dataclass
 from typing import Final, Protocol, Self, cast
 from urllib.parse import SplitResult, urlsplit, urlunsplit
 
-from .clerk_development_session import ClerkDevelopmentSession, ClerkFlowFailure
+from .clerk_development_session import (
+    ClerkCredentialFailure,
+    ClerkDevelopmentSession,
+    ClerkFlowFailure,
+)
 
 DEFAULT_API_BASE_URL: Final = "http://127.0.0.1:8000"
 _API_ME_PATH: Final = "/api/me/"
 _REQUEST_TIMEOUT_SECONDS: Final = 10
 _TARGET_FAILURE: Final = "target configuration invalid"
 _BASELINE_FAILURE: Final = "baseline smoke unsuccessful"
-_PROMPT_FAILURE: Final = "interactive secret prompt unavailable"
+_PROMPT_FAILURE: Final = "interactive terminal unavailable"
 _VALIDATION_FAILURE: Final = "Clerk instance not validated as Development"
 _TOKEN_FAILURE: Final = "provider session-token flow unsuccessful"
 _API_FAILURE: Final = "authenticated API response invalid"
@@ -87,7 +91,11 @@ class DefaultSmokeRuntime:
 
     def __init__(self, *, opener: _Opener | None = None) -> None:
         self._opener = (
-            opener if opener is not None else urllib.request.build_opener(_NoRedirect())
+            opener
+            if opener is not None
+            else urllib.request.build_opener(
+                urllib.request.ProxyHandler({}), _NoRedirect()
+            )
         )
 
     def run_baseline(self, *, base_url: str) -> bool:
@@ -153,12 +161,7 @@ def _validate_root_url(value: str) -> str:
 
 def _validate_https_root_url(value: str) -> str:
     parsed = _root_url_parts(value)
-    if (
-        parsed.scheme != "https"
-        or parsed.hostname is None
-        or parsed.netloc != parsed.hostname
-        or parsed.port is not None
-    ):
+    if parsed.scheme != "https" or parsed.hostname is None:
         raise SmokeFailure(_TARGET_FAILURE)
     return value
 
@@ -215,6 +218,8 @@ def validate_api_target(environment: Mapping[str, str]) -> str:
 def _stage_for(error: BaseException, fallback: str) -> str:
     if isinstance(error, (SmokeFailure, ClerkFlowFailure)):
         return error.stage.value if isinstance(error, ClerkFlowFailure) else error.stage
+    if isinstance(error, ClerkCredentialFailure):
+        return str(error)
     return fallback
 
 

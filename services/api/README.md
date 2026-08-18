@@ -254,6 +254,13 @@ exact HTTPS API root. The tool does not automatically load `.env`; export or
 prefix these non-secret values instead. Do not define any Clerk secret in `.env`
 or another configuration source for this helper.
 
+The prompted credential is accepted only after authoritative instance metadata
+reports the authoritative environment type as Development. The fixed Backend
+API client creates the sign-in ticket on that metadata-validated instance; the
+documented ticket response URL is then the only Frontend API authority used for
+that ticket exchange. No provider URL, proxy, redirect target, or alternate
+server can be configured by a contributor.
+
 The helper uses the fixed synthetic origin `http://localhost:3000` for every
 Clerk token exchange, including against Railway. Add that exact origin to
 `CLERK_AUTHORIZED_PARTIES` in **both** local and Railway development API
@@ -290,6 +297,21 @@ failures are sanitized stage-level diagnostics, never secrets, tokens, user
 identifiers, sessions, or raw provider responses. The API verifier itself still
 requires no Clerk secret: the prompted credential belongs exclusively to this
 separate developer-tooling process.
+
+The bounded failure categories are:
+
+- `target configuration invalid`
+- `baseline smoke unsuccessful`
+- `interactive terminal unavailable`
+- `credential form invalid`
+- `Clerk instance not validated as Development`
+- `configured smoke user unavailable`
+- `provider ticket flow unsuccessful`
+- `provider session-token flow unsuccessful`
+- `token claims or lifetime invalid`
+- `TailTag verifier rejected the token`
+- `authenticated API response invalid`
+- `cleanup incomplete`
 
 ## Railway development migrations
 
