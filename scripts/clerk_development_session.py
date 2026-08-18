@@ -150,17 +150,19 @@ class ClerkDevelopmentSession:
         self._fapi_authority = ticket_url
 
         try:
-            client, opener, dev_token = self._run_frontend_ticket_flow(ticket_value)
+            sign_in, client, opener, dev_browser_id = self._run_frontend_ticket_flow(
+                ticket_value
+            )
             self._ticket_consumed = True
             self._session_cleanup_uncertain = True
-            session_id = _completed_sign_in_created_session_id(client)
+            session_id = _completed_sign_in_created_session_id(sign_in)
             if session_id is None:
                 raise ValueError
             self._session_id = session_id
             if not _is_owned_active_session(client, self._user_id, session_id):
                 raise ValueError
             self._session_cleanup_uncertain = False
-            token = self._request_session_token(opener, dev_token, session_id)
+            token = self._request_session_token(opener, dev_browser_id, session_id)
         except ClerkFlowFailure:
             raise
         except Exception:  # noqa: BLE001 - third-party errors are intentionally opaque
@@ -215,36 +217,53 @@ class ClerkDevelopmentSession:
 
     def _run_frontend_ticket_flow(
         self, ticket: str
-    ) -> tuple[dict[str, object], urllib.request.OpenerDirector, str]:
+    ) -> tuple[
+        dict[str, object],
+        dict[str, object],
+        urllib.request.OpenerDirector,
+        str,
+    ]:
         opener = urllib.request.build_opener(
             urllib.request.ProxyHandler({}),
             urllib.request.HTTPCookieProcessor(CookieJar()),
             _NoRedirect(),
         )
         dev_browser = self._frontend_request(opener, "/v1/dev_browser")
-        dev_token = _field(dev_browser, "token")
-        if not isinstance(dev_token, str):
+        dev_browser_id = _field(dev_browser, "id")
+        if not isinstance(dev_browser_id, str) or not dev_browser_id:
             raise ClerkFlowFailure(ClerkFlowStage.TICKET)
-        self._frontend_request(opener, "/v1/client", query={"__dev_session": dev_token})
-        signed_in_client = self._frontend_request(
+        self._frontend_request(
+            opener, "/v1/client", query={"__dev_session": dev_browser_id}
+        )
+        client_wrapped_sign_in = self._frontend_request(
             opener,
             "/v1/client/sign_ins",
-            query={"__dev_session": dev_token},
+            query={"__dev_session": dev_browser_id},
             form={"strategy": "ticket", "ticket": ticket},
+            unwrap_response=False,
         )
-        return signed_in_client, opener, dev_token
+        sign_in = client_wrapped_sign_in.get("response")
+        client = client_wrapped_sign_in.get("client")
+        if not isinstance(sign_in, dict) or not isinstance(client, dict):
+            raise ClerkFlowFailure(ClerkFlowStage.TICKET)
+        return (
+            cast(dict[str, object], sign_in),
+            cast(dict[str, object], client),
+            opener,
+            dev_browser_id,
+        )
 
     def _request_session_token(
         self,
         opener: urllib.request.OpenerDirector,
-        dev_token: str,
+        dev_browser_id: str,
         session_id: str,
     ) -> str:
         try:
             response = self._frontend_request(
                 opener,
                 f"/v1/client/sessions/{urllib.parse.quote(session_id, safe='')}/tokens",
-                query={"__dev_session": dev_token},
+                query={"__dev_session": dev_browser_id},
                 failure_stage=ClerkFlowStage.TOKEN,
             )
             token = _field(response, "jwt")
@@ -264,6 +283,7 @@ class ClerkDevelopmentSession:
         query: dict[str, str] | None = None,
         form: dict[str, str] | None = None,
         failure_stage: ClerkFlowStage = ClerkFlowStage.TICKET,
+        unwrap_response: bool = True,
     ) -> dict[str, object]:
         url = _fapi_url(self._fapi_authority, path, query)
         data = None if form is None else urllib.parse.urlencode(form).encode("ascii")
@@ -286,7 +306,7 @@ class ClerkDevelopmentSession:
         if not isinstance(payload, dict):
             raise ClerkFlowFailure(failure_stage)
         response_payload = cast(dict[str, object], payload)
-        nested = response_payload.get("response")
+        nested = response_payload.get("response") if unwrap_response else None
         return (
             cast(dict[str, object], nested)
             if isinstance(nested, dict)
@@ -389,14 +409,10 @@ def _field(payload: dict[str, object], name: str) -> object:
     return payload.get(name)
 
 
-def _completed_sign_in_created_session_id(client: dict[str, object]) -> str | None:
-    sign_in = client.get("sign_in")
-    if not isinstance(sign_in, dict):
-        return None
-    sign_in_data = cast(dict[str, object], sign_in)
-    created_session_id = sign_in_data.get("created_session_id")
+def _completed_sign_in_created_session_id(sign_in: dict[str, object]) -> str | None:
+    created_session_id = sign_in.get("created_session_id")
     if (
-        sign_in_data.get("status") != "complete"
+        sign_in.get("status") != "complete"
         or not isinstance(created_session_id, str)
         or not created_session_id
     ):
