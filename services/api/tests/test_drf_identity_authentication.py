@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import ClassVar, NoReturn
+from collections.abc import Sequence
+from typing import NoReturn
 
 import pytest
 import yaml
@@ -12,7 +13,13 @@ from django.test import Client, override_settings
 from django.urls import path
 from pytest import MonkeyPatch
 from rest_framework.exceptions import AuthenticationFailed
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import (
+    AllowAny,
+    BasePermission,
+    IsAuthenticated,
+    OperandHolder,
+    SingleOperandHolder,
+)
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.test import APIRequestFactory
@@ -31,20 +38,25 @@ from authentication.clerk import (
 class RequestIdentityView(APIView):
     """Test-only public endpoint exposing the assembled DRF request contract."""
 
-    permission_classes: ClassVar[list[type[AllowAny]]] = [AllowAny]
+    permission_classes: Sequence[
+        type[BasePermission] | OperandHolder | SingleOperandHolder
+    ] = [AllowAny]
 
-    def get(self, request: object) -> Response:
-        user = request.user  # type: ignore[attr-defined]
-        return Response({"user_id": user.pk, "auth_is_none": request.auth is None})  # type: ignore[attr-defined]
+    def get(self, request: Request) -> Response:
+        return Response(
+            {"user_id": request.user.pk, "auth_is_none": request.auth is None}
+        )
 
 
 class ProtectedIdentityView(APIView):
     """Test-only protected endpoint used solely to prove the Bearer challenge."""
 
-    permission_classes: ClassVar[list[type[IsAuthenticated]]] = [IsAuthenticated]
+    permission_classes: Sequence[
+        type[BasePermission] | OperandHolder | SingleOperandHolder
+    ] = [IsAuthenticated]
 
-    def get(self, request: object) -> Response:
-        return Response({"user_id": request.user.pk})  # type: ignore[attr-defined]
+    def get(self, request: Request) -> Response:
+        return Response({"user_id": request.user.pk})
 
 
 urlpatterns = [
@@ -107,11 +119,16 @@ def test_successful_authentication_exposes_only_the_resolved_application_user(
 def test_explicitly_disabled_authentication_remains_anonymous_without_boundary_calls(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    def fail_if_called(*_: object, **__: object) -> NoReturn:
+    def fail_if_verified(
+        _verifier: ClerkSessionVerifier, _request: HttpRequest
+    ) -> NoReturn:
         raise AssertionError("disabled authentication must not invoke a boundary")
 
-    monkeypatch.setattr(ClerkSessionVerifier, "verify", fail_if_called)
-    monkeypatch.setattr(drf_adapter, "resolve_application_user", fail_if_called)
+    def fail_if_resolved(_clerk_user_id: str) -> NoReturn:
+        raise AssertionError("disabled authentication must not invoke a boundary")
+
+    monkeypatch.setattr(ClerkSessionVerifier, "verify", fail_if_verified)
+    monkeypatch.setattr(drf_adapter, "resolve_application_user", fail_if_resolved)
 
     response = Client().get("/test/identity")
 
@@ -133,7 +150,12 @@ def test_enabled_headerless_authentication_remains_anonymous_without_resolution(
             "headerless authentication must not resolve a TailTag user"
         )
 
-    monkeypatch.setattr(ClerkSessionVerifier, "verify", lambda *_args, **_kwargs: None)
+    def no_verified_identity(
+        _verifier: ClerkSessionVerifier, _request: HttpRequest
+    ) -> None:
+        return None
+
+    monkeypatch.setattr(ClerkSessionVerifier, "verify", no_verified_identity)
     monkeypatch.setattr(drf_adapter, "resolve_application_user", fail_if_resolved)
 
     response = Client().get("/test/identity")
@@ -176,9 +198,11 @@ def test_resolution_unavailable_has_one_fixed_sanitized_503_body(
     )
     active_subject = ""
 
-    def verify(*_: object, **__: object) -> VerifiedClerkIdentity:
+    def verify(
+        _verifier: ClerkSessionVerifier, _request: HttpRequest
+    ) -> VerifiedClerkIdentity:
         nonlocal active_subject
-        active_subject, _ = next(sentinels)
+        active_subject, _detail = next(sentinels)
         return VerifiedClerkIdentity(subject=active_subject)
 
     details = iter(
@@ -189,12 +213,12 @@ def test_resolution_unavailable_has_one_fixed_sanitized_503_body(
         )
     )
     monkeypatch.setattr(ClerkSessionVerifier, "verify", verify)
+
+    def raise_resolution_unavailable(_clerk_user_id: str) -> NoReturn:
+        _raise(ApplicationUserResolutionUnavailable(next(details)))
+
     monkeypatch.setattr(
-        drf_adapter,
-        "resolve_application_user",
-        lambda *_args, **_kwargs: _raise(
-            ApplicationUserResolutionUnavailable(next(details))
-        ),
+        drf_adapter, "resolve_application_user", raise_resolution_unavailable
     )
 
     responses = [
@@ -238,16 +262,17 @@ def test_unexpected_resolution_failure_follows_the_generic_500_path(
 ) -> None:
     sentinel_detail = "unexpected resolver detail sentinel"
     sentinel_subject = "user_500_subject_sentinel"
-    monkeypatch.setattr(
-        ClerkSessionVerifier,
-        "verify",
-        lambda *_args, **_kwargs: VerifiedClerkIdentity(subject=sentinel_subject),
-    )
-    monkeypatch.setattr(
-        drf_adapter,
-        "resolve_application_user",
-        lambda *_args, **_kwargs: _raise(RuntimeError(sentinel_detail)),
-    )
+
+    def verify(
+        _verifier: ClerkSessionVerifier, _request: HttpRequest
+    ) -> VerifiedClerkIdentity:
+        return VerifiedClerkIdentity(subject=sentinel_subject)
+
+    def raise_unexpected_error(_clerk_user_id: str) -> NoReturn:
+        _raise(RuntimeError(sentinel_detail))
+
+    monkeypatch.setattr(ClerkSessionVerifier, "verify", verify)
+    monkeypatch.setattr(drf_adapter, "resolve_application_user", raise_unexpected_error)
 
     response = Client(raise_request_exception=False).get(
         "/test/identity", HTTP_AUTHORIZATION="Bearer test"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
-from typing import NoReturn
+from typing import NoReturn, cast
 
 import psycopg
 import pytest
@@ -20,6 +20,7 @@ from django.db.backends.utils import CursorWrapper
 from django.test.utils import CaptureQueriesContext
 from psycopg import errors
 from psycopg.pq import ConnStatus, DiagnosticField
+from psycopg.pq.abc import PGconn
 from pytest import MonkeyPatch
 
 from accounts.models import User
@@ -40,11 +41,23 @@ def _raise(error: BaseException) -> NoReturn:
     raise error
 
 
-def _with_cause(error: BaseException, cause: BaseException) -> BaseException:
+def _with_cause[ExceptionT: BaseException](
+    error: ExceptionT, cause: BaseException
+) -> ExceptionT:
     try:
         raise error from cause
     except type(error) as raised:
-        return raised
+        return cast(ExceptionT, raised)
+
+
+def _bad_psycopg_connection() -> PGconn:
+    """Supply the sole connection attribute exercised by these test errors."""
+    return cast(PGconn, _BadPsycopgConnection())
+
+
+def _model_field(instance: User, field_name: str) -> object:
+    """Read a Django model field through its dynamic runtime descriptor."""
+    return getattr(instance, field_name)
 
 
 def _expected_unique_violation() -> errors.UniqueViolation:
@@ -75,9 +88,9 @@ def test_first_resolution_provisions_only_the_minimal_tailtag_user(
 ) -> None:
     manager = User.objects
     original_create_user = manager.create_user
-    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    calls: list[tuple[tuple[str, ...], dict[str, object]]] = []
 
-    def observe_create_user(*args: object, **kwargs: object) -> User:
+    def observe_create_user(*args: str, **kwargs: object) -> User:
         calls.append((args, kwargs))
         return original_create_user(*args, **kwargs)
 
@@ -94,8 +107,8 @@ def test_first_resolution_provisions_only_the_minimal_tailtag_user(
     assert user.clerk_user_id == "user_first_use"
     assert User.objects.filter(clerk_user_id="user_first_use").count() == 1
     assert not user.is_staff
-    assert not user.is_superuser
-    assert user.last_login is None
+    assert not cast(bool, _model_field(user, "is_superuser"))
+    assert _model_field(user, "last_login") is None
     assert not user.has_usable_password()
 
 
@@ -108,7 +121,7 @@ def test_repeated_resolution_returns_the_same_unchanged_user() -> None:
 
     assert second.pk == first.pk
     assert User.objects.filter(clerk_user_id="user_repeat").count() == 1
-    assert second.last_login is None
+    assert _model_field(second, "last_login") is None
     assert not any(
         query["sql"].lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE"))
         for query in queries.captured_queries
@@ -143,7 +156,7 @@ def test_existing_administrative_user_is_returned_without_any_mutation() -> None
         for field in User._meta.concrete_fields
     } == before
     assert existing.is_staff
-    assert existing.is_superuser
+    assert cast(bool, _model_field(existing, "is_superuser"))
     assert existing.has_usable_password()
 
 
@@ -157,7 +170,7 @@ def test_simultaneous_first_resolution_uses_the_database_unique_guard(
     manager = User.objects
     original_create_user = manager.create_user
 
-    def synchronized_create_user(*args: object, **kwargs: object) -> User:
+    def synchronized_create_user(*args: str, **kwargs: object) -> User:
         insert_barrier.wait(timeout=10)
         return original_create_user(*args, **kwargs)
 
@@ -172,9 +185,12 @@ def test_simultaneous_first_resolution_uses_the_database_unique_guard(
             connection.close()
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        returned_primary_keys = list(
-            executor.map(lambda _: resolve_in_worker(), range(2))
-        )
+        first_resolution = executor.submit(resolve_in_worker)
+        second_resolution = executor.submit(resolve_in_worker)
+        returned_primary_keys = [
+            first_resolution.result(timeout=10),
+            second_resolution.result(timeout=10),
+        ]
 
     winning_primary_key = User.objects.get(clerk_user_id=subject).pk
     assert set(returned_primary_keys) == {winning_primary_key}
@@ -201,7 +217,7 @@ def test_expected_unique_violation_rereads_the_winner_after_inner_savepoint_roll
     original_create_user = manager.create_user
     original_get = manager.get
 
-    def create_winner_on_a_separate_connection(*args: object, **kwargs: object) -> User:
+    def create_winner_on_a_separate_connection(*args: str, **kwargs: object) -> User:
         def create_winner() -> User:
             close_old_connections()
             try:
@@ -238,21 +254,25 @@ def test_unrelated_real_orm_integrity_failures_propagate_unchanged(
     existing = User.objects.create_user("user_existing_for_integrity")
     manager = User.objects
 
-    def create_conflicting_row(*_: object, **__: object) -> User:
+    def create_conflicting_row(*_args: str, **_extra_fields: object) -> User:
         if create_conflict == "primary-key":
             return User.objects.create(
                 id=existing.pk,
                 clerk_user_id="user_different_primary_key_conflict",
-                password=existing.password,
+                password=cast(str, _model_field(existing, "password")),
             )
-        return User.objects.create(clerk_user_id="", password=existing.password)
+        return User.objects.create(
+            clerk_user_id="", password=cast(str, _model_field(existing, "password"))
+        )
 
     monkeypatch.setattr(manager, "create_user", create_conflicting_row)
 
     with pytest.raises(IntegrityError) as raised:
         resolve_application_user(subject)
 
-    constraint_name = raised.value.__cause__.diag.constraint_name  # type: ignore[union-attr]
+    cause = raised.value.__cause__
+    assert isinstance(cause, psycopg.Error)
+    constraint_name = cause.diag.constraint_name
     if create_conflict == "primary-key":
         assert constraint_name == "accounts_user_pkey"
     else:
@@ -287,9 +307,13 @@ def test_integrity_error_without_the_expected_structured_metadata_propagates(
 ) -> None:
     original = IntegrityError("test-only integrity sentinel")
     error = original if cause is None else _with_cause(original, cause)
-    monkeypatch.setattr(
-        User.objects, "create_user", lambda *_args, **_kwargs: _raise(error)
-    )
+
+    def raise_original_integrity_error(
+        *_args: str, **_extra_fields: object
+    ) -> NoReturn:
+        _raise(error)
+
+    monkeypatch.setattr(User.objects, "create_user", raise_original_integrity_error)
 
     with pytest.raises(IntegrityError) as raised:
         resolve_application_user("user_bad_integrity_metadata")
@@ -304,9 +328,13 @@ def test_expected_unique_metadata_without_a_winner_reraises_the_original_failure
     original = _with_cause(
         IntegrityError("test-only original failure"), _expected_unique_violation()
     )
-    monkeypatch.setattr(
-        User.objects, "create_user", lambda *_args, **_kwargs: _raise(original)
-    )
+
+    def raise_original_integrity_error(
+        *_args: str, **_extra_fields: object
+    ) -> NoReturn:
+        _raise(original)
+
+    monkeypatch.setattr(User.objects, "create_user", raise_original_integrity_error)
 
     with pytest.raises(IntegrityError) as raised:
         resolve_application_user("user_missing_winner")
@@ -316,7 +344,7 @@ def test_expected_unique_metadata_without_a_winner_reraises_the_original_failure
 
 def _operational_error_with(cause: BaseException | None) -> OperationalError:
     error = OperationalError("test-only database connection detail")
-    return error if cause is None else _with_cause(error, cause)  # type: ignore[return-value]
+    return error if cause is None else _with_cause(error, cause)
 
 
 @pytest.mark.django_db
@@ -329,7 +357,7 @@ def _operational_error_with(cause: BaseException | None) -> OperationalError:
         errors.CannotConnectNow("test-only 57P03 detail"),
         psycopg.OperationalError("test-only absent-connection-state detail"),
         psycopg.OperationalError(
-            "test-only bad-connection-state detail", pgconn=_BadPsycopgConnection()
+            "test-only bad-connection-state detail", pgconn=_bad_psycopg_connection()
         ),
     ),
     ids=(
@@ -376,7 +404,7 @@ def test_only_confident_structured_availability_errors_become_provider_neutral(
         psycopg.OperationalError(
             "test-only unrecognized-sqlstate sentinel",
             info={DiagnosticField.SQLSTATE: b"ZZ999"},
-            pgconn=_BadPsycopgConnection(),
+            pgconn=_bad_psycopg_connection(),
         ),
     ),
     ids=("empty-sqlstate-absent-connection", "unrecognized-sqlstate-bad-connection"),
