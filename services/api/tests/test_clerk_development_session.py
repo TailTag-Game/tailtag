@@ -89,7 +89,6 @@ def assert_sanitized(
 @dataclass
 class _Metadata:
     environment_type: str
-    sign_in_url: str = "https://development.clerk.example"
 
 
 @dataclass
@@ -267,7 +266,8 @@ class SuccessfulFrontendOpener:
 @dataclass
 class _Ticket:
     id: str = "ticket_synthetic_sensitive_material"
-    token: str = "ticket_synthetic_sensitive_material"
+    token: str = "ticket_synthetic_one_use_credential"
+    url: str = "https://development-synthetic.clerk.accounts.dev/sign-in-tokens/ticket_synthetic_sensitive_identifier"
 
 
 def configure_successful_provider(
@@ -393,6 +393,8 @@ def test_ticket_flow_uses_fixed_origin_and_exact_sixty_second_ticket(
     @dataclass
     class Ticket:
         id: str = "ticket_synthetic_sensitive_material"
+        token: str = "ticket_synthetic_one_use_credential"
+        url: str = "https://development-synthetic.clerk.accounts.dev/sign-in-tokens/ticket_synthetic_sensitive_identifier"
 
     def create_ticket(**kwargs: object) -> Ticket:
         ticket_requests.append(kwargs["request"])
@@ -419,7 +421,7 @@ def test_ticket_flow_uses_fixed_origin_and_exact_sixty_second_ticket(
     assert request.expires_in_seconds == 60
     assert len(frontend_requests) == 1
     assert frontend_requests[0].full_url.startswith(
-        "https://development.clerk.example/"
+        "https://development-synthetic.clerk.accounts.dev/"
     )
     assert frontend_requests[0].get_header("Origin") == "http://localhost:3000"
 
@@ -435,6 +437,8 @@ def test_cleanup_revokes_an_unconsumed_ticket_but_never_deletes_persistent_user(
     @dataclass
     class Ticket:
         id: str = "ticket_synthetic_sensitive_material"
+        token: str = "ticket_synthetic_one_use_credential"
+        url: str = "https://development-synthetic.clerk.accounts.dev/sign-in-tokens/ticket_synthetic_sensitive_identifier"
 
     def create_ticket(**_kwargs: object) -> Ticket:
         return Ticket()
@@ -491,8 +495,15 @@ def test_successful_normal_session_token_is_verified_and_cleaned_up(
         "/v1/client/sessions/sess_synthetic_sensitive_identifier/tokens",
     ]
     assert {urlsplit(request.full_url).netloc for request in opener.requests} == {
-        "development.clerk.example"
+        "development-synthetic.clerk.accounts.dev"
     }
+    assert all(
+        request.get_header("Clerk-api-version") == "2026-05-12"
+        for request in opener.requests
+    )
+    assert all(
+        "__clerk_api_version" not in request.full_url for request in opener.requests
+    )
     assert all("/tokens/" not in path for path in paths)
     assert all(
         request.get_header("Origin") == "http://localhost:3000"
@@ -501,7 +512,7 @@ def test_successful_normal_session_token_is_verified_and_cleaned_up(
     sign_in_request = opener.requests[2]
     assert parse_qs(cast(bytes, sign_in_request.data).decode()) == {
         "strategy": ["ticket"],
-        "ticket": ["ticket_synthetic_sensitive_material"],
+        "ticket": ["ticket_synthetic_one_use_credential"],
     }
     assert [event[0] for event in transport.events] == [
         "instance-settings",
