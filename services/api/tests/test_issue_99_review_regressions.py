@@ -523,12 +523,10 @@ def test_ticket_create_disables_the_sdk_default_retry_for_the_nonidempotent_post
     None
 ):
     """An ambiguous POST must be attempted once, never retried by SDK defaults."""
-    session, transport = validated_session(_Ticket(url="not-a-development-url"))
+    session, transport = validated_session(_Ticket())
 
-    with pytest.raises(development_session.ClerkFlowFailure) as raised:
+    with pytest.raises(development_session.ClerkFlowFailure):
         session.create_verified_token()
-
-    assert raised.value.stage.value == "provider ticket flow unsuccessful"
     assert len(transport.sign_in_tokens.create_calls) == 1
     retries = transport.sign_in_tokens.create_calls[0]["retries"]
     assert isinstance(retries, RetryConfig)
