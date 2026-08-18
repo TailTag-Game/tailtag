@@ -83,7 +83,6 @@ def test_current_user_requires_authentication_with_a_bearer_challenge() -> None:
 
 
 @pytest.mark.django_db
-@override_settings(CLERK_AUTHENTICATION=TEST_CLERK_CONFIGURATION)
 def test_current_user_composes_bearer_verification_resolution_and_request_identity(
     monkeypatch: MonkeyPatch,
 ) -> None:

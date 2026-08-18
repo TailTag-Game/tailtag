@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from django.conf import settings
 from django.http import HttpRequest
 from django.test import Client
 from pytest import MonkeyPatch
@@ -74,3 +75,17 @@ def test_composed_fake_retains_authenticator_and_resolver(
     assert isinstance(requests[0], HttpRequest)
     assert requests[0].headers["Authorization"] == "Bearer synthetic"
     assert not isinstance(user, VerifiedClerkIdentity)
+
+
+def test_composed_fake_restores_the_prior_clerk_authentication_setting() -> None:
+    prior_configuration = settings.CLERK_AUTHENTICATION
+
+    with MonkeyPatch.context() as scoped_monkeypatch:
+        fake_clerk_session_verification(
+            scoped_monkeypatch,
+            subject="user_test_scoped_restoration",
+        )
+
+        assert settings.CLERK_AUTHENTICATION is not prior_configuration
+
+    assert settings.CLERK_AUTHENTICATION is prior_configuration

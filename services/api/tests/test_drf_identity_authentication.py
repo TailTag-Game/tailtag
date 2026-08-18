@@ -80,7 +80,6 @@ def _raise(error: BaseException) -> NoReturn:
 @override_settings(
     ROOT_URLCONF=__name__,
     REST_FRAMEWORK=AUTHENTICATION_SETTINGS,
-    CLERK_AUTHENTICATION=TEST_CLERK_CONFIGURATION,
 )
 def test_successful_authentication_exposes_only_the_resolved_application_user(
     monkeypatch: MonkeyPatch,
