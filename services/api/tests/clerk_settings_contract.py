@@ -3,15 +3,10 @@
 from __future__ import annotations
 
 import subprocess
-from typing import NoReturn
 
 import pytest
-from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
-from django.core.exceptions import ImproperlyConfigured
-
-from config.settings import clerk as clerk_settings
 
 INVALID_AUTHORIZED_PARTY_ORIGINS = (
     "",
@@ -43,8 +38,28 @@ INVALID_AUTHORIZED_PARTY_ORIGIN_IDS = (
     "space-in-hostname",
 )
 
-_UNSUPPORTED_JWT_KEY_SENTINEL = "unsupported-public-key-sentinel"
-_UNSUPPORTED_ALGORITHM_REASON = "unsupported-algorithm-reason-sentinel"
+UNSUPPORTED_ALGORITHM_JWT_KEY_SENTINEL = "unsupported-public-key-sentinel"
+UNSUPPORTED_ALGORITHM_REASON = "unsupported-algorithm-reason-sentinel"
+UNSUPPORTED_ALGORITHM_PRE_IMPORT_PATCH = (
+    "from cryptography.exceptions import UnsupportedAlgorithm; "
+    "from config.settings import clerk as clerk_settings; "
+    "clerk_settings.serialization.load_pem_public_key = "
+    "lambda *args, **kwargs: (_ for _ in ()).throw("
+    "UnsupportedAlgorithm('unsupported-' + 'algorithm-' + 'reason-' + 'sentinel')); "
+)
+
+
+def capture_improperly_configured_subprocess_script(command: str) -> str:
+    """Return a child script that exposes only its final configuration error."""
+    return (
+        "import sys\n"
+        "from django.core.exceptions import ImproperlyConfigured\n"
+        "try:\n"
+        f"    {command}\n"
+        "except ImproperlyConfigured as error:\n"
+        "    print(f'{type(error).__name__}: {error}', file=sys.stderr)\n"
+        "    raise SystemExit(1)\n"
+    )
 
 
 @pytest.fixture(scope="module", name="valid_clerk_public_key")
@@ -79,39 +94,13 @@ def assert_sanitized_configuration_error(
     completed: subprocess.CompletedProcess[str],
     name: str | tuple[str, ...],
     supplied_value: str,
+    *additional_non_disclosable_values: str,
 ) -> None:
     """Configuration errors may identify a variable but never disclose its value."""
     assert completed.returncode != 0
     assert "ImproperlyConfigured" in completed.stderr
     names = (name,) if isinstance(name, str) else name
     assert any(candidate in completed.stderr for candidate in names)
-    if supplied_value:
-        assert supplied_value not in completed.stderr
-
-
-def assert_unsupported_public_key_loader_is_sanitized(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify loader failures are mapped to the public JWT-key configuration error."""
-
-    def raise_unsupported_algorithm(*args: object, **kwargs: object) -> NoReturn:
-        raise UnsupportedAlgorithm(_UNSUPPORTED_ALGORITHM_REASON)
-
-    monkeypatch.setattr(
-        clerk_settings.serialization,
-        "load_pem_public_key",
-        raise_unsupported_algorithm,
-    )
-
-    with pytest.raises(ImproperlyConfigured) as raised:
-        clerk_settings.load_clerk_authentication_configuration(
-            {
-                "CLERK_AUTHENTICATION_ENABLED": "true",
-                "CLERK_JWT_KEY": _UNSUPPORTED_JWT_KEY_SENTINEL,
-                "CLERK_AUTHORIZED_PARTIES": "https://app.example.test",
-            }
-        )
-
-    assert str(raised.value) == "Invalid environment variable: CLERK_JWT_KEY"
-    assert _UNSUPPORTED_JWT_KEY_SENTINEL not in str(raised.value)
-    assert _UNSUPPORTED_ALGORITHM_REASON not in str(raised.value)
+    for value in (supplied_value, *additional_non_disclosable_values):
+        if value:
+            assert value not in completed.stderr

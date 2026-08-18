@@ -12,8 +12,11 @@ import pytest
 from tests.clerk_settings_contract import (
     INVALID_AUTHORIZED_PARTY_ORIGIN_IDS,
     INVALID_AUTHORIZED_PARTY_ORIGINS,
+    UNSUPPORTED_ALGORITHM_JWT_KEY_SENTINEL,
+    UNSUPPORTED_ALGORITHM_PRE_IMPORT_PATCH,
+    UNSUPPORTED_ALGORITHM_REASON,
     assert_sanitized_configuration_error,
-    assert_unsupported_public_key_loader_is_sanitized,
+    capture_improperly_configured_subprocess_script,
 )
 from tests.clerk_settings_contract import (
     non_rsa_public_key as _non_rsa_public_key,  # noqa: F401  # pyright: ignore[reportUnusedImport]
@@ -38,7 +41,11 @@ VALID_ENVIRONMENT = {
 
 
 def run_settings_import(
-    environment: Mapping[str, str], *, inspect_clerk_configuration: bool = False
+    environment: Mapping[str, str],
+    *,
+    inspect_clerk_configuration: bool = False,
+    pre_import_patch: str = "",
+    capture_improperly_configured: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Import production settings in a new process with the supplied environment."""
     inspection = (
@@ -54,13 +61,19 @@ def run_settings_import(
         "repr(configuration)"
         ")))"
     )
+    command = pre_import_patch + (
+        inspection
+        if inspect_clerk_configuration
+        else "import config.settings.production"
+    )
+    if capture_improperly_configured:
+        command = capture_improperly_configured_subprocess_script(command)
+
     return subprocess.run(
         [
             sys.executable,
             "-c",
-            inspection
-            if inspect_clerk_configuration
-            else "import config.settings.production",
+            command,
         ],
         cwd=".",
         env={
@@ -264,11 +277,26 @@ def test_production_settings_reject_empty_or_invalid_authorized_party_origins(
     assert_sanitized_configuration_error(completed, "CLERK_AUTHORIZED_PARTIES", origins)
 
 
-def test_production_settings_sanitize_unsupported_public_key_loader(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Production Clerk settings map loader-specific crypto errors to the JWT key."""
-    assert_unsupported_public_key_loader_is_sanitized(monkeypatch)
+def test_production_settings_sanitize_unsupported_public_key_loader() -> None:
+    """Production startup maps loader-specific crypto errors to the JWT key."""
+    completed = run_settings_import(
+        {
+            **VALID_ENVIRONMENT,
+            "CLERK_AUTHENTICATION_ENABLED": "true",
+            "CLERK_JWT_KEY": UNSUPPORTED_ALGORITHM_JWT_KEY_SENTINEL,
+            "CLERK_AUTHORIZED_PARTIES": "https://app.example.test",
+        },
+        inspect_clerk_configuration=True,
+        pre_import_patch=UNSUPPORTED_ALGORITHM_PRE_IMPORT_PATCH,
+        capture_improperly_configured=True,
+    )
+
+    assert_sanitized_configuration_error(
+        completed,
+        "CLERK_JWT_KEY",
+        UNSUPPORTED_ALGORITHM_JWT_KEY_SENTINEL,
+        UNSUPPORTED_ALGORITHM_REASON,
+    )
 
 
 def test_production_settings_expose_immutable_clerk_configuration_when_enabled(
