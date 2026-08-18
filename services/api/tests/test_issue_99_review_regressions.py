@@ -257,7 +257,9 @@ def assert_fapi_failure_output_is_sanitized(
     for sensitive_value in (
         SYNTHETIC_SECRET,
         SYNTHETIC_TICKET,
+        "ticket_synthetic_one_use_credential",
         SYNTHETIC_NEW_SESSION,
+        DEVELOPMENT_FAPI_URL,
         "https://development-synthetic.clerk.accounts.dev/sensitive-path",
         "raw_provider_body",
         "503",
@@ -361,6 +363,63 @@ def test_invalid_prompted_credential_reports_its_exact_sanitized_stage() -> None
 
     assert outcome.primary_stage == "credential form invalid"
     assert not outcome.cleanup_incomplete
+
+
+@pytest.mark.parametrize("ticket_token", (None, ""), ids=("absent", "empty"))
+def test_sign_in_ticket_credential_unavailable_has_one_sanitized_public_stage(
+    monkeypatch: MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    ticket_token: object,
+) -> None:
+    """A provider ticket ID alone cannot authorize a Frontend API exchange."""
+    session, transport = validated_session(_Ticket(token=ticket_token))
+
+    def prohibit_frontend_api(*_handlers: urllib.request.BaseHandler) -> NoReturn:
+        raise AssertionError("missing ticket credential must stop before Frontend API")
+
+    monkeypatch.setattr(urllib.request, "build_opener", prohibit_frontend_api)
+
+    assert run_main_with_session(monkeypatch, session) == 1
+    captured = capsys.readouterr()
+
+    assert captured.out == ""
+    assert_fapi_failure_output_is_sanitized(captured)
+    assert captured.err == "FAIL provider sign-in-ticket credential unavailable\n"
+    assert transport.events == [
+        ("ticket", {"sign_in_token_id": SYNTHETIC_TICKET}),
+    ]
+
+
+@pytest.mark.parametrize("url_case", ("absent", "null", "invalid"))
+def test_frontend_api_authority_unavailable_has_one_sanitized_public_stage(
+    monkeypatch: MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    url_case: str,
+) -> None:
+    """A ticket credential must be bound to a strict Development FAPI authority."""
+    ticket = _Ticket()
+    if url_case == "absent":
+        object.__delattr__(ticket, "url")
+    elif url_case == "null":
+        ticket.url = None
+    else:
+        ticket.url = "https://untrusted-synthetic.invalid/sign-in-tokens/ticket"
+    session, transport = validated_session(ticket)
+
+    def prohibit_frontend_api(*_handlers: urllib.request.BaseHandler) -> NoReturn:
+        raise AssertionError("invalid ticket URL must stop before Frontend API")
+
+    monkeypatch.setattr(urllib.request, "build_opener", prohibit_frontend_api)
+
+    assert run_main_with_session(monkeypatch, session) == 1
+    captured = capsys.readouterr()
+
+    assert captured.out == ""
+    assert_fapi_failure_output_is_sanitized(captured)
+    assert captured.err == "FAIL provider Frontend API authority unavailable\n"
+    assert transport.events == [
+        ("ticket", {"sign_in_token_id": SYNTHETIC_TICKET}),
+    ]
 
 
 @pytest.mark.parametrize("failure", ("http", "malformed-json", "missing-id"))
