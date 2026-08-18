@@ -222,8 +222,15 @@ def test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free() -> No
         ):
             assert forbidden_name not in text
 
-    # Static analysis may inspect the helper source in api-check; it must not
-    # invoke the module or live target. Ordinary smoke and CI do neither.
+    # Static analysis may inspect the helper source in api-check, but it must
+    # never execute it. Pyright coverage is asserted separately from pyproject.
+    api_check_script_lines = [
+        line for line in api_check.splitlines() if "scripts/api_auth_smoke.py" in line
+    ]
+    assert api_check_script_lines
+    assert all("ruff" in line.split() for line in api_check_script_lines)
+
+    # Ordinary smoke and CI must not reference the helper at all.
     for text in (ordinary, workflow_text):
         assert "scripts/api_auth_smoke.py" not in text
 
