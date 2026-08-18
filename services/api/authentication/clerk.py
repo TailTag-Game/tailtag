@@ -56,16 +56,20 @@ class ClerkSessionVerifier:
         if credential is None:
             raise AuthenticationFailed()
 
-        state = authenticate_request(
-            _AuthorizationOnlyRequest(
-                headers={"Authorization": f"Bearer {credential.group(1)}"}
-            ),
-            AuthenticateRequestOptions(
-                jwt_key=self._configuration.jwt_key,
-                authorized_parties=list(self._configuration.authorized_parties),
-                accepts_token=["session_token"],
-            ),
+        options = AuthenticateRequestOptions(
+            jwt_key=self._configuration.jwt_key,
+            authorized_parties=list(self._configuration.authorized_parties),
+            accepts_token=["session_token"],
         )
+        try:
+            state = authenticate_request(
+                _AuthorizationOnlyRequest(
+                    headers={"Authorization": f"Bearer {credential.group(1)}"}
+                ),
+                options,
+            )
+        except (AttributeError, TypeError):
+            raise AuthenticationFailed() from None
         if not state.is_signed_in or state.payload is None:
             raise AuthenticationFailed()
 
