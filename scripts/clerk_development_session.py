@@ -41,6 +41,8 @@ class ClerkFlowStage(StrEnum):
 
     INSTANCE = "Clerk instance not validated as Development"
     USER = "configured smoke user unavailable"
+    DEVELOPMENT_BROWSER = "provider development-browser flow unsuccessful"
+    CLIENT_INITIALIZATION = "provider client initialization unsuccessful"
     TICKET = "provider ticket flow unsuccessful"
     TOKEN = "provider session-token flow unsuccessful"
     CLAIMS = "token claims or lifetime invalid"
@@ -227,12 +229,19 @@ class ClerkDevelopmentSession:
             urllib.request.HTTPCookieProcessor(CookieJar()),
             _NoRedirect(),
         )
-        dev_browser = self._frontend_request(opener, "/v1/dev_browser")
+        dev_browser = self._frontend_request(
+            opener,
+            "/v1/dev_browser",
+            failure_stage=ClerkFlowStage.DEVELOPMENT_BROWSER,
+        )
         dev_browser_id = _field(dev_browser, "id")
         if not isinstance(dev_browser_id, str) or not dev_browser_id:
-            raise ClerkFlowFailure(ClerkFlowStage.TICKET)
+            raise ClerkFlowFailure(ClerkFlowStage.DEVELOPMENT_BROWSER)
         self._frontend_request(
-            opener, "/v1/client", query={"__dev_session": dev_browser_id}
+            opener,
+            "/v1/client",
+            query={"__dev_session": dev_browser_id},
+            failure_stage=ClerkFlowStage.CLIENT_INITIALIZATION,
         )
         self._session_cleanup_uncertain = True
         client_wrapped_sign_in = self._frontend_request(
