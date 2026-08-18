@@ -7,4 +7,5 @@
 /.vscode/
 /docs/plans/
 /.agents/
+/scripts/__pycache__/
 skills-lock.json

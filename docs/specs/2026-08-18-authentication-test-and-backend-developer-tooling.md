@@ -336,20 +336,37 @@ The command may identify only a bounded failed stage, including:
 - Clerk instance not validated as Development;
 - configured smoke user unavailable;
 - provider development-browser flow unsuccessful;
+- provider development-browser request invalid;
+- provider development-browser request unauthenticated;
+- provider development-browser request forbidden;
+- provider development-browser browser challenge required;
+- provider development-browser origin rejected;
+- provider development-browser hostname rejected;
+- provider development-browser request rejected;
+- provider development-browser transport unavailable;
+- provider development-browser response invalid;
 - provider client initialization unsuccessful;
 - provider ticket flow unsuccessful;
 - provider sign-in-ticket credential unavailable;
 - provider Frontend API authority unavailable;
 - provider session-token flow unsuccessful;
+- provider session-token request invalid;
+- provider session-token request unauthenticated;
+- provider session-token request forbidden;
+- provider session-token request not found;
+- provider session-token request rejected;
+- provider session-token transport unavailable;
+- provider session-token response invalid;
 - token claims or lifetime invalid;
 - TailTag verifier rejected the token;
 - authenticated API response invalid; or
 - cleanup incomplete.
 
+The refined session-token entries are fixed, non-sensitive classifications only.
 Messages must not include secrets, tickets, tokens, Clerk identifiers, session
-identifiers, sensitive claims, raw HTTP bodies, request headers, or raw
-exception representations. A combined failure reports both sanitized stage
-categories without their sensitive details.
+identifiers, sensitive claims, raw provider status, HTTP bodies, request or
+response headers, or raw exception representations. A combined failure reports
+both sanitized stage categories without their sensitive details.
 
 ## Repository-internal pytest authentication support
 

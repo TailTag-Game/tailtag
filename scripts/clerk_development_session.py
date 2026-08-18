@@ -8,15 +8,14 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import StrEnum
-from http.cookiejar import CookieJar
 from typing import Any, Final, cast
-from urllib.parse import SplitResult, urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit
 
 import httpx
 from clerk_backend_api import Clerk
@@ -34,6 +33,15 @@ SIGN_IN_TICKET_LIFETIME_SECONDS: Final = 60
 _REQUEST_TIMEOUT_SECONDS: Final = 10
 _FAPI_API_VERSION: Final = "2026-05-12"
 _DEVELOPMENT_FAPI_HOST_SUFFIX: Final = ".clerk.accounts.dev"
+_MAX_DEVELOPMENT_BROWSER_ERROR_BODY_BYTES: Final = 4096
+_FAPI_USER_AGENT: Final = "TailTag-Issue-99-Development-Smoke"
+_FAPI_ACCEPT: Final = "application/json"
+_PROVIDER_LOGGER_NAMES: Final = (
+    "httpx",
+    "httpcore.connection",
+    "httpcore.http11",
+    "httpcore.http2",
+)
 
 
 class ClerkFlowStage(StrEnum):
@@ -42,11 +50,41 @@ class ClerkFlowStage(StrEnum):
     INSTANCE = "Clerk instance not validated as Development"
     USER = "configured smoke user unavailable"
     DEVELOPMENT_BROWSER = "provider development-browser flow unsuccessful"
+    DEVELOPMENT_BROWSER_REQUEST_INVALID = "provider development-browser request invalid"
+    DEVELOPMENT_BROWSER_REQUEST_UNAUTHENTICATED = (
+        "provider development-browser request unauthenticated"
+    )
+    DEVELOPMENT_BROWSER_REQUEST_FORBIDDEN = (
+        "provider development-browser request forbidden"
+    )
+    DEVELOPMENT_BROWSER_BROWSER_CHALLENGE_REQUIRED = (
+        "provider development-browser browser challenge required"
+    )
+    DEVELOPMENT_BROWSER_ORIGIN_REJECTED = "provider development-browser origin rejected"
+    DEVELOPMENT_BROWSER_HOSTNAME_REJECTED = (
+        "provider development-browser hostname rejected"
+    )
+    DEVELOPMENT_BROWSER_REQUEST_REJECTED = (
+        "provider development-browser request rejected"
+    )
+    DEVELOPMENT_BROWSER_TRANSPORT_UNAVAILABLE = (
+        "provider development-browser transport unavailable"
+    )
+    DEVELOPMENT_BROWSER_RESPONSE_INVALID = (
+        "provider development-browser response invalid"
+    )
     CLIENT_INITIALIZATION = "provider client initialization unsuccessful"
     TICKET = "provider ticket flow unsuccessful"
     TICKET_CREDENTIAL = "provider sign-in-ticket credential unavailable"
     FAPI_AUTHORITY = "provider Frontend API authority unavailable"
     TOKEN = "provider session-token flow unsuccessful"
+    TOKEN_REQUEST_INVALID = "provider session-token request invalid"
+    TOKEN_REQUEST_UNAUTHENTICATED = "provider session-token request unauthenticated"
+    TOKEN_REQUEST_FORBIDDEN = "provider session-token request forbidden"
+    TOKEN_REQUEST_NOT_FOUND = "provider session-token request not found"
+    TOKEN_REQUEST_REJECTED = "provider session-token request rejected"
+    TOKEN_TRANSPORT_UNAVAILABLE = "provider session-token transport unavailable"
+    TOKEN_RESPONSE_INVALID = "provider session-token response invalid"
     CLAIMS = "token claims or lifetime invalid"
     VERIFIER = "TailTag verifier rejected the token"
     CLEANUP = "cleanup incomplete"
@@ -67,26 +105,95 @@ class ClerkCredentialFailure(Exception):
         super().__init__("credential form invalid")
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *_args: object, **_kwargs: object) -> None:
+@dataclass(frozen=True, slots=True)
+class _AuthorizationRequest:
+    headers: dict[str, str]
+
+
+@contextmanager
+def _suppress_provider_debug_logs() -> Generator[None]:
+    """Temporarily disable the provider HTTP loggers around sensitive work."""
+    loggers = [logging.getLogger(name) for name in _PROVIDER_LOGGER_NAMES]
+    disabled = [logger.disabled for logger in loggers]
+    for logger in loggers:
+        logger.disabled = True
+    try:
+        yield
+    finally:
+        for logger, prior_disabled in zip(loggers, disabled, strict=True):
+            logger.disabled = prior_disabled
+
+
+def _development_browser_forbidden_stage(
+    response: httpx.Response,
+) -> ClerkFlowStage:
+    if _has_mitigation_challenge_header(response.headers):
+        return ClerkFlowStage.DEVELOPMENT_BROWSER_BROWSER_CHALLENGE_REQUIRED
+
+    body_text = _development_browser_error_body_text(response)
+    if body_text is None:
+        return ClerkFlowStage.DEVELOPMENT_BROWSER_REQUEST_FORBIDDEN
+    if any(marker in body_text for marker in ("bot", "captcha", "challenge")):
+        return ClerkFlowStage.DEVELOPMENT_BROWSER_BROWSER_CHALLENGE_REQUIRED
+    if "origin" in body_text:
+        return ClerkFlowStage.DEVELOPMENT_BROWSER_ORIGIN_REJECTED
+    if "hostname" in body_text or "host" in body_text:
+        return ClerkFlowStage.DEVELOPMENT_BROWSER_HOSTNAME_REJECTED
+    return ClerkFlowStage.DEVELOPMENT_BROWSER_REQUEST_FORBIDDEN
+
+
+def _has_mitigation_challenge_header(headers: object) -> bool:
+    try:
+        items = cast(Any, headers).items()
+        return any(
+            isinstance(name, str)
+            and isinstance(value, str)
+            and ("mitigated" in name.casefold() or "challenge" in name.casefold())
+            and "challenge" in value.casefold()
+            for name, value in items
+        )
+    except Exception:  # noqa: BLE001 - diagnostic metadata is untrusted
+        return False
+
+
+def _development_browser_error_body_text(response: httpx.Response) -> str | None:
+    try:
+        response_body = response.content[:_MAX_DEVELOPMENT_BROWSER_ERROR_BODY_BYTES]
+        payload: object = json.loads(response_body.decode("utf-8"))
+    except Exception:  # noqa: BLE001 - malformed diagnostics fail closed
         return None
+    if not isinstance(payload, dict):
+        return None
+    error_payload = cast(dict[str, object], payload)
+    errors = error_payload.get("errors")
+    if not isinstance(errors, list):
+        return None
+    messages: list[str] = []
+    for error_entry in cast(list[object], errors):
+        if not isinstance(error_entry, dict):
+            continue
+        error_details = cast(dict[str, object], error_entry)
+        for name in ("message", "long_message"):
+            value = error_details.get(name)
+            if isinstance(value, str):
+                messages.append(value)
+    return " ".join(messages).casefold()
 
 
 @dataclass(slots=True)
 class ClerkDevelopmentSession:
     """A short-lived, verified development session and its supported cleanup."""
 
-    _secret: str = field(repr=False)
     _user_id: str = field(repr=False)
     _transport: Any = field(repr=False)
     _http_client: httpx.Client | None = field(default=None, repr=False)
     _fapi_authority: str | None = field(default=None, repr=False)
+    _fapi_client: httpx.Client | None = field(default=None, repr=False)
     _ticket_id: str | None = field(default=None, repr=False)
     _ticket_cleanup_uncertain: bool = False
     _ticket_consumed: bool = False
     _session_id: str | None = field(default=None, repr=False)
     _session_cleanup_uncertain: bool = False
-    _token: str | None = field(default=None, repr=False)
 
     @classmethod
     def validate(
@@ -132,7 +239,6 @@ class ClerkDevelopmentSession:
             _close_client(http_client)
             raise ClerkFlowFailure(ClerkFlowStage.FAPI_AUTHORITY) from None
         return cls(
-            _secret=secret,
             _user_id=user_id,
             _transport=clerk,
             _http_client=http_client,
@@ -153,7 +259,7 @@ class ClerkDevelopmentSession:
             raise ClerkFlowFailure(ClerkFlowStage.TICKET_CREDENTIAL)
 
         try:
-            sign_in, client, opener, dev_browser_id = self._run_frontend_ticket_flow(
+            sign_in, client, dev_browser_id = self._run_frontend_ticket_flow(
                 ticket_value
             )
             self._ticket_consumed = True
@@ -164,38 +270,62 @@ class ClerkDevelopmentSession:
             if not _is_owned_active_session(client, self._user_id, session_id):
                 raise ValueError
             self._session_cleanup_uncertain = False
-            token = self._request_session_token(opener, dev_browser_id, session_id)
+            token = self._request_session_token(dev_browser_id, session_id)
         except ClerkFlowFailure:
             raise
         except Exception:  # noqa: BLE001 - third-party errors are intentionally opaque
             raise ClerkFlowFailure(ClerkFlowStage.TICKET) from None
 
-        self._token = token
         self._validate_claims_and_verifier(token)
         return token
 
     def cleanup(self) -> None:
         """Revoke only resources owned by this run, attempting all applicable work."""
         failed = False
-        if self._session_id is not None:
-            try:
-                self._transport.sessions.revoke(session_id=self._session_id)
-            except Exception:  # noqa: BLE001 - cleanup must attempt both resources
+        transport = self._transport
+        try:
+            if self._session_id is not None:
+                try:
+                    if transport is None:
+                        raise TypeError
+                    transport.sessions.revoke(session_id=self._session_id)
+                except Exception:  # noqa: BLE001 - cleanup must attempt both resources
+                    failed = True
+            elif self._session_cleanup_uncertain:
                 failed = True
-        elif self._session_cleanup_uncertain:
-            failed = True
-        if self._ticket_id is not None and not self._ticket_consumed:
-            try:
-                self._transport.sign_in_tokens.revoke(sign_in_token_id=self._ticket_id)
-            except Exception:  # noqa: BLE001 - cleanup must attempt both resources
+            if self._ticket_id is not None and not self._ticket_consumed:
+                try:
+                    if transport is None:
+                        raise TypeError
+                    transport.sign_in_tokens.revoke(sign_in_token_id=self._ticket_id)
+                except Exception:  # noqa: BLE001 - cleanup must attempt both resources
+                    failed = True
+            elif self._ticket_cleanup_uncertain:
                 failed = True
-        elif self._ticket_cleanup_uncertain:
-            failed = True
-        if not _close_client(self._http_client):
-            failed = True
-        self._http_client = None
+            fapi_client = self._fapi_client
+            self._fapi_client = None
+            if not _close_client(fapi_client):
+                failed = True
+            http_client = self._http_client
+            self._http_client = None
+            if not _close_client(http_client):
+                failed = True
+        finally:
+            self._clear_sensitive_state()
         if failed:
             raise ClerkFlowFailure(ClerkFlowStage.CLEANUP)
+
+    def _clear_sensitive_state(self) -> None:
+        self._user_id = None  # type: ignore[assignment]
+        self._transport = None
+        self._http_client = None
+        self._fapi_authority = None
+        self._fapi_client = None
+        self._ticket_id = None
+        self._ticket_cleanup_uncertain = False
+        self._ticket_consumed = False
+        self._session_id = None
+        self._session_cleanup_uncertain = False
 
     def _create_ticket(self) -> object:
         self._ticket_cleanup_uncertain = True
@@ -219,34 +349,23 @@ class ClerkDevelopmentSession:
 
     def _run_frontend_ticket_flow(
         self, ticket: str
-    ) -> tuple[
-        dict[str, object],
-        dict[str, object],
-        urllib.request.OpenerDirector,
-        str,
-    ]:
-        opener = urllib.request.build_opener(
-            urllib.request.ProxyHandler({}),
-            urllib.request.HTTPCookieProcessor(CookieJar()),
-            _NoRedirect(),
-        )
+    ) -> tuple[dict[str, object], dict[str, object], str]:
         dev_browser = self._frontend_request(
-            opener,
             "/v1/dev_browser",
             failure_stage=ClerkFlowStage.DEVELOPMENT_BROWSER,
+            development_browser_diagnostics=True,
         )
         dev_browser_id = _field(dev_browser, "id")
         if not isinstance(dev_browser_id, str) or not dev_browser_id:
-            raise ClerkFlowFailure(ClerkFlowStage.DEVELOPMENT_BROWSER)
+            raise ClerkFlowFailure(ClerkFlowStage.DEVELOPMENT_BROWSER_RESPONSE_INVALID)
         self._frontend_request(
-            opener,
             "/v1/client",
             query={"__dev_session": dev_browser_id},
+            form={},
             failure_stage=ClerkFlowStage.CLIENT_INITIALIZATION,
         )
         self._session_cleanup_uncertain = True
         client_wrapped_sign_in = self._frontend_request(
-            opener,
             "/v1/client/sign_ins",
             query={"__dev_session": dev_browser_id},
             form={"strategy": "ticket", "ticket": ticket},
@@ -259,26 +378,26 @@ class ClerkDevelopmentSession:
         return (
             cast(dict[str, object], sign_in),
             cast(dict[str, object], client),
-            opener,
             dev_browser_id,
         )
 
     def _request_session_token(
         self,
-        opener: urllib.request.OpenerDirector,
         dev_browser_id: str,
         session_id: str,
     ) -> str:
         try:
             response = self._frontend_request(
-                opener,
-                f"/v1/client/sessions/{urllib.parse.quote(session_id, safe='')}/tokens",
+                f"/v1/client/sessions/{quote(session_id, safe='')}/tokens",
                 query={"__dev_session": dev_browser_id},
+                form={},
                 failure_stage=ClerkFlowStage.TOKEN,
+                unwrap_response=False,
+                session_token_diagnostics=True,
             )
             token = _field(response, "jwt")
-            if not isinstance(token, str):
-                raise TypeError
+            if not isinstance(token, str) or not token:
+                raise ClerkFlowFailure(ClerkFlowStage.TOKEN_RESPONSE_INVALID)
             return token
         except ClerkFlowFailure:
             raise
@@ -287,34 +406,110 @@ class ClerkDevelopmentSession:
 
     def _frontend_request(
         self,
-        opener: urllib.request.OpenerDirector,
         path: str,
         *,
         query: dict[str, str] | None = None,
         form: dict[str, str] | None = None,
         failure_stage: ClerkFlowStage = ClerkFlowStage.TICKET,
         unwrap_response: bool = True,
+        development_browser_diagnostics: bool = False,
+        session_token_diagnostics: bool = False,
     ) -> dict[str, object]:
-        url = _fapi_url(self._fapi_authority, path, query)
-        data = None if form is None else urllib.parse.urlencode(form).encode("ascii")
-        request = urllib.request.Request(
-            url,
-            data=data,
-            headers={
-                "Clerk-API-Version": _FAPI_API_VERSION,
-                "Origin": TOOLING_ORIGIN,
-            },
-            method="POST",
-        )
         try:
-            with opener.open(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
-                if response.getcode() // 100 != 2 or response.geturl() != url:
-                    raise ValueError
-                payload: object = json.loads(response.read().decode("utf-8"))
-        except (OSError, urllib.error.URLError, ValueError, json.JSONDecodeError):
+            with _suppress_provider_debug_logs():
+                response = self._fapi_http_client().post(
+                    path,
+                    params=query,
+                    data=form,
+                    headers=(
+                        {"Content-Type": "application/x-www-form-urlencoded"}
+                        if form is not None
+                        else None
+                    ),
+                )
+        except OSError:
+            stage = (
+                ClerkFlowStage.DEVELOPMENT_BROWSER_TRANSPORT_UNAVAILABLE
+                if development_browser_diagnostics
+                else (
+                    ClerkFlowStage.TOKEN_TRANSPORT_UNAVAILABLE
+                    if session_token_diagnostics
+                    else failure_stage
+                )
+            )
+            raise ClerkFlowFailure(stage) from None
+        except httpx.DecodingError:
+            if session_token_diagnostics:
+                raise ClerkFlowFailure(ClerkFlowStage.TOKEN_RESPONSE_INVALID) from None
+            raise
+        except httpx.InvalidURL:
+            if session_token_diagnostics:
+                raise ClerkFlowFailure(ClerkFlowStage.TOKEN_REQUEST_INVALID) from None
+            raise
+        except httpx.TransportError:
+            if development_browser_diagnostics:
+                raise ClerkFlowFailure(
+                    ClerkFlowStage.DEVELOPMENT_BROWSER_TRANSPORT_UNAVAILABLE
+                ) from None
+            if session_token_diagnostics:
+                raise ClerkFlowFailure(
+                    ClerkFlowStage.TOKEN_TRANSPORT_UNAVAILABLE
+                ) from None
+            raise
+        except (httpx.RequestError, httpx.StreamError, httpx.CookieConflict):
+            if session_token_diagnostics:
+                raise ClerkFlowFailure(
+                    ClerkFlowStage.TOKEN_TRANSPORT_UNAVAILABLE
+                ) from None
+            raise
+        if response.status_code // 100 != 2:
+            if development_browser_diagnostics:
+                if response.status_code == 400:
+                    stage = ClerkFlowStage.DEVELOPMENT_BROWSER_REQUEST_INVALID
+                elif response.status_code == 401:
+                    stage = ClerkFlowStage.DEVELOPMENT_BROWSER_REQUEST_UNAUTHENTICATED
+                elif response.status_code == 403:
+                    stage = _development_browser_forbidden_stage(response)
+                else:
+                    stage = ClerkFlowStage.DEVELOPMENT_BROWSER_REQUEST_REJECTED
+                raise ClerkFlowFailure(stage) from None
+            if session_token_diagnostics:
+                if response.status_code == 400:
+                    stage = ClerkFlowStage.TOKEN_REQUEST_INVALID
+                elif response.status_code == 401:
+                    stage = ClerkFlowStage.TOKEN_REQUEST_UNAUTHENTICATED
+                elif response.status_code == 403:
+                    stage = ClerkFlowStage.TOKEN_REQUEST_FORBIDDEN
+                elif response.status_code == 404:
+                    stage = ClerkFlowStage.TOKEN_REQUEST_NOT_FOUND
+                else:
+                    stage = ClerkFlowStage.TOKEN_REQUEST_REJECTED
+                raise ClerkFlowFailure(stage) from None
             raise ClerkFlowFailure(failure_stage) from None
+        try:
+            payload: object = response.json()
+        except (ValueError, json.JSONDecodeError):
+            stage = (
+                ClerkFlowStage.DEVELOPMENT_BROWSER_RESPONSE_INVALID
+                if development_browser_diagnostics
+                else (
+                    ClerkFlowStage.TOKEN_RESPONSE_INVALID
+                    if session_token_diagnostics
+                    else failure_stage
+                )
+            )
+            raise ClerkFlowFailure(stage) from None
         if not isinstance(payload, dict):
-            raise ClerkFlowFailure(failure_stage)
+            stage = (
+                ClerkFlowStage.DEVELOPMENT_BROWSER_RESPONSE_INVALID
+                if development_browser_diagnostics
+                else (
+                    ClerkFlowStage.TOKEN_RESPONSE_INVALID
+                    if session_token_diagnostics
+                    else failure_stage
+                )
+            )
+            raise ClerkFlowFailure(stage)
         response_payload = cast(dict[str, object], payload)
         nested = response_payload.get("response") if unwrap_response else None
         return (
@@ -322,6 +517,33 @@ class ClerkDevelopmentSession:
             if isinstance(nested, dict)
             else response_payload
         )
+
+    def _fapi_http_client(self) -> httpx.Client:
+        if self._fapi_client is not None:
+            return self._fapi_client
+        if self._fapi_authority is None:
+            raise ClerkFlowFailure(
+                ClerkFlowStage.DEVELOPMENT_BROWSER_TRANSPORT_UNAVAILABLE
+            )
+        try:
+            client = httpx.Client(
+                base_url=self._fapi_authority,
+                headers={
+                    "Clerk-API-Version": _FAPI_API_VERSION,
+                    "Origin": TOOLING_ORIGIN,
+                    "User-Agent": _FAPI_USER_AGENT,
+                    "Accept": _FAPI_ACCEPT,
+                },
+                trust_env=False,
+                follow_redirects=False,
+                timeout=_REQUEST_TIMEOUT_SECONDS,
+            )
+        except Exception:  # noqa: BLE001 - provider construction details remain private
+            raise ClerkFlowFailure(
+                ClerkFlowStage.DEVELOPMENT_BROWSER_TRANSPORT_UNAVAILABLE
+            ) from None
+        self._fapi_client = client
+        return client
 
     def _validate_claims_and_verifier(self, token: str) -> None:
         try:
@@ -348,9 +570,11 @@ class ClerkDevelopmentSession:
         except Exception:  # noqa: BLE001 - claims and crypto errors remain opaque
             raise ClerkFlowFailure(ClerkFlowStage.CLAIMS) from None
 
-        request = HttpRequest()
-        request.META["HTTP_AUTHORIZATION"] = f"Bearer {token}"
         try:
+            request = cast(
+                HttpRequest,
+                _AuthorizationRequest(headers={"Authorization": f"Bearer {token}"}),
+            )
             identity = ClerkSessionVerifier(
                 ClerkVerificationConfiguration(
                     jwt_key=public_key_pem,
@@ -383,7 +607,7 @@ class ClerkDevelopmentSession:
 
 
 def _is_development_fapi_url(value: str) -> bool:
-    if value != value.strip() or "?" in value or "#" in value:
+    if any(character.isspace() for character in value) or "?" in value or "#" in value:
         return False
     try:
         parsed = urlsplit(value)
@@ -394,6 +618,7 @@ def _is_development_fapi_url(value: str) -> bool:
     return (
         parsed.scheme == "https"
         and host is not None
+        and parsed.netloc == host
         and host.endswith(_DEVELOPMENT_FAPI_HOST_SUFFIX)
         and host != _DEVELOPMENT_FAPI_HOST_SUFFIX[1:]
         and parsed.username is None
@@ -424,21 +649,6 @@ def _primary_development_fapi_authority(clerk: Any) -> str:
     if not _is_development_fapi_url(authority):
         raise ValueError
     return authority
-
-
-def _fapi_url(base_url: str | None, path: str, query: dict[str, str] | None) -> str:
-    if base_url is None:
-        raise ValueError
-    parsed = urlsplit(base_url)
-    return urlunsplit(
-        SplitResult(
-            scheme=parsed.scheme,
-            netloc=parsed.netloc,
-            path=path,
-            query=urllib.parse.urlencode(query or {}),
-            fragment="",
-        )
-    )
 
 
 def _field(payload: dict[str, object], name: str) -> object:
@@ -473,12 +683,16 @@ def _is_owned_active_session(
         if not isinstance(session, dict):
             continue
         session_data = cast(dict[str, object], session)
-        if session_data.get("status") != "active":
+        if (
+            session_data.get("id") != created_session_id
+            or session_data.get("status") != "active"
+        ):
             continue
-        if session_data.get("user_id") != user_id:
+        user = session_data.get("user")
+        if not isinstance(user, dict):
             continue
-        session_id = session_data.get("id")
-        if session_id == created_session_id:
+        session_user = cast(dict[str, object], user)
+        if session_user.get("id") == user_id:
             return True
     return False
 

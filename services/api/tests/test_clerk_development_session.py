@@ -10,10 +10,11 @@ import sys
 import time
 import urllib.request
 from base64 import urlsafe_b64encode
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import NoReturn, Self, cast
-from urllib.parse import parse_qs, urlsplit
+from typing import Any, NoReturn, cast
+from urllib.parse import parse_qs
 
 import httpx
 import pytest
@@ -29,6 +30,8 @@ if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from scripts import clerk_development_session as development_session
+
+_REAL_HTTPX_CLIENT = httpx.Client
 
 SENSITIVE_VALUES = (
     "sk_test_synthetic_credential_material",
@@ -63,9 +66,11 @@ def prohibit_network(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setattr(http.client.HTTPSConnection, "request", no_network)
     monkeypatch.setattr(urllib.request, "urlopen", no_network)
     monkeypatch.setattr(urllib.request.OpenerDirector, "open", no_network)
-    for client_type in (httpx.Client, httpx.AsyncClient):
-        monkeypatch.setattr(client_type, "request", no_network)
-        monkeypatch.setattr(client_type, "send", no_network)
+    # MockTransport-backed clients below exercise the live-tool HTTP boundary
+    # without leaving the process. Socket-level guards above still reject any
+    # accidental real client traffic.
+    monkeypatch.setattr(httpx.AsyncClient, "request", no_network)
+    monkeypatch.setattr(httpx.AsyncClient, "send", no_network)
 
 
 @pytest.fixture(autouse=True)
@@ -250,43 +255,20 @@ def synthetic_token(claims: dict[str, object]) -> str:
     return f"{encoded_header}.{encoded_claims}.synthetic-signature"
 
 
-@dataclass
-class _JsonResponse:
-    body: dict[str, object]
-    status: int = 200
-    url: str = ""
-
-    def read(self) -> bytes:
-        return json.dumps(self.body).encode()
-
-    def getcode(self) -> int:
-        return self.status
-
-    def geturl(self) -> str:
-        return self.url
-
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(self, *_args: object) -> None:
-        return None
-
-
-class SuccessfulFrontendOpener:
+class SuccessfulFrontendPeer:
     """Offline FAPI boundary with only the approved normal-token flow."""
 
     def __init__(self, token: str) -> None:
         self.token = token
-        self.requests: list[urllib.request.Request] = []
+        self.requests: list[httpx.Request] = []
 
-    def open(self, request: urllib.request.Request, **_kwargs: object) -> _JsonResponse:
+    def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
-        path = urlsplit(request.full_url).path
+        path = request.url.path
         session: dict[str, object] = {
             "object": "session",
             "id": "sess_synthetic_sensitive_identifier",
             "status": "active",
-            "user_id": "user_synthetic_sensitive_identifier",
             "user": {"id": "user_synthetic_sensitive_identifier"},
         }
         sign_in: dict[str, object] = {
@@ -312,30 +294,30 @@ class SuccessfulFrontendOpener:
         if path not in responses:
             raise AssertionError(f"unsupported Frontend API operation: {path}")
         response = responses[path]
-        return _JsonResponse(response, url=request.full_url)
+        return httpx.Response(200, json=response)
 
 
-class OfficialEnvelopeFrontendOpener:
+class OfficialEnvelopeFrontendPeer:
     """FAPI responses shaped like Clerk's 2026-05-12 client/OpenAPI contract."""
 
     def __init__(self, token: str) -> None:
         self.token = token
-        self.requests: list[urllib.request.Request] = []
+        self.requests: list[httpx.Request] = []
 
-    def open(self, request: urllib.request.Request, **_kwargs: object) -> _JsonResponse:
+    def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
-        path = urlsplit(request.full_url).path
+        path = request.url.path
         created_session: dict[str, object] = {
             "object": "session",
             "id": "sess_synthetic_created_by_ticket",
             "status": "active",
-            "user_id": "user_synthetic_sensitive_identifier",
+            "user": {"id": "user_synthetic_sensitive_identifier"},
         }
         older_session: dict[str, object] = {
             "object": "session",
             "id": "sess_synthetic_older_active_session",
             "status": "active",
-            "user_id": "user_synthetic_sensitive_identifier",
+            "user": {"id": "user_synthetic_sensitive_identifier"},
         }
         responses: dict[str, dict[str, object]] = {
             # clerk-js createDevBrowser() reads the top-level `id` value.
@@ -361,7 +343,7 @@ class OfficialEnvelopeFrontendOpener:
         }
         if path not in responses:
             raise AssertionError(f"unsupported Frontend API operation: {path}")
-        return _JsonResponse(responses[path], url=request.full_url)
+        return httpx.Response(200, json=responses[path])
 
 
 @dataclass
@@ -399,6 +381,24 @@ def configure_successful_provider(
     return ticket_requests, revocations
 
 
+def install_frontend_mock(
+    monkeypatch: MonkeyPatch, handler: Callable[[httpx.Request], httpx.Response]
+) -> list[httpx.Client]:
+    """Install one real synchronous client at the FAPI-only outbound boundary."""
+    clients: list[httpx.Client] = []
+
+    def make_client(**kwargs: object) -> httpx.Client:
+        client = _REAL_HTTPX_CLIENT(
+            transport=httpx.MockTransport(handler),
+            **cast(Any, kwargs),
+        )
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(development_session.httpx, "Client", make_client)
+    return clients
+
+
 def run_successful_frontend_flow(
     monkeypatch: MonkeyPatch,
     *,
@@ -408,17 +408,13 @@ def run_successful_frontend_flow(
 ) -> tuple[
     development_session.ClerkDevelopmentSession,
     RecordingTransport,
-    SuccessfulFrontendOpener,
+    SuccessfulFrontendPeer,
     list[HttpRequest],
 ]:
     transport = RecordingTransport()
     configure_successful_provider(transport, ticket_url=ticket_url)
-    opener = SuccessfulFrontendOpener(synthetic_token(claims))
-
-    def build_opener(*_handlers: object) -> SuccessfulFrontendOpener:
-        return opener
-
-    monkeypatch.setattr(urllib.request, "build_opener", build_opener)
+    opener = SuccessfulFrontendPeer(synthetic_token(claims))
+    install_frontend_mock(monkeypatch, opener)
     verifier_requests: list[HttpRequest] = []
 
     def verify(
@@ -568,7 +564,7 @@ def test_ticket_flow_uses_fixed_origin_and_exact_sixty_second_ticket(
     """The first FAPI operation exposes the fixed-origin, same-instance contract."""
     clerk = RecordingTransport()
     ticket_requests: list[object] = []
-    frontend_requests: list[urllib.request.Request] = []
+    frontend_requests: list[httpx.Request] = []
 
     @dataclass
     class Ticket:
@@ -580,17 +576,13 @@ def test_ticket_flow_uses_fixed_origin_and_exact_sixty_second_ticket(
         ticket_requests.append(kwargs["request"])
         return Ticket()
 
-    class FailingOpener:
-        def open(self, request: urllib.request.Request, **_kwargs: object) -> NoReturn:
-            frontend_requests.append(request)
-            raise SensitiveSyntheticError(" ".join(SENSITIVE_VALUES))
+    def fail_frontend_request(request: httpx.Request) -> httpx.Response:
+        frontend_requests.append(request)
+        raise httpx.TransportError(" ".join(SENSITIVE_VALUES))
 
     clerk.create = create_ticket  # type: ignore[method-assign]
 
-    def build_failing_opener(*_handlers: object) -> FailingOpener:
-        return FailingOpener()
-
-    monkeypatch.setattr(urllib.request, "build_opener", build_failing_opener)
+    install_frontend_mock(monkeypatch, fail_frontend_request)
     session = validate_with(clerk)
 
     caplog.set_level(logging.DEBUG)
@@ -602,10 +594,10 @@ def test_ticket_flow_uses_fixed_origin_and_exact_sixty_second_ticket(
     assert request.user_id == "user_synthetic_sensitive_identifier"
     assert request.expires_in_seconds == 60
     assert len(frontend_requests) == 1
-    assert frontend_requests[0].full_url.startswith(
+    assert str(frontend_requests[0].url).startswith(
         "https://development-synthetic.clerk.accounts.dev/"
     )
-    assert frontend_requests[0].get_header("Origin") == "http://localhost:3000"
+    assert frontend_requests[0].headers["origin"] == "http://localhost:3000"
 
 
 def test_cleanup_revokes_an_unconsumed_ticket_but_never_deletes_persistent_user(
@@ -628,17 +620,13 @@ def test_cleanup_revokes_an_unconsumed_ticket_but_never_deletes_persistent_user(
     def revoke_ticket(**kwargs: object) -> None:
         revoked.append(kwargs)
 
-    class FailingOpener:
-        def open(self, _request: urllib.request.Request, **_kwargs: object) -> NoReturn:
-            raise SensitiveSyntheticError("ticket exchange failed")
+    def fail_frontend_request(_request: httpx.Request) -> httpx.Response:
+        raise httpx.TransportError("ticket exchange failed")
 
     clerk.create = create_ticket  # type: ignore[method-assign]
     clerk.revoke = revoke_ticket  # type: ignore[method-assign]
 
-    def build_failing_opener(*_handlers: object) -> FailingOpener:
-        return FailingOpener()
-
-    monkeypatch.setattr(urllib.request, "build_opener", build_failing_opener)
+    install_frontend_mock(monkeypatch, fail_frontend_request)
     session = validate_with(clerk)
 
     caplog.set_level(logging.DEBUG)
@@ -671,30 +659,30 @@ def test_successful_normal_session_token_is_verified_and_cleaned_up(
     assert token == opener.token
     assert len(verifier_requests) == 1
     assert verifier_requests[0].headers["Authorization"] == f"Bearer {token}"
-    paths = [urlsplit(request.full_url).path for request in opener.requests]
+    paths = [request.url.path for request in opener.requests]
     assert paths == [
         "/v1/dev_browser",
         "/v1/client",
         "/v1/client/sign_ins",
         "/v1/client/sessions/sess_synthetic_sensitive_identifier/tokens",
     ]
-    assert {urlsplit(request.full_url).netloc for request in opener.requests} == {
+    assert {request.url.netloc.decode("ascii") for request in opener.requests} == {
         "development-synthetic.clerk.accounts.dev"
     }
     assert all(
-        request.get_header("Clerk-api-version") == "2026-05-12"
+        request.headers["clerk-api-version"] == "2026-05-12"
         for request in opener.requests
     )
     assert all(
-        "__clerk_api_version" not in request.full_url for request in opener.requests
+        "__clerk_api_version" not in str(request.url) for request in opener.requests
     )
     assert all("/tokens/" not in path for path in paths)
     assert all(
-        request.get_header("Origin") == "http://localhost:3000"
+        request.headers["origin"] == "http://localhost:3000"
         for request in opener.requests
     )
     sign_in_request = opener.requests[2]
-    assert parse_qs(cast(bytes, sign_in_request.data).decode()) == {
+    assert parse_qs(sign_in_request.content.decode()) == {
         "strategy": ["ticket"],
         "ticket": ["ticket_synthetic_one_use_credential"],
     }
@@ -743,7 +731,7 @@ def test_validated_primary_domain_not_ticket_url_controls_frontend_api(
     session.create_verified_token()
     session.cleanup()
 
-    assert {urlsplit(request.full_url).netloc for request in opener.requests} == {
+    assert {request.url.netloc.decode("ascii") for request in opener.requests} == {
         "development-synthetic.clerk.accounts.dev"
     }
 
@@ -764,24 +752,21 @@ def test_official_fapi_envelopes_preserve_created_session_ownership(
     )
     transport = RecordingTransport()
     _ticket_requests, revocations = configure_successful_provider(transport)
-    opener = OfficialEnvelopeFrontendOpener(token)
-
-    def build_opener(*_handlers: object) -> OfficialEnvelopeFrontendOpener:
-        return opener
+    opener = OfficialEnvelopeFrontendPeer(token)
 
     def verify(
         _verifier: ClerkSessionVerifier, _request: HttpRequest
     ) -> VerifiedClerkIdentity:
         return VerifiedClerkIdentity(subject="user_synthetic_sensitive_identifier")
 
-    monkeypatch.setattr(urllib.request, "build_opener", build_opener)
+    install_frontend_mock(monkeypatch, opener)
     monkeypatch.setattr(ClerkSessionVerifier, "verify", verify)
     session = validate_with(transport)
 
     assert session.create_verified_token() == token
     session.cleanup()
 
-    assert [urlsplit(request.full_url).path for request in opener.requests] == [
+    assert [request.url.path for request in opener.requests] == [
         "/v1/dev_browser",
         "/v1/client",
         "/v1/client/sign_ins",
@@ -883,3 +868,364 @@ def test_invalid_token_claims_or_verifier_rejection_fail_closed(
         "revoke",
         {"session_id": "sess_synthetic_sensitive_identifier"},
     )
+
+
+def test_frontend_api_uses_one_persistent_httpx_client_with_the_spike_wire_contract(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """The browser, client, sign-in, and token exchange share cookie state."""
+    now = int(time.time())
+    session, transport, _opener, verifier_requests = run_successful_frontend_flow(
+        monkeypatch,
+        claims={
+            "sid": "sess_synthetic_sensitive_identifier",
+            "sub": "user_synthetic_sensitive_identifier",
+            "azp": "http://localhost:3000",
+            "iat": now,
+            "exp": now + 60,
+        },
+    )
+    # The legacy urllib fixture above is deliberately bypassed: this is the
+    # observable FAPI boundary required by the transport correction.
+    requests: list[httpx.Request] = []
+    clients: list[httpx.Client] = []
+
+    def fapi_peer(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        path = request.url.path
+        if path == "/v1/dev_browser":
+            assert "cookie" not in request.headers
+            return httpx.Response(
+                200,
+                json={"id": "dev_browser_synthetic"},
+                headers={"set-cookie": "__clerk_db_jwt=synthetic; Path=/"},
+            )
+        assert request.headers.get("cookie") == "__clerk_db_jwt=synthetic"
+        if path == "/v1/client":
+            return httpx.Response(200, json={"sessions": []})
+        if path == "/v1/client/sign_ins":
+            return httpx.Response(
+                200,
+                json={
+                    "response": {
+                        "status": "complete",
+                        "created_session_id": "sess_synthetic_sensitive_identifier",
+                    },
+                    "client": {
+                        "sessions": [
+                            {
+                                "id": "sess_synthetic_sensitive_identifier",
+                                "status": "active",
+                                "user": {"id": "user_synthetic_sensitive_identifier"},
+                            }
+                        ]
+                    },
+                },
+            )
+        if path == "/v1/client/sessions/sess_synthetic_sensitive_identifier/tokens":
+            return httpx.Response(
+                200,
+                json={
+                    "jwt": synthetic_token(
+                        {
+                            "sid": "sess_synthetic_sensitive_identifier",
+                            "sub": "user_synthetic_sensitive_identifier",
+                            "azp": "http://localhost:3000",
+                            "iat": now,
+                            "exp": now + 60,
+                        }
+                    )
+                },
+            )
+        raise AssertionError(f"unexpected Frontend API operation: {path}")
+
+    def make_fapi_client(**kwargs: object) -> httpx.Client:
+        assert kwargs == {
+            "base_url": DEFAULT_PRIMARY_FRONTEND_API_URL,
+            "headers": {
+                "Clerk-API-Version": "2026-05-12",
+                "Origin": development_session.TOOLING_ORIGIN,
+                "User-Agent": "TailTag-Issue-99-Development-Smoke",
+                "Accept": "application/json",
+            },
+            "trust_env": False,
+            "follow_redirects": False,
+            "timeout": 10,
+        }
+        client = _REAL_HTTPX_CLIENT(
+            transport=httpx.MockTransport(fapi_peer), **cast(Any, kwargs)
+        )
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(development_session.httpx, "Client", make_fapi_client)
+
+    token = session.create_verified_token()
+    session.cleanup()
+
+    assert len(clients) == 1
+    assert clients[0].is_closed
+    assert cast(Any, session)._fapi_client is None
+    assert token
+    assert len(verifier_requests) == 1
+    assert [request.method for request in requests] == ["POST"] * 4
+    assert [request.url.path for request in requests] == [
+        "/v1/dev_browser",
+        "/v1/client",
+        "/v1/client/sign_ins",
+        "/v1/client/sessions/sess_synthetic_sensitive_identifier/tokens",
+    ]
+    assert [request.url.query for request in requests] == [
+        b"",
+        b"__dev_session=dev_browser_synthetic",
+        b"__dev_session=dev_browser_synthetic",
+        b"__dev_session=dev_browser_synthetic",
+    ]
+    for request in requests:
+        assert request.headers["origin"] == development_session.TOOLING_ORIGIN
+        assert request.headers["clerk-api-version"] == "2026-05-12"
+        assert request.headers["user-agent"] == "TailTag-Issue-99-Development-Smoke"
+        assert request.headers["accept"] == "application/json"
+    assert requests[0].content == b""
+    assert requests[1].content == b""
+    assert requests[1].headers["content-type"] == "application/x-www-form-urlencoded"
+    assert parse_qs(requests[2].content.decode("ascii")) == {
+        "strategy": ["ticket"],
+        "ticket": ["ticket_synthetic_one_use_credential"],
+    }
+    assert requests[2].headers["content-type"] == "application/x-www-form-urlencoded"
+    assert requests[3].content == b""
+    assert requests[3].headers["content-type"] == "application/x-www-form-urlencoded"
+    assert transport.events[-1] == (
+        "revoke",
+        {"session_id": "sess_synthetic_sensitive_identifier"},
+    )
+
+
+def test_frontend_api_client_is_closed_after_a_failure_and_close_failure_is_cleanup_error(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """FAPI transport lifetime is cleanup-critical on every failure exit."""
+    # Keep the external SDK fake simple; only the FAPI client lifecycle matters.
+    transport = RecordingTransport()
+    session = validate_with(transport)
+    transport.events.clear()
+    configure_successful_provider(transport)
+    clients: list[httpx.Client] = []
+    close_calls: list[None] = []
+
+    def fapi_peer(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, content=b"synthetic provider diagnostic")
+
+    def make_fapi_client(**kwargs: object) -> httpx.Client:
+        client = _REAL_HTTPX_CLIENT(
+            transport=httpx.MockTransport(fapi_peer), **cast(Any, kwargs)
+        )
+
+        def fail_close() -> None:
+            close_calls.append(None)
+            raise RuntimeError("synthetic close failure")
+
+        client.close = fail_close  # type: ignore[method-assign]
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(development_session.httpx, "Client", make_fapi_client)
+
+    with pytest.raises(development_session.ClerkFlowFailure) as primary:
+        session.create_verified_token()
+    assert (
+        primary.value.stage
+        is development_session.ClerkFlowStage.DEVELOPMENT_BROWSER_REQUEST_REJECTED
+    )
+
+    with pytest.raises(development_session.ClerkFlowFailure) as cleanup:
+        session.cleanup()
+    assert cleanup.value.stage is development_session.ClerkFlowStage.CLEANUP
+    assert len(clients) == 1
+    assert close_calls == [None]
+    assert cast(Any, session)._fapi_client is None
+    assert transport.events == [
+        ("ticket-create", None),
+        ("revoke", {"sign_in_token_id": "ticket_synthetic_sensitive_material"}),
+    ]
+
+
+def test_fapi_client_construction_failure_is_a_sanitized_transport_failure_and_revokes_ticket(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """A client that cannot be constructed creates no browser state but still cleans up."""
+    transport = RecordingTransport()
+    session = validate_with(transport)
+    transport.events.clear()
+    configure_successful_provider(transport)
+
+    def fail_client_construction(**_kwargs: object) -> httpx.Client:
+        raise RuntimeError("synthetic fapi client construction failure")
+
+    monkeypatch.setattr(development_session.httpx, "Client", fail_client_construction)
+
+    with pytest.raises(development_session.ClerkFlowFailure) as raised:
+        session.create_verified_token()
+    assert (
+        raised.value.stage
+        is development_session.ClerkFlowStage.DEVELOPMENT_BROWSER_TRANSPORT_UNAVAILABLE
+    )
+
+    session.cleanup()
+    assert transport.events == [
+        ("ticket-create", None),
+        ("revoke", {"sign_in_token_id": "ticket_synthetic_sensitive_material"}),
+    ]
+
+
+def test_cleanup_attempts_provider_revoke_and_fapi_close_before_reporting_incomplete() -> (
+    None
+):
+    """Independent cleanup failures cannot short-circuit the remaining invalidation work."""
+    transport = RecordingTransport()
+    session = validate_with(transport)
+    attempts: list[str] = []
+
+    def fail_session_revoke(**_kwargs: object) -> None:
+        attempts.append("session-revoke")
+        raise RuntimeError("synthetic provider revoke failure")
+
+    class FailingFapiClient:
+        def close(self) -> None:
+            attempts.append("fapi-close")
+            raise RuntimeError("synthetic fapi close failure")
+
+    transport.revoke = fail_session_revoke  # type: ignore[method-assign]
+    cast(Any, session)._session_id = "sess_synthetic_sensitive_identifier"
+    cast(Any, session)._fapi_client = FailingFapiClient()
+
+    with pytest.raises(development_session.ClerkFlowFailure) as raised:
+        session.cleanup()
+    assert raised.value.stage is development_session.ClerkFlowStage.CLEANUP
+    assert attempts == ["session-revoke", "fapi-close"]
+    assert cast(Any, session)._fapi_client is None
+
+
+@pytest.mark.parametrize("fails", (False, True), ids=("success", "transport-failure"))
+def test_fapi_calls_suppress_httpx_and_httpcore_debug_logs_and_restore_states(
+    monkeypatch: MonkeyPatch,
+    caplog: LogCaptureFixture,
+    fails: bool,
+) -> None:
+    """Provider debug suppression covers the locked HTTPX/httpcore logger families."""
+    session = validate_with(RecordingTransport())
+    sensitive = "sk_test_log cookie=sensitive sess_synthetic token.synthetic.value"
+    logger_names = ("httpx", "httpcore.connection", "httpcore.http11", "httpcore.http2")
+    loggers = [logging.getLogger(name) for name in logger_names]
+    prior = [logger.disabled for logger in loggers]
+    for logger in loggers:
+        logger.disabled = False
+
+    def peer(_request: httpx.Request) -> httpx.Response:
+        for logger in loggers:
+            logger.debug(sensitive)
+        if fails:
+            raise httpx.TransportError(sensitive)
+        return httpx.Response(200, json={"id": "dev_browser_synthetic"})
+
+    client = _REAL_HTTPX_CLIENT(
+        base_url=DEFAULT_PRIMARY_FRONTEND_API_URL,
+        transport=httpx.MockTransport(peer),
+    )
+    cast(Any, session)._fapi_client = client
+    cast(Any, session)._fapi_authority = DEFAULT_PRIMARY_FRONTEND_API_URL
+    caplog.set_level(logging.DEBUG)
+    try:
+        if fails:
+            with pytest.raises(development_session.ClerkFlowFailure):
+                cast(Any, session)._frontend_request(
+                    "/v1/dev_browser",
+                    failure_stage=development_session.ClerkFlowStage.DEVELOPMENT_BROWSER,
+                    development_browser_diagnostics=True,
+                )
+        else:
+            assert cast(Any, session)._frontend_request(
+                "/v1/dev_browser",
+                failure_stage=development_session.ClerkFlowStage.DEVELOPMENT_BROWSER,
+                development_browser_diagnostics=True,
+            ) == {"id": "dev_browser_synthetic"}
+    finally:
+        client.close()
+        for logger, disabled in zip(loggers, prior, strict=True):
+            logger.disabled = disabled
+
+    assert sensitive not in caplog.text
+    assert all(sensitive not in record.getMessage() for record in caplog.records)
+    assert [logger.disabled for logger in loggers] == prior
+
+
+def test_cleanup_releases_sensitive_provider_references_after_success() -> None:
+    """A completed live-session object must not remain a credential/provider holder."""
+    transport = RecordingTransport()
+    session = validate_with(transport)
+    session.cleanup()
+
+    retained = [getattr(session, field.name) for field in fields(session)]
+    assert transport not in retained
+    assert all(
+        value
+        not in {
+            "sk_test_synthetic_credential_material",
+            "user_synthetic_sensitive_identifier",
+            DEFAULT_PRIMARY_FRONTEND_API_URL,
+        }
+        for value in retained
+        if isinstance(value, str)
+    )
+    assert all(value in (None, False) for value in retained)
+
+
+def test_cleanup_failure_still_releases_sensitive_provider_references() -> None:
+    """Failed revocation/close paths cannot leave a reusable provider session object."""
+    transport = RecordingTransport()
+    session = validate_with(transport)
+    attempts: list[str] = []
+
+    def fail_revoke(**kwargs: object) -> None:
+        attempts.append("session" if "session_id" in kwargs else "ticket")
+        raise RuntimeError("synthetic provider failure")
+
+    class FailingClient:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def close(self) -> None:
+            attempts.append(self.name)
+            raise RuntimeError("synthetic close failure")
+
+    transport.revoke = fail_revoke  # type: ignore[method-assign]
+    state = cast(Any, session)
+    state._session_id = "sess_synthetic_sensitive_identifier"
+    state._ticket_id = "ticket_synthetic_sensitive_material"
+    state._ticket_consumed = False
+    state._ticket_cleanup_uncertain = True
+    state._session_cleanup_uncertain = True
+    state._fapi_client = FailingClient("fapi-close")
+    state._http_client = FailingClient("backend-close")
+
+    with pytest.raises(development_session.ClerkFlowFailure) as raised:
+        session.cleanup()
+    assert raised.value.stage is development_session.ClerkFlowStage.CLEANUP
+    assert attempts == ["session", "ticket", "fapi-close", "backend-close"]
+
+    retained = [getattr(session, field.name) for field in fields(session)]
+    assert transport not in retained
+    assert all(
+        value
+        not in {
+            "sk_test_synthetic_credential_material",
+            "user_synthetic_sensitive_identifier",
+            "sess_synthetic_sensitive_identifier",
+            "ticket_synthetic_sensitive_material",
+            DEFAULT_PRIMARY_FRONTEND_API_URL,
+        }
+        for value in retained
+        if isinstance(value, str)
+    )
+    assert all(value in (None, False) for value in retained)

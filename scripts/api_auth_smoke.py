@@ -17,6 +17,7 @@ from .clerk_development_session import (
     ClerkCredentialFailure,
     ClerkDevelopmentSession,
     ClerkFlowFailure,
+    _suppress_provider_debug_logs,  # pyright: ignore[reportPrivateUsage]
 )
 
 DEFAULT_API_BASE_URL: Final = "http://127.0.0.1:8000"
@@ -185,6 +186,7 @@ def _root_url_parts(value: str) -> SplitResult:
         or parsed.fragment
         or value.endswith(("?", "#"))
         or "%" in parsed.netloc
+        or parsed.netloc.endswith(":")
         or port is None
         and parsed.scheme == "http"
     ):
@@ -252,37 +254,47 @@ def run(environment: Mapping[str, str], runtime: SmokeRuntime) -> SmokeOutcome:
         return SmokeOutcome(primary_stage=_PROMPT_FAILURE)
 
     user_id = environment.get("CLERK_SMOKE_USER_ID", "")
-    try:
-        session = runtime.validate_clerk(secret=secret, user_id=user_id)
-    except Exception as error:  # noqa: BLE001 - provider details remain private
-        stage = _stage_for(error, _VALIDATION_FAILURE)
-        _discard_error_details(error)
-        return SmokeOutcome(primary_stage=stage)
-
-    primary_stage: str | None = None
-    cleanup_incomplete = False
-    try:
+    with _suppress_provider_debug_logs():
         try:
-            token = session.create_verified_token()
-        except Exception as error:  # noqa: BLE001 - token details remain private
-            primary_stage = _stage_for(error, _TOKEN_FAILURE)
-            _discard_error_details(error)
-        else:
             try:
-                runtime.request_current_user(base_url=base_url, bearer_token=token)
-            except Exception as error:  # noqa: BLE001 - API details remain private
-                primary_stage = _stage_for(error, _API_FAILURE)
+                session = runtime.validate_clerk(secret=secret, user_id=user_id)
+            except Exception as error:  # noqa: BLE001 - provider details remain private
+                stage = _stage_for(error, _VALIDATION_FAILURE)
                 _discard_error_details(error)
-    finally:
-        try:
-            session.cleanup()
-        except Exception as error:  # noqa: BLE001 - cleanup details remain private
-            _discard_error_details(error)
-            cleanup_incomplete = True
-    return SmokeOutcome(
-        primary_stage=primary_stage,
-        cleanup_incomplete=cleanup_incomplete,
-    )
+                return SmokeOutcome(primary_stage=stage)
+            finally:
+                secret = None
+
+            primary_stage: str | None = None
+            cleanup_incomplete = False
+            token: str | None = None
+            try:
+                try:
+                    token = session.create_verified_token()
+                except Exception as error:  # noqa: BLE001 - token details remain private
+                    primary_stage = _stage_for(error, _TOKEN_FAILURE)
+                    _discard_error_details(error)
+                else:
+                    try:
+                        runtime.request_current_user(
+                            base_url=base_url, bearer_token=token
+                        )
+                    except Exception as error:  # noqa: BLE001 - API details remain private
+                        primary_stage = _stage_for(error, _API_FAILURE)
+                        _discard_error_details(error)
+            finally:
+                token = None
+                try:
+                    session.cleanup()
+                except Exception as error:  # noqa: BLE001 - cleanup details remain private
+                    _discard_error_details(error)
+                    cleanup_incomplete = True
+            return SmokeOutcome(
+                primary_stage=primary_stage,
+                cleanup_incomplete=cleanup_incomplete,
+            )
+        finally:
+            secret = None
 
 
 def main() -> int:
