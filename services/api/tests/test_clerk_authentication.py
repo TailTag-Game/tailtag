@@ -406,9 +406,10 @@ def test_session_cookie_is_not_a_fallback_when_authorization_is_absent(
         prohibit_clerk_authentication,
     )
 
-    assert verifier.verify(
-        request_with_authorization(None, session_cookie=issue_token())
-    ) is None
+    assert (
+        verifier.verify(request_with_authorization(None, session_cookie=issue_token()))
+        is None
+    )
 
 
 def test_malformed_authorization_does_not_fall_back_to_session_cookie(
@@ -429,9 +430,7 @@ def test_malformed_authorization_does_not_fall_back_to_session_cookie(
 
     with pytest.raises(AuthenticationFailed) as raised:
         verifier.verify(
-            request_with_authorization(
-                "Basic ignored", session_cookie=issue_token()
-            )
+            request_with_authorization("Basic ignored", session_cookie=issue_token())
         )
 
     assert raised.value.detail == GENERIC_FAILURE_DETAIL

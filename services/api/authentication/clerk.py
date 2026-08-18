@@ -10,9 +10,7 @@ from clerk_backend_api.security import AuthenticateRequestOptions, authenticate_
 from django.http import HttpRequest
 from rest_framework.exceptions import AuthenticationFailed
 
-_BEARER_CREDENTIAL = re.compile(
-    r"(?i:Bearer) +([A-Za-z0-9\-._~+/]+=*)", flags=re.ASCII
-)
+_BEARER_CREDENTIAL = re.compile(r"(?i:Bearer) +([A-Za-z0-9\-._~+/]+=*)", flags=re.ASCII)
 
 
 @dataclass(frozen=True, slots=True)
