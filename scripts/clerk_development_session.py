@@ -91,7 +91,9 @@ class ClerkDevelopmentSession:
         if not secret.startswith("sk_test_"):
             raise ClerkCredentialFailure()
         try:
-            clerk: Any = transport if transport is not None else Clerk(bearer_auth=secret)
+            clerk: Any = (
+                transport if transport is not None else Clerk(bearer_auth=secret)
+            )
             instance: object = cast(object, clerk.instance_settings.get())
         except Exception:  # noqa: BLE001 - third-party errors are intentionally opaque
             raise ClerkFlowFailure(ClerkFlowStage.INSTANCE) from None
@@ -155,9 +157,7 @@ class ClerkDevelopmentSession:
                 failed = True
         if self._ticket_id is not None and not self._ticket_consumed:
             try:
-                self._transport.sign_in_tokens.revoke(
-                    sign_in_token_id=self._ticket_id
-                )
+                self._transport.sign_in_tokens.revoke(sign_in_token_id=self._ticket_id)
             except Exception:  # noqa: BLE001 - cleanup must attempt both resources
                 failed = True
         if failed:
@@ -165,12 +165,15 @@ class ClerkDevelopmentSession:
 
     def _create_ticket(self) -> object:
         try:
-            return cast(object, self._transport.sign_in_tokens.create(
-                request=CreateSignInTokenRequestBody(
-                    user_id=self._user_id,
-                    expires_in_seconds=SIGN_IN_TICKET_LIFETIME_SECONDS,
-                )
-            ))
+            return cast(
+                object,
+                self._transport.sign_in_tokens.create(
+                    request=CreateSignInTokenRequestBody(
+                        user_id=self._user_id,
+                        expires_in_seconds=SIGN_IN_TICKET_LIFETIME_SECONDS,
+                    )
+                ),
+            )
         except Exception:  # noqa: BLE001 - third-party errors are intentionally opaque
             raise ClerkFlowFailure(ClerkFlowStage.TICKET) from None
 
@@ -184,9 +187,7 @@ class ClerkDevelopmentSession:
         dev_token = _field(dev_browser, "token")
         if not isinstance(dev_token, str):
             raise ClerkFlowFailure(ClerkFlowStage.TICKET)
-        self._frontend_request(
-            opener, "/v1/client", query={"__dev_session": dev_token}
-        )
+        self._frontend_request(opener, "/v1/client", query={"__dev_session": dev_token})
         signed_in_client = self._frontend_request(
             opener,
             "/v1/client/sign_ins",
@@ -248,7 +249,11 @@ class ClerkDevelopmentSession:
             raise ClerkFlowFailure(failure_stage)
         response_payload = cast(dict[str, object], payload)
         nested = response_payload.get("response")
-        return cast(dict[str, object], nested) if isinstance(nested, dict) else response_payload
+        return (
+            cast(dict[str, object], nested)
+            if isinstance(nested, dict)
+            else response_payload
+        )
 
     def _validate_claims_and_verifier(self, token: str) -> None:
         try:

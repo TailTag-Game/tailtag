@@ -134,7 +134,9 @@ class RecordingTransport:
         raise AssertionError(f"unexpected cleanup before a resource exists: {kwargs!r}")
 
 
-def validate_with(transport: RecordingTransport) -> object:
+def validate_with(
+    transport: RecordingTransport,
+) -> development_session.ClerkDevelopmentSession:
     """The planned public transport seam keeps provider tests layout-independent."""
     return development_session.ClerkDevelopmentSession.validate(
         secret="sk_test_synthetic_credential_material",
@@ -298,11 +300,20 @@ def run_successful_frontend_flow(
     *,
     claims: dict[str, object],
     verifier_rejects: bool = False,
-) -> tuple[object, RecordingTransport, SuccessfulFrontendOpener, list[HttpRequest]]:
+) -> tuple[
+    development_session.ClerkDevelopmentSession,
+    RecordingTransport,
+    SuccessfulFrontendOpener,
+    list[HttpRequest],
+]:
     transport = RecordingTransport()
     configure_successful_provider(transport)
     opener = SuccessfulFrontendOpener(synthetic_token(claims))
-    monkeypatch.setattr(urllib.request, "build_opener", lambda *_handlers: opener)
+
+    def build_opener(*_handlers: object) -> SuccessfulFrontendOpener:
+        return opener
+
+    monkeypatch.setattr(urllib.request, "build_opener", build_opener)
     verifier_requests: list[HttpRequest] = []
 
     def verify(
@@ -406,9 +417,11 @@ def test_ticket_flow_uses_fixed_origin_and_exact_sixty_second_ticket(
             raise SensitiveSyntheticError(" ".join(SENSITIVE_VALUES))
 
     clerk.create = create_ticket  # type: ignore[method-assign]
-    monkeypatch.setattr(
-        urllib.request, "build_opener", lambda *_handlers: FailingOpener()
-    )
+
+    def build_failing_opener(*_handlers: object) -> FailingOpener:
+        return FailingOpener()
+
+    monkeypatch.setattr(urllib.request, "build_opener", build_failing_opener)
     session = validate_with(clerk)
 
     caplog.set_level(logging.DEBUG)
@@ -452,9 +465,11 @@ def test_cleanup_revokes_an_unconsumed_ticket_but_never_deletes_persistent_user(
 
     clerk.create = create_ticket  # type: ignore[method-assign]
     clerk.revoke = revoke_ticket  # type: ignore[method-assign]
-    monkeypatch.setattr(
-        urllib.request, "build_opener", lambda *_handlers: FailingOpener()
-    )
+
+    def build_failing_opener(*_handlers: object) -> FailingOpener:
+        return FailingOpener()
+
+    monkeypatch.setattr(urllib.request, "build_opener", build_failing_opener)
     session = validate_with(clerk)
 
     caplog.set_level(logging.DEBUG)

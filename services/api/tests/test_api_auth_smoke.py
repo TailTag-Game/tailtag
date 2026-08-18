@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
-from typing import NoReturn, Self
+from typing import NoReturn, Self, cast
 
 import httpx
 import pytest
@@ -95,16 +95,21 @@ class RecordingRuntime:
         self.events.append("prompt")
         return "sk_test_synthetic_credential_material"
 
-    def validate_clerk(self, *, secret: str, user_id: str) -> RecordingSession:
+    def validate_clerk(
+        self, *, secret: str, user_id: str
+    ) -> auth_smoke.ClerkDevelopmentSession:
         self.events.append("provider-validate")
         assert secret == "sk_test_synthetic_credential_material"
         assert user_id == "user_synthetic"
         if self.validation_error is not None:
             raise self.validation_error
-        return RecordingSession(
-            self.events,
-            token_error=self.token_error,
-            cleanup_error=self.cleanup_error,
+        return cast(
+            auth_smoke.ClerkDevelopmentSession,
+            RecordingSession(
+                self.events,
+                token_error=self.token_error,
+                cleanup_error=self.cleanup_error,
+            ),
         )
 
     def request_current_user(self, *, base_url: str, bearer_token: str) -> None:
@@ -591,7 +596,7 @@ def test_main_uses_hidden_tty_prompt_with_exact_copy_and_never_echoes_secret(
             return True
 
     def run_prompt_probe(
-        _environment: Mapping[str, str], runtime: object
+        _environment: Mapping[str, str], runtime: auth_smoke.DefaultSmokeRuntime
     ) -> _SuccessfulOutcome:
         prompt = runtime.prompt_secret  # type: ignore[attr-defined]
         calls.append(prompt())
@@ -634,7 +639,7 @@ def test_main_fails_closed_without_both_required_tty_streams(
             return True
 
     def run_prompt_probe(
-        _environment: Mapping[str, str], runtime: object
+        _environment: Mapping[str, str], runtime: auth_smoke.DefaultSmokeRuntime
     ) -> _SuccessfulOutcome:
         calls.append(runtime.prompt_secret())  # type: ignore[attr-defined]
         return _SuccessfulOutcome()
@@ -691,7 +696,7 @@ def test_main_never_accepts_a_secret_environment_value(
     observed: list[str] = []
 
     def run_prompt_probe(
-        _environment: Mapping[str, str], runtime: object
+        _environment: Mapping[str, str], runtime: auth_smoke.DefaultSmokeRuntime
     ) -> _SuccessfulOutcome:
         observed.append(runtime.prompt_secret())  # type: ignore[attr-defined]
         return _SuccessfulOutcome()
@@ -706,9 +711,10 @@ def test_main_never_accepts_a_secret_environment_value(
     monkeypatch.setattr(sys, "stderr", TtyStream())
     import getpass
 
-    monkeypatch.setattr(
-        getpass, "getpass", lambda _prompt, *, stream: "sk_test_prompt_only_value"
-    )
+    def prompt_only(_prompt: str, *, stream: object) -> str:
+        return "sk_test_prompt_only_value"
+
+    monkeypatch.setattr(getpass, "getpass", prompt_only)
     fresh_module = importlib.reload(auth_smoke)
     monkeypatch.setattr(fresh_module, "run", run_prompt_probe)
     monkeypatch.setattr(sys, "argv", ["api_auth_smoke.py"])
