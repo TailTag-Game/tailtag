@@ -84,7 +84,7 @@ class _User:
     id: str
 
 
-class RecordingClerk:
+class RecordingTransport:
     """A minimal, non-network Clerk boundary that records public operations."""
 
     def __init__(
@@ -118,14 +118,13 @@ class RecordingClerk:
         raise AssertionError(f"unexpected cleanup before a resource exists: {kwargs!r}")
 
 
-def patch_clerk(monkeypatch: MonkeyPatch, clerk: RecordingClerk) -> None:
-    def construct(*args: object, **kwargs: object) -> RecordingClerk:
-        assert args == ()
-        assert set(kwargs) == {"bearer_auth"}
-        assert kwargs["bearer_auth"] == "sk_test_synthetic_credential_material"
-        return clerk
-
-    monkeypatch.setattr(development_session, "Clerk", construct)
+def validate_with(transport: RecordingTransport) -> object:
+    """The planned public transport seam keeps provider tests layout-independent."""
+    return development_session.ClerkDevelopmentSession.validate(
+        secret="sk_test_synthetic_credential_material",
+        user_id="user_synthetic_sensitive_identifier",
+        transport=transport,
+    )
 
 
 def test_non_development_secret_form_is_rejected_before_any_provider_connection(
@@ -148,13 +147,8 @@ def test_non_development_secret_form_is_rejected_before_any_provider_connection(
 def test_metadata_is_authoritative_and_opaque_user_lookup_is_exact(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    clerk = RecordingClerk()
-    patch_clerk(monkeypatch, clerk)
-
-    session = development_session.ClerkDevelopmentSession.validate(
-        secret="sk_test_synthetic_credential_material",
-        user_id="user_synthetic_sensitive_identifier",
-    )
+    clerk = RecordingTransport()
+    session = validate_with(clerk)
 
     assert session is not None
     assert clerk.events == [
@@ -169,14 +163,10 @@ def test_non_development_metadata_fails_closed_before_ticket_creation(
     caplog: LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.DEBUG)
-    clerk = RecordingClerk(environment_type="production")
-    patch_clerk(monkeypatch, clerk)
+    clerk = RecordingTransport(environment_type="production")
 
     with pytest.raises(Exception) as raised:
-        development_session.ClerkDevelopmentSession.validate(
-            secret="sk_test_synthetic_credential_material",
-            user_id="user_synthetic_sensitive_identifier",
-        )
+        validate_with(clerk)
 
     assert "Clerk instance not validated as Development" in str(raised.value)
     assert clerk.events == [("instance-settings", None)]
@@ -189,14 +179,10 @@ def test_missing_or_mismatched_opaque_user_fails_without_auto_provisioning(
     caplog: LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.DEBUG)
-    clerk = RecordingClerk(user_id="user_someone_else")
-    patch_clerk(monkeypatch, clerk)
+    clerk = RecordingTransport(user_id="user_someone_else")
 
     with pytest.raises(Exception) as raised:
-        development_session.ClerkDevelopmentSession.validate(
-            secret="sk_test_synthetic_credential_material",
-            user_id="user_synthetic_sensitive_identifier",
-        )
+        validate_with(clerk)
 
     assert "configured smoke user unavailable" in str(raised.value)
     assert [event[0] for event in clerk.events] == ["instance-settings", "user-get"]
@@ -207,7 +193,7 @@ def test_ticket_flow_uses_fixed_origin_and_exact_sixty_second_ticket(
     monkeypatch: MonkeyPatch,
 ) -> None:
     """The first FAPI operation exposes the fixed-origin, same-instance contract."""
-    clerk = RecordingClerk()
+    clerk = RecordingTransport()
     ticket_requests: list[object] = []
     frontend_requests: list[urllib.request.Request] = []
 
@@ -225,14 +211,10 @@ def test_ticket_flow_uses_fixed_origin_and_exact_sixty_second_ticket(
             raise SensitiveSyntheticError(" ".join(SENSITIVE_VALUES))
 
     clerk.create = create_ticket  # type: ignore[method-assign]
-    patch_clerk(monkeypatch, clerk)
     monkeypatch.setattr(
         urllib.request, "build_opener", lambda *_handlers: FailingOpener()
     )
-    session = development_session.ClerkDevelopmentSession.validate(
-        secret="sk_test_synthetic_credential_material",
-        user_id="user_synthetic_sensitive_identifier",
-    )
+    session = validate_with(clerk)
 
     with pytest.raises(development_session.ClerkFlowFailure):
         session.create_verified_token()
@@ -250,7 +232,7 @@ def test_ticket_flow_uses_fixed_origin_and_exact_sixty_second_ticket(
 def test_cleanup_revokes_an_unconsumed_ticket_but_never_deletes_persistent_user(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    clerk = RecordingClerk()
+    clerk = RecordingTransport()
     revoked: list[dict[str, object]] = []
 
     @dataclass
@@ -269,14 +251,10 @@ def test_cleanup_revokes_an_unconsumed_ticket_but_never_deletes_persistent_user(
 
     clerk.create = create_ticket  # type: ignore[method-assign]
     clerk.revoke = revoke_ticket  # type: ignore[method-assign]
-    patch_clerk(monkeypatch, clerk)
     monkeypatch.setattr(
         urllib.request, "build_opener", lambda *_handlers: FailingOpener()
     )
-    session = development_session.ClerkDevelopmentSession.validate(
-        secret="sk_test_synthetic_credential_material",
-        user_id="user_synthetic_sensitive_identifier",
-    )
+    session = validate_with(clerk)
 
     with pytest.raises(development_session.ClerkFlowFailure):
         session.create_verified_token()

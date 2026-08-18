@@ -11,6 +11,7 @@ from io import StringIO
 from pathlib import Path
 from typing import NoReturn
 
+import httpx
 import pytest
 from _pytest.capture import CaptureResult
 from _pytest.logging import LogCaptureFixture
@@ -125,6 +126,9 @@ def prohibit_outbound_network(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setattr(http.client.HTTPSConnection, "request", no_network)
     monkeypatch.setattr(urllib.request, "urlopen", no_network)
     monkeypatch.setattr(urllib.request.OpenerDirector, "open", no_network)
+    for client_type in (httpx.Client, httpx.AsyncClient):
+        monkeypatch.setattr(client_type, "request", no_network)
+        monkeypatch.setattr(client_type, "send", no_network)
 
 
 @pytest.fixture(autouse=True)
@@ -175,15 +179,23 @@ def test_target_policy_accepts_only_the_default_or_exact_development_root(
 DISALLOWED_TARGETS = (
     {"API_BASE_URL": ""},
     {"API_BASE_URL": "http://localhost:8000"},
+    {"API_BASE_URL": "http://localhost"},
     {"API_BASE_URL": "http://127.0.0.2:8000"},
     {"API_BASE_URL": "http://127.1:8000"},
     {"API_BASE_URL": "http://127.000.000.001:8000"},
     {"API_BASE_URL": "http://2130706433:8000"},
+    {"API_BASE_URL": "http://0x7f000001:8000"},
+    {"API_BASE_URL": "http://0177.0.0.1:8000"},
     {"API_BASE_URL": "http://[::1]:8000"},
     {"API_BASE_URL": "http://127.0.0.1:8000//"},
     {"API_BASE_URL": "http://127.0.0.1:8000/path"},
     {"API_BASE_URL": "http://127.0.0.1:8000?x=1"},
     {"API_BASE_URL": "http://127.0.0.1:8000#fragment"},
+    {"API_BASE_URL": "http://127.0.0.1:8000?"},
+    {"API_BASE_URL": "http://127.0.0.1:8000#"},
+    {"API_BASE_URL": "http://127.0.0.1:8000\\path"},
+    {"API_BASE_URL": " http://127.0.0.1:8000"},
+    {"API_BASE_URL": "http://127.0.0.1:8000\n"},
     {
         "API_BASE_URL": "https://user:password@development.tailtag.example",
         "TAILTAG_DEVELOPMENT_API_BASE_URL": "https://development.tailtag.example",
@@ -210,6 +222,14 @@ DISALLOWED_TARGETS = (
     },
     {
         "API_BASE_URL": "https://development.tailtag.example/%2F",
+        "TAILTAG_DEVELOPMENT_API_BASE_URL": "https://development.tailtag.example",
+    },
+    {
+        "API_BASE_URL": "https://development%2etailtag.example",
+        "TAILTAG_DEVELOPMENT_API_BASE_URL": "https://development.tailtag.example",
+    },
+    {
+        "API_BASE_URL": "https://evildevelopment.tailtag.example",
         "TAILTAG_DEVELOPMENT_API_BASE_URL": "https://development.tailtag.example",
     },
     {
@@ -306,8 +326,13 @@ def test_unsuccessful_baseline_never_prompts_or_contacts_provider() -> None:
     ),
 )
 def test_sanitized_failure_categories_preserve_required_cleanup(
-    failure: str, expected_stage: str, expected_events: list[str]
+    failure: str,
+    expected_stage: str,
+    expected_events: list[str],
+    capsys: pytest.CaptureFixture[str],
+    caplog: LogCaptureFixture,
 ) -> None:
+    caplog.set_level(logging.DEBUG)
     error = SensitiveSyntheticError(" ".join(SENSITIVE_VALUES))
     runtime = RecordingRuntime(
         validation_error=error if failure == "validation" else None,
@@ -320,7 +345,7 @@ def test_sanitized_failure_categories_preserve_required_cleanup(
     assert outcome.primary_stage == expected_stage
     assert not outcome.succeeded
     assert runtime.events == expected_events
-    assert "sk_test_synthetic_credential_material" not in repr(outcome)
+    assert_supported_outputs_are_sanitized(outcome, capsys.readouterr(), caplog, error)
 
 
 def test_primary_and_cleanup_failures_are_both_sanitized(
@@ -339,14 +364,19 @@ def test_primary_and_cleanup_failures_are_both_sanitized(
     assert_supported_outputs_are_sanitized(outcome, capsys.readouterr(), caplog, error)
 
 
-def test_cleanup_failure_alone_makes_an_otherwise_valid_run_unsuccessful() -> None:
-    runtime = RecordingRuntime(cleanup_error=SensitiveSyntheticError("cleanup"))
+def test_cleanup_failure_alone_makes_an_otherwise_valid_run_unsuccessful(
+    capsys: pytest.CaptureFixture[str], caplog: LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    error = SensitiveSyntheticError(" ".join(SENSITIVE_VALUES))
+    runtime = RecordingRuntime(cleanup_error=error)
 
     outcome = auth_smoke.run(VALID_ENVIRONMENT, runtime)
 
     assert outcome.primary_stage is None
     assert outcome.cleanup_incomplete
     assert not outcome.succeeded
+    assert_supported_outputs_are_sanitized(outcome, capsys.readouterr(), caplog, error)
 
 
 @dataclass
@@ -364,7 +394,14 @@ def test_main_rejects_all_arguments_before_running_any_live_boundary(
         return _SuccessfulOutcome()
 
     monkeypatch.setattr(auth_smoke, "run", run_if_called)
-    for argument in ("unexpected", "--secret=synthetic", "--token", "-x"):
+    for argument in (
+        "sk_test_synthetic_credential_material",
+        "--secret=sk_test_synthetic_credential_material",
+        "--key=sk_test_synthetic_credential_material",
+        "--token",
+        "--unknown-flag",
+        "-x",
+    ):
         monkeypatch.setattr(sys, "argv", ["api_auth_smoke.py", argument])
         assert auth_smoke.main() != 0
 
@@ -396,7 +433,9 @@ def test_main_uses_hidden_tty_prompt_with_exact_copy_and_never_echoes_secret(
     monkeypatch.setattr(sys, "argv", ["api_auth_smoke.py"])
     monkeypatch.setattr(sys, "stdin", TtyStream())
     monkeypatch.setattr(sys, "stderr", TtyStream())
-    monkeypatch.setattr(auth_smoke.getpass, "getpass", hidden_prompt)
+    import getpass
+
+    monkeypatch.setattr(getpass, "getpass", hidden_prompt)
 
     assert auth_smoke.main() == 0
     assert calls[0] == secret
@@ -417,6 +456,10 @@ def test_main_fails_closed_without_both_required_tty_streams(
         def isatty(self) -> bool:
             return False
 
+    class TtyStream(StringIO):
+        def isatty(self) -> bool:
+            return True
+
     def run_prompt_probe(
         _environment: Mapping[str, str], runtime: object
     ) -> _SuccessfulOutcome:
@@ -425,6 +468,8 @@ def test_main_fails_closed_without_both_required_tty_streams(
 
     monkeypatch.setattr(auth_smoke, "run", run_prompt_probe)
     monkeypatch.setattr(sys, "argv", ["api_auth_smoke.py"])
+    other_stream_name = "stderr" if stream_name == "stdin" else "stdin"
+    monkeypatch.setattr(sys, other_stream_name, TtyStream())
     monkeypatch.setattr(sys, stream_name, NonTty())
 
     assert auth_smoke.main() != 0
@@ -452,10 +497,10 @@ def test_main_never_accepts_a_secret_environment_value(
 
     monkeypatch.setattr(sys, "stdin", TtyStream())
     monkeypatch.setattr(sys, "stderr", TtyStream())
+    import getpass
+
     monkeypatch.setattr(
-        auth_smoke.getpass,
-        "getpass",
-        lambda _prompt, *, stream: "sk_test_prompt_only_value",
+        getpass, "getpass", lambda _prompt, *, stream: "sk_test_prompt_only_value"
     )
 
     assert auth_smoke.main() == 0

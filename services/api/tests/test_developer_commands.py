@@ -197,9 +197,17 @@ def test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free() -> No
 
     for text in (ordinary, api_check, workflow_text):
         assert "api-auth-smoke" not in text
+        assert "scripts.api_auth_smoke" not in text
+        assert "scripts/api_auth_smoke.py" not in text
         assert "Clerk Development secret:" not in text
-        assert "CLERK_SMOKE_USER_ID" not in text
         assert "sk_test_" not in text
+        for forbidden_name in (
+            "CLERK_SECRET",
+            "CLERK_SECRET_KEY",
+            "CLERK_API_KEY",
+            "CLERK_BACKEND_API_KEY",
+        ):
+            assert forbidden_name not in text
 
 
 def test_devcontainer_django_commands_derive_the_compose_database_url() -> None:
