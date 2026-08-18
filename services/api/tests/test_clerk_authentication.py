@@ -12,12 +12,6 @@ import httpx
 import jwt
 import pytest
 import yaml
-from authentication import clerk as clerk_adapter
-from authentication.clerk import (
-    ClerkSessionVerifier,
-    ClerkVerificationConfiguration,
-    VerifiedClerkIdentity,
-)
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from django.conf import settings
@@ -27,6 +21,12 @@ from pytest import LogCaptureFixture, MonkeyPatch
 from rest_framework.exceptions import AuthenticationFailed
 
 from accounts.models import User
+from authentication import clerk as clerk_adapter
+from authentication.clerk import (
+    ClerkSessionVerifier,
+    ClerkVerificationConfiguration,
+    VerifiedClerkIdentity,
+)
 
 DEFAULT_CLAIMS = {
     "sub": "user_test_subject",
@@ -101,11 +101,16 @@ def issue_token(signing_key: rsa.RSAPrivateKey) -> TokenIssuer:
     return issue
 
 
-def request_with_authorization(value: str | None) -> HttpRequest:
+def request_with_authorization(
+    value: str | None, *, session_cookie: str | None = None
+) -> HttpRequest:
     """Build only the request state consumed by the verifier."""
     request = HttpRequest()
     if value is not None:
         request.META["HTTP_AUTHORIZATION"] = value
+    if session_cookie is not None:
+        request.META["HTTP_COOKIE"] = f"__session={session_cookie}"
+        request.COOKIES["__session"] = session_cookie
     return request
 
 
@@ -186,7 +191,9 @@ def test_verifier_explicitly_accepts_only_clerk_session_tokens(
 ) -> None:
     """The Clerk SDK call cannot silently fall back to its broader token defaults."""
     captured_options: list[ClerkAuthenticationOptions] = []
-    authenticate_request = clerk_adapter.authenticate_request
+    authenticate_request = cast(
+        Callable[..., object], clerk_adapter.authenticate_request
+    )
 
     def observe_authentication_options(*args: object, **kwargs: object) -> object:
         options = kwargs.get("options")
@@ -383,11 +390,52 @@ def test_subject_must_be_a_nonempty_string_without_disclosing_payload(
     assert_failure_does_not_disclose(error, caplog, token, "sess_test_session")
 
 
-def test_no_authorization_header_returns_no_identity(
+def test_session_cookie_is_not_a_fallback_when_authorization_is_absent(
     verifier: ClerkSessionVerifier,
+    issue_token: TokenIssuer,
+    monkeypatch: MonkeyPatch,
 ) -> None:
-    """Only an absent header is treated as an anonymous request."""
-    assert verifier.verify(request_with_authorization(None)) is None
+    """A valid Clerk session cookie cannot authenticate a headerless request."""
+
+    def prohibit_clerk_authentication(*_: object, **__: object) -> NoReturn:
+        raise AssertionError("headerless authentication must not call Clerk")
+
+    monkeypatch.setattr(
+        clerk_adapter,
+        "authenticate_request",
+        prohibit_clerk_authentication,
+    )
+
+    assert verifier.verify(
+        request_with_authorization(None, session_cookie=issue_token())
+    ) is None
+
+
+def test_malformed_authorization_does_not_fall_back_to_session_cookie(
+    verifier: ClerkSessionVerifier,
+    issue_token: TokenIssuer,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Malformed headers fail generically instead of consulting a session cookie."""
+
+    def prohibit_clerk_authentication(*_: object, **__: object) -> NoReturn:
+        raise AssertionError("malformed authentication must not call Clerk")
+
+    monkeypatch.setattr(
+        clerk_adapter,
+        "authenticate_request",
+        prohibit_clerk_authentication,
+    )
+
+    with pytest.raises(AuthenticationFailed) as raised:
+        verifier.verify(
+            request_with_authorization(
+                "Basic ignored", session_cookie=issue_token()
+            )
+        )
+
+    assert raised.value.detail == GENERIC_FAILURE_DETAIL
+    assert str(raised.value) == str(AuthenticationFailed())
 
 
 @pytest.mark.parametrize(
