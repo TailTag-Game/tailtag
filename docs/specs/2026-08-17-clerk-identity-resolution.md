@@ -76,13 +76,19 @@ establishes both:
 - the violated constraint is the existing unique constraint for
   `accounts_user.clerk_user_id`.
 
-The generated constraint identifier is currently
-`accounts_user_clerk_user_id_42d1a61f_uniq`. Production code centralizes that
-identifier in one documented constant because race recovery must distinguish
-this constraint from the model's nonempty check, password check, primary key,
-and any future constraint. Tests verify that the identifier still describes a
-single-column unique constraint on `clerk_user_id` in the migrated PostgreSQL
-schema.
+The constraint identifier is
+`accounts_user_clerk_user_id_key`. This exact name was verified through Django
+introspection against a freshly applied PostgreSQL schema. The initial
+migration declares `clerk_user_id` uniqueness inline, so PostgreSQL assigns the
+`_key` identifier; the Django-style hashed `_uniq` identifier that would be
+generated for a later added constraint is not present. Production code
+centralizes the verified identifier in one documented constant because race
+recovery must distinguish this constraint from the model's nonempty check,
+password check, primary key, and any future constraint. Tests verify that the
+identifier still describes a single-column unique constraint on
+`clerk_user_id` in the migrated PostgreSQL schema. The model and existing
+migration remain unchanged solely to preserve their already-correct uniqueness
+behavior.
 
 The resolver may inspect psycopg's structured cause and diagnostic metadata. It
 must not parse localized exception text, use raw SQL, change the existing model

@@ -14,7 +14,10 @@
 - Do not modify `accounts.User`, existing migrations, Clerk verification semantics, or production URLs.
 - Do not add global permission policy, a current-user endpoint, profile behavior, provider metadata synchronization, `last_login` writes, lifecycle behavior, deletion, roles, permissions, or webhooks.
 - Use `User.objects.create_user(clerk_user_id=subject)` for first-use provisioning; do not use raw SQL or replace the model constraint.
-- Recover only SQLSTATE `23505` naming `accounts_user_clerk_user_id_42d1a61f_uniq` as the expected race.
+- Recover only SQLSTATE `23505` naming
+  `accounts_user_clerk_user_id_key` as the expected race. This identifier was
+  verified by introspecting a freshly applied PostgreSQL schema; do not change
+  the model or existing migration solely to rename it.
 - Translate only conservatively classified connection/availability failures to a provider-neutral unavailable exception and generic `503`; all other failures retain the generic `500` path.
 - Public responses and new exception messages must not contain Clerk subjects, tokens, SQL text, connection details, constraint details, or provider internals.
 - Acceptance tests are independently authored and may not be weakened to accommodate production implementation.
@@ -240,7 +243,7 @@ Create `accounts/resolution.py` with these public names:
 
 ```python
 EXPECTED_CLERK_USER_ID_UNIQUE_CONSTRAINT: Final = (
-    "accounts_user_clerk_user_id_42d1a61f_uniq"
+    "accounts_user_clerk_user_id_key"
 )
 
 
