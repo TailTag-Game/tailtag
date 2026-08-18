@@ -236,7 +236,9 @@ It must never interpolate `clerk_user_id` or a database exception.
 
 - [ ] **Step 3: Implement exact lookup and minimal provisioning**
 
-Perform `User.objects.get(clerk_user_id=clerk_user_id)` first. On `User.DoesNotExist`, call only:
+Perform an exact, case-sensitive ORM lookup on
+`clerk_user_id=clerk_user_id` without prescribing a particular QuerySet lookup
+method. If no user exists, call only:
 
 ```python
 with transaction.atomic():
