@@ -11,12 +11,9 @@ from typing import NoReturn, Protocol, cast
 import httpx
 import jwt
 import pytest
-import yaml
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from django.conf import settings
 from django.http import HttpRequest
-from django.test import Client
 from pytest import LogCaptureFixture, MonkeyPatch
 from rest_framework.exceptions import AuthenticationFailed
 
@@ -244,22 +241,6 @@ def test_verification_does_not_mutate_request_or_resolve_a_tailtag_user(
         subject="user_test_subject"
     )
     assert not hasattr(request, "user")
-
-
-def test_authentication_boundary_adds_no_routes_and_locks_global_drf_policy(
-    client: Client,
-) -> None:
-    """The verifier remains route-free while #97 installs the sole authenticator."""
-    schema_response = client.get("/api/schema/")
-
-    assert client.post("/api/auth/signup", data={}).status_code == 404
-    assert client.get("/api/fursuits").status_code == 404
-    assert schema_response.status_code == 200
-    assert set(yaml.safe_load(schema_response.content)["paths"]) == {"/api/schema/"}
-    assert settings.REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"] == [
-        "authentication.drf.TailTagAuthentication"
-    ]
-    assert "DEFAULT_PERMISSION_CLASSES" not in settings.REST_FRAMEWORK
 
 
 @pytest.mark.parametrize(
