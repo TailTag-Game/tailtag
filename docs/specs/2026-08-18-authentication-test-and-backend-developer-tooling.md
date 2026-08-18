@@ -19,6 +19,7 @@ validate target
   -> run credential-free api-smoke
   -> hidden Clerk Development secret prompt
   -> validate Clerk Development instance and dedicated user
+  -> discover the unique primary Development Frontend API domain
   -> 60-second sign-in ticket
   -> Clerk Frontend API ticket exchange with Origin http://localhost:3000
   -> normal short-lived session token
@@ -64,8 +65,15 @@ The successful probe used:
   and
 - the repository's existing `ClerkSessionVerifier` without modification.
 
-The Backend API-created sign-in ticket was consumed through the documented
-Frontend API ticket flow with the explicit `Origin` header
+Later permanent-helper validation against the fresh Development application
+established that the Backend API-created ticket URL may be unavailable, as its
+nullable provider schema permits. The permanent helper therefore reads Domains
+metadata through the same validated Backend API transport before creating a
+ticket. Exactly one non-satellite primary domain must expose a canonical
+Development Frontend API root; that metadata is the sole Frontend API
+authority. The ticket URL is ignored for authority selection. The ticket is
+then consumed through the documented Frontend API flow with the explicit
+`Origin` header
 `http://localhost:3000`. The resulting token was a normal session token, not a
 custom JWT-template token. Its `sid` was present and matched the created
 session, its `sub` matched the selected user, and its `azp` was present and
@@ -226,11 +234,16 @@ secret prompt and before any Clerk request or resource creation.
 6. **Validate the persistent user.** Fetch `CLERK_SMOKE_USER_ID` through that
    same validated instance and fail closed when it is absent. Do not inspect or
    select the user through mutable profile attributes.
-7. **Create and consume the ticket.** Create a single-use sign-in ticket with a
+7. **Discover the Frontend API authority.** Through that same Backend API
+   transport, read Domains metadata and require exactly one non-satellite
+   primary domain with a canonical Development Frontend API root. Do this before
+   creating authentication resources; a ticket URL is nullable and never an
+   authority source.
+8. **Create and consume the ticket.** Create a single-use sign-in ticket with a
    requested lifetime of exactly 60 seconds. Use only the documented
-   Development Frontend API browser/client flow bound to the validated instance
-   and consume the ticket with `Origin: http://localhost:3000`.
-8. **Obtain and validate the normal token.** Ask the Frontend API for the active
+   Development Frontend API browser/client flow bound to that authoritative
+   domain and consume the ticket with `Origin: http://localhost:3000`.
+9. **Obtain and validate the normal token.** Ask the Frontend API for the active
    session's normal session token. Without logging decoded values, require:
    - a non-empty `sid` equal to the created session ID;
    - a non-empty `sub` equal to `CLERK_SMOKE_USER_ID`;
@@ -238,12 +251,12 @@ secret prompt and before any Clerk request or resource creation.
    - numeric `iat` and `exp` claims describing a positive lifetime no greater
      than 60 seconds; and
    - a token that has not expired at the point of use.
-9. **Use the unchanged TailTag verifier.** Retrieve the validated instance's
+10. **Use the unchanged TailTag verifier.** Retrieve the validated instance's
    public verification material and pass the token through the existing
    `ClerkSessionVerifier` configured with the one fixed authorized party. The
    verifier retains its session-token-only, `sid`, `sub`, signature, issuer,
    time, and authorized-party behavior from issue #96.
-10. **Call the selected API.** Send the bearer token to `GET /api/me/` at the
+11. **Call the selected API.** Send the bearer token to `GET /api/me/` at the
     already validated `API_BASE_URL`. Never follow redirects. Require HTTP
     `200`, a JSON object, exactly one field named `id`, and an integer value:
 
@@ -251,7 +264,7 @@ secret prompt and before any Clerk request or resource creation.
     {"id": 123}
     ```
 
-11. **Clean up.** Execute the required cleanup path described below on success
+12. **Clean up.** Execute the required cleanup path described below on success
     or failure after any live authentication resource has been created.
 
 The command succeeds only when target validation, baseline smoke, Development
@@ -322,7 +335,11 @@ The command may identify only a bounded failed stage, including:
 - credential form invalid;
 - Clerk instance not validated as Development;
 - configured smoke user unavailable;
+- provider development-browser flow unsuccessful;
+- provider client initialization unsuccessful;
 - provider ticket flow unsuccessful;
+- provider sign-in-ticket credential unavailable;
+- provider Frontend API authority unavailable;
 - provider session-token flow unsuccessful;
 - token claims or lifetime invalid;
 - TailTag verifier rejected the token;

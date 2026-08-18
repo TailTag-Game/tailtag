@@ -383,6 +383,8 @@ class ClerkDevelopmentSession:
 
 
 def _is_development_fapi_url(value: str) -> bool:
+    if value != value.strip() or "?" in value or "#" in value:
+        return False
     try:
         parsed = urlsplit(value)
         port = parsed.port
@@ -397,6 +399,9 @@ def _is_development_fapi_url(value: str) -> bool:
         and parsed.username is None
         and parsed.password is None
         and port is None
+        and parsed.path in ("", "/")
+        and not parsed.query
+        and not parsed.fragment
     )
 
 

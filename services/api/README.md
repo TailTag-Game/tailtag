@@ -255,10 +255,11 @@ prefix these non-secret values instead. Do not define any Clerk secret in `.env`
 or another configuration source for this helper.
 
 The prompted credential is accepted only after authoritative instance metadata
-reports the authoritative environment type as Development. The fixed Backend
-API client creates the sign-in ticket on that metadata-validated instance; the
-documented ticket response URL is then the only Frontend API authority used for
-that ticket exchange. No provider URL, proxy, redirect target, or alternate
+reports the authoritative environment type as Development. Before creating a
+ticket, the fixed Backend API client obtains Domains metadata through that same
+transport and accepts exactly one non-satellite primary domain with a canonical
+Development Frontend API root. A ticket URL is nullable and ignored; it is not
+an authority source. No provider URL, proxy, redirect target, or alternate
 server can be configured by a contributor.
 
 The helper uses the fixed synthetic origin `http://localhost:3000` for every
@@ -306,7 +307,11 @@ The bounded failure categories are:
 - `credential form invalid`
 - `Clerk instance not validated as Development`
 - `configured smoke user unavailable`
+- `provider development-browser flow unsuccessful`
+- `provider client initialization unsuccessful`
 - `provider ticket flow unsuccessful`
+- `provider sign-in-ticket credential unavailable`
+- `provider Frontend API authority unavailable`
 - `provider session-token flow unsuccessful`
 - `token claims or lifetime invalid`
 - `TailTag verifier rejected the token`
