@@ -49,8 +49,8 @@ different responsibilities:
 - No email address, username, display name, avatar, biography, profile state, or
   gameplay data is stored on the application-user model.
 
-Issue #96 verifies Clerk requests but does not resolve a TailTag user. Issue
-#97 alone resolves or provisions `accounts.User` and creates final DRF
+Issue #96 verifies Clerk requests but does not resolve a TailTag user. Issue `#97`
+alone resolves or provisions `accounts.User` and creates final DRF
 authentication; only then will authenticated DRF code receive the resolved user
 as `request.user`.
 

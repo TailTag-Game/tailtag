@@ -601,6 +601,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "clerk-backend-api" },
+    { name = "cryptography" },
     { name = "django" },
     { name = "djangorestframework" },
     { name = "drf-spectacular" },
@@ -611,7 +612,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "cryptography" },
     { name = "django-stubs" },
     { name = "djangorestframework-stubs" },
     { name = "pyjwt" },
@@ -624,6 +624,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "clerk-backend-api", specifier = "==6.0.1" },
+    { name = "cryptography", specifier = ">=45,<49" },
     { name = "django", specifier = ">=6.0,<6.1" },
     { name = "djangorestframework", specifier = ">=3.16" },
     { name = "drf-spectacular", specifier = ">=0.28" },
@@ -634,7 +635,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "cryptography", specifier = ">=45,<49" },
     { name = "django-stubs", specifier = ">=5.2" },
     { name = "djangorestframework-stubs", specifier = ">=3.16" },
     { name = "pyjwt", specifier = ">=2.9,<3" },

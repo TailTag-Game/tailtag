@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import NoReturn
 from urllib.parse import urlparse
 
+from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from django.core.exceptions import ImproperlyConfigured
@@ -90,14 +91,14 @@ def _is_plain_origin(value: str) -> bool:
         and not parsed.params
         and not parsed.query
         and not parsed.fragment
-        and parsed.path in {"", "/"}
+        and parsed.path == ""
     )
 
 
 def _validate_rsa_public_key(value: str) -> None:
     try:
         public_key = serialization.load_pem_public_key(value.encode("utf-8"))
-    except (TypeError, ValueError, UnicodeError):
+    except (TypeError, UnsupportedAlgorithm, ValueError, UnicodeError):
         _invalid_variable(_JWT_KEY_VARIABLE)
     if not isinstance(public_key, RSAPublicKey):
         _invalid_variable(_JWT_KEY_VARIABLE)
