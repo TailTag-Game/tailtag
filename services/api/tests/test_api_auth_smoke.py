@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import importlib
+import json
 import logging
 import socket
 import sys
+import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
-from typing import NoReturn
+from typing import NoReturn, Self
 
 import httpx
 import pytest
@@ -111,6 +113,58 @@ class RecordingRuntime:
         assert bearer_token == "eyJsynthetic.header.payload"
         if self.api_me_error is not None:
             raise self.api_me_error
+
+
+@dataclass
+class _ApiResponse:
+    status: int
+    body: bytes
+    location: str | None = None
+    url: str = ""
+
+    def read(self) -> bytes:
+        return self.body
+
+    @property
+    def headers(self) -> dict[str, str]:
+        return {"Location": self.location} if self.location is not None else {}
+
+    def getcode(self) -> int:
+        return self.status
+
+    def geturl(self) -> str:
+        return self.url
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+
+class RecordingApiOpener:
+    """Injectable HTTP boundary for the concrete authenticated runtime."""
+
+    def __init__(self, *responses: _ApiResponse) -> None:
+        self.responses = list(responses)
+        self.requests: list[urllib.request.Request] = []
+
+    def open(self, request: urllib.request.Request, **_kwargs: object) -> _ApiResponse:
+        self.requests.append(request)
+        if not self.responses:
+            raise AssertionError("the authenticated API adapter made an extra request")
+        response = self.responses.pop(0)
+        response.url = request.full_url
+        return response
+
+
+def json_response(body: object, *, status: int = 200) -> _ApiResponse:
+    return _ApiResponse(status=status, body=json.dumps(body).encode())
+
+
+def default_runtime(opener: RecordingApiOpener) -> object:
+    """Use the public seam for the same concrete runtime selected by main()."""
+    return auth_smoke.DefaultSmokeRuntime(opener=opener)
 
 
 def prohibit_outbound_network(monkeypatch: MonkeyPatch) -> None:
@@ -283,6 +337,114 @@ def test_baseline_precedes_prompt_and_provider() -> None:
         "api-me",
         "cleanup",
     ]
+
+
+def test_default_api_me_boundary_accepts_only_the_exact_success_contract() -> None:
+    opener = RecordingApiOpener(json_response({"id": 123}))
+    runtime = default_runtime(opener)
+
+    result = runtime.request_current_user(  # type: ignore[attr-defined]
+        base_url="http://127.0.0.1:8000",
+        bearer_token="eyJsynthetic.header.payload",
+    )
+
+    assert result is None
+    assert len(opener.requests) == 1
+    request = opener.requests[0]
+    assert request.full_url == "http://127.0.0.1:8000/api/me/"
+    assert request.get_method() == "GET"
+    assert request.get_header("Authorization") == ("Bearer eyJsynthetic.header.payload")
+
+
+@pytest.mark.parametrize("status", (199, 201, 204, 299, 400, 500))
+def test_default_api_me_boundary_rejects_every_non_200_status(status: int) -> None:
+    opener = RecordingApiOpener(json_response({"id": 123}, status=status))
+    runtime = default_runtime(opener)
+
+    with pytest.raises(Exception) as raised:
+        runtime.request_current_user(  # type: ignore[attr-defined]
+            base_url="http://127.0.0.1:8000",
+            bearer_token="eyJsynthetic.header.payload",
+        )
+
+    assert str(raised.value) == "authenticated API response invalid"
+    assert len(opener.requests) == 1
+
+
+@pytest.mark.parametrize("status", (301, 302, 303, 307, 308))
+def test_default_api_me_boundary_never_follows_redirects(status: int) -> None:
+    opener = RecordingApiOpener(
+        _ApiResponse(
+            status=status,
+            body=b'{"id": 123}',
+            location="https://unapproved.example/api/me/",
+        ),
+        json_response({"id": 123}),
+    )
+    runtime = default_runtime(opener)
+
+    with pytest.raises(Exception) as raised:
+        runtime.request_current_user(  # type: ignore[attr-defined]
+            base_url="http://127.0.0.1:8000",
+            bearer_token="eyJsynthetic.header.payload",
+        )
+
+    assert str(raised.value) == "authenticated API response invalid"
+    assert len(opener.requests) == 1
+    assert len(opener.responses) == 1
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        {"id": True},
+        {"id": "123"},
+        {"id": 123, "extra": "synthetic"},
+        {},
+        [123],
+        None,
+        123,
+        "synthetic",
+    ),
+    ids=(
+        "bool-id",
+        "string-id",
+        "extra-key",
+        "missing-id",
+        "array",
+        "null",
+        "number",
+        "string-body",
+    ),
+)
+def test_default_api_me_boundary_rejects_every_nonexact_json_body(
+    body: object,
+) -> None:
+    opener = RecordingApiOpener(json_response(body))
+    runtime = default_runtime(opener)
+
+    with pytest.raises(Exception) as raised:
+        runtime.request_current_user(  # type: ignore[attr-defined]
+            base_url="http://127.0.0.1:8000",
+            bearer_token="eyJsynthetic.header.payload",
+        )
+
+    assert str(raised.value) == "authenticated API response invalid"
+    assert len(opener.requests) == 1
+
+
+def test_default_api_me_boundary_rejects_malformed_json() -> None:
+    opener = RecordingApiOpener(_ApiResponse(status=200, body=b'{"id":'))
+    runtime = default_runtime(opener)
+
+    with pytest.raises(Exception) as raised:
+        runtime.request_current_user(  # type: ignore[attr-defined]
+            base_url="http://127.0.0.1:8000",
+            bearer_token="eyJsynthetic.header.payload",
+        )
+
+    assert str(raised.value) == "authenticated API response invalid"
+    assert len(opener.requests) == 1
 
 
 def test_unsuccessful_baseline_never_prompts_or_contacts_provider() -> None:
