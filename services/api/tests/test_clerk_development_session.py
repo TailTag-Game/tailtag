@@ -96,6 +96,40 @@ class _User:
     id: str
 
 
+@dataclass
+class _Domain:
+    is_satellite: object
+    frontend_api_url: object
+
+
+@dataclass
+class _Domains:
+    data: object
+
+
+DEFAULT_PRIMARY_FRONTEND_API_URL = "https://development-synthetic.clerk.accounts.dev"
+MISSING_TICKET_URL = object()
+
+
+class _DomainsResource:
+    def __init__(
+        self,
+        transport: RecordingTransport,
+        *,
+        data: object,
+        error: BaseException | None,
+    ) -> None:
+        self._transport = transport
+        self._data = data
+        self._error = error
+
+    def list(self, **_kwargs: object) -> _Domains:
+        self._transport.events.append(("domains-list", None))
+        if self._error is not None:
+            raise self._error
+        return _Domains(self._data)
+
+
 class RecordingTransport:
     """A minimal, non-network Clerk boundary that records public operations."""
 
@@ -104,6 +138,8 @@ class RecordingTransport:
         *,
         environment_type: str = "development",
         user_id: str = "user_synthetic_sensitive_identifier",
+        domain_data: object | None = None,
+        domains_error: BaseException | None = None,
     ) -> None:
         self.events: list[tuple[str, object]] = []
         self.environment_type = environment_type
@@ -113,6 +149,24 @@ class RecordingTransport:
         self.sign_in_tokens = self
         self.sessions = self
         self.jwks = _JwksResource(self)
+        self.domains = _DomainsResource(
+            self,
+            data=(
+                [
+                    _Domain(
+                        is_satellite=True,
+                        frontend_api_url="https://satellite-synthetic.invalid",
+                    ),
+                    _Domain(
+                        is_satellite=False,
+                        frontend_api_url=DEFAULT_PRIMARY_FRONTEND_API_URL,
+                    ),
+                ]
+                if domain_data is None
+                else domain_data
+            ),
+            error=domains_error,
+        )
 
     def get(self, **kwargs: object) -> _Metadata | _User:
         if kwargs:
@@ -314,11 +368,13 @@ class OfficialEnvelopeFrontendOpener:
 class _Ticket:
     id: str = "ticket_synthetic_sensitive_material"
     token: str = "ticket_synthetic_one_use_credential"
-    url: str = "https://development-synthetic.clerk.accounts.dev/sign-in-tokens/ticket_synthetic_sensitive_identifier"
+    url: object = None
 
 
 def configure_successful_provider(
     transport: RecordingTransport,
+    *,
+    ticket_url: object = None,
 ) -> tuple[list[TicketRequest], list[dict[str, object]]]:
     ticket_requests: list[TicketRequest] = []
     revocations: list[dict[str, object]] = []
@@ -329,7 +385,10 @@ def configure_successful_provider(
         assert request.expires_in_seconds == 60
         ticket_requests.append(request)
         transport.events.append(("ticket-create", None))
-        return _Ticket()
+        ticket = _Ticket(url=ticket_url)
+        if ticket_url is MISSING_TICKET_URL:
+            del ticket.url
+        return ticket
 
     def revoke_resource(**kwargs: object) -> None:
         revocations.append(kwargs)
@@ -345,6 +404,7 @@ def run_successful_frontend_flow(
     *,
     claims: dict[str, object],
     verifier_rejects: bool = False,
+    ticket_url: object = None,
 ) -> tuple[
     development_session.ClerkDevelopmentSession,
     RecordingTransport,
@@ -352,7 +412,7 @@ def run_successful_frontend_flow(
     list[HttpRequest],
 ]:
     transport = RecordingTransport()
-    configure_successful_provider(transport)
+    configure_successful_provider(transport, ticket_url=ticket_url)
     opener = SuccessfulFrontendOpener(synthetic_token(claims))
 
     def build_opener(*_handlers: object) -> SuccessfulFrontendOpener:
@@ -401,6 +461,7 @@ def test_metadata_is_authoritative_and_opaque_user_lookup_is_exact(
     assert clerk.events == [
         ("instance-settings", None),
         ("user-get", {"user_id": "user_synthetic_sensitive_identifier"}),
+        ("domains-list", None),
     ]
 
 
@@ -433,6 +494,69 @@ def test_missing_or_mismatched_opaque_user_fails_without_auto_provisioning(
 
     assert "configured smoke user unavailable" in str(raised.value)
     assert [event[0] for event in clerk.events] == ["instance-settings", "user-get"]
+    assert_sanitized(raised.value, capsys, caplog)
+
+
+@pytest.mark.parametrize(
+    "domain_data, domains_error",
+    (
+        (None, SensitiveSyntheticError(" ".join(SENSITIVE_VALUES))),
+        (
+            [
+                _Domain(
+                    is_satellite=True,
+                    frontend_api_url="https://satellite-synthetic.invalid",
+                )
+            ],
+            None,
+        ),
+        (
+            [
+                _Domain(
+                    is_satellite=False,
+                    frontend_api_url=DEFAULT_PRIMARY_FRONTEND_API_URL,
+                ),
+                _Domain(
+                    is_satellite=False,
+                    frontend_api_url=DEFAULT_PRIMARY_FRONTEND_API_URL,
+                ),
+            ],
+            None,
+        ),
+        (
+            [
+                _Domain(
+                    is_satellite=False,
+                    frontend_api_url="https://development-synthetic.clerk.accounts.dev:443",
+                )
+            ],
+            None,
+        ),
+    ),
+    ids=("lookup-failure", "no-primary", "multiple-primaries", "invalid-url"),
+)
+def test_primary_frontend_authority_is_required_before_ticket_creation(
+    domain_data: object | None,
+    domains_error: BaseException | None,
+    capsys: pytest.CaptureFixture[str],
+    caplog: LogCaptureFixture,
+) -> None:
+    """Only one strict primary Development domain authorizes the FAPI flow."""
+    caplog.set_level(logging.DEBUG)
+    clerk = RecordingTransport(
+        domain_data=domain_data,
+        domains_error=domains_error,
+    )
+
+    with pytest.raises(development_session.ClerkFlowFailure) as raised:
+        validate_with(clerk)
+
+    assert raised.value.stage.value == "provider Frontend API authority unavailable"
+    assert clerk.events == [
+        ("instance-settings", None),
+        ("user-get", {"user_id": "user_synthetic_sensitive_identifier"}),
+        ("domains-list", None),
+    ]
     assert_sanitized(raised.value, capsys, caplog)
 
 
@@ -577,6 +701,7 @@ def test_successful_normal_session_token_is_verified_and_cleaned_up(
     assert [event[0] for event in transport.events] == [
         "instance-settings",
         "user-get",
+        "domains-list",
         "ticket-create",
         "jwks-get",
         "revoke",
@@ -585,6 +710,42 @@ def test_successful_normal_session_token_is_verified_and_cleaned_up(
         "revoke",
         {"session_id": "sess_synthetic_sensitive_identifier"},
     )
+
+
+@pytest.mark.parametrize(
+    "ticket_url",
+    (
+        MISSING_TICKET_URL,
+        None,
+        "https://untrusted-synthetic.invalid/ignored-ticket-url",
+    ),
+    ids=("absent", "null", "untrusted"),
+)
+def test_validated_primary_domain_not_ticket_url_controls_frontend_api(
+    monkeypatch: MonkeyPatch,
+    ticket_url: object,
+) -> None:
+    """Optional ticket URLs cannot redirect a validated Development flow."""
+    now = int(time.time())
+    claims: dict[str, object] = {
+        "sid": "sess_synthetic_sensitive_identifier",
+        "sub": "user_synthetic_sensitive_identifier",
+        "azp": "http://localhost:3000",
+        "iat": now,
+        "exp": now + 60,
+    }
+    session, _transport, opener, _requests = run_successful_frontend_flow(
+        monkeypatch,
+        claims=claims,
+        ticket_url=ticket_url,
+    )
+
+    session.create_verified_token()
+    session.cleanup()
+
+    assert {urlsplit(request.full_url).netloc for request in opener.requests} == {
+        "development-synthetic.clerk.accounts.dev"
+    }
 
 
 def test_official_fapi_envelopes_preserve_created_session_ownership(

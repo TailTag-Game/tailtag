@@ -34,10 +34,7 @@ SYNTHETIC_USER = "user_synthetic_review_subject"
 SYNTHETIC_TICKET = "ticket_synthetic_review_value"
 SYNTHETIC_OLD_SESSION = "sess_synthetic_old"
 SYNTHETIC_NEW_SESSION = "sess_synthetic_new"
-DEVELOPMENT_FAPI_URL = (
-    "https://development-synthetic.clerk.accounts.dev/"
-    "sign-in-tokens/ticket_synthetic_review_value"
-)
+DEFAULT_PRIMARY_FRONTEND_API_URL = "https://development-synthetic.clerk.accounts.dev"
 
 
 def prohibit_network(monkeypatch: MonkeyPatch) -> None:
@@ -70,10 +67,21 @@ class _User:
 
 
 @dataclass
+class _Domain:
+    is_satellite: object
+    frontend_api_url: object
+
+
+@dataclass
+class _Domains:
+    data: object
+
+
+@dataclass
 class _Ticket:
     id: str = SYNTHETIC_TICKET
     token: object = "ticket_synthetic_one_use_credential"
-    url: object = DEVELOPMENT_FAPI_URL
+    url: object = None
 
 
 class _InstanceSettings:
@@ -85,6 +93,17 @@ class _Users:
     def get(self, *, user_id: str) -> _User:
         assert user_id == SYNTHETIC_USER
         return _User()
+
+
+class _DomainsResource:
+    def __init__(self, *, data: object, error: BaseException | None) -> None:
+        self._data = data
+        self._error = error
+
+    def list(self, **_kwargs: object) -> _Domains:
+        if self._error is not None:
+            raise self._error
+        return _Domains(self._data)
 
 
 class _SignInTokens:
@@ -121,21 +140,44 @@ class _Transport:
     """The documented test transport seam, limited to synthetic provider values."""
 
     def __init__(
-        self, ticket: _Ticket, *, create_error: BaseException | None = None
+        self,
+        ticket: _Ticket,
+        *,
+        create_error: BaseException | None = None,
+        domain_data: object | None = None,
+        domains_error: BaseException | None = None,
     ) -> None:
         self.events: list[tuple[str, dict[str, object]]] = []
         self.instance_settings = _InstanceSettings()
         self.users = _Users()
         self.sign_in_tokens = _SignInTokens(ticket, self.events, create_error)
         self.sessions = _Sessions(self.events)
+        self.domains = _DomainsResource(
+            data=(
+                [
+                    _Domain(True, "https://satellite-synthetic.invalid"),
+                    _Domain(False, DEFAULT_PRIMARY_FRONTEND_API_URL),
+                ]
+                if domain_data is None
+                else domain_data
+            ),
+            error=domains_error,
+        )
 
 
 def validated_session(
     ticket: _Ticket,
     *,
     create_error: BaseException | None = None,
+    domain_data: object | None = None,
+    domains_error: BaseException | None = None,
 ) -> tuple[development_session.ClerkDevelopmentSession, _Transport]:
-    transport = _Transport(ticket, create_error=create_error)
+    transport = _Transport(
+        ticket,
+        create_error=create_error,
+        domain_data=domain_data,
+        domains_error=domains_error,
+    )
     session = development_session.ClerkDevelopmentSession.validate(
         secret=SYNTHETIC_SECRET,
         user_id=SYNTHETIC_USER,
@@ -259,7 +301,7 @@ def assert_fapi_failure_output_is_sanitized(
         SYNTHETIC_TICKET,
         "ticket_synthetic_one_use_credential",
         SYNTHETIC_NEW_SESSION,
-        DEVELOPMENT_FAPI_URL,
+        DEFAULT_PRIMARY_FRONTEND_API_URL,
         "https://development-synthetic.clerk.accounts.dev/sensitive-path",
         "raw_provider_body",
         "503",
@@ -390,24 +432,27 @@ def test_sign_in_ticket_credential_unavailable_has_one_sanitized_public_stage(
     ]
 
 
-@pytest.mark.parametrize("url_case", ("absent", "null", "invalid"))
-def test_frontend_api_authority_unavailable_has_one_sanitized_public_stage(
+@pytest.mark.parametrize(
+    "domain_data",
+    (
+        [_Domain(True, "https://satellite-synthetic.invalid")],
+        [_Domain(False, None)],
+        [_Domain(False, "https://untrusted-synthetic.invalid/frontend")],
+    ),
+    ids=("absent", "null", "invalid"),
+)
+def test_primary_domain_authority_unavailable_has_one_sanitized_public_stage(
     monkeypatch: MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    url_case: str,
+    domain_data: object,
 ) -> None:
-    """A ticket credential must be bound to a strict Development FAPI authority."""
+    """Only the validated primary domain may authorize the Frontend API."""
     ticket = _Ticket()
-    if url_case == "absent":
-        object.__delattr__(ticket, "url")
-    elif url_case == "null":
-        ticket.url = None
-    else:
-        ticket.url = "https://untrusted-synthetic.invalid/sign-in-tokens/ticket"
-    session, transport = validated_session(ticket)
+    ticket.url = "https://untrusted-synthetic.invalid/ignored-ticket-url"
+    session, transport = validated_session(ticket, domain_data=domain_data)
 
     def prohibit_frontend_api(*_handlers: urllib.request.BaseHandler) -> NoReturn:
-        raise AssertionError("invalid ticket URL must stop before Frontend API")
+        raise AssertionError("invalid primary domain must stop before Frontend API")
 
     monkeypatch.setattr(urllib.request, "build_opener", prohibit_frontend_api)
 
@@ -417,9 +462,7 @@ def test_frontend_api_authority_unavailable_has_one_sanitized_public_stage(
     assert captured.out == ""
     assert_fapi_failure_output_is_sanitized(captured)
     assert captured.err == "FAIL provider Frontend API authority unavailable\n"
-    assert transport.events == [
-        ("ticket", {"sign_in_token_id": SYNTHETIC_TICKET}),
-    ]
+    assert transport.events == []
 
 
 @pytest.mark.parametrize("failure", ("http", "malformed-json", "missing-id"))
