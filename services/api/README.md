@@ -3,7 +3,7 @@
 `services/api` is TailTag's V0 Django API foundation. It provides Django
 administration, PostgreSQL-backed liveness/readiness checks, and OpenAPI
 schema/documentation infrastructure. It also defines TailTag's application-user
-identity. It intentionally does not implement Clerk request authentication,
+identity and Clerk request verification. It intentionally does not implement
 Clerk-to-user request resolution, player profiles, or gameplay APIs.
 
 The service uses Python 3.13, Django, Django REST Framework, PostgreSQL 17,
@@ -49,9 +49,10 @@ different responsibilities:
 - No email address, username, display name, avatar, biography, profile state, or
   gameplay data is stored on the application-user model.
 
-After the later Clerk authentication and identity-resolution work in issues #96
-and #97, authenticated DRF code will receive the resolved `accounts.User`
-instance as `request.user`. That behavior is not implemented by #95.
+Issue #96 verifies Clerk requests but does not resolve a TailTag user. Issue
+#97 alone resolves or provisions `accounts.User` and creates final DRF
+authentication; only then will authenticated DRF code receive the resolved user
+as `request.user`.
 
 Model declarations must refer to the configured user model, never to a Clerk ID:
 
