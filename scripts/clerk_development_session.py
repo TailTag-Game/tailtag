@@ -44,6 +44,8 @@ class ClerkFlowStage(StrEnum):
     DEVELOPMENT_BROWSER = "provider development-browser flow unsuccessful"
     CLIENT_INITIALIZATION = "provider client initialization unsuccessful"
     TICKET = "provider ticket flow unsuccessful"
+    TICKET_CREDENTIAL = "provider sign-in-ticket credential unavailable"
+    FAPI_AUTHORITY = "provider Frontend API authority unavailable"
     TOKEN = "provider session-token flow unsuccessful"
     CLAIMS = "token claims or lifetime invalid"
     VERIFIER = "TailTag verifier rejected the token"
@@ -134,21 +136,18 @@ class ClerkDevelopmentSession:
     def create_verified_token(self) -> str:
         """Issue a normal FAPI session token and verify it with the existing verifier."""
         ticket = self._create_ticket()
-        ticket_value = getattr(ticket, "token", None)
-        ticket_id = getattr(ticket, "id", None)
-        ticket_url = getattr(ticket, "url", None)
+        ticket_value = _ticket_field(ticket, "token")
+        ticket_id = _ticket_field(ticket, "id")
+        ticket_url = _ticket_field(ticket, "url")
         if isinstance(ticket_id, str) and ticket_id:
             self._ticket_id = ticket_id
             self._ticket_cleanup_uncertain = False
-        if (
-            not isinstance(ticket_value, str)
-            or not ticket_value
-            or not isinstance(ticket_id, str)
-            or not ticket_id
-            or not isinstance(ticket_url, str)
-            or not _is_development_fapi_url(ticket_url)
-        ):
+        if not isinstance(ticket_id, str) or not ticket_id:
             raise ClerkFlowFailure(ClerkFlowStage.TICKET)
+        if not isinstance(ticket_value, str) or not ticket_value:
+            raise ClerkFlowFailure(ClerkFlowStage.TICKET_CREDENTIAL)
+        if not isinstance(ticket_url, str) or not _is_development_fapi_url(ticket_url):
+            raise ClerkFlowFailure(ClerkFlowStage.FAPI_AUTHORITY)
         self._fapi_authority = ticket_url
 
         try:
@@ -416,6 +415,13 @@ def _fapi_url(base_url: str | None, path: str, query: dict[str, str] | None) -> 
 
 def _field(payload: dict[str, object], name: str) -> object:
     return payload.get(name)
+
+
+def _ticket_field(ticket: object, name: str) -> object:
+    values = getattr(ticket, "__dict__", None)
+    if isinstance(values, dict) and name not in values:
+        return None
+    return getattr(ticket, name, None)
 
 
 def _completed_sign_in_created_session_id(sign_in: dict[str, object]) -> str | None:
