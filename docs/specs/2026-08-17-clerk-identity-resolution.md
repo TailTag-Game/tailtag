@@ -4,7 +4,7 @@
 
 **Parent:** [#94 — Establish V0 authentication and application identity](https://github.com/TailTag-Game/tailtag/issues/94)
 
-**Status:** Pending artifact review
+**Status:** Approved for implementation
 
 ## Goal
 
