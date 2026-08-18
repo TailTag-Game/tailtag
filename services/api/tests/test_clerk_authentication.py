@@ -246,17 +246,19 @@ def test_verification_does_not_mutate_request_or_resolve_a_tailtag_user(
     assert not hasattr(request, "user")
 
 
-def test_authentication_boundary_adds_no_routes_or_global_drf_policy(
+def test_authentication_boundary_adds_no_routes_and_locks_global_drf_policy(
     client: Client,
 ) -> None:
-    """Request verification is not yet an endpoint or a global DRF policy change."""
+    """The verifier remains route-free while #97 installs the sole authenticator."""
     schema_response = client.get("/api/schema/")
 
     assert client.post("/api/auth/signup", data={}).status_code == 404
     assert client.get("/api/fursuits").status_code == 404
     assert schema_response.status_code == 200
     assert set(yaml.safe_load(schema_response.content)["paths"]) == {"/api/schema/"}
-    assert "DEFAULT_AUTHENTICATION_CLASSES" not in settings.REST_FRAMEWORK
+    assert settings.REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"] == [
+        "authentication.drf.TailTagAuthentication"
+    ]
     assert "DEFAULT_PERMISSION_CLASSES" not in settings.REST_FRAMEWORK
 
 
