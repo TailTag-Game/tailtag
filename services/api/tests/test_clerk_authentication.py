@@ -282,6 +282,48 @@ def test_invalid_time_claims_fail_with_the_same_public_response(
     assert str(error) == str(AuthenticationFailed())
 
 
+@pytest.mark.parametrize(
+    "token_overrides, sensitive_values",
+    (
+        ({"exp": []}, ("TypeError",)),
+        (
+            {"v": 2, "o": "not-an-object"},
+            ("not-an-object", "AttributeError"),
+        ),
+        (
+            {
+                "v": 2,
+                "o": {"per": "read", "fpm": "1"},
+                "fea": ["o:member"],
+            },
+            ("o:member", "AttributeError"),
+        ),
+    ),
+    ids=("non-numeric-expiry", "v2-nonmapping-organization", "v2-nonstring-features"),
+)
+def test_post_signature_malformed_claims_fail_generically_without_disclosure(
+    verifier: ClerkSessionVerifier,
+    issue_token: TokenIssuer,
+    caplog: LogCaptureFixture,
+    token_overrides: Mapping[str, object],
+    sensitive_values: tuple[str, ...],
+) -> None:
+    """Malformed signed claims cannot escape the generic authentication boundary."""
+    caplog.set_level(logging.DEBUG)
+    token = issue_token(token_overrides)
+    error = assert_generic_failure(verifier, f"Bearer {token}")
+
+    assert str(error) == str(AuthenticationFailed())
+    assert_failure_does_not_disclose(
+        error,
+        caplog,
+        token,
+        "user_test_subject",
+        "sess_test_session",
+        *sensitive_values,
+    )
+
+
 def test_wrong_signature_and_malformed_token_fail_generically(
     verifier: ClerkSessionVerifier,
 ) -> None:
