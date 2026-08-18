@@ -358,6 +358,35 @@ def test_only_confident_structured_availability_errors_become_provider_neutral(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
+    "cause",
+    (
+        psycopg.OperationalError(
+            "test-only empty-sqlstate sentinel",
+            info={DiagnosticField.SQLSTATE: b""},
+        ),
+        psycopg.OperationalError(
+            "test-only unrecognized-sqlstate sentinel",
+            info={DiagnosticField.SQLSTATE: b"ZZ999"},
+            pgconn=_BadPsycopgConnection(),
+        ),
+    ),
+    ids=("empty-sqlstate-absent-connection", "unrecognized-sqlstate-bad-connection"),
+)
+def test_present_sqlstate_never_uses_the_connection_state_fallback(
+    monkeypatch: MonkeyPatch, cause: BaseException
+) -> None:
+    """Only an exactly-None SQLSTATE permits client-side availability recovery."""
+    error = _operational_error_with(cause)
+    _fail_database_execution(monkeypatch, error)
+
+    with pytest.raises(OperationalError) as raised:
+        resolve_application_user("user_present_sqlstate_sentinel")
+
+    assert raised.value is error
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
     "error",
     (
         _operational_error_with(errors.DiskFull("test-only 53 detail")),
