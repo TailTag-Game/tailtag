@@ -22,12 +22,14 @@ from django.db import (
     connection,
     transaction,
 )
+from django.db.backends.utils import CursorWrapper
 from django.test import Client, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import path
 from psycopg import errors
 from psycopg.pq import ConnStatus, DiagnosticField
 from pytest import MonkeyPatch
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -102,10 +104,39 @@ def _expected_unique_violation() -> errors.UniqueViolation:
     )
 
 
+def _fail_database_execution(monkeypatch: MonkeyPatch, error: DatabaseError) -> None:
+    """Inject a database failure below the resolver's ORM lookup choice."""
+
+    def raise_database_error(
+        _cursor: CursorWrapper, _sql: str, _params: object = None
+    ) -> NoReturn:
+        raise error
+
+    monkeypatch.setattr(CursorWrapper, "execute", raise_database_error)
+
+
 @pytest.mark.django_db
-def test_first_resolution_provisions_only_the_minimal_tailtag_user() -> None:
+def test_first_resolution_provisions_only_the_minimal_tailtag_user(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    manager = User.objects
+    original_create_user = manager.create_user
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def observe_create_user(*args: object, **kwargs: object) -> User:
+        calls.append((args, kwargs))
+        return original_create_user(*args, **kwargs)
+
+    monkeypatch.setattr(manager, "create_user", observe_create_user)
     user = resolve_application_user("user_first_use")
 
+    assert len(calls) == 1
+    positional, keyword = calls[0]
+    assert not set(keyword) - {"clerk_user_id"}
+    assert len(positional) + len(keyword) == 1
+    assert positional == ("user_first_use",) or keyword == {
+        "clerk_user_id": "user_first_use"
+    }
     assert user.clerk_user_id == "user_first_use"
     assert User.objects.filter(clerk_user_id="user_first_use").count() == 1
     assert not user.is_staff
@@ -183,7 +214,7 @@ def test_simultaneous_first_resolution_uses_the_database_unique_guard(
             start_barrier.wait(timeout=10)
             return resolve_application_user(subject).pk
         finally:
-            close_old_connections()
+            connection.close()
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         returned_primary_keys = list(executor.map(lambda _: resolve_in_worker(), range(2)))
@@ -204,31 +235,36 @@ def test_migrated_clerk_link_constraint_matches_the_recovery_identifier() -> Non
     assert constraint["columns"] == ["clerk_user_id"]
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_expected_unique_violation_rereads_the_winner_after_inner_savepoint_rollback(
     monkeypatch: MonkeyPatch,
 ) -> None:
     subject = "user_recover_after_savepoint"
-    winner = User.objects.create_user(subject)
     manager = User.objects
+    original_create_user = manager.create_user
     original_get = manager.get
-    lookup_count = 0
 
-    def initially_miss(*args: object, **kwargs: object) -> User:
-        nonlocal lookup_count
-        lookup_count += 1
-        if lookup_count == 1:
-            raise User.DoesNotExist
-        return original_get(*args, **kwargs)
+    def create_winner_on_a_separate_connection(*args: object, **kwargs: object) -> User:
+        def create_winner() -> User:
+            close_old_connections()
+            try:
+                return original_create_user(*args, **kwargs)
+            finally:
+                connection.close()
 
-    monkeypatch.setattr(manager, "get", initially_miss)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            winner = executor.submit(create_winner).result(timeout=10)
+        original_create_user(*args, **kwargs)
+        return winner
+
+    monkeypatch.setattr(manager, "create_user", create_winner_on_a_separate_connection)
 
     with transaction.atomic():
         resolved = resolve_application_user(subject)
-        assert User.objects.get(clerk_user_id=subject).pk == winner.pk
+        winner = original_get(clerk_user_id=subject)
+        assert winner.pk == resolved.pk
 
-    assert resolved.pk == winner.pk
-    assert lookup_count >= 2
+    assert User.objects.filter(clerk_user_id=subject).count() == 1
 
 
 @pytest.mark.django_db
@@ -275,8 +311,19 @@ def test_unrelated_real_orm_integrity_failures_propagate_unchanged(
             "test-only missing-constraint metadata",
             info={DiagnosticField.SQLSTATE: b"23505"},
         ),
+        errors.ForeignKeyViolation(
+            "test-only non-23505 expected-constraint sentinel",
+            info={
+                DiagnosticField.SQLSTATE: b"23503",
+                DiagnosticField.CONSTRAINT_NAME: EXPECTED_CLERK_USER_ID_UNIQUE_CONSTRAINT.encode(),
+            },
+        ),
     ),
-    ids=("no-psycopg-cause", "missing-constraint-metadata"),
+    ids=(
+        "no-psycopg-cause",
+        "missing-constraint-metadata",
+        "non-23505-expected-constraint",
+    ),
 )
 def test_integrity_error_without_the_expected_structured_metadata_propagates(
     monkeypatch: MonkeyPatch, cause: BaseException | None
@@ -336,19 +383,22 @@ def test_only_confident_structured_availability_errors_become_provider_neutral(
 ) -> None:
     subject = "user_availability_sentinel"
     error = _operational_error_with(cause)
-    monkeypatch.setattr(User.objects, "get", lambda *_args, **_kwargs: _raise(error))
+    _fail_database_execution(monkeypatch, error)
 
     with pytest.raises(ApplicationUserResolutionUnavailable) as raised:
         resolve_application_user(subject)
 
     rendered = f"{raised.value}\n{raised.value!r}"
-    for sensitive_value in (
+    sensitive_values = [
         subject,
         "test-only database connection detail",
-        str(getattr(cause, "sqlstate", "")),
+        str(cause),
         "connection",
         "constraint",
-    ):
+    ]
+    if sqlstate := getattr(cause, "sqlstate", None):
+        sensitive_values.append(str(sqlstate))
+    for sensitive_value in sensitive_values:
         assert sensitive_value not in rendered
 
 
@@ -366,7 +416,7 @@ def test_only_confident_structured_availability_errors_become_provider_neutral(
 def test_unclassified_database_failures_propagate_unchanged(
     monkeypatch: MonkeyPatch, error: DatabaseError
 ) -> None:
-    monkeypatch.setattr(User.objects, "get", lambda *_args, **_kwargs: _raise(error))
+    _fail_database_execution(monkeypatch, error)
 
     with pytest.raises(type(error)) as raised:
         resolve_application_user("user_unclassified_database_failure")
@@ -420,14 +470,20 @@ def test_explicitly_disabled_authentication_remains_anonymous_without_boundary_c
     ROOT_URLCONF=__name__,
     REST_FRAMEWORK=AUTHENTICATION_SETTINGS,
     CLERK_AUTHENTICATION=TEST_CLERK_CONFIGURATION,
-    DEBUG=False,
 )
-def test_malformed_credentials_are_a_generic_bearer_401() -> None:
-    response = Client().get("/test/identity", HTTP_AUTHORIZATION="Basic credential")
+def test_enabled_headerless_authentication_remains_anonymous_without_resolution(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    def fail_if_resolved(*_: object, **__: object) -> NoReturn:
+        raise AssertionError("headerless authentication must not resolve a TailTag user")
 
-    assert response.status_code == 401
-    assert response["WWW-Authenticate"] == "Bearer"
-    assert "credential" not in response.content.decode()
+    monkeypatch.setattr(ClerkSessionVerifier, "verify", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(drf_adapter, "resolve_application_user", fail_if_resolved)
+
+    response = Client().get("/test/identity")
+
+    assert response.status_code == 200
+    assert response.json() == {"user_id": None, "auth_is_none": True}
 
 
 @pytest.mark.django_db
@@ -437,28 +493,68 @@ def test_malformed_credentials_are_a_generic_bearer_401() -> None:
     CLERK_AUTHENTICATION=TEST_CLERK_CONFIGURATION,
     DEBUG=False,
 )
-def test_resolution_unavailable_is_a_sanitized_fixed_503(monkeypatch: MonkeyPatch) -> None:
-    sentinel_subject = "user_503_subject_sentinel"
-    sentinel_detail = "database host and constraint detail sentinel"
-    monkeypatch.setattr(
-        ClerkSessionVerifier,
-        "verify",
-        lambda *_args, **_kwargs: VerifiedClerkIdentity(subject=sentinel_subject),
+def test_malformed_credentials_are_a_generic_bearer_401() -> None:
+    response = Client().get("/test/identity", HTTP_AUTHORIZATION="Basic credential")
+
+    assert response.status_code == 401
+    assert response["WWW-Authenticate"] == "Bearer"
+    assert response.json() == {"detail": str(AuthenticationFailed().detail)}
+
+
+@pytest.mark.django_db
+@override_settings(
+    ROOT_URLCONF=__name__,
+    REST_FRAMEWORK=AUTHENTICATION_SETTINGS,
+    CLERK_AUTHENTICATION=TEST_CLERK_CONFIGURATION,
+    DEBUG=False,
+)
+def test_resolution_unavailable_has_one_fixed_sanitized_503_body(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    sentinels = iter(
+        (
+            ("user_503_first_subject", "first psycopg cause detail sentinel"),
+            ("user_503_second_subject", "second psycopg cause detail sentinel"),
+        )
     )
+    active_subject = ""
+
+    def verify(*_: object, **__: object) -> VerifiedClerkIdentity:
+        nonlocal active_subject
+        active_subject, _ = next(sentinels)
+        return VerifiedClerkIdentity(subject=active_subject)
+
+    details = iter(
+        (
+            "first psycopg cause detail sentinel",
+            "second psycopg cause detail sentinel",
+        )
+    )
+    monkeypatch.setattr(ClerkSessionVerifier, "verify", verify)
     monkeypatch.setattr(
         drf_adapter,
         "resolve_application_user",
-        lambda *_args, **_kwargs: _raise(
-            ApplicationUserResolutionUnavailable(sentinel_detail)
-        ),
+        lambda *_args, **_kwargs: _raise(ApplicationUserResolutionUnavailable(next(details))),
     )
 
-    response = Client().get("/test/identity", HTTP_AUTHORIZATION="Bearer test")
-    body = response.content.decode()
+    responses = [
+        Client().get("/test/identity", HTTP_AUTHORIZATION="Bearer test")
+        for _ in range(2)
+    ]
+    bodies = [response.content.decode() for response in responses]
 
-    assert response.status_code == 503
-    assert sentinel_subject not in body
-    assert sentinel_detail not in body
+    assert [response.status_code for response in responses] == [503, 503]
+    assert bodies[0] == bodies[1]
+    for body, (subject, detail) in zip(
+        bodies,
+        (
+            ("user_503_first_subject", "first psycopg cause detail sentinel"),
+            ("user_503_second_subject", "second psycopg cause detail sentinel"),
+        ),
+        strict=True,
+    ):
+        assert subject not in body
+        assert detail not in body
 
 
 @pytest.mark.django_db
@@ -472,10 +568,11 @@ def test_unexpected_resolution_failure_follows_the_generic_500_path(
     monkeypatch: MonkeyPatch,
 ) -> None:
     sentinel_detail = "unexpected resolver detail sentinel"
+    sentinel_subject = "user_500_subject_sentinel"
     monkeypatch.setattr(
         ClerkSessionVerifier,
         "verify",
-        lambda *_args, **_kwargs: VerifiedClerkIdentity(subject="user_500_subject"),
+        lambda *_args, **_kwargs: VerifiedClerkIdentity(subject=sentinel_subject),
     )
     monkeypatch.setattr(
         drf_adapter,
@@ -488,7 +585,9 @@ def test_unexpected_resolution_failure_follows_the_generic_500_path(
     )
 
     assert response.status_code == 500
-    assert sentinel_detail not in response.content.decode()
+    body = response.content.decode()
+    assert sentinel_detail not in body
+    assert sentinel_subject not in body
 
 
 @pytest.mark.django_db
