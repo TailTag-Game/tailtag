@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 import socket
 import sys
@@ -178,6 +179,7 @@ def test_target_policy_accepts_only_the_default_or_exact_development_root(
 
 DISALLOWED_TARGETS = (
     {"API_BASE_URL": ""},
+    {"API_BASE_URL": "http://127.0.0.1:8001"},
     {"API_BASE_URL": "http://localhost:8000"},
     {"API_BASE_URL": "http://localhost"},
     {"API_BASE_URL": "http://127.0.0.2:8000"},
@@ -429,15 +431,16 @@ def test_main_uses_hidden_tty_prompt_with_exact_copy_and_never_echoes_secret(
         calls.extend((prompt, stream))
         return secret
 
-    monkeypatch.setattr(auth_smoke, "run", run_prompt_probe)
-    monkeypatch.setattr(sys, "argv", ["api_auth_smoke.py"])
-    monkeypatch.setattr(sys, "stdin", TtyStream())
-    monkeypatch.setattr(sys, "stderr", TtyStream())
     import getpass
 
     monkeypatch.setattr(getpass, "getpass", hidden_prompt)
+    fresh_module = importlib.reload(auth_smoke)
+    monkeypatch.setattr(fresh_module, "run", run_prompt_probe)
+    monkeypatch.setattr(sys, "argv", ["api_auth_smoke.py"])
+    monkeypatch.setattr(sys, "stdin", TtyStream())
+    monkeypatch.setattr(sys, "stderr", TtyStream())
 
-    assert auth_smoke.main() == 0
+    assert fresh_module.main() == 0
     assert calls[0] == secret
     assert calls[1] == "Clerk Development secret:"
     assert calls[2] is sys.stderr
@@ -487,8 +490,6 @@ def test_main_never_accepts_a_secret_environment_value(
         observed.append(runtime.prompt_secret())  # type: ignore[attr-defined]
         return _SuccessfulOutcome()
 
-    monkeypatch.setattr(auth_smoke, "run", run_prompt_probe)
-    monkeypatch.setattr(sys, "argv", ["api_auth_smoke.py"])
     monkeypatch.setenv("CLERK_SECRET_KEY", "sk_test_synthetic_credential_material")
 
     class TtyStream(StringIO):
@@ -502,8 +503,11 @@ def test_main_never_accepts_a_secret_environment_value(
     monkeypatch.setattr(
         getpass, "getpass", lambda _prompt, *, stream: "sk_test_prompt_only_value"
     )
+    fresh_module = importlib.reload(auth_smoke)
+    monkeypatch.setattr(fresh_module, "run", run_prompt_probe)
+    monkeypatch.setattr(sys, "argv", ["api_auth_smoke.py"])
 
-    assert auth_smoke.main() == 0
+    assert fresh_module.main() == 0
     assert observed == ["sk_test_prompt_only_value"]
 
 

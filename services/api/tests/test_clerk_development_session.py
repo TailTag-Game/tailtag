@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn, cast
 
+import httpx
 import pytest
 from pytest import LogCaptureFixture, MonkeyPatch
 
@@ -53,6 +54,9 @@ def prohibit_network(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setattr(http.client.HTTPSConnection, "request", no_network)
     monkeypatch.setattr(urllib.request, "urlopen", no_network)
     monkeypatch.setattr(urllib.request.OpenerDirector, "open", no_network)
+    for client_type in (httpx.Client, httpx.AsyncClient):
+        monkeypatch.setattr(client_type, "request", no_network)
+        monkeypatch.setattr(client_type, "send", no_network)
 
 
 @pytest.fixture(autouse=True)
@@ -191,6 +195,8 @@ def test_missing_or_mismatched_opaque_user_fails_without_auto_provisioning(
 
 def test_ticket_flow_uses_fixed_origin_and_exact_sixty_second_ticket(
     monkeypatch: MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    caplog: LogCaptureFixture,
 ) -> None:
     """The first FAPI operation exposes the fixed-origin, same-instance contract."""
     clerk = RecordingTransport()
@@ -216,8 +222,10 @@ def test_ticket_flow_uses_fixed_origin_and_exact_sixty_second_ticket(
     )
     session = validate_with(clerk)
 
-    with pytest.raises(development_session.ClerkFlowFailure):
+    caplog.set_level(logging.DEBUG)
+    with pytest.raises(development_session.ClerkFlowFailure) as raised:
         session.create_verified_token()
+    assert_sanitized(raised.value, capsys, caplog)
 
     request = cast(TicketRequest, ticket_requests[0])
     assert request.user_id == "user_synthetic_sensitive_identifier"
@@ -231,6 +239,8 @@ def test_ticket_flow_uses_fixed_origin_and_exact_sixty_second_ticket(
 
 def test_cleanup_revokes_an_unconsumed_ticket_but_never_deletes_persistent_user(
     monkeypatch: MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    caplog: LogCaptureFixture,
 ) -> None:
     clerk = RecordingTransport()
     revoked: list[dict[str, object]] = []
@@ -256,8 +266,10 @@ def test_cleanup_revokes_an_unconsumed_ticket_but_never_deletes_persistent_user(
     )
     session = validate_with(clerk)
 
-    with pytest.raises(development_session.ClerkFlowFailure):
+    caplog.set_level(logging.DEBUG)
+    with pytest.raises(development_session.ClerkFlowFailure) as raised:
         session.create_verified_token()
+    assert_sanitized(raised.value, capsys, caplog)
     session.cleanup()
 
     assert revoked == [{"sign_in_token_id": "ticket_synthetic_sensitive_material"}]
