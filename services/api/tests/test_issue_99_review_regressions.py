@@ -358,6 +358,57 @@ def test_ambiguous_ticket_creation_marks_cleanup_incomplete_at_command_boundary(
     assert transport.events == []
 
 
+def test_ambiguous_ticket_sign_in_response_marks_cleanup_incomplete(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """A request transport error cannot prove Clerk did not create a session."""
+    session, transport = validated_session(_Ticket())
+
+    class SignInTransportFailureOpener:
+        def __init__(self) -> None:
+            self.urls: list[str] = []
+
+        def open(
+            self, request: urllib.request.Request, **_kwargs: object
+        ) -> _FrontendResponse:
+            self.urls.append(request.full_url)
+            path = urlsplit(request.full_url).path
+            if path == "/v1/dev_browser":
+                return _FrontendResponse(
+                    {"id": "dev_browser_synthetic"}, request.full_url
+                )
+            if path == "/v1/client":
+                return _FrontendResponse({"sessions": []}, request.full_url)
+            if path == "/v1/client/sign_ins":
+                raise OSError("synthetic ambiguous ticket sign-in request")
+            raise AssertionError(f"unexpected Frontend API path {path}")
+
+    opener = SignInTransportFailureOpener()
+
+    def build_opener(
+        *_handlers: urllib.request.BaseHandler,
+    ) -> SignInTransportFailureOpener:
+        return opener
+
+    monkeypatch.setattr(urllib.request, "build_opener", build_opener)
+
+    outcome = auth_smoke.run(
+        {"CLERK_SMOKE_USER_ID": SYNTHETIC_USER},
+        _OrchestrationRuntime(session),
+    )
+
+    assert outcome.primary_stage == "provider ticket flow unsuccessful"
+    assert outcome.cleanup_incomplete
+    assert [urlsplit(url).path for url in opener.urls] == [
+        "/v1/dev_browser",
+        "/v1/client",
+        "/v1/client/sign_ins",
+    ]
+    assert transport.events == [
+        ("ticket", {"sign_in_token_id": SYNTHETIC_TICKET}),
+    ]
+
+
 def test_created_session_id_is_revoked_when_ticket_response_omits_sessions(
     monkeypatch: MonkeyPatch,
 ) -> None:
