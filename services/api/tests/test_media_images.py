@@ -72,7 +72,7 @@ def assert_display_pixels_preserved(
     actual = decoded_rgb(actual_content)
     assert actual.size == expected.size
     for actual_pixel, expected_pixel in zip(
-        actual.getdata(), expected.getdata(), strict=True
+        actual.get_flattened_data(), expected.get_flattened_data(), strict=True
     ):
         assert all(
             abs(actual_channel - expected_channel) <= 48
