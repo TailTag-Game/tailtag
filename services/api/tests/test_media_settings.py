@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
 from collections.abc import Mapping
+from typing import cast
 
 import pytest
 from django.core.files.storage import default_storage
@@ -36,6 +38,31 @@ def inspect_storage_settings(
         env={
             "PATH": os.environ["PATH"],
             "DJANGO_SETTINGS_MODULE": settings_module,
+            **environment,
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def inspect_production_botocore_loggers(
+    environment: Mapping[str, str],
+) -> subprocess.CompletedProcess[str]:
+    """Inspect only production's botocore logging policy."""
+    command = (
+        "import json; "
+        "from django.conf import settings; "
+        "loggers = settings.LOGGING.get('loggers', {}); "
+        "print(json.dumps({name: loggers.get(name) for name in "
+        "('botocore', 'botocore.auth')}, sort_keys=True))"
+    )
+    return subprocess.run(
+        [sys.executable, "-c", command],
+        cwd=".",
+        env={
+            "PATH": os.environ["PATH"],
+            "DJANGO_SETTINGS_MODULE": "config.settings.production",
             **environment,
         },
         capture_output=True,
@@ -134,6 +161,23 @@ def test_production_settings_select_s3_media_storage_with_fixed_read_expiry() ->
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == "media.storage.S3MediaStorage|600\n"
+
+
+def test_production_logging_explicitly_blocks_botocore_debug_leakage() -> None:
+    completed = inspect_production_botocore_loggers(
+        {**VALID_ENVIRONMENT, **MEDIA_ENVIRONMENT}
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    logger_settings = cast(dict[str, object], json.loads(completed.stdout))
+    for logger_name in ("botocore", "botocore.auth"):
+        logger = logger_settings[logger_name]
+        assert isinstance(logger, dict)
+        logger_configuration = cast(dict[str, object], logger)
+        assert logger_configuration.get("propagate") is False
+        level = logger_configuration.get("level")
+        assert isinstance(level, str)
+        assert level.upper() not in {"DEBUG", "NOTSET"}
 
 
 def test_ordinary_pytest_storage_is_in_memory() -> None:

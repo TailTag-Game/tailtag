@@ -72,6 +72,9 @@ class SignatureV4Config(Protocol):
     """The public botocore configuration field asserted by this contract."""
 
     signature_version: str
+    connect_timeout: float
+    read_timeout: float
+    retries: dict[str, object]
 
 
 @pytest.fixture
@@ -158,6 +161,14 @@ def test_s3_storage_configures_a_signature_v4_client_with_only_its_supplied_s3_v
     )
     config = cast(SignatureV4Config, arguments["config"])
     assert config.signature_version == "s3v4"
+    assert 0 < config.connect_timeout < 30
+    assert 0 < config.read_timeout < 30
+    retry_configuration = config.retries
+    assert retry_configuration.get("mode") == "standard"
+    total_attempts = retry_configuration.get("total_max_attempts")
+    assert isinstance(total_attempts, int)
+    assert 1 <= total_attempts <= 3
+    assert total_attempts * (config.connect_timeout + config.read_timeout) <= 30
 
 
 @pytest.mark.parametrize(

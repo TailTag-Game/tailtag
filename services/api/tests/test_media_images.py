@@ -5,6 +5,7 @@ from __future__ import annotations
 from io import BytesIO
 from struct import pack
 from typing import Literal, Protocol, cast
+from warnings import catch_warnings, simplefilter
 from zlib import crc32
 
 import pytest
@@ -102,16 +103,26 @@ def upload(
 class ReadSpyUpload:
     """Record the normalizer's source read bounds without changing file behavior."""
 
-    def __init__(self, content: bytes) -> None:
+    def __init__(
+        self, content: bytes, *, maximum_chunk_size: int | None = None
+    ) -> None:
         self.name = "source.png"
         self.content_type = "image/png"
         self._source = BytesIO(content)
+        self._maximum_chunk_size = maximum_chunk_size
         self.read_sizes: list[int | None] = []
         self.read_lengths: list[int] = []
 
     def read(self, size: int | None = -1) -> bytes:
         self.read_sizes.append(size)
-        content = self._source.read() if size is None else self._source.read(size)
+        bounded_size = size
+        if bounded_size is not None and self._maximum_chunk_size is not None:
+            bounded_size = min(bounded_size, self._maximum_chunk_size)
+        content = (
+            self._source.read()
+            if bounded_size is None
+            else self._source.read(bounded_size)
+        )
         self.read_lengths.append(len(content))
         return content
 
@@ -277,6 +288,26 @@ def test_normalize_image_uses_bounded_reads_within_the_byte_limit() -> None:
     assert sum(source.read_lengths) <= MAX_IMAGE_BYTES + 1
 
 
+def test_normalize_image_reassembles_legal_short_reads_before_decoding() -> None:
+    source = ReadSpyUpload(image_bytes("PNG"), maximum_chunk_size=7)
+
+    normalized = normalize_image(cast("File[bytes]", source))
+
+    assert normalized.content_type == "image/png"
+    assert len(source.read_sizes) > 1
+    assert all(size is not None and size >= 0 for size in source.read_sizes)
+
+
+def test_normalize_image_rejects_over_limit_short_read_streams() -> None:
+    source = ReadSpyUpload(b"x" * (MAX_IMAGE_BYTES + 1), maximum_chunk_size=64 * 1024)
+
+    assert_rejected(source, ImageRejectionCode.FILE_TOO_LARGE)
+
+    assert len(source.read_sizes) > 1
+    assert all(size is not None and size >= 0 for size in source.read_sizes)
+    assert sum(source.read_lengths) == MAX_IMAGE_BYTES + 1
+
+
 def test_normalize_image_accepts_exact_pixel_limit_and_rejects_one_pixel_more() -> None:
     exact_limit = image_bytes("PNG", size=(5_000, 5_000))
     one_pixel_more = image_bytes("PNG", size=(5_000, 5_001))
@@ -303,6 +334,40 @@ def test_normalize_image_rejects_pillow_decompression_bomb_warning_or_error(
     )
 
 
+def malformed_apng_bytes() -> bytes:
+    """Insert an invalid zero-frame APNG control chunk into a valid PNG."""
+    source = image_bytes("PNG")
+    assert source.startswith(b"\x89PNG\r\n\x1a\n")
+    payload = pack(">II", 0, 0)
+    chunk_type = b"acTL"
+    chunk = (
+        pack(">I", len(payload))
+        + chunk_type
+        + payload
+        + pack(">I", crc32(chunk_type + payload) & 0xFFFFFFFF)
+    )
+    return source[:33] + chunk + source[33:]
+
+
+def test_normalize_image_rejects_malformed_apng_decode_warnings_as_invalid_image() -> (
+    None
+):
+    source = malformed_apng_bytes()
+
+    with catch_warnings(record=True) as recorded:
+        simplefilter("always")
+        with Image.open(BytesIO(source)) as detected:
+            assert detected.format == "PNG"
+            detected.load()
+    assert any("Invalid APNG" in str(warning.message) for warning in recorded)
+
+    with catch_warnings():
+        simplefilter("ignore")
+        assert_rejected(
+            upload(source, name="malformed.png"), ImageRejectionCode.INVALID_IMAGE
+        )
+
+
 @pytest.mark.parametrize(
     "source",
     (
@@ -315,6 +380,28 @@ def test_normalize_image_rejects_unsupported_content(
     source: SimpleUploadedFile,
 ) -> None:
     assert_rejected(source, ImageRejectionCode.UNSUPPORTED_FORMAT)
+
+
+@pytest.mark.parametrize(
+    "recognized_signature",
+    (
+        b"GIF89a\x01\x00\x01\x00\x00\x00\x00",
+        b"\x00\x00\x00\x18ftypavif\x00\x00\x00\x00mif1miaf",
+    ),
+    ids=("gif", "avif"),
+)
+def test_normalize_image_rejects_recognizable_unsupported_signatures_before_parser(
+    monkeypatch: pytest.MonkeyPatch, recognized_signature: bytes
+) -> None:
+    def parser_must_not_run(*_args: object, **_kwargs: object) -> Image.Image:
+        pytest.fail("unsupported signatures must be rejected before Image.open")
+
+    monkeypatch.setattr(Image, "open", parser_must_not_run)
+
+    assert_rejected(
+        upload(recognized_signature, name="misleading.png"),
+        ImageRejectionCode.UNSUPPORTED_FORMAT,
+    )
 
 
 def test_normalize_image_rejects_an_image_identified_by_header_but_truncated_at_load() -> (

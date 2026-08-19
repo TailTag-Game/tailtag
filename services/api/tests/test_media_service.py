@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import logging
 import re
+from io import BytesIO
 from typing import cast
 
 import pytest
 from django.core.files import File
 from django.core.files.base import ContentFile
 from django.core.files.storage import Storage, default_storage
+from django.core.files.uploadedfile import SimpleUploadedFile
+from PIL import Image, PngImagePlugin
 
 from media.images import NormalizedImage
 from media.keys import create_image_key, validate_image_key
@@ -82,9 +85,23 @@ class NonStringKey:
         return "non-string-key-sentinel"
 
 
-def canonical_image() -> NormalizedImage:
+def canonical_upload() -> SimpleUploadedFile:
+    """Use a real upload so public lifecycle calls exercise normalization."""
+    metadata = PngImagePlugin.PngInfo()
+    metadata.add_text("Source", "caller-metadata-must-not-be-stored")
+    destination = BytesIO()
+    Image.new("RGB", (2, 3), color=(12, 34, 56)).save(
+        destination, format="PNG", pnginfo=metadata
+    )
+    return SimpleUploadedFile(
+        "caller-image.png", destination.getvalue(), content_type="image/png"
+    )
+
+
+def forged_normalized_image() -> NormalizedImage:
+    """Model a caller attempting to bypass the public upload normalization boundary."""
     return NormalizedImage(
-        content=b"canonical-image-content",
+        content=b"caller-forged-canonical-bytes",
         content_type="image/jpeg",
         extension="jpg",
         width=2,
@@ -195,7 +212,9 @@ def test_storage_operations_reject_unsafe_or_unrecognized_keys_before_access(
 
 
 def test_store_image_generates_a_key_and_saves_only_canonical_content() -> None:
-    image = canonical_image()
+    image = canonical_upload()
+    source_content = image.read()
+    image.seek(0)
 
     key = store_image(image)
 
@@ -204,7 +223,38 @@ def test_store_image_generates_a_key_and_saves_only_canonical_content() -> None:
         "File[bytes]",
         default_storage.open(key),  # pyright: ignore[reportUnknownMemberType] - Django's lazy default storage loses the backend file generic.
     )
-    assert stored_file.read() == image.content
+    stored_content = stored_file.read()
+    assert stored_content != source_content
+    with Image.open(BytesIO(stored_content)) as stored_image:
+        assert stored_image.format == "PNG"
+        assert "Source" not in stored_image.info
+
+
+def test_store_image_rejects_a_caller_forged_normalized_image_before_save() -> None:
+    events: list[str] = []
+    storage = OrderedStorage(events)
+
+    with pytest.raises(TypeError):
+        store_image(forged_normalized_image(), storage=storage)
+
+    assert events == []
+
+
+def test_replace_image_rejects_a_caller_forged_normalized_image_before_side_effects() -> (
+    None
+):
+    events: list[str] = []
+    storage = OrderedStorage(events)
+
+    with pytest.raises(TypeError):
+        replace_image(
+            forged_normalized_image(),
+            old_key=OLD_KEY,
+            commit_reference=lambda key: events.append(f"commit:{key}"),
+            storage=storage,
+        )
+
+    assert events == []
 
 
 def test_read_image_url_returns_backend_url_without_persisting_or_logging_it(
@@ -228,7 +278,7 @@ def test_replace_image_saves_then_commits_then_deletes_old_object() -> None:
     storage = OrderedStorage(events)
 
     new_key = replace_image(
-        canonical_image(),
+        canonical_upload(),
         old_key=OLD_KEY,
         commit_reference=lambda key: events.append(f"commit:{key}"),
         storage=storage,
@@ -243,7 +293,7 @@ def test_replace_image_rejects_an_unsafe_old_key_before_save_or_commit() -> None
 
     with pytest.raises(ValueError):
         replace_image(
-            canonical_image(),
+            canonical_upload(),
             old_key="profiles/user-upload.jpg",
             commit_reference=lambda key: events.append(f"commit:{key}"),
             storage=storage,
@@ -265,7 +315,7 @@ def test_replace_image_compensates_new_object_after_commit_failure_and_reraises_
 
     with pytest.raises(RuntimeError) as raised:
         replace_image(
-            canonical_image(),
+            canonical_upload(),
             old_key=OLD_KEY,
             commit_reference=fail_commit,
             storage=storage,
@@ -290,7 +340,7 @@ def test_replace_image_preserves_commit_failure_when_compensating_delete_also_fa
 
     with pytest.raises(RuntimeError) as raised:
         replace_image(
-            canonical_image(),
+            canonical_upload(),
             old_key=OLD_KEY,
             commit_reference=fail_commit,
             storage=storage,
@@ -327,7 +377,7 @@ def test_replace_image_preserves_commit_failure_when_compensating_delete_raises_
     caught: BaseException | None = None
     try:
         replace_image(
-            canonical_image(),
+            canonical_upload(),
             old_key=OLD_KEY,
             commit_reference=fail_commit,
             storage=storage,
@@ -351,7 +401,7 @@ def test_replace_image_tolerates_old_object_delete_failure_without_another_commi
     caplog.set_level(logging.WARNING)
 
     new_key = replace_image(
-        canonical_image(),
+        canonical_upload(),
         old_key=OLD_KEY,
         commit_reference=lambda key: events.append(f"commit:{key}"),
         storage=storage,
