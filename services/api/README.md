@@ -180,6 +180,21 @@ authoritative. V0 provides no generalized garbage collection, bucket inventory
 reconciliation, account/fursuit deletion handling, or generic asset-lifecycle
 platform. An application rollback neither restores nor deletes R2 objects.
 
+Future profile and participating-character services own their synchronous
+database callbacks. For a replacement or removal, those callbacks must
+atomically confirm that the persisted reference is still the supplied `old_key`,
+or hold an equivalent row lock. A conflict must raise unchanged so a losing
+replacement's uploaded object is best-effort compensated. Issues #113 and #115
+must integration-test concurrent replace/replace and replace/remove cases.
+
+Before either issue enables uploads, maintainers must separately establish
+operational readiness: normalize a 25,000,000-pixel RGBA image in a
+production-equivalent container constrained to Railway's actual memory limit,
+and demonstrate that a simulated R2 stall/outage exits within approximately 25
+seconds under configured client timeouts. These are readiness gates for the
+later product APIs, not work performed by #112; they do not change the 25 MP
+acceptance limit or authorize external-resource mutation.
+
 For the required Railway Development setup, controlled validation, and rollback
 boundary, follow the [backend development delivery operations guide](../../docs/development/backend-delivery-operations.md).
 
