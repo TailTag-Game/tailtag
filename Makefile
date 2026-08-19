@@ -9,7 +9,7 @@ CI_RELEVANCE_SCRIPT := $(CURDIR)/scripts/backend_ci_relevance.py
 define run_django_command
 if [ "$${TAILTAG_DEVCONTAINER:-}" = "1" ]; then \
 	DATABASE_URL="$$($(API_UV) run --locked --no-sync python -m config.compose_database_url)" \
-	DJANGO_SETTINGS_MODULE=config.settings.production \
+	DJANGO_SETTINGS_MODULE=config.settings.local \
 	$(API_UV) run $(1); \
 else \
 	$(API_UV) run $(1); \
