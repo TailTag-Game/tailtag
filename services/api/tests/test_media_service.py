@@ -21,6 +21,7 @@ KEY_PATTERN = re.compile(r"images/[0-9a-f]{32}\.(?:jpg|png|webp)\Z")
 OLD_KEY = "images/11111111111111111111111111111111.jpg"
 REPLACEMENT_CLEANUP_WARNING = "Media cleanup failed after replacement commit."
 REMOVAL_CLEANUP_WARNING = "Media cleanup failed after removal commit."
+CLEANUP_FAILURE_URL = "https://read.example.test/object?signature=redacted"
 
 
 class OrderedStorage(Storage):
@@ -77,6 +78,38 @@ def canonical_image() -> NormalizedImage:
         extension="jpg",
         width=2,
         height=3,
+    )
+
+
+def cleanup_failure() -> OSError:
+    """Supply a cleanup error whose attached traceback would disclose private data."""
+    return OSError(
+        "source exception includes " + OLD_KEY + " and " + CLEANUP_FAILURE_URL
+    )
+
+
+def assert_sanitized_cleanup_warning(
+    caplog: pytest.LogCaptureFixture, warning: str
+) -> None:
+    """Require a fixed warning with no exception attachment or sensitive record data."""
+    assert caplog.messages == [warning]
+    assert len(caplog.records) == 1
+    assert all(
+        record.exc_info is None
+        and record.exc_text is None
+        and record.stack_info is None
+        for record in caplog.records
+    )
+
+    rendered_records = "\n".join(
+        caplog.handler.format(record) for record in caplog.records
+    )
+    record_data = "\n".join(repr(record.__dict__) for record in caplog.records)
+    assert all(record.exc_text is None for record in caplog.records)
+    assert all(
+        sentinel not in output
+        for sentinel in (OLD_KEY, CLEANUP_FAILURE_URL)
+        for output in (caplog.text, rendered_records, record_data)
     )
 
 
@@ -218,11 +251,7 @@ def test_replace_image_tolerates_old_object_delete_failure_without_another_commi
 ) -> None:
     events: list[str] = []
     storage = OrderedStorage(events)
-    storage.delete_error = OSError(
-        "source exception includes "
-        + OLD_KEY
-        + " and https://read.example.test/object?signature=redacted"
-    )
+    storage.delete_error = cleanup_failure()
     caplog.set_level(logging.WARNING)
 
     new_key = replace_image(
@@ -233,7 +262,7 @@ def test_replace_image_tolerates_old_object_delete_failure_without_another_commi
     )
 
     assert events == [f"save:{new_key}", f"commit:{new_key}", f"delete:{OLD_KEY}"]
-    assert caplog.messages == [REPLACEMENT_CLEANUP_WARNING]
+    assert_sanitized_cleanup_warning(caplog, REPLACEMENT_CLEANUP_WARNING)
 
 
 def test_remove_optional_image_commits_removal_then_deletes_old_object() -> None:
@@ -268,11 +297,7 @@ def test_remove_optional_image_tolerates_delete_failure_after_authoritative_comm
 ) -> None:
     events: list[str] = []
     storage = OrderedStorage(events)
-    storage.delete_error = OSError(
-        "source exception includes "
-        + OLD_KEY
-        + " and https://read.example.test/object?signature=redacted"
-    )
+    storage.delete_error = cleanup_failure()
     caplog.set_level(logging.WARNING)
 
     remove_optional_image(
@@ -280,4 +305,4 @@ def test_remove_optional_image_tolerates_delete_failure_after_authoritative_comm
     )
 
     assert events == ["commit:remove", f"delete:{OLD_KEY}"]
-    assert caplog.messages == [REMOVAL_CLEANUP_WARNING]
+    assert_sanitized_cleanup_warning(caplog, REMOVAL_CLEANUP_WARNING)
