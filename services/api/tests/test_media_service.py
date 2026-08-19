@@ -8,7 +8,6 @@ import re
 import pytest
 from django.core.files.base import ContentFile
 from django.core.files.storage import Storage, default_storage
-from media.images import NormalizedImage
 from media.keys import create_image_key, validate_image_key
 from media.service import (
     read_image_url,
@@ -16,6 +15,8 @@ from media.service import (
     replace_image,
     store_image,
 )
+
+from media.images import NormalizedImage
 
 KEY_PATTERN = re.compile(r"images/[0-9a-f]{32}\.(?:jpg|png|webp)\Z")
 OLD_KEY = "images/11111111111111111111111111111111.jpg"
@@ -146,7 +147,9 @@ def test_storage_operations_reject_unsafe_or_unrecognized_keys_before_access(
     with pytest.raises(ValueError):
         read_image_url(unsafe_key, storage=storage)
     with pytest.raises(ValueError):
-        remove_optional_image(unsafe_key, lambda: None, storage=storage)
+        remove_optional_image(
+            old_key=unsafe_key, commit_removal=lambda: None, storage=storage
+        )
 
     assert storage.events == []
 
@@ -183,7 +186,7 @@ def test_replace_image_saves_then_commits_then_deletes_old_object() -> None:
     new_key = replace_image(
         canonical_image(),
         old_key=OLD_KEY,
-        commit=lambda key: events.append(f"commit:{key}"),
+        commit_reference=lambda key: events.append(f"commit:{key}"),
         storage=storage,
     )
 
@@ -198,7 +201,7 @@ def test_replace_image_rejects_an_unsafe_old_key_before_save_or_commit() -> None
         replace_image(
             canonical_image(),
             old_key="profiles/user-upload.jpg",
-            commit=lambda key: events.append(f"commit:{key}"),
+            commit_reference=lambda key: events.append(f"commit:{key}"),
             storage=storage,
         )
 
@@ -218,7 +221,10 @@ def test_replace_image_compensates_new_object_after_commit_failure_and_reraises_
 
     with pytest.raises(RuntimeError) as raised:
         replace_image(
-            canonical_image(), old_key=OLD_KEY, commit=fail_commit, storage=storage
+            canonical_image(),
+            old_key=OLD_KEY,
+            commit_reference=fail_commit,
+            storage=storage,
         )
 
     new_key = events[0].removeprefix("save:")
@@ -240,7 +246,10 @@ def test_replace_image_preserves_commit_failure_when_compensating_delete_also_fa
 
     with pytest.raises(RuntimeError) as raised:
         replace_image(
-            canonical_image(), old_key=OLD_KEY, commit=fail_commit, storage=storage
+            canonical_image(),
+            old_key=OLD_KEY,
+            commit_reference=fail_commit,
+            storage=storage,
         )
 
     assert raised.value is original
@@ -257,7 +266,7 @@ def test_replace_image_tolerates_old_object_delete_failure_without_another_commi
     new_key = replace_image(
         canonical_image(),
         old_key=OLD_KEY,
-        commit=lambda key: events.append(f"commit:{key}"),
+        commit_reference=lambda key: events.append(f"commit:{key}"),
         storage=storage,
     )
 
@@ -270,7 +279,9 @@ def test_remove_optional_image_commits_removal_then_deletes_old_object() -> None
     storage = OrderedStorage(events)
 
     remove_optional_image(
-        OLD_KEY, lambda: events.append("commit:remove"), storage=storage
+        old_key=OLD_KEY,
+        commit_removal=lambda: events.append("commit:remove"),
+        storage=storage,
     )
 
     assert events == ["commit:remove", f"delete:{OLD_KEY}"]
@@ -286,7 +297,9 @@ def test_remove_optional_image_never_deletes_when_removal_commit_fails() -> None
         raise original
 
     with pytest.raises(RuntimeError) as raised:
-        remove_optional_image(OLD_KEY, fail_commit, storage=storage)
+        remove_optional_image(
+            old_key=OLD_KEY, commit_removal=fail_commit, storage=storage
+        )
 
     assert raised.value is original
     assert events == ["commit:remove"]
@@ -301,7 +314,9 @@ def test_remove_optional_image_tolerates_delete_failure_after_authoritative_comm
     caplog.set_level(logging.WARNING)
 
     remove_optional_image(
-        OLD_KEY, lambda: events.append("commit:remove"), storage=storage
+        old_key=OLD_KEY,
+        commit_removal=lambda: events.append("commit:remove"),
+        storage=storage,
     )
 
     assert events == ["commit:remove", f"delete:{OLD_KEY}"]

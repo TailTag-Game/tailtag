@@ -91,27 +91,44 @@ def upload(
     return SimpleUploadedFile(name, content, content_type=content_type)
 
 
-def assert_rejected(source: SimpleUploadedFile) -> ImageValidationError:
+class ReadSpyUpload(SimpleUploadedFile):
+    """Record the normalizer's source read bounds without changing file behavior."""
+
+    def __init__(self, content: bytes) -> None:
+        super().__init__("source.png", content, content_type="image/png")
+        self.read_sizes: list[int] = []
+
+    def read(self, size: int = -1) -> bytes:
+        self.read_sizes.append(size)
+        return super().read(size)
+
+
+def assert_rejected(
+    source: SimpleUploadedFile, expected_code: ImageRejectionCode
+) -> ImageValidationError:
     """Require a domain-level, stable rejection rather than Pillow diagnostics."""
     with pytest.raises(ImageValidationError) as raised:
         normalize_image(source)
 
     error = raised.value
     assert type(error.code) is ImageRejectionCode
-    assert error.code.value
+    assert error.code is expected_code
     return error
 
 
 @pytest.mark.parametrize(
-    ("image_format", "content_type", "extension"),
+    ("image_format", "content_type", "extension", "decoded_format"),
     (
-        ("JPEG", "image/jpeg", "jpg"),
-        ("PNG", "image/png", "png"),
-        ("WEBP", "image/webp", "webp"),
+        ("JPEG", "image/jpeg", "jpg", "JPEG"),
+        ("PNG", "image/png", "png", "PNG"),
+        ("WEBP", "image/webp", "webp", "WEBP"),
     ),
 )
 def test_normalize_image_returns_decoded_format_not_filename_or_claimed_mime_type(
-    image_format: ImageFormat, content_type: str, extension: str
+    image_format: ImageFormat,
+    content_type: str,
+    extension: str,
+    decoded_format: ImageFormat,
 ) -> None:
     """Decoded content, rather than upload labels, defines canonical media identity."""
     source = tagged_image_bytes(image_format)
@@ -131,6 +148,8 @@ def test_normalize_image_returns_decoded_format_not_filename_or_claimed_mime_typ
         height=3,
     )
     assert normalized.content != source
+    with Image.open(BytesIO(normalized.content)) as decoded:
+        assert decoded.format == decoded_format
     assert_display_pixels_preserved(normalized.content, decoded_rgb(source))
 
 
@@ -229,7 +248,18 @@ def test_normalize_image_accepts_exact_byte_limit_and_rejects_one_byte_more() ->
 
     assert len(exact_limit) == MAX_IMAGE_BYTES == 10 * 1024 * 1024
     assert normalized.content_type == "image/png"
-    assert_rejected(upload(exact_limit + b"x", name="too-large.png"))
+    assert_rejected(
+        upload(exact_limit + b"x", name="too-large.png"),
+        ImageRejectionCode.FILE_TOO_LARGE,
+    )
+
+
+def test_normalize_image_reads_at_most_one_byte_past_the_byte_limit() -> None:
+    source = ReadSpyUpload(image_bytes("PNG"))
+
+    normalize_image(source)
+
+    assert source.read_sizes == [MAX_IMAGE_BYTES + 1]
 
 
 def test_normalize_image_accepts_exact_pixel_limit_and_rejects_one_pixel_more() -> None:
@@ -240,7 +270,10 @@ def test_normalize_image_accepts_exact_pixel_limit_and_rejects_one_pixel_more() 
 
     assert MAX_IMAGE_PIXELS == 25_000_000
     assert normalized.width * normalized.height == MAX_IMAGE_PIXELS
-    assert_rejected(upload(one_pixel_more, name="one-pixel-too-many.png"))
+    assert_rejected(
+        upload(one_pixel_more, name="one-pixel-too-many.png"),
+        ImageRejectionCode.TOO_MANY_PIXELS,
+    )
 
 
 @pytest.mark.parametrize("pillow_limit", (4, 1), ids=("warning", "error"))
@@ -249,7 +282,10 @@ def test_normalize_image_rejects_pillow_decompression_bomb_warning_or_error(
 ) -> None:
     monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", pillow_limit)
 
-    assert_rejected(upload(image_bytes("PNG"), name="small-but-bomb.png"))
+    assert_rejected(
+        upload(image_bytes("PNG"), name="small-but-bomb.png"),
+        ImageRejectionCode.TOO_MANY_PIXELS,
+    )
 
 
 @pytest.mark.parametrize(
@@ -263,7 +299,7 @@ def test_normalize_image_rejects_pillow_decompression_bomb_warning_or_error(
 def test_normalize_image_rejects_unsupported_content(
     source: SimpleUploadedFile,
 ) -> None:
-    assert_rejected(source)
+    assert_rejected(source, ImageRejectionCode.UNSUPPORTED_FORMAT)
 
 
 def test_normalize_image_rejects_an_image_identified_by_header_but_truncated_at_load() -> (
@@ -277,7 +313,9 @@ def test_normalize_image_rejects_an_image_identified_by_header_but_truncated_at_
         with pytest.raises(OSError):
             identified.load()
 
-    assert_rejected(upload(truncated, name="truncated.jpeg"))
+    assert_rejected(
+        upload(truncated, name="truncated.jpeg"), ImageRejectionCode.INVALID_IMAGE
+    )
 
 
 def test_normalize_image_rejects_gif_and_animated_webp() -> None:
@@ -302,5 +340,9 @@ def test_normalize_image_rejects_gif_and_animated_webp() -> None:
         animated_webp.seek(1)
         assert animated_webp.convert("RGB").getpixel((0, 0)) == (3, 2, 1)
 
-    assert_rejected(upload(gif.getvalue(), name="photo.png"))
-    assert_rejected(upload(webp.getvalue(), name="photo.webp"))
+    assert_rejected(
+        upload(gif.getvalue(), name="photo.png"), ImageRejectionCode.UNSUPPORTED_FORMAT
+    )
+    assert_rejected(
+        upload(webp.getvalue(), name="photo.webp"), ImageRejectionCode.ANIMATED_IMAGE
+    )
