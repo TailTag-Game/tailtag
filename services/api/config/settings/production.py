@@ -59,6 +59,21 @@ STORAGES = {  # pyright: ignore[reportConstantRedefinition]
     },
 }
 
+LOGGING: dict[str, object] = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "loggers": {
+        "botocore": {"handlers": [], "level": "WARNING", "propagate": False},
+        "botocore.auth": {
+            "handlers": [],
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "boto3": {"handlers": [], "level": "WARNING", "propagate": False},
+        "s3transfer": {"handlers": [], "level": "WARNING", "propagate": False},
+    },
+}
+
 SESSION_COOKIE_SECURE = True
 SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_SECURE = True

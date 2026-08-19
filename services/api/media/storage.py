@@ -14,6 +14,12 @@ from .keys import validate_image_key
 
 _READ_URL_EXPIRY_SECONDS = 600
 _NOT_FOUND_ERROR_CODES = frozenset({"404", "NoSuchKey", "NotFound"})
+_S3_CLIENT_CONFIG = Config(
+    signature_version="s3v4",
+    connect_timeout=2,
+    read_timeout=5,
+    retries={"mode": "standard", "total_max_attempts": 2},
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -60,7 +66,7 @@ class S3MediaStorage(Storage):
             "region_name": selected_region,
             "aws_access_key_id": access_key_id,
             "aws_secret_access_key": secret_access_key,
-            "config": Config(signature_version="s3v4"),
+            "config": _S3_CLIENT_CONFIG,
         }
         if client_factory is None:
             self._client = cast(
@@ -71,7 +77,7 @@ class S3MediaStorage(Storage):
                     region_name=selected_region,
                     aws_access_key_id=access_key_id,
                     aws_secret_access_key=secret_access_key,
-                    config=Config(signature_version="s3v4"),
+                    config=_S3_CLIENT_CONFIG,
                 ),
             )
         else:
