@@ -252,6 +252,61 @@ authoritative runtime configuration. The service's **Variables** tab is the
 management surface; edits are staged for review and deployment. Record names,
 references, and ownership—not rendered values.
 
+### V0 private media storage rollout
+
+This repository does not create, change, rotate, or delete Cloudflare R2
+buckets, credentials, or Railway variables. Those are explicit maintainer
+operations at the established Cloudflare and Railway secret boundaries; do not
+attempt them from repository startup, tests, CI, or local contributor setup.
+
+Before merging the fail-closed media-storage change, an authorized maintainer
+must complete this order for Railway `development`:
+
+1. Create one dedicated **private** R2 development bucket. Do not use it as
+   backup storage, a public asset origin, or a production bucket.
+2. Create a bucket/object credential restricted to that bucket and only the
+   object operations the API needs: write, read, and delete. Do not grant
+   account-wide, bucket-management, public-access, or unrelated-bucket scope.
+3. In Railway `development` → `api` → **Variables**, stage all five values as
+   secrets: `MEDIA_STORAGE_ENDPOINT_URL`, `MEDIA_STORAGE_BUCKET_NAME`,
+   `MEDIA_STORAGE_REGION`, `MEDIA_STORAGE_ACCESS_KEY_ID`, and
+   `MEDIA_STORAGE_SECRET_ACCESS_KEY`. Do not record rendered values in source,
+   logs, tickets, reviews, screenshots, shell history, or chat.
+4. Review the staged variable names and intended ownership, then merge and
+   deliver through the normal protected-`main` path. Production settings fail
+   closed when any required value is absent or an endpoint is not an HTTPS root
+   URL; do not merge first and add these variables later.
+5. After the normal deployment and readiness verification, perform one
+   authorized controlled write/read/delete exercise through the application
+   media boundary against Railway Development. Confirm the created object can
+   be written, read through the authorized application flow, and deleted. Do
+   not preserve or share a credential, object key associated with a person, or
+   presigned URL as evidence; record only sanitized pass/fail results and the
+   deployment revision.
+
+The production storage backend creates only 600-second presigned `GET` URLs;
+they are bearer credentials and must never be persisted or logged. There are
+no presigned `PUT` URLs, direct-to-R2 uploads, public bucket URLs, or
+repository-managed R2 provisioning.
+
+### Media lifecycle and recovery boundary
+
+For a replacement, the media boundary uploads the new object, commits the new
+database reference, and then best-effort deletes the old object. If that commit
+fails, it attempts compensating deletion of the new object but preserves the
+original commit error. For optional removal, it commits the absent reference
+before best-effort deletion of the old object. A failed post-commit deletion
+may leave an orphan; do not restore a stale reference merely because cleanup
+failed.
+
+V0 intentionally has no scheduled garbage collection, bucket inventory
+reconciliation, account/fursuit deletion workflow, or generalized asset
+lifecycle service. Treat any orphan investigation or cleanup beyond the
+best-effort boundary as separately approved work. Railway application-code
+rollback does not restore or delete R2 objects, just as it does not restore
+PostgreSQL state; assess references and objects independently before a rollback
+or forward-recovery decision.
+
 | Variable | Authority and handling |
 | --- | --- |
 | `DATABASE_URL` | `api` uses a Railway reference to `Postgres.DATABASE_URL`. Do not replace it with copied credentials or expose PostgreSQL publicly. |
@@ -261,6 +316,11 @@ references, and ownership—not rendered values.
 | `CLERK_AUTHENTICATION_ENABLED` | TailTag-owned Development authentication switch. The validated Railway Development value is exactly `true`; do not enable it without the two complete verification inputs below. |
 | `CLERK_JWT_KEY` | Clerk Development instance RSA JWKS Public Key used for offline verification. It is not a Clerk secret key, but manage it through Railway's staged variable boundary and do not copy its contents into source, issues, reviews, logs, or chat. |
 | `CLERK_AUTHORIZED_PARTIES` | The validated Development contract is exactly `http://localhost:3000`, the synthetic backend-tooling origin. Do not add the Railway API destination or broaden this list without a separately approved authentication requirement. |
+| `MEDIA_STORAGE_ENDPOINT_URL` | Private R2 S3-compatible HTTPS root endpoint for the Development bucket; stage as a Railway secret and never copy its rendered value into repository artifacts. |
+| `MEDIA_STORAGE_BUCKET_NAME` | Dedicated private R2 Development bucket name; stage as a Railway secret and do not reuse a production or unrelated bucket. |
+| `MEDIA_STORAGE_REGION` | S3-compatible region for the private Development bucket; stage it with the complete media configuration. |
+| `MEDIA_STORAGE_ACCESS_KEY_ID` | Minimum-scope private-bucket object credential identifier; manage only through Railway's secret boundary. |
+| `MEDIA_STORAGE_SECRET_ACCESS_KEY` | Matching minimum-scope private-bucket object credential secret; never display or record it. |
 | `PORT` | Railway platform runtime configuration for the container; do not duplicate it as a TailTag-owned Django setting. |
 | Other `RAILWAY_*` values | Platform-owned variables; do not manually duplicate them unless an approved design explicitly requires a user-configured Railway behavior variable. |
 
