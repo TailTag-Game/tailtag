@@ -93,4 +93,9 @@ api-gunicorn-check:
 	DATABASE_URL=postgresql://tailtag:tailtag@localhost:5432/tailtag \
 	DJANGO_ALLOWED_HOSTS=localhost \
 	DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost \
+	MEDIA_STORAGE_ENDPOINT_URL=https://media.example.test \
+	MEDIA_STORAGE_BUCKET_NAME=ci-media-bucket \
+	MEDIA_STORAGE_REGION=auto \
+	MEDIA_STORAGE_ACCESS_KEY_ID=ci-not-a-real-access-key \
+	MEDIA_STORAGE_SECRET_ACCESS_KEY=ci-not-a-real-secret-key \
 	$(API_UV) run gunicorn config.wsgi:application --check-config

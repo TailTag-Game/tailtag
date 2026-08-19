@@ -8,4 +8,5 @@
 /docs/plans/
 /.agents/
 /scripts/__pycache__/
+/services/api/.media/
 skills-lock.json

@@ -19,6 +19,7 @@ INSTALLED_APPS = [
     "accounts.apps.AccountsConfig",
     "fursuits.apps.FursuitsConfig",
     "health.apps.HealthConfig",
+    "media.apps.MediaConfig",
 ]
 
 MIDDLEWARE = [
@@ -57,6 +58,18 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+MEDIA_ROOT = BASE_DIR / ".media"
+MEDIA_URL = "/media/"
+
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+        "OPTIONS": {"location": MEDIA_ROOT, "base_url": MEDIA_URL},
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
