@@ -255,7 +255,7 @@ def test_devcontainer_django_commands_derive_the_compose_database_url() -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert "config.compose_database_url" in completed.stdout
-    assert "DJANGO_SETTINGS_MODULE=config.settings.production" in completed.stdout
+    assert "DJANGO_SETTINGS_MODULE=config.settings.local" in completed.stdout
     assert "python manage.py migrate" in completed.stdout
 
 
@@ -295,7 +295,7 @@ esac
 
     assert completed.returncode == 0, completed.stderr
     assert "DATABASE_URL=postgresql://tailtag:local@db:5432/tailtag" in completed.stdout
-    assert "DJANGO_SETTINGS_MODULE=config.settings.production" in completed.stdout
+    assert "DJANGO_SETTINGS_MODULE=config.settings.local" in completed.stdout
 
 
 def test_smoke_checks_an_already_running_http_service() -> None:
