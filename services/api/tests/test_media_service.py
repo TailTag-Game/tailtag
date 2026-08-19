@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import cast
 
 import pytest
+from django.core.files import File
 from django.core.files.base import ContentFile
 from django.core.files.storage import Storage, default_storage
 
@@ -36,10 +38,10 @@ class OrderedStorage(Storage):
         self.saved: dict[str, bytes] = {}
         self.delete_error: BaseException | None = None
 
-    def _open(self, name: str, mode: str = "rb") -> ContentFile:
+    def _open(self, name: str, mode: str = "rb") -> ContentFile[bytes]:
         return ContentFile(self.saved[name], name=name)
 
-    def _save(self, name: str, content: ContentFile) -> str:
+    def _save(self, name: str, content: ContentFile[bytes]) -> str:
         self.events.append(f"save:{name}")
         self.saved[name] = content.read()
         return name
@@ -53,7 +55,8 @@ class OrderedStorage(Storage):
     def exists(self, name: str) -> bool:
         return name in self.saved
 
-    def url(self, name: str) -> str:
+    def url(self, name: str | None, parameters: str | None = None) -> str:
+        del parameters
         self.events.append(f"url:{name}")
         return self._url
 
@@ -197,7 +200,11 @@ def test_store_image_generates_a_key_and_saves_only_canonical_content() -> None:
     key = store_image(image)
 
     assert KEY_PATTERN.fullmatch(key)
-    assert default_storage.open(key).read() == image.content
+    stored_file: File[bytes] = cast(
+        "File[bytes]",
+        default_storage.open(key),  # pyright: ignore[reportUnknownMemberType] - Django's lazy default storage loses the backend file generic.
+    )
+    assert stored_file.read() == image.content
 
 
 def test_read_image_url_returns_backend_url_without_persisting_or_logging_it(

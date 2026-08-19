@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from io import BytesIO
 from struct import pack
-from typing import Literal
+from typing import Literal, Protocol, cast
 from zlib import crc32
 
 import pytest
+from django.core.files import File
 from django.core.files.uploadedfile import SimpleUploadedFile
 from PIL import Image, ImageOps, PngImagePlugin
 
@@ -21,6 +22,15 @@ from media.images import (
 )
 
 ImageFormat = Literal["JPEG", "PNG", "WEBP"]
+ImageContentType = Literal["image/jpeg", "image/png", "image/webp"]
+ImageExtension = Literal["jpg", "png", "webp"]
+
+
+class AnimatedImage(Protocol):
+    """Pillow runtime attributes omitted from its current type stubs."""
+
+    n_frames: int
+    is_animated: bool
 
 
 def image_bytes(
@@ -32,7 +42,7 @@ def image_bytes(
     """Create a valid image without a checked-in binary fixture."""
     image = Image.new("RGB", size, color=(12, 34, 56))
     if size == (2, 3):
-        image.putdata(
+        image.putdata(  # pyright: ignore[reportUnknownMemberType] - Pillow stub has an unknown putdata overload.
             (
                 (255, 0, 0),
                 (0, 255, 0),
@@ -71,15 +81,13 @@ def assert_display_pixels_preserved(
     """Reject blank/corrupt output while allowing expected lossy codec rounding."""
     actual = decoded_rgb(actual_content)
     assert actual.size == expected.size
-    for actual_pixel, expected_pixel in zip(
-        actual.get_flattened_data(), expected.get_flattened_data(), strict=True
-    ):
-        assert all(
-            abs(actual_channel - expected_channel) <= 48
-            for actual_channel, expected_channel in zip(
-                actual_pixel, expected_pixel, strict=True
-            )
+    assert len(actual.tobytes()) == len(expected.tobytes())
+    assert all(
+        abs(actual_channel - expected_channel) <= 48
+        for actual_channel, expected_channel in zip(
+            actual.tobytes(), expected.tobytes(), strict=True
         )
+    )
 
 
 def upload(
@@ -91,27 +99,29 @@ def upload(
     return SimpleUploadedFile(name, content, content_type=content_type)
 
 
-class ReadSpyUpload(SimpleUploadedFile):
+class ReadSpyUpload:
     """Record the normalizer's source read bounds without changing file behavior."""
 
     def __init__(self, content: bytes) -> None:
-        super().__init__("source.png", content, content_type="image/png")
+        self.name = "source.png"
+        self.content_type = "image/png"
+        self._source = BytesIO(content)
         self.read_sizes: list[int | None] = []
         self.read_lengths: list[int] = []
 
     def read(self, size: int | None = -1) -> bytes:
         self.read_sizes.append(size)
-        content = super().read() if size is None else super().read(size)
+        content = self._source.read() if size is None else self._source.read(size)
         self.read_lengths.append(len(content))
         return content
 
 
 def assert_rejected(
-    source: SimpleUploadedFile, expected_code: ImageRejectionCode
+    source: SimpleUploadedFile | ReadSpyUpload, expected_code: ImageRejectionCode
 ) -> ImageValidationError:
     """Require a domain-level, stable rejection rather than Pillow diagnostics."""
     with pytest.raises(ImageValidationError) as raised:
-        normalize_image(source)
+        normalize_image(cast("File[bytes]", source))
 
     error = raised.value
     assert type(error.code) is ImageRejectionCode
@@ -129,8 +139,8 @@ def assert_rejected(
 )
 def test_normalize_image_returns_decoded_format_not_filename_or_claimed_mime_type(
     image_format: ImageFormat,
-    content_type: str,
-    extension: str,
+    content_type: ImageContentType,
+    extension: ImageExtension,
     decoded_format: ImageFormat,
 ) -> None:
     """Decoded content, rather than upload labels, defines canonical media identity."""
@@ -158,7 +168,7 @@ def test_normalize_image_returns_decoded_format_not_filename_or_claimed_mime_typ
 
 def test_normalize_image_applies_exif_orientation_and_replaces_source_bytes() -> None:
     image = Image.new("RGB", (3, 2), color=(12, 34, 56))
-    image.putdata(
+    image.putdata(  # pyright: ignore[reportUnknownMemberType] - Pillow stub has an unknown putdata overload.
         (
             (255, 0, 0),
             (0, 255, 0),
@@ -340,8 +350,9 @@ def test_normalize_image_rejects_gif_and_animated_webp() -> None:
     )
 
     with Image.open(BytesIO(webp.getvalue())) as animated_webp:
-        assert animated_webp.n_frames > 1
-        assert animated_webp.is_animated
+        animated = cast(AnimatedImage, animated_webp)
+        assert animated.n_frames > 1
+        assert animated.is_animated
         animated_webp.seek(1)
         assert animated_webp.convert("RGB").getpixel((0, 0)) == (3, 2, 1)
 

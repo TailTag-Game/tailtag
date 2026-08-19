@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from hashlib import sha256
 from io import BytesIO
+from typing import Protocol, cast
 
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
+from django.core.files import File
 from django.core.files.base import ContentFile
 
 from media.storage import S3MediaStorage
@@ -19,20 +21,23 @@ class FakeS3Client:
         self.calls: list[tuple[str, dict[str, object]]] = []
         self.head_error: BaseException | None = None
 
-    def put_object(self, **kwargs: object) -> None:
+    def put_object(self, **kwargs: object) -> object:
         self.calls.append(("put_object", kwargs))
+        return {}
 
-    def get_object(self, **kwargs: object) -> dict[str, BytesIO]:
+    def get_object(self, **kwargs: object) -> dict[str, object]:
         self.calls.append(("get_object", kwargs))
         return {"Body": BytesIO(b"stored-content")}
 
-    def head_object(self, **kwargs: object) -> None:
+    def head_object(self, **kwargs: object) -> dict[str, object]:
         self.calls.append(("head_object", kwargs))
         if self.head_error is not None:
             raise self.head_error
+        return {}
 
-    def delete_object(self, **kwargs: object) -> None:
+    def delete_object(self, **kwargs: object) -> object:
         self.calls.append(("delete_object", kwargs))
+        return {}
 
     def generate_presigned_url(self, operation: str, **kwargs: object) -> str:
         self.calls.append(
@@ -53,6 +58,22 @@ class RecordingClientFactory:
         return self.client
 
 
+class StaticClientFactory:
+    """Provide the fake through S3MediaStorage's structural client protocol."""
+
+    def __init__(self, client: FakeS3Client) -> None:
+        self.client = client
+
+    def __call__(self, *_args: object, **_kwargs: object) -> FakeS3Client:
+        return self.client
+
+
+class SignatureV4Config(Protocol):
+    """The public botocore configuration field asserted by this contract."""
+
+    signature_version: str
+
+
 @pytest.fixture
 def client() -> FakeS3Client:
     return FakeS3Client()
@@ -66,7 +87,7 @@ def storage(client: FakeS3Client) -> S3MediaStorage:
         region_name="auto",
         access_key_id="test-access-key",
         secret_access_key="test-" + "secret-" + "value",
-        client_factory=lambda *_args, **_kwargs: client,
+        client_factory=StaticClientFactory(client),
     )
 
 
@@ -88,7 +109,11 @@ def test_s3_storage_uses_configured_bucket_and_key_for_all_object_operations(
     key = "images/0123456789abcdef0123456789abcdef.jpg"
 
     assert storage.save(key, ContentFile(b"canonical-content")) == key
-    assert storage.open(key).read() == b"stored-content"
+    opened: File[bytes] = cast(
+        "File[bytes]",
+        storage.open(key),  # pyright: ignore[reportUnknownMemberType] - Django Storage.open omits its concrete File generic.
+    )
+    assert opened.read() == b"stored-content"
     assert storage.exists(key) is True
     storage.delete(key)
 
@@ -131,7 +156,8 @@ def test_s3_storage_configures_a_signature_v4_client_with_only_its_supplied_s3_v
         sha256(str(arguments["aws_secret_access_key"]).encode()).digest()
         == sha256(secret.encode()).digest()
     )
-    assert arguments["config"].signature_version == "s3v4"
+    config = cast(SignatureV4Config, arguments["config"])
+    assert config.signature_version == "s3v4"
 
 
 @pytest.mark.parametrize(
@@ -145,9 +171,12 @@ def test_s3_storage_configures_a_signature_v4_client_with_only_its_supplied_s3_v
 def test_s3_storage_rejects_unvalidated_keys_before_client_access(
     storage: S3MediaStorage, client: FakeS3Client, unsafe_key: str
 ) -> None:
+    def open_unsafe_key() -> None:
+        storage.open(unsafe_key)  # pyright: ignore[reportUnknownMemberType] - return type is irrelevant to this rejection-only assertion.
+
     for operation in (
         lambda: storage.save(unsafe_key, ContentFile(b"content")),
-        lambda: storage.open(unsafe_key),
+        open_unsafe_key,
         lambda: storage.exists(unsafe_key),
         lambda: storage.delete(unsafe_key),
         lambda: storage.url(unsafe_key),
@@ -191,7 +220,7 @@ def test_s3_storage_cannot_override_the_fixed_presigned_read_expiry(
             access_key_id="test-access-key",
             secret_access_key="test-" + "secret-" + "value",
             url_expiry_seconds=requested_expiry,
-            client_factory=lambda *_args, **_kwargs: client,
+            client_factory=StaticClientFactory(client),
         )
     except ValueError:
         return
