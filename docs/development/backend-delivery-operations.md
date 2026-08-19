@@ -335,28 +335,6 @@ rollback does not restore or delete R2 objects, just as it does not restore
 PostgreSQL state; assess references and objects independently before a rollback
 or forward-recovery decision.
 
-Future #113/#115 database callbacks are synchronous and caller-owned. Each
-replacement or removal callback must atomically verify that the persisted media
-reference still equals `old_key`, or hold an equivalent row lock. A conflict
-raises unchanged; following a losing replacement upload, the media boundary
-best-effort deletes that new object without masking the conflict. Those issues
-must integration-test concurrent replace/replace and replace/remove cases.
-
-### Upload-enablement readiness gates for #113 and #115
-
-Before either later issue enables uploads, maintainers must obtain operational
-evidence outside #112 that both gates hold:
-
-- A 25,000,000-pixel RGBA image normalizes in a production-equivalent container
-  constrained to Railway's actual memory limit.
-- Under configured client timeouts, a simulated R2 stall/outage exits within
-  approximately 25 seconds.
-
-These gates retain the existing 25 MP acceptance limit and are not #112
-completion work. They do not authorize repository code, tests, CI, or startup
-to mutate Cloudflare or Railway resources; use controlled simulation and
-sanitized evidence only.
-
 | Variable | Authority and handling |
 | --- | --- |
 | `DATABASE_URL` | `api` uses a Railway reference to `Postgres.DATABASE_URL`. Do not replace it with copied credentials or expose PostgreSQL publicly. |

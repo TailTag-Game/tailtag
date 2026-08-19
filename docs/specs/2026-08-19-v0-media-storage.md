@@ -102,14 +102,9 @@ URLs, or upload-finalization protocol in this issue.
 
 ## Lifecycle ordering
 
-The media boundary accepts synchronous caller-supplied commit operations so
-later domain services can own their database transactions while reusing the
-required object ordering. For replacement or removal, the caller's callback
-MUST atomically verify that the persisted reference still equals `old_key`, or
-hold an equivalent row lock while changing that reference. A conflict MUST
-raise unchanged; after a replacement upload, that causes the media boundary to
-best-effort delete the losing new object before re-raising the original
-exception.
+The media boundary accepts caller-supplied commit operations so later domain
+services can own their database transactions while reusing the required object
+ordering.
 
 Replacement follows this sequence:
 
@@ -140,11 +135,6 @@ place and may create an orphan. General account deletion, fursuit deletion,
 scheduled garbage collection, bucket inventory reconciliation, and a generic
 asset lifecycle platform remain outside this issue.
 
-Issues #113 and #115 own the database callbacks and must integration-test
-concurrent replace/replace and replace/remove attempts. They must demonstrate
-that only the valid current reference commits and that a losing replacement is
-compensated without hiding its conflict.
-
 ## Configuration and operations
 
 Production settings require generic S3-compatible values for:
@@ -167,14 +157,6 @@ credential creation or rotation, and Railway variable changes are explicit
 maintainer operations outside local implementation authority. Documentation
 must describe the sanitized variable names and validation procedure without
 recording rendered values.
-
-Before #113 or #115 enables uploads, maintainers must produce operational
-readiness evidence outside #112: normalize a 25,000,000-pixel RGBA image in a
-production-equivalent container constrained to Railway's actual memory limit,
-and simulate an R2 stall/outage under the configured client timeouts to confirm
-the operation exits within approximately 25 seconds. These gates do not change
-the 25,000,000-pixel acceptance limit, are not performed by #112, and do not
-authorize repository code, tests, or startup to mutate external resources.
 
 ## Acceptance Contract
 
@@ -217,22 +199,8 @@ authorize repository code, tests, or startup to mutate external resources.
 - A failed old-object deletion never reverses a committed reference.
 - Optional removal commits the absent reference before best-effort object
   deletion.
-- Caller-owned replacement/removal callbacks synchronously perform an atomic
-  `old_key` comparison or hold an equivalent row lock; conflicts preserve their
-  original exception after best-effort losing-upload compensation.
 - Orphan risk is documented without adding scheduled collection or generalized
   lifecycle infrastructure.
-
-### Downstream upload readiness
-
-- Before #113 or #115 enables uploads, operational evidence must show that
-  25,000,000-pixel RGBA normalization succeeds in a production-equivalent
-  container under Railway's actual memory limit.
-- The same readiness work must show a simulated R2 stall/outage exits within
-  approximately 25 seconds under configured client timeouts.
-- #113 and #115 must integration-test concurrent replace/replace and
-  replace/remove conflicts. These requirements do not alter #112's image limit
-  or permit external-resource mutation by #112.
 
 ### Scope protection
 
