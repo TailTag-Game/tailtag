@@ -9,6 +9,8 @@ from zlib import crc32
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
+from PIL import Image, ImageOps, PngImagePlugin
+
 from media.images import (
     MAX_IMAGE_BYTES,
     MAX_IMAGE_PIXELS,
@@ -17,7 +19,6 @@ from media.images import (
     NormalizedImage,
     normalize_image,
 )
-from PIL import Image, ImageOps, PngImagePlugin
 
 ImageFormat = Literal["JPEG", "PNG", "WEBP"]
 
@@ -168,12 +169,13 @@ def test_normalize_image_removes_source_metadata_and_unparsed_source_tail() -> N
     metadata.add_text("XML:com.adobe.xmp", "source-xmp-sentinel")
     exif = Image.Exif()
     exif[315] = "source-exif-sentinel"
+    source_icc_profile = b"source-icc-sentinel"
     source = (
         image_bytes(
             "PNG",
             pnginfo=metadata,
             exif=exif.tobytes(),
-            icc_profile=b"source-icc-sentinel",
+            icc_profile=source_icc_profile,
         )
         + b"source-byte-tail-sentinel"
     )
@@ -182,9 +184,10 @@ def test_normalize_image_removes_source_metadata_and_unparsed_source_tail() -> N
         b"source-comment-sentinel",
         b"source-xmp-sentinel",
         b"source-exif-sentinel",
-        b"source-icc-sentinel",
     ):
         assert marker in source
+    with Image.open(BytesIO(source)) as decoded_source:
+        assert decoded_source.info["icc_profile"] == source_icc_profile
 
     normalized = normalize_image(upload(source, name="metadata.png"))
 
@@ -192,7 +195,6 @@ def test_normalize_image_removes_source_metadata_and_unparsed_source_tail() -> N
         b"source-comment-sentinel",
         b"source-xmp-sentinel",
         b"source-exif-sentinel",
-        b"source-icc-sentinel",
         b"source-byte-tail-sentinel",
     ):
         assert source_marker not in normalized.content
@@ -289,9 +291,16 @@ def test_normalize_image_rejects_gif_and_animated_webp() -> None:
         format="WEBP",
         save_all=True,
         append_images=[second],
-        duration=100,
+        duration=[100, 100],
         loop=0,
+        lossless=True,
     )
+
+    with Image.open(BytesIO(webp.getvalue())) as animated_webp:
+        assert animated_webp.n_frames > 1
+        assert animated_webp.is_animated
+        animated_webp.seek(1)
+        assert animated_webp.convert("RGB").getpixel((0, 0)) == (3, 2, 1)
 
     assert_rejected(upload(gif.getvalue(), name="photo.png"))
     assert_rejected(upload(webp.getvalue(), name="photo.webp"))
