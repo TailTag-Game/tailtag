@@ -79,12 +79,13 @@ def _has_disallowed_content_signature(content: bytes) -> bool:
         return False
 
     root_boundary = leading_content[4:5]
-    return root_boundary in {b" ", b"\t", b"\r", b"\n", b"/", b">"} and b">" in leading_content[:4096]
+    return (
+        root_boundary in {b" ", b"\t", b"\r", b"\n", b"/", b">"}
+        and b">" in leading_content[:4096]
+    )
 
 
-def _save(
-    image: Image.Image, image_format: Literal["JPEG", "PNG", "WEBP"]
-) -> bytes:
+def _save(image: Image.Image, image_format: Literal["JPEG", "PNG", "WEBP"]) -> bytes:
     destination = BytesIO()
     if image_format == "JPEG":
         image.save(
