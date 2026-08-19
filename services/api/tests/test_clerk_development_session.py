@@ -395,7 +395,7 @@ def install_frontend_mock(
         clients.append(client)
         return client
 
-    monkeypatch.setattr(development_session.httpx, "Client", make_client)
+    monkeypatch.setattr(development_session, "_http_client_factory", make_client)
     return clients
 
 
@@ -958,7 +958,7 @@ def test_frontend_api_uses_one_persistent_httpx_client_with_the_spike_wire_contr
         clients.append(client)
         return client
 
-    monkeypatch.setattr(development_session.httpx, "Client", make_fapi_client)
+    monkeypatch.setattr(development_session, "_http_client_factory", make_fapi_client)
 
     token = session.create_verified_token()
     session.cleanup()
@@ -1030,7 +1030,7 @@ def test_frontend_api_client_is_closed_after_a_failure_and_close_failure_is_clea
         clients.append(client)
         return client
 
-    monkeypatch.setattr(development_session.httpx, "Client", make_fapi_client)
+    monkeypatch.setattr(development_session, "_http_client_factory", make_fapi_client)
 
     with pytest.raises(development_session.ClerkFlowFailure) as primary:
         session.create_verified_token()
@@ -1063,7 +1063,9 @@ def test_fapi_client_construction_failure_is_a_sanitized_transport_failure_and_r
     def fail_client_construction(**_kwargs: object) -> httpx.Client:
         raise RuntimeError("synthetic fapi client construction failure")
 
-    monkeypatch.setattr(development_session.httpx, "Client", fail_client_construction)
+    monkeypatch.setattr(
+        development_session, "_http_client_factory", fail_client_construction
+    )
 
     with pytest.raises(development_session.ClerkFlowFailure) as raised:
         session.create_verified_token()

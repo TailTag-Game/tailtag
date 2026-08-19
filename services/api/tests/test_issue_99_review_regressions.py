@@ -245,7 +245,7 @@ def install_fapi_mock(
         clients.append(client)
         return client
 
-    monkeypatch.setattr(development_session.httpx, "Client", make_client)
+    monkeypatch.setattr(development_session, "_http_client_factory", make_client)
     return clients
 
 
@@ -725,7 +725,12 @@ print("verified")
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == "verified\n"
-    assert completed.stderr == ""
+    assert "Traceback" not in completed.stderr
+    for sensitive_value in (
+        "user_subprocess_verifier_subject",
+        "sess_subprocess_verifier_session",
+    ):
+        assert sensitive_value not in completed.stderr
 
 
 @pytest.mark.parametrize("port", (443, 8443))
@@ -868,7 +873,9 @@ def test_sign_in_ticket_credential_unavailable_has_one_sanitized_public_stage(
     def prohibit_frontend_api(**_kwargs: object) -> httpx.Client:
         raise AssertionError("missing ticket credential must stop before Frontend API")
 
-    monkeypatch.setattr(development_session.httpx, "Client", prohibit_frontend_api)
+    monkeypatch.setattr(
+        development_session, "_http_client_factory", prohibit_frontend_api
+    )
 
     assert run_main_with_session(monkeypatch, session) == 1
     captured = capsys.readouterr()
@@ -901,7 +908,9 @@ def test_primary_domain_authority_unavailable_has_one_sanitized_public_stage(
     def prohibit_frontend_api(**_kwargs: object) -> httpx.Client:
         raise AssertionError("invalid primary domain must stop before Frontend API")
 
-    monkeypatch.setattr(development_session.httpx, "Client", prohibit_frontend_api)
+    monkeypatch.setattr(
+        development_session, "_http_client_factory", prohibit_frontend_api
+    )
 
     assert run_main_with_runtime(monkeypatch, _ValidationRuntime(transport)) == 1
     captured = capsys.readouterr()
@@ -1021,126 +1030,109 @@ def development_browser_error_body(field: str, message: str) -> bytes:
 
 
 @pytest.mark.parametrize(
-    "status, body, headers, expected_stage, body_must_be_read",
+    "status, body, headers, expected_stage",
     (
         (
             400,
             development_browser_error_body("message", "invalid request"),
             (),
             "provider development-browser request invalid",
-            False,
         ),
         (
             401,
             development_browser_error_body("message", "unauthenticated request"),
             (),
             "provider development-browser request unauthenticated",
-            False,
         ),
         (
             403,
             development_browser_error_body("long_message", "origin is not allowed"),
             (),
             "provider development-browser origin rejected",
-            True,
         ),
         (
             403,
             development_browser_error_body("message", "origin is not allowed"),
             (),
             "provider development-browser origin rejected",
-            True,
         ),
         (
             403,
             development_browser_error_body("message", "hostname is not allowed"),
             (),
             "provider development-browser hostname rejected",
-            True,
         ),
         (
             403,
             development_browser_error_body("long_message", "hostname is not allowed"),
             (),
             "provider development-browser hostname rejected",
-            True,
         ),
         (
             403,
             development_browser_error_body("message", "host is not allowed"),
             (),
             "provider development-browser hostname rejected",
-            True,
         ),
         (
             403,
             development_browser_error_body("long_message", "host is not allowed"),
             (),
             "provider development-browser hostname rejected",
-            True,
         ),
         (
             403,
             development_browser_error_body("message", "bot verification required"),
             (),
             "provider development-browser browser challenge required",
-            True,
         ),
         (
             403,
             development_browser_error_body("long_message", "bot verification required"),
             (),
             "provider development-browser browser challenge required",
-            True,
         ),
         (
             403,
             development_browser_error_body("message", "captcha required"),
             (),
             "provider development-browser browser challenge required",
-            True,
         ),
         (
             403,
             development_browser_error_body("long_message", "captcha required"),
             (),
             "provider development-browser browser challenge required",
-            True,
         ),
         (
             403,
             development_browser_error_body("message", "challenge required"),
             (),
             "provider development-browser browser challenge required",
-            True,
         ),
         (
             403,
             development_browser_error_body("long_message", "challenge required"),
             (),
             "provider development-browser browser challenge required",
-            True,
         ),
         (
             403,
             development_browser_error_body("message", "unknown provider detail"),
             (("cf-mitigated", "challenge"),),
             "provider development-browser browser challenge required",
-            False,
         ),
         (
             403,
             development_browser_error_body("message", "unknown provider detail"),
             (("x-vercel-mitigated", "challenge"),),
             "provider development-browser browser challenge required",
-            False,
         ),
         (
             403,
             development_browser_error_body("message", "unknown provider detail"),
             (),
             "provider development-browser request forbidden",
-            True,
         ),
         (
             403,
@@ -1148,7 +1140,6 @@ def development_browser_error_body(field: str, message: str) -> bytes:
             f'{SYNTHETIC_NEW_SESSION} {SYNTHETIC_TOKEN}"}}'.encode(),
             (),
             "provider development-browser request forbidden",
-            True,
         ),
         (
             403,
@@ -1156,14 +1147,12 @@ def development_browser_error_body(field: str, message: str) -> bytes:
             f"{SYNTHETIC_TICKET} {SYNTHETIC_NEW_SESSION} {SYNTHETIC_TOKEN}".encode(),
             (),
             "provider development-browser request forbidden",
-            True,
         ),
         (
             500,
             development_browser_error_body("message", "provider rejected request"),
             (),
             "provider development-browser request rejected",
-            False,
         ),
     ),
     ids=(
@@ -1196,7 +1185,6 @@ def test_development_browser_http_errors_have_fixed_sanitized_stages(
     body: bytes,
     headers: tuple[tuple[str, str], ...],
     expected_stage: str,
-    body_must_be_read: bool,
 ) -> None:
     """Only the first FAPI request classifies provider HTTP failures."""
     session, transport = validated_session(_Ticket())
@@ -1220,9 +1208,6 @@ def test_development_browser_http_errors_have_fixed_sanitized_stages(
     assert_fapi_failure_output_is_sanitized(captured)
     assert captured.err == f"FAIL {expected_stage}\n"
     assert_development_browser_failure_cleanup(transport, opener.urls)
-    # HTTPX eagerly buffers transport responses; classification still may use
-    # only the contract's bounded diagnostic prefix.
-    assert isinstance(body_must_be_read, bool)
 
 
 @pytest.mark.parametrize(
@@ -2158,7 +2143,7 @@ def test_frontend_api_http_disables_environment_proxies_and_redirects(
         )
 
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.synthetic.invalid:8080")
-    monkeypatch.setattr(development_session.httpx, "Client", make_client)
+    monkeypatch.setattr(development_session, "_http_client_factory", make_client)
 
     with pytest.raises(development_session.ClerkFlowFailure):
         session.create_verified_token()

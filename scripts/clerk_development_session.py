@@ -42,6 +42,7 @@ _PROVIDER_LOGGER_NAMES: Final = (
     "httpcore.http11",
     "httpcore.http2",
 )
+_http_client_factory = httpx.Client
 
 
 class ClerkFlowStage(StrEnum):
@@ -209,7 +210,7 @@ class ClerkDevelopmentSession:
         http_client = (
             None
             if transport is not None
-            else httpx.Client(trust_env=False, follow_redirects=False)
+            else _http_client_factory(trust_env=False, follow_redirects=False)
         )
         try:
             clerk: Any = (
@@ -526,7 +527,7 @@ class ClerkDevelopmentSession:
                 ClerkFlowStage.DEVELOPMENT_BROWSER_TRANSPORT_UNAVAILABLE
             )
         try:
-            client = httpx.Client(
+            client = _http_client_factory(
                 base_url=self._fapi_authority,
                 headers={
                     "Clerk-API-Version": _FAPI_API_VERSION,

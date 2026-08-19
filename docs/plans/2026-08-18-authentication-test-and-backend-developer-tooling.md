@@ -388,7 +388,7 @@ Reject non-`sk_test_` input before constructing `Clerk`. Construct `Clerk(bearer
 
 - [ ] **Step 4: Implement the documented FAPI ticket exchange**
 
-Create `CreateSignInTokenRequestBody(user_id=user_id, expires_in_seconds=60)` through `clerk.sign_in_tokens.create()`. Derive the Frontend API authority only from the sign-in URL returned by that validated instance; do not accept a configured authority. Use a private cookie jar and standard-library opener to perform the documented Frontend API `2026-05-12` sequence:
+Create `CreateSignInTokenRequestBody(user_id=user_id, expires_in_seconds=60)` through `clerk.sign_in_tokens.create()`. Read Domains metadata through the same validated Backend API transport and require exactly one non-satellite primary domain with a canonical Development Frontend API root. Ignore the nullable ticket URL for authority selection, and do not accept a configured or caller-supplied authority. Use a private cookie jar and standard-library opener to perform the documented Frontend API `2026-05-12` sequence:
 
 ```text
 POST /v1/dev_browser
@@ -404,13 +404,13 @@ All relevant Frontend API calls carry `Origin: http://localhost:3000`, use URL-e
 Decode only the JWT header/payload needed to select the matching JWK and test `sid`, `sub`, `azp`, `iat`, and `exp`; never log the decoded object. Build an RSA PEM key from the matching validated-instance JWK with `cryptography`, then pass a Django request containing the Bearer value to the existing verifier.
 
 ```python
+if type(iat) is not int or type(exp) is not int:
+    raise ClerkFlowFailure(ClerkFlowStage.CLAIMS)
 lifetime = exp - iat
 if (
     sid != self._session_id
     or sub != self._user_id
     or azp != TOOLING_ORIGIN
-    or type(iat) is not int
-    or type(exp) is not int
     or not 0 < lifetime <= MAX_SESSION_TOKEN_LIFETIME_SECONDS
     or exp <= int(time.time())
 ):

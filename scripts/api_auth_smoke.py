@@ -23,6 +23,19 @@ from .clerk_development_session import (
 DEFAULT_API_BASE_URL: Final = "http://127.0.0.1:8000"
 _API_ME_PATH: Final = "/api/me/"
 _REQUEST_TIMEOUT_SECONDS: Final = 10
+_BASELINE_TIMEOUT_SECONDS: Final = 30
+_BASELINE_ENVIRONMENT_ALLOWLIST: Final = (
+    "PATH",
+    "SystemRoot",
+    "SYSTEMROOT",
+    "COMSPEC",
+    "PATHEXT",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+)
 _TARGET_FAILURE: Final = "target configuration invalid"
 _BASELINE_FAILURE: Final = "baseline smoke unsuccessful"
 _PROMPT_FAILURE: Final = "interactive terminal unavailable"
@@ -100,11 +113,21 @@ class DefaultSmokeRuntime:
         )
 
     def run_baseline(self, *, base_url: str) -> bool:
-        result = subprocess.run(
-            [sys.executable, _baseline_script_path()],
-            check=False,
-            env={"API_BASE_URL": base_url},
-        )
+        environment = {
+            name: value
+            for name in _BASELINE_ENVIRONMENT_ALLOWLIST
+            if (value := os.environ.get(name)) is not None
+        }
+        environment["API_BASE_URL"] = base_url
+        try:
+            result = subprocess.run(
+                [sys.executable, _baseline_script_path()],
+                check=False,
+                env=environment,
+                timeout=_BASELINE_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            return False
         return result.returncode == 0
 
     def prompt_secret(self) -> str:
@@ -187,8 +210,7 @@ def _root_url_parts(value: str) -> SplitResult:
         or value.endswith(("?", "#"))
         or "%" in parsed.netloc
         or parsed.netloc.endswith(":")
-        or port is None
-        and parsed.scheme == "http"
+        or (port is None and parsed.scheme == "http")
     ):
         raise SmokeFailure(_TARGET_FAILURE)
     return parsed
@@ -248,7 +270,7 @@ def run(environment: Mapping[str, str], runtime: SmokeRuntime) -> SmokeOutcome:
         return SmokeOutcome(primary_stage=_BASELINE_FAILURE)
 
     try:
-        secret = runtime.prompt_secret()
+        secret: str | None = runtime.prompt_secret()
     except Exception as error:  # noqa: BLE001 - terminal details remain private
         _discard_error_details(error)
         return SmokeOutcome(primary_stage=_PROMPT_FAILURE)

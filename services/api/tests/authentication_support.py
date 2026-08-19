@@ -7,10 +7,12 @@ from uuid import uuid4
 from django.conf import settings
 from django.http import HttpRequest
 from pytest import MonkeyPatch
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.test import APIClient
 
 from accounts.models import User
 from authentication.clerk import (
+    _BEARER_CREDENTIAL,  # pyright: ignore[reportPrivateUsage]
     ClerkSessionVerifier,
     ClerkVerificationConfiguration,
     VerifiedClerkIdentity,
@@ -51,7 +53,12 @@ def fake_clerk_session_verification(
     def verify(
         _verifier: ClerkSessionVerifier,
         request: HttpRequest,
-    ) -> VerifiedClerkIdentity:
+    ) -> VerifiedClerkIdentity | None:
+        authorization = request.headers.get("Authorization")
+        if authorization is None:
+            return None
+        if _BEARER_CREDENTIAL.fullmatch(authorization) is None:
+            raise AuthenticationFailed()
         requests.append(request)
         return VerifiedClerkIdentity(subject=subject)
 

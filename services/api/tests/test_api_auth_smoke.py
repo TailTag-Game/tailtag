@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import importlib
 import json
 import logging
 import socket
+import subprocess
 import sys
 import urllib.request
 from collections.abc import Mapping
@@ -381,7 +381,9 @@ def test_default_api_me_boundary_rejects_every_non_200_status(status: int) -> No
 
 
 @pytest.mark.parametrize("status", (301, 302, 303, 307, 308))
-def test_default_api_me_boundary_never_follows_redirects(status: int) -> None:
+def test_default_api_me_boundary_rejects_redirect_status_without_retrying(
+    status: int,
+) -> None:
     opener = RecordingApiOpener(
         _ApiResponse(
             status=status,
@@ -606,16 +608,13 @@ def test_main_uses_hidden_tty_prompt_with_exact_copy_and_never_echoes_secret(
         calls.extend((prompt, stream))
         return secret
 
-    import getpass
-
-    monkeypatch.setattr(getpass, "getpass", hidden_prompt)
-    fresh_module = importlib.reload(auth_smoke)
-    monkeypatch.setattr(fresh_module, "run", run_prompt_probe)
+    monkeypatch.setattr(auth_smoke.getpass, "getpass", hidden_prompt)
+    monkeypatch.setattr(auth_smoke, "run", run_prompt_probe)
     monkeypatch.setattr(sys, "argv", ["api_auth_smoke.py"])
     monkeypatch.setattr(sys, "stdin", TtyStream())
     monkeypatch.setattr(sys, "stderr", TtyStream())
 
-    assert fresh_module.main() == 0
+    assert auth_smoke.main() == 0
     assert calls[0] == "Clerk Development secret:"
     assert calls[1] is sys.stderr
     assert calls[2] == secret
@@ -690,6 +689,56 @@ def test_valid_target_runs_baseline_before_a_tty_prompt_failure() -> None:
     assert runtime.events == ["baseline:http://127.0.0.1:8000", "prompt"]
 
 
+def test_default_runtime_baseline_times_out_closed_with_a_minimal_safe_environment(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """The credential-free child cannot inherit secrets, proxies, or run forever."""
+    allowed_environment = {
+        "PATH": "/synthetic/runtime/bin",
+        "SystemRoot": "C:\\synthetic\\windows",
+        "SYSTEMROOT": "C:\\synthetic\\windows",
+        "COMSPEC": "C:\\synthetic\\windows\\System32\\cmd.exe",
+        "PATHEXT": ".COM;.EXE;.BAT;.CMD",
+        "LANG": "en_US.UTF-8",
+        "LC_ALL": "C",
+        "LC_CTYPE": "C.UTF-8",
+        "SSL_CERT_FILE": "/synthetic/ca.pem",
+        "SSL_CERT_DIR": "/synthetic/certs",
+    }
+    for name, value in allowed_environment.items():
+        monkeypatch.setenv(name, value)
+    for name in (
+        "CLERK_SECRET_KEY",
+        "CLERK_API_KEY",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "UNRELATED_AMBIENT_SETTING",
+    ):
+        monkeypatch.setenv(name, "must-not-reach-baseline")
+
+    captured: list[dict[str, object]] = []
+
+    def timeout(*args: object, **kwargs: object) -> NoReturn:
+        captured.append({"args": args, **kwargs})
+        raise subprocess.TimeoutExpired("synthetic baseline command", 1.0)
+
+    monkeypatch.setattr(auth_smoke.subprocess, "run", timeout)
+
+    assert not auth_smoke.DefaultSmokeRuntime().run_baseline(
+        base_url="http://127.0.0.1:8000"
+    )
+
+    assert len(captured) == 1
+    invocation = captured[0]
+    assert invocation["check"] is False
+    assert isinstance(invocation["timeout"], (int, float))
+    assert 0 < invocation["timeout"] < float("inf")
+    assert invocation["env"] == {
+        **allowed_environment,
+        "API_BASE_URL": "http://127.0.0.1:8000",
+    }
+
+
 def test_main_never_accepts_a_secret_environment_value(
     monkeypatch: MonkeyPatch,
 ) -> None:
@@ -709,17 +758,15 @@ def test_main_never_accepts_a_secret_environment_value(
 
     monkeypatch.setattr(sys, "stdin", TtyStream())
     monkeypatch.setattr(sys, "stderr", TtyStream())
-    import getpass
 
     def prompt_only(_prompt: str, *, stream: object) -> str:
         return "sk_test_prompt_only_value"
 
-    monkeypatch.setattr(getpass, "getpass", prompt_only)
-    fresh_module = importlib.reload(auth_smoke)
-    monkeypatch.setattr(fresh_module, "run", run_prompt_probe)
+    monkeypatch.setattr(auth_smoke.getpass, "getpass", prompt_only)
+    monkeypatch.setattr(auth_smoke, "run", run_prompt_probe)
     monkeypatch.setattr(sys, "argv", ["api_auth_smoke.py"])
 
-    assert fresh_module.main() == 0
+    assert auth_smoke.main() == 0
     assert observed == ["sk_test_prompt_only_value"]
 
 

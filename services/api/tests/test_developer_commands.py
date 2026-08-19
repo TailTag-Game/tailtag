@@ -173,6 +173,7 @@ def test_lifecycle_and_schema_changes_remain_explicit() -> None:
         "api-test",
         "api-shell",
         "api-smoke",
+        "api-auth-smoke",
     )
 
     for target in non_mutating_targets:
@@ -197,6 +198,19 @@ def test_authenticated_smoke_is_a_separate_locked_atomic_command() -> None:
         in completed.stdout
     )
     assert str(AUTH_SMOKE_SCRIPT) not in run_make("-n", "api-smoke").stdout
+
+
+def test_authenticated_smoke_honors_uv_override(tmp_path: Path) -> None:
+    """The manual live command respects the repository's UV override seam."""
+    overridden_uv = tmp_path / "overridden-uv"
+    overridden_uv.write_text("#!/bin/sh\nexit 0\n")
+    overridden_uv.chmod(0o755)
+
+    completed = run_make("-n", "api-auth-smoke", f"UV={overridden_uv}")
+
+    assert completed.returncode == 0, completed.stderr
+    assert f"{overridden_uv} run " in completed.stdout
+    assert "python -m scripts.api_auth_smoke" in completed.stdout
 
 
 def test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free() -> None:
