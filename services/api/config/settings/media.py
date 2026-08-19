@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from ipaddress import ip_address
 from urllib.parse import urlparse
 
 
@@ -39,11 +40,45 @@ def _required_value(environment: Mapping[str, str], name: str) -> str:
     return value
 
 
+def _is_valid_hostname(hostname: str | None) -> bool:
+    """Accept a valid IP address or conventional DNS hostname only."""
+    if not hostname or any(character.isspace() for character in hostname):
+        return False
+
+    try:
+        ip_address(hostname)
+    except ValueError:
+        normalized_hostname = hostname.removesuffix(".")
+        labels = normalized_hostname.split(".")
+        return (
+            bool(normalized_hostname)
+            and len(hostname) <= 253
+            and all(
+                label
+                and len(label) <= 63
+                and label.isascii()
+                and label[0].isalnum()
+                and label[-1].isalnum()
+                and all(character.isalnum() or character == "-" for character in label)
+                for label in labels
+            )
+        )
+    else:
+        return True
+
+
 def _validate_endpoint(endpoint_url: str) -> None:
-    parsed = urlparse(endpoint_url)
+    try:
+        parsed = urlparse(endpoint_url)
+        hostname_is_valid = _is_valid_hostname(parsed.hostname)
+        _port = parsed.port
+    except ValueError:
+        message = "MEDIA_STORAGE_ENDPOINT_URL must be an HTTPS root URL."
+        raise RuntimeError(message) from None
+
     if (
         parsed.scheme != "https"
-        or not parsed.hostname
+        or not hostname_is_valid
         or parsed.username is not None
         or parsed.password is not None
         or parsed.path not in {"", "/"}
