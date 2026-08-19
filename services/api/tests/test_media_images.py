@@ -96,11 +96,14 @@ class ReadSpyUpload(SimpleUploadedFile):
 
     def __init__(self, content: bytes) -> None:
         super().__init__("source.png", content, content_type="image/png")
-        self.read_sizes: list[int] = []
+        self.read_sizes: list[int | None] = []
+        self.read_lengths: list[int] = []
 
-    def read(self, size: int = -1) -> bytes:
+    def read(self, size: int | None = -1) -> bytes:
         self.read_sizes.append(size)
-        return super().read(size)
+        content = super().read() if size is None else super().read(size)
+        self.read_lengths.append(len(content))
+        return content
 
 
 def assert_rejected(
@@ -254,12 +257,14 @@ def test_normalize_image_accepts_exact_byte_limit_and_rejects_one_byte_more() ->
     )
 
 
-def test_normalize_image_reads_at_most_one_byte_past_the_byte_limit() -> None:
-    source = ReadSpyUpload(image_bytes("PNG"))
+def test_normalize_image_uses_bounded_reads_within_the_byte_limit() -> None:
+    source = ReadSpyUpload(image_bytes("PNG") + (b"x" * (MAX_IMAGE_BYTES + 1)))
 
-    normalize_image(source)
+    assert_rejected(source, ImageRejectionCode.FILE_TOO_LARGE)
 
-    assert source.read_sizes == [MAX_IMAGE_BYTES + 1]
+    assert source.read_sizes
+    assert all(size is not None and size >= 0 for size in source.read_sizes)
+    assert sum(source.read_lengths) <= MAX_IMAGE_BYTES + 1
 
 
 def test_normalize_image_accepts_exact_pixel_limit_and_rejects_one_pixel_more() -> None:
