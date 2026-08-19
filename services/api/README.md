@@ -147,7 +147,7 @@ public key and does not make network requests. It does not require, read, or
 document a Clerk secret key or publishable key. TailTag does not independently
 validate or claim to validate `iss`.
 
-TailTag accepts exactly one `Bearer` token68 credential in the `Authorization`
+TailTag accepts exactly one `Bearer` token credential in the `Authorization`
 header; the scheme is case-insensitive. An absent header causes no verification
 attempt. Every supplied malformed or invalid credential fails with the same
 generic authentication failure.
@@ -267,6 +267,31 @@ Clerk token exchange, including against Railway. Add that exact origin to
 `CLERK_AUTHORIZED_PARTIES` in **both** local and Railway development API
 settings. This is backend tooling, so no frontend needs to listen on port 3000.
 Do not add the synthetic origin to production settings.
+
+### Verified Railway Development runtime
+
+Issue [#100](https://github.com/TailTag-Game/tailtag/issues/100) validated the
+complete Clerk-to-TailTag identity path against Railway Development at revision
+`8f11558a41d57cf375316a8f5095a535474f3624`. The `api` service's Development
+runtime contains exactly these TailTag-owned Clerk settings:
+
+- `CLERK_AUTHENTICATION_ENABLED=true`;
+- `CLERK_JWT_KEY`, containing the Clerk Development instance's RSA JWKS Public
+  Key without any Clerk secret key; and
+- `CLERK_AUTHORIZED_PARTIES=http://localhost:3000`.
+
+Apply that configuration as one complete fail-closed contract. Do not add an
+extra authorized party merely because the smoke destination is remote: the
+fixed origin identifies the credential-creation context, while
+`API_BASE_URL` identifies the independently validated API destination.
+
+`CLERK_SMOKE_USER_ID` and `TAILTAG_DEVELOPMENT_API_BASE_URL` remain local
+operator/tooling inputs and do not belong in the Railway API runtime. The
+interactive `sk_test_` credential also remains local process-only input and
+must never be configured on Railway. See the sanitized
+[Railway Development authentication validation](../../docs/reviews/2026-08-18-railway-development-authentication-validation.md)
+for runtime evidence, negative credential checks, first-use provisioning,
+repeat resolution, OpenAPI verification, and limitations.
 
 ### Invocation
 

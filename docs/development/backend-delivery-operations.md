@@ -258,8 +258,19 @@ references, and ownership—not rendered values.
 | `DJANGO_SECRET_KEY` | Railway-managed secret for the development API. Never copy it into source, documentation, or tickets. |
 | `DJANGO_ALLOWED_HOSTS` | Railway `api` development configuration derived from the Railway development domain and required health-check host. |
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | Railway `api` development configuration derived from the public development origin. |
+| `CLERK_AUTHENTICATION_ENABLED` | TailTag-owned Development authentication switch. The validated Railway Development value is exactly `true`; do not enable it without the two complete verification inputs below. |
+| `CLERK_JWT_KEY` | Clerk Development instance RSA JWKS Public Key used for offline verification. It is not a Clerk secret key, but manage it through Railway's staged variable boundary and do not copy its contents into source, issues, reviews, logs, or chat. |
+| `CLERK_AUTHORIZED_PARTIES` | The validated Development contract is exactly `http://localhost:3000`, the synthetic backend-tooling origin. Do not add the Railway API destination or broaden this list without a separately approved authentication requirement. |
 | `PORT` | Railway platform runtime configuration for the container; do not duplicate it as a TailTag-owned Django setting. |
 | Other `RAILWAY_*` values | Platform-owned variables; do not manually duplicate them unless an approved design explicitly requires a user-configured Railway behavior variable. |
+
+`CLERK_SMOKE_USER_ID` and `TAILTAG_DEVELOPMENT_API_BASE_URL` are local
+operator/tooling inputs, not Railway API runtime configuration. The Clerk
+Development `sk_test_` credential is entered through the authenticated smoke
+workflow's hidden interactive prompt and likewise must never be stored as a
+Railway variable. Configure all three runtime Clerk variables together so a
+deployment cannot start with authentication enabled but incomplete verification
+inputs.
 
 Use Railway reference variables for service-to-service configuration so values
 are not copied between services. Railway's
@@ -288,3 +299,4 @@ historical evidence there rather than copying it into this runbook:
 - [Railway development environment review](../reviews/2026-08-13-railway-development-environment.md)
 - [Post-deploy HTTP smoke verification review](../reviews/2026-08-15-post-deploy-http-smoke-verification.md)
 - [Main-to-Railway development delivery review](../reviews/2026-08-16-main-to-railway-development-delivery.md)
+- [Railway Development authentication validation](../reviews/2026-08-18-railway-development-authentication-validation.md)
