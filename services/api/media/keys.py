@@ -17,8 +17,8 @@ def create_image_key(extension: str) -> str:
     return f"images/{uuid4().hex}.{extension}"
 
 
-def validate_image_key(key: str) -> str:
+def validate_image_key(key: object) -> str:
     """Return a conforming key, rejecting every unsafe key identically."""
-    if _IMAGE_KEY_PATTERN.fullmatch(key) is None:
+    if not isinstance(key, str) or _IMAGE_KEY_PATTERN.fullmatch(key) is None:
         raise ValueError(_INVALID_KEY_MESSAGE)
     return key

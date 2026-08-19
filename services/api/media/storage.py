@@ -6,10 +6,14 @@ from typing import IO, TYPE_CHECKING, Any, Protocol, cast
 
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ClientError
 from django.core.files import File
 from django.core.files.storage import Storage
 
 from .keys import validate_image_key
+
+_READ_URL_EXPIRY_SECONDS = 600
+_NOT_FOUND_ERROR_CODES = frozenset({"404", "NoSuchKey", "NotFound"})
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -48,8 +52,9 @@ class S3MediaStorage(Storage):
         selected_region = region_name if region_name is not None else region
         if selected_region is None:
             raise TypeError("S3MediaStorage requires a region.")
+        if url_expiry_seconds != _READ_URL_EXPIRY_SECONDS:
+            raise ValueError("S3MediaStorage read URL expiry must be 600 seconds.")
         self._bucket_name = bucket_name
-        self._url_expiry_seconds = url_expiry_seconds
         client_arguments: dict[str, object] = {
             "endpoint_url": endpoint_url,
             "region_name": selected_region,
@@ -106,7 +111,13 @@ class S3MediaStorage(Storage):
 
     def exists(self, name: str) -> bool:
         key = validate_image_key(name)
-        self._client.head_object(Bucket=self._bucket_name, Key=key)
+        try:
+            self._client.head_object(Bucket=self._bucket_name, Key=key)
+        except ClientError as error:
+            error_code = error.response.get("Error", {}).get("Code")
+            if error_code in _NOT_FOUND_ERROR_CODES:
+                return False
+            raise
         return True
 
     def size(self, name: str) -> int:
@@ -124,7 +135,7 @@ class S3MediaStorage(Storage):
         return self._client.generate_presigned_url(
             "get_object",
             Params={"Bucket": self._bucket_name, "Key": key},
-            ExpiresIn=self._url_expiry_seconds,
+            ExpiresIn=_READ_URL_EXPIRY_SECONDS,
         )
 
 

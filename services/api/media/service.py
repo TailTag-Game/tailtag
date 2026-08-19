@@ -36,7 +36,7 @@ def _compensate_failed_commit(storage: Storage, key: str) -> None:
     """Attempt cleanup without allowing a secondary failure to hide the commit one."""
     try:
         storage.delete(key)
-    except Exception:  # noqa: BLE001 - cleanup failure must be deliberately ignored.
+    except BaseException:  # noqa: BLE001 - cleanup failure must be deliberately ignored.
         return
 
 
