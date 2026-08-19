@@ -276,13 +276,35 @@ must complete this order for Railway `development`:
    deliver through the normal protected-`main` path. Production settings fail
    closed when any required value is absent or an endpoint is not an HTTPS root
    URL; do not merge first and add these variables later.
-5. After the normal deployment and readiness verification, perform one
-   authorized controlled write/read/delete exercise through the application
-   media boundary against Railway Development. Confirm the created object can
-   be written, read through the authorized application flow, and deleted. Do
-   not preserve or share a credential, object key associated with a person, or
-   presigned URL as evidence; record only sanitized pass/fail results and the
-   deployment revision.
+5. After the normal deployment and readiness verification, use an authorized
+   Railway Development shell to run one controlled backend-boundary
+   write/read/delete exercise. Start the Django shell with production settings,
+   then use a synthetic in-memory JPEG with `store_image`, read the private
+   object through `default_storage.open`, and delete it in `finally`:
+
+   ```python
+   from io import BytesIO
+
+   from django.core.files.base import ContentFile
+   from django.core.files.storage import default_storage
+   from PIL import Image
+
+   from media.service import store_image
+
+   source = BytesIO()
+   Image.new("RGB", (1, 1), color=(0, 0, 0)).save(source, format="JPEG")
+   key = store_image(ContentFile(source.getvalue(), name="verification.jpg"))
+   try:
+       with default_storage.open(key) as stored:
+           assert stored.read()
+   finally:
+       default_storage.delete(key)
+   ```
+
+   Do not print `key`, call `default_storage.url`, use user data, or retain any
+   test object. Record only sanitized pass/fail results and the deployment
+   revision. Full authenticated API media-flow validation is deferred to the
+   profile and participating-character work in #113 and #115.
 
 The production storage backend creates only 600-second presigned `GET` URLs;
 they are bearer credentials and must never be persisted or logged. There are

@@ -132,11 +132,12 @@ configuration error that does not print credentials.
 
 ## V0 media storage and image handling
 
-Local Django media uses filesystem storage in the ignored
-`services/api/.media/` directory (the Django `MEDIA_ROOT`), with `/media/` as
-its local URL base. Do not add R2 credentials to `.env`: ordinary automated
-tests override storage with Django in-memory storage or focused fakes and make
-no R2 or other object-storage network requests.
+The local settings profile used by native Django, direct Compose, and the
+devcontainer stores media on the ignored `services/api/.media/` filesystem
+directory (the Django `MEDIA_ROOT`), with `/media/` as its local URL base. Do
+not add R2 credentials to `.env`: ordinary automated tests override storage
+with Django in-memory storage or focused fakes and make no R2 or other
+object-storage network requests.
 
 The reusable media boundary accepts only fully decoded JPEG, PNG, and static
 WebP images. It rejects source streams over 10 MiB, decoded images over
