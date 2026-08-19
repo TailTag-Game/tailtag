@@ -28,7 +28,7 @@ def inspect_storage_settings(
     command = (
         "from django.conf import settings; "
         "print('|'.join((settings.STORAGES['default']['BACKEND'], "
-        "str(settings.STORAGES['default'].get('OPTIONS', {}).get('read_expiry', '')))))"
+        "str(settings.STORAGES['default'].get('OPTIONS', {}).get('url_expiry_seconds', '')))))"
     )
     return subprocess.run(
         [sys.executable, "-c", command],
@@ -55,14 +55,8 @@ def assert_configuration_values_are_sanitized(
 def test_production_settings_require_each_media_variable_without_echoing_values(
     missing_variable: str,
 ) -> None:
-    environment = {
-        **VALID_ENVIRONMENT,
-        **{
-            name: value
-            for name, value in MEDIA_ENVIRONMENT.items()
-            if name != missing_variable
-        },
-    }
+    environment = {**VALID_ENVIRONMENT, **MEDIA_ENVIRONMENT}
+    del environment[missing_variable]
 
     completed = run_settings_import(environment)
 
