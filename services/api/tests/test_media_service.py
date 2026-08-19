@@ -19,6 +19,8 @@ from media.service import (
 
 KEY_PATTERN = re.compile(r"images/[0-9a-f]{32}\.(?:jpg|png|webp)\Z")
 OLD_KEY = "images/11111111111111111111111111111111.jpg"
+REPLACEMENT_CLEANUP_WARNING = "Media cleanup failed after replacement commit."
+REMOVAL_CLEANUP_WARNING = "Media cleanup failed after removal commit."
 
 
 class OrderedStorage(Storage):
@@ -155,6 +157,21 @@ def test_replace_image_saves_then_commits_then_deletes_old_object() -> None:
     assert events == [f"save:{new_key}", f"commit:{new_key}", f"delete:{OLD_KEY}"]
 
 
+def test_replace_image_rejects_an_unsafe_old_key_before_save_or_commit() -> None:
+    events: list[str] = []
+    storage = OrderedStorage(events)
+
+    with pytest.raises(ValueError):
+        replace_image(
+            canonical_image(),
+            old_key="profiles/user-upload.jpg",
+            commit=lambda key: events.append(f"commit:{key}"),
+            storage=storage,
+        )
+
+    assert events == []
+
+
 def test_replace_image_compensates_new_object_after_commit_failure_and_reraises_original() -> (
     None
 ):
@@ -196,12 +213,17 @@ def test_replace_image_preserves_commit_failure_when_compensating_delete_also_fa
     assert raised.value is original
 
 
-def test_replace_image_tolerates_old_object_delete_failure_without_another_commit() -> (
-    None
-):
+def test_replace_image_tolerates_old_object_delete_failure_without_another_commit(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     events: list[str] = []
     storage = OrderedStorage(events)
-    storage.delete_error = OSError("old cleanup failed")
+    storage.delete_error = OSError(
+        "source exception includes "
+        + OLD_KEY
+        + " and https://read.example.test/object?signature=redacted"
+    )
+    caplog.set_level(logging.WARNING)
 
     new_key = replace_image(
         canonical_image(),
@@ -211,6 +233,7 @@ def test_replace_image_tolerates_old_object_delete_failure_without_another_commi
     )
 
     assert events == [f"save:{new_key}", f"commit:{new_key}", f"delete:{OLD_KEY}"]
+    assert caplog.messages == [REPLACEMENT_CLEANUP_WARNING]
 
 
 def test_remove_optional_image_commits_removal_then_deletes_old_object() -> None:
@@ -238,3 +261,23 @@ def test_remove_optional_image_never_deletes_when_removal_commit_fails() -> None
 
     assert raised.value is original
     assert events == ["commit:remove"]
+
+
+def test_remove_optional_image_tolerates_delete_failure_after_authoritative_commit(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    events: list[str] = []
+    storage = OrderedStorage(events)
+    storage.delete_error = OSError(
+        "source exception includes "
+        + OLD_KEY
+        + " and https://read.example.test/object?signature=redacted"
+    )
+    caplog.set_level(logging.WARNING)
+
+    remove_optional_image(
+        OLD_KEY, lambda: events.append("commit:remove"), storage=storage
+    )
+
+    assert events == ["commit:remove", f"delete:{OLD_KEY}"]
+    assert caplog.messages == [REMOVAL_CLEANUP_WARNING]

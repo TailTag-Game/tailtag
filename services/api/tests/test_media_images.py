@@ -17,7 +17,7 @@ from media.images import (
     NormalizedImage,
     normalize_image,
 )
-from PIL import Image, PngImagePlugin
+from PIL import Image, ImageOps, PngImagePlugin
 
 ImageFormat = Literal["JPEG", "PNG", "WEBP"]
 
@@ -30,9 +30,55 @@ def image_bytes(
 ) -> bytes:
     """Create a valid image without a checked-in binary fixture."""
     image = Image.new("RGB", size, color=(12, 34, 56))
+    if size == (2, 3):
+        image.putdata(
+            (
+                (255, 0, 0),
+                (0, 255, 0),
+                (0, 0, 255),
+                (255, 255, 255),
+                (0, 0, 0),
+                (255, 255, 0),
+            )
+        )
     destination = BytesIO()
     image.save(destination, format=image_format, **save_kwargs)
     return destination.getvalue()
+
+
+def tagged_image_bytes(image_format: ImageFormat) -> bytes:
+    """Make a valid source that cannot itself be the canonical stored object."""
+    exif = Image.Exif()
+    exif[315] = "source-software-sentinel"
+    if image_format == "PNG":
+        metadata = PngImagePlugin.PngInfo()
+        metadata.add_text("Source", "metadata-sentinel")
+        return image_bytes("PNG", pnginfo=metadata, exif=exif.tobytes())
+    return image_bytes(image_format, exif=exif.tobytes())
+
+
+def decoded_rgb(content: bytes) -> Image.Image:
+    """Return a fully decoded display image detached from its source stream."""
+    with Image.open(BytesIO(content)) as decoded:
+        decoded.load()
+        return decoded.convert("RGB").copy()
+
+
+def assert_display_pixels_preserved(
+    actual_content: bytes, expected: Image.Image
+) -> None:
+    """Reject blank/corrupt output while allowing expected lossy codec rounding."""
+    actual = decoded_rgb(actual_content)
+    assert actual.size == expected.size
+    for actual_pixel, expected_pixel in zip(
+        actual.getdata(), expected.getdata(), strict=True
+    ):
+        assert all(
+            abs(actual_channel - expected_channel) <= 48
+            for actual_channel, expected_channel in zip(
+                actual_pixel, expected_pixel, strict=True
+            )
+        )
 
 
 def upload(
@@ -67,9 +113,10 @@ def test_normalize_image_returns_decoded_format_not_filename_or_claimed_mime_typ
     image_format: ImageFormat, content_type: str, extension: str
 ) -> None:
     """Decoded content, rather than upload labels, defines canonical media identity."""
+    source = tagged_image_bytes(image_format)
     normalized = normalize_image(
         upload(
-            image_bytes(image_format),
+            source,
             name="misleading-name.svg",
             content_type="image/svg+xml",
         )
@@ -82,10 +129,22 @@ def test_normalize_image_returns_decoded_format_not_filename_or_claimed_mime_typ
         width=2,
         height=3,
     )
+    assert normalized.content != source
+    assert_display_pixels_preserved(normalized.content, decoded_rgb(source))
 
 
 def test_normalize_image_applies_exif_orientation_and_replaces_source_bytes() -> None:
     image = Image.new("RGB", (3, 2), color=(12, 34, 56))
+    image.putdata(
+        (
+            (255, 0, 0),
+            (0, 255, 0),
+            (0, 0, 255),
+            (255, 255, 255),
+            (0, 0, 0),
+            (255, 255, 0),
+        )
+    )
     exif = Image.Exif()
     exif[274] = 6
     source = BytesIO()
@@ -96,9 +155,11 @@ def test_normalize_image_applies_exif_orientation_and_replaces_source_bytes() ->
     assert normalized.width == 2
     assert normalized.height == 3
     assert normalized.content != source.getvalue()
-    with Image.open(BytesIO(normalized.content)) as decoded:
-        assert decoded.size == (2, 3)
-        assert decoded.getexif().get(274) is None
+    with Image.open(BytesIO(source.getvalue())) as decoded_source:
+        expected_display = ImageOps.exif_transpose(decoded_source).convert("RGB").copy()
+    with Image.open(BytesIO(normalized.content)) as normalized_image:
+        assert normalized_image.getexif().get(274) is None
+    assert_display_pixels_preserved(normalized.content, expected_display)
 
 
 def test_normalize_image_removes_source_metadata_and_unparsed_source_tail() -> None:
@@ -193,15 +254,28 @@ def test_normalize_image_rejects_pillow_decompression_bomb_warning_or_error(
     "source",
     (
         upload(b"<svg xmlns='http://www.w3.org/2000/svg' />", name="image.jpg"),
-        upload(image_bytes("JPEG")[:20], name="truncated.jpeg"),
         upload(b"%PDF-1.7\nnot-an-image", name="looks-like.png"),
     ),
-    ids=("svg", "truncated", "unsupported-signature"),
+    ids=("svg", "unsupported-signature"),
 )
-def test_normalize_image_rejects_unsupported_or_malformed_content(
+def test_normalize_image_rejects_unsupported_content(
     source: SimpleUploadedFile,
 ) -> None:
     assert_rejected(source)
+
+
+def test_normalize_image_rejects_an_image_identified_by_header_but_truncated_at_load() -> (
+    None
+):
+    source = image_bytes("JPEG", size=(128, 128), quality=100, subsampling=0)
+    truncated = source[:-64]
+
+    with Image.open(BytesIO(truncated)) as identified:
+        assert identified.format == "JPEG"
+        with pytest.raises(OSError):
+            identified.load()
+
+    assert_rejected(upload(truncated, name="truncated.jpeg"))
 
 
 def test_normalize_image_rejects_gif_and_animated_webp() -> None:

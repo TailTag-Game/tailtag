@@ -44,6 +44,13 @@ def inspect_storage_settings(
     )
 
 
+def assert_configuration_values_are_sanitized(
+    standard_error: str, environment: Mapping[str, str]
+) -> None:
+    """Require startup failures to name a variable, never render its supplied values."""
+    assert all(value not in standard_error for value in environment.values() if value)
+
+
 @pytest.mark.parametrize("missing_variable", tuple(MEDIA_ENVIRONMENT))
 def test_production_settings_require_each_media_variable_without_echoing_values(
     missing_variable: str,
@@ -61,7 +68,7 @@ def test_production_settings_require_each_media_variable_without_echoing_values(
 
     assert completed.returncode != 0
     assert missing_variable in completed.stderr
-    assert all(value not in completed.stderr for value in MEDIA_ENVIRONMENT.values())
+    assert_configuration_values_are_sanitized(completed.stderr, environment)
 
 
 @pytest.mark.parametrize(
@@ -77,17 +84,38 @@ def test_production_settings_require_each_media_variable_without_echoing_values(
 def test_production_settings_reject_non_root_or_non_https_media_endpoints_without_echoing_them(
     invalid_endpoint: str,
 ) -> None:
-    completed = run_settings_import(
-        {
-            **VALID_ENVIRONMENT,
-            **MEDIA_ENVIRONMENT,
-            "MEDIA_STORAGE_ENDPOINT_URL": invalid_endpoint,
-        }
-    )
+    environment = {
+        **VALID_ENVIRONMENT,
+        **MEDIA_ENVIRONMENT,
+        "MEDIA_STORAGE_ENDPOINT_URL": invalid_endpoint,
+    }
+    completed = run_settings_import(environment)
 
     assert completed.returncode != 0
     assert "MEDIA_STORAGE_ENDPOINT_URL" in completed.stderr
-    assert invalid_endpoint not in completed.stderr
+    assert_configuration_values_are_sanitized(completed.stderr, environment)
+
+
+@pytest.mark.parametrize(
+    "variable",
+    (
+        "MEDIA_STORAGE_BUCKET_NAME",
+        "MEDIA_STORAGE_REGION",
+        "MEDIA_STORAGE_ACCESS_KEY_ID",
+        "MEDIA_STORAGE_SECRET_ACCESS_KEY",
+    ),
+)
+@pytest.mark.parametrize("invalid_value", ("", "\t \t"), ids=("empty", "whitespace"))
+def test_production_settings_reject_empty_or_whitespace_media_credentials(
+    variable: str, invalid_value: str
+) -> None:
+    environment = {**VALID_ENVIRONMENT, **MEDIA_ENVIRONMENT, variable: invalid_value}
+
+    completed = run_settings_import(environment)
+
+    assert completed.returncode != 0
+    assert variable in completed.stderr
+    assert_configuration_values_are_sanitized(completed.stderr, environment)
 
 
 def test_local_settings_select_filesystem_media_storage() -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from hashlib import sha256
 from io import BytesIO
 
 import pytest
@@ -35,6 +36,18 @@ class FakeS3Client:
         return "https://read.example.test/private-object"
 
 
+class RecordingClientFactory:
+    """Observe boto3 client construction without exposing credential reprs."""
+
+    def __init__(self, client: FakeS3Client) -> None:
+        self.client = client
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    def __call__(self, service_name: str, **kwargs: object) -> FakeS3Client:
+        self.calls.append((service_name, kwargs))
+        return self.client
+
+
 @pytest.fixture
 def client() -> FakeS3Client:
     return FakeS3Client()
@@ -48,7 +61,7 @@ def storage(client: FakeS3Client) -> S3MediaStorage:
         region_name="auto",
         access_key_id="test-access-key",
         secret_access_key="test-" + "secret-" + "value",
-        client_factory=lambda: client,
+        client_factory=lambda *_args, **_kwargs: client,
     )
 
 
@@ -79,6 +92,36 @@ def test_s3_storage_uses_configured_bucket_and_key_for_all_object_operations(
     for call in client.calls:
         assert_bucket_and_key(call, key)
     assert client.calls[0][1]["Body"] == b"canonical-content"
+
+
+def test_s3_storage_configures_a_signature_v4_client_with_only_its_supplied_s3_values() -> (
+    None
+):
+    client = FakeS3Client()
+    factory = RecordingClientFactory(client)
+    secret = "test-" + "secret-" + "value"
+    storage = S3MediaStorage(
+        endpoint_url="https://r2.example.test",
+        bucket_name="development-media",
+        region_name="auto",
+        access_key_id="test-access-key",
+        secret_access_key=secret,
+        client_factory=factory,
+    )
+
+    assert storage.exists("images/0123456789abcdef0123456789abcdef.jpg") is True
+
+    assert len(factory.calls) == 1
+    service_name, arguments = factory.calls[0]
+    assert service_name == "s3"
+    assert arguments["endpoint_url"] == "https://r2.example.test"
+    assert arguments["region_name"] == "auto"
+    assert arguments["aws_access_key_id"] == "test-access-key"
+    assert (
+        sha256(str(arguments["aws_secret_access_key"]).encode()).digest()
+        == sha256(secret.encode()).digest()
+    )
+    assert arguments["config"].signature_version == "s3v4"
 
 
 @pytest.mark.parametrize(
