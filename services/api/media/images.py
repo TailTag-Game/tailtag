@@ -69,6 +69,19 @@ def _has_alpha(image: Image.Image) -> bool:
     return image.mode in {"RGBA", "LA"} or "transparency" in image.info
 
 
+def _has_disallowed_content_signature(content: bytes) -> bool:
+    """Recognize only explicitly disallowed, non-raster content types."""
+    if content.startswith(b"%PDF-"):
+        return True
+
+    leading_content = content.removeprefix(b"\xef\xbb\xbf").lstrip()
+    if not leading_content.startswith(b"<svg"):
+        return False
+
+    root_boundary = leading_content[4:5]
+    return root_boundary in {b" ", b"\t", b"\r", b"\n", b"/", b">"} and b">" in leading_content[:4096]
+
+
 def _save(
     image: Image.Image, image_format: Literal["JPEG", "PNG", "WEBP"]
 ) -> bytes:
@@ -126,5 +139,9 @@ def normalize_image(upload: File[bytes]) -> NormalizedImage:
         raise
     except (Image.DecompressionBombWarning, Image.DecompressionBombError):
         _reject(ImageRejectionCode.TOO_MANY_PIXELS)
-    except (UnidentifiedImageError, OSError, SyntaxError, ValueError):
+    except UnidentifiedImageError:
+        if _has_disallowed_content_signature(content):
+            _reject(ImageRejectionCode.UNSUPPORTED_FORMAT)
+        _reject(ImageRejectionCode.INVALID_IMAGE)
+    except (OSError, SyntaxError, ValueError):
         _reject(ImageRejectionCode.INVALID_IMAGE)
