@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import Literal
+from typing import Literal, cast
 
 from django.core.files import File
 from django.core.files.base import ContentFile
@@ -28,8 +28,10 @@ def _storage_or_default(storage: Storage | None) -> Storage:
     return default_storage if storage is None else storage
 
 
-def _normalized_image(upload: File[bytes] | NormalizedImage) -> NormalizedImage:
-    return upload if isinstance(upload, NormalizedImage) else normalize_image(upload)
+def _normalized_image(upload: object) -> NormalizedImage:
+    if not isinstance(upload, File):
+        raise TypeError("upload must be a Django File")
+    return normalize_image(cast("File[bytes]", upload))
 
 
 def _compensate_failed_commit(storage: Storage, key: str) -> None:
@@ -40,9 +42,7 @@ def _compensate_failed_commit(storage: Storage, key: str) -> None:
         return
 
 
-def store_image(
-    upload: File[bytes] | NormalizedImage, *, storage: Storage | None = None
-) -> str:
+def store_image(upload: File[bytes], *, storage: Storage | None = None) -> str:
     """Normalize and store an image, returning only its opaque object key."""
     normalized = _normalized_image(upload)
     requested_key = create_image_key(normalized.extension)
@@ -58,7 +58,7 @@ def read_image_url(key: str, *, storage: Storage | None = None) -> str:
 
 
 def replace_image(
-    upload: File[bytes] | NormalizedImage,
+    upload: File[bytes],
     *,
     old_key: str | None,
     commit_reference: Callable[[str], None],
