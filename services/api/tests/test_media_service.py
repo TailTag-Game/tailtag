@@ -8,6 +8,8 @@ import re
 import pytest
 from django.core.files.base import ContentFile
 from django.core.files.storage import Storage, default_storage
+
+from media.images import NormalizedImage
 from media.keys import create_image_key, validate_image_key
 from media.service import (
     read_image_url,
@@ -15,8 +17,6 @@ from media.service import (
     replace_image,
     store_image,
 )
-
-from media.images import NormalizedImage
 
 KEY_PATTERN = re.compile(r"images/[0-9a-f]{32}\.(?:jpg|png|webp)\Z")
 OLD_KEY = "images/11111111111111111111111111111111.jpg"
@@ -72,6 +72,13 @@ class SecretSafeQuery(str):
         return "<presigned-query-redacted>"
 
 
+class NonStringKey:
+    """A non-string whose representation must never reach key-validation errors."""
+
+    def __repr__(self) -> str:
+        return "non-string-key-sentinel"
+
+
 def canonical_image() -> NormalizedImage:
     return NormalizedImage(
         content=b"canonical-image-content",
@@ -114,6 +121,25 @@ def assert_sanitized_cleanup_warning(
     )
 
 
+def assert_no_sensitive_cleanup_log_details(caplog: pytest.LogCaptureFixture) -> None:
+    """Cleanup failures may be logged only without attached exception details."""
+    assert all(
+        record.exc_info is None
+        and record.exc_text is None
+        and record.stack_info is None
+        for record in caplog.records
+    )
+    rendered_records = "\n".join(
+        caplog.handler.format(record) for record in caplog.records
+    )
+    record_data = "\n".join(repr(record.__dict__) for record in caplog.records)
+    assert all(
+        sentinel not in output
+        for sentinel in (OLD_KEY, CLEANUP_FAILURE_URL)
+        for output in (caplog.text, rendered_records, record_data)
+    )
+
+
 def test_image_keys_are_opaque_random_and_use_only_canonical_extensions() -> None:
     first = create_image_key("jpg")
     second = create_image_key("jpg")
@@ -124,6 +150,17 @@ def test_image_keys_are_opaque_random_and_use_only_canonical_extensions() -> Non
     assert validate_image_key(first) == first
     for extension in ("png", "webp"):
         assert KEY_PATTERN.fullmatch(create_image_key(extension))
+
+
+@pytest.mark.parametrize("unsafe_key", (None, 7, NonStringKey()))
+def test_validate_image_key_rejects_non_strings_without_echoing_them(
+    unsafe_key: object,
+) -> None:
+    with pytest.raises(ValueError) as raised:
+        validate_image_key(unsafe_key)
+
+    assert "non-string-key-sentinel" not in str(raised.value)
+    assert "non-string-key-sentinel" not in repr(raised.value)
 
 
 @pytest.mark.parametrize(
@@ -253,6 +290,49 @@ def test_replace_image_preserves_commit_failure_when_compensating_delete_also_fa
         )
 
     assert raised.value is original
+
+
+@pytest.mark.parametrize(
+    "compensation_error",
+    (
+        SystemExit(
+            "source exception includes " + OLD_KEY + " and " + CLEANUP_FAILURE_URL
+        ),
+        KeyboardInterrupt(
+            "source exception includes " + OLD_KEY + " and " + CLEANUP_FAILURE_URL
+        ),
+    ),
+    ids=("system-exit", "keyboard-interrupt"),
+)
+def test_replace_image_preserves_commit_failure_when_compensating_delete_raises_base_exception(
+    caplog: pytest.LogCaptureFixture, compensation_error: BaseException
+) -> None:
+    events: list[str] = []
+    storage = OrderedStorage(events)
+    storage.delete_error = compensation_error
+    original = RuntimeError("commit failed")
+    caplog.set_level(logging.DEBUG)
+
+    def fail_commit(key: str) -> None:
+        events.append(f"commit:{key}")
+        raise original
+
+    caught: BaseException | None = None
+    try:
+        replace_image(
+            canonical_image(),
+            old_key=OLD_KEY,
+            commit_reference=fail_commit,
+            storage=storage,
+        )
+    except BaseException as error:  # noqa: BLE001 - verifies SystemExit/KeyboardInterrupt preservation.
+        caught = error
+
+    new_key = events[0].removeprefix("save:")
+    if caught is not original:
+        pytest.fail("replacement must preserve the original commit exception")
+    assert events == [f"save:{new_key}", f"commit:{new_key}", f"delete:{new_key}"]
+    assert_no_sensitive_cleanup_log_details(caplog)
 
 
 def test_replace_image_tolerates_old_object_delete_failure_without_another_commit(

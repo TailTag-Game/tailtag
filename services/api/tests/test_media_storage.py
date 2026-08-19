@@ -6,7 +6,9 @@ from hashlib import sha256
 from io import BytesIO
 
 import pytest
+from botocore.exceptions import ClientError, EndpointConnectionError
 from django.core.files.base import ContentFile
+
 from media.storage import S3MediaStorage
 
 
@@ -15,6 +17,7 @@ class FakeS3Client:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object]]] = []
+        self.head_error: BaseException | None = None
 
     def put_object(self, **kwargs: object) -> None:
         self.calls.append(("put_object", kwargs))
@@ -25,6 +28,8 @@ class FakeS3Client:
 
     def head_object(self, **kwargs: object) -> None:
         self.calls.append(("head_object", kwargs))
+        if self.head_error is not None:
+            raise self.head_error
 
     def delete_object(self, **kwargs: object) -> None:
         self.calls.append(("delete_object", kwargs))
@@ -70,6 +75,11 @@ def assert_bucket_and_key(call: tuple[str, dict[str, object]], key: str) -> None
     _, arguments = call
     assert arguments["Bucket"] == "development-media"
     assert arguments["Key"] == key
+
+
+def client_error(code: str) -> ClientError:
+    """Create the locked botocore error type returned by S3-compatible APIs."""
+    return ClientError({"Error": {"Code": code, "Message": "test error"}}, "HeadObject")
 
 
 def test_s3_storage_uses_configured_bucket_and_key_for_all_object_operations(
@@ -166,3 +176,70 @@ def test_s3_storage_generates_only_a_ten_minute_get_read_url(
             },
         )
     ]
+
+
+@pytest.mark.parametrize("requested_expiry", (1, 599, 601, 3_600))
+def test_s3_storage_cannot_override_the_fixed_presigned_read_expiry(
+    client: FakeS3Client, requested_expiry: int
+) -> None:
+    """Non-600 input must fail closed or still generate the fixed 600-second URL."""
+    try:
+        configured_storage = S3MediaStorage(
+            endpoint_url="https://r2.example.test",
+            bucket_name="development-media",
+            region_name="auto",
+            access_key_id="test-access-key",
+            secret_access_key="test-" + "secret-" + "value",
+            url_expiry_seconds=requested_expiry,
+            client_factory=lambda *_args, **_kwargs: client,
+        )
+    except ValueError:
+        return
+
+    configured_storage.url("images/0123456789abcdef0123456789abcdef.jpg")
+
+    assert client.calls[-1] == (
+        "generate_presigned_url",
+        {
+            "operation": "get_object",
+            "Params": {
+                "Bucket": "development-media",
+                "Key": "images/0123456789abcdef0123456789abcdef.jpg",
+            },
+            "ExpiresIn": 600,
+        },
+    )
+
+
+@pytest.mark.parametrize("not_found_code", ("404", "NoSuchKey", "NotFound"))
+def test_s3_storage_exists_returns_false_only_for_s3_not_found_errors(
+    storage: S3MediaStorage, client: FakeS3Client, not_found_code: str
+) -> None:
+    client.head_error = client_error(not_found_code)
+
+    assert storage.exists("images/0123456789abcdef0123456789abcdef.jpg") is False
+
+
+@pytest.mark.parametrize("error_code", ("AccessDenied", "InternalError", "SlowDown"))
+def test_s3_storage_exists_reraises_non_not_found_s3_errors(
+    storage: S3MediaStorage, client: FakeS3Client, error_code: str
+) -> None:
+    raised = client_error(error_code)
+    client.head_error = raised
+
+    with pytest.raises(ClientError) as captured:
+        storage.exists("images/0123456789abcdef0123456789abcdef.jpg")
+
+    assert captured.value is raised
+
+
+def test_s3_storage_exists_reraises_connectivity_errors(
+    storage: S3MediaStorage, client: FakeS3Client
+) -> None:
+    raised = EndpointConnectionError(endpoint_url="https://r2.example.test")
+    client.head_error = raised
+
+    with pytest.raises(EndpointConnectionError) as captured:
+        storage.exists("images/0123456789abcdef0123456789abcdef.jpg")
+
+    assert captured.value is raised
