@@ -278,8 +278,14 @@ must complete this order for Railway `development`:
    URL; do not merge first and add these variables later.
 5. After the normal deployment and readiness verification, use an authorized
    Railway Development shell to run one controlled backend-boundary
-   write/read/delete exercise. Start the Django shell with production settings,
-   then use a synthetic in-memory JPEG with `store_image`, read the private
+   write/read/delete exercise. Start the Django shell explicitly with the
+   deployed production settings (not the local filesystem settings):
+
+   ```bash
+   python manage.py shell --settings=config.settings.production
+   ```
+
+   Then use a synthetic in-memory JPEG with `store_image`, read the private
    object through `default_storage.open`, and delete it in `finally`:
 
    ```python
