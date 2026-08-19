@@ -102,9 +102,8 @@ def _has_disallowed_content_signature(content: bytes) -> bool:
 
 
 def _has_accepted_raster_signature(content: bytes) -> bool:
-    return (
-        content.startswith((b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n"))
-        or (content[:4] == b"RIFF" and content[8:12] == b"WEBP")
+    return content.startswith((b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n")) or (
+        content[:4] == b"RIFF" and content[8:12] == b"WEBP"
     )
 
 
@@ -137,7 +136,9 @@ def normalize_image(upload: File[bytes]) -> NormalizedImage:
     try:
         with catch_warnings():
             simplefilter("error")
-            with Image.open(BytesIO(content), formats=("JPEG", "PNG", "WEBP")) as source:
+            with Image.open(
+                BytesIO(content), formats=("JPEG", "PNG", "WEBP")
+            ) as source:
                 source_format = source.format
                 if source_format is None or source_format not in _OUTPUT_FORMATS:
                     _reject(ImageRejectionCode.UNSUPPORTED_FORMAT)
