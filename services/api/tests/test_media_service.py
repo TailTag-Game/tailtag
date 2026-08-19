@@ -235,7 +235,9 @@ def test_store_image_rejects_a_caller_forged_normalized_image_before_save() -> N
     storage = OrderedStorage(events)
 
     with pytest.raises(TypeError):
-        store_image(forged_normalized_image(), storage=storage)
+        store_image(
+            cast("File[bytes]", forged_normalized_image()), storage=storage
+        )  # Deliberately bypasses static typing to probe the public runtime boundary.
 
     assert events == []
 
@@ -248,7 +250,9 @@ def test_replace_image_rejects_a_caller_forged_normalized_image_before_side_effe
 
     with pytest.raises(TypeError):
         replace_image(
-            forged_normalized_image(),
+            cast(
+                "File[bytes]", forged_normalized_image()
+            ),  # Deliberately probes a forged runtime value past the static File boundary.
             old_key=OLD_KEY,
             commit_reference=lambda key: events.append(f"commit:{key}"),
             storage=storage,
