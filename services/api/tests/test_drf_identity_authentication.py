@@ -30,8 +30,11 @@ from accounts.resolution import ApplicationUserResolutionUnavailable
 from authentication import drf as drf_adapter
 from authentication.clerk import (
     ClerkSessionVerifier,
-    ClerkVerificationConfiguration,
     VerifiedClerkIdentity,
+)
+from tests.authentication_support import (
+    TEST_CLERK_CONFIGURATION,
+    fake_clerk_session_verification,
 )
 
 
@@ -67,10 +70,6 @@ urlpatterns = [
 AUTHENTICATION_SETTINGS = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["authentication.drf.TailTagAuthentication"],
 }
-TEST_CLERK_CONFIGURATION = ClerkVerificationConfiguration(
-    jwt_key="test-only-not-used-by-patched-verifier",
-    authorized_parties=("http://testserver",),
-)
 
 
 def _raise(error: BaseException) -> NoReturn:
@@ -81,23 +80,13 @@ def _raise(error: BaseException) -> NoReturn:
 @override_settings(
     ROOT_URLCONF=__name__,
     REST_FRAMEWORK=AUTHENTICATION_SETTINGS,
-    CLERK_AUTHENTICATION=TEST_CLERK_CONFIGURATION,
 )
 def test_successful_authentication_exposes_only_the_resolved_application_user(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    verified_requests: list[HttpRequest] = []
-
-    def verify(
-        _verifier: ClerkSessionVerifier, request: HttpRequest
-    ) -> VerifiedClerkIdentity:
-        verified_requests.append(request)
-        return VerifiedClerkIdentity(subject="user_test_subject")
-
-    monkeypatch.setattr(
-        ClerkSessionVerifier,
-        "verify",
-        verify,
+    verified_requests = fake_clerk_session_verification(
+        monkeypatch,
+        subject="user_test_subject",
     )
 
     response = Client().get("/test/identity", HTTP_AUTHORIZATION="Bearer test")
@@ -108,6 +97,37 @@ def test_successful_authentication_exposes_only_the_resolved_application_user(
     assert len(verified_requests) == 1
     assert isinstance(verified_requests[0], HttpRequest)
     assert not isinstance(verified_requests[0], Request)
+
+
+@pytest.mark.django_db
+@override_settings(
+    ROOT_URLCONF=__name__,
+    REST_FRAMEWORK=AUTHENTICATION_SETTINGS,
+)
+def test_composed_fake_preserves_anonymous_and_bearer_authentication_boundaries(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """The fake verifier leaves real header parsing and identity resolution active."""
+    subject = "user_test_composed_bearer_parsing"
+    verified_requests = fake_clerk_session_verification(monkeypatch, subject=subject)
+
+    headerless = Client().get("/test/identity")
+    malformed = Client().get("/test/identity", HTTP_AUTHORIZATION="Basic synthetic")
+    canonical = Client().get("/test/identity", HTTP_AUTHORIZATION="Bearer synthetic")
+    resolved_user = User.objects.get(clerk_user_id=subject)
+
+    assert headerless.status_code == 200
+    assert headerless.json() == {"user_id": None, "auth_is_none": True}
+    assert malformed.status_code == 401
+    assert malformed["WWW-Authenticate"] == "Bearer"
+    assert canonical.status_code == 200
+    assert canonical.json() == {
+        "user_id": resolved_user.pk,
+        "auth_is_none": True,
+    }
+    assert len(verified_requests) == 1
+    assert isinstance(verified_requests[0], HttpRequest)
+    assert verified_requests[0].headers["Authorization"] == "Bearer synthetic"
 
 
 @pytest.mark.django_db

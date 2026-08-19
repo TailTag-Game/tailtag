@@ -1,15 +1,18 @@
 API_DIRECTORY := services/api
-UV := uv --directory $(API_DIRECTORY)
+UV ?= uv
+API_UV := $(UV) --directory $(API_DIRECTORY)
 SMOKE_SCRIPT := $(CURDIR)/scripts/api_smoke.py
+AUTH_SMOKE_SCRIPT := $(CURDIR)/scripts/api_auth_smoke.py
+CLERK_DEVELOPMENT_SESSION_SCRIPT := $(CURDIR)/scripts/clerk_development_session.py
 CI_RELEVANCE_SCRIPT := $(CURDIR)/scripts/backend_ci_relevance.py
 
 define run_django_command
 if [ "$${TAILTAG_DEVCONTAINER:-}" = "1" ]; then \
-	DATABASE_URL="$$($(UV) run --locked --no-sync python -m config.compose_database_url)" \
+	DATABASE_URL="$$($(API_UV) run --locked --no-sync python -m config.compose_database_url)" \
 	DJANGO_SETTINGS_MODULE=config.settings.production \
-	$(UV) run $(1); \
+	$(API_UV) run $(1); \
 else \
-	$(UV) run $(1); \
+	$(API_UV) run $(1); \
 fi
 endef
 
@@ -18,7 +21,7 @@ endef
 
 .PHONY: help \
 	api-setup api-run api-test api-check api-migrate api-migrations \
-	api-migrations-check api-shell api-smoke \
+	api-migrations-check api-shell api-smoke api-auth-smoke \
 	api-format-check api-lint-check api-type-check api-django-check \
 	api-schema-check api-gunicorn-check
 
@@ -27,7 +30,7 @@ help: ## List the canonical backend developer commands.
 
 api-setup: ## Sync locked backend dependencies.
 	@printf '%s\n' 'Synchronizing locked backend dependencies...'
-	$(UV) sync --all-groups --locked
+	$(API_UV) sync --all-groups --locked
 
 api-run: ## Run Django locally on port 8000; requires configured PostgreSQL.
 	@printf '%s\n' 'Starting Django development server on port 8000...'
@@ -55,22 +58,25 @@ api-shell: ## Open the Django shell; requires configured PostgreSQL.
 
 api-smoke: ## HTTP-check a running API (API_BASE_URL defaults to 127.0.0.1:8000).
 	@printf '%s\n' 'Smoke-testing the already-running API...'
-	$(UV) run python $(SMOKE_SCRIPT)
+	$(API_UV) run python $(SMOKE_SCRIPT)
+
+api-auth-smoke: ## Authenticated smoke test with an interactive Clerk Development secret.
+	PYTHONPATH="$(CURDIR):$(CURDIR)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_auth_smoke
 
 api-check: api-format-check api-lint-check api-type-check api-test api-django-check api-migrations-check api-schema-check api-gunicorn-check ## Run the complete local pre-PR backend validation suite.
 	@printf '%s\n' 'Backend pre-PR validation completed.'
 
 api-format-check:
 	@printf '%s\n' 'Checking Ruff formatting...'
-	$(UV) run ruff format --check . $(SMOKE_SCRIPT) $(CI_RELEVANCE_SCRIPT)
+	$(API_UV) run ruff format --check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT)
 
 api-lint-check:
 	@printf '%s\n' 'Running Ruff lint...'
-	$(UV) run ruff check . $(SMOKE_SCRIPT) $(CI_RELEVANCE_SCRIPT)
+	$(API_UV) run ruff check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT)
 
 api-type-check:
 	@printf '%s\n' 'Running strict Pyright...'
-	$(UV) run pyright
+	$(API_UV) run pyright
 
 api-django-check:
 	@printf '%s\n' 'Running Django system checks...'
@@ -87,4 +93,4 @@ api-gunicorn-check:
 	DATABASE_URL=postgresql://tailtag:tailtag@localhost:5432/tailtag \
 	DJANGO_ALLOWED_HOSTS=localhost \
 	DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost \
-	$(UV) run gunicorn config.wsgi:application --check-config
+	$(API_UV) run gunicorn config.wsgi:application --check-config

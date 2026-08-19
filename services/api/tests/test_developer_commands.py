@@ -12,6 +12,7 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_smoke.py"
+AUTH_SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_auth_smoke.py"
 CI_RELEVANCE_SCRIPT = REPOSITORY_ROOT / "scripts" / "backend_ci_relevance.py"
 
 
@@ -109,6 +110,7 @@ def test_help_lists_the_canonical_backend_commands() -> None:
         "api-migrations-check": "Check for migration drift without creating migrations.",
         "api-shell": "Open the Django shell; requires configured PostgreSQL.",
         "api-smoke": "HTTP-check a running API (API_BASE_URL defaults to 127.0.0.1:8000).",
+        "api-auth-smoke": "Authenticated smoke test with an interactive Clerk Development secret.",
     }
     for target, description in expected_commands.items():
         assert f"make {target}" in completed.stdout
@@ -137,6 +139,9 @@ def test_check_composes_every_required_backend_validation() -> None:
     assert "docker compose" not in completed.stdout
     assert "python manage.py migrate" not in completed.stdout
     assert "python manage.py makemigrations" in completed.stdout
+    assert "api-auth-smoke" not in completed.stdout
+    assert "Clerk Development secret:" not in completed.stdout
+    assert "CLERK_SECRET" not in completed.stdout
 
 
 def test_strict_type_check_includes_the_ci_relevance_helper() -> None:
@@ -144,6 +149,20 @@ def test_strict_type_check_includes_the_ci_relevance_helper() -> None:
     pyproject = (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml").read_text()
 
     assert '"../../scripts/backend_ci_relevance.py"' in pyproject
+
+
+def test_static_checks_include_all_authenticated_smoke_helpers() -> None:
+    """Live-tool scripts receive the same static checks as existing root helpers."""
+    completed = run_make("-n", "api-format-check", "api-lint-check")
+    pyproject = (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml").read_text()
+
+    assert completed.returncode == 0, completed.stderr
+    for script in (
+        AUTH_SMOKE_SCRIPT,
+        REPOSITORY_ROOT / "scripts" / "clerk_development_session.py",
+    ):
+        assert str(script) in completed.stdout
+        assert f'"../../scripts/{script.name}"' in pyproject
 
 
 def test_lifecycle_and_schema_changes_remain_explicit() -> None:
@@ -154,6 +173,7 @@ def test_lifecycle_and_schema_changes_remain_explicit() -> None:
         "api-test",
         "api-shell",
         "api-smoke",
+        "api-auth-smoke",
     )
 
     for target in non_mutating_targets:
@@ -166,6 +186,67 @@ def test_lifecycle_and_schema_changes_remain_explicit() -> None:
 
     assert "python manage.py migrate" in run_make("-n", "api-migrate").stdout
     assert "python manage.py makemigrations" in run_make("-n", "api-migrations").stdout
+
+
+def test_authenticated_smoke_is_a_separate_locked_atomic_command() -> None:
+    """The only live Clerk path is explicit and never piggybacks on ordinary work."""
+    completed = run_make("-n", "api-auth-smoke")
+
+    assert completed.returncode == 0, completed.stderr
+    assert (
+        "uv run --project services/api --locked --no-sync python -m scripts.api_auth_smoke"
+        in completed.stdout
+    )
+    assert str(AUTH_SMOKE_SCRIPT) not in run_make("-n", "api-smoke").stdout
+
+
+def test_authenticated_smoke_honors_uv_override(tmp_path: Path) -> None:
+    """The manual live command respects the repository's UV override seam."""
+    overridden_uv = tmp_path / "overridden-uv"
+    overridden_uv.write_text("#!/bin/sh\nexit 0\n")
+    overridden_uv.chmod(0o755)
+
+    completed = run_make("-n", "api-auth-smoke", f"UV={overridden_uv}")
+
+    assert completed.returncode == 0, completed.stderr
+    assert f"{overridden_uv} run " in completed.stdout
+    assert "python -m scripts.api_auth_smoke" in completed.stdout
+
+
+def test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free() -> None:
+    """CI must not gain a secret, prompt, or live authenticated smoke dependency."""
+    ordinary = run_make("-n", "api-smoke").stdout
+    api_check = run_make("-n", "api-check").stdout
+    workflow_text = "\n".join(
+        path.read_text()
+        for suffix in ("*.yml", "*.yaml")
+        for path in (REPOSITORY_ROOT / ".github" / "workflows").glob(suffix)
+    )
+
+    for text in (ordinary, api_check, workflow_text):
+        assert "api-auth-smoke" not in text
+        assert "scripts.api_auth_smoke" not in text
+        assert "Clerk Development secret:" not in text
+        assert "sk_test_" not in text
+        for forbidden_name in (
+            "CLERK_SECRET",
+            "CLERK_SECRET_KEY",
+            "CLERK_API_KEY",
+            "CLERK_BACKEND_API_KEY",
+        ):
+            assert forbidden_name not in text
+
+    # Static analysis may inspect the helper source in api-check, but it must
+    # never execute it. Pyright coverage is asserted separately from pyproject.
+    api_check_script_lines = [
+        line for line in api_check.splitlines() if "scripts/api_auth_smoke.py" in line
+    ]
+    assert api_check_script_lines
+    assert all("ruff" in line.split() for line in api_check_script_lines)
+
+    # Ordinary smoke and CI must not reference the helper at all.
+    for text in (ordinary, workflow_text):
+        assert "scripts/api_auth_smoke.py" not in text
 
 
 def test_devcontainer_django_commands_derive_the_compose_database_url() -> None:

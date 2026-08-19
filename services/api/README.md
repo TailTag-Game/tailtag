@@ -225,11 +225,117 @@ having to remember `uv`, Django, or individual quality-tool invocations.
 | `make api-migrations-check` | Check for migration drift. | Dependencies, `services/api/.env`, and PostgreSQL available; does not create migrations. |
 | `make api-shell` | Open the Django shell. | Dependencies, `services/api/.env`, and PostgreSQL available. |
 | `make api-smoke` | HTTP-check an already-running API. | API already running; never starts services or applies migrations. |
+| `make api-auth-smoke` | Manually exercise Clerk Development authentication against `/api/me/`. | Interactive terminal, an already-running approved Development API, and explicitly supplied non-secret smoke-user configuration. Never CI or production. |
 
 `make api-check` runs formatting, linting, strict typing, PostgreSQL-backed
 tests, Django system checks, migration-drift detection, OpenAPI validation, and
 Gunicorn production-configuration loading. It neither creates nor applies
 migrations.
+
+## Authenticated Development API smoke
+
+`make api-auth-smoke` is the only supported live Clerk Development workflow.
+It is a manual, interactive Development-only operation: it is not a dependency
+of `make api-check`, `make api-smoke`, ordinary tests, or CI, and it must never
+be run against or configured for production.
+
+### One-time Development setup
+
+In the Clerk Development instance, a maintainer manually creates and retains
+exactly one dedicated smoke user. Copy that user's opaque Clerk ID, not an
+email, name, username, or other mutable profile attribute. The selected API
+will resolve the corresponding TailTag `accounts.User`; both the dedicated
+Clerk user and that TailTag user are intentional persistent state and must not
+be deleted or recreated by the command.
+
+Set `CLERK_SMOKE_USER_ID` only as a non-secret shell environment value. For a
+non-default Railway destination, set `TAILTAG_DEVELOPMENT_API_BASE_URL` to the
+exact HTTPS API root. The tool does not automatically load `.env`; export or
+prefix these non-secret values instead. Do not define any Clerk secret in `.env`
+or another configuration source for this helper.
+
+The prompted credential is accepted only after authoritative instance metadata
+reports the authoritative environment type as Development. Before creating a
+ticket, the fixed Backend API client obtains Domains metadata through that same
+transport and accepts exactly one non-satellite primary domain with a canonical
+Development Frontend API root. A ticket URL is nullable and ignored; it is not
+an authority source. No provider URL, proxy, redirect target, or alternate
+server can be configured by a contributor.
+
+The helper uses the fixed synthetic origin `http://localhost:3000` for every
+Clerk token exchange, including against Railway. Add that exact origin to
+`CLERK_AUTHORIZED_PARTIES` in **both** local and Railway development API
+settings. This is backend tooling, so no frontend needs to listen on port 3000.
+Do not add the synthetic origin to production settings.
+
+### Invocation
+
+With a local API already running at its fixed local target:
+
+```bash
+CLERK_SMOKE_USER_ID=<opaque-development-user-id> make api-auth-smoke
+```
+
+For Railway development, both URL variables must name the same exact API root:
+
+```bash
+API_BASE_URL=https://<exact-development-api-host> \
+TAILTAG_DEVELOPMENT_API_BASE_URL=https://<exact-development-api-host> \
+CLERK_SMOKE_USER_ID=<opaque-development-user-id> \
+make api-auth-smoke
+```
+
+After its credential-free baseline smoke succeeds, the command requires a TTY
+and prompts invisibly for the Clerk Development secret for that invocation.
+It never stores, prints, accepts as configuration, or passes the secret between
+processes. It sends the resulting short-lived credential only to the selected,
+validated API's exact `GET /api/me/` endpoint.
+
+Each invocation creates ephemeral sign-in-ticket, session, and bearer-token
+state. It cleans up supported created authentication resources on both success
+and failure; any cleanup failure makes the command unsuccessful. Output and
+failures are sanitized stage-level diagnostics, never secrets, tokens, user
+identifiers, sessions, or raw provider responses. The API verifier itself still
+requires no Clerk secret: the prompted credential belongs exclusively to this
+separate developer-tooling process.
+
+The bounded failure categories are:
+
+- `target configuration invalid`
+- `baseline smoke unsuccessful`
+- `interactive terminal unavailable`
+- `credential form invalid`
+- `Clerk instance not validated as Development`
+- `configured smoke user unavailable`
+- `provider development-browser flow unsuccessful`
+- `provider development-browser request invalid`
+- `provider development-browser request unauthenticated`
+- `provider development-browser request forbidden`
+- `provider development-browser browser challenge required`
+- `provider development-browser origin rejected`
+- `provider development-browser hostname rejected`
+- `provider development-browser request rejected`
+- `provider development-browser transport unavailable`
+- `provider development-browser response invalid`
+- `provider client initialization unsuccessful`
+- `provider ticket flow unsuccessful`
+- `provider sign-in-ticket credential unavailable`
+- `provider Frontend API authority unavailable`
+- `provider session-token flow unsuccessful`
+- `provider session-token request invalid`
+- `provider session-token request unauthenticated`
+- `provider session-token request forbidden`
+- `provider session-token request not found`
+- `provider session-token request rejected`
+- `provider session-token transport unavailable`
+- `provider session-token response invalid`
+- `token claims or lifetime invalid`
+- `TailTag verifier rejected the token`
+- `authenticated API response invalid`
+- `cleanup incomplete`
+
+The refined session-token entries are fixed, non-sensitive classifications only.
+Diagnostics never emit raw provider status, body, headers, or identifiers.
 
 ## Railway development migrations
 
