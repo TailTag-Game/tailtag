@@ -73,6 +73,9 @@ def test_production_settings_require_each_media_variable_without_echoing_values(
         "https://media.example.test/?query=forbidden",
         "https://media.example.test/#fragment",
         "https://media.example.test/media/path",
+        "https://media.example.test:not-a-port",
+        "https://media.example.test:99999",
+        "https://media.example.test with-space",
     ),
 )
 def test_production_settings_reject_non_root_or_non_https_media_endpoints_without_echoing_them(
