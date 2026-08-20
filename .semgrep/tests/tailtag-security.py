@@ -213,6 +213,17 @@ django.db.models.expressions.RawSQL(
 cursor.execute("SELECT * FROM users WHERE name = %s", [user_input])
 
 
+def build_django_raw_sql_expressions() -> None:
+    # ruleid: tailtag.django.dynamic-raw-sql
+    RawSQL(f"SELECT id FROM users WHERE name = '{user_input}'", ())
+    # ruleid: tailtag.django.dynamic-raw-sql
+    DjangoRawSQL(f"SELECT id FROM users WHERE name = '{user_input}'", ())
+    # ruleid: tailtag.django.dynamic-raw-sql
+    django.db.models.expressions.RawSQL(
+        f"SELECT id FROM users WHERE name = '{user_input}'", ()
+    )
+
+
 def format_unrelated_raw_sql() -> None:
     def RawSQL(sql: str, params: tuple[object, ...]) -> tuple[str, tuple[object, ...]]:
         return sql, params
