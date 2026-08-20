@@ -334,6 +334,8 @@ def test_concrete_runtime_fetch_rejects_redirect_without_following_it(
     (
         "http://synthetic.r2.example/private?X-Amz-Expires=600",
         "ftp://synthetic.r2.example/private?X-Amz-Expires=600",
+        "file:///private/synthetic-media-object",
+        "data:application/octet-stream,synthetic-response-body",
         "//synthetic.r2.example/private?X-Amz-Expires=600",
         "not an absolute URL",
         "https://",
@@ -354,6 +356,24 @@ def test_concrete_runtime_fetch_rejects_non_https_or_malformed_url_before_openin
         runtime.fetch(url=url)
     assert raised.value.stage == "presigned GET bytes"
     assert opener.requests == []
+
+
+def test_concrete_runtime_fetches_valid_https_bytes_through_one_no_redirect_request(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Rejects a mutation that responds to URL hardening by refusing every HTTPS read."""
+    storage = FakeS3MediaStorage()
+    opener = RecordingOpener(
+        _Response(status=200, body=b"synthetic-canonical-image-content")
+    )
+    monkeypatch.setattr(smoke, "S3MediaStorage", FakeS3MediaStorage)
+    monkeypatch.setattr(smoke, "storages", {"default": storage})
+
+    runtime = smoke.DefaultSmokeRuntime(opener=opener)
+
+    assert runtime.fetch(url=storage.url_value) == b"synthetic-canonical-image-content"
+    assert len(opener.requests) == 1
+    assert opener.requests[0].full_url == storage.url_value
 
 
 def test_concrete_runtime_builds_a_no_redirect_default_opener(
@@ -635,11 +655,20 @@ def test_main_output_is_fixed_stage_level_and_suppresses_hostile_storage_details
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == "FAIL presigned GET bytes\nFAIL media storage smoke\n"
-    assert_sanitized(
-        smoke.run(VALID_ENVIRONMENT, RecordingRuntime(failure="fetch")),
-        captured,
-        caplog,
-    )
+    sanitization_runtime = RecordingRuntime(failure="fetch")
+    sanitization_outcome = smoke.run(VALID_ENVIRONMENT, sanitization_runtime)
+    assert sanitization_outcome.primary_stage == "presigned GET bytes"
+    assert sanitization_runtime.events == [
+        "create-key",
+        "canonical-content",
+        "upload",
+        "exists-after-upload",
+        "presign",
+        "fetch",
+        "delete",
+        "exists-after-delete",
+    ]
+    assert_sanitized(sanitization_outcome, captured, caplog)
 
 
 def test_main_success_reports_only_safe_pass_stages(
