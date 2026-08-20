@@ -339,6 +339,7 @@ def test_concrete_runtime_fetch_rejects_redirect_without_following_it(
         "//synthetic.r2.example/private?X-Amz-Expires=600",
         "not an absolute URL",
         "https://",
+        "https://[",
     ),
 )
 def test_concrete_runtime_fetch_rejects_non_https_or_malformed_url_before_opening(
