@@ -94,8 +94,11 @@ rules:
               regex: "^(cursor|[A-Za-z_][A-Za-z0-9_]*_cursor|connection|conn|db|self\\.cursor|self\\.connection\\.cursor\\(\\))$"
           - focus-metavariable: $CURSOR
       - pattern: $MODEL.objects.raw(f"...{$VALUE}...", ...)
-      - pattern: RawSQL(f"...{$VALUE}...", ...)
-      - pattern: django.db.models.expressions.RawSQL(f"...{$VALUE}...", ...)
+      - patterns:
+          - pattern: django.db.models.expressions.RawSQL(f"...{$VALUE}...", ...)
+          - pattern-not-inside: |
+              def $FUNCTION(...):
+                  ...
 
   - id: tailtag.storage.public-object-acl
     message: TailTag object storage must remain private.
