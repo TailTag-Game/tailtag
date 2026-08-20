@@ -52,7 +52,6 @@ rules:
     severity: ERROR
     metadata: {owner: tailtag, confidence: HIGH}
     pattern-either:
-      - pattern: mark_safe(...)
       - pattern: django.utils.safestring.mark_safe(...)
 
   - id: tailtag.django.dynamic-raw-sql
@@ -61,11 +60,23 @@ rules:
     severity: ERROR
     metadata: {owner: tailtag, confidence: HIGH}
     pattern-either:
-      - pattern: $CURSOR.execute(f"...", ...)
-      - pattern: $CURSOR.execute($SQL % $VALUE, ...)
-      - pattern: $CURSOR.execute($SQL.format(...), ...)
-      - pattern: $MODEL.objects.raw(f"...", ...)
-      - pattern: RawSQL(f"...", ...)
+      - patterns:
+          - pattern: $CURSOR.execute(f"...{$VALUE}...", ...)
+          - metavariable-regex:
+              metavariable: $CURSOR
+              regex: "^(cursor|connection|conn|db|self\\.cursor|self\\.connection\\.cursor\\(\\))$"
+      - patterns:
+          - pattern: $CURSOR.execute($SQL % $VALUE, ...)
+          - metavariable-regex:
+              metavariable: $CURSOR
+              regex: "^(cursor|connection|conn|db|self\\.cursor|self\\.connection\\.cursor\\(\\))$"
+      - patterns:
+          - pattern: $CURSOR.execute($SQL.format(...), ...)
+          - metavariable-regex:
+              metavariable: $CURSOR
+              regex: "^(cursor|connection|conn|db|self\\.cursor|self\\.connection\\.cursor\\(\\))$"
+      - pattern: $MODEL.objects.raw(f"...{$VALUE}...", ...)
+      - pattern: RawSQL(f"...{$VALUE}...", ...)
 
   - id: tailtag.storage.public-object-acl
     message: TailTag object storage must remain private.
