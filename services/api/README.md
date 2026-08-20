@@ -219,6 +219,7 @@ having to remember `uv`, Django, or individual quality-tool invocations.
 | `make api-setup` | Synchronize locked backend dependencies. | `uv` available; does not start services or change schema. |
 | `make api-run` | Run Django on port 8000. | Dependencies, `services/api/.env`, and PostgreSQL available. |
 | `make api-test` | Run PostgreSQL-backed backend tests. | Dependencies, `services/api/.env`, and PostgreSQL available. |
+| `make api-semgrep-check` | Run deterministic TailTag Semgrep security analysis. | Run `make api-setup` first. |
 | `make api-check` | Run complete local pre-PR backend validation. | Dependencies, `services/api/.env`, and PostgreSQL available. |
 | `make api-migrate` | **Apply existing Django migrations.** | Dependencies, `services/api/.env`, and PostgreSQL available; mutates schema. |
 | `make api-migrations` | **Create Django migrations from model changes.** | Dependencies and `services/api/.env`; mutates migration state but does not apply migrations. |
@@ -227,10 +228,15 @@ having to remember `uv`, Django, or individual quality-tool invocations.
 | `make api-smoke` | HTTP-check an already-running API. | API already running; never starts services or applies migrations. |
 | `make api-auth-smoke` | Manually exercise Clerk Development authentication against `/api/me/`. | Interactive terminal, an already-running approved Development API, and explicitly supplied non-secret smoke-user configuration. Never CI or production. |
 
-`make api-check` runs formatting, linting, strict typing, PostgreSQL-backed
-tests, Django system checks, migration-drift detection, OpenAPI validation, and
-Gunicorn production-configuration loading. It neither creates nor applies
-migrations.
+`make api-check` runs formatting, linting, strict typing, Semgrep rule tests
+and the local blocking scan, PostgreSQL-backed tests, Django system checks,
+migration-drift detection, OpenAPI validation, and Gunicorn
+production-configuration loading. It neither creates nor applies migrations.
+The Semgrep gate uses local rules owned and checked in by TailTag, with no Semgrep account, token,
+remote rule download, or result upload. It uses no scan-time network. It does not
+provide dependency/SCA scanning, secret scanning, interfile analysis, or
+complete security coverage. See [TailTag Semgrep rules](../../.semgrep/README.md)
+for rule-authoring and fixture guidance.
 
 ## Authenticated Development API smoke
 
