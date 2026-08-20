@@ -112,6 +112,7 @@ def semgrep_scan_tokens(dry_run: str) -> list[list[str]]:
             operator in command
             for operator in ("&&", "||", ";", "|", "`", "$(", "${", ">", "<")
         ), command
+        tokens = shlex.split(command)
         lowered = command.lower()
         assert not any(
             forbidden in lowered
@@ -120,7 +121,6 @@ def semgrep_scan_tokens(dry_run: str) -> list[list[str]]:
                 "https://",
                 "registry",
                 "login",
-                "token",
                 "account",
                 "prompt",
                 "upload",
@@ -130,8 +130,11 @@ def semgrep_scan_tokens(dry_run: str) -> list[list[str]]:
                 "migrate",
             )
         ), command
+        assert all(
+            "token" not in token.lower() or token == "SEMGREP_APP_TOKEN="
+            for token in tokens
+        ), command
 
-        tokens = shlex.split(command)
         semgrep_index = tokens.index("semgrep")
         assert semgrep_index >= 6, (
             "Semgrep command requires at least six launcher-prefix tokens"
@@ -150,6 +153,20 @@ def semgrep_scan_tokens(dry_run: str) -> list[list[str]]:
         tokens_by_command.append(tokens)
 
     return tokens_by_command
+
+
+def test_semgrep_scan_tokens_allows_only_the_empty_trusted_app_token_prefix() -> None:
+    """The canonical credential-clearing prefix is not mistaken for token access."""
+    command = (
+        "SEMGREP_APP_TOKEN= uv --directory .semgrep run --locked --no-sync "
+        "semgrep scan --config .semgrep/rules .semgrep/tests"
+    )
+
+    assert semgrep_scan_tokens(command) == [shlex.split(command)]
+    with pytest.raises(AssertionError):
+        semgrep_scan_tokens(
+            command.replace("SEMGREP_APP_TOKEN=", "SEMGREP_APP_TOKEN=secret")
+        )
 
 
 def test_api_check_uv_run_contract_rejects_implicit_project_sync() -> None:
