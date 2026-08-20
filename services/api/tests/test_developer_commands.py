@@ -69,7 +69,10 @@ def dry_run_commands(dry_run: str) -> list[str]:
 def assert_api_check_uv_runs_are_locked_and_no_sync(dry_run: str) -> None:
     """Require every API or Semgrep uv run emitted by api-check to be offline-ready."""
     invocation = re.compile(
-        r"(?:\S*/)?uv\s+--directory\s+(?:services/api|\.semgrep)\s+run\b"
+        r"(?:\S*/)?uv\s+(?:"
+        r"--(?:directory|project)\s+(?:services/api|\.semgrep)\s+run\b"
+        r"|run\s+--(?:directory|project)\s+(?:services/api|\.semgrep)\b"
+        r")"
     )
     commands = dry_run_commands(dry_run)
     matches = [
@@ -143,6 +146,15 @@ def semgrep_scan_tokens(dry_run: str) -> list[list[str]]:
         tokens_by_command.append(tokens)
 
     return tokens_by_command
+
+
+def test_api_check_uv_run_contract_rejects_implicit_project_sync() -> None:
+    """Project-selected canonical commands cannot evade the no-sync requirement."""
+    with pytest.raises(AssertionError):
+        assert_api_check_uv_runs_are_locked_and_no_sync(
+            "uv --directory services/api run --locked --no-sync pytest -q\n"
+            "uv run --project services/api pytest -q"
+        )
 
 
 def semgrep_config_operands(tokens: list[str]) -> list[str]:

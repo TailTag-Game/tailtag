@@ -76,6 +76,21 @@ def unsafe_shadowed_loader_aliases() -> None:
     yaml.load(user_input, Loader=TailTagCSafeLoader)
 
 
+def unsafe_shadowed_legacy_loader_aliases() -> None:
+    SafeLoader = yaml.Loader
+    # ruleid: tailtag.python.unsafe-yaml-load
+    yaml.load(user_input, Loader=SafeLoader)
+    CSafeLoader = yaml.Loader
+    # ruleid: tailtag.python.unsafe-yaml-load
+    yaml.load(user_input, Loader=CSafeLoader)
+    LocalSafeLoader = yaml.Loader
+    # ruleid: tailtag.python.unsafe-yaml-load
+    yaml.load(user_input, Loader=LocalSafeLoader)
+    LocalCSafeLoader = yaml.Loader
+    # ruleid: tailtag.python.unsafe-yaml-load
+    yaml.load(user_input, Loader=LocalCSafeLoader)
+
+
 def unsafe_loader_alias_parameters(
     TailTagSafeLoader: object = yaml.Loader,
     TailTagCSafeLoader: object = yaml.Loader,
@@ -84,6 +99,22 @@ def unsafe_loader_alias_parameters(
     yaml.load(user_input, Loader=TailTagSafeLoader)
     # ruleid: tailtag.python.unsafe-yaml-load
     yaml.load(user_input, Loader=TailTagCSafeLoader)
+
+
+def unsafe_legacy_loader_alias_parameters(
+    SafeLoader: object = yaml.Loader,
+    CSafeLoader: object = yaml.Loader,
+    LocalSafeLoader: object = yaml.Loader,
+    LocalCSafeLoader: object = yaml.Loader,
+) -> None:
+    # ruleid: tailtag.python.unsafe-yaml-load
+    yaml.load(user_input, Loader=SafeLoader)
+    # ruleid: tailtag.python.unsafe-yaml-load
+    yaml.load(user_input, Loader=CSafeLoader)
+    # ruleid: tailtag.python.unsafe-yaml-load
+    yaml.load(user_input, Loader=LocalSafeLoader)
+    # ruleid: tailtag.python.unsafe-yaml-load
+    yaml.load(user_input, Loader=LocalCSafeLoader)
 
 
 # ruleid: tailtag.http.disabled-tls-verification
