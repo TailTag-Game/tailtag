@@ -51,6 +51,7 @@ def classify_paths(tmp_path: Path, paths: list[str]) -> bool:
         ([".github/workflows/api.yml"], True),
         ([".semgrep/rules/tailtag-security.yml"], True),
         ([".semgrep/tests/tailtag-security.py"], True),
+        ([".semgrep/notes/future-policy.md"], True),
         (["docs/development/getting-started.md"], False),
         (["README.md"], False),
         (["CONTRIBUTING.md"], False),

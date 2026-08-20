@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import os
+import re
+import shlex
 import subprocess
 import threading
+import tomllib
 from collections.abc import Generator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -14,6 +17,143 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_smoke.py"
 AUTH_SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_auth_smoke.py"
 CI_RELEVANCE_SCRIPT = REPOSITORY_ROOT / "scripts" / "backend_ci_relevance.py"
+SEMGREP_RULES_DIRECTORY = REPOSITORY_ROOT / ".semgrep" / "rules"
+SEMGREP_FIXTURES_DIRECTORY = REPOSITORY_ROOT / ".semgrep" / "tests"
+SEMGREP_SOURCE_TARGETS = (
+    "services/api",
+    REPOSITORY_ROOT / "scripts" / "api_smoke.py",
+    REPOSITORY_ROOT / "scripts" / "api_auth_smoke.py",
+    REPOSITORY_ROOT / "scripts" / "clerk_development_session.py",
+    REPOSITORY_ROOT / "scripts" / "backend_ci_relevance.py",
+)
+
+
+def make_prerequisites(target: str) -> list[str]:
+    """Return the explicitly declared prerequisites for a root Make target."""
+    completed = run_make("-prRn", target)
+
+    assert completed.returncode == 0, completed.stderr
+    target_rule = re.search(
+        rf"(?m)^{re.escape(target)}:\s*(?P<rules>[^\n]*)$", completed.stdout
+    )
+    assert target_rule, f"Makefile must define {target}"
+    return target_rule.group("rules").split()
+
+
+def semgrep_scan_tokens(dry_run: str) -> list[list[str]]:
+    """Parse Semgrep scan commands emitted by a Make dry run."""
+    commands = [line.strip() for line in dry_run.splitlines() if "semgrep scan" in line]
+    assert commands, "Semgrep validation must execute scan commands"
+
+    tokens_by_command: list[list[str]] = []
+    for command in commands:
+        assert not any(
+            operator in command
+            for operator in ("&&", "||", ";", "|", "`", "$(", "${", ">", "<")
+        ), command
+        lowered = command.lower()
+        assert not any(
+            forbidden in lowered
+            for forbidden in (
+                "http://",
+                "https://",
+                "registry",
+                "login",
+                "token",
+                "account",
+                "prompt",
+                ".env",
+                "docker",
+                "migrate",
+            )
+        ), command
+
+        tokens = shlex.split(command)
+        semgrep_index = tokens.index("semgrep")
+        assert tokens[semgrep_index : semgrep_index + 2] == ["semgrep", "scan"]
+        assert tokens[semgrep_index - 5 : semgrep_index] == [
+            "--directory",
+            "services/api",
+            "run",
+            "--locked",
+            "--no-sync",
+        ]
+        launcher = tokens[semgrep_index - 6]
+        assert Path(launcher).name == "uv"
+        assert all("=" in token for token in tokens[: semgrep_index - 6])
+        tokens_by_command.append(tokens)
+
+    return tokens_by_command
+
+
+def semgrep_config_operands(tokens: list[str]) -> list[str]:
+    """Return explicit Semgrep configuration operands from a scan command."""
+    operands: list[str] = []
+    for index, token in enumerate(tokens):
+        if token == "--config":
+            operands.append(tokens[index + 1])
+        elif token.startswith("--config="):
+            operands.append(token.removeprefix("--config="))
+    return operands
+
+
+def semgrep_target_operands(tokens: list[str]) -> set[str]:
+    """Return positional operands after `semgrep scan` from a parsed command."""
+    scan_index = tokens.index("scan")
+    operands: set[str] = set()
+    skip_next = False
+    for token in tokens[scan_index + 1 :]:
+        if skip_next:
+            skip_next = False
+        elif token == "--config":
+            skip_next = True
+        elif token in {
+            "--test",
+            "--error",
+            "--metrics=off",
+            "--disable-version-check",
+        } or token.startswith("--config="):
+            continue
+        elif token.startswith("-"):
+            raise AssertionError(f"unexpected Semgrep option: {token}")
+        else:
+            operands.add(token)
+    return operands
+
+
+def assert_semgrep_check_contract(dry_run: str) -> None:
+    """Require separate local fixture and blocking Semgrep scans with exact scopes."""
+    commands = semgrep_scan_tokens(dry_run)
+    assert len(commands) == 2
+
+    fixture_commands = [command for command in commands if "--test" in command]
+    blocking_commands = [command for command in commands if "--test" not in command]
+    assert len(fixture_commands) == 1
+    assert len(blocking_commands) == 1
+
+    for command in commands:
+        assert semgrep_config_operands(command) == [str(SEMGREP_RULES_DIRECTORY)]
+        assert "--metrics=off" in command
+        assert "--disable-version-check" in command
+        environment = {
+            name: value
+            for name, value in (
+                token.split("=", maxsplit=1)
+                for token in command[: command.index("semgrep") - 6]
+            )
+        }
+        assert environment["SEMGREP_SEND_METRICS"] == "off"
+        assert environment["SEMGREP_ENABLE_VERSION_CHECK"] == "0"
+
+    fixture_command = fixture_commands[0]
+    assert "--error" not in fixture_command
+    assert semgrep_target_operands(fixture_command) == {str(SEMGREP_FIXTURES_DIRECTORY)}
+
+    blocking_command = blocking_commands[0]
+    assert "--error" in blocking_command
+    assert semgrep_target_operands(blocking_command) == {
+        str(target) for target in SEMGREP_SOURCE_TARGETS
+    }
 
 
 def run_make(
@@ -121,14 +261,13 @@ def test_help_lists_the_canonical_backend_commands() -> None:
 def test_check_composes_every_required_backend_validation() -> None:
     """The full check runs CI-equivalent validation without schema mutation."""
     completed = run_make("-n", "api-check")
+    prerequisites = make_prerequisites("api-check")
 
     assert completed.returncode == 0, completed.stderr
     for command in (
         "ruff format --check .",
         "ruff check .",
         "pyright",
-        "semgrep scan --test",
-        "semgrep scan",
         "pytest -q",
         "python manage.py check",
         "python manage.py makemigrations --check --dry-run",
@@ -139,6 +278,9 @@ def test_check_composes_every_required_backend_validation() -> None:
     assert f"ruff format --check . {SMOKE_SCRIPT}" in completed.stdout
     assert f"ruff check . {SMOKE_SCRIPT}" in completed.stdout
     assert str(CI_RELEVANCE_SCRIPT) in completed.stdout
+    assert "api-semgrep-check" in prerequisites
+    assert prerequisites.index("api-semgrep-check") < prerequisites.index("api-test")
+    assert_semgrep_check_contract(completed.stdout)
     assert completed.stdout.index("semgrep scan --test") < completed.stdout.index(
         "pytest -q"
     )
@@ -155,52 +297,33 @@ def test_semgrep_check_is_local_locked_noninteractive_and_credential_free() -> N
     completed = run_make("-n", "api-semgrep-check")
 
     assert completed.returncode == 0, completed.stderr
-    assert (
-        "uv --directory services/api run --locked --no-sync semgrep scan"
-        in completed.stdout
-    )
-    assert "--test" in completed.stdout
-    assert f"--config {REPOSITORY_ROOT / '.semgrep' / 'rules'}" in completed.stdout
-    assert str(REPOSITORY_ROOT / ".semgrep" / "tests") in completed.stdout
-    assert "--error" in completed.stdout
-    assert "--metrics=off" in completed.stdout
-    assert "--disable-version-check" in completed.stdout
-    assert "SEMGREP_SEND_METRICS=off" in completed.stdout
-    assert "SEMGREP_ENABLE_VERSION_CHECK=0" in completed.stdout
-    assert "--config auto" not in completed.stdout
-    assert "semgrep ci" not in completed.stdout
-    assert "SEMGREP_APP_TOKEN" not in completed.stdout
-    assert "SEMGREP_API_TOKEN" not in completed.stdout
-    assert "https://" not in completed.stdout
-
-    assert "services/api" in completed.stdout
-    root_helpers = (
-        REPOSITORY_ROOT / "scripts" / "api_smoke.py",
-        REPOSITORY_ROOT / "scripts" / "api_auth_smoke.py",
-        REPOSITORY_ROOT / "scripts" / "clerk_development_session.py",
-        REPOSITORY_ROOT / "scripts" / "backend_ci_relevance.py",
-    )
-    for helper in root_helpers:
-        assert str(helper) in completed.stdout
-
-    assert ".env" not in completed.stdout
-    assert "docker" not in completed.stdout
-    assert "python manage.py migrate" not in completed.stdout
-
-    authenticated_smoke_lines = [
-        line for line in completed.stdout.splitlines() if str(AUTH_SMOKE_SCRIPT) in line
+    execution_lines = [
+        line.strip()
+        for line in completed.stdout.splitlines()
+        if line.strip() and not line.lstrip().startswith(("echo ", "printf "))
     ]
-    assert authenticated_smoke_lines
-    assert all("semgrep scan" in line for line in authenticated_smoke_lines)
+    assert len(execution_lines) == 2
+    assert all("semgrep scan" in line for line in execution_lines)
+    assert ".env" not in completed.stdout
+    assert "docker" not in completed.stdout.lower()
+    assert "migrate" not in completed.stdout.lower()
+    assert_semgrep_check_contract(completed.stdout)
+    assert completed.stdout.count(str(AUTH_SMOKE_SCRIPT)) == 1
 
 
 def test_semgrep_is_locked_as_a_development_only_dependency() -> None:
     """Semgrep is development tooling and is absent from the production image."""
-    pyproject = (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml").read_text()
+    pyproject = tomllib.loads(
+        (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml").read_text()
+    )
     lockfile = (REPOSITORY_ROOT / "services" / "api" / "uv.lock").read_text()
     dockerfile = (REPOSITORY_ROOT / "services" / "api" / "Dockerfile").read_text()
 
-    assert '"semgrep==1.173.0"' in pyproject
+    assert "semgrep==1.173.0" in pyproject["dependency-groups"]["dev"]
+    assert all(
+        not dependency.startswith("semgrep")
+        for dependency in pyproject["project"]["dependencies"]
+    )
     assert 'name = "semgrep"' in lockfile
     assert "uv sync --locked --no-dev --no-install-project" in dockerfile
 

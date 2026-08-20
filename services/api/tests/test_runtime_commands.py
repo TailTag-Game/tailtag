@@ -197,6 +197,7 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
 
     assert "name: API foundation checks" in workflow
     assert "run: make api-check" in workflow
+    assert re.search(r"(?m)^permissions:\n  contents: read$", workflow)
     for duplicated_command in (
         "uv run pytest -q",
         "uv run ruff format --check .",
@@ -218,6 +219,19 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
         "semgrep-action",
     ):
         assert forbidden_semgrep_integration not in workflow
+
+    semgrep_documentation = " ".join(readme.lower().split())
+    assert re.search(r"(?:repository[- ]owned|local) rules", semgrep_documentation)
+    assert re.search(r"(?:no|without) (?:scan-time )?network", semgrep_documentation)
+    assert re.search(r"(?:no|without) (?:semgrep )?account", semgrep_documentation)
+    assert re.search(
+        r"(?:does not|doesn't|not) .{0,80}(?:dependency|sca).{0,80}(?:scan|cover)",
+        semgrep_documentation,
+    )
+    assert re.search(
+        r"(?:does not|doesn't|not) .{0,80}secret.{0,80}(?:scan|cover)",
+        semgrep_documentation,
+    )
 
     supported_surfaces = [
         "/health/live",
