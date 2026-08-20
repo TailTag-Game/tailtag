@@ -34,6 +34,9 @@ CANONICAL_UV_RUN_CHILD_EXECUTABLES = frozenset(
     {"ruff", "pyright", "pytest", "python", "semgrep", "gunicorn"}
 )
 CANONICAL_UV_RUN_OPTIONS = frozenset({"--locked", "--no-sync", "--offline"})
+MAKE_DIRECTORY_DIAGNOSTIC = re.compile(
+    r"^make(?:\[\d+\])?: (?:Entering|Leaving) directory "
+)
 
 
 def make_prerequisites(target: str) -> list[str]:
@@ -55,6 +58,8 @@ def dry_run_commands(dry_run: str) -> list[str]:
     for raw_line in dry_run.splitlines():
         line = raw_line.strip()
         if not line:
+            continue
+        if MAKE_DIRECTORY_DIAGNOSTIC.match(line):
             continue
         if line.endswith("\\"):
             fragments.append(line[:-1].rstrip())
@@ -438,6 +443,19 @@ def smoke_server(
         server.shutdown()
         thread.join()
         server.server_close()
+
+
+def test_dry_run_commands_ignores_recursive_make_directory_diagnostics() -> None:
+    """GNU Make directory tracing is diagnostic output, not an executed command."""
+    dry_run = """\
+make[1]: Entering directory '/workspace/tailtag'
+uv --directory services/api run --locked --no-sync pytest -q
+make[1]: Leaving directory '/workspace/tailtag'
+"""
+
+    assert dry_run_commands(dry_run) == [
+        "uv --directory services/api run --locked --no-sync pytest -q"
+    ]
 
 
 def test_help_lists_the_canonical_backend_commands() -> None:
