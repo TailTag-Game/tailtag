@@ -11,6 +11,7 @@ BACKEND_RELEVANT_FILES = {
     "Makefile",
     "scripts/api_smoke.py",
     "scripts/api_auth_smoke.py",
+    "scripts/api_media_storage_smoke.py",
     "scripts/clerk_development_session.py",
     "scripts/backend_ci_relevance.py",
     "scripts/validate_semgrep_contract.py",

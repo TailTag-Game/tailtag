@@ -252,6 +252,99 @@ authoritative runtime configuration. The service's **Variables** tab is the
 management surface; edits are staged for review and deployment. Record names,
 references, and ownership—not rendered values.
 
+### V0 private media storage rollout
+
+This repository does not create, change, rotate, or delete Cloudflare R2
+buckets, credentials, or Railway variables. Those are explicit maintainer
+operations at the established Cloudflare and Railway secret boundaries; do not
+attempt them from repository startup, tests, CI, or local contributor setup.
+
+Before merging the fail-closed media-storage change, an authorized maintainer
+must complete this order for Railway `development`:
+
+1. Create one dedicated **private** R2 development bucket. Do not use it as
+   backup storage, a public asset origin, or a production bucket.
+2. Create a bucket-scoped **Object Read & Write** credential restricted to that
+   bucket. Do not grant account-wide, bucket-management, public-access, or
+   unrelated-bucket scope.
+3. In Railway `development` → `api` → **Variables**, stage all five values as
+   secrets: `MEDIA_STORAGE_ENDPOINT_URL`, `MEDIA_STORAGE_BUCKET_NAME`,
+   `MEDIA_STORAGE_REGION`, `MEDIA_STORAGE_ACCESS_KEY_ID`, and
+   `MEDIA_STORAGE_SECRET_ACCESS_KEY`. Do not record rendered values in source,
+   logs, tickets, reviews, screenshots, shell history, or chat.
+4. Review and apply the staged variable names and intended ownership to Railway
+   Development. Production settings fail closed when any required value is
+   absent or an endpoint is not an HTTPS root URL; do not merge first and add
+   these variables later.
+5. Before merging, run the repository-owned live boundary check from the
+   checked-out pull-request branch through Railway Development's `api` variable
+   context:
+
+   ```bash
+   TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM=run-r2-development-media-storage-smoke \
+   railway run --service api --environment development -- make api-media-storage-smoke
+   ```
+
+   This opt-in command is entirely separate from `make api-check` and ordinary
+   CI. It fails closed unless the Railway identity is exactly
+   `development`/`api`, the fixed confirmation value is present,
+   `DJANGO_SETTINGS_MODULE=config.settings.production` is in use, and the
+   configured storage is `S3MediaStorage`. It rejects a target identified as
+   production. It uses only synthetic, in-memory canonical image bytes; no user
+   data or repository fixture data is involved.
+
+   The command uploads the synthetic object, confirms its existence, creates a
+   600-second presigned GET, fetches and compares the canonical bytes, then
+   deletes the object in a `finally` path and confirms its absence. A deletion
+   error, absence-check error, or surviving object is a command failure, not a
+   warning. The command itself never prints the object key, storage identifiers,
+   bearer URL, credentials, request signatures, response material, or external
+   error details.
+
+   Record only this sanitized evidence after a successful run; do not include
+   rendered variable values or other storage details:
+
+   ```text
+   command: make api-media-storage-smoke
+   target: development/api
+   branch/revision: <checked-out-branch> / <revision>
+   stages: upload PASS; existence PASS; presigned-byte PASS; delete PASS
+   cleanup/absence: PASS
+   overall: PASS
+   ```
+
+   Record this successful result before retaining an automatic issue-close
+   link on the pull request. If an external constraint makes pre-merge
+   verification impossible, remove that link, merge the implementation, run
+   the same smoke against the deployed revision, record the sanitized result,
+   and close the issue manually afterward.
+
+   Full authenticated API media-flow validation remains deferred to the profile
+   and participating-character work in #113 and #115.
+
+The production storage backend creates only 600-second presigned `GET` URLs;
+they are bearer credentials and must never be persisted or logged. There are
+no presigned `PUT` URLs, direct-to-R2 uploads, public bucket URLs, or
+repository-managed R2 provisioning.
+
+### Media lifecycle and recovery boundary
+
+For a replacement, the media boundary uploads the new object, commits the new
+database reference, and then best-effort deletes the old object. If that commit
+fails, it attempts compensating deletion of the new object but preserves the
+original commit error. For optional removal, it commits the absent reference
+before best-effort deletion of the old object. A failed post-commit deletion
+may leave an orphan; do not restore a stale reference merely because cleanup
+failed.
+
+V0 intentionally has no scheduled garbage collection, bucket inventory
+reconciliation, account/fursuit deletion workflow, or generalized asset
+lifecycle service. Treat any orphan investigation or cleanup beyond the
+best-effort boundary as separately approved work. Railway application-code
+rollback does not restore or delete R2 objects, just as it does not restore
+PostgreSQL state; assess references and objects independently before a rollback
+or forward-recovery decision.
+
 | Variable | Authority and handling |
 | --- | --- |
 | `DATABASE_URL` | `api` uses a Railway reference to `Postgres.DATABASE_URL`. Do not replace it with copied credentials or expose PostgreSQL publicly. |
@@ -261,6 +354,11 @@ references, and ownership—not rendered values.
 | `CLERK_AUTHENTICATION_ENABLED` | TailTag-owned Development authentication switch. The validated Railway Development value is exactly `true`; do not enable it without the two complete verification inputs below. |
 | `CLERK_JWT_KEY` | Clerk Development instance RSA JWKS Public Key used for offline verification. It is not a Clerk secret key, but manage it through Railway's staged variable boundary and do not copy its contents into source, issues, reviews, logs, or chat. |
 | `CLERK_AUTHORIZED_PARTIES` | The validated Development contract is exactly `http://localhost:3000`, the synthetic backend-tooling origin. Do not add the Railway API destination or broaden this list without a separately approved authentication requirement. |
+| `MEDIA_STORAGE_ENDPOINT_URL` | Private R2 S3-compatible HTTPS root endpoint for the Development bucket; stage as a Railway secret and never copy its rendered value into repository artifacts. |
+| `MEDIA_STORAGE_BUCKET_NAME` | Dedicated private R2 Development bucket name; stage as a Railway secret and do not reuse a production or unrelated bucket. |
+| `MEDIA_STORAGE_REGION` | S3-compatible region for the private Development bucket; stage it with the complete media configuration. |
+| `MEDIA_STORAGE_ACCESS_KEY_ID` | Minimum-scope private-bucket object credential identifier; manage only through Railway's secret boundary. |
+| `MEDIA_STORAGE_SECRET_ACCESS_KEY` | Matching minimum-scope private-bucket object credential secret; never display or record it. |
 | `PORT` | Railway platform runtime configuration for the container; do not duplicate it as a TailTag-owned Django setting. |
 | Other `RAILWAY_*` values | Platform-owned variables; do not manually duplicate them unless an approved design explicitly requires a user-configured Railway behavior variable. |
 

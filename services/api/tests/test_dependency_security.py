@@ -23,8 +23,13 @@ def test_locked_runtime_dependencies_meet_security_patch_floors() -> None:
     assert "Django>=6.0,<6.1" in dependencies
     assert "clerk-backend-api==7.0.0" in dependencies
     assert "cryptography>=50.0.0,<51" in dependencies
+    assert "Pillow>=12.3,<13" in dependencies
+    assert "boto3>=1.43,<2" in dependencies
+    assert "boto3-stubs[s3]>=1.43,<2" in project["dependency-groups"]["dev"]
     assert versions["clerk-backend-api"] == Version("7.0.0")
     assert versions["django"] >= Version("6.0")
     assert versions["django"] < Version("6.1")
     assert versions["cryptography"] >= Version("50.0.0")
+    assert versions["pillow"] >= Version("12.3")
+    assert versions["boto3"] >= Version("1.43")
     assert versions["sqlparse"] >= Version("0.6.0")

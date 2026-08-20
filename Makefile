@@ -6,6 +6,7 @@ override API_UV := $(UV) --directory $(API_DIRECTORY)
 override SEMGREP_UV := $(UV) --directory $(SEMGREP_DIRECTORY)
 override SMOKE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_smoke.py
 override AUTH_SMOKE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_auth_smoke.py
+override MEDIA_STORAGE_SMOKE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_media_storage_smoke.py
 override CLERK_DEVELOPMENT_SESSION_SCRIPT := $(REPOSITORY_ROOT)/scripts/clerk_development_session.py
 override CI_RELEVANCE_SCRIPT := $(REPOSITORY_ROOT)/scripts/backend_ci_relevance.py
 override SEMGREP_VALIDATOR := $(REPOSITORY_ROOT)/scripts/validate_semgrep_contract.py
@@ -14,6 +15,7 @@ override SEMGREP_TESTS := $(REPOSITORY_ROOT)/.semgrep/tests
 override SEMGREP_TARGETS := $(REPOSITORY_ROOT)/services/api \
 	$(SMOKE_SCRIPT) \
 	$(AUTH_SMOKE_SCRIPT) \
+	$(MEDIA_STORAGE_SMOKE_SCRIPT) \
 	$(CLERK_DEVELOPMENT_SESSION_SCRIPT) \
 	$(CI_RELEVANCE_SCRIPT) \
 	$(SEMGREP_VALIDATOR)
@@ -22,7 +24,7 @@ override SEMGREP := $(SEMGREP_UV) run --locked --no-sync semgrep
 define run_django_command
 if [ "$${TAILTAG_DEVCONTAINER:-}" = "1" ]; then \
 	DATABASE_URL="$$($(API_UV) run --locked --no-sync python -m config.compose_database_url)" \
-	DJANGO_SETTINGS_MODULE=config.settings.production \
+	DJANGO_SETTINGS_MODULE=config.settings.local \
 	$(API_UV) run --locked --no-sync $(1); \
 else \
 	$(API_UV) run --locked --no-sync $(1); \
@@ -34,7 +36,7 @@ endef
 
 .PHONY: help \
 	api-setup api-run api-semgrep-check api-test api-check api-migrate api-migrations \
-	api-migrations-check api-shell api-smoke api-auth-smoke \
+	api-migrations-check api-shell api-smoke api-auth-smoke api-media-storage-smoke \
 	api-format-check api-lint-check api-type-check api-django-check \
 	api-schema-check api-gunicorn-check
 
@@ -97,16 +99,21 @@ api-smoke: ## HTTP-check a running API (API_BASE_URL defaults to 127.0.0.1:8000)
 api-auth-smoke: ## Authenticated smoke test with an interactive Clerk Development secret.
 	PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_auth_smoke
 
+api-media-storage-smoke: ## Run guarded live media storage verification against Railway Development.
+	@DJANGO_SETTINGS_MODULE=config.settings.production \
+	PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" \
+	$(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_media_storage_smoke
+
 api-check: api-format-check api-lint-check api-type-check api-semgrep-check api-test api-django-check api-migrations-check api-schema-check api-gunicorn-check ## Run the complete local pre-PR backend validation suite.
 	@printf '%s\n' 'Backend pre-PR validation completed.'
 
 api-format-check:
 	@printf '%s\n' 'Checking Ruff formatting...'
-	$(API_UV) run --locked --no-sync ruff format --check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
+	$(API_UV) run --locked --no-sync ruff format --check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
 
 api-lint-check:
 	@printf '%s\n' 'Running Ruff lint...'
-	$(API_UV) run --locked --no-sync ruff check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
+	$(API_UV) run --locked --no-sync ruff check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
 
 api-type-check:
 	@printf '%s\n' 'Running strict Pyright...'
@@ -127,4 +134,9 @@ api-gunicorn-check:
 	DATABASE_URL=postgresql://tailtag:tailtag@localhost:5432/tailtag \
 	DJANGO_ALLOWED_HOSTS=localhost \
 	DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost \
+	MEDIA_STORAGE_ENDPOINT_URL=https://media.example.test \
+	MEDIA_STORAGE_BUCKET_NAME=ci-media-bucket \
+	MEDIA_STORAGE_REGION=auto \
+	MEDIA_STORAGE_ACCESS_KEY_ID=ci-not-a-real-access-key \
+	MEDIA_STORAGE_SECRET_ACCESS_KEY=ci-not-a-real-secret-key \
 	$(API_UV) run --locked --no-sync gunicorn config.wsgi:application --check-config
