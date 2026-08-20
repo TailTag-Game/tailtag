@@ -560,6 +560,17 @@ def test_semgrep_check_ignores_make_overrides_of_its_security_inputs(
     assert_semgrep_validator_precedes_fixture_scan(completed.stdout)
 
 
+def test_semgrep_check_ignores_a_command_line_curdir_override() -> None:
+    """GNU Make's CURDIR override cannot redirect the canonical security scope."""
+    replacement = "/tmp/tailtag-fake"
+    completed = run_make("-n", "api-semgrep-check", f"CURDIR={replacement}")
+
+    assert completed.returncode == 0, completed.stderr
+    assert replacement not in completed.stdout
+    assert_semgrep_check_contract(completed.stdout)
+    assert_semgrep_validator_precedes_fixture_scan(completed.stdout)
+
+
 @pytest.mark.parametrize("override_source", ["environment", "command_line"])
 def test_semgrep_check_honors_the_uv_override_seam(
     tmp_path: Path, override_source: str
