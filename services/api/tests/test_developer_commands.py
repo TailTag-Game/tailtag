@@ -492,7 +492,10 @@ def test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free() -> No
 
         ruff_index = tokens.index("ruff")
         assert tokens[ruff_index + 1] in {"format", "check"}, line
-        assert str(AUTH_SMOKE_SCRIPT) in tokens[ruff_index + 1 :], line
+        assert any(
+            is_authenticated_smoke_helper_operand(token)
+            for token in tokens[ruff_index + 1 :]
+        ), line
 
     # Ordinary smoke and CI must not reference the helper at all.
     for text in (ordinary, workflow_text):
@@ -528,6 +531,30 @@ def test_api_check_rejects_normalized_authenticated_smoke_helper_execution(
 
     with pytest.raises(AssertionError):
         test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free()
+
+
+def test_api_check_accepts_normalized_authenticated_smoke_helper_static_analysis(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ruff may inspect the helper through an equivalent path spelling."""
+    original_run_make = run_make
+
+    def run_make_with_helper_alias(
+        *targets: str, environment: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        completed = original_run_make(*targets, environment=environment)
+        if targets == ("-n", "api-check"):
+            return subprocess.CompletedProcess(
+                completed.args,
+                completed.returncode,
+                f"{completed.stdout}\nuv --directory services/api run ruff check scripts/./api_auth_smoke.py",
+                completed.stderr,
+            )
+        return completed
+
+    monkeypatch.setitem(globals(), "run_make", run_make_with_helper_alias)
+
+    test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free()
 
 
 def test_devcontainer_django_commands_derive_the_compose_database_url() -> None:
