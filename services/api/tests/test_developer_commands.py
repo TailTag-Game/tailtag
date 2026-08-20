@@ -67,24 +67,19 @@ def dry_run_commands(dry_run: str) -> list[str]:
 
 
 def assert_api_check_uv_runs_are_locked_and_no_sync(dry_run: str) -> None:
-    """Require every API or Semgrep uv run emitted by api-check to be offline-ready."""
-    invocation = re.compile(
-        r"(?:\S*/)?uv\s+(?:"
-        r"--(?:directory|project)\s+(?:services/api|\.semgrep)\s+run\b"
-        r"|run\s+--(?:directory|project)\s+(?:services/api|\.semgrep)\b"
-        r")"
-    )
+    """Require every executable uv run emitted by api-check to be offline-ready."""
+    invocation = re.compile(r"(?<![\w./-])(?:\S*/)?uv\b(?P<body>[^;|&()\n]*)")
     commands = dry_run_commands(dry_run)
-    matches = [
-        (command, match)
+    executions = [
+        (command, match.group("body"))
         for command in commands
         for match in invocation.finditer(command)
+        if re.search(r"(?:^|\s)run(?:\s|$)", match.group("body"))
     ]
-    assert matches, "api-check must execute locked uv run commands"
-    for command, match in matches:
-        assert re.match(r"\s+--locked\s+--no-sync(?:\s|$)", command[match.end() :]), (
-            command
-        )
+    assert executions, "api-check must execute uv run commands"
+    for command, arguments in executions:
+        assert re.search(r"(?:^|\s)--locked(?:\s|$)", arguments), command
+        assert re.search(r"(?:^|\s)--no-sync(?:\s|$)", arguments), command
 
 
 def resolve_repository_operand(operand: str) -> Path:
@@ -154,6 +149,14 @@ def test_api_check_uv_run_contract_rejects_implicit_project_sync() -> None:
         assert_api_check_uv_runs_are_locked_and_no_sync(
             "uv --directory services/api run --locked --no-sync pytest -q\n"
             "uv run --project services/api pytest -q"
+        )
+
+
+def test_api_check_uv_run_contract_rejects_no_sync_after_option_reordering() -> None:
+    """Option order cannot hide a project-selected implicit synchronization."""
+    with pytest.raises(AssertionError):
+        assert_api_check_uv_runs_are_locked_and_no_sync(
+            "uv run --locked --project services/api pytest -q"
         )
 
 
