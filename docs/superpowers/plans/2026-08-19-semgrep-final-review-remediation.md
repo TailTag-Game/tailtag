@@ -176,7 +176,8 @@ library where possible.
   literal frozen set of the five approved root helpers. Invoke the canonical
   main-scan configuration/shared command construction and parse Semgrep JSON
   `paths.scanned`; assert exact equality, including API tests. Do not derive
-  expectations by parsing Make operands.
+  expectations by parsing Make operands. Name this test
+  `test_main_scan_paths_match_git_tracked_scope`.
 
   Add the canonical baseline probe: create an isolated local clone/worktree of
   the current branch, symlink its `services/api/.venv` and `.semgrep/.venv` to
@@ -192,7 +193,8 @@ library where possible.
   `SEMGREP_BASELINE_COMMIT` to that committed `HEAD`, and run
   `make api-semgrep-check` with no overrides. Assert nonzero and exact output
   rule ID `tailtag.python.dynamic-execution`. The test must not run a
-  reconstructed Semgrep command or invoke network synchronization.
+  reconstructed Semgrep command or invoke network synchronization. Name this
+  test `test_canonical_target_ignores_inherited_baseline`.
 
 - [ ] **Step 5: Run the focused acceptance suite and record expected RED evidence.**
 
@@ -308,14 +310,14 @@ library where possible.
   workflow, and the five helpers are relevant while all prior irrelevant paths
   stay irrelevant.
 
-- [ ] **Step 5: Run narrow implementation verification against frozen tests.**
+- [ ] **Step 5: Run narrow non-clone verification before the implementation commit.**
 
   ```bash
   make api-setup
   uv --directory services/api run --locked --no-sync pytest -q \
     tests/test_developer_commands.py tests/test_backend_ci_relevance.py \
     tests/test_runtime_commands.py tests/test_semgrep_contract.py \
-    tests/test_semgrep_integration.py
+    tests/test_semgrep_integration.py::test_main_scan_paths_match_git_tracked_scope
   make api-semgrep-check
   HTTPS_PROXY=http://127.0.0.1:1 HTTP_PROXY=http://127.0.0.1:1 ALL_PROXY=http://127.0.0.1:1 NO_PROXY= UV_OFFLINE=1 make api-semgrep-check
   git show ede15f13bbde767f4816ffdb4f3b966d357ec78d:services/api/uv.lock > /tmp/tailtag-api-baseline.lock
@@ -324,18 +326,66 @@ library where possible.
   git diff --check
   ```
 
-  Expected after implementation: both the ordinary and forced-offline
-  canonical commands discover the same fixtures and report zero approved-scope
-  findings; the suite also proves exact `paths.scanned`, baseline-probe failure
-  with the planted expected ID, and no API Semgrep dependency. If a genuine
-  finding occurs, stop rather than suppress it.
+  Expected: every frozen check that does not need a clone snapshot is green;
+  ordinary and forced-offline canonical commands discover the same fixtures and
+  report zero approved-scope findings; exact `paths.scanned` and no API Semgrep
+  dependency are proven. Do not commit while any known non-baseline failure
+  remains. A genuine finding still stops implementation rather than being
+  suppressed.
 
-- [ ] **Step 6: Task-level review and handoff.**
+- [ ] **Step 6: Commit the bounded implementation before clone-based verification.**
+
+  Stage only Task 2 owned implementation files and commit the green
+  non-clone implementation snapshot:
+
+  ```bash
+  git add .semgrep/pyproject.toml .semgrep/uv.lock .semgrep/.gitignore \
+    .semgrepignore .semgrep/rules/tailtag-security.yml Makefile \
+    scripts/validate_semgrep_contract.py scripts/backend_ci_relevance.py \
+    services/api/pyproject.toml services/api/uv.lock \
+    .github/workflows/api.yml .devcontainer/devcontainer.json
+  git commit -m "chore: isolate and harden Semgrep validation"
+  ```
+
+  This does not weaken test-first sequencing: Task 1 tests were independently
+  authored, observed RED, and approved before implementation began. This
+  commit is required because the canonical baseline test clones committed
+  repository `HEAD` and cannot observe uncommitted implementation changes.
+
+- [ ] **Step 7: Run the complete frozen suite against committed HEAD.**
+
+  ```bash
+  uv --directory services/api run --locked --no-sync pytest -q \
+    tests/test_developer_commands.py tests/test_backend_ci_relevance.py \
+    tests/test_runtime_commands.py tests/test_semgrep_contract.py \
+    tests/test_semgrep_integration.py
+  ```
+
+  The suite now runs
+  `test_canonical_target_ignores_inherited_baseline` from a clone/worktree of
+  the bounded implementation commit. It must invoke unmodified
+  `make api-semgrep-check`, set its baseline to committed `HEAD`, and fail on
+  the planted `eval(user_input)` with exact rule ID
+  `tailtag.python.dynamic-execution`.
+
+- [ ] **Step 8: Repair only implementation failures and preserve frozen tests.**
+
+  If the baseline probe fails, fix only Task 2 implementation files in the
+  worktree, rerun Step 5 until every non-clone check is green, commit the
+  bounded follow-up, then rerun the entire Step 7 suite. If any non-baseline
+  test fails, first fix it in the worktree and repeat Step 5 successfully
+  before creating its follow-up commit. Keep all Task 1 acceptance tests
+  unchanged; never commit a known non-baseline failure or amend frozen tests to
+  make an implementation pass.
+
+- [ ] **Step 9: Task-level review and handoff.**
 
   Run fresh spec-compliance and code-quality reviews against the amendment and
-  frozen tests, then commit only implementation-owned files. Provide commands,
-  results, the one-time merge-base lock/TOML comparison, no-dev evidence, and
-  any `NEEDS_CONTEXT` decision to Tasks 3 and 4. Do not modify test or
+  frozen tests across the complete Task 2 commit range, beginning with
+  `chore: isolate and harden Semgrep validation` and including any follow-up
+  repair commits. Provide commands, results, the one-time merge-base lock/TOML
+  comparison, no-dev evidence, committed-HEAD baseline-probe evidence, and any
+  `NEEDS_CONTEXT` decision to Tasks 3 and 4. Do not modify test or
   documentation files.
 
 ### Task 3: Document the implemented isolated gate
@@ -347,8 +397,9 @@ library where possible.
 
 **Interfaces:**
 
-- Consumes: Task 2's reviewed Make/setup/validator/scope behavior and Task 1
-  frozen acceptance contract.
+- Consumes: Task 2's reviewed complete implementation commit range,
+  Make/setup/validator/scope behavior, committed-HEAD baseline evidence, and
+  Task 1 frozen acceptance contract.
 - Produces: accurate contributor and architecture documentation; no executable
   changes.
 
@@ -408,8 +459,9 @@ library where possible.
 
 **Interfaces:**
 
-- Consumes: committed test, implementation, and documentation tasks; their
-  review evidence; and the amendment.
+- Consumes: committed test, complete Task 2 implementation commit range,
+  documentation tasks, their review evidence, committed-HEAD baseline evidence,
+  and the amendment.
 - Produces: final acceptance evidence or a concrete `NEEDS_CONTEXT`/remediation
   handoff.
 
