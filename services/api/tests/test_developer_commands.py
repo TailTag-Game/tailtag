@@ -71,13 +71,12 @@ def dry_run_commands(dry_run: str) -> list[str]:
 
 
 def assert_api_check_uv_runs_are_locked_and_no_sync(dry_run: str) -> None:
-    """Require every executable uv run emitted by api-check to be offline-ready."""
+    """Require every executable uv invocation to use the approved run grammar."""
     invocation = re.compile(r"(?<![\w./-])(?:\S*/)?uv\b(?P<body>[^;|&()\n]*)")
     option_regions = [
         (command, uv_run_option_region(match.group("body")))
         for command in dry_run_commands(dry_run)
         for match in invocation.finditer(command)
-        if "run" in shlex.split(match.group("body"))
     ]
     assert option_regions, "api-check must execute uv run commands"
     for command, option_region in option_regions:
@@ -88,6 +87,7 @@ def assert_api_check_uv_runs_are_locked_and_no_sync(dry_run: str) -> None:
 def uv_run_option_region(arguments: str) -> list[str]:
     """Parse the approved uv invocation grammar through its child executable."""
     tokens = shlex.split(arguments)
+    assert "run" in tokens, arguments
     run_index = tokens.index("run")
     global_options = tokens[:run_index]
     assert not global_options or (
@@ -210,6 +210,20 @@ def test_api_check_uv_run_contract_rejects_unknown_child_executable() -> None:
     with pytest.raises(AssertionError):
         assert_api_check_uv_runs_are_locked_and_no_sync(
             "uv run --locked --no-sync custom-validator"
+        )
+
+
+@pytest.mark.parametrize(
+    "non_run_invocation",
+    ["uv pip install injected-package", "uv --directory services/api sync --locked"],
+)
+def test_api_check_uv_run_contract_rejects_non_run_invocations(
+    non_run_invocation: str,
+) -> None:
+    """No auxiliary uv command may mutate the validation environment."""
+    with pytest.raises(AssertionError):
+        assert_api_check_uv_runs_are_locked_and_no_sync(
+            f"{non_run_invocation}; uv run --locked --no-sync pytest -q"
         )
 
 
