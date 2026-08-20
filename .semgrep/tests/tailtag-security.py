@@ -10,6 +10,7 @@ import httpx
 import requests
 import yaml
 from django.db.models.expressions import RawSQL
+from django.db.models.expressions import RawSQL as DjangoRawSQL
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from yaml import CSafeLoader, SafeLoader
@@ -203,11 +204,21 @@ User.objects.raw(f"SELECT * FROM users WHERE name = '{user_input}'")
 # ruleid: tailtag.django.dynamic-raw-sql
 RawSQL(f"SELECT id FROM users WHERE name = '{user_input}'", ())
 # ruleid: tailtag.django.dynamic-raw-sql
+DjangoRawSQL(f"SELECT id FROM users WHERE name = '{user_input}'", ())
+# ruleid: tailtag.django.dynamic-raw-sql
 django.db.models.expressions.RawSQL(
     f"SELECT id FROM users WHERE name = '{user_input}'", ()
 )
 # ok: tailtag.django.dynamic-raw-sql
 cursor.execute("SELECT * FROM users WHERE name = %s", [user_input])
+
+
+def format_unrelated_raw_sql() -> None:
+    def RawSQL(sql: str, params: tuple[object, ...]) -> tuple[str, tuple[object, ...]]:
+        return sql, params
+
+    # ok: tailtag.django.dynamic-raw-sql
+    RawSQL(f"SELECT id FROM users WHERE name = '{user_input}'", ())
 
 
 class Writer:
