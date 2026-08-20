@@ -16,7 +16,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "semgrep==1.173.0",
     "ruff>=0.14",
     "pyright>=1.1",
     "django-stubs>=5.2",

@@ -33,7 +33,14 @@ rules:
     languages: [python]
     severity: ERROR
     metadata: {owner: tailtag, confidence: HIGH}
-    pattern: yaml.load(...)
+    patterns:
+      - pattern: yaml.load(...)
+      - pattern-not: yaml.load(..., Loader=yaml.SafeLoader, ...)
+      - pattern-not: yaml.load(..., Loader=yaml.CSafeLoader, ...)
+      - pattern-not: yaml.load(..., Loader=SafeLoader, ...)
+      - pattern-not: yaml.load(..., Loader=CSafeLoader, ...)
+      - pattern-not: yaml.load(..., Loader=LocalSafeLoader, ...)
+      - pattern-not: yaml.load(..., Loader=LocalCSafeLoader, ...)
 
   - id: tailtag.http.disabled-tls-verification
     message: TLS certificate verification must remain enabled.
@@ -64,19 +71,29 @@ rules:
           - pattern: $CURSOR.execute(f"...{$VALUE}...", ...)
           - metavariable-regex:
               metavariable: $CURSOR
-              regex: "^(cursor|connection|conn|db|self\\.cursor|self\\.connection\\.cursor\\(\\))$"
+              regex: "^(cursor|[A-Za-z_][A-Za-z0-9_]*_cursor|connection|conn|db|self\\.cursor|self\\.connection\\.cursor\\(\\))$"
       - patterns:
           - pattern: $CURSOR.execute($SQL % $VALUE, ...)
           - metavariable-regex:
               metavariable: $CURSOR
-              regex: "^(cursor|connection|conn|db|self\\.cursor|self\\.connection\\.cursor\\(\\))$"
+              regex: "^(cursor|[A-Za-z_][A-Za-z0-9_]*_cursor|connection|conn|db|self\\.cursor|self\\.connection\\.cursor\\(\\))$"
       - patterns:
           - pattern: $CURSOR.execute($SQL.format(...), ...)
           - metavariable-regex:
               metavariable: $CURSOR
-              regex: "^(cursor|connection|conn|db|self\\.cursor|self\\.connection\\.cursor\\(\\))$"
+              regex: "^(cursor|[A-Za-z_][A-Za-z0-9_]*_cursor|connection|conn|db|self\\.cursor|self\\.connection\\.cursor\\(\\))$"
+      - pattern: connection.cursor().execute(f"...{$VALUE}...", ...)
+      - patterns:
+          - pattern: |
+              $QUERY = f"...{$VALUE}..."
+              $CURSOR.execute($QUERY, ...)
+          - metavariable-regex:
+              metavariable: $CURSOR
+              regex: "^(cursor|[A-Za-z_][A-Za-z0-9_]*_cursor|connection|conn|db|self\\.cursor|self\\.connection\\.cursor\\(\\))$"
+          - focus-metavariable: $CURSOR
       - pattern: $MODEL.objects.raw(f"...{$VALUE}...", ...)
       - pattern: RawSQL(f"...{$VALUE}...", ...)
+      - pattern: django.db.models.expressions.RawSQL(f"...{$VALUE}...", ...)
 
   - id: tailtag.storage.public-object-acl
     message: TailTag object storage must remain private.

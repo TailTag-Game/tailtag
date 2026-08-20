@@ -1,18 +1,22 @@
 API_DIRECTORY := services/api
+SEMGREP_DIRECTORY := .semgrep
 UV ?= uv
 API_UV := $(UV) --directory $(API_DIRECTORY)
+SEMGREP_UV := $(UV) --directory $(SEMGREP_DIRECTORY)
 SMOKE_SCRIPT := $(CURDIR)/scripts/api_smoke.py
 AUTH_SMOKE_SCRIPT := $(CURDIR)/scripts/api_auth_smoke.py
 CLERK_DEVELOPMENT_SESSION_SCRIPT := $(CURDIR)/scripts/clerk_development_session.py
 CI_RELEVANCE_SCRIPT := $(CURDIR)/scripts/backend_ci_relevance.py
+SEMGREP_VALIDATOR := $(CURDIR)/scripts/validate_semgrep_contract.py
 SEMGREP_RULES ?= $(CURDIR)/.semgrep/rules
 SEMGREP_TESTS ?= $(CURDIR)/.semgrep/tests
 SEMGREP_TARGETS ?= $(CURDIR)/services/api \
 	$(SMOKE_SCRIPT) \
 	$(AUTH_SMOKE_SCRIPT) \
 	$(CLERK_DEVELOPMENT_SESSION_SCRIPT) \
-	$(CI_RELEVANCE_SCRIPT)
-SEMGREP ?= $(API_UV) run --locked --no-sync semgrep
+	$(CI_RELEVANCE_SCRIPT) \
+	$(SEMGREP_VALIDATOR)
+SEMGREP ?= $(SEMGREP_UV) run --locked --no-sync semgrep
 
 define run_django_command
 if [ "$${TAILTAG_DEVCONTAINER:-}" = "1" ]; then \
@@ -39,6 +43,7 @@ help: ## List the canonical backend developer commands.
 api-setup: ## Sync locked backend dependencies.
 	@printf '%s\n' 'Synchronizing locked backend dependencies...'
 	$(API_UV) sync --all-groups --locked
+	$(SEMGREP_UV) sync --locked
 
 api-run: ## Run Django locally on port 8000; requires configured PostgreSQL.
 	@printf '%s\n' 'Starting Django development server on port 8000...'
@@ -46,9 +51,11 @@ api-run: ## Run Django locally on port 8000; requires configured PostgreSQL.
 
 api-semgrep-check: ## Run deterministic TailTag Semgrep security analysis.
 	@printf '%s\n' 'Testing TailTag Semgrep rules...'
+	$(API_UV) run --locked --no-sync python $(SEMGREP_VALIDATOR) --rules $(SEMGREP_RULES) --fixtures $(SEMGREP_TESTS)
 	SEMGREP_SEND_METRICS=off SEMGREP_ENABLE_VERSION_CHECK=0 \
 		$(SEMGREP) scan --test \
 		--config $(SEMGREP_RULES) \
+		--baseline-commit '' \
 		--metrics=off \
 		--disable-version-check \
 		$(SEMGREP_TESTS)
@@ -56,6 +63,7 @@ api-semgrep-check: ## Run deterministic TailTag Semgrep security analysis.
 	SEMGREP_SEND_METRICS=off SEMGREP_ENABLE_VERSION_CHECK=0 \
 		$(SEMGREP) scan \
 		--config $(SEMGREP_RULES) \
+		--baseline-commit '' \
 		--error \
 		--metrics=off \
 		--disable-version-check \
