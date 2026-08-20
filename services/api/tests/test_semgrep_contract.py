@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -10,7 +11,6 @@ import pytest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 VALIDATOR = REPOSITORY_ROOT / "scripts" / "validate_semgrep_contract.py"
-API_PYTHON = REPOSITORY_ROOT / "services" / "api" / ".venv" / "bin" / "python"
 
 
 def write_minimal_pair(rules: Path, fixtures: Path) -> None:
@@ -24,10 +24,10 @@ def write_minimal_pair(rules: Path, fixtures: Path) -> None:
 
 
 def run_validator(rules: Path, fixtures: Path) -> subprocess.CompletedProcess[str]:
-    """Run the future stdlib validator through the locked API interpreter."""
+    """Run the stdlib validator through the current test interpreter."""
     return subprocess.run(
         [
-            str(API_PYTHON),
+            sys.executable,
             str(VALIDATOR),
             "--rules",
             str(rules),
@@ -88,14 +88,47 @@ def unsupported_fixture_extension(rules: Path, fixtures: Path) -> None:
     (fixtures / "notes.txt").write_text("unsupported")
 
 
-def unknown_annotation(rules: Path, fixtures: Path) -> None:
+def unsupported_semgrep_annotation(rules: Path, fixtures: Path) -> None:
     write_minimal_pair(rules, fixtures)
-    (fixtures / "example.py").write_text("# nope: tailtag.example.rule\nunsafe()\n")
+    (fixtures / "example.py").write_text(
+        "# todoruleid: tailtag.example.rule\nunsafe()\n"
+    )
 
 
 def malformed_annotation(rules: Path, fixtures: Path) -> None:
     write_minimal_pair(rules, fixtures)
     (fixtures / "example.py").write_text("# ruleid tailtag.example.rule\nunsafe()\n")
+
+
+def malformed_todo_annotation(rules: Path, fixtures: Path) -> None:
+    write_minimal_pair(rules, fixtures)
+    (fixtures / "example.py").write_text(
+        "# todoruleid tailtag.example.rule\nunsafe()\n"
+    )
+
+
+def test_validator_accepts_cache_artifacts_and_ordinary_fixture_comments(
+    tmp_path: Path,
+) -> None:
+    """Build artifacts and prose are not Semgrep metadata contract violations."""
+    rules = tmp_path / "rules"
+    fixtures = tmp_path / "fixtures"
+    write_minimal_pair(rules, fixtures)
+    (fixtures / "__pycache__").mkdir()
+    (fixtures / "example.py").write_text(
+        "# covers the vulnerable execution shape\n"
+        "# noqa: S307 - fixture directive\n"
+        "# arbitrary-label: ordinary prose\n"
+        "# ruleid: tailtag.example.rule\n"
+        "unsafe()  # noqa: S307\n"
+        "# ordinary prose: safe counterpart\n"
+        "# ok: tailtag.example.rule\n"
+        "safe()\n"
+    )
+
+    completed = run_validator(rules, fixtures)
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def duplicate_rule_identifier(rules: Path, fixtures: Path) -> None:
@@ -200,8 +233,9 @@ def partial_two_rule_coverage(rules: Path, fixtures: Path) -> None:
         (rules_not_a_directory, "filesystem error"),
         (unsupported_rule_extension, "unsupported rule file"),
         (unsupported_fixture_extension, "unsupported fixture file"),
-        (unknown_annotation, "unknown fixture annotation"),
+        (unsupported_semgrep_annotation, "unknown fixture annotation"),
         (malformed_annotation, "malformed fixture annotation"),
+        (malformed_todo_annotation, "unknown fixture annotation"),
         (duplicate_rule_identifier, "duplicate rule id"),
         (duplicate_rule_identifier_across_files, "duplicate rule id"),
         (noncanonical_rule_identifier, "noncanonical rule id"),
@@ -224,8 +258,9 @@ def partial_two_rule_coverage(rules: Path, fixtures: Path) -> None:
         "rules-not-directory",
         "unsupported-rule-file",
         "unsupported-fixture-file",
-        "unknown-annotation",
+        "unsupported-semgrep-annotation",
         "malformed-annotation",
+        "malformed-todo-annotation",
         "duplicate-id",
         "duplicate-id-across-files",
         "noncanonical-id",

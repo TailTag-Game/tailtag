@@ -133,6 +133,8 @@ requests.get("https://example.test", verify=True)
 mark_safe(user_input)
 # ruleid: tailtag.django.mark-safe
 django.utils.safestring.mark_safe(user_input)
+# ruleid: tailtag.django.mark-safe
+django.utils.html.mark_safe(user_input)
 # ok: tailtag.django.mark-safe
 format_html("{}", user_input)
 
@@ -259,8 +261,8 @@ writer.execute(f"not SQL: {user_input}")
 executor.execute(f"not SQL: {user_input}")
 # ok: tailtag.django.dynamic-raw-sql
 cursor.execute(f"SELECT * FROM users")
-# ok: tailtag.django.dynamic-raw-sql
 query = "SELECT * FROM users WHERE name = 'static'"
+# ok: tailtag.django.dynamic-raw-sql
 cursor.execute(query)
 
 # ruleid: tailtag.storage.public-object-acl

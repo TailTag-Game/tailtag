@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.semgrep_support import FROZEN_ROOT_HELPERS, dry_run_commands
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_smoke.py"
 AUTH_SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_auth_smoke.py"
@@ -22,21 +24,14 @@ CI_RELEVANCE_SCRIPT = REPOSITORY_ROOT / "scripts" / "backend_ci_relevance.py"
 SEMGREP_VALIDATOR = REPOSITORY_ROOT / "scripts" / "validate_semgrep_contract.py"
 SEMGREP_RULES_DIRECTORY = REPOSITORY_ROOT / ".semgrep" / "rules"
 SEMGREP_FIXTURES_DIRECTORY = REPOSITORY_ROOT / ".semgrep" / "tests"
-FROZEN_SEMGREP_SOURCE_TARGETS = (
+FROZEN_SEMGREP_SOURCE_TARGETS = {
     REPOSITORY_ROOT / "services" / "api",
-    REPOSITORY_ROOT / "scripts" / "api_smoke.py",
-    REPOSITORY_ROOT / "scripts" / "api_auth_smoke.py",
-    REPOSITORY_ROOT / "scripts" / "clerk_development_session.py",
-    REPOSITORY_ROOT / "scripts" / "backend_ci_relevance.py",
-    REPOSITORY_ROOT / "scripts" / "validate_semgrep_contract.py",
-)
+    *(REPOSITORY_ROOT / helper for helper in FROZEN_ROOT_HELPERS),
+}
 CANONICAL_UV_RUN_CHILD_EXECUTABLES = frozenset(
     {"ruff", "pyright", "pytest", "python", "semgrep", "gunicorn"}
 )
 CANONICAL_UV_RUN_OPTIONS = frozenset({"--locked", "--no-sync", "--offline"})
-MAKE_DIRECTORY_DIAGNOSTIC = re.compile(
-    r"^make(?:\[\d+\])?: (?:Entering|Leaving) directory "
-)
 
 
 def make_prerequisites(target: str) -> list[str]:
@@ -49,30 +44,6 @@ def make_prerequisites(target: str) -> list[str]:
     )
     assert target_rule, f"Makefile must define {target}"
     return target_rule.group("rules").split()
-
-
-def dry_run_commands(dry_run: str) -> list[str]:
-    """Collapse Make's shell continuations into complete dry-run commands."""
-    commands: list[str] = []
-    fragments: list[str] = []
-    for raw_line in dry_run.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        if MAKE_DIRECTORY_DIAGNOSTIC.match(line):
-            continue
-        if line.endswith("\\"):
-            fragments.append(line[:-1].rstrip())
-            continue
-        if fragments:
-            fragments.append(line)
-            commands.append(" ".join(fragments))
-            fragments = []
-        else:
-            commands.append(line)
-
-    assert not fragments, "Make dry run must not end with a shell continuation"
-    return commands
 
 
 def assert_api_check_uv_runs_are_locked_and_no_sync(dry_run: str) -> None:
@@ -162,6 +133,9 @@ def semgrep_scan_tokens(dry_run: str) -> list[list[str]]:
 
         tokens = shlex.split(command)
         semgrep_index = tokens.index("semgrep")
+        assert semgrep_index >= 6, (
+            "Semgrep command requires at least six launcher-prefix tokens"
+        )
         assert tokens[semgrep_index : semgrep_index + 2] == ["semgrep", "scan"]
         assert tokens[semgrep_index - 5 : semgrep_index] == [
             "--directory",
@@ -306,6 +280,9 @@ def assert_semgrep_check_contract(dry_run: str) -> None:
         }
         assert environment["SEMGREP_SEND_METRICS"] == "off"
         assert environment["SEMGREP_ENABLE_VERSION_CHECK"] == "0"
+        assert environment["SEMGREP_BASELINE_COMMIT"] == ""
+        assert environment["SEMGREP_APP_TOKEN"] == ""
+        assert environment["SEMGREP_RULES"] == ""
 
     fixture_command = fixture_commands[0]
     assert "--error" not in fixture_command
@@ -458,6 +435,12 @@ make[1]: Leaving directory '/workspace/tailtag'
     ]
 
 
+def test_semgrep_scan_tokens_rejects_an_incomplete_launcher_prefix() -> None:
+    """A malformed Semgrep command fails before fixed-offset token parsing."""
+    with pytest.raises(AssertionError, match="at least six launcher-prefix tokens"):
+        semgrep_scan_tokens("semgrep scan --config .semgrep/rules .semgrep/tests")
+
+
 def test_help_lists_the_canonical_backend_commands() -> None:
     """The root interface exposes every required backend command."""
     completed = run_make("help")
@@ -568,6 +551,47 @@ def test_semgrep_check_ignores_make_overrides_of_its_security_inputs(
     variable: str, replacement: str, override_source: str
 ) -> None:
     """Only the repository can select the canonical Semgrep executable and scope."""
+    if override_source == "environment":
+        completed = run_make(
+            "-n", "api-semgrep-check", environment={variable: replacement}
+        )
+    elif override_source == "command_line":
+        completed = run_make("-n", "api-semgrep-check", f"{variable}={replacement}")
+    elif override_source == "environment_overrides":
+        completed = run_make(
+            "-n",
+            "api-semgrep-check",
+            environment={"MAKEFLAGS": "-e", variable: replacement},
+        )
+    else:
+        completed = run_make(
+            "-n",
+            "api-semgrep-check",
+            environment={"MAKEFLAGS": f"{variable}={replacement}"},
+        )
+
+    assert completed.returncode == 0, completed.stderr
+    assert replacement not in completed.stdout
+    assert_semgrep_check_contract(completed.stdout)
+    assert_semgrep_validator_precedes_fixture_scan(completed.stdout)
+
+
+@pytest.mark.parametrize(
+    ("variable", "replacement"),
+    [
+        ("SEMGREP_BASELINE_COMMIT", "HEAD"),
+        ("SEMGREP_APP_TOKEN", "untrusted-token"),
+        ("SEMGREP_RULES", "/tmp/untrusted-semgrep-rules"),
+    ],
+)
+@pytest.mark.parametrize(
+    "override_source",
+    ["environment", "command_line", "makeflags", "environment_overrides"],
+)
+def test_semgrep_check_clears_inherited_semgrep_execution_settings(
+    variable: str, replacement: str, override_source: str
+) -> None:
+    """Inherited Semgrep settings cannot alter the canonical local scan process."""
     if override_source == "environment":
         completed = run_make(
             "-n", "api-semgrep-check", environment={variable: replacement}
@@ -724,7 +748,14 @@ def test_semgrep_is_isolated_from_the_api_dependency_resolution() -> None:
     assert ignored_venv.returncode == 0
 
     exported = subprocess.run(
-        ["uv", "--directory", "services/api", "export", "--locked", "--no-dev"],
+        [
+            os.environ.get("UV", "uv"),
+            "--directory",
+            "services/api",
+            "export",
+            "--locked",
+            "--no-dev",
+        ],
         cwd=REPOSITORY_ROOT,
         capture_output=True,
         text=True,
@@ -839,15 +870,10 @@ def test_authenticated_smoke_honors_uv_override(tmp_path: Path) -> None:
     assert "python -m scripts.api_auth_smoke" in completed.stdout
 
 
-def test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free() -> None:
-    """CI must not gain a secret, prompt, or live authenticated smoke dependency."""
-    ordinary = run_make("-n", "api-smoke").stdout
-    api_check = run_make("-n", "api-check").stdout
-    workflow_text = "\n".join(
-        path.read_text()
-        for suffix in ("*.yml", "*.yaml")
-        for path in (REPOSITORY_ROOT / ".github" / "workflows").glob(suffix)
-    )
+def assert_ci_and_ordinary_smoke_are_noninteractive_and_credential_free(
+    ordinary: str, api_check: str, workflow_text: str
+) -> None:
+    """Assert that only explicit manual work can invoke authenticated smoke checks."""
 
     for text in (ordinary, api_check, workflow_text):
         assert "api-auth-smoke" not in text
@@ -866,6 +892,7 @@ def test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free() -> No
     # never execute it. The Semgrep helper proves the exact blocking target
     # set; Pyright coverage is asserted separately from pyproject.
     assert_semgrep_check_contract(api_check)
+    assert_api_check_uv_runs_are_locked_and_no_sync(api_check)
     api_check_script_commands = [
         (line, shlex.split(line))
         for line in dry_run_commands(api_check)
@@ -912,53 +939,56 @@ def test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free() -> No
     )
 
 
-def test_api_check_rejects_normalized_authenticated_smoke_helper_execution(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free() -> None:
+    """CI must not gain a secret, prompt, or live authenticated smoke dependency."""
+    ordinary = run_make("-n", "api-smoke").stdout
+    api_check = run_make("-n", "api-check").stdout
+    workflow_text = "\n".join(
+        path.read_text()
+        for suffix in ("*.yml", "*.yaml")
+        for path in (REPOSITORY_ROOT / ".github" / "workflows").glob(suffix)
+    )
+
+    assert_ci_and_ordinary_smoke_are_noninteractive_and_credential_free(
+        ordinary, api_check, workflow_text
+    )
+
+
+def test_api_check_rejects_normalized_authenticated_smoke_helper_execution() -> None:
     """Equivalent helper paths cannot bypass api-check's execution prohibition."""
-    original_run_make = run_make
-
-    def run_make_with_helper_alias(
-        *targets: str, environment: dict[str, str] | None = None
-    ) -> subprocess.CompletedProcess[str]:
-        completed = original_run_make(*targets, environment=environment)
-        if targets == ("-n", "api-check"):
-            return subprocess.CompletedProcess(
-                completed.args,
-                completed.returncode,
-                f"{completed.stdout}\nuv --directory services/api run python scripts/./api_auth_smoke.py",
-                completed.stderr,
-            )
-        return completed
-
-    monkeypatch.setitem(globals(), "run_make", run_make_with_helper_alias)
+    ordinary = run_make("-n", "api-smoke").stdout
+    api_check = run_make("-n", "api-check").stdout
+    workflow_text = "\n".join(
+        path.read_text()
+        for suffix in ("*.yml", "*.yaml")
+        for path in (REPOSITORY_ROOT / ".github" / "workflows").glob(suffix)
+    )
 
     with pytest.raises(AssertionError):
-        test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free()
+        assert_ci_and_ordinary_smoke_are_noninteractive_and_credential_free(
+            ordinary,
+            f"{api_check}\nuv --directory services/api run --locked --no-sync python scripts/./api_auth_smoke.py",
+            workflow_text,
+        )
 
 
-def test_api_check_accepts_normalized_authenticated_smoke_helper_static_analysis(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_api_check_accepts_normalized_authenticated_smoke_helper_static_analysis() -> (
+    None
+):
     """Ruff may inspect the helper through an equivalent path spelling."""
-    original_run_make = run_make
+    ordinary = run_make("-n", "api-smoke").stdout
+    api_check = run_make("-n", "api-check").stdout
+    workflow_text = "\n".join(
+        path.read_text()
+        for suffix in ("*.yml", "*.yaml")
+        for path in (REPOSITORY_ROOT / ".github" / "workflows").glob(suffix)
+    )
 
-    def run_make_with_helper_alias(
-        *targets: str, environment: dict[str, str] | None = None
-    ) -> subprocess.CompletedProcess[str]:
-        completed = original_run_make(*targets, environment=environment)
-        if targets == ("-n", "api-check"):
-            return subprocess.CompletedProcess(
-                completed.args,
-                completed.returncode,
-                f"{completed.stdout}\nuv --directory services/api run ruff check scripts/./api_auth_smoke.py",
-                completed.stderr,
-            )
-        return completed
-
-    monkeypatch.setitem(globals(), "run_make", run_make_with_helper_alias)
-
-    test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free()
+    assert_ci_and_ordinary_smoke_are_noninteractive_and_credential_free(
+        ordinary,
+        f"{api_check}\nuv --directory services/api run --locked --no-sync ruff check scripts/./api_auth_smoke.py",
+        workflow_text,
+    )
 
 
 def test_devcontainer_django_commands_derive_the_compose_database_url() -> None:

@@ -81,16 +81,21 @@ def yaml_mapping_contents(document: str, key: str, indentation: int) -> str:
 
 
 def assert_api_workflow_least_privilege(workflow: str) -> None:
-    """Require one read-only workflow permission block with no API-job override."""
+    """Require one read-only workflow permission block with no job override."""
     top_level_permissions = yaml_mapping_contents(workflow, "permissions", 0)
     permission_entries = [
-        line.strip() for line in top_level_permissions.splitlines() if line.strip()
+        line.strip()
+        for line in top_level_permissions.splitlines()
+        if line.strip() and not line.strip().startswith("#")
     ]
     assert permission_entries == ["contents: read"]
 
     jobs = yaml_mapping_contents(workflow, "jobs", 0)
-    api_job = yaml_mapping_contents(jobs, "api", 2)
-    assert not re.search(r"(?m)^    permissions:", api_job)
+    job_names = re.findall(r"(?m)^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$", jobs)
+    assert job_names, "workflow must define at least one job"
+    for job_name in job_names:
+        job = yaml_mapping_contents(jobs, job_name, 2)
+        assert not re.search(r"(?m)^    permissions:", job)
 
 
 def test_runtime_files_define_development_and_production_contracts() -> None:
@@ -347,3 +352,29 @@ def test_api_workflow_permissions_reject_effective_escalation() -> None:
         assert_api_workflow_least_privilege(job_level_escalation)
     with pytest.raises(AssertionError):
         assert_api_workflow_least_privilege(late_job_level_escalation)
+
+
+def test_api_workflow_permissions_ignore_comments_and_reject_every_job_override() -> (
+    None
+):
+    """Comments are inert, but a second job cannot escalate workflow permissions."""
+    workflow = (REPOSITORY_ROOT / ".github/workflows/api.yml").read_text()
+    commented_permissions = workflow.replace(
+        "  contents: read", "  # contents: write\n  contents: read", 1
+    )
+    second_job_escalation = workflow.replace(
+        "  api:\n",
+        "  reporting:\n"
+        "    permissions:\n"
+        "      contents: write\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps: []\n"
+        "  api:\n",
+        1,
+    )
+
+    assert commented_permissions != workflow
+    assert second_job_escalation != workflow
+    assert_api_workflow_least_privilege(commented_permissions)
+    with pytest.raises(AssertionError):
+        assert_api_workflow_least_privilege(second_job_escalation)

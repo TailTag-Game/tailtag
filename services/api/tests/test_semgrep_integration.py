@@ -10,16 +10,9 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from tests.semgrep_support import FROZEN_ROOT_HELPERS, dry_run_commands
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-FROZEN_ROOT_HELPERS = frozenset(
-    {
-        "scripts/api_smoke.py",
-        "scripts/api_auth_smoke.py",
-        "scripts/clerk_development_session.py",
-        "scripts/backend_ci_relevance.py",
-        "scripts/validate_semgrep_contract.py",
-    }
-)
 
 
 def tracked_semgrep_targets(repository: Path) -> set[Path]:
@@ -50,22 +43,11 @@ def canonical_main_scan_command(repository: Path) -> tuple[dict[str, str], list[
         check=False,
     )
     assert dry_run.returncode == 0, dry_run.stderr
-    commands: list[str] = []
-    fragments: list[str] = []
-    for raw_line in dry_run.stdout.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        if line.endswith("\\"):
-            fragments.append(line[:-1].rstrip())
-            continue
-        if fragments:
-            fragments.append(line)
-            line = " ".join(fragments)
-            fragments = []
-        if "semgrep scan" in line and "--test" not in line:
-            commands.append(line)
-    assert not fragments, "Make dry run must not end with a shell continuation"
+    commands = [
+        line
+        for line in dry_run_commands(dry_run.stdout)
+        if "semgrep scan" in line and "--test" not in line
+    ]
     assert len(commands) == 1
 
     tokens = shlex.split(commands[0])
@@ -74,6 +56,80 @@ def canonical_main_scan_command(repository: Path) -> tuple[dict[str, str], list[
         name, value = tokens.pop(0).split("=", maxsplit=1)
         environment[name] = value
     return environment, tokens
+
+
+def overlay_working_tree(source: Path, destination: Path) -> None:
+    """Overlay tracked and untracked source files without replacing clone metadata."""
+    completed = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        cwd=source,
+        capture_output=True,
+        check=True,
+    )
+    for encoded_path in completed.stdout.split(b"\0"):
+        if not encoded_path:
+            continue
+        relative = Path(os.fsdecode(encoded_path))
+        source_path = source / relative
+        destination_path = destination / relative
+        if source_path.exists() or source_path.is_symlink():
+            destination_path.parent.mkdir(parents=True, exist_ok=True)
+            if destination_path.is_symlink() or destination_path.is_file():
+                destination_path.unlink()
+            if source_path.is_symlink():
+                destination_path.symlink_to(source_path.readlink())
+            else:
+                shutil.copy2(source_path, destination_path)
+        elif destination_path.exists() or destination_path.is_symlink():
+            destination_path.unlink()
+
+
+def test_overlay_working_tree_copies_modifications_additions_and_deletions(
+    tmp_path: Path,
+) -> None:
+    """The isolated probe sees the caller's current tree rather than only HEAD."""
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init"], cwd=source, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "TailTag-Test"],
+        cwd=source,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "tailtag-test@example.invalid"],
+        cwd=source,
+        check=True,
+        capture_output=True,
+    )
+    (source / "tracked.py").write_text("before\n")
+    (source / "deleted.py").write_text("delete me\n")
+    subprocess.run(["git", "add", "."], cwd=source, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "test: seed overlay source"],
+        cwd=source,
+        check=True,
+        capture_output=True,
+    )
+    destination = tmp_path / "destination"
+    subprocess.run(
+        ["git", "clone", "--no-hardlinks", str(source), str(destination)],
+        cwd=source,
+        check=True,
+        capture_output=True,
+    )
+
+    (source / "tracked.py").write_text("after\n")
+    (source / "deleted.py").unlink()
+    (source / "added.py").write_text("new\n")
+
+    overlay_working_tree(source, destination)
+
+    assert (destination / ".git").is_dir()
+    assert (destination / "tracked.py").read_text() == "after\n"
+    assert not (destination / "deleted.py").exists()
+    assert (destination / "added.py").read_text() == "new\n"
 
 
 def test_canonical_main_scan_reports_exact_frozen_tracked_scope() -> None:
@@ -115,6 +171,9 @@ def test_inherited_baseline_cannot_suppress_the_canonical_make_scan(
         check=False,
     )
     assert cloned.returncode == 0, cloned.stderr
+    assert (clone / ".git").is_dir()
+
+    overlay_working_tree(REPOSITORY_ROOT, clone)
     assert (clone / ".git").is_dir()
 
     for relative_venv, source_venv in (
