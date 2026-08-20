@@ -164,6 +164,15 @@ def undefined_rule_annotation(rules: Path, fixtures: Path) -> None:
     )
 
 
+def undefined_safe_rule_annotation(rules: Path, fixtures: Path) -> None:
+    write_minimal_pair(rules, fixtures)
+    (fixtures / "example.py").write_text(
+        "# ruleid: tailtag.example.rule\nunsafe()\n"
+        "# ok: tailtag.example.rule\nsafe()\n"
+        "# ok: tailtag.unknown.rule\nalso_safe()\n"
+    )
+
+
 def partial_two_rule_coverage(rules: Path, fixtures: Path) -> None:
     write_minimal_pair(rules, fixtures)
     (rules / "example.yml").write_text(
@@ -193,6 +202,7 @@ def partial_two_rule_coverage(rules: Path, fixtures: Path) -> None:
         (missing_ruleid_annotation, "missing ruleid annotation"),
         (missing_ok_annotation, "missing ok annotation"),
         (undefined_rule_annotation, "unknown rule id"),
+        (undefined_safe_rule_annotation, "unknown rule id"),
         (partial_two_rule_coverage, "missing ruleid annotation"),
     ],
     ids=[
@@ -215,6 +225,7 @@ def partial_two_rule_coverage(rules: Path, fixtures: Path) -> None:
         "missing-ruleid",
         "missing-ok",
         "undefined-rule-id",
+        "undefined-safe-rule-id",
         "partial-two-rule-coverage",
     ],
 )
