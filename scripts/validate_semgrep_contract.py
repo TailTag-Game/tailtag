@@ -90,7 +90,13 @@ def fixture_annotations(fixture_files: list[Path], declared: set[str]) -> tuple[
 def validate(rules_directory: Path, fixtures_directory: Path) -> None:
     rule_files = files_in(rules_directory, RULE_EXTENSIONS, "rule")
     fixture_files = files_in(fixtures_directory, FIXTURE_EXTENSIONS, "fixture")
-    if {path.stem for path in rule_files} != {path.stem for path in fixture_files}:
+    rule_stems = [path.stem for path in rule_files]
+    fixture_stems = [path.stem for path in fixture_files]
+    if len(rule_stems) != len(set(rule_stems)):
+        raise ContractError("ambiguous basename pairing")
+    if len(fixture_stems) != len(set(fixture_stems)):
+        raise ContractError("ambiguous basename pairing")
+    if set(rule_stems) != set(fixture_stems):
         raise ContractError("basename mismatch")
     declared = rule_ids(rule_files)
     ruleids, oks = fixture_annotations(fixture_files, declared)

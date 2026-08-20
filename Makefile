@@ -22,9 +22,9 @@ define run_django_command
 if [ "$${TAILTAG_DEVCONTAINER:-}" = "1" ]; then \
 	DATABASE_URL="$$($(API_UV) run --locked --no-sync python -m config.compose_database_url)" \
 	DJANGO_SETTINGS_MODULE=config.settings.production \
-	$(API_UV) run $(1); \
+	$(API_UV) run --locked --no-sync $(1); \
 else \
-	$(API_UV) run $(1); \
+	$(API_UV) run --locked --no-sync $(1); \
 fi
 endef
 
@@ -101,15 +101,15 @@ api-check: api-format-check api-lint-check api-type-check api-semgrep-check api-
 
 api-format-check:
 	@printf '%s\n' 'Checking Ruff formatting...'
-	$(API_UV) run ruff format --check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT)
+	$(API_UV) run --locked --no-sync ruff format --check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT)
 
 api-lint-check:
 	@printf '%s\n' 'Running Ruff lint...'
-	$(API_UV) run ruff check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT)
+	$(API_UV) run --locked --no-sync ruff check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT)
 
 api-type-check:
 	@printf '%s\n' 'Running strict Pyright...'
-	$(API_UV) run pyright
+	$(API_UV) run --locked --no-sync pyright
 
 api-django-check:
 	@printf '%s\n' 'Running Django system checks...'
@@ -126,4 +126,4 @@ api-gunicorn-check:
 	DATABASE_URL=postgresql://tailtag:tailtag@localhost:5432/tailtag \
 	DJANGO_ALLOWED_HOSTS=localhost \
 	DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost \
-	$(API_UV) run gunicorn config.wsgi:application --check-config
+	$(API_UV) run --locked --no-sync gunicorn config.wsgi:application --check-config
