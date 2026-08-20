@@ -255,7 +255,7 @@ library where possible.
   ```bash
   git show ede15f13bbde767f4816ffdb4f3b966d357ec78d:services/api/uv.lock > /tmp/tailtag-api-baseline.lock
   cmp /tmp/tailtag-api-baseline.lock services/api/uv.lock
-  uv --directory services/api run --locked --no-sync python -c 'import subprocess, tomllib; baseline = tomllib.loads(subprocess.check_output(["git", "show", "ede15f13bbde767f4816ffdb4f3b966d357ec78d:services/api/pyproject.toml"], text=True)); current = tomllib.loads(open("services/api/pyproject.toml", "rb").read().decode()); assert baseline["project"]["dependencies"] == current["project"]["dependencies"]; assert baseline["dependency-groups"] == current["dependency-groups"]'
+  uv --directory services/api run --locked --no-sync python -c 'import subprocess, tomllib; baseline = tomllib.loads(subprocess.check_output(["git", "show", "ede15f13bbde767f4816ffdb4f3b966d357ec78d:services/api/pyproject.toml"], text=True)); current = tomllib.loads(open("pyproject.toml", "rb").read().decode()); assert baseline["project"]["dependencies"] == current["project"]["dependencies"]; assert baseline["dependency-groups"] == current["dependency-groups"]'
   ```
 
   Stop with `NEEDS_CONTEXT` for a genuine source finding, a dependency mismatch
@@ -320,7 +320,7 @@ library where possible.
   HTTPS_PROXY=http://127.0.0.1:1 HTTP_PROXY=http://127.0.0.1:1 ALL_PROXY=http://127.0.0.1:1 NO_PROXY= UV_OFFLINE=1 make api-semgrep-check
   git show ede15f13bbde767f4816ffdb4f3b966d357ec78d:services/api/uv.lock > /tmp/tailtag-api-baseline.lock
   cmp /tmp/tailtag-api-baseline.lock services/api/uv.lock
-  uv --directory services/api run --locked --no-sync python -c 'import subprocess, tomllib; baseline = tomllib.loads(subprocess.check_output(["git", "show", "ede15f13bbde767f4816ffdb4f3b966d357ec78d:services/api/pyproject.toml"], text=True)); current = tomllib.loads(open("services/api/pyproject.toml", "rb").read().decode()); assert baseline["project"]["dependencies"] == current["project"]["dependencies"]; assert baseline["dependency-groups"] == current["dependency-groups"]'
+  uv --directory services/api run --locked --no-sync python -c 'import subprocess, tomllib; baseline = tomllib.loads(subprocess.check_output(["git", "show", "ede15f13bbde767f4816ffdb4f3b966d357ec78d:services/api/pyproject.toml"], text=True)); current = tomllib.loads(open("pyproject.toml", "rb").read().decode()); assert baseline["project"]["dependencies"] == current["project"]["dependencies"]; assert baseline["dependency-groups"] == current["dependency-groups"]'
   git diff --check
   ```
 
@@ -435,7 +435,7 @@ library where possible.
   uv --directory .semgrep lock --check
   git show ede15f13bbde767f4816ffdb4f3b966d357ec78d:services/api/uv.lock > /tmp/tailtag-api-baseline.lock
   cmp /tmp/tailtag-api-baseline.lock services/api/uv.lock
-  uv --directory services/api run --locked --no-sync python -c 'import subprocess, tomllib; baseline = tomllib.loads(subprocess.check_output(["git", "show", "ede15f13bbde767f4816ffdb4f3b966d357ec78d:services/api/pyproject.toml"], text=True)); current = tomllib.loads(open("services/api/pyproject.toml", "rb").read().decode()); assert baseline["project"]["dependencies"] == current["project"]["dependencies"]; assert baseline["dependency-groups"] == current["dependency-groups"]'
+  uv --directory services/api run --locked --no-sync python -c 'import subprocess, tomllib; baseline = tomllib.loads(subprocess.check_output(["git", "show", "ede15f13bbde767f4816ffdb4f3b966d357ec78d:services/api/pyproject.toml"], text=True)); current = tomllib.loads(open("pyproject.toml", "rb").read().decode()); assert baseline["project"]["dependencies"] == current["project"]["dependencies"]; assert baseline["dependency-groups"] == current["dependency-groups"]'
   ```
 
   Confirm the test's isolated clone/worktree baseline probe uses symlinked
