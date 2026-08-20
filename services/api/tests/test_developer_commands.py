@@ -203,13 +203,25 @@ def assert_semgrep_check_contract(dry_run: str) -> None:
 def assert_semgrep_validator_precedes_fixture_scan(dry_run: str) -> None:
     """Require the locked API validator immediately before Semgrep fixture testing."""
     commands = dry_run_commands(dry_run)
+    tokenized_commands = [shlex.split(command) for command in commands]
     validator_indexes = [
         index
-        for index, command in enumerate(commands)
-        if str(SEMGREP_VALIDATOR) in command
+        for index, tokens in enumerate(tokenized_commands)
+        if len(tokens) >= 8
+        and Path(tokens[0]).name == "uv"
+        and tokens[1:7]
+        == [
+            "--directory",
+            "services/api",
+            "run",
+            "--locked",
+            "--no-sync",
+            "python",
+        ]
+        and tokens[7] == str(SEMGREP_VALIDATOR)
     ]
     assert len(validator_indexes) == 1
-    validator_tokens = shlex.split(commands[validator_indexes[0]])
+    validator_tokens = tokenized_commands[validator_indexes[0]]
     assert Path(validator_tokens[0]).name == "uv"
     assert validator_tokens[1:7] == [
         "--directory",
@@ -392,6 +404,22 @@ def test_semgrep_check_is_local_locked_noninteractive_and_credential_free() -> N
     assert_semgrep_check_contract(completed.stdout)
     assert_semgrep_validator_precedes_fixture_scan(completed.stdout)
     assert completed.stdout.count(str(AUTH_SMOKE_SCRIPT)) == 1
+
+
+def test_semgrep_validator_preflight_rejects_a_second_python_execution() -> None:
+    """A scan target mention is allowed, but a second validator execution is not."""
+    completed = run_make("-n", "api-semgrep-check")
+    commands = dry_run_commands(completed.stdout)
+    validator = next(
+        command
+        for command in commands
+        if shlex.split(command)[7:8] == [str(SEMGREP_VALIDATOR)]
+    )
+
+    with pytest.raises(AssertionError):
+        assert_semgrep_validator_precedes_fixture_scan(
+            f"{completed.stdout}\n{validator}"
+        )
 
 
 def test_semgrep_is_isolated_from_the_api_dependency_resolution() -> None:
