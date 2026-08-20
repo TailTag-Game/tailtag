@@ -34,6 +34,10 @@ CANONICAL_UV_RUN_CHILD_EXECUTABLES = frozenset(
     {"ruff", "pyright", "pytest", "python", "semgrep", "gunicorn"}
 )
 CANONICAL_UV_RUN_OPTIONS = frozenset({"--locked", "--no-sync", "--offline"})
+MEDIA_STORAGE_SMOKE_MAKE_FAILURE_FOOTER = re.compile(
+    r"make(?:\[[1-9]\d*\])?: \*\*\* "
+    r"\[(?:Makefile:[1-9]\d*: )?api-media-storage-smoke\] Error 1"
+)
 
 
 def make_prerequisites(target: str) -> list[str]:
@@ -1054,10 +1058,7 @@ def test_media_storage_smoke_execution_emits_only_sanitized_stage_output(
     assert stderr_lines[0] == "FAIL target configuration invalid"
     assert len(stderr_lines[1:]) <= 1
     assert all(
-        re.fullmatch(
-            r"make(?:\[[1-9]\d*\])?: \*\*\* \[api-media-storage-smoke\] Error 1",
-            line,
-        )
+        MEDIA_STORAGE_SMOKE_MAKE_FAILURE_FOOTER.fullmatch(line)
         for line in stderr_lines[1:]
     )
     rendered = completed.stdout + completed.stderr
@@ -1068,6 +1069,37 @@ def test_media_storage_smoke_execution_emits_only_sanitized_stage_output(
         str(launcher),
     ):
         assert forbidden not in rendered
+
+
+@pytest.mark.parametrize(
+    "footer",
+    (
+        "make: *** [api-media-storage-smoke] Error 1",
+        "make[1]: *** [Makefile:103: api-media-storage-smoke] Error 1",
+    ),
+)
+def test_media_storage_smoke_footer_accepts_only_canonical_make_variants(
+    footer: str,
+) -> None:
+    """macOS and nested GNU Make use different, equally non-sensitive footers."""
+    assert MEDIA_STORAGE_SMOKE_MAKE_FAILURE_FOOTER.fullmatch(footer)
+
+
+@pytest.mark.parametrize(
+    "footer",
+    (
+        "make[0]: *** [Makefile:103: api-media-storage-smoke] Error 1",
+        "make[1]: *** [/workspace/Makefile:103: api-media-storage-smoke] Error 1",
+        "make[1]: *** [Makefile:0: api-media-storage-smoke] Error 1",
+        "make[1]: *** [Makefile:103: api-media-storage-smoke] Error 2",
+        "make[1]: *** [Makefile:103: api-media-storage-smoke] Error 1 secret",
+    ),
+)
+def test_media_storage_smoke_footer_rejects_path_or_arbitrary_variants(
+    footer: str,
+) -> None:
+    """The generic Make footer cannot become a channel for paths or extra content."""
+    assert MEDIA_STORAGE_SMOKE_MAKE_FAILURE_FOOTER.fullmatch(footer) is None
 
 
 @pytest.mark.parametrize(
