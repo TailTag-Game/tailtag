@@ -326,6 +326,34 @@ def test_concrete_runtime_fetch_rejects_redirect_without_following_it(
     with pytest.raises(smoke.SmokeFailure):
         runtime.fetch(url=storage.url_value)
     assert len(opener.requests) == 1
+    assert opener.requests[0].full_url == storage.url_value
+
+
+@pytest.mark.parametrize(
+    "url",
+    (
+        "http://synthetic.r2.example/private?X-Amz-Expires=600",
+        "ftp://synthetic.r2.example/private?X-Amz-Expires=600",
+        "//synthetic.r2.example/private?X-Amz-Expires=600",
+        "not an absolute URL",
+        "https://",
+    ),
+)
+def test_concrete_runtime_fetch_rejects_non_https_or_malformed_url_before_opening(
+    monkeypatch: MonkeyPatch, url: str
+) -> None:
+    """Rejects a mutation that lets a malformed presigned URL reach an HTTP opener."""
+    storage = FakeS3MediaStorage()
+    opener = RecordingOpener(_Response(status=200, body=b"unexpected"))
+    monkeypatch.setattr(smoke, "S3MediaStorage", FakeS3MediaStorage)
+    monkeypatch.setattr(smoke, "storages", {"default": storage})
+
+    runtime = smoke.DefaultSmokeRuntime(opener=opener)
+
+    with pytest.raises(smoke.SmokeFailure) as raised:
+        runtime.fetch(url=url)
+    assert raised.value.stage == "presigned GET bytes"
+    assert opener.requests == []
 
 
 def test_concrete_runtime_builds_a_no_redirect_default_opener(
@@ -410,10 +438,36 @@ def test_concrete_runtime_creates_opaque_key_and_in_memory_canonical_image(
         assert image.size == (1, 1)
 
 
+def test_create_key_failure_is_a_pre_upload_stage_without_cleanup() -> None:
+    """Rejects a mutation that labels key-allocation failure as an upload failure."""
+    runtime = RecordingRuntime(failure="create-key")
+
+    outcome = smoke.run(VALID_ENVIRONMENT, runtime)
+
+    assert not outcome.succeeded
+    assert outcome.primary_stage == "prepare synthetic image"
+    assert runtime.events == ["create-key"]
+
+
+def test_canonical_content_failure_is_a_pre_upload_stage_with_key_cleanup() -> None:
+    """Rejects a mutation that skips cleanup or mislabels synthetic preparation failure."""
+    runtime = RecordingRuntime(failure="canonical-content")
+
+    outcome = smoke.run(VALID_ENVIRONMENT, runtime)
+
+    assert not outcome.succeeded
+    assert outcome.primary_stage == "prepare synthetic image"
+    assert runtime.events == [
+        "create-key",
+        "canonical-content",
+        "delete",
+        "exists-after-delete",
+    ]
+
+
 @pytest.mark.parametrize(
     "failure",
     (
-        "canonical-content",
         "upload",
         "exists-after-upload",
         "missing-after-upload",
@@ -581,7 +635,11 @@ def test_main_output_is_fixed_stage_level_and_suppresses_hostile_storage_details
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == "FAIL presigned GET bytes\nFAIL media storage smoke\n"
-    assert_sanitized(smoke.run(VALID_ENVIRONMENT, runtime), captured, caplog)
+    assert_sanitized(
+        smoke.run(VALID_ENVIRONMENT, RecordingRuntime(failure="fetch")),
+        captured,
+        caplog,
+    )
 
 
 def test_main_success_reports_only_safe_pass_stages(
