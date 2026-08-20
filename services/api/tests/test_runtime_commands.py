@@ -175,6 +175,7 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
         "make api-setup",
         "make api-run",
         "make api-test",
+        "make api-semgrep-check",
         "make api-check",
         "make api-migrate",
         "make api-migrations",
@@ -201,12 +202,22 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
         "uv run ruff format --check .",
         "uv run ruff check .",
         "uv run pyright",
+        "semgrep scan",
+        "api-semgrep-check",
         "uv run python manage.py check",
         "uv run python manage.py makemigrations --check --dry-run",
         "uv run python manage.py spectacular --validate",
         "uv run gunicorn config.wsgi:application --check-config",
     ):
         assert duplicated_command not in workflow
+
+    for forbidden_semgrep_integration in (
+        "SEMGREP_APP_TOKEN",
+        "SEMGREP_API_TOKEN",
+        "semgrep.dev",
+        "semgrep-action",
+    ):
+        assert forbidden_semgrep_integration not in workflow
 
     supported_surfaces = [
         "/health/live",

@@ -104,6 +104,7 @@ def test_help_lists_the_canonical_backend_commands() -> None:
         "api-setup": "Sync locked backend dependencies.",
         "api-run": "Run Django locally on port 8000; requires configured PostgreSQL.",
         "api-test": "Run PostgreSQL-backed backend tests.",
+        "api-semgrep-check": "Run deterministic TailTag Semgrep security analysis.",
         "api-check": "Run the complete local pre-PR backend validation suite.",
         "api-migrate": "Apply existing Django migrations (mutates schema).",
         "api-migrations": "Create Django migrations (mutates migration state).",
@@ -126,6 +127,8 @@ def test_check_composes_every_required_backend_validation() -> None:
         "ruff format --check .",
         "ruff check .",
         "pyright",
+        "semgrep scan --test",
+        "semgrep scan",
         "pytest -q",
         "python manage.py check",
         "python manage.py makemigrations --check --dry-run",
@@ -136,12 +139,70 @@ def test_check_composes_every_required_backend_validation() -> None:
     assert f"ruff format --check . {SMOKE_SCRIPT}" in completed.stdout
     assert f"ruff check . {SMOKE_SCRIPT}" in completed.stdout
     assert str(CI_RELEVANCE_SCRIPT) in completed.stdout
+    assert completed.stdout.index("semgrep scan --test") < completed.stdout.index(
+        "pytest -q"
+    )
     assert "docker compose" not in completed.stdout
     assert "python manage.py migrate" not in completed.stdout
     assert "python manage.py makemigrations" in completed.stdout
     assert "api-auth-smoke" not in completed.stdout
     assert "Clerk Development secret:" not in completed.stdout
     assert "CLERK_SECRET" not in completed.stdout
+
+
+def test_semgrep_check_is_local_locked_noninteractive_and_credential_free() -> None:
+    """The static security gate scans local sources without external Semgrep services."""
+    completed = run_make("-n", "api-semgrep-check")
+
+    assert completed.returncode == 0, completed.stderr
+    assert (
+        "uv --directory services/api run --locked --no-sync semgrep scan"
+        in completed.stdout
+    )
+    assert "--test" in completed.stdout
+    assert f"--config {REPOSITORY_ROOT / '.semgrep' / 'rules'}" in completed.stdout
+    assert str(REPOSITORY_ROOT / ".semgrep" / "tests") in completed.stdout
+    assert "--error" in completed.stdout
+    assert "--metrics=off" in completed.stdout
+    assert "--disable-version-check" in completed.stdout
+    assert "SEMGREP_SEND_METRICS=off" in completed.stdout
+    assert "SEMGREP_ENABLE_VERSION_CHECK=0" in completed.stdout
+    assert "--config auto" not in completed.stdout
+    assert "semgrep ci" not in completed.stdout
+    assert "SEMGREP_APP_TOKEN" not in completed.stdout
+    assert "SEMGREP_API_TOKEN" not in completed.stdout
+    assert "https://" not in completed.stdout
+
+    assert "services/api" in completed.stdout
+    root_helpers = (
+        REPOSITORY_ROOT / "scripts" / "api_smoke.py",
+        REPOSITORY_ROOT / "scripts" / "api_auth_smoke.py",
+        REPOSITORY_ROOT / "scripts" / "clerk_development_session.py",
+        REPOSITORY_ROOT / "scripts" / "backend_ci_relevance.py",
+    )
+    for helper in root_helpers:
+        assert str(helper) in completed.stdout
+
+    assert ".env" not in completed.stdout
+    assert "docker" not in completed.stdout
+    assert "python manage.py migrate" not in completed.stdout
+
+    authenticated_smoke_lines = [
+        line for line in completed.stdout.splitlines() if str(AUTH_SMOKE_SCRIPT) in line
+    ]
+    assert authenticated_smoke_lines
+    assert all("semgrep scan" in line for line in authenticated_smoke_lines)
+
+
+def test_semgrep_is_locked_as_a_development_only_dependency() -> None:
+    """Semgrep is development tooling and is absent from the production image."""
+    pyproject = (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml").read_text()
+    lockfile = (REPOSITORY_ROOT / "services" / "api" / "uv.lock").read_text()
+    dockerfile = (REPOSITORY_ROOT / "services" / "api" / "Dockerfile").read_text()
+
+    assert '"semgrep==1.173.0"' in pyproject
+    assert 'name = "semgrep"' in lockfile
+    assert "uv sync --locked --no-dev --no-install-project" in dockerfile
 
 
 def test_strict_type_check_includes_the_ci_relevance_helper() -> None:
