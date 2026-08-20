@@ -543,7 +543,8 @@ def test_semgrep_check_is_local_locked_noninteractive_and_credential_free() -> N
     ],
 )
 @pytest.mark.parametrize(
-    "override_source", ["environment", "command_line", "makeflags"]
+    "override_source",
+    ["environment", "command_line", "makeflags", "environment_overrides"],
 )
 def test_semgrep_check_ignores_make_overrides_of_its_security_inputs(
     variable: str, replacement: str, override_source: str
@@ -555,6 +556,12 @@ def test_semgrep_check_ignores_make_overrides_of_its_security_inputs(
         )
     elif override_source == "command_line":
         completed = run_make("-n", "api-semgrep-check", f"{variable}={replacement}")
+    elif override_source == "environment_overrides":
+        completed = run_make(
+            "-n",
+            "api-semgrep-check",
+            environment={"MAKEFLAGS": "-e", variable: replacement},
+        )
     else:
         completed = run_make(
             "-n",
@@ -568,12 +575,20 @@ def test_semgrep_check_ignores_make_overrides_of_its_security_inputs(
     assert_semgrep_validator_precedes_fixture_scan(completed.stdout)
 
 
-@pytest.mark.parametrize("override_source", ["command_line", "makeflags"])
+@pytest.mark.parametrize(
+    "override_source", ["command_line", "makeflags", "environment_overrides"]
+)
 def test_semgrep_check_ignores_curdir_override_channels(override_source: str) -> None:
     """GNU Make's inherited assignment channels cannot redirect the security scope."""
     replacement = "/tmp/tailtag-fake"
     if override_source == "command_line":
         completed = run_make("-n", "api-semgrep-check", f"CURDIR={replacement}")
+    elif override_source == "environment_overrides":
+        completed = run_make(
+            "-n",
+            "api-semgrep-check",
+            environment={"MAKEFLAGS": "-e", "CURDIR": replacement},
+        )
     else:
         completed = run_make(
             "-n",
@@ -587,7 +602,9 @@ def test_semgrep_check_ignores_curdir_override_channels(override_source: str) ->
     assert_semgrep_validator_precedes_fixture_scan(completed.stdout)
 
 
-@pytest.mark.parametrize("override_source", ["environment", "command_line"])
+@pytest.mark.parametrize(
+    "override_source", ["environment", "command_line", "environment_overrides"]
+)
 def test_semgrep_check_honors_the_uv_override_seam(
     tmp_path: Path, override_source: str
 ) -> None:
@@ -600,8 +617,14 @@ def test_semgrep_check_honors_the_uv_override_seam(
         completed = run_make(
             "-n", "api-semgrep-check", environment={"UV": str(custom_uv)}
         )
-    else:
+    elif override_source == "command_line":
         completed = run_make("-n", "api-semgrep-check", f"UV={custom_uv}")
+    else:
+        completed = run_make(
+            "-n",
+            "api-semgrep-check",
+            environment={"MAKEFLAGS": "-e", "UV": str(custom_uv)},
+        )
 
     assert completed.returncode == 0, completed.stderr
     commands = [shlex.split(command) for command in dry_run_commands(completed.stdout)]
