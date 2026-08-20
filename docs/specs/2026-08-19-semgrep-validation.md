@@ -5,6 +5,18 @@
 Approved design for adding repository-owned Semgrep Community Edition checks
 to TailTag's canonical backend verification contract.
 
+> **Amended — use the final-review amendment for implementation.** The
+> dependency-ownership and exact scan-scope details below are historical
+> design rationale where they conflict with
+> `2026-08-19-semgrep-validation-final-review-amendment.md`. The current
+> contract owns Semgrep in the isolated, locked non-package
+> `.semgrep/pyproject.toml` and `.semgrep/uv.lock` project; it does not alter
+> API dependencies. Its main scan covers `services/api/` and five root
+> helpers: `scripts/api_smoke.py`, `scripts/api_auth_smoke.py`,
+> `scripts/clerk_development_session.py`,
+> `scripts/backend_ci_relevance.py`, and
+> `scripts/validate_semgrep_contract.py`.
+
 ## Objective
 
 Add a deterministic, noninteractive Semgrep security-analysis gate that runs
@@ -18,6 +30,9 @@ runtime behavior, deployment configuration, database state, or product APIs.
 ## Design
 
 ### Tool ownership and dependency boundary
+
+> **Superseded by the amendment above.** The following paragraph records the
+> original approved rationale, not the current implementation boundary.
 
 Semgrep Community Edition is a locked backend development dependency managed
 by the existing `services/api/pyproject.toml` and `services/api/uv.lock`
@@ -59,6 +74,9 @@ replacement for threat modeling, code review, or dependency vulnerability
 analysis.
 
 ### Scan command and scope
+
+> **Superseded as to the exact scope by the amendment above.** In particular,
+> the current scope also includes `scripts/validate_semgrep_contract.py`.
 
 The root Makefile exposes `make api-semgrep-check`. It first runs the custom
 rule fixtures, then scans tracked Python code in:

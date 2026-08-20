@@ -56,6 +56,25 @@ library where possible.
 - The implementation agent must not weaken, delete, or rewrite approved
   acceptance tests to make implementation pass.
 
+### 2026-08-19 post-review addendum: immutable Semgrep security inputs
+
+The canonical Make contract must keep all security-relevant Semgrep inputs
+non-overridable: command, rules directory, fixture directory, scan targets,
+and the explicit empty baseline. Make variables for those inputs use `override`
+assignments, so command-line assignments, environment variables, `MAKEFLAGS`,
+and `make -e` cannot change the enforced scan. The target also clears inherited
+`SEMGREP_BASELINE_COMMIT`, `SEMGREP_APP_TOKEN`, and `SEMGREP_RULES` before each
+Semgrep invocation; the explicit `--baseline-commit ''` remains authoritative.
+`CURDIR` must not change the absolute-path scope. `UV` is the only intended
+external launcher seam.
+
+Regression coverage must exercise attempted command-line, environment,
+`MAKEFLAGS`, `-e`, and `CURDIR` overrides for the command/rules/fixtures/targets
+and baseline (including baseline environment and CLI forms), proving canonical
+command construction, target scope, and findings remain unchanged. This is
+configuration-integrity coverage, not permission to add arbitrary `uv run`
+options or alternate dependency environments.
+
 ## File and ownership map
 
 | Area | Owner | Responsibility |
@@ -306,8 +325,14 @@ library where possible.
   without changing the approved contract:
 
   ```bash
+  SEMGREP_SEND_METRICS=off SEMGREP_ENABLE_VERSION_CHECK=0 \
+  SEMGREP_BASELINE_COMMIT= SEMGREP_APP_TOKEN= SEMGREP_RULES= \
   uv --directory .semgrep run --locked --no-sync semgrep scan --test \
-    --config "$PWD/.semgrep/rules" "$PWD/.semgrep/tests"
+    --config "$PWD/.semgrep/rules" \
+    --baseline-commit '' \
+    --metrics=off \
+    --disable-version-check \
+    "$PWD/.semgrep/tests"
   ```
 
 - [ ] **Step 4: Implement rule precision, setup, and relevance contracts.**

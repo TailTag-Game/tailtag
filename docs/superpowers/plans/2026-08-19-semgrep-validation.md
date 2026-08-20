@@ -1,5 +1,12 @@
 # Deterministic Semgrep Validation Implementation Plan
 
+> **SUPERSEDED — DO NOT EXECUTE.** This historical plan predates the approved
+> [final-review amendment](../../specs/2026-08-19-semgrep-validation-final-review-amendment.md)
+> and its replacement
+> [final-review remediation plan](2026-08-19-semgrep-final-review-remediation.md).
+> In particular, it describes the superseded API-owned Semgrep dependency
+> model. Preserve it as decision history; implement only the remediation plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a locked, repository-owned Semgrep CE security gate to TailTag's canonical local and GitHub backend validation workflow.
