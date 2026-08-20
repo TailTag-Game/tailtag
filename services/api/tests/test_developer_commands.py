@@ -528,6 +528,18 @@ def test_semgrep_check_is_local_locked_noninteractive_and_credential_free() -> N
         ("SEMGREP_TESTS", "/tmp/untrusted-semgrep-fixtures"),
         ("SEMGREP_TARGETS", "/tmp/untrusted-semgrep-target"),
         ("SEMGREP", "untrusted-semgrep-launcher"),
+        ("SEMGREP_DIRECTORY", "/tmp/untrusted-semgrep-directory"),
+        ("SEMGREP_UV", "untrusted-semgrep-uv"),
+        ("API_UV", "untrusted-api-uv"),
+        ("API_DIRECTORY", "/tmp/untrusted-api-directory"),
+        ("SEMGREP_VALIDATOR", "/tmp/untrusted-semgrep-validator.py"),
+        ("SMOKE_SCRIPT", "/tmp/untrusted-api-smoke.py"),
+        ("AUTH_SMOKE_SCRIPT", "/tmp/untrusted-api-auth-smoke.py"),
+        (
+            "CLERK_DEVELOPMENT_SESSION_SCRIPT",
+            "/tmp/untrusted-clerk-development-session.py",
+        ),
+        ("CI_RELEVANCE_SCRIPT", "/tmp/untrusted-backend-ci-relevance.py"),
     ],
 )
 @pytest.mark.parametrize("override_source", ["environment", "command_line"])
@@ -544,6 +556,36 @@ def test_semgrep_check_ignores_make_overrides_of_its_security_inputs(
 
     assert completed.returncode == 0, completed.stderr
     assert replacement not in completed.stdout
+    assert_semgrep_check_contract(completed.stdout)
+    assert_semgrep_validator_precedes_fixture_scan(completed.stdout)
+
+
+@pytest.mark.parametrize("override_source", ["environment", "command_line"])
+def test_semgrep_check_honors_the_uv_override_seam(
+    tmp_path: Path, override_source: str
+) -> None:
+    """The one intentional launcher seam cannot alter Semgrep's fixed contract."""
+    custom_uv = tmp_path / "uv"
+    custom_uv.write_text("#!/bin/sh\nexit 0\n")
+    custom_uv.chmod(0o755)
+
+    if override_source == "environment":
+        completed = run_make(
+            "-n", "api-semgrep-check", environment={"UV": str(custom_uv)}
+        )
+    else:
+        completed = run_make("-n", "api-semgrep-check", f"UV={custom_uv}")
+
+    assert completed.returncode == 0, completed.stderr
+    commands = [shlex.split(command) for command in dry_run_commands(completed.stdout)]
+    validator_command = next(
+        command for command in commands if str(SEMGREP_VALIDATOR) in command
+    )
+    assert validator_command[0] == str(custom_uv)
+    for command in semgrep_scan_tokens(completed.stdout):
+        semgrep_index = command.index("semgrep")
+        assert command[semgrep_index - 6] == str(custom_uv)
+
     assert_semgrep_check_contract(completed.stdout)
     assert_semgrep_validator_precedes_fixture_scan(completed.stdout)
 
