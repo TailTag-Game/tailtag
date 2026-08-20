@@ -658,6 +658,9 @@ def test_semgrep_validator_preflight_rejects_a_second_python_execution() -> None
 
 def test_semgrep_is_isolated_from_the_api_dependency_resolution() -> None:
     """Semgrep lives only in its own locked project and never reaches the API image."""
+    api_pyproject = tomllib.loads(
+        (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml").read_text()
+    )
     api_lockfile = (REPOSITORY_ROOT / "services" / "api" / "uv.lock").read_text()
     semgrep_pyproject = tomllib.loads(
         (REPOSITORY_ROOT / ".semgrep" / "pyproject.toml").read_text()
@@ -668,11 +671,17 @@ def test_semgrep_is_isolated_from_the_api_dependency_resolution() -> None:
     assert semgrep_pyproject["project"]["dependencies"] == ["semgrep==1.173.0"]
     assert semgrep_pyproject["tool"]["uv"]["package"] is False
     assert 'name = "semgrep"' in semgrep_lockfile
-    assert (
-        "semgrep"
-        not in (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml")
-        .read_text()
-        .lower()
+    api_dependencies = [
+        *api_pyproject["project"]["dependencies"],
+        *(
+            dependency
+            for group in api_pyproject["dependency-groups"].values()
+            for dependency in group
+        ),
+    ]
+    assert not any(
+        re.match(r"semgrep(?:\s|[\[<>=!~;@]|$)", dependency, flags=re.IGNORECASE)
+        for dependency in api_dependencies
     )
     assert 'name = "semgrep"' not in api_lockfile
     assert "uv sync --locked --no-dev --no-install-project" in dockerfile
