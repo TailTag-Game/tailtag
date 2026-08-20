@@ -78,8 +78,30 @@ def assert_api_check_uv_runs_are_locked_and_no_sync(dry_run: str) -> None:
     ]
     assert executions, "api-check must execute uv run commands"
     for command, arguments in executions:
-        assert re.search(r"(?:^|\s)--locked(?:\s|$)", arguments), command
-        assert re.search(r"(?:^|\s)--no-sync(?:\s|$)", arguments), command
+        option_region = uv_run_option_region(arguments)
+        assert "--locked" in option_region, command
+        assert "--no-sync" in option_region, command
+
+
+def uv_run_option_region(arguments: str) -> list[str]:
+    """Return uv global/run options, stopping before the child executable."""
+    tokens = arguments.split()
+    run_index = tokens.index("run")
+    child_index = run_index + 1
+
+    while child_index < len(tokens):
+        token = tokens[child_index]
+        if token in {"--locked", "--no-sync"} or token.startswith("--locked="):
+            child_index += 1
+        elif token in {"--directory", "--project"}:
+            child_index += 2
+        elif token.startswith(("--directory=", "--project=")):
+            child_index += 1
+        else:
+            break
+
+    assert child_index < len(tokens), arguments
+    return tokens[:child_index]
 
 
 def resolve_repository_operand(operand: str) -> Path:
@@ -157,6 +179,14 @@ def test_api_check_uv_run_contract_rejects_no_sync_after_option_reordering() -> 
     with pytest.raises(AssertionError):
         assert_api_check_uv_runs_are_locked_and_no_sync(
             "uv run --locked --project services/api pytest -q"
+        )
+
+
+def test_api_check_uv_run_contract_rejects_flags_after_the_child_command() -> None:
+    """Child arguments cannot satisfy uv's locked/no-sync command contract."""
+    with pytest.raises(AssertionError):
+        assert_api_check_uv_runs_are_locked_and_no_sync(
+            "uv --directory services/api run pytest -q --locked --no-sync"
         )
 
 
