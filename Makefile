@@ -100,7 +100,7 @@ api-auth-smoke: ## Authenticated smoke test with an interactive Clerk Developmen
 	PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_auth_smoke
 
 api-media-storage-smoke: ## Run guarded live media storage verification against Railway Development.
-	DJANGO_SETTINGS_MODULE=config.settings.production \
+	@DJANGO_SETTINGS_MODULE=config.settings.production \
 	PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" \
 	$(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_media_storage_smoke
 
