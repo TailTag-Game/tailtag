@@ -96,9 +96,17 @@ rules:
       - pattern: $MODEL.objects.raw(f"...{$VALUE}...", ...)
       - patterns:
           - pattern: django.db.models.expressions.RawSQL(f"...{$VALUE}...", ...)
-          - pattern-not-inside: |
-              def $FUNCTION(...):
-                  ...
+          - pattern-not-inside:
+              patterns:
+                - pattern: |
+                    def $OUTER(...):
+                        ...
+                        def $FUNCTION(...):
+                            ...
+                        ...
+                - metavariable-regex:
+                    metavariable: $FUNCTION
+                    regex: "^RawSQL$"
 
   - id: tailtag.storage.public-object-acl
     message: TailTag object storage must remain private.
