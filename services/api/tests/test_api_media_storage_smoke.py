@@ -347,7 +347,22 @@ def test_concrete_runtime_builds_a_no_redirect_default_opener(
     runtime = smoke.DefaultSmokeRuntime()
 
     assert runtime._opener is opener  # pyright: ignore[reportPrivateUsage]
-    assert any(isinstance(handler, smoke._NoRedirect) for handler in captured_handlers)
+    no_redirect = next(
+        handler
+        for handler in captured_handlers
+        if isinstance(handler, smoke._NoRedirect)
+    )
+    assert (
+        no_redirect.redirect_request(
+            urllib.request.Request(storage.url_value),
+            None,
+            302,
+            "Found",
+            {},
+            "https://redirected.synthetic.example/",
+        )
+        is None
+    )
 
 
 def test_concrete_runtime_creates_opaque_key_and_in_memory_canonical_image(
