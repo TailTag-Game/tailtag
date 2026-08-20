@@ -301,6 +301,15 @@ library where possible.
   exact production construction. Declare exactly the five root helpers and
   `services/api/` as source inputs; do not add other targets.
 
+  Systematic-debugging evidence confirms that Semgrep CE 1.173 accepts the
+  canonical absolute-path fixture invocation below; retain this command shape
+  without changing the approved contract:
+
+  ```bash
+  uv --directory .semgrep run --locked --no-sync semgrep scan --test \
+    --config "$PWD/.semgrep/rules" "$PWD/.semgrep/tests"
+  ```
+
 - [ ] **Step 4: Implement rule precision, setup, and relevance contracts.**
 
   Update rules to meet frozen YAML SafeLoader and raw-SQL shapes, including
@@ -313,7 +322,17 @@ library where possible.
 
 - [ ] **Step 5: Run narrow non-clone verification before the implementation commit.**
 
+  Stage the exact Task 2 owned implementation set before this verification so
+  the tracked-policy acceptance test can observe root `.semgrepignore` and the
+  new project files. This is staging only, not a commit: changes remain
+  amendable and any fix must be re-staged before the next verification.
+
   ```bash
+  git add .semgrep/pyproject.toml .semgrep/uv.lock .semgrep/.gitignore \
+    .semgrepignore .semgrep/rules/tailtag-security.yml Makefile \
+    scripts/validate_semgrep_contract.py scripts/backend_ci_relevance.py \
+    services/api/pyproject.toml services/api/uv.lock \
+    .github/workflows/api.yml .devcontainer/devcontainer.json
   make api-setup
   uv --directory services/api run --locked --no-sync pytest -q \
     tests/test_developer_commands.py tests/test_backend_ci_relevance.py \
@@ -336,15 +355,25 @@ library where possible.
 
 - [ ] **Step 6: Commit the bounded implementation before clone-based verification.**
 
-  Stage only Task 2 owned implementation files and commit the green
-  non-clone implementation snapshot:
+  Verify the already staged set is exactly the Task 2 owned implementation
+  files, then commit the green non-clone implementation snapshot:
 
   ```bash
-  git add .semgrep/pyproject.toml .semgrep/uv.lock .semgrep/.gitignore \
-    .semgrepignore .semgrep/rules/tailtag-security.yml Makefile \
-    scripts/validate_semgrep_contract.py scripts/backend_ci_relevance.py \
-    services/api/pyproject.toml services/api/uv.lock \
-    .github/workflows/api.yml .devcontainer/devcontainer.json
+  git diff --cached --name-only | sort > /tmp/tailtag-semgrep-staged-paths
+  printf '%s\n' \
+    .devcontainer/devcontainer.json \
+    .github/workflows/api.yml \
+    .semgrep/.gitignore \
+    .semgrep/pyproject.toml \
+    .semgrep/rules/tailtag-security.yml \
+    .semgrep/uv.lock \
+    .semgrepignore \
+    Makefile \
+    scripts/backend_ci_relevance.py \
+    scripts/validate_semgrep_contract.py \
+    services/api/pyproject.toml \
+    services/api/uv.lock | sort > /tmp/tailtag-semgrep-expected-paths
+  cmp /tmp/tailtag-semgrep-expected-paths /tmp/tailtag-semgrep-staged-paths
   git commit -m "chore: isolate and harden Semgrep validation"
   ```
 
@@ -377,7 +406,9 @@ library where possible.
   test fails, first fix it in the worktree and repeat Step 5 successfully
   before creating its follow-up commit. Keep all Task 1 acceptance tests
   unchanged; never commit a known non-baseline failure or amend frozen tests to
-  make an implementation pass.
+  make an implementation pass. Re-stage the exact Step 5 file list after every
+  implementation change, then repeat the Step 6 staged-set comparison before
+  each follow-up commit.
 
 - [ ] **Step 9: Task-level review and handoff.**
 
