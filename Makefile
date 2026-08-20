@@ -53,7 +53,7 @@ api-run: ## Run Django locally on port 8000; requires configured PostgreSQL.
 api-semgrep-check: ## Run deterministic TailTag Semgrep security analysis.
 	@printf '%s\n' 'Testing TailTag Semgrep rules...'
 	$(API_UV) run --locked --no-sync python $(SEMGREP_VALIDATOR) --rules $(SEMGREP_RULES) --fixtures $(SEMGREP_TESTS)
-	SEMGREP_SEND_METRICS=off SEMGREP_ENABLE_VERSION_CHECK=0 \
+	SEMGREP_SEND_METRICS=off SEMGREP_ENABLE_VERSION_CHECK=0 SEMGREP_BASELINE_COMMIT= SEMGREP_APP_TOKEN= SEMGREP_RULES= \
 		$(SEMGREP) scan --test \
 		--config $(SEMGREP_RULES) \
 		--baseline-commit '' \
@@ -61,7 +61,7 @@ api-semgrep-check: ## Run deterministic TailTag Semgrep security analysis.
 		--disable-version-check \
 		$(SEMGREP_TESTS)
 	@printf '%s\n' 'Running TailTag Semgrep security analysis...'
-	SEMGREP_SEND_METRICS=off SEMGREP_ENABLE_VERSION_CHECK=0 \
+	SEMGREP_SEND_METRICS=off SEMGREP_ENABLE_VERSION_CHECK=0 SEMGREP_BASELINE_COMMIT= SEMGREP_APP_TOKEN= SEMGREP_RULES= \
 		$(SEMGREP) scan \
 		--config $(SEMGREP_RULES) \
 		--baseline-commit '' \

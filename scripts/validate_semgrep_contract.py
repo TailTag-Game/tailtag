@@ -13,7 +13,9 @@ RULE_ID = re.compile(r"tailtag\.[a-z0-9]+(?:[.-][a-z0-9]+)+\Z")
 RULE_DECLARATION = re.compile(r"^\s*-\s+id:\s*([^\s#]+)\s*(?:#.*)?$")
 ANY_ID_DECLARATION = re.compile(r"^\s*(?:-\s+)?id:\s*(.*)$")
 ANNOTATION = re.compile(r"^\s*#\s*(ruleid|ok):\s*([^\s#]+)\s*$")
-ANNOTATION_CANDIDATE = re.compile(r"^\s*#\s*([A-Za-z][\w-]*)(?::|\s)")
+ANNOTATION_CANDIDATE = re.compile(
+    r"^\s*#\s*(ruleid|ok|todoruleid|todook)(?::|\s)"
+)
 
 
 class ContractError(Exception):
@@ -29,6 +31,8 @@ def files_in(directory: Path, extensions: set[str], kind: str) -> list[Path]:
         raise ContractError(f"filesystem error: {error}") from error
     files: list[Path] = []
     for entry in entries:
+        if entry.is_dir() and entry.name == "__pycache__":
+            continue
         if not entry.is_file() or entry.suffix not in extensions:
             raise ContractError(f"unsupported {kind} file: {entry.name}")
         files.append(entry)

@@ -62,6 +62,7 @@ rules:
     metadata: {owner: tailtag, confidence: HIGH}
     pattern-either:
       - pattern: django.utils.safestring.mark_safe(...)
+      - pattern: django.utils.html.mark_safe(...)
 
   - id: tailtag.django.dynamic-raw-sql
     message: Pass SQL values as database parameters instead of constructing SQL dynamically.
