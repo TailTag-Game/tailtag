@@ -521,6 +521,33 @@ def test_semgrep_check_is_local_locked_noninteractive_and_credential_free() -> N
     assert completed.stdout.count(str(AUTH_SMOKE_SCRIPT)) == 1
 
 
+@pytest.mark.parametrize(
+    ("variable", "replacement"),
+    [
+        ("SEMGREP_RULES", "/tmp/untrusted-semgrep-rules"),
+        ("SEMGREP_TESTS", "/tmp/untrusted-semgrep-fixtures"),
+        ("SEMGREP_TARGETS", "/tmp/untrusted-semgrep-target"),
+        ("SEMGREP", "untrusted-semgrep-launcher"),
+    ],
+)
+@pytest.mark.parametrize("override_source", ["environment", "command_line"])
+def test_semgrep_check_ignores_make_overrides_of_its_security_inputs(
+    variable: str, replacement: str, override_source: str
+) -> None:
+    """Only the repository can select the canonical Semgrep executable and scope."""
+    if override_source == "environment":
+        completed = run_make(
+            "-n", "api-semgrep-check", environment={variable: replacement}
+        )
+    else:
+        completed = run_make("-n", "api-semgrep-check", f"{variable}={replacement}")
+
+    assert completed.returncode == 0, completed.stderr
+    assert replacement not in completed.stdout
+    assert_semgrep_check_contract(completed.stdout)
+    assert_semgrep_validator_precedes_fixture_scan(completed.stdout)
+
+
 def test_semgrep_validator_preflight_rejects_a_second_python_execution() -> None:
     """A scan target mention is allowed, but a second validator execution is not."""
     completed = run_make("-n", "api-semgrep-check")
@@ -605,6 +632,30 @@ def test_strict_type_check_includes_the_ci_relevance_helper() -> None:
     pyproject = (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml").read_text()
 
     assert '"../../scripts/backend_ci_relevance.py"' in pyproject
+
+
+def test_static_checks_include_the_semgrep_contract_validator() -> None:
+    """The root Semgrep metadata validator receives the ordinary static checks."""
+    completed = run_make("-n", "api-format-check", "api-lint-check")
+    pyproject = tomllib.loads(
+        (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml").read_text()
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    ruff_commands = [
+        shlex.split(command)
+        for command in dry_run_commands(completed.stdout)
+        if "ruff" in shlex.split(command)
+    ]
+    assert len(ruff_commands) == 2
+    for command in ruff_commands:
+        ruff_index = command.index("ruff")
+        assert command[ruff_index + 1] in {"format", "check"}
+        assert str(SEMGREP_VALIDATOR) in command[ruff_index + 1 :]
+
+    pyright = pyproject["tool"]["pyright"]
+    assert pyright["typeCheckingMode"] == "strict"
+    assert "../../scripts/validate_semgrep_contract.py" in pyright["include"]
 
 
 def test_static_checks_include_all_authenticated_smoke_helpers() -> None:
