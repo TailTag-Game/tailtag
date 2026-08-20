@@ -170,6 +170,30 @@ creates 600-second presigned `GET` read URLs. Such URLs are bearer credentials:
 they must not be persisted, logged, or copied into documentation. V0 has no
 public bucket URL, presigned upload URL, or direct-to-R2 upload path.
 
+### Opt-in live Development storage verification
+
+The only supported live storage check is maintainer-run from the checked-out
+branch:
+
+```bash
+TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM=run-r2-development-media-storage-smoke \
+railway run --service api --environment development -- make api-media-storage-smoke
+```
+
+It is not part of `make api-check`, application startup, deployment, or
+ordinary CI. The command requires the exact Railway target `development`/`api`,
+the fixed confirmation value above, production Django settings, and
+`S3MediaStorage`; it rejects production and any unknown target. It uses only
+synthetic canonical image bytes, verifies upload, existence, a 600-second
+presigned GET with exact byte equality, deletion, and confirmed absence. Its
+cleanup and post-delete absence checks are fatal if they fail.
+
+The command emits only sanitized stage results and safe target identity. Do not
+record or share storage identifiers, credentials, object keys, presigned URLs,
+request signatures, or response material as evidence. The operations guide
+contains the required private-bucket provisioning steps and sanitized evidence
+template.
+
 Media lifecycle operations are deliberately narrow. Replacement uploads the
 new object, commits the new database reference, then best-effort deletes the
 old object. A failed commit triggers best-effort deletion of the new object

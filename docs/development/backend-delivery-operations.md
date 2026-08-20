@@ -264,9 +264,9 @@ must complete this order for Railway `development`:
 
 1. Create one dedicated **private** R2 development bucket. Do not use it as
    backup storage, a public asset origin, or a production bucket.
-2. Create a bucket/object credential restricted to that bucket and only the
-   object operations the API needs: write, read, and delete. Do not grant
-   account-wide, bucket-management, public-access, or unrelated-bucket scope.
+2. Create a bucket-scoped **Object Read & Write** credential restricted to that
+   bucket. Do not grant account-wide, bucket-management, public-access, or
+   unrelated-bucket scope.
 3. In Railway `development` → `api` → **Variables**, stage all five values as
    secrets: `MEDIA_STORAGE_ENDPOINT_URL`, `MEDIA_STORAGE_BUCKET_NAME`,
    `MEDIA_STORAGE_REGION`, `MEDIA_STORAGE_ACCESS_KEY_ID`, and
@@ -276,41 +276,45 @@ must complete this order for Railway `development`:
    deliver through the normal protected-`main` path. Production settings fail
    closed when any required value is absent or an endpoint is not an HTTPS root
    URL; do not merge first and add these variables later.
-5. After the normal deployment and readiness verification, use an authorized
-   Railway Development shell to run one controlled backend-boundary
-   write/read/delete exercise. Start the Django shell explicitly with the
-   deployed production settings (not the local filesystem settings):
+5. From the checked-out branch, after normal deployment and readiness
+   verification, run the repository-owned live boundary check through Railway
+   Development's `api` variable context:
 
    ```bash
-   python manage.py shell --settings=config.settings.production
+   TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM=run-r2-development-media-storage-smoke \
+   railway run --service api --environment development -- make api-media-storage-smoke
    ```
 
-   Then use a synthetic in-memory JPEG with `store_image`, read the private
-   object through `default_storage.open`, and delete it in `finally`:
+   This opt-in command is entirely separate from `make api-check` and ordinary
+   CI. It fails closed unless the Railway identity is exactly
+   `development`/`api`, the fixed confirmation value is present,
+   `DJANGO_SETTINGS_MODULE=config.settings.production` is in use, and the
+   configured storage is `S3MediaStorage`. It rejects a target identified as
+   production. It uses only synthetic, in-memory canonical image bytes; no user
+   data or repository fixture data is involved.
 
-   ```python
-   from io import BytesIO
+   The command uploads the synthetic object, confirms its existence, creates a
+   600-second presigned GET, fetches and compares the canonical bytes, then
+   deletes the object in a `finally` path and confirms its absence. A deletion
+   error, absence-check error, or surviving object is a command failure, not a
+   warning. The command itself never prints the object key, storage identifiers,
+   bearer URL, credentials, request signatures, response material, or external
+   error details.
 
-   from django.core.files.base import ContentFile
-   from django.core.files.storage import default_storage
-   from PIL import Image
+   Record only this sanitized evidence after a successful run; do not include
+   rendered variable values or other storage details:
 
-   from media.service import store_image
-
-   source = BytesIO()
-   Image.new("RGB", (1, 1), color=(0, 0, 0)).save(source, format="JPEG")
-   key = store_image(ContentFile(source.getvalue(), name="verification.jpg"))
-   try:
-       with default_storage.open(key) as stored:
-           assert stored.read()
-   finally:
-       default_storage.delete(key)
+   ```text
+   command: make api-media-storage-smoke
+   target: development/api
+   branch/revision: <checked-out-branch> / <revision>
+   stages: upload PASS; existence PASS; presigned-byte PASS; delete PASS
+   cleanup/absence: PASS
+   overall: PASS
    ```
 
-   Do not print `key`, call `default_storage.url`, use user data, or retain any
-   test object. Record only sanitized pass/fail results and the deployment
-   revision. Full authenticated API media-flow validation is deferred to the
-   profile and participating-character work in #113 and #115.
+   Full authenticated API media-flow validation remains deferred to the profile
+   and participating-character work in #113 and #115.
 
 The production storage backend creates only 600-second presigned `GET` URLs;
 they are bearer credentials and must never be persisted or logged. There are
