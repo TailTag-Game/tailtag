@@ -58,24 +58,39 @@ def compose_service(compose_file: str, name: str) -> str:
     return match.group("contents")
 
 
+def yaml_mapping_contents(document: str, key: str, indentation: int) -> str:
+    """Return one mapping's full indentation-delimited YAML content block."""
+    header = re.compile(rf"^ {{{indentation}}}{re.escape(key)}:\s*(?:#.*)?$")
+    lines = document.splitlines()
+
+    for index, line in enumerate(lines):
+        if not header.fullmatch(line):
+            continue
+
+        contents: list[str] = []
+        for candidate in lines[index + 1 :]:
+            if (
+                candidate.strip()
+                and len(candidate) - len(candidate.lstrip()) <= indentation
+            ):
+                break
+            contents.append(candidate)
+        return "\n".join(contents)
+
+    raise AssertionError(f"YAML mapping not found: {' ' * indentation}{key}")
+
+
 def assert_api_workflow_least_privilege(workflow: str) -> None:
     """Require one read-only workflow permission block with no API-job override."""
-    top_level_permissions = re.search(
-        r"(?ms)^permissions:\n(?P<contents>(?:^  [^\n]*(?:\n|\Z))*)", workflow
-    )
-    assert top_level_permissions
+    top_level_permissions = yaml_mapping_contents(workflow, "permissions", 0)
     permission_entries = [
-        line.strip()
-        for line in top_level_permissions.group("contents").splitlines()
-        if line.strip()
+        line.strip() for line in top_level_permissions.splitlines() if line.strip()
     ]
     assert permission_entries == ["contents: read"]
 
-    api_job = re.search(
-        r"(?ms)^  api:\n(?P<contents>(?:^    [^\n]*(?:\n|\Z))*)", workflow
-    )
-    assert api_job
-    assert not re.search(r"(?m)^    permissions:", api_job.group("contents"))
+    jobs = yaml_mapping_contents(workflow, "jobs", 0)
+    api_job = yaml_mapping_contents(jobs, "api", 2)
+    assert not re.search(r"(?m)^    permissions:", api_job)
 
 
 def test_runtime_files_define_development_and_production_contracts() -> None:
@@ -309,10 +324,16 @@ def test_api_workflow_permissions_reject_effective_escalation() -> None:
     job_level_escalation = workflow.replace(
         "    runs-on:", "    permissions:\n      contents: write\n    runs-on:", 1
     )
+    late_job_level_escalation = workflow.replace(
+        "\n    env:\n", "\n    permissions:\n      contents: write\n    env:\n", 1
+    )
 
     assert top_level_escalation != workflow
     assert job_level_escalation != workflow
+    assert late_job_level_escalation != workflow
     with pytest.raises(AssertionError):
         assert_api_workflow_least_privilege(top_level_escalation)
     with pytest.raises(AssertionError):
         assert_api_workflow_least_privilege(job_level_escalation)
+    with pytest.raises(AssertionError):
+        assert_api_workflow_least_privilege(late_job_level_escalation)
