@@ -91,7 +91,9 @@ def assert_api_workflow_least_privilege(workflow: str) -> None:
     assert permission_entries == ["contents: read"]
 
     jobs = yaml_mapping_contents(workflow, "jobs", 0)
-    job_names = re.findall(r"(?m)^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$", jobs)
+    job_names = re.findall(
+        r"""(?m)^  ("[^"]+"|'[^']+'|[A-Za-z0-9_-]+):\s*(?:#.*)?$""", jobs
+    )
     assert job_names, "workflow must define at least one job"
     for job_name in job_names:
         job = yaml_mapping_contents(jobs, job_name, 2)
@@ -372,9 +374,22 @@ def test_api_workflow_permissions_ignore_comments_and_reject_every_job_override(
         "  api:\n",
         1,
     )
+    quoted_job_escalation = workflow.replace(
+        "  api:\n",
+        '  "reporting":\n'
+        "    permissions:\n"
+        "      contents: write\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps: []\n"
+        "  api:\n",
+        1,
+    )
 
     assert commented_permissions != workflow
     assert second_job_escalation != workflow
+    assert quoted_job_escalation != workflow
     assert_api_workflow_least_privilege(commented_permissions)
     with pytest.raises(AssertionError):
         assert_api_workflow_least_privilege(second_job_escalation)
+    with pytest.raises(AssertionError):
+        assert_api_workflow_least_privilege(quoted_job_escalation)
