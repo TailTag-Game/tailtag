@@ -102,7 +102,7 @@ class RecordingRuntime:
         self._raise_when(event)
         if event == "exists-after-upload":
             return self.failure != "missing-after-upload"
-        return not self.object_survives_delete
+        return self.object_survives_delete
 
     def presign_get(self, *, key: str, expires_in: int) -> str:
         self.events.append("presign")
@@ -456,6 +456,19 @@ def test_surviving_object_after_delete_is_a_fatal_smoke_result() -> None:
 
     assert not outcome.succeeded
     assert runtime.events[-2:] == ["delete", "exists-after-delete"]
+
+
+@pytest.mark.parametrize(
+    ("object_survives_delete", "expected_exists"), ((False, False), (True, True))
+)
+def test_recording_runtime_models_storage_exists_after_delete(
+    object_survives_delete: bool, expected_exists: bool
+) -> None:
+    """The offline fake retains Django Storage.exists semantics during cleanup."""
+    runtime = RecordingRuntime(object_survives_delete=object_survives_delete)
+    runtime.events.append("delete")
+
+    assert runtime.exists(key=runtime.key) is expected_exists
 
 
 @pytest.mark.parametrize(
