@@ -7,6 +7,8 @@ import re
 import shlex
 from pathlib import Path
 
+import pytest
+
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = SERVICE_ROOT.parents[1]
 
@@ -54,6 +56,26 @@ def compose_service(compose_file: str, name: str) -> str:
     )
     assert match, f"Compose file must define a {name} service"
     return match.group("contents")
+
+
+def assert_api_workflow_least_privilege(workflow: str) -> None:
+    """Require one read-only workflow permission block with no API-job override."""
+    top_level_permissions = re.search(
+        r"(?ms)^permissions:\n(?P<contents>(?:^  [^\n]*(?:\n|\Z))*)", workflow
+    )
+    assert top_level_permissions
+    permission_entries = [
+        line.strip()
+        for line in top_level_permissions.group("contents").splitlines()
+        if line.strip()
+    ]
+    assert permission_entries == ["contents: read"]
+
+    api_job = re.search(
+        r"(?ms)^  api:\n(?P<contents>(?:^    [^\n]*(?:\n|\Z))*)", workflow
+    )
+    assert api_job
+    assert not re.search(r"(?m)^    permissions:", api_job.group("contents"))
 
 
 def test_runtime_files_define_development_and_production_contracts() -> None:
@@ -197,7 +219,7 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
 
     assert "name: API foundation checks" in workflow
     assert "run: make api-check" in workflow
-    assert re.search(r"(?m)^permissions:\n  contents: read$", workflow)
+    assert_api_workflow_least_privilege(workflow)
     for duplicated_command in (
         "uv run pytest -q",
         "uv run ruff format --check .",
@@ -276,3 +298,21 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
     assert 'python-version: "3.13"' in workflow
     assert "postgres:17" in workflow
     assert "uv --directory services/api sync --all-groups --locked" in workflow
+
+
+def test_api_workflow_permissions_reject_effective_escalation() -> None:
+    """A write-capable top-level or API-job permission is never a valid contract."""
+    workflow = (REPOSITORY_ROOT / ".github/workflows/api.yml").read_text()
+    top_level_escalation = workflow.replace(
+        "  contents: read", "  contents: read\n  pull-requests: write", 1
+    )
+    job_level_escalation = workflow.replace(
+        "    runs-on:", "    permissions:\n      contents: write\n    runs-on:", 1
+    )
+
+    assert top_level_escalation != workflow
+    assert job_level_escalation != workflow
+    with pytest.raises(AssertionError):
+        assert_api_workflow_least_privilege(top_level_escalation)
+    with pytest.raises(AssertionError):
+        assert_api_workflow_least_privilege(job_level_escalation)
