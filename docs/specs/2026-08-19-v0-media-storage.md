@@ -153,10 +153,70 @@ value.
 Railway Development will use a dedicated private R2 development bucket. Its
 credentials must have only the bucket/object permissions needed by the API and
 must exist only at Railway's established secret boundary. Bucket creation,
-credential creation or rotation, and Railway variable changes are explicit
-maintainer operations outside local implementation authority. Documentation
-must describe the sanitized variable names and validation procedure without
-recording rendered values.
+credential creation or rotation, and Railway variable changes are explicit,
+authorized maintainer operations; application startup, ordinary tests, and CI
+must never perform them. Documentation must describe the sanitized variable
+names and validation procedure without recording rendered values.
+
+## Live R2 Development verification
+
+The repository exposes one opt-in `make api-media-storage-smoke` command for a
+real S3-compatible boundary check. It is a maintainer/developer operation, not
+an application feature, deployment hook, health check, or ordinary CI gate.
+`make api-check` and ordinary automated tests must remain fully networkless
+with respect to object storage.
+
+The command runs the checked-out repository revision through Railway's
+Development `api` variable context and forces
+`DJANGO_SETTINGS_MODULE=config.settings.production`. Before Django or storage
+initialization, it requires all of the following exact, case-sensitive values:
+
+- `RAILWAY_ENVIRONMENT_NAME=development`;
+- `RAILWAY_SERVICE_NAME=api`; and
+- `TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM=run-r2-development-media-storage-smoke`.
+
+Missing or different identity values fail closed. In particular, an
+environment identified as `production` is always rejected. After Django
+initialization, the command also requires the configured default storage to be
+the production `S3MediaStorage`; local filesystem and in-memory backends are
+rejected.
+
+The command creates an opaque image key and only synthetic, in-memory,
+canonically normalized image bytes. It then performs this sequence against the
+configured private bucket:
+
+```text
+upload canonical bytes
+  -> require object existence
+  -> create a 600-second presigned GET
+  -> fetch without redirecting or logging the bearer URL
+  -> require exact canonical-byte equality
+```
+
+Once the opaque key exists in memory, cleanup runs from a `finally` path after
+every success or failure. Cleanup attempts deletion and then independently
+checks that the object is absent. A deletion error, absence-check error, or
+surviving object fails the command; cleanup is never downgraded to a warning.
+
+Command output is limited to fixed stage-level `PASS` or `FAIL` messages and
+the safe target identity `development/api`. It must never render exception
+details, object keys, endpoint or bucket values, credentials, request
+signatures, presigned URLs, or response bodies. Deterministic tests exercise
+the orchestration through fakes and prohibit outbound network access.
+
+The canonical live invocation from the checked-out branch is:
+
+```bash
+TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM=run-r2-development-media-storage-smoke \
+railway run --service api --environment development -- make api-media-storage-smoke
+```
+
+Completion requires an authorized maintainer to provision the dedicated
+private R2 Development bucket, create a bucket-scoped Object Read & Write
+credential, stage the five `MEDIA_STORAGE_*` values only on Railway
+Development's `api` service, run the command successfully, and record only the
+command name, safe target identity, branch/revision, fixed stage outcomes,
+cleanup/absence result, and overall `PASS`.
 
 ## Acceptance Contract
 
@@ -211,14 +271,26 @@ recording rendered values.
 - No Cloudflare or Railway resource is created or changed by repository tests or
   application startup.
 
+### Live Development verification
+
+- `make api-media-storage-smoke` is opt-in and is not a prerequisite of
+  `make api-check`, any ordinary CI job, application startup, or deployment.
+- The command requires exact Railway `development`/`api` identity, the fixed
+  explicit confirmation value, production settings, and `S3MediaStorage`.
+- It uses only synthetic canonical bytes and an opaque server-generated key.
+- It verifies upload, existence, a 600-second presigned GET with exact byte
+  equality, deletion, and confirmed absence.
+- Cleanup and the absence check run after every reachable storage-flow outcome;
+  cleanup failure or surviving state fails the command.
+- Output and recorded evidence contain only fixed sanitized stages and safe
+  Development identity/revision information.
+- A real successful R2 Development result is recorded before Issue #112 closes.
+
 ## Verification
 
 Focused tests cover settings fail-closed behavior, deterministic storage,
 normalization and metadata removal, format and resource rejection, opaque-key
-validation, presigned reads, lifecycle ordering, cleanup failures, and secret
-sanitization. Completion requires the repository's authoritative
-`make api-check` plus `git diff --check`.
-
-The repository currently has no Semgrep configuration or authoritative Semgrep
-command. Adding a new CI security tool is outside Issue #112; this limitation
-must be reported rather than implying Semgrep coverage.
+validation, presigned reads, lifecycle ordering, live-smoke guards and ordered
+cleanup, and secret sanitization. Completion requires the repository's
+authoritative `make api-check`, its repository-owned Semgrep gate,
+`git diff --check`, and the sanitized successful live R2 Development result.
