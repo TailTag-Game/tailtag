@@ -15,6 +15,8 @@ from django.utils.safestring import mark_safe
 from yaml import CSafeLoader, SafeLoader
 from yaml import CSafeLoader as LocalCSafeLoader
 from yaml import SafeLoader as LocalSafeLoader
+from yaml import CSafeLoader as TailTagCSafeLoader
+from yaml import SafeLoader as TailTagSafeLoader
 
 user_input = "untrusted"
 
@@ -59,6 +61,30 @@ yaml.load(user_input, Loader=CSafeLoader)
 yaml.load(user_input, Loader=LocalSafeLoader)
 # ok: tailtag.python.unsafe-yaml-load
 yaml.load(user_input, Loader=LocalCSafeLoader)
+# ok: tailtag.python.unsafe-yaml-load
+yaml.load(user_input, Loader=TailTagSafeLoader)
+# ok: tailtag.python.unsafe-yaml-load
+yaml.load(user_input, Loader=TailTagCSafeLoader)
+
+
+def unsafe_shadowed_loader_aliases() -> None:
+    TailTagSafeLoader = yaml.Loader
+    # ruleid: tailtag.python.unsafe-yaml-load
+    yaml.load(user_input, Loader=TailTagSafeLoader)
+    TailTagCSafeLoader = yaml.Loader
+    # ruleid: tailtag.python.unsafe-yaml-load
+    yaml.load(user_input, Loader=TailTagCSafeLoader)
+
+
+def unsafe_loader_alias_parameters(
+    TailTagSafeLoader: object = yaml.Loader,
+    TailTagCSafeLoader: object = yaml.Loader,
+) -> None:
+    # ruleid: tailtag.python.unsafe-yaml-load
+    yaml.load(user_input, Loader=TailTagSafeLoader)
+    # ruleid: tailtag.python.unsafe-yaml-load
+    yaml.load(user_input, Loader=TailTagCSafeLoader)
+
 
 # ruleid: tailtag.http.disabled-tls-verification
 requests.get("https://example.test", verify=False)
@@ -124,6 +150,12 @@ class QueryMethods:
         self.cursor.execute("SELECT * FROM users WHERE name = '%s'" % user_input)
         # ruleid: tailtag.django.dynamic-raw-sql
         self.cursor.execute("SELECT * FROM users WHERE name = '{}'".format(user_input))
+        sql = "SELECT * FROM users WHERE name = '%s'"
+        # ruleid: tailtag.django.dynamic-raw-sql
+        self.cursor.execute(sql % user_input)
+        sql_template = "SELECT * FROM users WHERE name = '{}'"
+        # ruleid: tailtag.django.dynamic-raw-sql
+        self.cursor.execute(sql_template.format(user_input))
         # ruleid: tailtag.django.dynamic-raw-sql
         self.connection.cursor().execute(
             f"SELECT * FROM users WHERE name = '{user_input}'"

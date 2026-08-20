@@ -66,6 +66,24 @@ def dry_run_commands(dry_run: str) -> list[str]:
     return commands
 
 
+def assert_api_check_uv_runs_are_locked_and_no_sync(dry_run: str) -> None:
+    """Require every API or Semgrep uv run emitted by api-check to be offline-ready."""
+    invocation = re.compile(
+        r"(?:\S*/)?uv\s+--directory\s+(?:services/api|\.semgrep)\s+run\b"
+    )
+    commands = dry_run_commands(dry_run)
+    matches = [
+        (command, match)
+        for command in commands
+        for match in invocation.finditer(command)
+    ]
+    assert matches, "api-check must execute locked uv run commands"
+    for command, match in matches:
+        assert re.match(r"\s+--locked\s+--no-sync(?:\s|$)", command[match.end() :]), (
+            command
+        )
+
+
 def resolve_repository_operand(operand: str) -> Path:
     """Resolve a Make command operand from the repository root."""
     path = Path(operand)
@@ -373,6 +391,7 @@ def test_check_composes_every_required_backend_validation() -> None:
     assert prerequisites.index("api-semgrep-check") < prerequisites.index("api-test")
     assert_semgrep_check_contract(completed.stdout)
     assert_semgrep_validator_precedes_fixture_scan(completed.stdout)
+    assert_api_check_uv_runs_are_locked_and_no_sync(completed.stdout)
     assert completed.stdout.index("semgrep scan --test") < completed.stdout.index(
         "pytest -q"
     )

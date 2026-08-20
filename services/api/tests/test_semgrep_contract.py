@@ -147,6 +147,17 @@ def basename_mismatch(rules: Path, fixtures: Path) -> None:
     (fixtures / "example.py").rename(fixtures / "different.py")
 
 
+def ambiguous_rule_basename_pairing(rules: Path, fixtures: Path) -> None:
+    write_minimal_pair(rules, fixtures)
+    (rules / "example.yaml").write_text("rules:\n  - id: tailtag.example.second\n")
+    (fixtures / "example.py").write_text(
+        "# ruleid: tailtag.example.rule\nunsafe()\n"
+        "# ok: tailtag.example.rule\nsafe()\n"
+        "# ruleid: tailtag.example.second\nunsafe_second()\n"
+        "# ok: tailtag.example.second\nsafe_second()\n"
+    )
+
+
 def missing_ruleid_annotation(rules: Path, fixtures: Path) -> None:
     write_minimal_pair(rules, fixtures)
     (fixtures / "example.py").write_text("# ok: tailtag.example.rule\nsafe()\n")
@@ -199,6 +210,7 @@ def partial_two_rule_coverage(rules: Path, fixtures: Path) -> None:
         (ambiguous_rule_declaration, "malformed rule id declaration"),
         (unsupported_inline_rule_declaration, "malformed rule id declaration"),
         (basename_mismatch, "basename mismatch"),
+        (ambiguous_rule_basename_pairing, "ambiguous basename pairing"),
         (missing_ruleid_annotation, "missing ruleid annotation"),
         (missing_ok_annotation, "missing ok annotation"),
         (undefined_rule_annotation, "unknown rule id"),
@@ -222,6 +234,7 @@ def partial_two_rule_coverage(rules: Path, fixtures: Path) -> None:
         "ambiguous-id-shape",
         "unsupported-inline-id-shape",
         "basename-mismatch",
+        "ambiguous-basename-pairing",
         "missing-ruleid",
         "missing-ok",
         "undefined-rule-id",
