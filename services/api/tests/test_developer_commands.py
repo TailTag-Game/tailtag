@@ -542,7 +542,9 @@ def test_semgrep_check_is_local_locked_noninteractive_and_credential_free() -> N
         ("CI_RELEVANCE_SCRIPT", "/tmp/untrusted-backend-ci-relevance.py"),
     ],
 )
-@pytest.mark.parametrize("override_source", ["environment", "command_line"])
+@pytest.mark.parametrize(
+    "override_source", ["environment", "command_line", "makeflags"]
+)
 def test_semgrep_check_ignores_make_overrides_of_its_security_inputs(
     variable: str, replacement: str, override_source: str
 ) -> None:
@@ -551,8 +553,14 @@ def test_semgrep_check_ignores_make_overrides_of_its_security_inputs(
         completed = run_make(
             "-n", "api-semgrep-check", environment={variable: replacement}
         )
-    else:
+    elif override_source == "command_line":
         completed = run_make("-n", "api-semgrep-check", f"{variable}={replacement}")
+    else:
+        completed = run_make(
+            "-n",
+            "api-semgrep-check",
+            environment={"MAKEFLAGS": f"{variable}={replacement}"},
+        )
 
     assert completed.returncode == 0, completed.stderr
     assert replacement not in completed.stdout
@@ -560,10 +568,18 @@ def test_semgrep_check_ignores_make_overrides_of_its_security_inputs(
     assert_semgrep_validator_precedes_fixture_scan(completed.stdout)
 
 
-def test_semgrep_check_ignores_a_command_line_curdir_override() -> None:
-    """GNU Make's CURDIR override cannot redirect the canonical security scope."""
+@pytest.mark.parametrize("override_source", ["command_line", "makeflags"])
+def test_semgrep_check_ignores_curdir_override_channels(override_source: str) -> None:
+    """GNU Make's inherited assignment channels cannot redirect the security scope."""
     replacement = "/tmp/tailtag-fake"
-    completed = run_make("-n", "api-semgrep-check", f"CURDIR={replacement}")
+    if override_source == "command_line":
+        completed = run_make("-n", "api-semgrep-check", f"CURDIR={replacement}")
+    else:
+        completed = run_make(
+            "-n",
+            "api-semgrep-check",
+            environment={"MAKEFLAGS": f"CURDIR={replacement}"},
+        )
 
     assert completed.returncode == 0, completed.stderr
     assert replacement not in completed.stdout
