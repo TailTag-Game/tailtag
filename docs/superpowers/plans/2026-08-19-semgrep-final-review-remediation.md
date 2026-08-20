@@ -146,9 +146,10 @@ library where possible.
   In `test_semgrep_contract.py`, execute the future script with temporary
   rule/fixture directories and assert nonzero plus a diagnostic for every
   mutation-style invalid case: zero directories/files, filesystem/I/O error,
-  unsupported extension or file in either directory, malformed YAML/fixture
-  annotation, unknown annotation, duplicate rule IDs, ambiguous/noncanonical
-  rule IDs, basename mismatch, and any rule missing `ruleid` or `ok`.
+  unsupported extension or file in either directory, malformed or unknown
+  fixture annotation, duplicate/noncanonical rule IDs, malformed `- id:` rule
+  declaration shapes, basename mismatch, and any rule missing `ruleid` or
+  `ok`.
 
   ```python
   completed = subprocess.run(
@@ -159,8 +160,11 @@ library where possible.
   assert "missing ok annotation" in completed.stderr
   ```
 
-  Include a valid minimal matching rule/fixture control case. Do not test full
-  Semgrep YAML/pattern semantics here; that remains `semgrep scan --test`.
+  Include a valid minimal matching rule/fixture control case. The stdlib
+  validator tests only contract-level `- id:` declaration shapes, supported
+  files/extensions, annotations, pairing, and coverage; it does not perform
+  general YAML parsing. Complete YAML and pattern syntax remains
+  `semgrep scan --test` responsibility.
 
 - [ ] **Step 4: Add black-box canonical scan integration tests.**
 
@@ -173,11 +177,19 @@ library where possible.
 
   Add the canonical baseline probe: create an isolated local clone/worktree of
   the current branch, symlink its `services/api/.venv` and `.semgrep/.venv` to
-  already-synchronized environments, commit an approved-target `.py` file
-  containing a known `ruleid` fixture, set `SEMGREP_BASELINE_COMMIT=HEAD`, and
-  run `make api-semgrep-check` with no overrides. Assert nonzero and the
-  expected `tailtag.*` rule ID. The test must not run a reconstructed Semgrep
-  command or invoke network synchronization.
+  already-synchronized environments, then configure local identity before its
+  test commit:
+
+  ```bash
+  git config user.name TailTag-Test
+  git config user.email tailtag-test@example.invalid
+  ```
+
+  Commit an approved-target `.py` file containing `eval(user_input)`, set
+  `SEMGREP_BASELINE_COMMIT` to that committed `HEAD`, and run
+  `make api-semgrep-check` with no overrides. Assert nonzero and exact output
+  rule ID `tailtag.python.dynamic-execution`. The test must not run a
+  reconstructed Semgrep command or invoke network synchronization.
 
 - [ ] **Step 5: Run the focused acceptance suite and record expected RED evidence.**
 
@@ -298,13 +310,15 @@ library where possible.
     tests/test_runtime_commands.py tests/test_semgrep_contract.py \
     tests/test_semgrep_integration.py
   make api-semgrep-check
+  HTTPS_PROXY=http://127.0.0.1:1 HTTP_PROXY=http://127.0.0.1:1 ALL_PROXY=http://127.0.0.1:1 NO_PROXY= UV_OFFLINE=1 make api-semgrep-check
   git diff --check
   ```
 
-  Expected after implementation: GREEN with rule fixtures discovered, zero
-  approved-scope findings, exact `paths.scanned`, baseline probe failure with
-  the planted expected ID, and no API Semgrep dependency. If a genuine finding
-  occurs, stop rather than suppress it.
+  Expected after implementation: both the ordinary and forced-offline
+  canonical commands discover the same fixtures and report zero approved-scope
+  findings; the suite also proves exact `paths.scanned`, baseline-probe failure
+  with the planted expected ID, and no API Semgrep dependency. If a genuine
+  finding occurs, stop rather than suppress it.
 
 - [ ] **Step 6: Task-level review and handoff.**
 
@@ -393,12 +407,14 @@ library where possible.
   ```bash
   make api-setup
   make api-semgrep-check
+  HTTPS_PROXY=http://127.0.0.1:1 HTTP_PROXY=http://127.0.0.1:1 ALL_PROXY=http://127.0.0.1:1 NO_PROXY= UV_OFFLINE=1 make api-semgrep-check
   uv --directory services/api run --locked --no-sync pytest -q tests/test_semgrep_integration.py
   ```
 
-  Confirm the standalone online/offline gate discovers fixtures, reports zero
-  approved-scope findings, and `paths.scanned` exactly matches tracked API
-  Python plus the frozen five-helper set, including API tests.
+  Confirm the ordinary and forced-offline canonical commands discover the same
+  fixtures and each report zero approved-scope findings. Confirm
+  `paths.scanned` exactly matches tracked API Python plus the frozen
+  five-helper set, including API tests.
 
 - [ ] **Step 2: Reproduce baseline, validator, and dependency acceptance.**
 
