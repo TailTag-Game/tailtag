@@ -119,6 +119,30 @@ def test_overlay_working_tree_copies_modifications_additions_and_deletions(
         check=True,
         capture_output=True,
     )
+    clone_metadata = {
+        "head": subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=destination,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout,
+        "git_dir": subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            cwd=destination,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout,
+        "origin": subprocess.run(
+            ["git", "config", "--get", "remote.origin.url"],
+            cwd=destination,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout,
+        "config": (destination / ".git" / "config").read_text(),
+    }
 
     (source / "tracked.py").write_text("after\n")
     (source / "deleted.py").unlink()
@@ -127,6 +151,37 @@ def test_overlay_working_tree_copies_modifications_additions_and_deletions(
     overlay_working_tree(source, destination)
 
     assert (destination / ".git").is_dir()
+    assert (
+        subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=destination,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        == clone_metadata["head"]
+    )
+    assert (
+        subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            cwd=destination,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        == clone_metadata["git_dir"]
+    )
+    assert (
+        subprocess.run(
+            ["git", "config", "--get", "remote.origin.url"],
+            cwd=destination,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        == clone_metadata["origin"]
+    )
+    assert (destination / ".git" / "config").read_text() == clone_metadata["config"]
     assert (destination / "tracked.py").read_text() == "after\n"
     assert not (destination / "deleted.py").exists()
     assert (destination / "added.py").read_text() == "new\n"

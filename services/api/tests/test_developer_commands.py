@@ -747,7 +747,14 @@ def test_semgrep_is_isolated_from_the_api_dependency_resolution() -> None:
     )
     assert ignored_venv.returncode == 0
 
-    exported = subprocess.run(
+    exported = run_api_no_dev_dependency_export()
+    assert exported.returncode == 0, exported.stderr
+    assert "semgrep" not in exported.stdout.lower()
+
+
+def run_api_no_dev_dependency_export() -> subprocess.CompletedProcess[str]:
+    """Export the API's production dependency set through the UV launcher seam."""
+    return subprocess.run(
         [
             os.environ.get("UV", "uv"),
             "--directory",
@@ -761,8 +768,34 @@ def test_semgrep_is_isolated_from_the_api_dependency_resolution() -> None:
         text=True,
         check=False,
     )
+
+
+def test_api_dependency_export_honors_the_uv_launcher_seam(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The export probe cannot silently bypass a configured UV launcher."""
+    invocation = tmp_path / "uv-invocation"
+    launcher = tmp_path / "uv"
+    launcher.write_text(
+        "#!/bin/sh\n"
+        'printf \'%s\\n\' "$@" > "$UV_EXPORT_INVOCATION"\n'
+        "printf '%s\\n' 'Django==5.2.10'\n"
+    )
+    launcher.chmod(0o755)
+    monkeypatch.setenv("UV", str(launcher))
+    monkeypatch.setenv("UV_EXPORT_INVOCATION", str(invocation))
+
+    exported = run_api_no_dev_dependency_export()
+
     assert exported.returncode == 0, exported.stderr
     assert "semgrep" not in exported.stdout.lower()
+    assert invocation.read_text().splitlines() == [
+        "--directory",
+        "services/api",
+        "export",
+        "--locked",
+        "--no-dev",
+    ]
 
 
 def test_setup_synchronizes_both_locked_projects_before_no_sync_checks() -> None:
