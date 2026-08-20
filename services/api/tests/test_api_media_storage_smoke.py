@@ -350,7 +350,7 @@ def test_concrete_runtime_builds_a_no_redirect_default_opener(
     no_redirect = next(
         handler
         for handler in captured_handlers
-        if isinstance(handler, smoke._NoRedirect)
+        if isinstance(handler, smoke._NoRedirect)  # pyright: ignore[reportPrivateUsage]
     )
     assert (
         no_redirect.redirect_request(

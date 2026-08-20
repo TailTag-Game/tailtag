@@ -982,10 +982,18 @@ def assert_api_check_has_only_static_media_storage_helper_analysis(
             "--locked",
             "--no-sync",
         ], command
-        assert tokens[ruff_index + 1 :] in (
-            ["format", "--check", ".", str(MEDIA_STORAGE_SMOKE_SCRIPT)],
-            ["check", ".", str(MEDIA_STORAGE_SMOKE_SCRIPT)],
-        ), command
+        ruff_arguments = tokens[ruff_index + 1 :]
+        if ruff_arguments[:2] == ["format", "--check"]:
+            source_operands = ruff_arguments[2:]
+        else:
+            assert ruff_arguments[:1] == ["check"], command
+            source_operands = ruff_arguments[1:]
+        assert source_operands[0] == ".", command
+        helper_operands = source_operands[1:]
+        assert len(helper_operands) == len(FROZEN_ROOT_HELPERS), command
+        assert {resolve_repository_operand(operand) for operand in helper_operands} == {
+            REPOSITORY_ROOT / helper for helper in FROZEN_ROOT_HELPERS
+        }, command
 
 
 def test_media_storage_smoke_honors_only_the_uv_launcher_override(
@@ -1016,6 +1024,7 @@ def test_media_storage_smoke_honors_only_the_uv_launcher_override(
         "/usr/bin/python scripts/api_media_storage_smoke.py",
         "env python scripts/api_media_storage_smoke.py",
         "env /usr/bin/python scripts/api_media_storage_smoke.py",
+        "uv --directory services/api run --locked --no-sync ruff check . scripts/api_media_storage_smoke.py",
     ),
 )
 def test_api_check_rejects_every_normalized_or_shell_media_storage_helper_execution(
