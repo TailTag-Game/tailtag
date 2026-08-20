@@ -7,6 +7,8 @@ import re
 import shlex
 from pathlib import Path
 
+import pytest
+
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = SERVICE_ROOT.parents[1]
 
@@ -54,6 +56,48 @@ def compose_service(compose_file: str, name: str) -> str:
     )
     assert match, f"Compose file must define a {name} service"
     return match.group("contents")
+
+
+def yaml_mapping_contents(document: str, key: str, indentation: int) -> str:
+    """Return one mapping's full indentation-delimited YAML content block."""
+    header = re.compile(rf"^ {{{indentation}}}{re.escape(key)}:\s*(?:#.*)?$")
+    lines = document.splitlines()
+
+    for index, line in enumerate(lines):
+        if not header.fullmatch(line):
+            continue
+
+        contents: list[str] = []
+        for candidate in lines[index + 1 :]:
+            if (
+                candidate.strip()
+                and len(candidate) - len(candidate.lstrip()) <= indentation
+            ):
+                break
+            contents.append(candidate)
+        return "\n".join(contents)
+
+    raise AssertionError(f"YAML mapping not found: {' ' * indentation}{key}")
+
+
+def assert_api_workflow_least_privilege(workflow: str) -> None:
+    """Require one read-only workflow permission block with no job override."""
+    top_level_permissions = yaml_mapping_contents(workflow, "permissions", 0)
+    permission_entries = [
+        line.strip()
+        for line in top_level_permissions.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    assert permission_entries == ["contents: read"]
+
+    jobs = yaml_mapping_contents(workflow, "jobs", 0)
+    job_names = re.findall(
+        r"""(?m)^  ("[^"]+"|'[^']+'|[A-Za-z0-9_-]+):\s*(?:#.*)?$""", jobs
+    )
+    assert job_names, "workflow must define at least one job"
+    for job_name in job_names:
+        job = yaml_mapping_contents(jobs, job_name, 2)
+        assert not re.search(r"(?m)^    permissions:", job)
 
 
 def test_runtime_files_define_development_and_production_contracts() -> None:
@@ -151,7 +195,8 @@ def test_repository_devcontainer_reuses_the_api_compose_topology() -> None:
     assert devcontainer["updateRemoteUserUID"] is True
     assert "workspaceMount" not in devcontainer
     assert devcontainer["postCreateCommand"] == (
-        "cd services/api && uv sync --all-groups --locked"
+        "uv --directory services/api sync --all-groups --locked && "
+        "uv --directory .semgrep sync --locked"
     )
     assert devcontainer["forwardPorts"] == [8000]
     assert "migrate" not in devcontainer["postCreateCommand"]
@@ -175,6 +220,7 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
         "make api-setup",
         "make api-run",
         "make api-test",
+        "make api-semgrep-check",
         "make api-check",
         "make api-migrate",
         "make api-migrations",
@@ -196,17 +242,41 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
 
     assert "name: API foundation checks" in workflow
     assert "run: make api-check" in workflow
+    assert_api_workflow_least_privilege(workflow)
     for duplicated_command in (
         "uv run pytest -q",
         "uv run ruff format --check .",
         "uv run ruff check .",
         "uv run pyright",
+        "semgrep scan",
+        "api-semgrep-check",
         "uv run python manage.py check",
         "uv run python manage.py makemigrations --check --dry-run",
         "uv run python manage.py spectacular --validate",
         "uv run gunicorn config.wsgi:application --check-config",
     ):
         assert duplicated_command not in workflow
+
+    for forbidden_semgrep_integration in (
+        "SEMGREP_APP_TOKEN",
+        "SEMGREP_API_TOKEN",
+        "semgrep.dev",
+        "semgrep-action",
+    ):
+        assert forbidden_semgrep_integration not in workflow
+
+    semgrep_documentation = " ".join(readme.lower().split())
+    assert re.search(r"(?:repository[- ]owned|local) rules", semgrep_documentation)
+    assert re.search(r"(?:no|without) (?:scan-time )?network", semgrep_documentation)
+    assert re.search(r"(?:no|without) (?:semgrep )?account", semgrep_documentation)
+    assert re.search(
+        r"(?:does not|doesn't|not) .{0,80}(?:dependency|sca).{0,80}(?:scan|cover)",
+        semgrep_documentation,
+    )
+    assert re.search(
+        r"(?:does not|doesn't|not) .{0,80}secret.{0,80}(?:scan|cover)",
+        semgrep_documentation,
+    )
 
     supported_surfaces = [
         "/health/live",
@@ -250,4 +320,76 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
     assert "    paths-ignore:" not in pull_request_configuration
     assert 'python-version: "3.13"' in workflow
     assert "postgres:17" in workflow
-    assert "uv --directory services/api sync --all-groups --locked" in workflow
+    api_job = yaml_mapping_contents(
+        yaml_mapping_contents(workflow, "jobs", 0), "api", 2
+    )
+    validation_index = api_job.index("run: make api-check")
+    for setup_command in (
+        "uv --directory services/api sync --all-groups --locked",
+        "uv --directory .semgrep sync --locked",
+    ):
+        assert api_job.count(setup_command) == 1
+        assert api_job.index(setup_command) < validation_index
+
+
+def test_api_workflow_permissions_reject_effective_escalation() -> None:
+    """A write-capable top-level or API-job permission is never a valid contract."""
+    workflow = (REPOSITORY_ROOT / ".github/workflows/api.yml").read_text()
+    top_level_escalation = workflow.replace(
+        "  contents: read", "  contents: read\n  pull-requests: write", 1
+    )
+    job_level_escalation = workflow.replace(
+        "    runs-on:", "    permissions:\n      contents: write\n    runs-on:", 1
+    )
+    late_job_level_escalation = workflow.replace(
+        "\n    env:\n", "\n    permissions:\n      contents: write\n    env:\n", 1
+    )
+
+    assert top_level_escalation != workflow
+    assert job_level_escalation != workflow
+    assert late_job_level_escalation != workflow
+    with pytest.raises(AssertionError):
+        assert_api_workflow_least_privilege(top_level_escalation)
+    with pytest.raises(AssertionError):
+        assert_api_workflow_least_privilege(job_level_escalation)
+    with pytest.raises(AssertionError):
+        assert_api_workflow_least_privilege(late_job_level_escalation)
+
+
+def test_api_workflow_permissions_ignore_comments_and_reject_every_job_override() -> (
+    None
+):
+    """Comments are inert, but a second job cannot escalate workflow permissions."""
+    workflow = (REPOSITORY_ROOT / ".github/workflows/api.yml").read_text()
+    commented_permissions = workflow.replace(
+        "  contents: read", "  # contents: write\n  contents: read", 1
+    )
+    second_job_escalation = workflow.replace(
+        "  api:\n",
+        "  reporting:\n"
+        "    permissions:\n"
+        "      contents: write\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps: []\n"
+        "  api:\n",
+        1,
+    )
+    quoted_job_escalation = workflow.replace(
+        "  api:\n",
+        '  "reporting":\n'
+        "    permissions:\n"
+        "      contents: write\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps: []\n"
+        "  api:\n",
+        1,
+    )
+
+    assert commented_permissions != workflow
+    assert second_job_escalation != workflow
+    assert quoted_job_escalation != workflow
+    assert_api_workflow_least_privilege(commented_permissions)
+    with pytest.raises(AssertionError):
+        assert_api_workflow_least_privilege(second_job_escalation)
+    with pytest.raises(AssertionError):
+        assert_api_workflow_least_privilege(quoted_job_escalation)

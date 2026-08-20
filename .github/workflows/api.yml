@@ -77,7 +77,9 @@ jobs:
 
       - name: Synchronize locked dependencies
         if: steps.relevance.outputs.backend_relevant == 'true'
-        run: uv --directory services/api sync --all-groups --locked
+        run: |
+          uv --directory services/api sync --all-groups --locked
+          uv --directory .semgrep sync --locked
 
       - name: Run canonical API validation
         if: steps.relevance.outputs.backend_relevant == 'true'

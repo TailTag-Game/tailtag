@@ -216,9 +216,10 @@ having to remember `uv`, Django, or individual quality-tool invocations.
 | Command | Purpose | Required state |
 | --- | --- | --- |
 | `make help` | List canonical backend commands. | None. |
-| `make api-setup` | Synchronize locked backend dependencies. | `uv` available; does not start services or change schema. |
+| `make api-setup` | Synchronize locked API and Semgrep dependencies. | `uv` available; does not start services or change schema. |
 | `make api-run` | Run Django on port 8000. | Dependencies, `services/api/.env`, and PostgreSQL available. |
 | `make api-test` | Run PostgreSQL-backed backend tests. | Dependencies, `services/api/.env`, and PostgreSQL available. |
+| `make api-semgrep-check` | Run deterministic TailTag Semgrep security analysis. | Run `make api-setup` first. |
 | `make api-check` | Run complete local pre-PR backend validation. | Dependencies, `services/api/.env`, and PostgreSQL available. |
 | `make api-migrate` | **Apply existing Django migrations.** | Dependencies, `services/api/.env`, and PostgreSQL available; mutates schema. |
 | `make api-migrations` | **Create Django migrations from model changes.** | Dependencies and `services/api/.env`; mutates migration state but does not apply migrations. |
@@ -227,10 +228,28 @@ having to remember `uv`, Django, or individual quality-tool invocations.
 | `make api-smoke` | HTTP-check an already-running API. | API already running; never starts services or applies migrations. |
 | `make api-auth-smoke` | Manually exercise Clerk Development authentication against `/api/me/`. | Interactive terminal, an already-running approved Development API, and explicitly supplied non-secret smoke-user configuration. Never CI or production. |
 
-`make api-check` runs formatting, linting, strict typing, PostgreSQL-backed
-tests, Django system checks, migration-drift detection, OpenAPI validation, and
-Gunicorn production-configuration loading. It neither creates nor applies
-migrations.
+`make api-setup` synchronizes the two locked development projects:
+`services/api/` and the separate non-package `.semgrep/` project. Once setup
+has completed, `make api-semgrep-check` uses locked, no-sync environments to
+run the fail-closed fixture-contract preflight, Semgrep's fixture tests, and
+the local blocking scan. It explicitly clears any inherited Semgrep baseline;
+the command is deterministic both normally and with the supported forced
+offline boundary.
+
+`make api-check` runs formatting, linting, strict typing, the Semgrep rule
+tests and local blocking scan, PostgreSQL-backed tests, Django system checks,
+migration-drift detection, OpenAPI validation, and Gunicorn
+production-configuration loading. It neither synchronizes dependencies nor
+creates or applies migrations. It remains the single local and CI validation
+contract.
+
+The Semgrep gate uses local rules owned and reviewed by TailTag, with no
+Semgrep account, token, Registry rule, remote configuration or rule download,
+or result upload. It uses no scan-time network. It does not provide dependency
+or SCA scanning, secret scanning, SARIF output, AppSec Platform integration,
+interfile analysis, or complete security coverage. See
+[TailTag Semgrep rules](../../.semgrep/README.md) for rule-authoring, fixture,
+scope, and limitation guidance.
 
 ## Authenticated Development API smoke
 

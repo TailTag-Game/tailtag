@@ -11,6 +11,6 @@
   "remoteEnv": {
     "TAILTAG_DEVCONTAINER": "1"
   },
-  "postCreateCommand": "cd services/api && uv sync --all-groups --locked",
+  "postCreateCommand": "uv --directory services/api sync --all-groups --locked && uv --directory .semgrep sync --locked",
   "forwardPorts": [8000]
 }

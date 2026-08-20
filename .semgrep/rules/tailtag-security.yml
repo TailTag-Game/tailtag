@@ -1,0 +1,148 @@
+rules:
+  - id: tailtag.python.dynamic-execution
+    message: Dynamic Python execution is not allowed in TailTag code.
+    languages: [python]
+    severity: ERROR
+    metadata: {owner: tailtag, confidence: HIGH}
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: exec(...)
+
+  - id: tailtag.python.shell-execution
+    message: Shell command execution is not allowed; pass an argument vector without shell=True.
+    languages: [python]
+    severity: ERROR
+    metadata: {owner: tailtag, confidence: HIGH}
+    pattern-either:
+      - pattern: os.system(...)
+      - pattern: subprocess.$FUNC(..., shell=True, ...)
+
+  - id: tailtag.python.unsafe-deserialization
+    message: Pickle and marshal deserialization are not allowed for TailTag data.
+    languages: [python]
+    severity: ERROR
+    metadata: {owner: tailtag, confidence: HIGH}
+    pattern-either:
+      - pattern: pickle.load(...)
+      - pattern: pickle.loads(...)
+      - pattern: marshal.load(...)
+      - pattern: marshal.loads(...)
+
+  - id: tailtag.python.unsafe-yaml-load
+    message: Use yaml.safe_load instead of yaml.load.
+    languages: [python]
+    severity: ERROR
+    metadata: {owner: tailtag, confidence: HIGH}
+    pattern-either:
+      - patterns:
+          - pattern: yaml.load(...)
+          - pattern-not: yaml.load(..., Loader=yaml.SafeLoader, ...)
+          - pattern-not: yaml.load(..., Loader=yaml.CSafeLoader, ...)
+      - patterns:
+          - pattern-inside: |
+              $LOADER = yaml.Loader
+              ...
+          - pattern: yaml.load(..., Loader=$LOADER, ...)
+
+  - id: tailtag.http.disabled-tls-verification
+    message: TLS certificate verification must remain enabled.
+    languages: [python]
+    severity: ERROR
+    metadata: {owner: tailtag, confidence: HIGH}
+    pattern-either:
+      - pattern: requests.$METHOD(..., verify=False, ...)
+      - pattern: httpx.$METHOD(..., verify=False, ...)
+      - pattern: httpx.Client(..., verify=False, ...)
+      - pattern: httpx.AsyncClient(..., verify=False, ...)
+
+  - id: tailtag.django.mark-safe
+    message: Use contextual escaping such as format_html instead of mark_safe.
+    languages: [python]
+    severity: ERROR
+    metadata: {owner: tailtag, confidence: HIGH}
+    pattern-either:
+      - pattern: django.utils.safestring.mark_safe(...)
+      - pattern: django.utils.html.mark_safe(...)
+
+  - id: tailtag.django.dynamic-raw-sql
+    message: Pass SQL values as database parameters instead of constructing SQL dynamically.
+    languages: [python]
+    severity: ERROR
+    metadata: {owner: tailtag, confidence: HIGH}
+    pattern-either:
+      - patterns:
+          - pattern: $CURSOR.execute(f"...{$VALUE}...", ...)
+          - metavariable-regex:
+              metavariable: $CURSOR
+              regex: "^(cursor|[A-Za-z_][A-Za-z0-9_]*_cursor|connection|conn|db|self\\.cursor|self\\.connection\\.cursor\\(\\))$"
+      - patterns:
+          - pattern: $CURSOR.execute($SQL % $VALUE, ...)
+          - metavariable-regex:
+              metavariable: $CURSOR
+              regex: "^(cursor|[A-Za-z_][A-Za-z0-9_]*_cursor|connection|conn|db|self\\.cursor|self\\.connection\\.cursor\\(\\))$"
+      - patterns:
+          - pattern: $CURSOR.execute($SQL.format(...), ...)
+          - metavariable-regex:
+              metavariable: $CURSOR
+              regex: "^(cursor|[A-Za-z_][A-Za-z0-9_]*_cursor|connection|conn|db|self\\.cursor|self\\.connection\\.cursor\\(\\))$"
+      - pattern: connection.cursor().execute(f"...{$VALUE}...", ...)
+      - patterns:
+          - pattern: |
+              $QUERY = f"...{$VALUE}..."
+              $CURSOR.execute($QUERY, ...)
+          - metavariable-regex:
+              metavariable: $CURSOR
+              regex: "^(cursor|[A-Za-z_][A-Za-z0-9_]*_cursor|connection|conn|db|self\\.cursor|self\\.connection\\.cursor\\(\\))$"
+          - focus-metavariable: $CURSOR
+      - pattern: $MODEL.objects.raw(f"...{$VALUE}...", ...)
+      - patterns:
+          - pattern: django.db.models.expressions.RawSQL(f"...{$VALUE}...", ...)
+          - pattern-regex: '\bRawSQL\s*\('
+          - pattern-not-inside:
+              patterns:
+                - pattern: |
+                    def $OUTER(...):
+                        ...
+                        def $FUNCTION(...):
+                            ...
+                        ...
+                - metavariable-regex:
+                    metavariable: $FUNCTION
+                    regex: "^RawSQL$"
+      - patterns:
+          - pattern: django.db.models.expressions.RawSQL(f"...{$VALUE}...", ...)
+          - pattern-regex: '\bDjangoRawSQL\s*\('
+          - pattern-not-inside:
+              patterns:
+                - pattern: |
+                    def $OUTER(...):
+                        ...
+                        def $FUNCTION(...):
+                            ...
+                        ...
+                - metavariable-regex:
+                    metavariable: $FUNCTION
+                    regex: "^DjangoRawSQL$"
+      - patterns:
+          - pattern: django.db.models.expressions.RawSQL(f"...{$VALUE}...", ...)
+          - pattern-regex: 'django\.db\.models\.expressions\.RawSQL\s*\('
+
+  - id: tailtag.storage.public-object-acl
+    message: TailTag object storage must remain private.
+    languages: [python]
+    severity: ERROR
+    metadata: {owner: tailtag, confidence: HIGH}
+    pattern-either:
+      - pattern: $CLIENT.$METHOD(..., ACL="public-read", ...)
+      - pattern: $CLIENT.$METHOD(..., ACL="public-read-write", ...)
+
+  - id: tailtag.storage.presigned-upload
+    message: Presigned upload operations are not allowed in the V0 media boundary.
+    languages: [python]
+    severity: ERROR
+    metadata: {owner: tailtag, confidence: HIGH}
+    pattern-either:
+      - pattern: $CLIENT.generate_presigned_url("put_object", ...)
+      - pattern: $CLIENT.generate_presigned_url("upload_part", ...)
+      - pattern: $CLIENT.generate_presigned_url("create_multipart_upload", ...)
+      - pattern: $CLIENT.generate_presigned_post(...)
