@@ -1,4 +1,5 @@
 import ast
+import django
 import json
 import marshal
 import os
@@ -11,6 +12,7 @@ import yaml
 from django.db.models.expressions import RawSQL
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
+from yaml import CSafeLoader, SafeLoader
 
 user_input = "untrusted"
 
@@ -43,6 +45,14 @@ json.loads(user_input)
 yaml.load(user_input)
 # ok: tailtag.python.unsafe-yaml-load
 yaml.safe_load(user_input)
+# ok: tailtag.python.unsafe-yaml-load
+yaml.load(user_input, Loader=yaml.SafeLoader)
+# ok: tailtag.python.unsafe-yaml-load
+yaml.load(user_input, Loader=yaml.CSafeLoader)
+# ok: tailtag.python.unsafe-yaml-load
+yaml.load(user_input, Loader=SafeLoader)
+# ok: tailtag.python.unsafe-yaml-load
+yaml.load(user_input, Loader=CSafeLoader)
 
 # ruleid: tailtag.http.disabled-tls-verification
 requests.get("https://example.test", verify=False)
@@ -75,9 +85,58 @@ cursor.execute("SELECT * FROM users WHERE name = '%s'" % user_input)
 # ruleid: tailtag.django.dynamic-raw-sql
 cursor.execute("SELECT * FROM users WHERE name = '{}'".format(user_input))
 # ruleid: tailtag.django.dynamic-raw-sql
+audit_cursor.execute(f"SELECT * FROM users WHERE name = '{user_input}'")
+# ruleid: tailtag.django.dynamic-raw-sql
+audit_cursor.execute("SELECT * FROM users WHERE name = '%s'" % user_input)
+# ruleid: tailtag.django.dynamic-raw-sql
+audit_cursor.execute("SELECT * FROM users WHERE name = '{}'".format(user_input))
+# ruleid: tailtag.django.dynamic-raw-sql
+connection.execute(f"SELECT * FROM users WHERE name = '{user_input}'")
+# ruleid: tailtag.django.dynamic-raw-sql
+connection.execute("SELECT * FROM users WHERE name = '%s'" % user_input)
+# ruleid: tailtag.django.dynamic-raw-sql
+connection.execute("SELECT * FROM users WHERE name = '{}'".format(user_input))
+# ruleid: tailtag.django.dynamic-raw-sql
+conn.execute(f"SELECT * FROM users WHERE name = '{user_input}'")
+# ruleid: tailtag.django.dynamic-raw-sql
+conn.execute("SELECT * FROM users WHERE name = '%s'" % user_input)
+# ruleid: tailtag.django.dynamic-raw-sql
+conn.execute("SELECT * FROM users WHERE name = '{}'".format(user_input))
+# ruleid: tailtag.django.dynamic-raw-sql
+db.execute(f"SELECT * FROM users WHERE name = '{user_input}'")
+# ruleid: tailtag.django.dynamic-raw-sql
+db.execute("SELECT * FROM users WHERE name = '%s'" % user_input)
+# ruleid: tailtag.django.dynamic-raw-sql
+db.execute("SELECT * FROM users WHERE name = '{}'".format(user_input))
+
+
+class QueryMethods:
+    def execute_queries(self) -> None:
+        # ruleid: tailtag.django.dynamic-raw-sql
+        self.cursor.execute(f"SELECT * FROM users WHERE name = '{user_input}'")
+        # ruleid: tailtag.django.dynamic-raw-sql
+        self.cursor.execute("SELECT * FROM users WHERE name = '%s'" % user_input)
+        # ruleid: tailtag.django.dynamic-raw-sql
+        self.cursor.execute("SELECT * FROM users WHERE name = '{}'".format(user_input))
+        # ruleid: tailtag.django.dynamic-raw-sql
+        self.connection.cursor().execute(
+            f"SELECT * FROM users WHERE name = '{user_input}'"
+        )
+
+
+# ruleid: tailtag.django.dynamic-raw-sql
+connection.cursor().execute(f"SELECT * FROM users WHERE name = '{user_input}'")
+query = f"SELECT * FROM users WHERE name = '{user_input}'"
+# ruleid: tailtag.django.dynamic-raw-sql
+cursor.execute(query)
+# ruleid: tailtag.django.dynamic-raw-sql
 User.objects.raw(f"SELECT * FROM users WHERE name = '{user_input}'")
 # ruleid: tailtag.django.dynamic-raw-sql
 RawSQL(f"SELECT id FROM users WHERE name = '{user_input}'", ())
+# ruleid: tailtag.django.dynamic-raw-sql
+django.db.models.expressions.RawSQL(
+    f"SELECT id FROM users WHERE name = '{user_input}'", ()
+)
 # ok: tailtag.django.dynamic-raw-sql
 cursor.execute("SELECT * FROM users WHERE name = %s", [user_input])
 
@@ -90,7 +149,14 @@ class Writer:
 # ok: tailtag.django.dynamic-raw-sql
 Writer().execute(f"not SQL: {user_input}")
 # ok: tailtag.django.dynamic-raw-sql
+writer.execute(f"not SQL: {user_input}")
+# ok: tailtag.django.dynamic-raw-sql
+executor.execute(f"not SQL: {user_input}")
+# ok: tailtag.django.dynamic-raw-sql
 cursor.execute(f"SELECT * FROM users")
+# ok: tailtag.django.dynamic-raw-sql
+query = "SELECT * FROM users WHERE name = 'static'"
+cursor.execute(query)
 
 # ruleid: tailtag.storage.public-object-acl
 s3_client.put_object(Bucket="bucket", Key="key", Body=b"x", ACL="public-read")

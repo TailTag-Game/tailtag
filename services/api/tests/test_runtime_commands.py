@@ -188,7 +188,8 @@ def test_repository_devcontainer_reuses_the_api_compose_topology() -> None:
     assert devcontainer["updateRemoteUserUID"] is True
     assert "workspaceMount" not in devcontainer
     assert devcontainer["postCreateCommand"] == (
-        "cd services/api && uv sync --all-groups --locked"
+        "uv --directory services/api sync --all-groups --locked && "
+        "uv --directory .semgrep sync --locked"
     )
     assert devcontainer["forwardPorts"] == [8000]
     assert "migrate" not in devcontainer["postCreateCommand"]
@@ -313,6 +314,7 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
     assert 'python-version: "3.13"' in workflow
     assert "postgres:17" in workflow
     assert "uv --directory services/api sync --all-groups --locked" in workflow
+    assert "uv --directory .semgrep sync --locked" in workflow
 
 
 def test_api_workflow_permissions_reject_effective_escalation() -> None:

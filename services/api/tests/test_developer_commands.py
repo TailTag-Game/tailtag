@@ -19,14 +19,16 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_smoke.py"
 AUTH_SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_auth_smoke.py"
 CI_RELEVANCE_SCRIPT = REPOSITORY_ROOT / "scripts" / "backend_ci_relevance.py"
+SEMGREP_VALIDATOR = REPOSITORY_ROOT / "scripts" / "validate_semgrep_contract.py"
 SEMGREP_RULES_DIRECTORY = REPOSITORY_ROOT / ".semgrep" / "rules"
 SEMGREP_FIXTURES_DIRECTORY = REPOSITORY_ROOT / ".semgrep" / "tests"
-SEMGREP_SOURCE_TARGETS = (
-    "services/api",
+FROZEN_SEMGREP_SOURCE_TARGETS = (
+    REPOSITORY_ROOT / "services" / "api",
     REPOSITORY_ROOT / "scripts" / "api_smoke.py",
     REPOSITORY_ROOT / "scripts" / "api_auth_smoke.py",
     REPOSITORY_ROOT / "scripts" / "clerk_development_session.py",
     REPOSITORY_ROOT / "scripts" / "backend_ci_relevance.py",
+    REPOSITORY_ROOT / "scripts" / "validate_semgrep_contract.py",
 )
 
 
@@ -99,6 +101,8 @@ def semgrep_scan_tokens(dry_run: str) -> list[list[str]]:
                 "token",
                 "account",
                 "prompt",
+                "upload",
+                "publish",
                 ".env",
                 "docker",
                 "migrate",
@@ -110,7 +114,7 @@ def semgrep_scan_tokens(dry_run: str) -> list[list[str]]:
         assert tokens[semgrep_index : semgrep_index + 2] == ["semgrep", "scan"]
         assert tokens[semgrep_index - 5 : semgrep_index] == [
             "--directory",
-            "services/api",
+            ".semgrep",
             "run",
             "--locked",
             "--no-sync",
@@ -142,7 +146,7 @@ def semgrep_target_operands(tokens: list[str]) -> set[str]:
     for token in tokens[scan_index + 1 :]:
         if skip_next:
             skip_next = False
-        elif token == "--config":
+        elif token in {"--config", "--baseline-commit"}:
             skip_next = True
         elif token in {
             "--test",
@@ -159,7 +163,7 @@ def semgrep_target_operands(tokens: list[str]) -> set[str]:
 
 
 def assert_semgrep_check_contract(dry_run: str) -> None:
-    """Require separate local fixture and blocking Semgrep scans with exact scopes."""
+    """Require separate local fixture and blocking Semgrep scans with frozen scopes."""
     commands = semgrep_scan_tokens(dry_run)
     assert len(commands) == 2
 
@@ -172,6 +176,8 @@ def assert_semgrep_check_contract(dry_run: str) -> None:
         assert semgrep_config_operands(command) == [str(SEMGREP_RULES_DIRECTORY)]
         assert "--metrics=off" in command
         assert "--disable-version-check" in command
+        baseline_index = command.index("--baseline-commit")
+        assert command[baseline_index + 1] == ""
         environment = {
             name: value
             for name, value in (
@@ -191,7 +197,29 @@ def assert_semgrep_check_contract(dry_run: str) -> None:
     assert {
         resolve_repository_operand(operand)
         for operand in semgrep_target_operands(blocking_command)
-    } == {resolve_repository_operand(str(target)) for target in SEMGREP_SOURCE_TARGETS}
+    } == {target.resolve() for target in FROZEN_SEMGREP_SOURCE_TARGETS}
+
+
+def assert_semgrep_validator_precedes_fixture_scan(dry_run: str) -> None:
+    """Require the locked API validator immediately before Semgrep fixture testing."""
+    commands = dry_run_commands(dry_run)
+    validator_indexes = [
+        index
+        for index, command in enumerate(commands)
+        if str(SEMGREP_VALIDATOR) in command
+    ]
+    assert len(validator_indexes) == 1
+    validator = commands[validator_indexes[0]]
+    assert "uv --directory services/api run --locked --no-sync python" in validator
+    assert "--rules" in validator
+    assert "--fixtures" in validator
+
+    fixture_indexes = [
+        index
+        for index, command in enumerate(commands)
+        if "semgrep scan --test" in command
+    ]
+    assert fixture_indexes == [validator_indexes[0] + 1]
 
 
 def run_make(
@@ -319,9 +347,11 @@ def test_check_composes_every_required_backend_validation() -> None:
     assert "api-semgrep-check" in prerequisites
     assert prerequisites.index("api-semgrep-check") < prerequisites.index("api-test")
     assert_semgrep_check_contract(completed.stdout)
+    assert_semgrep_validator_precedes_fixture_scan(completed.stdout)
     assert completed.stdout.index("semgrep scan --test") < completed.stdout.index(
         "pytest -q"
     )
+    assert " sync " not in completed.stdout
     assert "docker compose" not in completed.stdout
     assert "python manage.py migrate" not in completed.stdout
     assert "python manage.py makemigrations" in completed.stdout
@@ -340,30 +370,77 @@ def test_semgrep_check_is_local_locked_noninteractive_and_credential_free() -> N
         for line in dry_run_commands(completed.stdout)
         if line.strip() and not line.lstrip().startswith(("echo ", "printf "))
     ]
-    assert len(execution_lines) == 2
-    assert all("semgrep scan" in line for line in execution_lines)
+    assert len(execution_lines) == 3
+    assert str(SEMGREP_VALIDATOR) in execution_lines[0]
+    assert all("semgrep scan" in line for line in execution_lines[1:])
     assert ".env" not in completed.stdout
     assert "docker" not in completed.stdout.lower()
     assert "migrate" not in completed.stdout.lower()
     assert_semgrep_check_contract(completed.stdout)
+    assert_semgrep_validator_precedes_fixture_scan(completed.stdout)
     assert completed.stdout.count(str(AUTH_SMOKE_SCRIPT)) == 1
 
 
-def test_semgrep_is_locked_as_a_development_only_dependency() -> None:
-    """Semgrep is development tooling and is absent from the production image."""
-    pyproject = tomllib.loads(
-        (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml").read_text()
+def test_semgrep_is_isolated_from_the_api_dependency_resolution() -> None:
+    """Semgrep lives only in its own locked project and never reaches the API image."""
+    api_lockfile = (REPOSITORY_ROOT / "services" / "api" / "uv.lock").read_text()
+    semgrep_pyproject = tomllib.loads(
+        (REPOSITORY_ROOT / ".semgrep" / "pyproject.toml").read_text()
     )
-    lockfile = (REPOSITORY_ROOT / "services" / "api" / "uv.lock").read_text()
+    semgrep_lockfile = (REPOSITORY_ROOT / ".semgrep" / "uv.lock").read_text()
     dockerfile = (REPOSITORY_ROOT / "services" / "api" / "Dockerfile").read_text()
 
-    assert "semgrep==1.173.0" in pyproject["dependency-groups"]["dev"]
-    assert all(
-        not dependency.startswith("semgrep")
-        for dependency in pyproject["project"]["dependencies"]
+    assert semgrep_pyproject["project"]["dependencies"] == ["semgrep==1.173.0"]
+    assert 'name = "semgrep"' in semgrep_lockfile
+    assert (
+        "semgrep"
+        not in (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml")
+        .read_text()
+        .lower()
     )
-    assert 'name = "semgrep"' in lockfile
+    assert 'name = "semgrep"' not in api_lockfile
     assert "uv sync --locked --no-dev --no-install-project" in dockerfile
+
+    root_ignore = REPOSITORY_ROOT / ".semgrepignore"
+    tracked_ignore = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", ".semgrepignore"],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert root_ignore.is_file()
+    assert tracked_ignore.returncode == 0, tracked_ignore.stderr
+    ignored_venv = subprocess.run(
+        ["git", "check-ignore", "-q", "--no-index", ".semgrep/.venv/probe"],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert ignored_venv.returncode == 0
+
+    exported = subprocess.run(
+        ["uv", "--directory", "services/api", "export", "--locked", "--no-dev"],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert exported.returncode == 0, exported.stderr
+    assert "semgrep" not in exported.stdout.lower()
+
+
+def test_setup_synchronizes_both_locked_projects_before_no_sync_checks() -> None:
+    """Setup prepares both projects while the regular validation target never syncs."""
+    setup = run_make("-n", "api-setup")
+    check = run_make("-n", "api-check")
+
+    assert setup.returncode == 0, setup.stderr
+    assert "uv --directory services/api sync --all-groups --locked" in setup.stdout
+    assert "uv --directory .semgrep sync --locked" in setup.stdout
+    assert check.returncode == 0, check.stderr
+    assert " sync " not in check.stdout
 
 
 def test_strict_type_check_includes_the_ci_relevance_helper() -> None:
