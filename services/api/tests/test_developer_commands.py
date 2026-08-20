@@ -33,6 +33,7 @@ FROZEN_SEMGREP_SOURCE_TARGETS = (
 CANONICAL_UV_RUN_CHILD_EXECUTABLES = frozenset(
     {"ruff", "pyright", "pytest", "python", "semgrep", "gunicorn"}
 )
+CANONICAL_UV_RUN_OPTIONS = frozenset({"--locked", "--no-sync", "--offline"})
 
 
 def make_prerequisites(target: str) -> list[str]:
@@ -85,9 +86,16 @@ def assert_api_check_uv_runs_are_locked_and_no_sync(dry_run: str) -> None:
 
 
 def uv_run_option_region(arguments: str) -> list[str]:
-    """Return run options before the first canonical validation child executable."""
+    """Parse the approved uv invocation grammar through its child executable."""
     tokens = shlex.split(arguments)
     run_index = tokens.index("run")
+    global_options = tokens[:run_index]
+    assert not global_options or (
+        len(global_options) == 2
+        and global_options[0] == "--directory"
+        and not global_options[1].startswith("-")
+    ), arguments
+
     child_index = next(
         (
             index
@@ -98,7 +106,10 @@ def uv_run_option_region(arguments: str) -> list[str]:
     )
 
     assert child_index is not None, arguments
-    return tokens[run_index + 1 : child_index]
+    run_options = tokens[run_index + 1 : child_index]
+    assert set(run_options) <= CANONICAL_UV_RUN_OPTIONS, arguments
+    assert len(run_options) == len(set(run_options)), arguments
+    return run_options
 
 
 def resolve_repository_operand(operand: str) -> Path:
@@ -171,10 +182,10 @@ def test_api_check_uv_run_contract_rejects_implicit_project_sync() -> None:
         )
 
 
-def test_api_check_uv_run_contract_allows_arbitrary_options_before_the_child() -> None:
-    """Valid uv run options do not need to be enumerated by this contract."""
+def test_api_check_uv_run_contract_allows_reordered_approved_options() -> None:
+    """The approved locked/no-sync/offline options remain order-independent."""
     assert_api_check_uv_runs_are_locked_and_no_sync(
-        "uv run --offline --locked --no-sync pytest -q"
+        "uv --directory services/api run --offline --no-sync --locked pytest -q"
     )
 
 
@@ -199,6 +210,20 @@ def test_api_check_uv_run_contract_rejects_unknown_child_executable() -> None:
     with pytest.raises(AssertionError):
         assert_api_check_uv_runs_are_locked_and_no_sync(
             "uv run --locked --no-sync custom-validator"
+        )
+
+
+@pytest.mark.parametrize(
+    "shaping_option",
+    ["--with injected-package", "--python 3.13", "--env-file path"],
+)
+def test_api_check_uv_run_contract_rejects_shaping_options(
+    shaping_option: str,
+) -> None:
+    """Canonical validation must not alter its dependencies or interpreter."""
+    with pytest.raises(AssertionError):
+        assert_api_check_uv_runs_are_locked_and_no_sync(
+            f"uv run --locked --no-sync {shaping_option} pytest -q"
         )
 
 
