@@ -8,8 +8,7 @@ other upstream rules. Rule IDs use the stable
 Every rule must have both `ruleid` and `ok` fixtures before it can join the
 blocking suite. Keep the rule and its paired fixtures together: the current
 layout is `.semgrep/rules/tailtag-security.yml` and
-`.semgrep/tests/tailtag-security.py`. Do not introduce a `.local.py` fixture;
-the supported fixture file is `tailtag-security.py`.
+`.semgrep/tests/tailtag-security.py`.
 
 ## Run and maintain the gate
 
