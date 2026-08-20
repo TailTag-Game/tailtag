@@ -62,6 +62,14 @@ django.utils.safestring.mark_safe(user_input)
 # ok: tailtag.django.mark-safe
 format_html("{}", user_input)
 
+
+def mark_safe(value: str) -> str:
+    return value
+
+
+# ok: tailtag.django.mark-safe
+mark_safe("not Django")
+
 # ruleid: tailtag.django.dynamic-raw-sql
 cursor.execute(f"SELECT * FROM users WHERE name = '{user_input}'")
 # ruleid: tailtag.django.dynamic-raw-sql
@@ -75,12 +83,21 @@ RawSQL(f"SELECT id FROM users WHERE name = '{user_input}'", ())
 # ok: tailtag.django.dynamic-raw-sql
 cursor.execute("SELECT * FROM users WHERE name = %s", [user_input])
 
+
+class Writer:
+    def execute(self, value: str) -> str:
+        return value
+
+
+# ok: tailtag.django.dynamic-raw-sql
+Writer().execute(f"not SQL: {user_input}")
+# ok: tailtag.django.dynamic-raw-sql
+cursor.execute(f"SELECT * FROM users")
+
 # ruleid: tailtag.storage.public-object-acl
 s3_client.put_object(Bucket="bucket", Key="key", Body=b"x", ACL="public-read")
 # ruleid: tailtag.storage.public-object-acl
-s3_client.put_object(
-    Bucket="bucket", Key="key", Body=b"x", ACL="public-read-write"
-)
+s3_client.put_object(Bucket="bucket", Key="key", Body=b"x", ACL="public-read-write")
 # ok: tailtag.storage.public-object-acl
 s3_client.put_object(Bucket="bucket", Key="key", Body=b"x")
 
