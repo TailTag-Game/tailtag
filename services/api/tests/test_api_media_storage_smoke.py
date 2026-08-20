@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
+import builtins
 import http.client
 import logging
 import socket
 import sys
 import urllib.request
 from collections.abc import Mapping
+from io import BytesIO
 from pathlib import Path
-from typing import NoReturn
+from typing import IO, NoReturn, Self
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
 from _pytest.capture import CaptureResult
 from _pytest.logging import LogCaptureFixture
+from django.core.files.storage import FileSystemStorage, InMemoryStorage
+from PIL import Image
 from pytest import MonkeyPatch
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -34,7 +38,7 @@ SENSITIVE_VALUES = (
     "https://synthetic.r2.example/private?X-Amz-Signature=synthetic-signature",
     "AKIA_SYNTHETIC_ACCESS_KEY",
     "synthetic-secret-access-key",
-    "images/123e4567-e89b-12d3-a456-426614174000.png",
+    "images/123e4567e89b12d3a456426614174000.png",
     "synthetic-response-body",
     "X-Amz-Signature=synthetic-signature",
 )
@@ -56,7 +60,7 @@ class RecordingRuntime:
         self.events: list[str] = []
         self.failure = failure
         self.object_survives_delete = object_survives_delete
-        self.key = "images/123e4567-e89b-12d3-a456-426614174000.png"
+        self.key = "images/123e4567e89b12d3a456426614174000.png"
         self.content = b"synthetic-canonical-image-content"
         self.url = (
             "https://synthetic.r2.example/private?"
@@ -116,6 +120,65 @@ class RecordingRuntime:
         self.events.append("delete")
         assert key == self.key
         self._raise_when("delete")
+
+
+class _Response:
+    """Minimal injected HTTP response for concrete redirect-boundary tests."""
+
+    def __init__(self, *, status: int, body: bytes = b"") -> None:
+        self.status = status
+        self.body = body
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def getcode(self) -> int:
+        return self.status
+
+    def read(self) -> bytes:
+        return self.body
+
+
+class RecordingOpener:
+    """Concrete-runtime HTTP seam that makes any second (redirected) call visible."""
+
+    def __init__(self, *responses: _Response) -> None:
+        self.responses = list(responses)
+        self.requests: list[urllib.request.Request] = []
+
+    def open(self, request: urllib.request.Request, **_kwargs: object) -> _Response:
+        self.requests.append(request)
+        if not self.responses:
+            raise AssertionError("redirect handling made an unexpected extra request")
+        return self.responses.pop(0)
+
+
+class FakeS3MediaStorage:
+    """Storage double that exposes the concrete Django storage operation contract."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, object]] = []
+        self.saved_content: bytes | None = None
+        self.url_value = "https://synthetic.r2.example/private?X-Amz-Expires=600"
+
+    def save(self, name: str, content: IO[bytes]) -> str:
+        self.events.append(("save", name))
+        self.saved_content = content.read()
+        return name
+
+    def exists(self, name: str) -> bool:
+        self.events.append(("exists", name))
+        return True
+
+    def url(self, name: str) -> str:
+        self.events.append(("url", name))
+        return self.url_value
+
+    def delete(self, name: str) -> None:
+        self.events.append(("delete", name))
 
 
 def prohibit_outbound_network(monkeypatch: MonkeyPatch) -> None:
@@ -215,14 +278,80 @@ def test_successful_run_uses_only_the_required_order_and_exact_expiry() -> None:
     }
 
 
-def test_concrete_runtime_rejects_a_non_s3_default_storage(
-    monkeypatch: MonkeyPatch,
+@pytest.mark.parametrize("storage", (FileSystemStorage(), InMemoryStorage()))
+def test_concrete_runtime_rejects_local_or_in_memory_default_storage(
+    monkeypatch: MonkeyPatch, storage: object
 ) -> None:
     """The opt-in command cannot silently fall back to local or in-memory storage."""
-    monkeypatch.setattr(smoke, "storages", {"default": object()})
+    monkeypatch.setattr(smoke, "storages", {"default": storage})
 
     with pytest.raises(smoke.SmokeFailure):
         smoke.DefaultSmokeRuntime()
+
+
+def test_concrete_runtime_uses_django_s3_storage_for_get_presign_with_fixed_expiry(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """The concrete adapter delegates reads to the configured S3 storage, never a URL shim."""
+    storage = FakeS3MediaStorage()
+    monkeypatch.setattr(smoke, "S3MediaStorage", FakeS3MediaStorage)
+    monkeypatch.setattr(smoke, "storages", {"default": storage})
+
+    runtime = smoke.DefaultSmokeRuntime()
+    url = runtime.presign_get(
+        key="images/123e4567e89b12d3a456426614174000.png", expires_in=600
+    )
+
+    assert url == storage.url_value
+    assert storage.events == [("url", "images/123e4567e89b12d3a456426614174000.png")]
+    assert parse_qs(urlsplit(url).query)["X-Amz-Expires"] == ["600"]
+    with pytest.raises(smoke.SmokeFailure):
+        runtime.presign_get(
+            key="images/123e4567e89b12d3a456426614174000.png", expires_in=599
+        )
+
+
+def test_concrete_runtime_fetch_rejects_redirect_without_following_it(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Bearer reads are redirect-free so a signed URL cannot be forwarded elsewhere."""
+    storage = FakeS3MediaStorage()
+    monkeypatch.setattr(smoke, "S3MediaStorage", FakeS3MediaStorage)
+    monkeypatch.setattr(smoke, "storages", {"default": storage})
+    opener = RecordingOpener(_Response(status=302), _Response(status=200, body=b"bad"))
+
+    runtime = smoke.DefaultSmokeRuntime(opener=opener)
+
+    with pytest.raises(smoke.SmokeFailure):
+        runtime.fetch(url=storage.url_value)
+    assert len(opener.requests) == 1
+
+
+def test_concrete_runtime_creates_opaque_key_and_in_memory_canonical_image(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Live input is generated in memory, canonicalized, and never read from a fixture."""
+    storage = FakeS3MediaStorage()
+    monkeypatch.setattr(smoke, "S3MediaStorage", FakeS3MediaStorage)
+    monkeypatch.setattr(smoke, "storages", {"default": storage})
+
+    def no_file_read(*_args: object, **_kwargs: object) -> NoReturn:
+        raise AssertionError(
+            "the media smoke must not read repository or user image data"
+        )
+
+    monkeypatch.setattr(builtins, "open", no_file_read)
+    runtime = smoke.DefaultSmokeRuntime()
+    key = runtime.create_key()
+    content = runtime.canonical_content()
+
+    assert key.startswith("images/")
+    assert key.endswith((".jpg", ".png", ".webp"))
+    assert isinstance(content, bytes)
+    assert content
+    with Image.open(BytesIO(content)) as image:
+        assert image.format in {"JPEG", "PNG", "WEBP"}
+        assert image.size == (1, 1)
 
 
 @pytest.mark.parametrize(
@@ -230,6 +359,7 @@ def test_concrete_runtime_rejects_a_non_s3_default_storage(
     (
         "canonical-content",
         "upload",
+        "exists-after-upload",
         "missing-after-upload",
         "presign",
         "fetch",
@@ -272,32 +402,97 @@ def test_surviving_object_after_delete_is_a_fatal_smoke_result() -> None:
     assert runtime.events[-2:] == ["delete", "exists-after-delete"]
 
 
-def test_main_rejects_arguments_and_invalid_target_before_constructing_runtime(
-    monkeypatch: MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    "environment",
+    (
+        {},
+        {
+            key: value
+            for key, value in VALID_ENVIRONMENT.items()
+            if key != "RAILWAY_ENVIRONMENT_NAME"
+        },
+        {
+            key: value
+            for key, value in VALID_ENVIRONMENT.items()
+            if key != "RAILWAY_SERVICE_NAME"
+        },
+        {
+            key: value
+            for key, value in VALID_ENVIRONMENT.items()
+            if key != "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM"
+        },
+        {**VALID_ENVIRONMENT, "RAILWAY_ENVIRONMENT_NAME": "Development"},
+        {**VALID_ENVIRONMENT, "RAILWAY_SERVICE_NAME": "API"},
+        {**VALID_ENVIRONMENT, "RAILWAY_SERVICE_NAME": "worker"},
+        {**VALID_ENVIRONMENT, "RAILWAY_ENVIRONMENT_NAME": "production"},
+        {**VALID_ENVIRONMENT, "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": "yes"},
+        {
+            **VALID_ENVIRONMENT,
+            "RAILWAY_ENVIRONMENT_NAME": (
+                "development https://synthetic.r2.example/private?"
+                "X-Amz-Signature=synthetic-signature"
+            ),
+        },
+    ),
+)
+def test_main_rejects_every_invalid_identity_before_django_or_runtime_initialization(
+    monkeypatch: MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    environment: Mapping[str, str],
 ) -> None:
-    """No CLI path, Django setup, or storage construction can bypass the guards."""
+    """Every bad target fails before either concrete initialization boundary."""
     constructed = False
+    setup_called = False
 
     def fail_if_constructed() -> RecordingRuntime:
         nonlocal constructed
         constructed = True
         raise AssertionError("runtime construction must follow target validation")
 
-    monkeypatch.setattr(smoke, "DefaultSmokeRuntime", fail_if_constructed)
-    monkeypatch.setattr(sys, "argv", ["api_media_storage_smoke.py", "--unsafe"])
-    assert smoke.main() != 0
-    assert not constructed
+    def fail_if_setup() -> None:
+        nonlocal setup_called
+        setup_called = True
+        raise AssertionError("Django setup must follow target validation")
 
+    monkeypatch.setattr(smoke, "DefaultSmokeRuntime", fail_if_constructed)
     monkeypatch.setattr(sys, "argv", ["api_media_storage_smoke.py"])
-    monkeypatch.setattr(
-        smoke.os,
-        "environ",
-        {**VALID_ENVIRONMENT, "RAILWAY_ENVIRONMENT_NAME": "production"},
-    )
+    monkeypatch.setattr(smoke.os, "environ", environment)
+    monkeypatch.setattr(smoke.django, "setup", fail_if_setup)
+
     assert smoke.main() != 0
     assert not constructed
+    assert not setup_called
     captured = capsys.readouterr()
-    assert "production" not in captured.out + captured.err
+    assert captured.err == "FAIL target configuration invalid\n"
+    for value in SENSITIVE_VALUES:
+        assert value not in captured.out + captured.err
+
+
+def test_main_rejects_arguments_before_django_or_runtime_initialization(
+    monkeypatch: MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The only supported entry point has no CLI arguments or secret flags."""
+    constructed = False
+    setup_called = False
+
+    def fail_if_constructed() -> RecordingRuntime:
+        nonlocal constructed
+        constructed = True
+        raise AssertionError("runtime construction must follow argument validation")
+
+    def fail_if_setup() -> None:
+        nonlocal setup_called
+        setup_called = True
+        raise AssertionError("Django setup must follow argument validation")
+
+    monkeypatch.setattr(smoke, "DefaultSmokeRuntime", fail_if_constructed)
+    monkeypatch.setattr(smoke.django, "setup", fail_if_setup)
+    monkeypatch.setattr(sys, "argv", ["api_media_storage_smoke.py", "--unsafe"])
+
+    assert smoke.main() != 0
+    assert not constructed
+    assert not setup_called
+    assert capsys.readouterr().err == "FAIL media storage smoke arguments invalid\n"
 
 
 def test_main_output_is_fixed_stage_level_and_suppresses_hostile_storage_details(
@@ -315,29 +510,35 @@ def test_main_output_is_fixed_stage_level_and_suppresses_hostile_storage_details
     assert smoke.main() != 0
 
     captured = capsys.readouterr()
-    assert "development/api" in captured.out + captured.err
-    assert all(
-        line.startswith(("PASS ", "FAIL "))
-        for line in (captured.out + captured.err).splitlines()
-        if line
-    )
+    assert captured.out == ""
+    assert captured.err == "FAIL presigned GET bytes\nFAIL media storage smoke\n"
     assert_sanitized(smoke.run(VALID_ENVIRONMENT, runtime), captured, caplog)
 
 
 def test_main_success_reports_only_safe_pass_stages(
-    monkeypatch: MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    caplog: LogCaptureFixture,
 ) -> None:
     """A live success reports the safe target and fixed successes, never object details."""
     runtime = RecordingRuntime()
     monkeypatch.setattr(smoke, "DefaultSmokeRuntime", lambda: runtime)
     monkeypatch.setattr(sys, "argv", ["api_media_storage_smoke.py"])
     monkeypatch.setattr(smoke.os, "environ", VALID_ENVIRONMENT)
+    caplog.set_level(logging.DEBUG)
 
     assert smoke.main() == 0
 
     output = capsys.readouterr().out
-    assert "development/api" in output
-    assert output.splitlines()
-    assert all(line.startswith("PASS ") for line in output.splitlines() if line)
+    assert output.splitlines() == [
+        "PASS target development/api",
+        "PASS upload",
+        "PASS object exists",
+        "PASS presigned GET bytes",
+        "PASS delete",
+        "PASS object absent",
+        "PASS media storage smoke",
+    ]
+    assert caplog.text == ""
     for value in SENSITIVE_VALUES:
         assert value not in output

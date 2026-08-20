@@ -942,19 +942,37 @@ def test_media_storage_smoke_is_a_separate_production_locked_command() -> None:
         "python -m scripts.api_media_storage_smoke"
     ) in completed.stdout
     assert "api-media-storage-smoke" not in api_check.stdout
-    executed_helper_commands = [
+    assert_api_check_has_only_static_media_storage_helper_analysis(api_check.stdout)
+
+
+def assert_api_check_has_only_static_media_storage_helper_analysis(
+    api_check: str,
+) -> None:
+    """Forbid every executable spelling of the live R2 helper in ordinary checks."""
+    helper_commands = [
         shlex.split(command)
-        for command in dry_run_commands(api_check.stdout)
+        for command in dry_run_commands(api_check)
         if any(
             is_media_storage_smoke_helper_operand(token)
             for token in shlex.split(command)
         )
     ]
-    assert executed_helper_commands
-    for command in executed_helper_commands:
-        assert "python" not in command
-        assert "-m" not in command
-        assert "scripts.api_media_storage_smoke" not in command
+    assert helper_commands
+    for command in helper_commands:
+        assert not any(
+            token
+            in {
+                "python",
+                "-m",
+                "scripts.api_media_storage_smoke",
+                "sh",
+                "bash",
+                "zsh",
+                "xargs",
+                "exec",
+            }
+            for token in command
+        ), command
 
 
 def test_media_storage_smoke_honors_only_the_uv_launcher_override(
@@ -970,6 +988,29 @@ def test_media_storage_smoke_honors_only_the_uv_launcher_override(
     assert completed.returncode == 0, completed.stderr
     assert f"{overridden_uv} run " in completed.stdout
     assert "python -m scripts.api_media_storage_smoke" in completed.stdout
+
+
+@pytest.mark.parametrize(
+    "command",
+    (
+        "uv --directory services/api run --locked --no-sync python scripts/./api_media_storage_smoke.py",
+        "sh scripts/api_media_storage_smoke.py",
+        "bash scripts/api_media_storage_smoke.py",
+        "zsh scripts/api_media_storage_smoke.py",
+        "xargs python scripts/api_media_storage_smoke.py",
+        "exec python scripts/api_media_storage_smoke.py",
+    ),
+)
+def test_api_check_rejects_every_normalized_or_shell_media_storage_helper_execution(
+    command: str,
+) -> None:
+    """Static checking the helper is allowed; every ordinary execution spelling is not."""
+    api_check = run_make("-n", "api-check").stdout
+
+    with pytest.raises(AssertionError):
+        assert_api_check_has_only_static_media_storage_helper_analysis(
+            f"{api_check}\n{command}"
+        )
 
 
 def test_media_storage_smoke_is_never_an_ordinary_ci_workflow_step() -> None:
