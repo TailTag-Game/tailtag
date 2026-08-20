@@ -209,10 +209,23 @@ def assert_semgrep_validator_precedes_fixture_scan(dry_run: str) -> None:
         if str(SEMGREP_VALIDATOR) in command
     ]
     assert len(validator_indexes) == 1
-    validator = commands[validator_indexes[0]]
-    assert "uv --directory services/api run --locked --no-sync python" in validator
-    assert "--rules" in validator
-    assert "--fixtures" in validator
+    validator_tokens = shlex.split(commands[validator_indexes[0]])
+    assert Path(validator_tokens[0]).name == "uv"
+    assert validator_tokens[1:7] == [
+        "--directory",
+        "services/api",
+        "run",
+        "--locked",
+        "--no-sync",
+        "python",
+    ]
+    assert validator_tokens[7:] == [
+        str(SEMGREP_VALIDATOR),
+        "--rules",
+        str(SEMGREP_RULES_DIRECTORY),
+        "--fixtures",
+        str(SEMGREP_FIXTURES_DIRECTORY),
+    ]
 
     fixture_indexes = [
         index
@@ -391,6 +404,7 @@ def test_semgrep_is_isolated_from_the_api_dependency_resolution() -> None:
     dockerfile = (REPOSITORY_ROOT / "services" / "api" / "Dockerfile").read_text()
 
     assert semgrep_pyproject["project"]["dependencies"] == ["semgrep==1.173.0"]
+    assert semgrep_pyproject["tool"]["uv"]["package"] is False
     assert 'name = "semgrep"' in semgrep_lockfile
     assert (
         "semgrep"

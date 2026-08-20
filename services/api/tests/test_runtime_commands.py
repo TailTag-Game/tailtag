@@ -313,8 +313,16 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
     assert "    paths-ignore:" not in pull_request_configuration
     assert 'python-version: "3.13"' in workflow
     assert "postgres:17" in workflow
-    assert "uv --directory services/api sync --all-groups --locked" in workflow
-    assert "uv --directory .semgrep sync --locked" in workflow
+    api_job = yaml_mapping_contents(
+        yaml_mapping_contents(workflow, "jobs", 0), "api", 2
+    )
+    validation_index = api_job.index("run: make api-check")
+    for setup_command in (
+        "uv --directory services/api sync --all-groups --locked",
+        "uv --directory .semgrep sync --locked",
+    ):
+        assert api_job.count(setup_command) == 1
+        assert api_job.index(setup_command) < validation_index
 
 
 def test_api_workflow_permissions_reject_effective_escalation() -> None:

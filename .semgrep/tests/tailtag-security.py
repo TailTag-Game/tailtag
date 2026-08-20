@@ -13,6 +13,8 @@ from django.db.models.expressions import RawSQL
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from yaml import CSafeLoader, SafeLoader
+from yaml import CSafeLoader as LocalCSafeLoader
+from yaml import SafeLoader as LocalSafeLoader
 
 user_input = "untrusted"
 
@@ -53,6 +55,10 @@ yaml.load(user_input, Loader=yaml.CSafeLoader)
 yaml.load(user_input, Loader=SafeLoader)
 # ok: tailtag.python.unsafe-yaml-load
 yaml.load(user_input, Loader=CSafeLoader)
+# ok: tailtag.python.unsafe-yaml-load
+yaml.load(user_input, Loader=LocalSafeLoader)
+# ok: tailtag.python.unsafe-yaml-load
+yaml.load(user_input, Loader=LocalCSafeLoader)
 
 # ruleid: tailtag.http.disabled-tls-verification
 requests.get("https://example.test", verify=False)

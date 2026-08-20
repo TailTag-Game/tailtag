@@ -105,6 +105,14 @@ def duplicate_rule_identifier(rules: Path, fixtures: Path) -> None:
     )
 
 
+def duplicate_rule_identifier_across_files(rules: Path, fixtures: Path) -> None:
+    write_minimal_pair(rules, fixtures)
+    (rules / "second.yml").write_text("rules:\n  - id: tailtag.example.rule\n")
+    (fixtures / "second.py").write_text(
+        "# ruleid: tailtag.example.rule\nunsafe()\n# ok: tailtag.example.rule\nsafe()\n"
+    )
+
+
 def noncanonical_rule_identifier(rules: Path, fixtures: Path) -> None:
     write_minimal_pair(rules, fixtures)
     (rules / "example.yml").write_text("rules:\n  - id: Example_Rule\n")
@@ -118,6 +126,20 @@ def malformed_rule_declaration(rules: Path, fixtures: Path) -> None:
 def empty_rule_declaration(rules: Path, fixtures: Path) -> None:
     write_minimal_pair(rules, fixtures)
     (rules / "example.yml").write_text("rules:\n  - id:\n")
+
+
+def ambiguous_rule_declaration(rules: Path, fixtures: Path) -> None:
+    write_minimal_pair(rules, fixtures)
+    (rules / "example.yml").write_text(
+        "rules:\n  - id: tailtag.example.rule\n    id: tailtag.other.rule\n"
+    )
+
+
+def unsupported_inline_rule_declaration(rules: Path, fixtures: Path) -> None:
+    write_minimal_pair(rules, fixtures)
+    (rules / "example.yml").write_text(
+        "rules:\n  - id: tailtag.example.rule; tailtag.other.rule\n"
+    )
 
 
 def basename_mismatch(rules: Path, fixtures: Path) -> None:
@@ -135,6 +157,20 @@ def missing_ok_annotation(rules: Path, fixtures: Path) -> None:
     (fixtures / "example.py").write_text("# ruleid: tailtag.example.rule\nunsafe()\n")
 
 
+def undefined_rule_annotation(rules: Path, fixtures: Path) -> None:
+    write_minimal_pair(rules, fixtures)
+    (fixtures / "example.py").write_text(
+        "# ruleid: tailtag.unknown.rule\nunsafe()\n# ok: tailtag.example.rule\nsafe()\n"
+    )
+
+
+def partial_two_rule_coverage(rules: Path, fixtures: Path) -> None:
+    write_minimal_pair(rules, fixtures)
+    (rules / "example.yml").write_text(
+        "rules:\n  - id: tailtag.example.rule\n  - id: tailtag.example.second\n"
+    )
+
+
 @pytest.mark.parametrize(
     ("mutation", "diagnostic"),
     [
@@ -147,12 +183,17 @@ def missing_ok_annotation(rules: Path, fixtures: Path) -> None:
         (unknown_annotation, "unknown fixture annotation"),
         (malformed_annotation, "malformed fixture annotation"),
         (duplicate_rule_identifier, "duplicate rule id"),
+        (duplicate_rule_identifier_across_files, "duplicate rule id"),
         (noncanonical_rule_identifier, "noncanonical rule id"),
         (malformed_rule_declaration, "malformed rule id declaration"),
         (empty_rule_declaration, "malformed rule id declaration"),
+        (ambiguous_rule_declaration, "malformed rule id declaration"),
+        (unsupported_inline_rule_declaration, "malformed rule id declaration"),
         (basename_mismatch, "basename mismatch"),
         (missing_ruleid_annotation, "missing ruleid annotation"),
         (missing_ok_annotation, "missing ok annotation"),
+        (undefined_rule_annotation, "unknown rule id"),
+        (partial_two_rule_coverage, "missing ruleid annotation"),
     ],
     ids=[
         "zero-rules",
@@ -164,12 +205,17 @@ def missing_ok_annotation(rules: Path, fixtures: Path) -> None:
         "unknown-annotation",
         "malformed-annotation",
         "duplicate-id",
+        "duplicate-id-across-files",
         "noncanonical-id",
         "malformed-id-shape",
         "empty-id-shape",
+        "ambiguous-id-shape",
+        "unsupported-inline-id-shape",
         "basename-mismatch",
         "missing-ruleid",
         "missing-ok",
+        "undefined-rule-id",
+        "partial-two-rule-coverage",
     ],
 )
 def test_validator_rejects_invalid_contract_metadata(
