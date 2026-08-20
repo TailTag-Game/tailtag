@@ -1049,7 +1049,12 @@ def test_media_storage_smoke_execution_emits_only_sanitized_stage_output(
 
     assert completed.returncode != 0
     assert completed.stdout == ""
-    assert completed.stderr == "FAIL target configuration invalid\n"
+    stderr_lines = completed.stderr.splitlines()
+    assert stderr_lines[0] == "FAIL target configuration invalid"
+    assert stderr_lines[1:] in (
+        [],
+        ["make: *** [api-media-storage-smoke] Error 1"],
+    )
     rendered = completed.stdout + completed.stderr
     for forbidden in (
         "DJANGO_SETTINGS_MODULE=config.settings.production",
