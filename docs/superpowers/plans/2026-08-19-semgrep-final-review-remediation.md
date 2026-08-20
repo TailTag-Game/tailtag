@@ -176,8 +176,8 @@ library where possible.
   literal frozen set of the five approved root helpers. Invoke the canonical
   main-scan configuration/shared command construction and parse Semgrep JSON
   `paths.scanned`; assert exact equality, including API tests. Do not derive
-  expectations by parsing Make operands. Name this test
-  `test_main_scan_paths_match_git_tracked_scope`.
+  expectations by parsing Make operands. The committed test name is
+  `test_canonical_main_scan_reports_exact_frozen_tracked_scope`.
 
   Add the canonical baseline probe: create an isolated local clone/worktree of
   the current branch, symlink its `services/api/.venv` and `.semgrep/.venv` to
@@ -193,8 +193,9 @@ library where possible.
   `SEMGREP_BASELINE_COMMIT` to that committed `HEAD`, and run
   `make api-semgrep-check` with no overrides. Assert nonzero and exact output
   rule ID `tailtag.python.dynamic-execution`. The test must not run a
-  reconstructed Semgrep command or invoke network synchronization. Name this
-  test `test_canonical_target_ignores_inherited_baseline`.
+  reconstructed Semgrep command or invoke network synchronization. The
+  committed test name is
+  `test_inherited_baseline_cannot_suppress_the_canonical_make_scan`.
 
 - [ ] **Step 5: Run the focused acceptance suite and record expected RED evidence.**
 
@@ -317,7 +318,7 @@ library where possible.
   uv --directory services/api run --locked --no-sync pytest -q \
     tests/test_developer_commands.py tests/test_backend_ci_relevance.py \
     tests/test_runtime_commands.py tests/test_semgrep_contract.py \
-    tests/test_semgrep_integration.py::test_main_scan_paths_match_git_tracked_scope
+    tests/test_semgrep_integration.py::test_canonical_main_scan_reports_exact_frozen_tracked_scope
   make api-semgrep-check
   HTTPS_PROXY=http://127.0.0.1:1 HTTP_PROXY=http://127.0.0.1:1 ALL_PROXY=http://127.0.0.1:1 NO_PROXY= UV_OFFLINE=1 make api-semgrep-check
   git show ede15f13bbde767f4816ffdb4f3b966d357ec78d:services/api/uv.lock > /tmp/tailtag-api-baseline.lock
@@ -362,10 +363,10 @@ library where possible.
   ```
 
   The suite now runs
-  `test_canonical_target_ignores_inherited_baseline` from a clone/worktree of
-  the bounded implementation commit. It must invoke unmodified
-  `make api-semgrep-check`, set its baseline to committed `HEAD`, and fail on
-  the planted `eval(user_input)` with exact rule ID
+  `test_inherited_baseline_cannot_suppress_the_canonical_make_scan` from a
+  clone/worktree of the bounded implementation commit. It must invoke
+  unmodified `make api-semgrep-check`, set its baseline to committed `HEAD`,
+  and fail on the planted `eval(user_input)` with exact rule ID
   `tailtag.python.dynamic-execution`.
 
 - [ ] **Step 8: Repair only implementation failures and preserve frozen tests.**
