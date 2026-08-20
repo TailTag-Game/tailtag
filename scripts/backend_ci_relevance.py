@@ -6,7 +6,7 @@ import argparse
 from collections.abc import Iterable
 from pathlib import Path
 
-BACKEND_RELEVANT_PREFIXES = ("services/api/",)
+BACKEND_RELEVANT_PREFIXES = ("services/api/", ".semgrep/")
 BACKEND_RELEVANT_FILES = {
     "Makefile",
     "scripts/api_smoke.py",

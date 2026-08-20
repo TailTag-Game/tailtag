@@ -5,6 +5,14 @@ SMOKE_SCRIPT := $(CURDIR)/scripts/api_smoke.py
 AUTH_SMOKE_SCRIPT := $(CURDIR)/scripts/api_auth_smoke.py
 CLERK_DEVELOPMENT_SESSION_SCRIPT := $(CURDIR)/scripts/clerk_development_session.py
 CI_RELEVANCE_SCRIPT := $(CURDIR)/scripts/backend_ci_relevance.py
+SEMGREP_RULES ?= $(CURDIR)/.semgrep/rules
+SEMGREP_TESTS ?= $(CURDIR)/.semgrep/tests
+SEMGREP_TARGETS ?= $(CURDIR)/services/api \
+	$(SMOKE_SCRIPT) \
+	$(AUTH_SMOKE_SCRIPT) \
+	$(CLERK_DEVELOPMENT_SESSION_SCRIPT) \
+	$(CI_RELEVANCE_SCRIPT)
+SEMGREP ?= $(API_UV) run --locked --no-sync semgrep
 
 define run_django_command
 if [ "$${TAILTAG_DEVCONTAINER:-}" = "1" ]; then \
@@ -20,7 +28,7 @@ endef
 .NOTPARALLEL: api-check
 
 .PHONY: help \
-	api-setup api-run api-test api-check api-migrate api-migrations \
+	api-setup api-run api-semgrep-check api-test api-check api-migrate api-migrations \
 	api-migrations-check api-shell api-smoke api-auth-smoke \
 	api-format-check api-lint-check api-type-check api-django-check \
 	api-schema-check api-gunicorn-check
@@ -35,6 +43,23 @@ api-setup: ## Sync locked backend dependencies.
 api-run: ## Run Django locally on port 8000; requires configured PostgreSQL.
 	@printf '%s\n' 'Starting Django development server on port 8000...'
 	@$(call run_django_command,python manage.py runserver 0.0.0.0:8000)
+
+api-semgrep-check: ## Run deterministic TailTag Semgrep security analysis.
+	@printf '%s\n' 'Testing TailTag Semgrep rules...'
+	SEMGREP_SEND_METRICS=off SEMGREP_ENABLE_VERSION_CHECK=0 \
+		$(SEMGREP) scan --test \
+		--config $(SEMGREP_RULES) \
+		--metrics=off \
+		--disable-version-check \
+		$(SEMGREP_TESTS)
+	@printf '%s\n' 'Running TailTag Semgrep security analysis...'
+	SEMGREP_SEND_METRICS=off SEMGREP_ENABLE_VERSION_CHECK=0 \
+		$(SEMGREP) scan \
+		--config $(SEMGREP_RULES) \
+		--error \
+		--metrics=off \
+		--disable-version-check \
+		$(SEMGREP_TARGETS)
 
 api-test: ## Run PostgreSQL-backed backend tests.
 	@printf '%s\n' 'Running backend tests...'
@@ -63,7 +88,7 @@ api-smoke: ## HTTP-check a running API (API_BASE_URL defaults to 127.0.0.1:8000)
 api-auth-smoke: ## Authenticated smoke test with an interactive Clerk Development secret.
 	PYTHONPATH="$(CURDIR):$(CURDIR)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_auth_smoke
 
-api-check: api-format-check api-lint-check api-type-check api-test api-django-check api-migrations-check api-schema-check api-gunicorn-check ## Run the complete local pre-PR backend validation suite.
+api-check: api-format-check api-lint-check api-type-check api-semgrep-check api-test api-django-check api-migrations-check api-schema-check api-gunicorn-check ## Run the complete local pre-PR backend validation suite.
 	@printf '%s\n' 'Backend pre-PR validation completed.'
 
 api-format-check:
