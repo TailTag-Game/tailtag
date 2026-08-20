@@ -30,6 +30,9 @@ FROZEN_SEMGREP_SOURCE_TARGETS = (
     REPOSITORY_ROOT / "scripts" / "backend_ci_relevance.py",
     REPOSITORY_ROOT / "scripts" / "validate_semgrep_contract.py",
 )
+CANONICAL_UV_RUN_CHILD_EXECUTABLES = frozenset(
+    {"ruff", "pyright", "pytest", "python", "semgrep", "gunicorn"}
+)
 
 
 def make_prerequisites(target: str) -> list[str]:
@@ -69,39 +72,33 @@ def dry_run_commands(dry_run: str) -> list[str]:
 def assert_api_check_uv_runs_are_locked_and_no_sync(dry_run: str) -> None:
     """Require every executable uv run emitted by api-check to be offline-ready."""
     invocation = re.compile(r"(?<![\w./-])(?:\S*/)?uv\b(?P<body>[^;|&()\n]*)")
-    commands = dry_run_commands(dry_run)
-    executions = [
-        (command, match.group("body"))
-        for command in commands
+    option_regions = [
+        (command, uv_run_option_region(match.group("body")))
+        for command in dry_run_commands(dry_run)
         for match in invocation.finditer(command)
-        if re.search(r"(?:^|\s)run(?:\s|$)", match.group("body"))
+        if "run" in shlex.split(match.group("body"))
     ]
-    assert executions, "api-check must execute uv run commands"
-    for command, arguments in executions:
-        option_region = uv_run_option_region(arguments)
+    assert option_regions, "api-check must execute uv run commands"
+    for command, option_region in option_regions:
         assert "--locked" in option_region, command
         assert "--no-sync" in option_region, command
 
 
 def uv_run_option_region(arguments: str) -> list[str]:
-    """Return uv global/run options, stopping before the child executable."""
-    tokens = arguments.split()
+    """Return run options before the first canonical validation child executable."""
+    tokens = shlex.split(arguments)
     run_index = tokens.index("run")
-    child_index = run_index + 1
+    child_index = next(
+        (
+            index
+            for index in range(run_index + 1, len(tokens))
+            if tokens[index] in CANONICAL_UV_RUN_CHILD_EXECUTABLES
+        ),
+        None,
+    )
 
-    while child_index < len(tokens):
-        token = tokens[child_index]
-        if token in {"--locked", "--no-sync"} or token.startswith("--locked="):
-            child_index += 1
-        elif token in {"--directory", "--project"}:
-            child_index += 2
-        elif token.startswith(("--directory=", "--project=")):
-            child_index += 1
-        else:
-            break
-
-    assert child_index < len(tokens), arguments
-    return tokens[:child_index]
+    assert child_index is not None, arguments
+    return tokens[run_index + 1 : child_index]
 
 
 def resolve_repository_operand(operand: str) -> Path:
@@ -174,8 +171,15 @@ def test_api_check_uv_run_contract_rejects_implicit_project_sync() -> None:
         )
 
 
-def test_api_check_uv_run_contract_rejects_no_sync_after_option_reordering() -> None:
-    """Option order cannot hide a project-selected implicit synchronization."""
+def test_api_check_uv_run_contract_allows_arbitrary_options_before_the_child() -> None:
+    """Valid uv run options do not need to be enumerated by this contract."""
+    assert_api_check_uv_runs_are_locked_and_no_sync(
+        "uv run --offline --locked --no-sync pytest -q"
+    )
+
+
+def test_api_check_uv_run_contract_rejects_reordered_project_without_no_sync() -> None:
+    """A project option cannot hide a missing no-sync run option."""
     with pytest.raises(AssertionError):
         assert_api_check_uv_runs_are_locked_and_no_sync(
             "uv run --locked --project services/api pytest -q"
@@ -187,6 +191,14 @@ def test_api_check_uv_run_contract_rejects_flags_after_the_child_command() -> No
     with pytest.raises(AssertionError):
         assert_api_check_uv_runs_are_locked_and_no_sync(
             "uv --directory services/api run pytest -q --locked --no-sync"
+        )
+
+
+def test_api_check_uv_run_contract_rejects_unknown_child_executable() -> None:
+    """Every canonical uv run must expose a recognized validation child."""
+    with pytest.raises(AssertionError):
+        assert_api_check_uv_runs_are_locked_and_no_sync(
+            "uv run --locked --no-sync custom-validator"
         )
 
 
