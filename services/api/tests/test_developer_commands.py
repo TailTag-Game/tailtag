@@ -13,6 +13,8 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import pytest
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_smoke.py"
 AUTH_SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_auth_smoke.py"
@@ -40,9 +42,44 @@ def make_prerequisites(target: str) -> list[str]:
     return target_rule.group("rules").split()
 
 
+def dry_run_commands(dry_run: str) -> list[str]:
+    """Collapse Make's shell continuations into complete dry-run commands."""
+    commands: list[str] = []
+    fragments: list[str] = []
+    for raw_line in dry_run.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.endswith("\\"):
+            fragments.append(line[:-1].rstrip())
+            continue
+        if fragments:
+            fragments.append(line)
+            commands.append(" ".join(fragments))
+            fragments = []
+        else:
+            commands.append(line)
+
+    assert not fragments, "Make dry run must not end with a shell continuation"
+    return commands
+
+
+def resolve_repository_operand(operand: str) -> Path:
+    """Resolve a Make command operand from the repository root."""
+    path = Path(operand)
+    if not path.is_absolute():
+        path = REPOSITORY_ROOT / path
+    return path.resolve()
+
+
+def is_authenticated_smoke_helper_operand(operand: str) -> bool:
+    """Recognize every path spelling that resolves to the auth smoke helper."""
+    return resolve_repository_operand(operand) == AUTH_SMOKE_SCRIPT.resolve()
+
+
 def semgrep_scan_tokens(dry_run: str) -> list[list[str]]:
     """Parse Semgrep scan commands emitted by a Make dry run."""
-    commands = [line.strip() for line in dry_run.splitlines() if "semgrep scan" in line]
+    commands = [line for line in dry_run_commands(dry_run) if "semgrep scan" in line]
     assert commands, "Semgrep validation must execute scan commands"
 
     tokens_by_command: list[list[str]] = []
@@ -151,9 +188,10 @@ def assert_semgrep_check_contract(dry_run: str) -> None:
 
     blocking_command = blocking_commands[0]
     assert "--error" in blocking_command
-    assert semgrep_target_operands(blocking_command) == {
-        str(target) for target in SEMGREP_SOURCE_TARGETS
-    }
+    assert {
+        resolve_repository_operand(operand)
+        for operand in semgrep_target_operands(blocking_command)
+    } == {resolve_repository_operand(str(target)) for target in SEMGREP_SOURCE_TARGETS}
 
 
 def run_make(
@@ -298,8 +336,8 @@ def test_semgrep_check_is_local_locked_noninteractive_and_credential_free() -> N
 
     assert completed.returncode == 0, completed.stderr
     execution_lines = [
-        line.strip()
-        for line in completed.stdout.splitlines()
+        line
+        for line in dry_run_commands(completed.stdout)
         if line.strip() and not line.lstrip().startswith(("echo ", "printf "))
     ]
     assert len(execution_lines) == 2
@@ -424,24 +462,30 @@ def test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free() -> No
     # never execute it. The Semgrep helper proves the exact blocking target
     # set; Pyright coverage is asserted separately from pyproject.
     assert_semgrep_check_contract(api_check)
-    api_check_script_lines = [
-        line for line in api_check.splitlines() if "scripts/api_auth_smoke.py" in line
+    api_check_script_commands = [
+        (line, shlex.split(line))
+        for line in dry_run_commands(api_check)
+        if any(
+            is_authenticated_smoke_helper_operand(token) for token in shlex.split(line)
+        )
     ]
-    assert api_check_script_lines
-    for line in api_check_script_lines:
+    assert api_check_script_commands
+    for line, tokens in api_check_script_commands:
         assert not any(
             operator in line
             for operator in ("&&", "||", ";", "|", "`", "$(", "${", ">", "<")
         ), line
 
-        tokens = shlex.split(line)
         assert not any(
             token
             in {"python", "-m", "api-auth-smoke", "sh", "bash", "zsh", "xargs", "exec"}
             for token in tokens
         ), line
 
-        if "semgrep scan" in line:
+        if any(
+            tokens[index : index + 2] == ["semgrep", "scan"]
+            for index in range(len(tokens))
+        ):
             # assert_semgrep_check_contract above structurally validates this
             # command and requires the helper as a blocking-scan source target.
             continue
@@ -453,6 +497,37 @@ def test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free() -> No
     # Ordinary smoke and CI must not reference the helper at all.
     for text in (ordinary, workflow_text):
         assert "scripts/api_auth_smoke.py" not in text
+
+    assert not any(
+        is_authenticated_smoke_helper_operand(token)
+        for line in dry_run_commands(ordinary)
+        for token in shlex.split(line)
+    )
+
+
+def test_api_check_rejects_normalized_authenticated_smoke_helper_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Equivalent helper paths cannot bypass api-check's execution prohibition."""
+    original_run_make = run_make
+
+    def run_make_with_helper_alias(
+        *targets: str, environment: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        completed = original_run_make(*targets, environment=environment)
+        if targets == ("-n", "api-check"):
+            return subprocess.CompletedProcess(
+                completed.args,
+                completed.returncode,
+                f"{completed.stdout}\nuv --directory services/api run python scripts/./api_auth_smoke.py",
+                completed.stderr,
+            )
+        return completed
+
+    monkeypatch.setitem(globals(), "run_make", run_make_with_helper_alias)
+
+    with pytest.raises(AssertionError):
+        test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free()
 
 
 def test_devcontainer_django_commands_derive_the_compose_database_url() -> None:
