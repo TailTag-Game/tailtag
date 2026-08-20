@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Final, Protocol, Self
+from urllib.parse import urlsplit
 
 import django
 from django.core.files import File
@@ -129,9 +130,20 @@ class DefaultSmokeRuntime:
         return self._storage.url(key)
 
     def fetch(self, *, url: str) -> bytes:
+        try:
+            parsed_url = urlsplit(url)
+            if parsed_url.scheme != "https" or not parsed_url.hostname:
+                raise SmokeFailure("presigned GET bytes")
+        except SmokeFailure:
+            raise
+        except ValueError as error:
+            raise SmokeFailure("presigned GET bytes") from error
+
         request = urllib.request.Request(url, method="GET")
         try:
-            with self._opener.open(request, timeout=_FETCH_TIMEOUT_SECONDS) as response:
+            with self._opener.open(  # noqa: S310, RUF100 - URL is constrained to HTTPS.
+                request, timeout=_FETCH_TIMEOUT_SECONDS
+            ) as response:
                 if response.getcode() != 200:
                     raise SmokeFailure("presigned GET bytes")
                 return response.read()
@@ -163,31 +175,36 @@ def run(environment: Mapping[str, str], runtime: SmokeRuntime) -> SmokeOutcome:
     primary_stage: str | None = None
     try:
         key = runtime.create_key()
-        content = runtime.canonical_content()
+    except Exception:  # noqa: BLE001 - synthetic preparation failures are sanitized.
+        primary_stage = "prepare synthetic image"
+    else:
         try:
-            runtime.upload(key=key, content=content)
-        except Exception:  # noqa: BLE001 - external storage failures are sanitized.
-            primary_stage = "upload"
+            content = runtime.canonical_content()
+        except Exception:  # noqa: BLE001 - synthetic preparation failures are sanitized.
+            primary_stage = "prepare synthetic image"
         else:
             try:
-                present = runtime.exists(key=key)
+                runtime.upload(key=key, content=content)
             except Exception:  # noqa: BLE001 - external storage failures are sanitized.
-                primary_stage = "object exists"
+                primary_stage = "upload"
             else:
-                if not present:
+                try:
+                    present = runtime.exists(key=key)
+                except Exception:  # noqa: BLE001 - external storage failures are sanitized.
                     primary_stage = "object exists"
                 else:
-                    try:
-                        url = runtime.presign_get(
-                            key=key, expires_in=_PRESIGN_EXPIRY_SECONDS
-                        )
-                        fetched = runtime.fetch(url=url)
-                        if fetched != content:
+                    if not present:
+                        primary_stage = "object exists"
+                    else:
+                        try:
+                            url = runtime.presign_get(
+                                key=key, expires_in=_PRESIGN_EXPIRY_SECONDS
+                            )
+                            fetched = runtime.fetch(url=url)
+                            if fetched != content:
+                                primary_stage = "presigned GET bytes"
+                        except Exception:  # noqa: BLE001 - external storage failures are sanitized.
                             primary_stage = "presigned GET bytes"
-                    except Exception:  # noqa: BLE001 - external storage failures are sanitized.
-                        primary_stage = "presigned GET bytes"
-    except Exception:  # noqa: BLE001 - external storage failures are sanitized.
-        primary_stage = "upload"
     finally:
         cleanup_stage: str | None = None
         if key is not None:

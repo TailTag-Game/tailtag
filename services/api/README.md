@@ -188,6 +188,10 @@ synthetic canonical image bytes, verifies upload, existence, a 600-second
 presigned GET with exact byte equality, deletion, and confirmed absence. Its
 cleanup and post-delete absence checks are fatal if they fail.
 
+Its fixed pre-upload failure stage is `prepare synthetic image`, covering
+opaque-key creation and canonical synthetic-image generation. `upload` is
+reserved for a storage write failure after preparation succeeds.
+
 The command emits only sanitized stage results and safe target identity. Do not
 record or share storage identifiers, credentials, object keys, presigned URLs,
 request signatures, or response material as evidence. The operations guide

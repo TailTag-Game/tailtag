@@ -193,6 +193,10 @@ upload canonical bytes
   -> require exact canonical-byte equality
 ```
 
+`prepare synthetic image` is the fixed pre-upload failure stage for opaque-key
+creation and canonical synthetic-image generation. `upload` applies only to a
+storage write attempted after preparation succeeds.
+
 Once the opaque key exists in memory, cleanup runs from a `finally` path after
 every success or failure. Cleanup attempts deletion and then independently
 checks that the object is absent. A deletion error, absence-check error, or
