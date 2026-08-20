@@ -421,12 +421,34 @@ def test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free() -> No
             assert forbidden_name not in text
 
     # Static analysis may inspect the helper source in api-check, but it must
-    # never execute it. Pyright coverage is asserted separately from pyproject.
+    # never execute it. The Semgrep helper proves the exact blocking target
+    # set; Pyright coverage is asserted separately from pyproject.
+    assert_semgrep_check_contract(api_check)
     api_check_script_lines = [
         line for line in api_check.splitlines() if "scripts/api_auth_smoke.py" in line
     ]
     assert api_check_script_lines
-    assert all("ruff" in line.split() for line in api_check_script_lines)
+    for line in api_check_script_lines:
+        assert not any(
+            operator in line
+            for operator in ("&&", "||", ";", "|", "`", "$(", "${", ">", "<")
+        ), line
+
+        tokens = shlex.split(line)
+        assert not any(
+            token
+            in {"python", "-m", "api-auth-smoke", "sh", "bash", "zsh", "xargs", "exec"}
+            for token in tokens
+        ), line
+
+        if "semgrep scan" in line:
+            # assert_semgrep_check_contract above structurally validates this
+            # command and requires the helper as a blocking-scan source target.
+            continue
+
+        ruff_index = tokens.index("ruff")
+        assert tokens[ruff_index + 1] in {"format", "check"}, line
+        assert str(AUTH_SMOKE_SCRIPT) in tokens[ruff_index + 1 :], line
 
     # Ordinary smoke and CI must not reference the helper at all.
     for text in (ordinary, workflow_text):
