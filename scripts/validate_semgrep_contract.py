@@ -62,7 +62,9 @@ def rule_ids(rule_files: list[Path]) -> set[str]:
     return declared
 
 
-def fixture_annotations(fixture_files: list[Path], declared: set[str]) -> tuple[set[str], set[str]]:
+def fixture_annotations(
+    fixture_files: list[Path], declared: set[str]
+) -> tuple[set[str], set[str]]:
     ruleids: set[str] = set()
     oks: set[str] = set()
     for fixture_file in fixture_files:

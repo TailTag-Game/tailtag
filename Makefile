@@ -1,22 +1,23 @@
-API_DIRECTORY := services/api
-SEMGREP_DIRECTORY := .semgrep
+override REPOSITORY_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+override API_DIRECTORY := services/api
+override SEMGREP_DIRECTORY := .semgrep
 UV ?= uv
-API_UV := $(UV) --directory $(API_DIRECTORY)
-SEMGREP_UV := $(UV) --directory $(SEMGREP_DIRECTORY)
-SMOKE_SCRIPT := $(CURDIR)/scripts/api_smoke.py
-AUTH_SMOKE_SCRIPT := $(CURDIR)/scripts/api_auth_smoke.py
-CLERK_DEVELOPMENT_SESSION_SCRIPT := $(CURDIR)/scripts/clerk_development_session.py
-CI_RELEVANCE_SCRIPT := $(CURDIR)/scripts/backend_ci_relevance.py
-SEMGREP_VALIDATOR := $(CURDIR)/scripts/validate_semgrep_contract.py
-SEMGREP_RULES ?= $(CURDIR)/.semgrep/rules
-SEMGREP_TESTS ?= $(CURDIR)/.semgrep/tests
-SEMGREP_TARGETS ?= $(CURDIR)/services/api \
+override API_UV := $(UV) --directory $(API_DIRECTORY)
+override SEMGREP_UV := $(UV) --directory $(SEMGREP_DIRECTORY)
+override SMOKE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_smoke.py
+override AUTH_SMOKE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_auth_smoke.py
+override CLERK_DEVELOPMENT_SESSION_SCRIPT := $(REPOSITORY_ROOT)/scripts/clerk_development_session.py
+override CI_RELEVANCE_SCRIPT := $(REPOSITORY_ROOT)/scripts/backend_ci_relevance.py
+override SEMGREP_VALIDATOR := $(REPOSITORY_ROOT)/scripts/validate_semgrep_contract.py
+override SEMGREP_RULES := $(REPOSITORY_ROOT)/.semgrep/rules
+override SEMGREP_TESTS := $(REPOSITORY_ROOT)/.semgrep/tests
+override SEMGREP_TARGETS := $(REPOSITORY_ROOT)/services/api \
 	$(SMOKE_SCRIPT) \
 	$(AUTH_SMOKE_SCRIPT) \
 	$(CLERK_DEVELOPMENT_SESSION_SCRIPT) \
 	$(CI_RELEVANCE_SCRIPT) \
 	$(SEMGREP_VALIDATOR)
-SEMGREP ?= $(SEMGREP_UV) run --locked --no-sync semgrep
+override SEMGREP := $(SEMGREP_UV) run --locked --no-sync semgrep
 
 define run_django_command
 if [ "$${TAILTAG_DEVCONTAINER:-}" = "1" ]; then \
@@ -94,18 +95,18 @@ api-smoke: ## HTTP-check a running API (API_BASE_URL defaults to 127.0.0.1:8000)
 	$(API_UV) run python $(SMOKE_SCRIPT)
 
 api-auth-smoke: ## Authenticated smoke test with an interactive Clerk Development secret.
-	PYTHONPATH="$(CURDIR):$(CURDIR)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_auth_smoke
+	PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_auth_smoke
 
 api-check: api-format-check api-lint-check api-type-check api-semgrep-check api-test api-django-check api-migrations-check api-schema-check api-gunicorn-check ## Run the complete local pre-PR backend validation suite.
 	@printf '%s\n' 'Backend pre-PR validation completed.'
 
 api-format-check:
 	@printf '%s\n' 'Checking Ruff formatting...'
-	$(API_UV) run --locked --no-sync ruff format --check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT)
+	$(API_UV) run --locked --no-sync ruff format --check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
 
 api-lint-check:
 	@printf '%s\n' 'Running Ruff lint...'
-	$(API_UV) run --locked --no-sync ruff check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT)
+	$(API_UV) run --locked --no-sync ruff check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
 
 api-type-check:
 	@printf '%s\n' 'Running strict Pyright...'
