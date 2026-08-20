@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 import urllib.request
 from collections.abc import Mapping
@@ -32,6 +33,10 @@ _EXPECTED_SERVICE: Final = "api"
 _CONFIRMATION_VALUE: Final = "run-r2-development-media-storage-smoke"
 _PRESIGN_EXPIRY_SECONDS: Final = 600
 _FETCH_TIMEOUT_SECONDS: Final = 10
+_DNS_HOST_PATTERN: Final = re.compile(
+    r"(?=.{1,253}\Z)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*"
+    r"[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\Z"
+)
 
 
 class SmokeFailure(Exception):
@@ -132,18 +137,24 @@ class DefaultSmokeRuntime:
     def fetch(self, *, url: str) -> bytes:
         try:
             parsed_url = urlsplit(url)
-            if parsed_url.scheme != "https" or not parsed_url.hostname:
+            hostname = parsed_url.hostname
+            if (
+                parsed_url.scheme != "https"
+                or hostname is None
+                or _DNS_HOST_PATTERN.fullmatch(hostname) is None
+            ):
                 raise SmokeFailure("presigned GET bytes")
+            _ = parsed_url.port
         except SmokeFailure:
             raise
         except ValueError as error:
             raise SmokeFailure("presigned GET bytes") from error
 
-        request = urllib.request.Request(url, method="GET")
+        request = urllib.request.Request(  # noqa: S310, RUF100 - URL is constrained to HTTPS.
+            url, method="GET"
+        )
         try:
-            with self._opener.open(  # noqa: S310, RUF100 - URL is constrained to HTTPS.
-                request, timeout=_FETCH_TIMEOUT_SECONDS
-            ) as response:
+            with self._opener.open(request, timeout=_FETCH_TIMEOUT_SECONDS) as response:
                 if response.getcode() != 200:
                     raise SmokeFailure("presigned GET bytes")
                 return response.read()
