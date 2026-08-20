@@ -62,6 +62,12 @@ django.utils.safestring.mark_safe(user_input)
 # ok: tailtag.django.mark-safe
 format_html("{}", user_input)
 
+
+def render_with_local_mark_safe(mark_safe: object) -> object:
+    # ok: tailtag.django.mark-safe
+    return mark_safe("not Django")
+
+
 # ruleid: tailtag.django.dynamic-raw-sql
 cursor.execute(f"SELECT * FROM users WHERE name = '{user_input}'")
 # ruleid: tailtag.django.dynamic-raw-sql
