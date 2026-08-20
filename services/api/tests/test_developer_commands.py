@@ -6,6 +6,7 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 import threading
 import tomllib
 from collections.abc import Generator
@@ -1009,6 +1010,54 @@ def test_media_storage_smoke_honors_only_the_uv_launcher_override(
     assert completed.returncode == 0, completed.stderr
     assert f"{overridden_uv} run " in completed.stdout
     assert "python -m scripts.api_media_storage_smoke" in completed.stdout
+
+
+def test_media_storage_smoke_execution_emits_only_sanitized_stage_output(
+    tmp_path: Path,
+) -> None:
+    """An invalid pre-Django target guard must not echo the Make recipe or launcher."""
+    launcher = tmp_path / "uv"
+    launcher.write_text(
+        "#!/bin/sh\n"
+        "set -eu\n"
+        '[ "$1" = run ]\n'
+        "shift\n"
+        'while [ "$#" -gt 0 ]; do\n'
+        '  case "$1" in\n'
+        "    --project) shift 2 ;;\n"
+        "    --locked|--no-sync) shift ;;\n"
+        '    python) shift; exec "$PYTHON_FOR_MEDIA_SMOKE" "$@" ;;\n'
+        "    *) exit 99 ;;\n"
+        "  esac\n"
+        "done\n"
+        "exit 99\n"
+    )
+    launcher.chmod(0o755)
+
+    completed = run_make(
+        "api-media-storage-smoke",
+        environment={
+            "UV": str(launcher),
+            "PYTHON_FOR_MEDIA_SMOKE": sys.executable,
+            "RAILWAY_ENVIRONMENT_NAME": "production",
+            "RAILWAY_SERVICE_NAME": "api",
+            "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": (
+                "run-r2-development-media-storage-smoke"
+            ),
+        },
+    )
+
+    assert completed.returncode != 0
+    assert completed.stdout == ""
+    assert completed.stderr == "FAIL target configuration invalid\n"
+    rendered = completed.stdout + completed.stderr
+    for forbidden in (
+        "DJANGO_SETTINGS_MODULE=config.settings.production",
+        "PYTHONPATH=",
+        "python -m scripts.api_media_storage_smoke",
+        str(launcher),
+    ):
+        assert forbidden not in rendered
 
 
 @pytest.mark.parametrize(
