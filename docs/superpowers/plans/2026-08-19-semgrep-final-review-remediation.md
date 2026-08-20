@@ -29,10 +29,11 @@ library where possible.
 - Semgrep is a separate non-package `.semgrep/pyproject.toml` plus
   `.semgrep/uv.lock` and ignored `.semgrep/.venv`; invoke it with
   `uv --directory .semgrep`.
-- `services/api/uv.lock` must be byte-identical to
-  `ede15f13bbde767f4816ffdb4f3b966d357ec78d`; parsed API
-  `[project].dependencies` and `[dependency-groups]` must also equal that
-  commit. The current no-dev tree/export must not contain Semgrep.
+- One-time branch-completion evidence compares `services/api/uv.lock` and
+  parsed API `[project].dependencies` plus `[dependency-groups]` to immutable
+  commit `ede15f13bbde767f4816ffdb4f3b966d357ec78d`; no permanent acceptance
+  test carries this future dependency freeze. The current no-dev tree/export
+  must not contain Semgrep.
 - `make api-setup`, CI setup, and devcontainer setup synchronize both locked
   projects. `make api-check` is no-sync, and CI retains exactly one validation
   command: `make api-check`.
@@ -135,11 +136,13 @@ library where possible.
   Makefile, and API workflow to classify as relevant while existing unrelated
   paths remain irrelevant.
 
-  Add immutable-baseline assertions that read commit
-  `ede15f13bbde767f4816ffdb4f3b966d357ec78d` through Git, compare API lock
-  bytes, parse TOML and compare only `[project].dependencies` and
-  `[dependency-groups]`, and assert a locked no-dev API tree/export contains
-  no Semgrep.
+  Add durable dependency-isolation assertions: Semgrep's exact pin exists only
+  in the separate `.semgrep` project and lock; the API project and lock contain
+  no Semgrep; the production Docker stage remains `--no-dev`; and the current
+  locked API no-dev tree/export contains no Semgrep. Do not read, compare to,
+  or freeze historical commit `ede15f13bbde767f4816ffdb4f3b966d357ec78d` in
+  committed acceptance tests, and do not permanently assert `jsonschema` or
+  other historical dependency versions.
 
 - [ ] **Step 3: Add direct validator invalid-case tests.**
 
@@ -219,9 +222,10 @@ library where possible.
 
   Run `git diff --check`, then a fresh specification-compliance review and
   code-quality review of the test diff. Commit approved tests separately with
-  an implementation-neutral message. Hand the immutable acceptance tests, RED
-  output, and test-adequacy verdict to Task 2; the implementer has no
-  authority to edit them.
+  an implementation-neutral message. Hand the durable acceptance tests, RED
+  output, and test-adequacy verdict to Task 2; one-time release comparison
+  remains Task 2/4 evidence, not test policy. The implementer has no authority
+  to edit the tests.
 
 ### Task 2: Implement isolated deterministic Semgrep validation
 
@@ -251,11 +255,14 @@ library where possible.
   ```bash
   git show ede15f13bbde767f4816ffdb4f3b966d357ec78d:services/api/uv.lock > /tmp/tailtag-api-baseline.lock
   cmp /tmp/tailtag-api-baseline.lock services/api/uv.lock
+  uv --directory services/api run --locked --no-sync python -c 'import subprocess, tomllib; baseline = tomllib.loads(subprocess.check_output(["git", "show", "ede15f13bbde767f4816ffdb4f3b966d357ec78d:services/api/pyproject.toml"], text=True)); current = tomllib.loads(open("services/api/pyproject.toml", "rb").read().decode()); assert baseline["project"]["dependencies"] == current["project"]["dependencies"]; assert baseline["dependency-groups"] == current["dependency-groups"]'
   ```
 
   Stop with `NEEDS_CONTEXT` for a genuine source finding, a dependency mismatch
   that prevents restored API resolution (including `jsonschema`), or any need
-  to weaken the frozen security scope.
+  to weaken the frozen security scope. Repeat the lock-byte and TOML checks
+  after implementation; they are one-time branch-completion evidence only and
+  must not be moved into Task 1's permanent acceptance suite.
 
 - [ ] **Step 2: Isolate and lock Semgrep without changing API production resolution.**
 
@@ -311,6 +318,9 @@ library where possible.
     tests/test_semgrep_integration.py
   make api-semgrep-check
   HTTPS_PROXY=http://127.0.0.1:1 HTTP_PROXY=http://127.0.0.1:1 ALL_PROXY=http://127.0.0.1:1 NO_PROXY= UV_OFFLINE=1 make api-semgrep-check
+  git show ede15f13bbde767f4816ffdb4f3b966d357ec78d:services/api/uv.lock > /tmp/tailtag-api-baseline.lock
+  cmp /tmp/tailtag-api-baseline.lock services/api/uv.lock
+  uv --directory services/api run --locked --no-sync python -c 'import subprocess, tomllib; baseline = tomllib.loads(subprocess.check_output(["git", "show", "ede15f13bbde767f4816ffdb4f3b966d357ec78d:services/api/pyproject.toml"], text=True)); current = tomllib.loads(open("services/api/pyproject.toml", "rb").read().decode()); assert baseline["project"]["dependencies"] == current["project"]["dependencies"]; assert baseline["dependency-groups"] == current["dependency-groups"]'
   git diff --check
   ```
 
@@ -324,8 +334,9 @@ library where possible.
 
   Run fresh spec-compliance and code-quality reviews against the amendment and
   frozen tests, then commit only implementation-owned files. Provide commands,
-  results, lock comparison, no-dev evidence, and any `NEEDS_CONTEXT` decision
-  to Tasks 3 and 4. Do not modify test or documentation files.
+  results, the one-time merge-base lock/TOML comparison, no-dev evidence, and
+  any `NEEDS_CONTEXT` decision to Tasks 3 and 4. Do not modify test or
+  documentation files.
 
 ### Task 3: Document the implemented isolated gate
 
@@ -422,14 +433,19 @@ library where possible.
   uv --directory services/api run --locked --no-sync pytest -q tests/test_semgrep_contract.py
   uv --directory services/api lock --check
   uv --directory .semgrep lock --check
+  git show ede15f13bbde767f4816ffdb4f3b966d357ec78d:services/api/uv.lock > /tmp/tailtag-api-baseline.lock
+  cmp /tmp/tailtag-api-baseline.lock services/api/uv.lock
+  uv --directory services/api run --locked --no-sync python -c 'import subprocess, tomllib; baseline = tomllib.loads(subprocess.check_output(["git", "show", "ede15f13bbde767f4816ffdb4f3b966d357ec78d:services/api/pyproject.toml"], text=True)); current = tomllib.loads(open("services/api/pyproject.toml", "rb").read().decode()); assert baseline["project"]["dependencies"] == current["project"]["dependencies"]; assert baseline["dependency-groups"] == current["dependency-groups"]'
   ```
 
   Confirm the test's isolated clone/worktree baseline probe uses symlinked
   synchronized environments, runs unmodified `make api-semgrep-check`, and
   detects the planted target despite inherited `SEMGREP_BASELINE_COMMIT`.
-  Confirm byte-level API lock and parsed dependency-group comparison against
+  Confirm the one-time branch-completion byte-level API lock and parsed
+  dependency-group comparison against
   `ede15f13bbde767f4816ffdb4f3b966d357ec78d`, plus no Semgrep in the current
-  locked no-dev API tree/export.
+  locked no-dev API tree/export. Do not convert this comparison into permanent
+  acceptance-test policy.
 
 - [ ] **Step 3: Run the authoritative repository gate and hygiene checks.**
 
