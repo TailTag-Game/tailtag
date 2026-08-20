@@ -948,9 +948,9 @@ def test_media_storage_smoke_is_a_separate_production_locked_command() -> None:
 def assert_api_check_has_only_static_media_storage_helper_analysis(
     api_check: str,
 ) -> None:
-    """Forbid every executable spelling of the live R2 helper in ordinary checks."""
+    """Allow helper references only in validated Ruff or Semgrep static analysis."""
     helper_commands = [
-        shlex.split(command)
+        (command, shlex.split(command))
         for command in dry_run_commands(api_check)
         if any(
             is_media_storage_smoke_helper_operand(token)
@@ -958,20 +958,33 @@ def assert_api_check_has_only_static_media_storage_helper_analysis(
         )
     ]
     assert helper_commands
-    for command in helper_commands:
-        assert not any(
-            token
-            in {
-                "python",
-                "-m",
-                "scripts.api_media_storage_smoke",
-                "sh",
-                "bash",
-                "zsh",
-                "xargs",
-                "exec",
+    for command, tokens in helper_commands:
+        if "semgrep" in tokens:
+            parsed = semgrep_scan_tokens(command)
+            assert len(parsed) == 1
+            semgrep_tokens = parsed[0]
+            assert semgrep_config_operands(semgrep_tokens) == [
+                str(SEMGREP_RULES_DIRECTORY)
+            ]
+            assert MEDIA_STORAGE_SMOKE_SCRIPT.resolve() in {
+                resolve_repository_operand(operand)
+                for operand in semgrep_target_operands(semgrep_tokens)
             }
-            for token in command
+            continue
+
+        assert "ruff" in tokens, command
+        assert Path(tokens[0]).name == "uv", command
+        ruff_index = tokens.index("ruff")
+        assert tokens[1:ruff_index] == [
+            "--directory",
+            "services/api",
+            "run",
+            "--locked",
+            "--no-sync",
+        ], command
+        assert tokens[ruff_index + 1 :] in (
+            ["format", "--check", ".", str(MEDIA_STORAGE_SMOKE_SCRIPT)],
+            ["check", ".", str(MEDIA_STORAGE_SMOKE_SCRIPT)],
         ), command
 
 
@@ -999,6 +1012,10 @@ def test_media_storage_smoke_honors_only_the_uv_launcher_override(
         "zsh scripts/api_media_storage_smoke.py",
         "xargs python scripts/api_media_storage_smoke.py",
         "exec python scripts/api_media_storage_smoke.py",
+        "python3 scripts/api_media_storage_smoke.py",
+        "/usr/bin/python scripts/api_media_storage_smoke.py",
+        "env python scripts/api_media_storage_smoke.py",
+        "env /usr/bin/python scripts/api_media_storage_smoke.py",
     ),
 )
 def test_api_check_rejects_every_normalized_or_shell_media_storage_helper_execution(

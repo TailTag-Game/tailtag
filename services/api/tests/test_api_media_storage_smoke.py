@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import builtins
 import http.client
+import io
 import logging
 import socket
 import sys
@@ -327,6 +328,28 @@ def test_concrete_runtime_fetch_rejects_redirect_without_following_it(
     assert len(opener.requests) == 1
 
 
+def test_concrete_runtime_builds_a_no_redirect_default_opener(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """The default bearer-URL client installs the explicit redirect-rejection handler."""
+    storage = FakeS3MediaStorage()
+    opener = RecordingOpener()
+    captured_handlers: list[object] = []
+
+    def build_opener(*handlers: object) -> RecordingOpener:
+        captured_handlers.extend(handlers)
+        return opener
+
+    monkeypatch.setattr(smoke, "S3MediaStorage", FakeS3MediaStorage)
+    monkeypatch.setattr(smoke, "storages", {"default": storage})
+    monkeypatch.setattr(smoke.urllib.request, "build_opener", build_opener)
+
+    runtime = smoke.DefaultSmokeRuntime()
+
+    assert runtime._opener is opener  # pyright: ignore[reportPrivateUsage]
+    assert any(isinstance(handler, smoke._NoRedirect) for handler in captured_handlers)
+
+
 def test_concrete_runtime_creates_opaque_key_and_in_memory_canonical_image(
     monkeypatch: MonkeyPatch,
 ) -> None:
@@ -334,6 +357,17 @@ def test_concrete_runtime_creates_opaque_key_and_in_memory_canonical_image(
     storage = FakeS3MediaStorage()
     monkeypatch.setattr(smoke, "S3MediaStorage", FakeS3MediaStorage)
     monkeypatch.setattr(smoke, "storages", {"default": storage})
+    expected_keys = iter(
+        (
+            "images/11111111111111111111111111111111.png",
+            "images/22222222222222222222222222222222.png",
+        )
+    )
+    requested_extensions: list[str] = []
+
+    def create_image_key(extension: str) -> str:
+        requested_extensions.append(extension)
+        return next(expected_keys)
 
     def no_file_read(*_args: object, **_kwargs: object) -> NoReturn:
         raise AssertionError(
@@ -341,12 +375,19 @@ def test_concrete_runtime_creates_opaque_key_and_in_memory_canonical_image(
         )
 
     monkeypatch.setattr(builtins, "open", no_file_read)
+    monkeypatch.setattr(io, "open", no_file_read)
+    monkeypatch.setattr(Path, "read_bytes", no_file_read)
+    monkeypatch.setattr(smoke, "create_image_key", create_image_key)
     runtime = smoke.DefaultSmokeRuntime()
     key = runtime.create_key()
+    second_key = runtime.create_key()
     content = runtime.canonical_content()
 
-    assert key.startswith("images/")
-    assert key.endswith((".jpg", ".png", ".webp"))
+    assert (key, second_key) == (
+        "images/11111111111111111111111111111111.png",
+        "images/22222222222222222222222222222222.png",
+    )
+    assert requested_extensions == ["png", "png"]
     assert isinstance(content, bytes)
     assert content
     with Image.open(BytesIO(content)) as image:
