@@ -886,6 +886,31 @@ def test_static_checks_include_all_authenticated_smoke_helpers() -> None:
         assert f'"../../scripts/{script.name}"' in pyproject
 
 
+def test_media_storage_smoke_has_no_unsafe_url_open_finding() -> None:
+    """The guarded helper must carry effective, narrow S310 treatment at its URL sink."""
+    completed = subprocess.run(
+        [
+            os.environ.get("UV", "uv"),
+            "--directory",
+            "services/api",
+            "run",
+            "--locked",
+            "--no-sync",
+            "ruff",
+            "check",
+            "--select",
+            "S310",
+            str(MEDIA_STORAGE_SMOKE_SCRIPT),
+        ],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
 def test_lifecycle_and_schema_changes_remain_explicit() -> None:
     """Only named migration targets can change migration or schema state."""
     non_mutating_targets = (

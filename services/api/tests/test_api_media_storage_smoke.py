@@ -340,6 +340,10 @@ def test_concrete_runtime_fetch_rejects_redirect_without_following_it(
         "not an absolute URL",
         "https://",
         "https://[",
+        "https://synthetic host.example/private",
+        "https://.synthetic.example/private",
+        "https://synthetic.r2.example:not-a-port/private",
+        "https://synthetic.r2.example:99999/private",
     ),
 )
 def test_concrete_runtime_fetch_rejects_non_https_or_malformed_url_before_opening(
