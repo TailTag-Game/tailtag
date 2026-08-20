@@ -1051,9 +1051,13 @@ def test_media_storage_smoke_execution_emits_only_sanitized_stage_output(
     assert completed.stdout == ""
     stderr_lines = completed.stderr.splitlines()
     assert stderr_lines[0] == "FAIL target configuration invalid"
-    assert stderr_lines[1:] in (
-        [],
-        ["make: *** [api-media-storage-smoke] Error 1"],
+    assert len(stderr_lines[1:]) <= 1
+    assert all(
+        re.fullmatch(
+            r"make(?:\[[1-9]\d*\])?: \*\*\* \[api-media-storage-smoke\] Error 1",
+            line,
+        )
+        for line in stderr_lines[1:]
     )
     rendered = completed.stdout + completed.stderr
     for forbidden in (
