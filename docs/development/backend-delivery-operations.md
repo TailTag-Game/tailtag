@@ -272,13 +272,13 @@ must complete this order for Railway `development`:
    `MEDIA_STORAGE_REGION`, `MEDIA_STORAGE_ACCESS_KEY_ID`, and
    `MEDIA_STORAGE_SECRET_ACCESS_KEY`. Do not record rendered values in source,
    logs, tickets, reviews, screenshots, shell history, or chat.
-4. Review the staged variable names and intended ownership, then merge and
-   deliver through the normal protected-`main` path. Production settings fail
-   closed when any required value is absent or an endpoint is not an HTTPS root
-   URL; do not merge first and add these variables later.
-5. From the checked-out branch, after normal deployment and readiness
-   verification, run the repository-owned live boundary check through Railway
-   Development's `api` variable context:
+4. Review and apply the staged variable names and intended ownership to Railway
+   Development. Production settings fail closed when any required value is
+   absent or an endpoint is not an HTTPS root URL; do not merge first and add
+   these variables later.
+5. Before merging, run the repository-owned live boundary check from the
+   checked-out pull-request branch through Railway Development's `api` variable
+   context:
 
    ```bash
    TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM=run-r2-development-media-storage-smoke \
@@ -312,6 +312,12 @@ must complete this order for Railway `development`:
    cleanup/absence: PASS
    overall: PASS
    ```
+
+   Record this successful result before retaining an automatic issue-close
+   link on the pull request. If an external constraint makes pre-merge
+   verification impossible, remove that link, merge the implementation, run
+   the same smoke against the deployed revision, record the sanitized result,
+   and close the issue manually afterward.
 
    Full authenticated API media-flow validation remains deferred to the profile
    and participating-character work in #113 and #115.
