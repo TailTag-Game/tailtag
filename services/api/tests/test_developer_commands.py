@@ -1035,6 +1035,7 @@ def test_media_storage_smoke_execution_emits_only_sanitized_stage_output(
     launcher.chmod(0o755)
 
     completed = run_make(
+        "--no-print-directory",
         "api-media-storage-smoke",
         environment={
             "UV": str(launcher),
