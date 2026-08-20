@@ -6,6 +6,8 @@
 /.superpowers/
 /.vscode/
 /docs/plans/
+/docs/reviews/
+/docs/superpowers/
 /.agents/
 /scripts/__pycache__/
 skills-lock.json
