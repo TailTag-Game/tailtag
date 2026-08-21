@@ -7,6 +7,7 @@ import os
 from .base import *
 from .base import database_from_url
 from .clerk import load_clerk_authentication_configuration
+from .media import load_s3_media_configuration
 
 
 def required_environment_value(name: str) -> str:
@@ -41,6 +42,37 @@ DATABASES = {
 }
 
 CLERK_AUTHENTICATION = load_clerk_authentication_configuration(os.environ)
+
+MEDIA_STORAGE_CONFIGURATION = load_s3_media_configuration(os.environ)
+STORAGES = {  # pyright: ignore[reportConstantRedefinition]
+    **STORAGES,
+    "default": {
+        "BACKEND": "media.storage.S3MediaStorage",
+        "OPTIONS": {
+            "endpoint_url": MEDIA_STORAGE_CONFIGURATION.endpoint_url,
+            "bucket_name": MEDIA_STORAGE_CONFIGURATION.bucket_name,
+            "region": MEDIA_STORAGE_CONFIGURATION.region,
+            "access_key_id": MEDIA_STORAGE_CONFIGURATION.access_key_id,
+            "secret_access_key": MEDIA_STORAGE_CONFIGURATION.secret_access_key,
+            "url_expiry_seconds": 600,
+        },
+    },
+}
+
+LOGGING: dict[str, object] = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "loggers": {
+        "botocore": {"handlers": [], "level": "WARNING", "propagate": False},
+        "botocore.auth": {
+            "handlers": [],
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "boto3": {"handlers": [], "level": "WARNING", "propagate": False},
+        "s3transfer": {"handlers": [], "level": "WARNING", "propagate": False},
+    },
+}
 
 SESSION_COOKIE_SECURE = True
 SESSION_COOKIE_HTTPONLY = True

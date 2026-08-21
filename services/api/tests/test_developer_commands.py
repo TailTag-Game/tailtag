@@ -6,6 +6,7 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 import threading
 import tomllib
 from collections.abc import Generator
@@ -20,6 +21,7 @@ from tests.semgrep_support import FROZEN_ROOT_HELPERS, dry_run_commands
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_smoke.py"
 AUTH_SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_auth_smoke.py"
+MEDIA_STORAGE_SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_media_storage_smoke.py"
 CI_RELEVANCE_SCRIPT = REPOSITORY_ROOT / "scripts" / "backend_ci_relevance.py"
 SEMGREP_VALIDATOR = REPOSITORY_ROOT / "scripts" / "validate_semgrep_contract.py"
 SEMGREP_RULES_DIRECTORY = REPOSITORY_ROOT / ".semgrep" / "rules"
@@ -32,6 +34,10 @@ CANONICAL_UV_RUN_CHILD_EXECUTABLES = frozenset(
     {"ruff", "pyright", "pytest", "python", "semgrep", "gunicorn"}
 )
 CANONICAL_UV_RUN_OPTIONS = frozenset({"--locked", "--no-sync", "--offline"})
+MEDIA_STORAGE_SMOKE_MAKE_FAILURE_FOOTER = re.compile(
+    r"make(?:\[[1-9]\d*\])?: \*\*\* "
+    r"\[(?:Makefile:[1-9]\d*: )?api-media-storage-smoke\] Error 1"
+)
 
 
 def make_prerequisites(target: str) -> list[str]:
@@ -99,6 +105,11 @@ def resolve_repository_operand(operand: str) -> Path:
 def is_authenticated_smoke_helper_operand(operand: str) -> bool:
     """Recognize every path spelling that resolves to the auth smoke helper."""
     return resolve_repository_operand(operand) == AUTH_SMOKE_SCRIPT.resolve()
+
+
+def is_media_storage_smoke_helper_operand(operand: str) -> bool:
+    """Recognize every path spelling that resolves to the R2 smoke helper."""
+    return resolve_repository_operand(operand) == MEDIA_STORAGE_SMOKE_SCRIPT.resolve()
 
 
 def semgrep_scan_tokens(dry_run: str) -> list[list[str]]:
@@ -475,6 +486,7 @@ def test_help_lists_the_canonical_backend_commands() -> None:
         "api-shell": "Open the Django shell; requires configured PostgreSQL.",
         "api-smoke": "HTTP-check a running API (API_BASE_URL defaults to 127.0.0.1:8000).",
         "api-auth-smoke": "Authenticated smoke test with an interactive Clerk Development secret.",
+        "api-media-storage-smoke": "Run guarded live media storage verification against Railway Development.",
     }
     for target, description in expected_commands.items():
         assert f"make {target}" in completed.stdout
@@ -514,6 +526,7 @@ def test_check_composes_every_required_backend_validation() -> None:
     assert "python manage.py migrate" not in completed.stdout
     assert "python manage.py makemigrations" in completed.stdout
     assert "api-auth-smoke" not in completed.stdout
+    assert "api-media-storage-smoke" not in completed.stdout
     assert "Clerk Development secret:" not in completed.stdout
     assert "CLERK_SECRET" not in completed.stdout
 
@@ -866,10 +879,36 @@ def test_static_checks_include_all_authenticated_smoke_helpers() -> None:
     assert completed.returncode == 0, completed.stderr
     for script in (
         AUTH_SMOKE_SCRIPT,
+        MEDIA_STORAGE_SMOKE_SCRIPT,
         REPOSITORY_ROOT / "scripts" / "clerk_development_session.py",
     ):
         assert str(script) in completed.stdout
         assert f'"../../scripts/{script.name}"' in pyproject
+
+
+def test_media_storage_smoke_has_no_unsafe_url_open_finding() -> None:
+    """The guarded helper must carry effective, narrow S310 treatment at its URL sink."""
+    completed = subprocess.run(
+        [
+            os.environ.get("UV", "uv"),
+            "--directory",
+            "services/api",
+            "run",
+            "--locked",
+            "--no-sync",
+            "ruff",
+            "check",
+            "--select",
+            "S310",
+            str(MEDIA_STORAGE_SMOKE_SCRIPT),
+        ],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
 def test_lifecycle_and_schema_changes_remain_explicit() -> None:
@@ -881,6 +920,7 @@ def test_lifecycle_and_schema_changes_remain_explicit() -> None:
         "api-shell",
         "api-smoke",
         "api-auth-smoke",
+        "api-media-storage-smoke",
     )
 
     for target in non_mutating_targets:
@@ -918,6 +958,213 @@ def test_authenticated_smoke_honors_uv_override(tmp_path: Path) -> None:
     assert completed.returncode == 0, completed.stderr
     assert f"{overridden_uv} run " in completed.stdout
     assert "python -m scripts.api_auth_smoke" in completed.stdout
+
+
+def test_media_storage_smoke_is_a_separate_production_locked_command() -> None:
+    """The R2 operation is an explicit opt-in, not a path through ordinary checks."""
+    completed = run_make("-n", "api-media-storage-smoke")
+    api_check = run_make("-n", "api-check")
+
+    assert completed.returncode == 0, completed.stderr
+    assert "DJANGO_SETTINGS_MODULE=config.settings.production" in completed.stdout
+    assert (
+        "uv run --project services/api --locked --no-sync "
+        "python -m scripts.api_media_storage_smoke"
+    ) in completed.stdout
+    assert "api-media-storage-smoke" not in api_check.stdout
+    assert_api_check_has_only_static_media_storage_helper_analysis(api_check.stdout)
+
+
+def assert_api_check_has_only_static_media_storage_helper_analysis(
+    api_check: str,
+) -> None:
+    """Allow helper references only in validated Ruff or Semgrep static analysis."""
+    helper_commands = [
+        (command, shlex.split(command))
+        for command in dry_run_commands(api_check)
+        if any(
+            is_media_storage_smoke_helper_operand(token)
+            for token in shlex.split(command)
+        )
+    ]
+    assert helper_commands
+    for command, tokens in helper_commands:
+        if "semgrep" in tokens:
+            parsed = semgrep_scan_tokens(command)
+            assert len(parsed) == 1
+            semgrep_tokens = parsed[0]
+            assert semgrep_config_operands(semgrep_tokens) == [
+                str(SEMGREP_RULES_DIRECTORY)
+            ]
+            assert MEDIA_STORAGE_SMOKE_SCRIPT.resolve() in {
+                resolve_repository_operand(operand)
+                for operand in semgrep_target_operands(semgrep_tokens)
+            }
+            continue
+
+        assert "ruff" in tokens, command
+        assert Path(tokens[0]).name == "uv", command
+        ruff_index = tokens.index("ruff")
+        assert tokens[1:ruff_index] == [
+            "--directory",
+            "services/api",
+            "run",
+            "--locked",
+            "--no-sync",
+        ], command
+        ruff_arguments = tokens[ruff_index + 1 :]
+        if ruff_arguments[:2] == ["format", "--check"]:
+            source_operands = ruff_arguments[2:]
+        else:
+            assert ruff_arguments[:1] == ["check"], command
+            source_operands = ruff_arguments[1:]
+        assert source_operands[0] == ".", command
+        helper_operands = source_operands[1:]
+        assert len(helper_operands) == len(FROZEN_ROOT_HELPERS), command
+        assert {resolve_repository_operand(operand) for operand in helper_operands} == {
+            REPOSITORY_ROOT / helper for helper in FROZEN_ROOT_HELPERS
+        }, command
+
+
+def test_media_storage_smoke_honors_only_the_uv_launcher_override(
+    tmp_path: Path,
+) -> None:
+    """The explicit live target still uses the standard repository launcher seam."""
+    overridden_uv = tmp_path / "overridden-uv"
+    overridden_uv.write_text("#!/bin/sh\nexit 0\n")
+    overridden_uv.chmod(0o755)
+
+    completed = run_make("-n", "api-media-storage-smoke", f"UV={overridden_uv}")
+
+    assert completed.returncode == 0, completed.stderr
+    assert f"{overridden_uv} run " in completed.stdout
+    assert "python -m scripts.api_media_storage_smoke" in completed.stdout
+
+
+def test_media_storage_smoke_execution_emits_only_sanitized_stage_output(
+    tmp_path: Path,
+) -> None:
+    """An invalid pre-Django target guard must not echo the Make recipe or launcher."""
+    launcher = tmp_path / "uv"
+    launcher.write_text(
+        "#!/bin/sh\n"
+        "set -eu\n"
+        '[ "$1" = run ]\n'
+        "shift\n"
+        'while [ "$#" -gt 0 ]; do\n'
+        '  case "$1" in\n'
+        "    --project) shift 2 ;;\n"
+        "    --locked|--no-sync) shift ;;\n"
+        '    python) shift; exec "$PYTHON_FOR_MEDIA_SMOKE" "$@" ;;\n'
+        "    *) exit 99 ;;\n"
+        "  esac\n"
+        "done\n"
+        "exit 99\n"
+    )
+    launcher.chmod(0o755)
+
+    completed = run_make(
+        "--no-print-directory",
+        "api-media-storage-smoke",
+        environment={
+            "UV": str(launcher),
+            "PYTHON_FOR_MEDIA_SMOKE": sys.executable,
+            "RAILWAY_ENVIRONMENT_NAME": "production",
+            "RAILWAY_SERVICE_NAME": "api",
+            "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": (
+                "run-r2-development-media-storage-smoke"
+            ),
+        },
+    )
+
+    assert completed.returncode != 0
+    assert completed.stdout == ""
+    stderr_lines = completed.stderr.splitlines()
+    assert stderr_lines[0] == "FAIL target configuration invalid"
+    assert len(stderr_lines[1:]) <= 1
+    assert all(
+        MEDIA_STORAGE_SMOKE_MAKE_FAILURE_FOOTER.fullmatch(line)
+        for line in stderr_lines[1:]
+    )
+    rendered = completed.stdout + completed.stderr
+    for forbidden in (
+        "DJANGO_SETTINGS_MODULE=config.settings.production",
+        "PYTHONPATH=",
+        "python -m scripts.api_media_storage_smoke",
+        str(launcher),
+    ):
+        assert forbidden not in rendered
+
+
+@pytest.mark.parametrize(
+    "footer",
+    (
+        "make: *** [api-media-storage-smoke] Error 1",
+        "make[1]: *** [Makefile:103: api-media-storage-smoke] Error 1",
+    ),
+)
+def test_media_storage_smoke_footer_accepts_only_canonical_make_variants(
+    footer: str,
+) -> None:
+    """macOS and nested GNU Make use different, equally non-sensitive footers."""
+    assert MEDIA_STORAGE_SMOKE_MAKE_FAILURE_FOOTER.fullmatch(footer)
+
+
+@pytest.mark.parametrize(
+    "footer",
+    (
+        "make[0]: *** [Makefile:103: api-media-storage-smoke] Error 1",
+        "make[1]: *** [/workspace/Makefile:103: api-media-storage-smoke] Error 1",
+        "make[1]: *** [Makefile:0: api-media-storage-smoke] Error 1",
+        "make[1]: *** [Makefile:103: api-media-storage-smoke] Error 2",
+        "make[1]: *** [Makefile:103: api-media-storage-smoke] Error 1 secret",
+    ),
+)
+def test_media_storage_smoke_footer_rejects_path_or_arbitrary_variants(
+    footer: str,
+) -> None:
+    """The generic Make footer cannot become a channel for paths or extra content."""
+    assert MEDIA_STORAGE_SMOKE_MAKE_FAILURE_FOOTER.fullmatch(footer) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    (
+        "uv --directory services/api run --locked --no-sync python scripts/./api_media_storage_smoke.py",
+        "sh scripts/api_media_storage_smoke.py",
+        "bash scripts/api_media_storage_smoke.py",
+        "zsh scripts/api_media_storage_smoke.py",
+        "xargs python scripts/api_media_storage_smoke.py",
+        "exec python scripts/api_media_storage_smoke.py",
+        "python3 scripts/api_media_storage_smoke.py",
+        "/usr/bin/python scripts/api_media_storage_smoke.py",
+        "env python scripts/api_media_storage_smoke.py",
+        "env /usr/bin/python scripts/api_media_storage_smoke.py",
+        "uv --directory services/api run --locked --no-sync ruff check . scripts/api_media_storage_smoke.py",
+    ),
+)
+def test_api_check_rejects_every_normalized_or_shell_media_storage_helper_execution(
+    command: str,
+) -> None:
+    """Static checking the helper is allowed; every ordinary execution spelling is not."""
+    api_check = run_make("-n", "api-check").stdout
+
+    with pytest.raises(AssertionError):
+        assert_api_check_has_only_static_media_storage_helper_analysis(
+            f"{api_check}\n{command}"
+        )
+
+
+def test_media_storage_smoke_is_never_an_ordinary_ci_workflow_step() -> None:
+    """The real R2 operation is intentionally absent from all checked-in workflows."""
+    workflow_text = "\n".join(
+        path.read_text()
+        for suffix in ("*.yml", "*.yaml")
+        for path in (REPOSITORY_ROOT / ".github" / "workflows").glob(suffix)
+    )
+
+    assert "api-media-storage-smoke" not in workflow_text
+    assert "scripts.api_media_storage_smoke" not in workflow_text
 
 
 def assert_ci_and_ordinary_smoke_are_noninteractive_and_credential_free(
@@ -1047,7 +1294,7 @@ def test_devcontainer_django_commands_derive_the_compose_database_url() -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert "config.compose_database_url" in completed.stdout
-    assert "DJANGO_SETTINGS_MODULE=config.settings.production" in completed.stdout
+    assert "DJANGO_SETTINGS_MODULE=config.settings.local" in completed.stdout
     assert "python manage.py migrate" in completed.stdout
 
 
@@ -1087,7 +1334,7 @@ esac
 
     assert completed.returncode == 0, completed.stderr
     assert "DATABASE_URL=postgresql://tailtag:local@db:5432/tailtag" in completed.stdout
-    assert "DJANGO_SETTINGS_MODULE=config.settings.production" in completed.stdout
+    assert "DJANGO_SETTINGS_MODULE=config.settings.local" in completed.stdout
 
 
 def test_smoke_checks_an_already_running_http_service() -> None:

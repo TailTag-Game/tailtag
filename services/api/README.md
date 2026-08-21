@@ -130,6 +130,87 @@ and host-installed PostgreSQL is not a supported contributor workflow. If `.env`
 is absent or `DATABASE_URL` is invalid, local Django stops with a sanitized
 configuration error that does not print credentials.
 
+## V0 media storage and image handling
+
+The local settings profile used by native Django, direct Compose, and the
+devcontainer stores media on the ignored `services/api/.media/` filesystem
+directory (the Django `MEDIA_ROOT`), with `/media/` as its local URL base. Do
+not add R2 credentials to `.env`: ordinary automated tests override storage
+with Django in-memory storage or focused fakes and make no R2 or other
+object-storage network requests.
+
+The reusable media boundary accepts only fully decoded JPEG, PNG, and static
+WebP images. It rejects source streams over 10 MiB, decoded images over
+25,000,000 pixels, malformed or truncated data, decompression-bomb warnings or
+errors, animated WebP, and all other formats (including SVG, GIF, HEIC/HEIF,
+and AVIF). Filename, extension, and claimed content type are not authorities.
+
+Accepted images are orientation-normalized and re-encoded in their decoded
+format: JPEG becomes `image/jpeg` with `.jpg`, PNG becomes `image/png` with
+`.png`, and WebP becomes `image/webp` with `.webp`. The stored canonical bytes
+exclude source EXIF, XMP, comments, textual chunks, ICC data, and other source
+metadata; the source byte stream is not retained. Cropping, presentation
+resizing, thumbnails, filters, and alternate renditions are outside V0.
+
+Production uses the private S3-compatible storage backend and fails at startup
+unless all five Railway `api` service variables are present and valid:
+
+| Variable | Requirement |
+| --- | --- |
+| `MEDIA_STORAGE_ENDPOINT_URL` | HTTPS root endpoint URL. |
+| `MEDIA_STORAGE_BUCKET_NAME` | Private development bucket name. |
+| `MEDIA_STORAGE_REGION` | S3-compatible bucket region. |
+| `MEDIA_STORAGE_ACCESS_KEY_ID` | Minimum-scope object-storage credential identifier. |
+| `MEDIA_STORAGE_SECRET_ACCESS_KEY` | Matching secret credential. |
+
+These are production-only variables, not local defaults. Record only their
+names and ownership; never commit, print, ticket, or otherwise disclose their
+values. The storage backend permits only opaque server-generated keys and only
+creates 600-second presigned `GET` read URLs. Such URLs are bearer credentials:
+they must not be persisted, logged, or copied into documentation. V0 has no
+public bucket URL, presigned upload URL, or direct-to-R2 upload path.
+
+### Opt-in live Development storage verification
+
+The only supported live storage check is maintainer-run from the checked-out
+branch:
+
+```bash
+TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM=run-r2-development-media-storage-smoke \
+railway run --service api --environment development -- make api-media-storage-smoke
+```
+
+It is not part of `make api-check`, application startup, deployment, or
+ordinary CI. The command requires the exact Railway target `development`/`api`,
+the fixed confirmation value above, production Django settings, and
+`S3MediaStorage`; it rejects production and any unknown target. It uses only
+synthetic canonical image bytes, verifies upload, existence, a 600-second
+presigned GET with exact byte equality, deletion, and confirmed absence. Its
+cleanup and post-delete absence checks are fatal if they fail.
+
+Its fixed pre-upload failure stage is `prepare synthetic image`, covering
+opaque-key creation and canonical synthetic-image generation. `upload` is
+reserved for a storage write failure after preparation succeeds.
+
+The command emits only sanitized stage results and safe target identity. Do not
+record or share storage identifiers, credentials, object keys, presigned URLs,
+request signatures, or response material as evidence. The operations guide
+contains the required private-bucket provisioning steps and sanitized evidence
+template.
+
+Media lifecycle operations are deliberately narrow. Replacement uploads the
+new object, commits the new database reference, then best-effort deletes the
+old object. A failed commit triggers best-effort deletion of the new object
+while preserving the original exception. Optional removal commits an absent
+reference before best-effort deletion of the prior object. Failed cleanup after
+a successful commit can leave an orphan; the committed reference remains
+authoritative. V0 provides no generalized garbage collection, bucket inventory
+reconciliation, account/fursuit deletion handling, or generic asset-lifecycle
+platform. An application rollback neither restores nor deletes R2 objects.
+
+For the required Railway Development setup, controlled validation, and rollback
+boundary, follow the [backend development delivery operations guide](../../docs/development/backend-delivery-operations.md).
+
 ## Clerk request authentication and identity resolution (#96/#97)
 
 Clerk request authentication is disabled by default. Set

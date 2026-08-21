@@ -7,6 +7,8 @@ dependencies = [
     "clerk-backend-api==7.0.0",
     "cryptography>=50.0.0,<51",
     "Django>=6.0,<6.1",
+    "Pillow>=12.3,<13",
+    "boto3>=1.43,<2",
     "djangorestframework>=3.16",
     "psycopg[binary]>=3.2",
     "drf-spectacular>=0.28",
@@ -23,6 +25,7 @@ dev = [
     "pytest>=8.3",
     "pytest-django>=4.11",
     "PyJWT>=2.9,<3",
+    "boto3-stubs[s3]>=1.43,<2",
 ]
 
 [tool.uv]
@@ -38,7 +41,7 @@ target-version = "py313"
 pythonVersion = "3.13"
 typeCheckingMode = "strict"
 extraPaths = ["../.."]
-include = ["accounts", "authentication", "config", "fursuits", "health", "tests", "../../scripts/api_auth_smoke.py", "../../scripts/api_smoke.py", "../../scripts/backend_ci_relevance.py", "../../scripts/clerk_development_session.py", "../../scripts/validate_semgrep_contract.py"]
+include = ["accounts", "authentication", "config", "fursuits", "health", "tests", "../../scripts/api_auth_smoke.py", "../../scripts/api_media_storage_smoke.py", "../../scripts/api_smoke.py", "../../scripts/backend_ci_relevance.py", "../../scripts/clerk_development_session.py", "../../scripts/validate_semgrep_contract.py"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.local"

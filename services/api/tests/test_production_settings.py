@@ -15,8 +15,10 @@ from tests.clerk_settings_contract import (
     UNSUPPORTED_ALGORITHM_JWT_KEY_SENTINEL,
     UNSUPPORTED_ALGORITHM_PRE_IMPORT_PATCH,
     UNSUPPORTED_ALGORITHM_REASON,
-    assert_sanitized_configuration_error,
     capture_improperly_configured_subprocess_script,
+)
+from tests.clerk_settings_contract import (
+    assert_sanitized_configuration_error as _assert_sanitized_configuration_error,
 )
 from tests.clerk_settings_contract import (
     non_rsa_public_key as _non_rsa_public_key,  # noqa: F401  # pyright: ignore[reportUnusedImport]
@@ -30,6 +32,11 @@ REQUIRED_SETTINGS = (
     "DJANGO_SECRET_KEY",
     "DJANGO_ALLOWED_HOSTS",
     "DJANGO_CSRF_TRUSTED_ORIGINS",
+    "MEDIA_STORAGE_ENDPOINT_URL",
+    "MEDIA_STORAGE_BUCKET_NAME",
+    "MEDIA_STORAGE_REGION",
+    "MEDIA_STORAGE_ACCESS_KEY_ID",
+    "MEDIA_STORAGE_SECRET_ACCESS_KEY",
 )
 
 VALID_ENVIRONMENT = {
@@ -37,7 +44,32 @@ VALID_ENVIRONMENT = {
     "DJANGO_SECRET_KEY": "test-secret-key",
     "DJANGO_ALLOWED_HOSTS": "api.example.test,admin.example.test",
     "DJANGO_CSRF_TRUSTED_ORIGINS": "https://api.example.test,https://admin.example.test",
+    "MEDIA_STORAGE_ENDPOINT_URL": "https://media.example.test",
+    "MEDIA_STORAGE_BUCKET_NAME": "development-media",
+    "MEDIA_STORAGE_REGION": "auto",
+    "MEDIA_STORAGE_ACCESS_KEY_ID": "test-media-access-key",
+    "MEDIA_STORAGE_SECRET_ACCESS_KEY": "test-" + "media-" + "secret-value",
 }
+
+MEDIA_CONFIGURATION_VALUES = tuple(
+    value for name, value in VALID_ENVIRONMENT.items() if name.startswith("MEDIA_")
+)
+
+
+def assert_sanitized_configuration_error(
+    completed: subprocess.CompletedProcess[str],
+    name: str | tuple[str, ...],
+    supplied_value: str,
+    *additional_non_disclosable_values: str,
+) -> None:
+    """Also keep the supplied media configuration sentinels out of old error tests."""
+    _assert_sanitized_configuration_error(
+        completed,
+        name,
+        supplied_value,
+        *additional_non_disclosable_values,
+        *MEDIA_CONFIGURATION_VALUES,
+    )
 
 
 def run_settings_import(

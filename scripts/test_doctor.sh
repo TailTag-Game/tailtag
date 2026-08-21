@@ -99,6 +99,8 @@ if [[ "$*" == *"import django; import psycopg"* ]]; then
   exit "${FAKE_DEPENDENCY_STATUS:-0}"
 fi
 if [[ "$*" == *"connection.ensure_connection"* ]]; then
+  [[ "${DJANGO_SETTINGS_MODULE:-}" == "config.settings.local" ]] || exit 1
+  [[ "${DATABASE_URL:-}" == "postgresql://test:password@db:5432/test" ]] || exit 1
   exit "${FAKE_DATABASE_STATUS:-0}"
 fi
 exit 0

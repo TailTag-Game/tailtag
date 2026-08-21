@@ -188,7 +188,7 @@ check_devcontainer_environment() {
     fi
 
     if database_url="$(uv --directory services/api run --locked --no-sync python -m config.compose_database_url 2>/dev/null)" && \
-      DJANGO_SETTINGS_MODULE=config.settings.production DATABASE_URL="$database_url" \
+      DJANGO_SETTINGS_MODULE=config.settings.local DATABASE_URL="$database_url" \
         uv --directory services/api run --locked --no-sync python -c '
 from django import setup
 from django.db import connection
