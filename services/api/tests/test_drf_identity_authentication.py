@@ -336,5 +336,7 @@ def test_identity_authentication_adds_only_the_current_user_production_route(
     assert schema_response.status_code == 200
     assert set(yaml.safe_load(schema_response.content)["paths"]) == {
         "/api/me/",
+        "/api/conventions/",
+        "/api/conventions/{id}/",
         "/api/schema/",
     }

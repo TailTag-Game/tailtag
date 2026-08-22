@@ -156,7 +156,12 @@ def test_current_user_is_the_only_product_route_without_url_versioning(
 ) -> None:
     schema = _schema(client)
 
-    assert set(schema["paths"]) == {"/api/me/", "/api/schema/"}
+    assert set(schema["paths"]) == {
+        "/api/me/",
+        "/api/conventions/",
+        "/api/conventions/{id}/",
+        "/api/schema/",
+    }
     assert client.get("/api/v0/me/").status_code == 404
     assert client.get("/api/v1/me/").status_code == 404
     assert client.get("/api/users/me/").status_code == 404
