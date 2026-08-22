@@ -12,7 +12,9 @@ from django.contrib import admin
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import Client, override_settings
+from django.urls import reverse
 
+from accounts.models import User
 from conventions.admin import ConventionAdmin
 from conventions.models import Convention, ConventionStatus
 from tests.authentication_support import (
@@ -148,6 +150,18 @@ def test_convention_database_rejects_end_date_before_start_date() -> None:
         )
 
 
+@pytest.mark.django_db
+def test_convention_database_rejects_invalid_status() -> None:
+    """Database check constraint rejects status values outside ConventionStatus."""
+    with pytest.raises(IntegrityError):
+        Convention.objects.create(
+            name="Invalid Status Con",
+            status="unexpected",
+            start_date=datetime.date(2026, 7, 2),
+            end_date=datetime.date(2026, 7, 5),
+        )
+
+
 def test_convention_admin_is_registered() -> None:
     """Convention model is registered with ConventionAdmin in Django admin."""
     assert Convention in admin.site._registry  # pyright: ignore[reportUnknownMemberType, reportPrivateUsage]
@@ -156,6 +170,76 @@ def test_convention_admin_is_registered() -> None:
     assert "name" in model_admin.search_fields
     assert "status" in model_admin.list_filter
     assert "id" in model_admin.list_display
+
+
+@pytest.mark.django_db
+def test_convention_admin_operator_workflow_and_validation(client: Client) -> None:
+    """Operators can create, inspect, edit lifecycle status, and receive date validation in admin."""
+    admin_user = User.objects.create_superuser(
+        clerk_user_id="user_admin_operator",
+        password="test-admin-password",
+    )
+    client.force_login(admin_user)
+
+    # 1. Add View: Create a convention in draft status
+    add_url = reverse("admin:conventions_convention_add")
+    add_response = client.post(
+        add_url,
+        {
+            "name": "Midwest FurFest 2026",
+            "status": ConventionStatus.DRAFT,
+            "start_date": "2026-12-03",
+            "end_date": "2026-12-06",
+        },
+    )
+    assert add_response.status_code == 302
+    convention = Convention.objects.get(name="Midwest FurFest 2026")
+    assert convention.status == ConventionStatus.DRAFT
+    assert convention.start_date == datetime.date(2026, 12, 3)
+    assert convention.end_date == datetime.date(2026, 12, 6)
+
+    # 2. Change View: Edit lifecycle state from draft -> active -> paused
+    change_url = reverse("admin:conventions_convention_change", args=(convention.pk,))
+    active_response = client.post(
+        change_url,
+        {
+            "name": "Midwest FurFest 2026",
+            "status": ConventionStatus.ACTIVE,
+            "start_date": "2026-12-03",
+            "end_date": "2026-12-06",
+        },
+    )
+    assert active_response.status_code == 302
+    convention.refresh_from_db()
+    assert convention.status == ConventionStatus.ACTIVE
+    assert convention.is_playable
+
+    paused_response = client.post(
+        change_url,
+        {
+            "name": "Midwest FurFest 2026",
+            "status": ConventionStatus.PAUSED,
+            "start_date": "2026-12-03",
+            "end_date": "2026-12-06",
+        },
+    )
+    assert paused_response.status_code == 302
+    convention.refresh_from_db()
+    assert convention.status == ConventionStatus.PAUSED
+    assert not convention.is_playable
+
+    # 3. Form Validation: Invalid date range (end_date < start_date) is rejected
+    invalid_date_response = client.post(
+        change_url,
+        {
+            "name": "Midwest FurFest 2026",
+            "status": ConventionStatus.PAUSED,
+            "start_date": "2026-12-06",
+            "end_date": "2026-12-03",
+        },
+    )
+    assert invalid_date_response.status_code == 200
+    assert b"End date must be on or after start date." in invalid_date_response.content
 
 
 @override_settings(CLERK_AUTHENTICATION=TEST_CLERK_CONFIGURATION)
@@ -173,22 +257,41 @@ def test_convention_endpoints_require_authentication() -> None:
 
 
 @pytest.mark.django_db
-def test_convention_list_authenticated_returns_conventions() -> None:
-    """Authenticated player can list conventions with safe serialized fields."""
+def test_convention_list_authenticated_returns_active_conventions() -> None:
+    """Authenticated player can list only active conventions with safe serialized fields."""
     user = create_test_user(clerk_user_id="user_conventions_list")
     client = force_authenticated_client(user=user)
 
-    con1 = Convention.objects.create(
+    con_active = Convention.objects.create(
         name="Alpha Con 2026",
         status=ConventionStatus.ACTIVE,
         start_date=datetime.date(2026, 6, 1),
         end_date=datetime.date(2026, 6, 4),
     )
-    con2 = Convention.objects.create(
-        name="Beta Con 2026",
+    # Inactive conventions should be excluded from player list
+    Convention.objects.create(
+        name="Draft Con 2026",
         status=ConventionStatus.DRAFT,
         start_date=datetime.date(2026, 8, 1),
         end_date=datetime.date(2026, 8, 4),
+    )
+    Convention.objects.create(
+        name="Paused Con 2026",
+        status=ConventionStatus.PAUSED,
+        start_date=datetime.date(2026, 9, 1),
+        end_date=datetime.date(2026, 9, 4),
+    )
+    Convention.objects.create(
+        name="Completed Con 2025",
+        status=ConventionStatus.COMPLETED,
+        start_date=datetime.date(2025, 6, 1),
+        end_date=datetime.date(2025, 6, 4),
+    )
+    Convention.objects.create(
+        name="Cancelled Con 2026",
+        status=ConventionStatus.CANCELLED,
+        start_date=datetime.date(2026, 10, 1),
+        end_date=datetime.date(2026, 10, 4),
     )
 
     response = client.get("/api/conventions/")
@@ -196,22 +299,16 @@ def test_convention_list_authenticated_returns_conventions() -> None:
 
     data = cast(list[dict[str, Any]], response.json())
     assert isinstance(data, list)
-    assert len(data) == 2
+    assert len(data) == 1
 
-    # Verify fields in the serialized payload
     first_item = data[0]
     expected_fields = {"id", "name", "status", "start_date", "end_date"}
     assert set(first_item.keys()) == expected_fields
-    assert first_item["id"] == con2.pk  # ordered by -start_date
-    assert first_item["name"] == "Beta Con 2026"
-    assert first_item["status"] == "draft"
-    assert first_item["start_date"] == "2026-08-01"
-    assert first_item["end_date"] == "2026-08-04"
-
-    second_item = data[1]
-    assert second_item["id"] == con1.pk
-    assert second_item["name"] == "Alpha Con 2026"
-    assert second_item["status"] == "active"
+    assert first_item["id"] == con_active.pk
+    assert first_item["name"] == "Alpha Con 2026"
+    assert first_item["status"] == "active"
+    assert first_item["start_date"] == "2026-06-01"
+    assert first_item["end_date"] == "2026-06-04"
 
 
 @pytest.mark.django_db

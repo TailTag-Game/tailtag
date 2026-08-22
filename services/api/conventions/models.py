@@ -60,6 +60,10 @@ class Convention(models.Model):
                 name="conventions_convention_name_not_empty",
             ),
             models.CheckConstraint(
+                condition=models.Q(status__in=ConventionStatus.values),
+                name="conventions_convention_status_valid",
+            ),
+            models.CheckConstraint(
                 condition=models.Q(end_date__gte=models.F("start_date")),
                 name="conventions_convention_end_date_gte_start_date",
             ),

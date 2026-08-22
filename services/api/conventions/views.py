@@ -9,7 +9,7 @@ from drf_spectacular.utils import (  # pyright: ignore[reportUnknownVariableType
 from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
 
-from .models import Convention
+from .models import Convention, ConventionStatus
 from .serializers import ConventionSerializer
 
 AUTHENTICATION_ERROR_RESPONSE_SCHEMA = {
@@ -38,7 +38,7 @@ class ConventionListView(generics.ListAPIView):
 
     permission_classes = (IsAuthenticated,)
     serializer_class = ConventionSerializer
-    queryset = Convention.objects.all()
+    queryset = Convention.objects.filter(status=ConventionStatus.ACTIVE)
 
     @extend_schema(
         summary="List conventions",
