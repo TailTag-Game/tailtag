@@ -78,11 +78,7 @@ class Convention(models.Model):
     def clean(self) -> None:
         """Validate date invariants across fields."""
         super().clean()
-        if (
-            self.start_date is not None
-            and self.end_date is not None
-            and self.end_date < self.start_date
-        ):
+        if self.end_date < self.start_date:
             raise ValidationError(
                 {"end_date": "End date must be on or after start date."}
             )
@@ -90,7 +86,7 @@ class Convention(models.Model):
     @property
     def is_playable(self) -> bool:
         """Return whether the convention is in an active playable state."""
-        return self.status == ConventionStatus.ACTIVE
+        return self.status == ConventionStatus.ACTIVE.value
 
     def __str__(self) -> str:
         """Return the convention name and identifier."""

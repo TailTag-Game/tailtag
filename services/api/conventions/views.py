@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from drf_spectacular.utils import (  # pyright: ignore[reportUnknownVariableType]
     OpenApiResponse,
     extend_schema,  # pyright: ignore[reportUnknownVariableType]
@@ -11,6 +13,13 @@ from rest_framework.permissions import IsAuthenticated
 
 from .models import Convention, ConventionStatus
 from .serializers import ConventionSerializer
+
+if TYPE_CHECKING:
+    ListAPIViewBase = generics.ListAPIView[Convention]
+    RetrieveAPIViewBase = generics.RetrieveAPIView[Convention]
+else:
+    ListAPIViewBase = generics.ListAPIView
+    RetrieveAPIViewBase = generics.RetrieveAPIView
 
 AUTHENTICATION_ERROR_RESPONSE_SCHEMA = {
     "type": "object",
@@ -33,7 +42,7 @@ NOT_FOUND_RESPONSE_SCHEMA = {
 }
 
 
-class ConventionListView(generics.ListAPIView):
+class ConventionListView(ListAPIViewBase):
     """List available conventions for player enrollment selection."""
 
     permission_classes = (IsAuthenticated,)
@@ -55,7 +64,7 @@ class ConventionListView(generics.ListAPIView):
         return super().get(request, *args, **kwargs)
 
 
-class ConventionDetailView(generics.RetrieveAPIView):
+class ConventionDetailView(RetrieveAPIViewBase):
     """Retrieve details for a specific convention."""
 
     permission_classes = (IsAuthenticated,)

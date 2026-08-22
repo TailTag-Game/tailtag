@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING
 
 from django.contrib import admin
 
@@ -18,7 +18,7 @@ else:
 class ConventionAdmin(ConventionAdminBase):
     """Admin interface for operator creation, editing, and lifecycle management."""
 
-    list_display: ClassVar[tuple[str, ...]] = (
+    list_display = (
         "id",
         "name",
         "status",
@@ -26,17 +26,17 @@ class ConventionAdmin(ConventionAdminBase):
         "end_date",
         "created_at",
     )
-    list_filter: ClassVar[tuple[str, ...]] = (
+    list_filter = (
         "status",
         "start_date",
         "end_date",
     )
-    search_fields: ClassVar[tuple[str, ...]] = ("name",)
-    readonly_fields: ClassVar[tuple[str, ...]] = (
+    search_fields = ("name",)
+    readonly_fields = (
         "created_at",
         "updated_at",
     )
-    fieldsets: ClassVar[tuple[tuple[str | None, dict[str, object]], ...]] = (
+    fieldsets = (
         (
             None,
             {
