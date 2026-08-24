@@ -6,11 +6,16 @@ from collections.abc import Iterator
 from typing import Final
 
 import psycopg
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 from accounts.models import User
 from profiles.models import PlayerProfile
-from profiles.normalization import ProfileValueError
+from profiles.normalization import (
+    ProfileValueError,
+    normalize_display_name,
+    normalize_handle,
+)
 
 HANDLE_UNIQUE_CONSTRAINT: Final[str] = "profiles_player_profile_handle_unique"
 
@@ -44,35 +49,86 @@ def get_or_create_profile(user: User) -> PlayerProfile:
 
 
 def put_text_profile(user: User, *, handle: str, display_name: str) -> PlayerProfile:
-    """Temporary Task 2 persistence seam; Task 3 owns lifecycle transitions."""
-    profile = get_or_create_profile(user)
-    profile.handle = handle
-    profile.display_name = display_name
-    try:
-        profile.save(update_fields=("handle", "display_name"))
-    except IntegrityError as error:
-        if _is_handle_unique_violation(error):
-            raise DuplicateHandleError() from None
-        raise
+    """Create or fully replace the enabled user's normalized text profile."""
+    normalized_handle = normalize_handle(handle)
+    normalized_display_name = normalize_display_name(display_name)
+
+    with transaction.atomic():
+        profile = _locked_profile(user)
+        _require_enabled(profile)
+        _raise_if_handle_taken(user, normalized_handle)
+
+        profile.handle = normalized_handle
+        profile.display_name = normalized_display_name
+        update_fields: list[str] = ["handle", "display_name"]
+        if profile.onboarding_completed_at is None:
+            profile.onboarding_completed_at = timezone.now()
+            update_fields.append("onboarding_completed_at")
+        _save_text_profile(profile, update_fields)
     return profile
 
 
 def patch_text_profile(
     user: User, *, handle: str | None = None, display_name: str | None = None
 ) -> PlayerProfile:
-    """Temporary Task 2 persistence seam; Task 3 owns lifecycle transitions."""
-    profile = get_or_create_profile(user)
-    if handle is not None:
-        profile.handle = handle
-    if display_name is not None:
-        profile.display_name = display_name
+    """Partially update a completed enabled user's normalized text profile."""
+    if handle is None and display_name is None:
+        raise ProfileValueError("handle", "required", "Provide a profile field.")
+
+    with transaction.atomic():
+        profile = _locked_profile(user)
+        _require_enabled(profile)
+        if (
+            profile.onboarding_completed_at is None
+            or profile.handle is None
+            or profile.display_name is None
+        ):
+            raise ProfileIncompleteError()
+
+        normalized_handle = normalize_handle(
+            profile.handle if handle is None else handle
+        )
+        normalized_display_name = normalize_display_name(
+            profile.display_name if display_name is None else display_name
+        )
+        if handle is not None:
+            _raise_if_handle_taken(user, normalized_handle)
+
+        update_fields: list[str] = []
+        if profile.handle != normalized_handle:
+            profile.handle = normalized_handle
+            update_fields.append("handle")
+        if profile.display_name != normalized_display_name:
+            profile.display_name = normalized_display_name
+            update_fields.append("display_name")
+        if update_fields:
+            _save_text_profile(profile, update_fields)
+    return profile
+
+
+def _locked_profile(user: User) -> PlayerProfile:
+    get_or_create_profile(user)
+    return PlayerProfile.objects.select_for_update().get(user=user)
+
+
+def _require_enabled(profile: PlayerProfile) -> None:
+    if not profile.is_enabled:
+        raise ProfileDisabledError()
+
+
+def _raise_if_handle_taken(user: User, handle: str) -> None:
+    if PlayerProfile.objects.exclude(user=user).filter(handle=handle).exists():
+        raise DuplicateHandleError()
+
+
+def _save_text_profile(profile: PlayerProfile, update_fields: list[str]) -> None:
     try:
-        profile.save(update_fields=("handle", "display_name"))
+        with transaction.atomic():
+            profile.save(update_fields=update_fields)
     except IntegrityError as error:
         if _is_handle_unique_violation(error):
             raise DuplicateHandleError() from None
         raise
-    return profile
 
 
 def _is_handle_unique_violation(error: IntegrityError) -> bool:

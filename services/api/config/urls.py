@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from django.contrib import admin
-from django.urls import URLPattern, URLResolver, path
+from django.urls import URLPattern, URLResolver, include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.permissions import AllowAny
 
@@ -13,6 +13,7 @@ from health import views as health_views
 urlpatterns: list[URLPattern | URLResolver] = [
     path("admin/", admin.site.urls),
     path("api/me/", CurrentUserView.as_view(), name="current-user"),
+    path("api/", include("profiles.urls")),
     path(
         "api/schema/",
         SpectacularAPIView.as_view(permission_classes=[AllowAny]),
