@@ -121,6 +121,7 @@ def test_initial_put_enforces_handle_boundaries_and_reserved_names_atomically(
         "  \t ",
         "a" * 51,
         "before\x00after",
+        "before\tafter",
         "before\u2028after",
         "before\u2029after",
     ),
@@ -149,7 +150,7 @@ def test_initial_put_rejects_invalid_display_names_without_partial_completion(
         ("A", "A"),
         ("a" * 50, "a" * 50),
         ("  Fi\u006e\u0303   Wolf  ", "Fiñ Wolf"),
-        (" Finn\u00a0\t Wolf ", "Finn Wolf"),
+        (" Finn\u00a0\u2003 Wolf ", "Finn Wolf"),
     ),
 )
 def test_initial_put_normalizes_complete_text_profile(
