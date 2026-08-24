@@ -59,26 +59,29 @@ class BlockingRecordingStorage(RecordingStorage):
 
     _save_entry_lock = Lock()
     _save_entries = 0
-    first_save_entered: Event | None = None
-    second_save_entered: Event | None = None
+    first_save_stored: Event | None = None
+    second_save_stored: Event | None = None
     release_first_save: Event | None = None
+    release_second_save: Event | None = None
 
     @classmethod
-    def configure_upload_pause(cls) -> Event:
+    def configure_upload_pause(cls) -> tuple[Event, Event]:
         with cls._save_entry_lock:
             cls._save_entries = 0
-            cls.first_save_entered = Event()
-            cls.second_save_entered = Event()
+            cls.first_save_stored = Event()
+            cls.second_save_stored = Event()
             cls.release_first_save = Event()
-            return cls.release_first_save
+            cls.release_second_save = Event()
+            return cls.release_first_save, cls.release_second_save
 
     @classmethod
     def clear_upload_pause(cls) -> None:
         with cls._save_entry_lock:
             cls._save_entries = 0
-            cls.first_save_entered = None
-            cls.second_save_entered = None
+            cls.first_save_stored = None
+            cls.second_save_stored = None
             cls.release_first_save = None
+            cls.release_second_save = None
 
     def save(
         self, name: str | None, content: IO[Any], max_length: int | None = None
@@ -86,15 +89,19 @@ class BlockingRecordingStorage(RecordingStorage):
         with type(self)._save_entry_lock:
             type(self)._save_entries += 1
             entry = type(self)._save_entries
-            first_save_entered = type(self).first_save_entered
-            second_save_entered = type(self).second_save_entered
+            first_save_stored = type(self).first_save_stored
+            second_save_stored = type(self).second_save_stored
             release_first_save = type(self).release_first_save
+            release_second_save = type(self).release_second_save
 
-        if entry == 1 and first_save_entered is not None:
-            first_save_entered.set()
+        saved_name = super().save(name, content, max_length=max_length)
+        if entry == 1 and first_save_stored is not None:
+            first_save_stored.set()
             assert release_first_save is not None
             assert release_first_save.wait(timeout=10)
-        elif entry == 2 and second_save_entered is not None:
-            second_save_entered.set()
+        elif entry == 2 and second_save_stored is not None:
+            second_save_stored.set()
+            assert release_second_save is not None
+            assert release_second_save.wait(timeout=10)
 
-        return super().save(name, content, max_length=max_length)
+        return saved_name

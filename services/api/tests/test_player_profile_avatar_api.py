@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from threading import Event
+from time import monotonic, sleep
 from typing import Any, Protocol, cast
 
 import pytest
@@ -55,6 +56,21 @@ def _assert_no_orphaned_upload(
         assert not storage.exists(key)
     if avatar_key is not None:
         assert storage.exists(avatar_key)
+
+
+def _wait_for_replacement_reference(
+    *, user_id: int, old_key: str, timeout_seconds: float = 1
+) -> bool:
+    """Observe a durable avatar replacement without assuming a signal implementation."""
+    from profiles.models import PlayerProfile
+
+    deadline = monotonic() + timeout_seconds
+    while monotonic() < deadline:
+        avatar_key = PlayerProfile.objects.get(user_id=user_id).avatar_key
+        if avatar_key not in {None, old_key}:
+            return True
+        sleep(0.01)
+    return False
 
 
 @pytest.mark.django_db
@@ -272,7 +288,7 @@ def test_concurrent_avatar_replacements_leave_only_the_referenced_object() -> No
     from profiles.models import PlayerProfile
 
     user = create_test_user()
-    release = BlockingRecordingStorage.configure_upload_pause()
+    release_first, release_second = BlockingRecordingStorage.configure_upload_pause()
 
     def upload(name: str) -> Any:
         close_old_connections()
@@ -286,16 +302,25 @@ def test_concurrent_avatar_replacements_leave_only_the_referenced_object() -> No
     try:
         with ThreadPoolExecutor(max_workers=2) as executor:
             first = executor.submit(upload, "first.png")
-            assert BlockingRecordingStorage.first_save_entered is not None
-            assert BlockingRecordingStorage.first_save_entered.wait(timeout=10)
+            assert BlockingRecordingStorage.first_save_stored is not None
+            assert BlockingRecordingStorage.first_save_stored.wait(timeout=10)
             second = executor.submit(upload, "second.png")
-            # A correct implementation can hold a profile lock before storage.
-            # Give the second request a bounded opportunity to overlap, then
-            # release the first request so either valid serial order may finish.
-            assert BlockingRecordingStorage.second_save_entered is not None
-            BlockingRecordingStorage.second_save_entered.wait(timeout=1)
-            release.set()
-            responses = (first.result(timeout=15), second.result(timeout=15))
+            assert BlockingRecordingStorage.second_save_stored is not None
+            second_stored = BlockingRecordingStorage.second_save_stored.wait(timeout=1)
+            if second_stored:
+                # N commits while the stale first request still holds its stored
+                # object, making an unsafe later first commit observable.
+                release_second.set()
+                second_response = second.result(timeout=15)
+                release_first.set()
+                first_response = first.result(timeout=15)
+            else:
+                # A correct profile lock can serialize before storage.
+                release_first.set()
+                release_second.set()
+                first_response = first.result(timeout=15)
+                second_response = second.result(timeout=15)
+            responses = (first_response, second_response)
         assert [response.status_code for response in responses] == [200, 200]
         profile = PlayerProfile.objects.get(user=user)
         storage = cast(RecordingStorage, default_storage)
@@ -303,6 +328,8 @@ def test_concurrent_avatar_replacements_leave_only_the_referenced_object() -> No
         if profile.avatar_key is not None:
             assert ("delete", profile.avatar_key) not in storage.events
     finally:
+        release_first.set()
+        release_second.set()
         BlockingRecordingStorage.clear_upload_pause()
 
 
@@ -319,12 +346,12 @@ def test_stale_avatar_removal_cannot_orphan_or_delete_a_replacement() -> None:
     old_key = PlayerProfile.objects.get(user=user).avatar_key
     assert isinstance(old_key, str)
 
-    release_upload = BlockingRecordingStorage.configure_upload_pause()
+    release_upload_first, release_upload_second = (
+        BlockingRecordingStorage.configure_upload_pause()
+    )
     removal_save_entered = Event()
     release_removal_save = Event()
-    replacement_committed = Event()
     profile_pre_save = cast(_SignalConnection, pre_save)
-    profile_post_save = cast(_SignalConnection, post_save)
 
     def pause_removal(
         sender: type[PlayerProfile], instance: PlayerProfile, **kwargs: object
@@ -340,15 +367,7 @@ def test_stale_avatar_removal_cannot_orphan_or_delete_a_replacement() -> None:
             removal_save_entered.set()
             assert release_removal_save.wait(timeout=10)
 
-    def observe_replacement(
-        sender: type[PlayerProfile], instance: PlayerProfile, **kwargs: object
-    ) -> None:
-        del sender, kwargs
-        if instance.pk == user.pk and instance.avatar_key not in {None, old_key}:
-            replacement_committed.set()
-
     profile_pre_save.connect(pause_removal, sender=PlayerProfile, weak=False)
-    profile_post_save.connect(observe_replacement, sender=PlayerProfile, weak=False)
 
     def upload() -> Any:
         close_old_connections()
@@ -374,18 +393,22 @@ def test_stale_avatar_removal_cannot_orphan_or_delete_a_replacement() -> None:
             removal_was_paused = removal_save_entered.wait(timeout=1)
             uploaded = executor.submit(upload)
             if removal_was_paused:
-                assert BlockingRecordingStorage.first_save_entered is not None
+                assert BlockingRecordingStorage.first_save_stored is not None
                 replacement_reached_storage = (
-                    BlockingRecordingStorage.first_save_entered.wait(timeout=1)
+                    BlockingRecordingStorage.first_save_stored.wait(timeout=1)
                 )
-                release_upload.set()
+                release_upload_first.set()
+                release_upload_second.set()
                 if replacement_reached_storage:
-                    replacement_committed.wait(timeout=1)
+                    # Do not resume the stale removal until the database shows
+                    # N, or this bounded wait establishes a serialized path.
+                    _wait_for_replacement_reference(user_id=user.pk, old_key=old_key)
                 release_removal_save.set()
             else:
                 # A safe transition may not use model save signals. Do not make
                 # that implementation fail for choosing a different boundary.
-                release_upload.set()
+                release_upload_first.set()
+                release_upload_second.set()
                 release_removal_save.set()
             upload_response = uploaded.result(timeout=15)
             remove_response = removed.result(timeout=15)
@@ -396,10 +419,10 @@ def test_stale_avatar_removal_cannot_orphan_or_delete_a_replacement() -> None:
         if profile.avatar_key is not None:
             assert ("delete", profile.avatar_key) not in storage.events
     finally:
-        release_upload.set()
+        release_upload_first.set()
+        release_upload_second.set()
         release_removal_save.set()
         profile_pre_save.disconnect(pause_removal, sender=PlayerProfile)
-        profile_post_save.disconnect(observe_replacement, sender=PlayerProfile)
         BlockingRecordingStorage.clear_upload_pause()
 
 
@@ -410,7 +433,7 @@ def test_disable_during_avatar_upload_has_a_safe_serializable_outcome() -> None:
     from profiles.models import PlayerProfile
 
     user = create_test_user()
-    release = BlockingRecordingStorage.configure_upload_pause()
+    release_first, release_second = BlockingRecordingStorage.configure_upload_pause()
 
     def upload() -> Any:
         close_old_connections()
@@ -421,18 +444,35 @@ def test_disable_during_avatar_upload_has_a_safe_serializable_outcome() -> None:
         finally:
             connection.close()
 
-    try:
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            result = executor.submit(upload)
-            assert BlockingRecordingStorage.first_save_entered is not None
-            assert BlockingRecordingStorage.first_save_entered.wait(timeout=10)
-            profile = PlayerProfile.objects.get(user=user)
+    def disable() -> None:
+        close_old_connections()
+        try:
+            profile = PlayerProfile.objects.get(user_id=user.pk)
             profile.is_enabled = False
             profile.save(update_fields={"is_enabled"})
-            release.set()
+        finally:
+            connection.close()
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            result = executor.submit(upload)
+            assert BlockingRecordingStorage.first_save_stored is not None
+            assert BlockingRecordingStorage.first_save_stored.wait(timeout=10)
+            disable_result = executor.submit(disable)
+            # If a profile lock blocks disable, let the upload linearize first;
+            # otherwise retain the observable disable-before-release ordering.
+            try:
+                disable_result.result(timeout=1)
+            except TimeoutError:
+                release_first.set()
+                release_second.set()
+                disable_result.result(timeout=15)
+            else:
+                release_first.set()
+                release_second.set()
             response = result.result(timeout=15)
         assert response.status_code in {200, 403}
-        profile.refresh_from_db()
+        profile = PlayerProfile.objects.get(user=user)
         assert profile.is_enabled is False
         storage = cast(RecordingStorage, default_storage)
         _assert_no_orphaned_upload(storage, profile.avatar_key)
@@ -446,4 +486,6 @@ def test_disable_during_avatar_upload_has_a_safe_serializable_outcome() -> None:
         assert follow_up.status_code == 403
         assert storage.events == events_before_follow_up
     finally:
+        release_first.set()
+        release_second.set()
         BlockingRecordingStorage.clear_upload_pause()
