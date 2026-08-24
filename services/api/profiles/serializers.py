@@ -48,14 +48,18 @@ PROFILE_RESPONSE_SCHEMA: dict[str, object] = {
 
 
 class ProfilePutSerializer(serializers.Serializer[dict[str, str]]):
-    handle = serializers.CharField(allow_blank=False, allow_null=False)
+    handle = serializers.CharField(
+        allow_blank=False, allow_null=False, trim_whitespace=False
+    )
     display_name = serializers.CharField(
         allow_blank=False, allow_null=False, trim_whitespace=False
     )
 
 
 class ProfilePatchSerializer(serializers.Serializer[dict[str, str]]):
-    handle = serializers.CharField(required=False, allow_blank=False, allow_null=False)
+    handle = serializers.CharField(
+        required=False, allow_blank=False, allow_null=False, trim_whitespace=False
+    )
     display_name = serializers.CharField(
         required=False, allow_blank=False, allow_null=False, trim_whitespace=False
     )

@@ -70,6 +70,30 @@ Passed: `No changes detected` and no whitespace errors.
 
 ## Concerns / handoff
 
-Task 4 must add the authenticated avatar endpoint and its OpenAPI route before
-the five expected remaining acceptance failures can pass. No schema, admin, or
-avatar behavior was added in this task.
+The initial Task 3 report intentionally left avatar route/schema failures for
+Task 4. This follow-up remains confined to serializer preprocessing and has no
+additional concerns.
+
+## Follow-up remediation — handle whitespace preprocessing
+
+The approved follow-up acceptance tests found that DRF's default handle-field
+trimming allowed surrounding ASCII and Unicode whitespace to bypass domain
+normalization. Both text-profile handle serializers now set
+`trim_whitespace=False`, preserving raw input for `normalize_handle` while
+leaving display-name normalization unchanged.
+
+```bash
+cd services/api
+uv run --locked --no-sync pytest -q tests/test_player_profile_api.py \
+  -k 'handle_whitespace or completed_mutation_validation or exact_response'
+uv run --locked --no-sync pytest -q \
+  tests/test_player_profile_api.py tests/test_player_profile_openapi.py
+uv run --locked --no-sync ruff format --check profiles/serializers.py
+uv run --locked --no-sync ruff check profiles/serializers.py
+uv run --locked --no-sync pyright profiles/serializers.py
+git diff --check
+```
+
+Passed: `7 passed` focused whitespace/response cases and `53 passed` across
+the profile API and OpenAPI suite; formatting, Ruff, Pyright (`0 errors`), and
+whitespace checks are clean.
