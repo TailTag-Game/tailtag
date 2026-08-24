@@ -29,6 +29,8 @@ def test_profile_openapi_documents_exact_paths_methods_representation_and_media_
     """Rejects undocumented routes, JSON avatar uploads, or mutable lifecycle flags."""
     schema = _schema(client)
     assert set(schema["paths"]) == {
+        "/api/conventions/",
+        "/api/conventions/{id}/",
         "/api/me/",
         "/api/profile/",
         "/api/profile/avatar/",
