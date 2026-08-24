@@ -24,6 +24,7 @@ MEDIA_ERROR_MESSAGES = {
 
 PROFILE_RESPONSE_SCHEMA: dict[str, object] = {
     "type": "object",
+    "additionalProperties": False,
     "properties": {
         "handle": {"type": "string", "nullable": True, "readOnly": True},
         "display_name": {"type": "string", "nullable": True, "readOnly": True},
@@ -75,14 +76,6 @@ class ProfileResponseData(TypedDict):
     avatar_url: str | None
     onboarding_complete: bool
     is_enabled: bool
-
-
-class ProfileResponseSerializer(serializers.Serializer[ProfileResponseData]):
-    handle = serializers.CharField(allow_null=True, read_only=True)
-    display_name = serializers.CharField(allow_null=True, read_only=True)
-    avatar_url = serializers.URLField(allow_null=True, read_only=True)
-    onboarding_complete = serializers.BooleanField(read_only=True)
-    is_enabled = serializers.BooleanField(read_only=True)
 
 
 def profile_response_data(profile: PlayerProfile) -> ProfileResponseData:
