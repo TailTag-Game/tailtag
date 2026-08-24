@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from io import BytesIO
+from typing import IO, Any
 
-from django.core.files import File
 from django.core.files.storage import InMemoryStorage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from PIL import Image
@@ -31,8 +31,9 @@ class RecordingStorage(InMemoryStorage):
         self.url_calls = 0
 
     def save(
-        self, name: str, content: File[bytes], max_length: int | None = None
+        self, name: str | None, content: IO[Any], max_length: int | None = None
     ) -> str:
+        assert isinstance(name, str)
         self.events.append(("save", name))
         return super().save(name, content, max_length=max_length)
 
@@ -40,7 +41,9 @@ class RecordingStorage(InMemoryStorage):
         self.events.append(("delete", name))
         super().delete(name)
 
-    def url(self, name: str) -> str:
+    def url(self, name: str | None, parameters: Any | None = None) -> str:
+        del parameters
+        assert isinstance(name, str)
         self.url_calls += 1
         self.events.append(("url", name))
         return f"https://media.example.test/read/{self.url_calls}"

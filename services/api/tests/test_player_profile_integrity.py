@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from django.db import IntegrityError, connection, transaction
@@ -155,7 +155,9 @@ def test_handle_unique_classifier_uses_only_structured_expected_postgresql_metad
     cause: BaseException | None, expected: bool
 ) -> None:
     """Rejects matching exception prose, any 23505, or unrelated database constraints."""
-    from profiles.services import _is_handle_unique_violation
+    from profiles.services import (
+        _is_handle_unique_violation,  # pyright: ignore[reportPrivateUsage]
+    )
 
     error = IntegrityError("duplicate handle according to hostile text")
     wrapped = error if cause is None else _with_cause(error, cause)
@@ -190,7 +192,7 @@ def test_text_write_services_propagate_unrelated_integrity_failures(
         ),
     )
 
-    def fail_update(cursor: CursorWrapper, sql: str, params: object = None) -> object:
+    def fail_update(cursor: CursorWrapper, sql: str, params: Any = None) -> object:
         if sql.lstrip().upper().startswith("UPDATE"):
             raise failure
         return original_execute(cursor, sql, params)

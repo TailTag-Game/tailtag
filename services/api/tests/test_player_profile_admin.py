@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Protocol, cast
+
 import pytest
 from django.contrib.admin.models import LogEntry
 from django.contrib.auth.models import Permission
@@ -11,6 +13,17 @@ from django.utils import timezone
 
 from accounts.models import User
 from tests.authentication_support import create_test_user
+
+
+class _PermissionRelation(Protocol):
+    """The runtime manager capability exercised by this admin acceptance test."""
+
+    def add(self, *objects: Permission) -> None: ...
+
+
+def _superuser_flag(user: User) -> bool:
+    """Read Django's dynamically supplied permission flag with its stable bool contract."""
+    return cast(bool, user.is_superuser)  # pyright: ignore[reportUnknownMemberType]
 
 
 @pytest.mark.django_db
@@ -71,15 +84,19 @@ def test_normal_staff_permissions_are_sufficient_but_accounts_admin_stays_read_o
     staff = create_test_user()
     staff.is_staff = True
     staff.save(update_fields={"is_staff"})
+    staff_permissions = cast(
+        _PermissionRelation,
+        staff.user_permissions,  # pyright: ignore[reportUnknownMemberType]
+    )
     for code in ("view_playerprofile", "change_playerprofile"):
-        staff.user_permissions.add(
+        staff_permissions.add(
             Permission.objects.get(content_type__app_label="profiles", codename=code)
-        )  # pyright: ignore[reportUnknownMemberType]
-    staff.user_permissions.add(
+        )
+    staff_permissions.add(
         Permission.objects.get(
             content_type__app_label="accounts", codename="change_user"
         )
-    )  # pyright: ignore[reportUnknownMemberType]
+    )
     profile = PlayerProfile.objects.create(user=create_test_user())
     client = Client()
     client.force_login(staff)
@@ -101,7 +118,10 @@ def test_normal_staff_permissions_are_sufficient_but_accounts_admin_stays_read_o
     assert profile_change.status_code == 302
     assert profile.is_enabled is False
     assert LogEntry.objects.filter(user=staff, object_id=str(profile.pk)).exists()
-    owner_before = (profile.user.is_staff, profile.user.is_superuser)
+    owner_before: tuple[bool, bool] = (
+        profile.user.is_staff,
+        _superuser_flag(profile.user),
+    )
     assert (
         client.post(
             reverse("admin:accounts_user_change", args=(profile.user.pk,)),
@@ -110,4 +130,7 @@ def test_normal_staff_permissions_are_sufficient_but_accounts_admin_stays_read_o
         == 403
     )
     profile.user.refresh_from_db()
-    assert (profile.user.is_staff, profile.user.is_superuser) == owner_before
+    assert (
+        profile.user.is_staff,
+        _superuser_flag(profile.user),
+    ) == owner_before

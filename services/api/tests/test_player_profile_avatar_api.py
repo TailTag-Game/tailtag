@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import cast
+from collections.abc import Callable
+from typing import Protocol, cast
 
 import pytest
 from django.core.files.storage import default_storage
@@ -17,6 +18,23 @@ from tests.profile_test_support import (
     RecordingStorage,
     image_upload,
 )
+
+
+class _SignalConnection(Protocol):
+    """The narrow Django signal capability exercised by the ordering assertion."""
+
+    def connect(
+        self,
+        receiver: Callable[..., object],
+        sender: object | None = None,
+        weak: bool = True,
+    ) -> None: ...
+
+    def disconnect(
+        self,
+        receiver: Callable[..., object] | None = None,
+        sender: object | None = None,
+    ) -> bool | None: ...
 
 
 def _recording_storage() -> RecordingStorage:
@@ -36,6 +54,7 @@ def test_avatar_upload_replacement_removal_and_fresh_reads_keep_lifecycle_state(
     client = force_authenticated_client(user=user)
     saves: list[str | None] = []
     caplog.set_level(logging.DEBUG)
+    profile_post_save = cast(_SignalConnection, post_save)
 
     def observe(
         sender: type[PlayerProfile], instance: PlayerProfile, **kwargs: object
@@ -43,7 +62,7 @@ def test_avatar_upload_replacement_removal_and_fresh_reads_keep_lifecycle_state(
         del sender, kwargs
         saves.append(instance.avatar_key)
 
-    post_save.connect(observe, sender=PlayerProfile, weak=False)
+    profile_post_save.connect(observe, sender=PlayerProfile, weak=False)
     try:
         first = client.put("/api/profile/avatar/", {"avatar": image_upload()})
         assert first.status_code == 200
@@ -70,18 +89,17 @@ def test_avatar_upload_replacement_removal_and_fresh_reads_keep_lifecycle_state(
         assert second.json()["onboarding_complete"] is True
         second_url = second.json()["avatar_url"]
         second_key = PlayerProfile.objects.get(user=user).avatar_key
+        assert isinstance(second_key, str)
         assert second_key != first_key
         # Reads can occur in either profile response; only durable media ordering matters.
-        assert storage.events.index(
-            ("save", cast(str, first_key))
-        ) < storage.events.index(("save", cast(str, second_key)))
-        assert ("delete", cast(str, first_key)) in storage.events
-        assert storage.events.index(
-            ("save", cast(str, second_key))
-        ) < storage.events.index(("delete", cast(str, first_key)))
-        assert saves.index(cast(str, second_key)) < storage.events.index(
-            ("delete", cast(str, first_key))
+        assert storage.events.index(("save", first_key)) < storage.events.index(
+            ("save", second_key)
         )
+        assert ("delete", first_key) in storage.events
+        assert storage.events.index(("save", second_key)) < storage.events.index(
+            ("delete", first_key)
+        )
+        assert saves.index(second_key) < storage.events.index(("delete", first_key))
         first_get = client.get("/api/profile/").json()["avatar_url"]
         second_get = client.get("/api/profile/").json()["avatar_url"]
         assert first_get != second_get
@@ -92,8 +110,8 @@ def test_avatar_upload_replacement_removal_and_fresh_reads_keep_lifecycle_state(
         assert all(
             secret not in rendered_logs
             for secret in (
-                cast(str, first_key),
-                cast(str, second_key),
+                first_key,
+                second_key,
                 first_url,
                 completed_url,
                 second_url,
@@ -107,9 +125,9 @@ def test_avatar_upload_replacement_removal_and_fresh_reads_keep_lifecycle_state(
         assert PlayerProfile.objects.get(user=user).avatar_key is None
         assert max(
             index for index, value in enumerate(saves) if value is None
-        ) < storage.events.index(("delete", cast(str, second_key)))
+        ) < storage.events.index(("delete", second_key))
     finally:
-        post_save.disconnect(observe, sender=PlayerProfile)
+        profile_post_save.disconnect(observe, sender=PlayerProfile)
 
 
 @pytest.mark.django_db
