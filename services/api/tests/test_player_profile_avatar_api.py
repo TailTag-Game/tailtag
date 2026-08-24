@@ -22,6 +22,7 @@ from tests.profile_test_support import (
     RECORDING_STORAGES,
     BlockingRecordingStorage,
     RecordingStorage,
+    assert_profile_response,
     image_upload,
 )
 
@@ -97,13 +98,7 @@ def test_avatar_upload_replacement_removal_and_fresh_reads_keep_lifecycle_state(
     try:
         first = client.put("/api/profile/avatar/", {"avatar": image_upload()})
         assert first.status_code == 200
-        assert set(first.json()) == {
-            "handle",
-            "display_name",
-            "avatar_url",
-            "onboarding_complete",
-            "is_enabled",
-        }
+        assert_profile_response(first)
         assert first.json()["onboarding_complete"] is False
         first_url = first.json()["avatar_url"]
         storage = _recording_storage()
@@ -124,8 +119,13 @@ def test_avatar_upload_replacement_removal_and_fresh_reads_keep_lifecycle_state(
             "/api/profile/avatar/", {"avatar": image_upload(name="new.png")}
         )
         assert second.status_code == 200
-        assert second.json()["onboarding_complete"] is True
-        second_url = second.json()["avatar_url"]
+        second_profile = assert_profile_response(second)
+        assert second_profile["handle"] == "finn_42"
+        assert second_profile["display_name"] == "Finn"
+        assert second_profile["onboarding_complete"] is True
+        second_url = second_profile["avatar_url"]
+        assert isinstance(second_url, str)
+        assert second_profile["is_enabled"] is True
         second_key = PlayerProfile.objects.get(user=user).avatar_key
         assert isinstance(second_key, str)
         assert second_key != first_key
@@ -138,8 +138,16 @@ def test_avatar_upload_replacement_removal_and_fresh_reads_keep_lifecycle_state(
             ("delete", first_key)
         )
         assert saves.index(second_key) < storage.events.index(("delete", first_key))
-        first_get = client.get("/api/profile/").json()["avatar_url"]
+        completed_get = client.get("/api/profile/")
+        assert completed_get.status_code == 200
+        completed_profile = assert_profile_response(completed_get)
+        assert completed_profile["handle"] == "finn_42"
+        assert completed_profile["display_name"] == "Finn"
+        assert completed_profile["onboarding_complete"] is True
+        first_get = completed_profile["avatar_url"]
+        assert isinstance(first_get, str)
         second_get = client.get("/api/profile/").json()["avatar_url"]
+        assert isinstance(second_get, str)
         assert first_get != second_get
         assert first_get.startswith("https://media.example.test/read/")
         rendered_logs = "\n".join(

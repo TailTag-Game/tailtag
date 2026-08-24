@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Protocol, cast
+from typing import cast
 
 import pytest
 from django.core.files.storage import default_storage
@@ -19,6 +19,7 @@ from tests.authentication_support import (
 from tests.profile_test_support import (
     RECORDING_STORAGES,
     RecordingStorage,
+    assert_profile_response,
     image_upload,
 )
 
@@ -39,25 +40,6 @@ RESERVED_HANDLES = (
     "system",
     "tailtag",
 )
-
-
-class _JsonResponse(Protocol):
-    def json(self) -> dict[str, object]: ...
-
-
-def _assert_profile_response(
-    response: _JsonResponse, *, is_enabled: bool = True
-) -> None:
-    """Keep every successful runtime projection closed to the approved five fields."""
-    data = response.json()
-    assert set(data) == {
-        "handle",
-        "display_name",
-        "avatar_url",
-        "onboarding_complete",
-        "is_enabled",
-    }
-    assert data["is_enabled"] is is_enabled
 
 
 def _complete(
@@ -101,7 +83,7 @@ def test_profile_get_uses_the_real_bearer_resolution_boundary(
     response = Client().get("/api/profile/", HTTP_AUTHORIZATION="Bearer synthetic")
     assert response.status_code == 200
     assert response.json() == DEFAULT_PROFILE
-    _assert_profile_response(response)
+    assert_profile_response(response)
     assert len(verified) == 1
 
 
@@ -114,7 +96,7 @@ def test_profile_get_exposes_the_exact_conceptual_default_not_identity_data() ->
 
     assert response.status_code == 200
     assert response.json() == DEFAULT_PROFILE
-    _assert_profile_response(response)
+    assert_profile_response(response)
 
 
 @pytest.mark.django_db
@@ -229,7 +211,7 @@ def test_initial_put_normalizes_complete_text_profile(
         "onboarding_complete": True,
         "is_enabled": True,
     }
-    _assert_profile_response(response)
+    assert_profile_response(response)
 
 
 @pytest.mark.django_db
@@ -245,8 +227,11 @@ def test_put_and_patch_preserve_avatar_and_the_original_completion_timestamp() -
     assert uploaded.status_code == 200
     avatar_before = uploaded.json()["avatar_url"]
     storage = cast(RecordingStorage, default_storage)
-    before = PlayerProfile.objects.get(user=user).onboarding_completed_at
+    initial_profile = PlayerProfile.objects.get(user=user)
+    before = initial_profile.onboarding_completed_at
+    avatar_key_before = initial_profile.avatar_key
     assert isinstance(before, datetime)
+    assert isinstance(avatar_key_before, str)
 
     avatar = client.put("/api/profile/avatar/", {"avatar": b"not-an-image"})
     assert avatar.status_code == 400  # Avatar validation must not corrupt text state.
@@ -255,11 +240,22 @@ def test_put_and_patch_preserve_avatar_and_the_original_completion_timestamp() -
         {"handle": "wolf_2", "display_name": "  New\u00a0Name "},
         content_type="application/json",
     )
+
+    assert replaced.status_code == 200
+    replaced_profile = assert_profile_response(replaced)
+    assert replaced_profile["handle"] == "wolf_2"
+    assert replaced_profile["display_name"] == "New Name"
+    assert replaced_profile["onboarding_complete"] is True
+    assert isinstance(replaced_profile["avatar_url"], str)
+    profile_after_put = PlayerProfile.objects.get(user=user)
+    assert profile_after_put.handle == "wolf_2"
+    assert profile_after_put.display_name == "New Name"
+    assert profile_after_put.onboarding_completed_at == before
+    assert profile_after_put.avatar_key == avatar_key_before
+
     patched = client.patch(
         "/api/profile/", {"display_name": "Patched"}, content_type="application/json"
     )
-
-    assert replaced.status_code == 200
     assert patched.status_code == 200
     profile = PlayerProfile.objects.get(user=user)
     assert profile.handle == "wolf_2"
@@ -274,8 +270,44 @@ def test_put_and_patch_preserve_avatar_and_the_original_completion_timestamp() -
         == 3
     )
     assert storage.events.count(("url", profile.avatar_key)) == 3
-    _assert_profile_response(replaced)
-    _assert_profile_response(patched)
+    assert_profile_response(patched)
+
+
+@pytest.mark.django_db
+@override_settings(STORAGES=RECORDING_STORAGES)
+@pytest.mark.parametrize("handle", ("admin", "_invalid", "new handle", "café"))
+def test_completed_patch_rejects_invalid_handles_without_changing_durable_state(
+    handle: str,
+) -> None:
+    """Rejects post-onboarding validation that omits reserved or syntax rules."""
+    from profiles.models import PlayerProfile
+
+    user = create_test_user()
+    client = force_authenticated_client(user=user)
+    _complete(client)
+    uploaded = client.put("/api/profile/avatar/", {"avatar": image_upload()})
+    assert uploaded.status_code == 200
+    before = PlayerProfile.objects.get(user=user)
+    durable_state = (
+        before.handle,
+        before.display_name,
+        before.onboarding_completed_at,
+        before.avatar_key,
+    )
+
+    response = client.patch(
+        "/api/profile/", {"handle": handle}, content_type="application/json"
+    )
+
+    assert response.status_code == 400
+    assert set(response.json()) == {"handle"}
+    after = PlayerProfile.objects.get(user=user)
+    assert (
+        after.handle,
+        after.display_name,
+        after.onboarding_completed_at,
+        after.avatar_key,
+    ) == durable_state
 
 
 @pytest.mark.django_db
@@ -449,7 +481,7 @@ def test_profile_mutations_are_forbidden_while_disabled_and_resume_when_reenable
 
     disabled_get = client.get("/api/profile/")
     assert disabled_get.status_code == 200
-    _assert_profile_response(disabled_get, is_enabled=False)
+    assert_profile_response(disabled_get, is_enabled=False)
     assert client.get("/api/me/").status_code == 200
     mutations = (
         client.put(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from io import BytesIO
 from threading import Event, Lock
-from typing import IO, Any
+from typing import IO, Any, Protocol
 
 from django.core.files.storage import InMemoryStorage
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -18,6 +18,26 @@ BLOCKING_RECORDING_STORAGES = {
     "default": {"BACKEND": "tests.profile_test_support.BlockingRecordingStorage"},
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
+
+
+class _JsonResponse(Protocol):
+    def json(self) -> dict[str, object]: ...
+
+
+def assert_profile_response(
+    response: _JsonResponse, *, is_enabled: bool = True
+) -> dict[str, object]:
+    """Assert the approved five-field runtime representation and return it."""
+    data = response.json()
+    assert set(data) == {
+        "handle",
+        "display_name",
+        "avatar_url",
+        "onboarding_complete",
+        "is_enabled",
+    }
+    assert data["is_enabled"] is is_enabled
+    return data
 
 
 def image_upload(*, name: str = "avatar.png") -> SimpleUploadedFile:
