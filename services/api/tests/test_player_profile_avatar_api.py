@@ -388,6 +388,8 @@ def test_stale_avatar_removal_cannot_orphan_or_delete_a_replacement() -> None:
             connection.close()
 
     try:
+        replacement_reached_storage = False
+        replacement_committed_first = False
         with ThreadPoolExecutor(max_workers=2) as executor:
             removed = executor.submit(remove)
             removal_was_paused = removal_save_entered.wait(timeout=1)
@@ -400,9 +402,9 @@ def test_stale_avatar_removal_cannot_orphan_or_delete_a_replacement() -> None:
                 release_upload_first.set()
                 release_upload_second.set()
                 if replacement_reached_storage:
-                    # Do not resume the stale removal until the database shows
-                    # N, or this bounded wait establishes a serialized path.
-                    assert _wait_for_replacement_reference(
+                    # A blocked reference update is a valid serialized path;
+                    # distinguish it from a replacement that committed first.
+                    replacement_committed_first = _wait_for_replacement_reference(
                         user_id=user.pk, old_key=old_key
                     )
                 release_removal_save.set()
@@ -417,6 +419,12 @@ def test_stale_avatar_removal_cannot_orphan_or_delete_a_replacement() -> None:
         assert (upload_response.status_code, remove_response.status_code) == (200, 204)
         profile = PlayerProfile.objects.get(user=user)
         storage = cast(RecordingStorage, default_storage)
+        if (
+            removal_was_paused
+            and replacement_reached_storage
+            and not replacement_committed_first
+        ):
+            assert isinstance(profile.avatar_key, str)
         _assert_no_orphaned_upload(storage, profile.avatar_key)
         if profile.avatar_key is not None:
             assert ("delete", profile.avatar_key) not in storage.events
