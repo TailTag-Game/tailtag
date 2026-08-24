@@ -59,6 +59,7 @@ def test_profile_openapi_documents_exact_paths_methods_representation_and_media_
         "onboarding_complete",
         "is_enabled",
     }
+    assert successful.get("additionalProperties") is False
     assert successful["required"] == [
         "handle",
         "display_name",
@@ -84,7 +85,7 @@ def test_profile_openapi_documents_exact_paths_methods_representation_and_media_
     )
     assert {"handle", "display_name"}.issubset(patch_body["properties"])
     assert not patch_body.get("required")
-    for operation in (profile["put"], profile["patch"]):
+    for operation in (profile["put"], profile["patch"], avatar["put"]):
         response_schema = _dereference(
             schema,
             operation["responses"]["200"]["content"]["application/json"]["schema"],
