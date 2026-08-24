@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import TypedDict
 
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import (  # pyright: ignore[reportUnknownVariableType]
+    extend_schema_field,  # pyright: ignore[reportUnknownVariableType]
+)
 from rest_framework import serializers
 
 from media import service as media_service
@@ -16,6 +20,29 @@ MEDIA_ERROR_MESSAGES = {
     ImageRejectionCode.UNSUPPORTED_FORMAT: "Upload a JPEG, PNG, or static WebP image.",
     ImageRejectionCode.ANIMATED_IMAGE: "Animated avatars are not supported.",
     ImageRejectionCode.TOO_MANY_PIXELS: "The avatar dimensions are too large.",
+}
+
+PROFILE_RESPONSE_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "handle": {"type": "string", "nullable": True, "readOnly": True},
+        "display_name": {"type": "string", "nullable": True, "readOnly": True},
+        "avatar_url": {
+            "type": "string",
+            "format": "uri",
+            "nullable": True,
+            "readOnly": True,
+        },
+        "onboarding_complete": {"type": "boolean", "readOnly": True},
+        "is_enabled": {"type": "boolean", "readOnly": True},
+    },
+    "required": [
+        "handle",
+        "display_name",
+        "avatar_url",
+        "onboarding_complete",
+        "is_enabled",
+    ],
 }
 
 
@@ -33,8 +60,13 @@ class ProfilePatchSerializer(serializers.Serializer[dict[str, str]]):
     )
 
 
+@extend_schema_field(OpenApiTypes.BINARY)
+class AvatarUploadField(serializers.FileField):
+    """Runtime upload field with its multipart binary schema representation."""
+
+
 class AvatarPutSerializer(serializers.Serializer[dict[str, object]]):
-    avatar = serializers.FileField(allow_empty_file=False)
+    avatar = AvatarUploadField(allow_empty_file=False)
 
 
 class ProfileResponseData(TypedDict):

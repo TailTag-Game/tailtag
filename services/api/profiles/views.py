@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, NoReturn, cast
 
 from django.core.exceptions import PermissionDenied
 from drf_spectacular.utils import (  # pyright: ignore[reportUnknownVariableType]
+    OpenApiResponse,
     extend_schema,  # pyright: ignore[reportUnknownVariableType]
 )
 from rest_framework import serializers
@@ -21,10 +22,10 @@ from media.images import ImageValidationError
 from profiles.models import PlayerProfile
 from profiles.serializers import (
     MEDIA_ERROR_MESSAGES,
+    PROFILE_RESPONSE_SCHEMA,
     AvatarPutSerializer,
     ProfilePatchSerializer,
     ProfilePutSerializer,
-    ProfileResponseSerializer,
     profile_response_data,
 )
 from profiles.services import (
@@ -48,14 +49,36 @@ class ProfileView(APIView):
 
     permission_classes = (IsAuthenticated,)
 
-    @extend_schema(responses={200: ProfileResponseSerializer})
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(response=PROFILE_RESPONSE_SCHEMA),
+            401: OpenApiResponse(
+                description="Authentication credentials were not provided."
+            ),
+            403: OpenApiResponse(
+                description="Authentication credentials were not accepted."
+            ),
+        },
+    )
     def get(self, request: Request) -> Response:
         return _profile_response(get_or_create_profile(_user(request)))
 
     @extend_schema(
         request=ProfilePutSerializer,
-        responses={200: ProfileResponseSerializer},
-        description="Replace both text fields while preserving the independently managed avatar.",
+        responses={
+            200: OpenApiResponse(response=PROFILE_RESPONSE_SCHEMA),
+            400: OpenApiResponse(
+                description="The supplied profile fields are invalid."
+            ),
+            401: OpenApiResponse(
+                description="Authentication credentials were not provided."
+            ),
+            403: OpenApiResponse(description="The player profile is disabled."),
+        },
+        description=(
+            "Completely replace handle and display_name while preserving the "
+            "independently managed avatar state."
+        ),
     )
     def put(self, request: Request) -> Response:
         serializer = ProfilePutSerializer(data=request.data)
@@ -72,7 +95,17 @@ class ProfileView(APIView):
         return _profile_response(profile)
 
     @extend_schema(
-        request=ProfilePatchSerializer, responses={200: ProfileResponseSerializer}
+        request=ProfilePatchSerializer,
+        responses={
+            200: OpenApiResponse(response=PROFILE_RESPONSE_SCHEMA),
+            400: OpenApiResponse(
+                description="The supplied profile fields are invalid."
+            ),
+            401: OpenApiResponse(
+                description="Authentication credentials were not provided."
+            ),
+            403: OpenApiResponse(description="The player profile is disabled."),
+        },
     )
     def patch(self, request: Request) -> Response:
         serializer = ProfilePatchSerializer(data=request.data)
@@ -111,6 +144,18 @@ class ProfileAvatarView(APIView):
             )
         return super().handle_exception(exc)
 
+    @extend_schema(
+        request=AvatarPutSerializer,
+        responses={
+            200: OpenApiResponse(response=PROFILE_RESPONSE_SCHEMA),
+            400: OpenApiResponse(description="The uploaded avatar is invalid."),
+            401: OpenApiResponse(
+                description="Authentication credentials were not provided."
+            ),
+            403: OpenApiResponse(description="The player profile is disabled."),
+        },
+        description="Replace the independently managed avatar using multipart/form-data.",
+    )
     def put(self, request: Request) -> Response:
         _require_avatar_mutation_enabled(_user(request))
         serializer = AvatarPutSerializer(data=request.data)
@@ -134,6 +179,15 @@ class ProfileAvatarView(APIView):
             _raise_domain_error(error)
         return _profile_response(profile)
 
+    @extend_schema(
+        responses={
+            204: OpenApiResponse(description="The avatar was removed."),
+            401: OpenApiResponse(
+                description="Authentication credentials were not provided."
+            ),
+            403: OpenApiResponse(description="The player profile is disabled."),
+        },
+    )
     def delete(self, request: Request) -> Response:
         try:
             remove_profile_avatar(_user(request))
