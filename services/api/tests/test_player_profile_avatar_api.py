@@ -402,7 +402,9 @@ def test_stale_avatar_removal_cannot_orphan_or_delete_a_replacement() -> None:
                 if replacement_reached_storage:
                     # Do not resume the stale removal until the database shows
                     # N, or this bounded wait establishes a serialized path.
-                    _wait_for_replacement_reference(user_id=user.pk, old_key=old_key)
+                    assert _wait_for_replacement_reference(
+                        user_id=user.pk, old_key=old_key
+                    )
                 release_removal_save.set()
             else:
                 # A safe transition may not use model save signals. Do not make
