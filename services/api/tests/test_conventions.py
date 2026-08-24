@@ -128,6 +128,23 @@ def test_convention_model_clean_validation() -> None:
     assert "end_date" in exc_info.value.message_dict
 
 
+def test_convention_model_clean_handles_missing_dates_safely() -> None:
+    """Model clean() handles missing start_date or end_date without raising TypeError."""
+    convention_no_end = Convention(
+        name="No End Date Con",
+        status=ConventionStatus.DRAFT,
+        start_date=datetime.date(2026, 7, 5),
+    )
+    convention_no_end.clean()
+
+    convention_no_start = Convention(
+        name="No Start Date Con",
+        status=ConventionStatus.DRAFT,
+        end_date=datetime.date(2026, 7, 5),
+    )
+    convention_no_start.clean()
+
+
 @pytest.mark.django_db
 def test_convention_database_rejects_empty_name() -> None:
     """Database check constraint rejects empty convention name."""
@@ -240,6 +257,44 @@ def test_convention_admin_operator_workflow_and_validation(client: Client) -> No
     )
     assert invalid_date_response.status_code == 200
     assert b"End date must be on or after start date." in invalid_date_response.content
+
+
+@pytest.mark.django_db
+def test_convention_admin_rejects_missing_and_malformed_dates(client: Client) -> None:
+    """Admin form validation gracefully rejects missing and malformed dates without crashing."""
+    admin_user = User.objects.create_superuser(
+        clerk_user_id="user_admin_date_validation",
+        password="test-admin-password",
+    )
+    client.force_login(admin_user)
+
+    add_url = reverse("admin:conventions_convention_add")
+
+    # Missing required end_date
+    missing_end_date_response = client.post(
+        add_url,
+        {
+            "name": "Missing End Date Con",
+            "status": ConventionStatus.DRAFT,
+            "start_date": "2026-12-03",
+            "end_date": "",
+        },
+    )
+    assert missing_end_date_response.status_code == 200
+    assert b"This field is required." in missing_end_date_response.content
+
+    # Malformed start_date
+    malformed_date_response = client.post(
+        add_url,
+        {
+            "name": "Malformed Date Con",
+            "status": ConventionStatus.DRAFT,
+            "start_date": "not-a-real-date",
+            "end_date": "2026-12-06",
+        },
+    )
+    assert malformed_date_response.status_code == 200
+    assert b"Enter a valid date." in malformed_date_response.content
 
 
 @override_settings(CLERK_AUTHENTICATION=TEST_CLERK_CONFIGURATION)

@@ -78,7 +78,9 @@ class Convention(models.Model):
     def clean(self) -> None:
         """Validate date invariants across fields."""
         super().clean()
-        if self.end_date < self.start_date:
+        start_date: datetime.date | None = getattr(self, "start_date", None)
+        end_date: datetime.date | None = getattr(self, "end_date", None)
+        if start_date is not None and end_date is not None and end_date < start_date:
             raise ValidationError(
                 {"end_date": "End date must be on or after start date."}
             )
