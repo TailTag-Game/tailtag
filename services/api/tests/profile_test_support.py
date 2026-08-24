@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from io import BytesIO
-from threading import Barrier, Event
+from threading import Event
 from typing import IO, Any
 
 from django.core.files.storage import InMemoryStorage
@@ -57,20 +57,17 @@ class RecordingStorage(InMemoryStorage):
 class BlockingRecordingStorage(RecordingStorage):
     """A real in-memory storage backend that pauses uploads before reference commit."""
 
-    save_barrier: Barrier | None = None
     saved: Event | None = None
     release: Event | None = None
 
     @classmethod
-    def configure_upload_pause(cls, participants: int) -> Event:
-        cls.save_barrier = Barrier(participants)
+    def configure_upload_pause(cls) -> Event:
         cls.saved = Event()
         cls.release = Event()
         return cls.release
 
     @classmethod
     def clear_upload_pause(cls) -> None:
-        cls.save_barrier = None
         cls.saved = None
         cls.release = None
 
@@ -78,10 +75,7 @@ class BlockingRecordingStorage(RecordingStorage):
         self, name: str | None, content: IO[Any], max_length: int | None = None
     ) -> str:
         saved_name = super().save(name, content, max_length=max_length)
-        if self.save_barrier is not None:
-            self.save_barrier.wait(timeout=10)
-            assert self.saved is not None
-            assert self.release is not None
+        if self.saved is not None and self.release is not None:
             self.saved.set()
             assert self.release.wait(timeout=10)
         return saved_name

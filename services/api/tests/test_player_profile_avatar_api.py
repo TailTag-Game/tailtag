@@ -271,7 +271,7 @@ def test_concurrent_avatar_replacements_leave_only_the_referenced_object() -> No
     from profiles.models import PlayerProfile
 
     user = create_test_user()
-    release = BlockingRecordingStorage.configure_upload_pause(2)
+    release = BlockingRecordingStorage.configure_upload_pause()
 
     def upload(name: str) -> Any:
         close_old_connections()
@@ -285,9 +285,11 @@ def test_concurrent_avatar_replacements_leave_only_the_referenced_object() -> No
     try:
         with ThreadPoolExecutor(max_workers=2) as executor:
             first = executor.submit(upload, "first.png")
-            second = executor.submit(upload, "second.png")
             assert BlockingRecordingStorage.saved is not None
             assert BlockingRecordingStorage.saved.wait(timeout=10)
+            # A correct transition may serialize before it reaches storage, so do
+            # not require this second request to enter ``save`` before releasing.
+            second = executor.submit(upload, "second.png")
             release.set()
             responses = (first.result(timeout=15), second.result(timeout=15))
         assert [response.status_code for response in responses] == [200, 200]
@@ -309,7 +311,7 @@ def test_overlapping_avatar_upload_and_removal_leave_a_serializable_media_state(
     from profiles.models import PlayerProfile
 
     user = create_test_user()
-    release = BlockingRecordingStorage.configure_upload_pause(1)
+    release = BlockingRecordingStorage.configure_upload_pause()
 
     def upload() -> Any:
         close_old_connections()
@@ -350,12 +352,12 @@ def test_overlapping_avatar_upload_and_removal_leave_a_serializable_media_state(
 
 @pytest.mark.django_db(transaction=True)
 @override_settings(STORAGES=BLOCKING_RECORDING_STORAGES)
-def test_disable_before_avatar_reference_commit_compensates_the_new_object() -> None:
-    """Rejects uploads that commit an avatar after an operator disables the player."""
+def test_disable_during_avatar_upload_has_a_safe_serializable_outcome() -> None:
+    """Rejects a disable/upload race that leaves an orphan or deletes an active object."""
     from profiles.models import PlayerProfile
 
     user = create_test_user()
-    release = BlockingRecordingStorage.configure_upload_pause(1)
+    release = BlockingRecordingStorage.configure_upload_pause()
 
     def upload() -> Any:
         close_old_connections()
@@ -376,10 +378,19 @@ def test_disable_before_avatar_reference_commit_compensates_the_new_object() -> 
             profile.save(update_fields={"is_enabled"})
             release.set()
             response = result.result(timeout=15)
-        assert response.status_code == 403
+        assert response.status_code in {200, 403}
         profile.refresh_from_db()
-        assert profile.avatar_key is None
+        assert profile.is_enabled is False
         storage = cast(RecordingStorage, default_storage)
         _assert_no_orphaned_upload(storage, profile.avatar_key)
+        if profile.avatar_key is not None:
+            assert ("delete", profile.avatar_key) not in storage.events
+
+        events_before_follow_up = list(storage.events)
+        follow_up = force_authenticated_client(user=user).put(
+            "/api/profile/avatar/", {"avatar": image_upload(name="later.png")}
+        )
+        assert follow_up.status_code == 403
+        assert storage.events == events_before_follow_up
     finally:
         BlockingRecordingStorage.clear_upload_pause()

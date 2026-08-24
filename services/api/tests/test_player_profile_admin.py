@@ -110,6 +110,10 @@ def test_normal_staff_permissions_are_sufficient_but_accounts_admin_stays_read_o
         ).status_code
         == 200
     )
+    assert (
+        b'name="action"'
+        not in client.get(reverse("admin:profiles_playerprofile_changelist")).content
+    )
     profile_change = client.post(
         reverse("admin:profiles_playerprofile_change", args=(profile.pk,)),
         {"is_enabled": ""},
@@ -137,10 +141,8 @@ def test_normal_staff_permissions_are_sufficient_but_accounts_admin_stays_read_o
 
 
 @pytest.mark.django_db
-def test_view_only_staff_can_inspect_but_cannot_change_or_bulk_disable_profiles() -> (
-    None
-):
-    """Rejects treating inspection permission as authority to disable players in bulk or per row."""
+def test_view_only_staff_can_inspect_but_cannot_change_profiles() -> None:
+    """Rejects treating inspection permission as authority to disable a player."""
     from profiles.models import PlayerProfile
 
     staff = create_test_user()
@@ -165,4 +167,3 @@ def test_view_only_staff_can_inspect_but_cannot_change_or_bulk_disable_profiles(
     assert client.post(change_url, {"is_enabled": ""}).status_code == 403
     profile.refresh_from_db()
     assert profile.is_enabled is True
-    assert b'name="action"' not in response.content
