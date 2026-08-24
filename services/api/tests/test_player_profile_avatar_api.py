@@ -210,7 +210,7 @@ def test_avatar_rejects_bad_requests_and_all_media_classifications_as_safe_field
         client.put(
             "/api/profile/avatar/",
             {"avatar": "not-a-file"},
-            content_type="application/json",
+            format="multipart",
         ).status_code
         == 400
     )
