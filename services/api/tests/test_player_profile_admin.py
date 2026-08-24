@@ -75,6 +75,11 @@ def test_normal_staff_permissions_are_sufficient_but_accounts_admin_stays_read_o
         staff.user_permissions.add(
             Permission.objects.get(content_type__app_label="profiles", codename=code)
         )  # pyright: ignore[reportUnknownMemberType]
+    staff.user_permissions.add(
+        Permission.objects.get(
+            content_type__app_label="accounts", codename="change_user"
+        )
+    )  # pyright: ignore[reportUnknownMemberType]
     profile = PlayerProfile.objects.create(user=create_test_user())
     client = Client()
     client.force_login(staff)
@@ -88,6 +93,15 @@ def test_normal_staff_permissions_are_sufficient_but_accounts_admin_stays_read_o
         ).status_code
         == 200
     )
+    profile_change = client.post(
+        reverse("admin:profiles_playerprofile_change", args=(profile.pk,)),
+        {"is_enabled": ""},
+    )
+    profile.refresh_from_db()
+    assert profile_change.status_code == 302
+    assert profile.is_enabled is False
+    assert LogEntry.objects.filter(user=staff, object_id=str(profile.pk)).exists()
+    owner_before = (profile.user.is_staff, profile.user.is_superuser)
     assert (
         client.post(
             reverse("admin:accounts_user_change", args=(profile.user.pk,)),
@@ -95,3 +109,5 @@ def test_normal_staff_permissions_are_sufficient_but_accounts_admin_stays_read_o
         ).status_code
         == 403
     )
+    profile.user.refresh_from_db()
+    assert (profile.user.is_staff, profile.user.is_superuser) == owner_before

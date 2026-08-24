@@ -6,6 +6,7 @@ from typing import cast
 
 import pytest
 from django.db import IntegrityError, connection, transaction
+from django.db.backends.utils import CursorWrapper
 from django.utils import timezone
 from psycopg import errors
 from psycopg.pq import DiagnosticField
@@ -81,31 +82,63 @@ def test_profile_database_accepts_default_and_completed_shapes_but_rejects_inval
             display_name="Valid",
             onboarding_completed_at=timezone.now(),
         )
-    with pytest.raises(IntegrityError), transaction.atomic():
-        PlayerProfile.objects.create(user=create_test_user(), handle="partial_1")
+    for handle, display_name, completed_at in (
+        ("partial_1", None, None),
+        (None, None, timezone.now()),
+        (None, "Display", None),
+        (None, "Display", timezone.now()),
+        ("partial_2", None, timezone.now()),
+        ("partial_3", "", timezone.now()),
+        ("partial_4", "Display", None),
+    ):
+        with pytest.raises(IntegrityError), transaction.atomic():
+            PlayerProfile.objects.create(
+                user=create_test_user(),
+                handle=handle,
+                display_name=display_name,
+                onboarding_completed_at=completed_at,
+            )
 
 
 @pytest.mark.parametrize(
-    "cause",
+    ("cause", "expected"),
     (
-        _unique_violation(),
-        _unique_violation(constraint="other_unique"),
-        _unique_violation(sqlstate=b"23503"),
-        errors.CheckViolation(
-            "check",
-            info={
-                DiagnosticField.SQLSTATE: b"23514",
-                DiagnosticField.CONSTRAINT_NAME: HANDLE_UNIQUE.encode(),
-            },
+        (_unique_violation(), True),
+        (_unique_violation(constraint="other_unique"), False),
+        (_unique_violation(sqlstate=b"23503"), False),
+        (
+            errors.CheckViolation(
+                "check",
+                info={
+                    DiagnosticField.SQLSTATE: b"23514",
+                    DiagnosticField.CONSTRAINT_NAME: HANDLE_UNIQUE.encode(),
+                },
+            ),
+            False,
         ),
-        errors.ForeignKeyViolation(
-            "fk",
-            info={
-                DiagnosticField.SQLSTATE: b"23503",
-                DiagnosticField.CONSTRAINT_NAME: HANDLE_UNIQUE.encode(),
-            },
+        (
+            errors.ForeignKeyViolation(
+                "fk",
+                info={
+                    DiagnosticField.SQLSTATE: b"23503",
+                    DiagnosticField.CONSTRAINT_NAME: HANDLE_UNIQUE.encode(),
+                },
+            ),
+            False,
         ),
-        None,
+        (
+            errors.InvalidSchemaName(
+                "schema", info={DiagnosticField.SQLSTATE: b"3F000"}
+            ),
+            False,
+        ),
+        (
+            errors.SyntaxError(
+                "programming", info={DiagnosticField.SQLSTATE: b"42601"}
+            ),
+            False,
+        ),
+        (None, False),
     ),
     ids=(
         "expected",
@@ -113,20 +146,61 @@ def test_profile_database_accepts_default_and_completed_shapes_but_rejects_inval
         "wrong-sqlstate",
         "check",
         "foreign-key",
+        "schema",
+        "programming",
         "bare",
     ),
 )
 def test_handle_unique_classifier_uses_only_structured_expected_postgresql_metadata(
-    cause: BaseException | None,
+    cause: BaseException | None, expected: bool
 ) -> None:
     """Rejects matching exception prose, any 23505, or unrelated database constraints."""
     from profiles.services import _is_handle_unique_violation
 
     error = IntegrityError("duplicate handle according to hostile text")
     wrapped = error if cause is None else _with_cause(error, cause)
-    assert _is_handle_unique_violation(wrapped) is (
-        cause is not None
-        and cause is not None
-        and cause.diag.sqlstate == "23505"
-        and cause.diag.constraint_name == HANDLE_UNIQUE
+    assert _is_handle_unique_violation(wrapped) is expected
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("operation", ("put", "patch"))
+def test_text_write_services_propagate_unrelated_integrity_failures(
+    monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    """Rejects text writers that convert every database integrity error into duplicate handle."""
+    from profiles import services
+    from profiles.models import PlayerProfile
+
+    user = create_test_user()
+    PlayerProfile.objects.create(
+        user=user,
+        handle="existing_1",
+        display_name="Existing",
+        onboarding_completed_at=timezone.now(),
     )
+    original_execute = CursorWrapper.execute
+    failure = _with_cause(
+        IntegrityError("hostile unrelated integrity failure"),
+        errors.CheckViolation(
+            "hostile unrelated check failure",
+            info={
+                DiagnosticField.SQLSTATE: b"23514",
+                DiagnosticField.CONSTRAINT_NAME: b"profiles_unrelated_check",
+            },
+        ),
+    )
+
+    def fail_update(cursor: CursorWrapper, sql: str, params: object = None) -> object:
+        if sql.lstrip().upper().startswith("UPDATE"):
+            raise failure
+        return original_execute(cursor, sql, params)
+
+    monkeypatch.setattr(CursorWrapper, "execute", fail_update)
+
+    with pytest.raises(IntegrityError) as raised:
+        if operation == "put":
+            services.put_text_profile(user, handle="updated_1", display_name="Updated")
+        else:
+            services.patch_text_profile(user, handle="updated_1")
+
+    assert raised.value is failure

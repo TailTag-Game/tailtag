@@ -27,15 +27,16 @@ def _recording_storage() -> RecordingStorage:
 
 @pytest.mark.django_db
 @override_settings(STORAGES=RECORDING_STORAGES)
-def test_avatar_upload_replacement_removal_and_fresh_reads_keep_lifecycle_state() -> (
-    None
-):
+def test_avatar_upload_replacement_removal_and_fresh_reads_keep_lifecycle_state(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """Rejects URL persistence, cleanup-before-commit, and avatar-gates-onboarding bugs."""
     from profiles.models import PlayerProfile
 
     user = create_test_user()
     client = force_authenticated_client(user=user)
     saves: list[str | None] = []
+    caplog.set_level(logging.DEBUG)
 
     def observe(
         sender: type[PlayerProfile], instance: PlayerProfile, **kwargs: object
@@ -48,6 +49,7 @@ def test_avatar_upload_replacement_removal_and_fresh_reads_keep_lifecycle_state(
         first = client.put("/api/profile/avatar/", {"avatar": image_upload()})
         assert first.status_code == 200
         assert first.json()["onboarding_complete"] is False
+        first_url = first.json()["avatar_url"]
         storage = _recording_storage()
         first_key = PlayerProfile.objects.get(user=user).avatar_key
         assert isinstance(first_key, str)
@@ -61,19 +63,23 @@ def test_avatar_upload_replacement_removal_and_fresh_reads_keep_lifecycle_state(
             content_type="application/json",
         )
         assert completed.status_code == 200
+        completed_url = completed.json()["avatar_url"]
         second = client.put(
             "/api/profile/avatar/", {"avatar": image_upload(name="new.png")}
         )
         assert second.status_code == 200
         assert second.json()["onboarding_complete"] is True
+        second_url = second.json()["avatar_url"]
         second_key = PlayerProfile.objects.get(user=user).avatar_key
         assert second_key != first_key
-        assert storage.events[:3] == [
-            ("save", cast(str, first_key)),
-            ("url", cast(str, first_key)),
-            ("save", cast(str, second_key)),
-        ]
+        # Reads can occur in either profile response; only durable media ordering matters.
+        assert storage.events.index(
+            ("save", cast(str, first_key))
+        ) < storage.events.index(("save", cast(str, second_key)))
         assert ("delete", cast(str, first_key)) in storage.events
+        assert storage.events.index(
+            ("save", cast(str, second_key))
+        ) < storage.events.index(("delete", cast(str, first_key)))
         assert saves.index(cast(str, second_key)) < storage.events.index(
             ("delete", cast(str, first_key))
         )
@@ -81,6 +87,21 @@ def test_avatar_upload_replacement_removal_and_fresh_reads_keep_lifecycle_state(
         second_get = client.get("/api/profile/").json()["avatar_url"]
         assert first_get != second_get
         assert first_get.startswith("https://media.example.test/read/")
+        rendered_logs = "\n".join(
+            (caplog.text, *(record.getMessage() for record in caplog.records))
+        )
+        assert all(
+            secret not in rendered_logs
+            for secret in (
+                cast(str, first_key),
+                cast(str, second_key),
+                first_url,
+                completed_url,
+                second_url,
+                first_get,
+                second_get,
+            )
+        )
         removed = client.delete("/api/profile/avatar/")
         again = client.delete("/api/profile/avatar/")
         assert (removed.status_code, again.status_code) == (204, 204)
@@ -96,6 +117,7 @@ def test_avatar_upload_replacement_removal_and_fresh_reads_keep_lifecycle_state(
 @override_settings(STORAGES=RECORDING_STORAGES)
 def test_avatar_rejects_bad_requests_and_all_media_classifications_as_safe_field_errors(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Rejects raw image errors, wrong payload types, and mutation on media failure."""
     from profiles.models import PlayerProfile
@@ -104,6 +126,23 @@ def test_avatar_rejects_bad_requests_and_all_media_classifications_as_safe_field
 
     user = create_test_user()
     client = force_authenticated_client(user=user)
+    seed = client.put("/api/profile/avatar/", {"avatar": image_upload()})
+    assert seed.status_code == 200
+    seed_url = seed.json()["avatar_url"]
+    seed_key = PlayerProfile.objects.get(user=user).avatar_key
+    assert isinstance(seed_key, str)
+    assert (
+        client.put(
+            "/api/profile/",
+            {"handle": "finn_42", "display_name": "Finn"},
+            content_type="application/json",
+        ).status_code
+        == 200
+    )
+    caplog.set_level(logging.DEBUG)
+    caplog.clear()
+    storage = _recording_storage()
+    before_events = list(storage.events)
     assert client.put("/api/profile/avatar/", {}, format="multipart").status_code == 400
     assert (
         client.put(
@@ -112,14 +151,6 @@ def test_avatar_rejects_bad_requests_and_all_media_classifications_as_safe_field
             content_type="application/json",
         ).status_code
         == 400
-    )
-    assert (
-        client.put(
-            "/api/profile/",
-            {"handle": "finn_42", "display_name": "Finn"},
-            content_type="application/json",
-        ).status_code
-        == 200
     )
     before = PlayerProfile.objects.get(user=user)
     initial_state = (
@@ -144,8 +175,12 @@ def test_avatar_rejects_bad_requests_and_all_media_classifications_as_safe_field
             after.onboarding_completed_at,
             after.avatar_key,
         ) == initial_state
-    storage = _recording_storage()
-    assert not storage.events
+    assert storage.events == before_events
+    rendered_logs = "\n".join(
+        (caplog.text, *(record.getMessage() for record in caplog.records))
+    )
+    assert seed_key not in rendered_logs
+    assert seed_url not in rendered_logs
 
 
 @pytest.mark.django_db

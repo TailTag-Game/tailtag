@@ -5,9 +5,14 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
+from django.test import Client, override_settings
 from rest_framework.test import APIClient
 
-from tests.authentication_support import create_test_user, force_authenticated_client
+from tests.authentication_support import (
+    TEST_CLERK_CONFIGURATION,
+    create_test_user,
+    force_authenticated_client,
+)
 from tests.profile_test_support import image_upload
 
 DEFAULT_PROFILE = {
@@ -38,6 +43,26 @@ def _complete(
         content_type="application/json",
     )
     assert response.status_code == 200, response.content
+
+
+@override_settings(CLERK_AUTHENTICATION=TEST_CLERK_CONFIGURATION)
+def test_every_profile_operation_requires_existing_bearer_authentication() -> None:
+    """Rejects endpoints declared private in OpenAPI but reachable without authentication."""
+    client = Client()
+    responses = (
+        client.get("/api/profile/"),
+        client.put("/api/profile/", {}, content_type="application/json"),
+        client.patch("/api/profile/", {}, content_type="application/json"),
+        client.generic(
+            "PUT", "/api/profile/avatar/", data=b"", content_type="multipart/form-data"
+        ),
+        client.delete("/api/profile/avatar/"),
+    )
+
+    for response in responses:
+        assert response.status_code == 401
+        assert response["WWW-Authenticate"] == "Bearer"
+        assert set(response.json()) == {"detail"}
 
 
 @pytest.mark.django_db
@@ -194,13 +219,27 @@ def test_patch_requires_completed_nonempty_text_and_ignores_player_lifecycle_fla
     for payload in (
         {},
         {"handle": "finn_42"},
+        {"handle": "finn_42", "display_name": "Finn"},
         {"onboarding_complete": True, "is_enabled": False},
     ):
         response = client.patch(
             "/api/profile/", payload, content_type="application/json"
         )
         assert response.status_code == 400
-    _complete(client)
+        assert client.get("/api/profile/").json() == DEFAULT_PROFILE
+    completed = client.put(
+        "/api/profile/",
+        {
+            "handle": "finn_42",
+            "display_name": "Finn",
+            "onboarding_complete": False,
+            "is_enabled": False,
+        },
+        content_type="application/json",
+    )
+    assert completed.status_code == 200
+    assert completed.json()["onboarding_complete"] is True
+    assert completed.json()["is_enabled"] is True
 
     for payload in ({}, {"handle": None}, {"display_name": ""}):
         response = client.patch(
@@ -216,6 +255,33 @@ def test_patch_requires_completed_nonempty_text_and_ignores_player_lifecycle_fla
     assert response.json()["handle"] == "wolf_2"
     assert response.json()["onboarding_complete"] is True
     assert response.json()["is_enabled"] is True
+    both_fields = client.patch(
+        "/api/profile/",
+        {"handle": "two_fields_2", "display_name": "Two Fields"},
+        content_type="application/json",
+    )
+    assert both_fields.status_code == 200
+    assert both_fields.json()["handle"] == "two_fields_2"
+    assert both_fields.json()["display_name"] == "Two Fields"
+
+
+@pytest.mark.django_db
+def test_serial_duplicate_handle_is_a_safe_field_validation_error() -> None:
+    """Rejects duplicate checks that are omitted outside a concurrency race."""
+    first = force_authenticated_client(user=create_test_user())
+    second = force_authenticated_client(user=create_test_user())
+    _complete(first, handle="duplicate_1")
+
+    response = second.put(
+        "/api/profile/",
+        {"handle": "DUPLICATE_1", "display_name": "Second"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert set(response.json()) == {"handle"}
+    assert response.data["handle"][0].code == "unique"
+    assert second.get("/api/profile/").json() == DEFAULT_PROFILE
 
 
 @pytest.mark.django_db

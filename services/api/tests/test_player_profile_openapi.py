@@ -75,8 +75,21 @@ def test_profile_openapi_documents_exact_paths_methods_representation_and_media_
         schema, profile["put"]["requestBody"]["content"]["application/json"]["schema"]
     )
     assert set(put_body["required"]) == {"handle", "display_name"}
-    assert "avatar" in str(profile["put"].get("description", "")).lower()
-    assert profile["patch"]["requestBody"]["content"]["application/json"]
+    put_description = str(profile["put"].get("description", "")).lower()
+    assert "avatar" in put_description
+    assert "preserv" in put_description or "retain" in put_description
+    patch_body = _dereference(
+        schema,
+        profile["patch"]["requestBody"]["content"]["application/json"]["schema"],
+    )
+    assert {"handle", "display_name"}.issubset(patch_body["properties"])
+    assert not patch_body.get("required")
+    for operation in (profile["put"], profile["patch"]):
+        response_schema = _dereference(
+            schema,
+            operation["responses"]["200"]["content"]["application/json"]["schema"],
+        )
+        assert response_schema == successful
     avatar_body = _dereference(
         schema, avatar["put"]["requestBody"]["content"]["multipart/form-data"]["schema"]
     )
