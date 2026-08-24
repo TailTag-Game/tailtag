@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import Protocol, cast
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Protocol, cast
 
 import pytest
 from django.core.files.storage import default_storage
+from django.db import close_old_connections, connection
 from django.db.models.signals import post_save
 from django.test import override_settings
 
 from media.images import ImageRejectionCode
 from tests.authentication_support import create_test_user, force_authenticated_client
 from tests.profile_test_support import (
+    BLOCKING_RECORDING_STORAGES,
     RECORDING_STORAGES,
+    BlockingRecordingStorage,
     RecordingStorage,
     image_upload,
 )
@@ -42,6 +46,16 @@ def _recording_storage() -> RecordingStorage:
     return cast(RecordingStorage, default_storage)
 
 
+def _assert_no_orphaned_upload(
+    storage: RecordingStorage, avatar_key: str | None
+) -> None:
+    saved_keys = {name for event, name in storage.events if event == "save"}
+    for key in saved_keys - ({avatar_key} if avatar_key is not None else set()):
+        assert not storage.exists(key)
+    if avatar_key is not None:
+        assert storage.exists(avatar_key)
+
+
 @pytest.mark.django_db
 @override_settings(STORAGES=RECORDING_STORAGES)
 def test_avatar_upload_replacement_removal_and_fresh_reads_keep_lifecycle_state(
@@ -66,6 +80,13 @@ def test_avatar_upload_replacement_removal_and_fresh_reads_keep_lifecycle_state(
     try:
         first = client.put("/api/profile/avatar/", {"avatar": image_upload()})
         assert first.status_code == 200
+        assert set(first.json()) == {
+            "handle",
+            "display_name",
+            "avatar_url",
+            "onboarding_complete",
+            "is_enabled",
+        }
         assert first.json()["onboarding_complete"] is False
         first_url = first.json()["avatar_url"]
         storage = _recording_storage()
@@ -220,3 +241,145 @@ def test_disabled_avatar_writes_are_forbidden_before_storage_or_validation(
     assert profile.avatar_key is None
     storage = _recording_storage()
     assert not storage.events
+
+
+@pytest.mark.django_db
+def test_avatar_endpoint_rejects_unsupported_methods() -> None:
+    """Rejects accidental read, creation, or partial-update avatar routes."""
+    client = force_authenticated_client(user=create_test_user())
+    assert [
+        client.get("/api/profile/avatar/").status_code,
+        client.post("/api/profile/avatar/", {}).status_code,
+        client.patch("/api/profile/avatar/", {}).status_code,
+    ] == [405, 405, 405]
+
+
+@pytest.mark.django_db
+def test_remove_profile_avatar_returns_none_and_remains_idempotent() -> None:
+    """Freezes the service seam return contract independently of HTTP's 204 projection."""
+    from profiles.services import remove_profile_avatar
+
+    user = create_test_user()
+    assert remove_profile_avatar(user) is None
+    assert remove_profile_avatar(user) is None
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(STORAGES=BLOCKING_RECORDING_STORAGES)
+def test_concurrent_avatar_replacements_leave_only_the_referenced_object() -> None:
+    """Rejects overlapping uploads that strand an object or delete the winning object."""
+    from profiles.models import PlayerProfile
+
+    user = create_test_user()
+    release = BlockingRecordingStorage.configure_upload_pause(2)
+
+    def upload(name: str) -> Any:
+        close_old_connections()
+        try:
+            return force_authenticated_client(
+                user=type(user).objects.get(pk=user.pk)
+            ).put("/api/profile/avatar/", {"avatar": image_upload(name=name)})
+        finally:
+            connection.close()
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first = executor.submit(upload, "first.png")
+            second = executor.submit(upload, "second.png")
+            assert BlockingRecordingStorage.saved is not None
+            assert BlockingRecordingStorage.saved.wait(timeout=10)
+            release.set()
+            responses = (first.result(timeout=15), second.result(timeout=15))
+        assert [response.status_code for response in responses] == [200, 200]
+        profile = PlayerProfile.objects.get(user=user)
+        storage = cast(RecordingStorage, default_storage)
+        _assert_no_orphaned_upload(storage, profile.avatar_key)
+        if profile.avatar_key is not None:
+            assert ("delete", profile.avatar_key) not in storage.events
+    finally:
+        BlockingRecordingStorage.clear_upload_pause()
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(STORAGES=BLOCKING_RECORDING_STORAGES)
+def test_overlapping_avatar_upload_and_removal_leave_a_serializable_media_state() -> (
+    None
+):
+    """Rejects an upload/delete interleaving that deletes an active object or leaves an orphan."""
+    from profiles.models import PlayerProfile
+
+    user = create_test_user()
+    release = BlockingRecordingStorage.configure_upload_pause(1)
+
+    def upload() -> Any:
+        close_old_connections()
+        try:
+            return force_authenticated_client(
+                user=type(user).objects.get(pk=user.pk)
+            ).put("/api/profile/avatar/", {"avatar": image_upload()})
+        finally:
+            connection.close()
+
+    def remove() -> Any:
+        close_old_connections()
+        try:
+            return force_authenticated_client(
+                user=type(user).objects.get(pk=user.pk)
+            ).delete("/api/profile/avatar/")
+        finally:
+            connection.close()
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            uploaded = executor.submit(upload)
+            assert BlockingRecordingStorage.saved is not None
+            assert BlockingRecordingStorage.saved.wait(timeout=10)
+            removed = executor.submit(remove)
+            release.set()
+            upload_response = uploaded.result(timeout=15)
+            remove_response = removed.result(timeout=15)
+        assert (upload_response.status_code, remove_response.status_code) == (200, 204)
+        profile = PlayerProfile.objects.get(user=user)
+        storage = cast(RecordingStorage, default_storage)
+        _assert_no_orphaned_upload(storage, profile.avatar_key)
+        if profile.avatar_key is not None:
+            assert ("delete", profile.avatar_key) not in storage.events
+    finally:
+        BlockingRecordingStorage.clear_upload_pause()
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(STORAGES=BLOCKING_RECORDING_STORAGES)
+def test_disable_before_avatar_reference_commit_compensates_the_new_object() -> None:
+    """Rejects uploads that commit an avatar after an operator disables the player."""
+    from profiles.models import PlayerProfile
+
+    user = create_test_user()
+    release = BlockingRecordingStorage.configure_upload_pause(1)
+
+    def upload() -> Any:
+        close_old_connections()
+        try:
+            return force_authenticated_client(
+                user=type(user).objects.get(pk=user.pk)
+            ).put("/api/profile/avatar/", {"avatar": image_upload()})
+        finally:
+            connection.close()
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            result = executor.submit(upload)
+            assert BlockingRecordingStorage.saved is not None
+            assert BlockingRecordingStorage.saved.wait(timeout=10)
+            profile = PlayerProfile.objects.get(user=user)
+            profile.is_enabled = False
+            profile.save(update_fields={"is_enabled"})
+            release.set()
+            response = result.result(timeout=15)
+        assert response.status_code == 403
+        profile.refresh_from_db()
+        assert profile.avatar_key is None
+        storage = cast(RecordingStorage, default_storage)
+        _assert_no_orphaned_upload(storage, profile.avatar_key)
+    finally:
+        BlockingRecordingStorage.clear_upload_pause()

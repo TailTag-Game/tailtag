@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from threading import Barrier, Event
 from typing import IO, Any
 
 from django.core.files.storage import InMemoryStorage
@@ -11,6 +12,10 @@ from PIL import Image
 
 RECORDING_STORAGES = {
     "default": {"BACKEND": "tests.profile_test_support.RecordingStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
+BLOCKING_RECORDING_STORAGES = {
+    "default": {"BACKEND": "tests.profile_test_support.BlockingRecordingStorage"},
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
 
@@ -47,3 +52,36 @@ class RecordingStorage(InMemoryStorage):
         self.url_calls += 1
         self.events.append(("url", name))
         return f"https://media.example.test/read/{self.url_calls}"
+
+
+class BlockingRecordingStorage(RecordingStorage):
+    """A real in-memory storage backend that pauses uploads before reference commit."""
+
+    save_barrier: Barrier | None = None
+    saved: Event | None = None
+    release: Event | None = None
+
+    @classmethod
+    def configure_upload_pause(cls, participants: int) -> Event:
+        cls.save_barrier = Barrier(participants)
+        cls.saved = Event()
+        cls.release = Event()
+        return cls.release
+
+    @classmethod
+    def clear_upload_pause(cls) -> None:
+        cls.save_barrier = None
+        cls.saved = None
+        cls.release = None
+
+    def save(
+        self, name: str | None, content: IO[Any], max_length: int | None = None
+    ) -> str:
+        saved_name = super().save(name, content, max_length=max_length)
+        if self.save_barrier is not None:
+            self.save_barrier.wait(timeout=10)
+            assert self.saved is not None
+            assert self.release is not None
+            self.saved.set()
+            assert self.release.wait(timeout=10)
+        return saved_name

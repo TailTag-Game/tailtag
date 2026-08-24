@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import cast
+from typing import Protocol, cast
 
 import pytest
 from django.core.files.storage import default_storage
@@ -13,6 +13,7 @@ from rest_framework.test import APIClient
 from tests.authentication_support import (
     TEST_CLERK_CONFIGURATION,
     create_test_user,
+    fake_clerk_session_verification,
     force_authenticated_client,
 )
 from tests.profile_test_support import (
@@ -38,6 +39,25 @@ RESERVED_HANDLES = (
     "system",
     "tailtag",
 )
+
+
+class _JsonResponse(Protocol):
+    def json(self) -> dict[str, object]: ...
+
+
+def _assert_profile_response(
+    response: _JsonResponse, *, is_enabled: bool = True
+) -> None:
+    """Keep every successful runtime projection closed to the approved five fields."""
+    data = response.json()
+    assert set(data) == {
+        "handle",
+        "display_name",
+        "avatar_url",
+        "onboarding_complete",
+        "is_enabled",
+    }
+    assert data["is_enabled"] is is_enabled
 
 
 def _complete(
@@ -72,6 +92,20 @@ def test_every_profile_operation_requires_existing_bearer_authentication() -> No
 
 
 @pytest.mark.django_db
+def test_profile_get_uses_the_real_bearer_resolution_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Rejects profile auth that works only through force_authenticate or calls the network."""
+    subject = "user_profile_bearer"
+    verified = fake_clerk_session_verification(monkeypatch, subject=subject)
+    response = Client().get("/api/profile/", HTTP_AUTHORIZATION="Bearer synthetic")
+    assert response.status_code == 200
+    assert response.json() == DEFAULT_PROFILE
+    _assert_profile_response(response)
+    assert len(verified) == 1
+
+
+@pytest.mark.django_db
 def test_profile_get_exposes_the_exact_conceptual_default_not_identity_data() -> None:
     """Rejects a 404, eager Clerk copy, extra fields, or a non-enabled default."""
     user = create_test_user()
@@ -80,6 +114,7 @@ def test_profile_get_exposes_the_exact_conceptual_default_not_identity_data() ->
 
     assert response.status_code == 200
     assert response.json() == DEFAULT_PROFILE
+    _assert_profile_response(response)
 
 
 @pytest.mark.django_db
@@ -117,6 +152,21 @@ def test_initial_put_enforces_handle_boundaries_and_reserved_names_atomically(
         assert response.status_code == 400
         assert set(response.json()) == {"handle"}
         assert client.get("/api/profile/").json() == DEFAULT_PROFILE
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("handle", (" finn_42", "finn_42 ", "\u00a0finn_42\u2003"))
+def test_handle_whitespace_is_invalid_before_onboarding(handle: str) -> None:
+    """Rejects DRF trimming that would make ASCII or Unicode handle whitespace valid."""
+    client = force_authenticated_client(user=create_test_user())
+    response = client.put(
+        "/api/profile/",
+        {"handle": handle, "display_name": "Finn"},
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+    assert set(response.json()) == {"handle"}
+    assert client.get("/api/profile/").json() == DEFAULT_PROFILE
 
 
 @pytest.mark.django_db
@@ -179,6 +229,7 @@ def test_initial_put_normalizes_complete_text_profile(
         "onboarding_complete": True,
         "is_enabled": True,
     }
+    _assert_profile_response(response)
 
 
 @pytest.mark.django_db
@@ -223,6 +274,87 @@ def test_put_and_patch_preserve_avatar_and_the_original_completion_timestamp() -
         == 3
     )
     assert storage.events.count(("url", profile.avatar_key)) == 3
+    _assert_profile_response(replaced)
+    _assert_profile_response(patched)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("method", ("put", "patch"))
+@pytest.mark.parametrize("handle", (" wolf_2 ", "\u00a0wolf_2\u2003"))
+def test_completed_handle_whitespace_is_rejected_without_state_change(
+    method: str, handle: str
+) -> None:
+    """Rejects completed writes that normalize away prohibited handle whitespace."""
+    from profiles.models import PlayerProfile
+
+    user = create_test_user()
+    client = force_authenticated_client(user=user)
+    _complete(client)
+    before = PlayerProfile.objects.get(user=user)
+    state = (
+        before.handle,
+        before.display_name,
+        before.onboarding_completed_at,
+        before.avatar_key,
+    )
+    payload = (
+        {"handle": handle, "display_name": "Wolf"}
+        if method == "put"
+        else {"handle": handle}
+    )
+    response = getattr(client, method)(
+        "/api/profile/", payload, content_type="application/json"
+    )
+    assert response.status_code == 400
+    assert set(response.json()) == {"handle"}
+    after = PlayerProfile.objects.get(user=user)
+    assert (
+        after.handle,
+        after.display_name,
+        after.onboarding_completed_at,
+        after.avatar_key,
+    ) == state
+
+
+@pytest.mark.django_db
+def test_completed_text_writes_normalize_and_reject_incomplete_or_reserved_values() -> (
+    None
+):
+    """Rejects weaker post-onboarding validation than initial onboarding receives."""
+    from profiles.models import PlayerProfile
+
+    user = create_test_user()
+    client = force_authenticated_client(user=user)
+    _complete(client)
+    normalized = client.patch(
+        "/api/profile/",
+        {"handle": "WOLF_2", "display_name": "  New\u00a0Name "},
+        content_type="application/json",
+    )
+    assert normalized.status_code == 200
+    assert normalized.json()["handle"] == "wolf_2"
+    assert normalized.json()["display_name"] == "New Name"
+    profile = PlayerProfile.objects.get(user=user)
+    state = (
+        profile.handle,
+        profile.display_name,
+        profile.onboarding_completed_at,
+        profile.avatar_key,
+    )
+    for payload in (
+        {"display_name": "Missing"},
+        {"handle": None, "display_name": "Null"},
+        {"handle": "admin", "display_name": "Admin"},
+    ):
+        response = client.put("/api/profile/", payload, content_type="application/json")
+        assert response.status_code == 400
+        current = PlayerProfile.objects.get(user=user)
+        assert (
+            current.handle,
+            current.display_name,
+            current.onboarding_completed_at,
+            current.avatar_key,
+        ) == state
 
 
 @pytest.mark.django_db
@@ -315,7 +447,9 @@ def test_profile_mutations_are_forbidden_while_disabled_and_resume_when_reenable
     profile.save(update_fields={"is_enabled"})
     before = (profile.handle, profile.display_name, profile.avatar_key)
 
-    assert client.get("/api/profile/").status_code == 200
+    disabled_get = client.get("/api/profile/")
+    assert disabled_get.status_code == 200
+    _assert_profile_response(disabled_get, is_enabled=False)
     assert client.get("/api/me/").status_code == 200
     mutations = (
         client.put(

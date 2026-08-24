@@ -134,3 +134,35 @@ def test_normal_staff_permissions_are_sufficient_but_accounts_admin_stays_read_o
         profile.user.is_staff,
         _superuser_flag(profile.user),
     ) == owner_before
+
+
+@pytest.mark.django_db
+def test_view_only_staff_can_inspect_but_cannot_change_or_bulk_disable_profiles() -> (
+    None
+):
+    """Rejects treating inspection permission as authority to disable players in bulk or per row."""
+    from profiles.models import PlayerProfile
+
+    staff = create_test_user()
+    staff.is_staff = True
+    staff.save(update_fields={"is_staff"})
+    permissions = cast(
+        _PermissionRelation,
+        staff.user_permissions,  # pyright: ignore[reportUnknownMemberType]
+    )
+    permissions.add(
+        Permission.objects.get(
+            content_type__app_label="profiles", codename="view_playerprofile"
+        )
+    )
+    profile = PlayerProfile.objects.create(user=create_test_user())
+    client = Client()
+    client.force_login(staff)
+    change_url = reverse("admin:profiles_playerprofile_change", args=(profile.pk,))
+    response = client.get(reverse("admin:profiles_playerprofile_changelist"))
+    assert response.status_code == 200
+    assert client.get(change_url).status_code == 200
+    assert client.post(change_url, {"is_enabled": ""}).status_code == 403
+    profile.refresh_from_db()
+    assert profile.is_enabled is True
+    assert b'name="action"' not in response.content
