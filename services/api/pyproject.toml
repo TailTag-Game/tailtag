@@ -41,7 +41,7 @@ target-version = "py313"
 pythonVersion = "3.13"
 typeCheckingMode = "strict"
 extraPaths = ["../.."]
-include = ["accounts", "authentication", "config", "fursuits", "health", "tests", "../../scripts/api_auth_smoke.py", "../../scripts/api_media_storage_smoke.py", "../../scripts/api_smoke.py", "../../scripts/backend_ci_relevance.py", "../../scripts/clerk_development_session.py", "../../scripts/validate_semgrep_contract.py"]
+include = ["accounts", "authentication", "config", "fursuits", "health", "profiles", "tests", "../../scripts/api_auth_smoke.py", "../../scripts/api_media_storage_smoke.py", "../../scripts/api_smoke.py", "../../scripts/backend_ci_relevance.py", "../../scripts/clerk_development_session.py", "../../scripts/validate_semgrep_contract.py"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.local"
