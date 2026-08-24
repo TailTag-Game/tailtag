@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import cast
 
 import pytest
+from django.core.files.storage import default_storage
 from django.test import Client, override_settings
 from rest_framework.test import APIClient
 
@@ -13,7 +15,11 @@ from tests.authentication_support import (
     create_test_user,
     force_authenticated_client,
 )
-from tests.profile_test_support import image_upload
+from tests.profile_test_support import (
+    RECORDING_STORAGES,
+    RecordingStorage,
+    image_upload,
+)
 
 DEFAULT_PROFILE = {
     "handle": None,
@@ -176,6 +182,7 @@ def test_initial_put_normalizes_complete_text_profile(
 
 
 @pytest.mark.django_db
+@override_settings(STORAGES=RECORDING_STORAGES)
 def test_put_and_patch_preserve_avatar_and_the_original_completion_timestamp() -> None:
     """Rejects a PUT that replaces avatar or a mutation that resets completion time."""
     from profiles.models import PlayerProfile
@@ -186,6 +193,7 @@ def test_put_and_patch_preserve_avatar_and_the_original_completion_timestamp() -
     uploaded = client.put("/api/profile/avatar/", {"avatar": image_upload()})
     assert uploaded.status_code == 200
     avatar_before = uploaded.json()["avatar_url"]
+    storage = cast(RecordingStorage, default_storage)
     before = PlayerProfile.objects.get(user=user).onboarding_completed_at
     assert isinstance(before, datetime)
 
@@ -208,6 +216,13 @@ def test_put_and_patch_preserve_avatar_and_the_original_completion_timestamp() -
     assert profile.onboarding_completed_at == before
     assert profile.avatar_key is not None
     assert replaced.json()["avatar_url"] != avatar_before
+    assert (
+        len(
+            {avatar_before, replaced.json()["avatar_url"], patched.json()["avatar_url"]}
+        )
+        == 3
+    )
+    assert storage.events.count(("url", profile.avatar_key)) == 3
 
 
 @pytest.mark.django_db

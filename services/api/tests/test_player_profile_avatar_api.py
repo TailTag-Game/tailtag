@@ -12,12 +12,11 @@ from django.test import override_settings
 
 from media.images import ImageRejectionCode
 from tests.authentication_support import create_test_user, force_authenticated_client
-from tests.profile_test_support import RecordingStorage, image_upload
-
-RECORDING_STORAGES = {
-    "default": {"BACKEND": "tests.profile_test_support.RecordingStorage"},
-    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
-}
+from tests.profile_test_support import (
+    RECORDING_STORAGES,
+    RecordingStorage,
+    image_upload,
+)
 
 
 def _recording_storage() -> RecordingStorage:
@@ -120,9 +119,8 @@ def test_avatar_rejects_bad_requests_and_all_media_classifications_as_safe_field
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Rejects raw image errors, wrong payload types, and mutation on media failure."""
-    from profiles.models import PlayerProfile
-
     from media.images import ImageValidationError
+    from profiles.models import PlayerProfile
 
     user = create_test_user()
     client = force_authenticated_client(user=user)

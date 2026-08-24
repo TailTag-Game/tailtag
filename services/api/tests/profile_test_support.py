@@ -9,6 +9,11 @@ from django.core.files.storage import InMemoryStorage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from PIL import Image
 
+RECORDING_STORAGES = {
+    "default": {"BACKEND": "tests.profile_test_support.RecordingStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
+
 
 def image_upload(*, name: str = "avatar.png") -> SimpleUploadedFile:
     """Return a small, real raster upload without a binary fixture."""
