@@ -152,9 +152,30 @@ Delivery failures have distinct primary surfaces:
 - Use a modular monolith for V0; do not introduce microservices without an approved need.
 - Design stable interfaces around product behavior. Add boundaries only where behavior, ownership, deployment, or data responsibility genuinely differs.
 
+## V0 player-profile flow
+
+The dedicated profiles module adds product state without changing the existing
+identity boundary:
+
+```text
+Clerk subject
+  -> accounts.User.id (canonical identity)
+  -> profiles.PlayerProfile (product state)
+  -> authenticated + onboarding complete + enabled
+  -> later domain-specific participation requirements
+```
+
+Profile-surface reads may lazily materialize the default incomplete profile
+row. Participation eligibility is a separate fail-closed lookup: it never
+creates, repairs, or infers profile state. Composed Railway validation for this
+flow is owned by #120; #113 adds no Railway profile smoke command.
+
 ## Current repository and open decisions
 
-The repository currently contains documentation, repository checks, and the minimal API foundation. Before adding client applications, shared packages, gameplay capabilities, or other runtime areas, an approved spec and any necessary ADR should establish:
+The repository currently contains documentation, repository checks, the API
+foundation, and the V0 player-profile module. Before adding client applications,
+shared packages, gameplay capabilities, or other runtime areas, an approved spec
+and any necessary ADR should establish:
 
 1. the user-visible behavior and trust boundaries;
 2. data ownership, retention, and privacy requirements;

@@ -12,6 +12,14 @@ The social convention game being rebuilt in this repository.
 
 A person who participates in the game and attempts to discover and catch participating characters.
 
+### Handle
+
+A globally unique, mutable TailTag product identifier chosen for a player. Prefer “handle” over “username.”
+
+### Display name
+
+A mutable human-facing player name. It is not unique and is distinct from a handle.
+
 ### Participating character
 
 A fursuit character enrolled in the game and available for players to discover and catch. Do not shorten this to “user”; a player and a participating character may have different product roles.
