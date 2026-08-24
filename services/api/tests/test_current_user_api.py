@@ -151,14 +151,21 @@ def test_public_infrastructure_routes_remain_public_and_schema_has_no_security_r
     assert {} in schema_operation["security"]
 
 
-def test_current_user_is_the_only_product_route_without_url_versioning(
+def test_product_routes_remain_unversioned_and_do_not_add_public_user_surfaces(
     client: Client,
 ) -> None:
     schema = _schema(client)
 
-    assert set(schema["paths"]) == {"/api/me/", "/api/schema/"}
+    assert set(schema["paths"]) == {
+        "/api/me/",
+        "/api/profile/",
+        "/api/profile/avatar/",
+        "/api/schema/",
+    }
     assert client.get("/api/v0/me/").status_code == 404
     assert client.get("/api/v1/me/").status_code == 404
     assert client.get("/api/users/me/").status_code == 404
+    assert client.get("/api/profiles/").status_code == 404
+    assert client.get("/api/profile/finn_42/").status_code == 404
     assert client.post("/api/auth/signup", data={}).status_code == 404
     assert client.get("/api/fursuits").status_code == 404

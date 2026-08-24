@@ -8,7 +8,7 @@ from django.conf import settings
 from django.test import Client
 
 
-def test_foundation_exposes_current_user_and_infrastructure_routes(
+def test_foundation_exposes_profile_current_user_and_infrastructure_routes(
     client: Client,
 ) -> None:
     """The promoted service has only the identity proof, not POC player resources."""
@@ -16,7 +16,7 @@ def test_foundation_exposes_current_user_and_infrastructure_routes(
 
     assert settings.AUTH_USER_MODEL == "accounts.User"
     assert len(settings.AUTH_PASSWORD_VALIDATORS) == 4
-    assert {"accounts", "fursuits"}.issubset(apps.app_configs)
+    assert {"accounts", "fursuits", "profiles"}.issubset(apps.app_configs)
     assert client.get("/admin/").status_code == 302
     assert client.get("/health/live").status_code == 200
     assert client.get("/api/docs/").status_code == 200
@@ -25,4 +25,9 @@ def test_foundation_exposes_current_user_and_infrastructure_routes(
 
     schema = yaml.safe_load(schema_response.content)
     assert schema_response.status_code == 200
-    assert set(schema["paths"]) == {"/api/me/", "/api/schema/"}
+    assert set(schema["paths"]) == {
+        "/api/me/",
+        "/api/profile/",
+        "/api/profile/avatar/",
+        "/api/schema/",
+    }
