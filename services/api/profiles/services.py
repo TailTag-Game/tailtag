@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
+from contextlib import contextmanager
 from typing import Final
 
 import psycopg
 from django.core.files import File
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 
 from accounts.models import User
@@ -112,36 +113,55 @@ def patch_text_profile(
 
 def replace_profile_avatar(user: User, *, upload: File[bytes]) -> PlayerProfile:
     """Replace the enabled user's optional avatar using the media lifecycle seam."""
-    profile = get_or_create_profile(user)
-    _require_enabled(profile)
+    with _avatar_operation_lock(user) as profile:
+        _require_enabled(profile)
+        media_service.replace_image(
+            upload,
+            old_key=profile.avatar_key,
+            commit_reference=lambda new_key: _commit_avatar_reference(user, new_key),
+        )
+        profile.refresh_from_db()
+        return profile
 
-    def commit_reference(new_key: str) -> None:
+
+def remove_profile_avatar(user: User) -> None:
+    """Remove the enabled user's optional avatar using the media lifecycle seam."""
+    with _avatar_operation_lock(user) as profile:
+        _require_enabled(profile)
+        media_service.remove_optional_image(
+            old_key=profile.avatar_key,
+            commit_removal=lambda: _commit_avatar_removal(user),
+        )
+
+
+@contextmanager
+def _avatar_operation_lock(user: User) -> Generator[PlayerProfile]:
+    """Serialize one player's media lifecycle across PostgreSQL processes."""
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_lock(%s)", [user.pk])
+    try:
+        yield get_or_create_profile(user)
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_unlock(%s)", [user.pk])
+
+
+def _commit_avatar_reference(user: User, new_key: str) -> None:
+    """Durably save an avatar key after checking enabled state under a row lock."""
+    with transaction.atomic():
+        profile = PlayerProfile.objects.select_for_update().get(user=user)
+        _require_enabled(profile)
         profile.avatar_key = new_key
         profile.save(update_fields={"avatar_key"})
 
-    media_service.replace_image(
-        upload,
-        old_key=profile.avatar_key,
-        commit_reference=commit_reference,
-    )
-    profile.refresh_from_db()
-    return profile
 
-
-def remove_profile_avatar(user: User) -> PlayerProfile:
-    """Remove the enabled user's optional avatar using the media lifecycle seam."""
-    profile = get_or_create_profile(user)
-    _require_enabled(profile)
-
-    def commit_removal() -> None:
+def _commit_avatar_removal(user: User) -> None:
+    """Durably clear an avatar key after checking enabled state under a row lock."""
+    with transaction.atomic():
+        profile = PlayerProfile.objects.select_for_update().get(user=user)
+        _require_enabled(profile)
         profile.avatar_key = None
         profile.save(update_fields={"avatar_key"})
-
-    media_service.remove_optional_image(
-        old_key=profile.avatar_key, commit_removal=commit_removal
-    )
-    profile.refresh_from_db()
-    return profile
 
 
 def _locked_profile(user: User) -> PlayerProfile:
