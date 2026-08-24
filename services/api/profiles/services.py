@@ -6,10 +6,12 @@ from collections.abc import Iterator
 from typing import Final
 
 import psycopg
+from django.core.files import File
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from accounts.models import User
+from media import service as media_service
 from profiles.models import PlayerProfile
 from profiles.normalization import (
     ProfileValueError,
@@ -27,6 +29,8 @@ __all__ = [
     "get_or_create_profile",
     "patch_text_profile",
     "put_text_profile",
+    "remove_profile_avatar",
+    "replace_profile_avatar",
 ]
 
 
@@ -103,6 +107,40 @@ def patch_text_profile(
             update_fields.append("display_name")
         if update_fields:
             _save_text_profile(profile, update_fields)
+    return profile
+
+
+def replace_profile_avatar(user: User, *, upload: File[bytes]) -> PlayerProfile:
+    """Replace the enabled user's optional avatar using the media lifecycle seam."""
+    profile = get_or_create_profile(user)
+    _require_enabled(profile)
+
+    def commit_reference(new_key: str) -> None:
+        profile.avatar_key = new_key
+        profile.save(update_fields={"avatar_key"})
+
+    media_service.replace_image(
+        upload,
+        old_key=profile.avatar_key,
+        commit_reference=commit_reference,
+    )
+    profile.refresh_from_db()
+    return profile
+
+
+def remove_profile_avatar(user: User) -> PlayerProfile:
+    """Remove the enabled user's optional avatar using the media lifecycle seam."""
+    profile = get_or_create_profile(user)
+    _require_enabled(profile)
+
+    def commit_removal() -> None:
+        profile.avatar_key = None
+        profile.save(update_fields={"avatar_key"})
+
+    media_service.remove_optional_image(
+        old_key=profile.avatar_key, commit_removal=commit_removal
+    )
+    profile.refresh_from_db()
     return profile
 
 

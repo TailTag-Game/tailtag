@@ -7,7 +7,16 @@ from typing import TypedDict
 from rest_framework import serializers
 
 from media import service as media_service
+from media.images import ImageRejectionCode
 from profiles.models import PlayerProfile
+
+MEDIA_ERROR_MESSAGES = {
+    ImageRejectionCode.FILE_TOO_LARGE: "The avatar file is too large.",
+    ImageRejectionCode.INVALID_IMAGE: "Upload a valid image.",
+    ImageRejectionCode.UNSUPPORTED_FORMAT: "Upload a JPEG, PNG, or static WebP image.",
+    ImageRejectionCode.ANIMATED_IMAGE: "Animated avatars are not supported.",
+    ImageRejectionCode.TOO_MANY_PIXELS: "The avatar dimensions are too large.",
+}
 
 
 class ProfilePutSerializer(serializers.Serializer[dict[str, str]]):
@@ -22,6 +31,10 @@ class ProfilePatchSerializer(serializers.Serializer[dict[str, str]]):
     display_name = serializers.CharField(
         required=False, allow_blank=False, allow_null=False, trim_whitespace=False
     )
+
+
+class AvatarPutSerializer(serializers.Serializer[dict[str, object]]):
+    avatar = serializers.FileField(allow_empty_file=False)
 
 
 class ProfileResponseData(TypedDict):
