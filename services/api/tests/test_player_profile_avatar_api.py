@@ -5,12 +5,13 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from typing import Any, Protocol, cast
 
 import pytest
 from django.core.files.storage import default_storage
 from django.db import close_old_connections, connection
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, pre_save
 from django.test import override_settings
 
 from media.images import ImageRejectionCode
@@ -285,11 +286,14 @@ def test_concurrent_avatar_replacements_leave_only_the_referenced_object() -> No
     try:
         with ThreadPoolExecutor(max_workers=2) as executor:
             first = executor.submit(upload, "first.png")
-            assert BlockingRecordingStorage.saved is not None
-            assert BlockingRecordingStorage.saved.wait(timeout=10)
-            # A correct transition may serialize before it reaches storage, so do
-            # not require this second request to enter ``save`` before releasing.
+            assert BlockingRecordingStorage.first_save_entered is not None
+            assert BlockingRecordingStorage.first_save_entered.wait(timeout=10)
             second = executor.submit(upload, "second.png")
+            # A correct implementation can hold a profile lock before storage.
+            # Give the second request a bounded opportunity to overlap, then
+            # release the first request so either valid serial order may finish.
+            assert BlockingRecordingStorage.second_save_entered is not None
+            BlockingRecordingStorage.second_save_entered.wait(timeout=1)
             release.set()
             responses = (first.result(timeout=15), second.result(timeout=15))
         assert [response.status_code for response in responses] == [200, 200]
@@ -304,14 +308,47 @@ def test_concurrent_avatar_replacements_leave_only_the_referenced_object() -> No
 
 @pytest.mark.django_db(transaction=True)
 @override_settings(STORAGES=BLOCKING_RECORDING_STORAGES)
-def test_overlapping_avatar_upload_and_removal_leave_a_serializable_media_state() -> (
-    None
-):
-    """Rejects an upload/delete interleaving that deletes an active object or leaves an orphan."""
+def test_stale_avatar_removal_cannot_orphan_or_delete_a_replacement() -> None:
+    """Rejects removal of stale A after a replacement has committed N."""
     from profiles.models import PlayerProfile
 
     user = create_test_user()
-    release = BlockingRecordingStorage.configure_upload_pause()
+    client = force_authenticated_client(user=user)
+    seeded = client.put("/api/profile/avatar/", {"avatar": image_upload(name="a.png")})
+    assert seeded.status_code == 200
+    old_key = PlayerProfile.objects.get(user=user).avatar_key
+    assert isinstance(old_key, str)
+
+    release_upload = BlockingRecordingStorage.configure_upload_pause()
+    removal_save_entered = Event()
+    release_removal_save = Event()
+    replacement_committed = Event()
+    profile_pre_save = cast(_SignalConnection, pre_save)
+    profile_post_save = cast(_SignalConnection, post_save)
+
+    def pause_removal(
+        sender: type[PlayerProfile], instance: PlayerProfile, **kwargs: object
+    ) -> None:
+        del sender
+        update_fields = kwargs.get("update_fields")
+        if (
+            instance.pk == user.pk
+            and instance.avatar_key is None
+            and update_fields == frozenset({"avatar_key"})
+            and not removal_save_entered.is_set()
+        ):
+            removal_save_entered.set()
+            assert release_removal_save.wait(timeout=10)
+
+    def observe_replacement(
+        sender: type[PlayerProfile], instance: PlayerProfile, **kwargs: object
+    ) -> None:
+        del sender, kwargs
+        if instance.pk == user.pk and instance.avatar_key not in {None, old_key}:
+            replacement_committed.set()
+
+    profile_pre_save.connect(pause_removal, sender=PlayerProfile, weak=False)
+    profile_post_save.connect(observe_replacement, sender=PlayerProfile, weak=False)
 
     def upload() -> Any:
         close_old_connections()
@@ -333,11 +370,23 @@ def test_overlapping_avatar_upload_and_removal_leave_a_serializable_media_state(
 
     try:
         with ThreadPoolExecutor(max_workers=2) as executor:
-            uploaded = executor.submit(upload)
-            assert BlockingRecordingStorage.saved is not None
-            assert BlockingRecordingStorage.saved.wait(timeout=10)
             removed = executor.submit(remove)
-            release.set()
+            removal_was_paused = removal_save_entered.wait(timeout=1)
+            uploaded = executor.submit(upload)
+            if removal_was_paused:
+                assert BlockingRecordingStorage.first_save_entered is not None
+                replacement_reached_storage = (
+                    BlockingRecordingStorage.first_save_entered.wait(timeout=1)
+                )
+                release_upload.set()
+                if replacement_reached_storage:
+                    replacement_committed.wait(timeout=1)
+                release_removal_save.set()
+            else:
+                # A safe transition may not use model save signals. Do not make
+                # that implementation fail for choosing a different boundary.
+                release_upload.set()
+                release_removal_save.set()
             upload_response = uploaded.result(timeout=15)
             remove_response = removed.result(timeout=15)
         assert (upload_response.status_code, remove_response.status_code) == (200, 204)
@@ -347,6 +396,10 @@ def test_overlapping_avatar_upload_and_removal_leave_a_serializable_media_state(
         if profile.avatar_key is not None:
             assert ("delete", profile.avatar_key) not in storage.events
     finally:
+        release_upload.set()
+        release_removal_save.set()
+        profile_pre_save.disconnect(pause_removal, sender=PlayerProfile)
+        profile_post_save.disconnect(observe_replacement, sender=PlayerProfile)
         BlockingRecordingStorage.clear_upload_pause()
 
 
@@ -371,8 +424,8 @@ def test_disable_during_avatar_upload_has_a_safe_serializable_outcome() -> None:
     try:
         with ThreadPoolExecutor(max_workers=1) as executor:
             result = executor.submit(upload)
-            assert BlockingRecordingStorage.saved is not None
-            assert BlockingRecordingStorage.saved.wait(timeout=10)
+            assert BlockingRecordingStorage.first_save_entered is not None
+            assert BlockingRecordingStorage.first_save_entered.wait(timeout=10)
             profile = PlayerProfile.objects.get(user=user)
             profile.is_enabled = False
             profile.save(update_fields={"is_enabled"})

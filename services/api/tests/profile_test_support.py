@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from io import BytesIO
-from threading import Event
+from threading import Event, Lock
 from typing import IO, Any
 
 from django.core.files.storage import InMemoryStorage
@@ -57,25 +57,44 @@ class RecordingStorage(InMemoryStorage):
 class BlockingRecordingStorage(RecordingStorage):
     """A real in-memory storage backend that pauses uploads before reference commit."""
 
-    saved: Event | None = None
-    release: Event | None = None
+    _save_entry_lock = Lock()
+    _save_entries = 0
+    first_save_entered: Event | None = None
+    second_save_entered: Event | None = None
+    release_first_save: Event | None = None
 
     @classmethod
     def configure_upload_pause(cls) -> Event:
-        cls.saved = Event()
-        cls.release = Event()
-        return cls.release
+        with cls._save_entry_lock:
+            cls._save_entries = 0
+            cls.first_save_entered = Event()
+            cls.second_save_entered = Event()
+            cls.release_first_save = Event()
+            return cls.release_first_save
 
     @classmethod
     def clear_upload_pause(cls) -> None:
-        cls.saved = None
-        cls.release = None
+        with cls._save_entry_lock:
+            cls._save_entries = 0
+            cls.first_save_entered = None
+            cls.second_save_entered = None
+            cls.release_first_save = None
 
     def save(
         self, name: str | None, content: IO[Any], max_length: int | None = None
     ) -> str:
-        saved_name = super().save(name, content, max_length=max_length)
-        if self.saved is not None and self.release is not None:
-            self.saved.set()
-            assert self.release.wait(timeout=10)
-        return saved_name
+        with type(self)._save_entry_lock:
+            type(self)._save_entries += 1
+            entry = type(self)._save_entries
+            first_save_entered = type(self).first_save_entered
+            second_save_entered = type(self).second_save_entered
+            release_first_save = type(self).release_first_save
+
+        if entry == 1 and first_save_entered is not None:
+            first_save_entered.set()
+            assert release_first_save is not None
+            assert release_first_save.wait(timeout=10)
+        elif entry == 2 and second_save_entered is not None:
+            second_save_entered.set()
+
+        return super().save(name, content, max_length=max_length)
