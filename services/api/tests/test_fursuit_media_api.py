@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import pytest
 from django.core.files.storage import default_storage
-from django.test import override_settings
-from django.utils.datastructures import MultiValueDict
+from django.test import RequestFactory, override_settings
+from django.test.client import BOUNDARY, encode_multipart
 
 from media.images import ImageRejectionCode, ImageValidationError
 from tests.authentication_support import force_authenticated_client
-from tests.fursuit_test_support import create_eligible_user, create_fursuit_record
+from tests.fursuit_test_support import (
+    assert_fursuit_response,
+    create_eligible_user,
+    create_fursuit_record,
+)
 from tests.profile_test_support import (
     RECORDING_STORAGES,
     RecordingStorage,
@@ -68,67 +72,40 @@ def test_repeated_multipart_values_and_files_are_not_collapsed_by_querydict_get(
 @pytest.mark.parametrize(
     ("path_kind", "payload"),
     (
+        ("create", {"name": ["Valid", "Repeated"], "photo": [image_upload()]}),
         (
             "create",
-            MultiValueDict({"name": ["Valid", "Repeated"], "photo": [image_upload()]}),
+            {
+                "name": ["Valid"],
+                "photo": [image_upload(), image_upload(name="again.png")],
+            },
+        ),
+        ("create", {"name": ["Valid"], "photo": [image_upload()], "owner": ["1"]}),
+        (
+            "create",
+            {"name": ["Valid"], "photo": [image_upload()], "is_enabled": ["true"]},
         ),
         (
             "create",
-            MultiValueDict(
-                {
-                    "name": ["Valid"],
-                    "photo": [image_upload(), image_upload(name="again.png")],
-                }
-            ),
+            {"name": [image_upload(name="name.png")], "photo": [image_upload()]},
         ),
+        ("create", {"name": ["Valid"], "photo": ["not-a-file"]}),
         (
             "create",
-            MultiValueDict(
-                {"name": ["Valid"], "photo": [image_upload()], "owner": ["1"]}
-            ),
+            {
+                "name": ["Valid"],
+                "photo": [image_upload()],
+                "extra": [image_upload(name="extra.png")],
+            },
         ),
-        (
-            "create",
-            MultiValueDict(
-                {"name": ["Valid"], "photo": [image_upload()], "is_enabled": ["true"]}
-            ),
-        ),
-        (
-            "create",
-            MultiValueDict(
-                {"name": [image_upload(name="name.png")], "photo": [image_upload()]}
-            ),
-        ),
-        (
-            "create",
-            MultiValueDict({"name": ["Valid"], "photo": ["not-a-file"]}),
-        ),
-        (
-            "create",
-            MultiValueDict(
-                {
-                    "name": ["Valid"],
-                    "photo": [image_upload()],
-                    "extra": [image_upload(name="extra.png")],
-                }
-            ),
-        ),
+        ("replace", {"photo": [image_upload(), image_upload(name="again.png")]}),
+        ("replace", {"name": ["Forbidden"], "photo": [image_upload()]}),
+        ("replace", {"photo": [image_upload()], "extra": ["value"]}),
+        ("replace", {"photo": [image_upload()], "owner": ["1"]}),
+        ("replace", {"photo": ["not-a-file"]}),
         (
             "replace",
-            MultiValueDict({"photo": [image_upload(), image_upload(name="again.png")]}),
-        ),
-        ("replace", MultiValueDict({"name": ["Forbidden"], "photo": [image_upload()]})),
-        ("replace", MultiValueDict({"photo": [image_upload()], "extra": ["value"]})),
-        ("replace", MultiValueDict({"photo": [image_upload()], "owner": ["1"]})),
-        ("replace", MultiValueDict({"photo": ["not-a-file"]})),
-        (
-            "replace",
-            MultiValueDict(
-                {
-                    "photo": [image_upload()],
-                    "extra": [image_upload(name="extra.png")],
-                }
-            ),
+            {"photo": [image_upload()], "extra": [image_upload(name="extra.png")]},
         ),
     ),
     ids=(
@@ -148,9 +125,9 @@ def test_repeated_multipart_values_and_files_are_not_collapsed_by_querydict_get(
     ),
 )
 def test_raw_multivalued_multipart_inputs_are_closed_per_entry(
-    path_kind: str, payload: MultiValueDict[str, object]
+    path_kind: str, payload: dict[str, object]
 ) -> None:
-    """Rejects `get()`-based cardinality checks and cross-channel writable fields."""
+    """Rejects repeated parts after proving the raw body parses to duplicate lists."""
     user = create_eligible_user()
     client = force_authenticated_client(user=user)
     path = (
@@ -158,10 +135,22 @@ def test_raw_multivalued_multipart_inputs_are_closed_per_entry(
         if path_kind == "create"
         else f"/api/fursuits/{create_fursuit_record(owner=user).id}/photo/"
     )
-    response = (
-        client.post(path, payload)
-        if path_kind == "create"
-        else client.put(path, payload)
+    body = encode_multipart(BOUNDARY, payload)
+    probe = RequestFactory().generic(
+        "POST",
+        path,
+        data=body,
+        content_type=f"multipart/form-data; boundary={BOUNDARY}",
+    )
+    if "name" in payload and isinstance(payload["name"], list):
+        assert len(probe.POST.getlist("name")) == len(payload["name"])
+    if "photo" in payload and isinstance(payload["photo"], list):
+        assert len(probe.FILES.getlist("photo")) == len(payload["photo"])
+    response = client.generic(
+        "POST" if path_kind == "create" else "PUT",
+        path,
+        data=body,
+        content_type=f"multipart/form-data; boundary={BOUNDARY}",
     )
     assert response.status_code == 400
 
@@ -207,12 +196,61 @@ def test_each_image_rejection_is_a_safe_photo_field_error(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("code", tuple(ImageRejectionCode))
+def test_replacement_maps_each_stable_image_rejection_to_a_safe_photo_error(
+    monkeypatch: pytest.MonkeyPatch, code: ImageRejectionCode
+) -> None:
+    from media import service
+
+    user = create_eligible_user()
+    record = create_fursuit_record(owner=user)
+    monkeypatch.setattr(
+        service,
+        "store_image",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ImageValidationError(code)),
+    )
+    response = force_authenticated_client(user=user).put(
+        f"/api/fursuits/{record.id}/photo/", {"photo": image_upload(name="secret.png")}
+    )
+    assert response.status_code == 400 and set(response.json()) == {"photo"}
+    assert "secret.png" not in response.content.decode()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("operation", ("create", "replace"))
+def test_unexpected_storage_failures_remain_5xx(
+    operation: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from media import service
+
+    user = create_eligible_user()
+    record = create_fursuit_record(owner=user)
+    monkeypatch.setattr(
+        service,
+        "store_image",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("unexpected storage sentinel")
+        ),
+    )
+    client = force_authenticated_client(user=user)
+    client.raise_request_exception = False
+    response = (
+        client.post("/api/fursuits/", {"name": "Valid", "photo": image_upload()})
+        if operation == "create"
+        else client.put(f"/api/fursuits/{record.id}/photo/", {"photo": image_upload()})
+    )
+    assert response.status_code >= 500
+    assert "unexpected storage sentinel" not in response.content.decode()
+
+
+@pytest.mark.django_db
 @override_settings(STORAGES=RECORDING_STORAGES)
 def test_replacement_commits_new_reference_before_old_cleanup_and_url_generation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     user = create_eligible_user()
     record = create_fursuit_record(owner=user)
+    before = record.updated_at
     storage = default_storage
     assert isinstance(storage, RecordingStorage)
     storage.save(record.photo_key, image_upload())
@@ -230,6 +268,9 @@ def test_replacement_commits_new_reference_before_old_cleanup_and_url_generation
         f"/api/fursuits/{record.id}/photo/", {"photo": image_upload()}
     )
     assert response.status_code == 200
+    assert_fursuit_response(response)
+    record.refresh_from_db()
+    assert record.updated_at > before
     events = [event[0] for event in storage.events]
     assert events[-3:] == ["save", "delete", "url"]
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from django.core.files.storage import default_storage
 from django.test import Client, override_settings
 
 from profiles.models import PlayerProfile
@@ -15,7 +16,11 @@ from tests.fursuit_test_support import (
     create_eligible_user,
     create_fursuit_record,
 )
-from tests.profile_test_support import image_upload
+from tests.profile_test_support import (
+    RECORDING_STORAGES,
+    RecordingStorage,
+    image_upload,
+)
 
 
 @override_settings(CLERK_AUTHENTICATION=TEST_CLERK_CONFIGURATION)
@@ -78,6 +83,32 @@ def test_owner_reads_remain_available_for_every_profile_state(
     assert listed.status_code == detail.status_code == 200
     assert [item["id"] for item in listed.json()] == [record.id]
     assert assert_fursuit_response(detail)["id"] == record.id
+
+
+@pytest.mark.django_db
+@override_settings(STORAGES=RECORDING_STORAGES)
+def test_operator_disabled_fursuit_stays_visible_with_fresh_nonpersisted_urls() -> None:
+    user = create_eligible_user()
+    record = create_fursuit_record(owner=user)
+    type(record).objects.filter(pk=record.pk).update(is_enabled=False)
+    storage = default_storage
+    assert isinstance(storage, RecordingStorage)
+    client = force_authenticated_client(user=user)
+    first_list = client.get("/api/fursuits/")
+    second_list = client.get("/api/fursuits/")
+    first_detail = client.get(f"/api/fursuits/{record.id}/")
+    second_detail = client.get(f"/api/fursuits/{record.id}/")
+    responses = (first_list, second_list, first_detail, second_detail)
+    assert all(response.status_code == 200 for response in responses)
+    urls = [
+        first_list.json()[0]["photo_url"],
+        second_list.json()[0]["photo_url"],
+        assert_fursuit_response(first_detail)["photo_url"],
+        assert_fursuit_response(second_detail)["photo_url"],
+    ]
+    assert len(set(urls)) == 4 and storage.url_calls == 4
+    record.refresh_from_db()
+    assert record.is_enabled is False and all(url != record.photo_key for url in urls)
 
 
 @pytest.mark.django_db
@@ -244,6 +275,58 @@ def test_every_profile_ineligible_shape_forbids_all_writes_but_disabled_fursuit_
         )
         .status_code
         == 200
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("shape", ("missing", "incomplete", "disabled"))
+def test_ineligible_writes_stop_before_parsing_normalization_media_or_mutation_services(
+    monkeypatch: pytest.MonkeyPatch, shape: str
+) -> None:
+    from fursuits import normalization, services
+    from media import service as media_service
+
+    user = create_eligible_user()
+    record = create_fursuit_record(owner=user)
+    if shape == "missing":
+        PlayerProfile.objects.filter(user=user).delete()
+    elif shape == "incomplete":
+        PlayerProfile.objects.filter(user=user).update(
+            onboarding_completed_at=None, handle=None, display_name=None
+        )
+    else:
+        PlayerProfile.objects.filter(user=user).update(is_enabled=False)
+
+    def forbidden(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("ineligible request crossed a forbidden work boundary")
+
+    monkeypatch.setattr(normalization, "normalize_fursuit_name", forbidden)
+    monkeypatch.setattr(media_service, "store_image", forbidden)
+    monkeypatch.setattr(services, "create_fursuit", forbidden)
+    monkeypatch.setattr(services, "update_fursuit_name", forbidden)
+    monkeypatch.setattr(services, "replace_fursuit_photo", forbidden)
+    monkeypatch.setattr(services, "fursuit_advisory_lock_key", forbidden)
+    client = force_authenticated_client(user=user)
+    assert (
+        client.post(
+            "/api/fursuits/", {"name": "Valid", "photo": image_upload()}
+        ).status_code
+        == 403
+    )
+    assert (
+        client.patch(
+            f"/api/fursuits/{record.id}/", b"not json", content_type="application/json"
+        ).status_code
+        == 403
+    )
+    assert (
+        client.generic(
+            "PUT",
+            f"/api/fursuits/{record.id}/photo/",
+            data=b"not multipart",
+            content_type="multipart/form-data",
+        ).status_code
+        == 403
     )
     assert (
         force_authenticated_client(user=user)

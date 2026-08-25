@@ -161,6 +161,7 @@ def test_disablement_committed_after_upload_before_reference_commit_forbids_and_
 ):
     owner = create_eligible_user()
     record = create_fursuit_record(owner=owner)
+    original_key, original_updated_at = record.photo_key, record.updated_at
     release_first, _release_second = BlockingRecordingStorage.configure_upload_pause()
     from django.core.files.storage import default_storage
 
@@ -189,6 +190,11 @@ def test_disablement_committed_after_upload_before_reference_commit_forbids_and_
             release_first.set()
             assert write.result(15) == 403
             assert [event[0] for event in default_storage.events] == ["save", "delete"]
+            record.refresh_from_db()
+            assert (record.photo_key, record.updated_at) == (
+                original_key,
+                original_updated_at,
+            )
     finally:
         BlockingRecordingStorage.clear_upload_pause()
 
@@ -224,8 +230,10 @@ def test_write_committed_before_disablement_stays_durable_but_later_writes_are_f
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("operation", ("name", "photo"))
 def test_commit_transactions_lock_profile_before_fursuit(
     monkeypatch: pytest.MonkeyPatch,
+    operation: str,
 ) -> None:
     """Records the externally relevant SQL row-lock acquisition order."""
     from fursuits.models import Fursuit
@@ -247,16 +255,17 @@ def test_commit_transactions_lock_profile_before_fursuit(
 
     monkeypatch.setattr(PlayerProfile.objects, "select_for_update", record_profile_lock)
     monkeypatch.setattr(Fursuit.objects, "select_for_update", record_fursuit_lock)
-    assert (
-        force_authenticated_client(user=owner)
-        .patch(
+    client = force_authenticated_client(user=owner)
+    response = (
+        client.patch(
             f"/api/fursuits/{record.id}/",
             {"name": "Renamed"},
             content_type="application/json",
         )
-        .status_code
-        == 200
+        if operation == "name"
+        else client.put(f"/api/fursuits/{record.id}/photo/", {"photo": image_upload()})
     )
+    assert response.status_code == 200
     assert order[:2] == ["profile", "fursuit"]
 
 
