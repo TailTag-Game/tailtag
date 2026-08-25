@@ -123,6 +123,7 @@ def test_view_only_staff_cannot_toggle_and_change_staff_cannot_forge_hidden_fiel
 ):
     record = create_fursuit_record(owner=create_eligible_user())
     name_before = record.name
+    photo_before = record.photo_key
     owner_before = record.owner_id
     created_before = record.created_at
     for codes, expected in (
@@ -153,6 +154,6 @@ def test_view_only_staff_cannot_toggle_and_change_staff_cannot_forge_hidden_fiel
         )
         assert response.status_code == expected
         record.refresh_from_db()
-        assert record.name == name_before and record.photo_key != "forged"
+        assert record.name == name_before and record.photo_key == photo_before
         assert record.owner_id == owner_before and record.created_at == created_before
         assert record.updated_at.year != 2000
