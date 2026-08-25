@@ -46,7 +46,7 @@ def get_owned_fursuit(user: User, fursuit_id: int) -> Fursuit:
     return Fursuit.objects.get(pk=fursuit_id, owner=user)
 
 
-def create_fursuit(user: User, *, name: str, upload: File[bytes]) -> Fursuit:
+def create_fursuit(user: User, *, name: str, photo: File[bytes]) -> Fursuit:
     """Store a required photo then atomically make its new reference durable."""
     require_fursuit_write_eligible(user)
     normalized_name = normalize_fursuit_name(name)
@@ -57,7 +57,7 @@ def create_fursuit(user: User, *, name: str, upload: File[bytes]) -> Fursuit:
         created = _commit_created_fursuit(user, normalized_name, new_key)
 
     media_service.replace_image(
-        upload,
+        photo,
         old_key=None,
         commit_reference=commit_reference,
     )
@@ -65,39 +65,36 @@ def create_fursuit(user: User, *, name: str, upload: File[bytes]) -> Fursuit:
     return created
 
 
-def update_fursuit_name(
-    user: User, fursuit: Fursuit | int, *, name: str
-) -> Fursuit:
+def update_fursuit_name(user: User, *, fursuit_id: int, name: str) -> Fursuit:
     """Update an owned fursuit name, preserving a normalized no-op exactly."""
     require_fursuit_write_eligible(user)
     normalized_name = normalize_fursuit_name(name)
-    fursuit_id = _fursuit_id(fursuit)
     with transaction.atomic():
         _locked_eligible_profile(user)
         owned = _locked_owned_fursuit(user, fursuit_id)
         if owned.name == normalized_name:
-            # Preserve the caller's already-current object on the no-write path.
-            return fursuit if isinstance(fursuit, Fursuit) else owned
+            return owned
         owned.name = normalized_name
         owned.save(update_fields={"name", "updated_at"})
         return owned
 
 
 def replace_fursuit_photo(
-    user: User, fursuit: Fursuit | int, *, upload: File[bytes]
-) -> str:
+    user: User, *, fursuit_id: int, photo: File[bytes]
+) -> Fursuit:
     """Serialize a full same-fursuit media lifecycle with an advisory lock."""
     require_fursuit_write_eligible(user)
-    fursuit_id = _fursuit_id(fursuit)
     with _fursuit_photo_operation_lock(fursuit_id):
         current = get_owned_fursuit(user, fursuit_id)
-        return media_service.replace_image(
-            upload,
+        media_service.replace_image(
+            photo,
             old_key=current.photo_key,
             commit_reference=lambda new_key: _commit_replaced_fursuit_photo(
                 user, fursuit_id, new_key
             ),
         )
+        current.refresh_from_db()
+        return current
 
 
 def fursuit_advisory_lock_key(fursuit_id: int) -> int:
@@ -160,8 +157,3 @@ def _locked_eligible_profile(user: User) -> PlayerProfile:
 def _locked_owned_fursuit(user: User, fursuit_id: int) -> Fursuit:
     """Acquire the second row lock only after the profile lock."""
     return Fursuit.objects.select_for_update().get(pk=fursuit_id, owner=user)
-
-
-def _fursuit_id(fursuit: Fursuit | int) -> int:
-    """Support the frozen service test seam while retaining ID-based callers."""
-    return fursuit.id if isinstance(fursuit, Fursuit) else fursuit
