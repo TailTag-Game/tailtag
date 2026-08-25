@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 
-from django.utils.datastructures import MultiValueDict
 from rest_framework.exceptions import ErrorDetail, ParseError
 from rest_framework.parsers import DataAndFiles, MultiPartParser
 
@@ -28,10 +27,18 @@ class ClosedMultiPartParser(MultiPartParser):
         media_type: str | None = None,
         parser_context: Mapping[str, Any] | None = None,
     ) -> DataAndFiles[Any, Any]:
-        parsed = cast(
-            DataAndFiles[Any, MultiValueDict[str, object]],
-            super().parse(stream, media_type, parser_context),  # pyright: ignore[reportUnknownMemberType]
-        )
+        try:
+            parsed: Any = super().parse(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+                stream, media_type, parser_context
+            )
+        except ParseError:
+            raise ParseError(
+                {
+                    "photo": [
+                        ErrorDetail("Upload a valid image.", code="invalid")
+                    ]
+                }
+            ) from None
         if parser_context is None:
             raise RuntimeError("multipart parser context is required")
         contract = cast(MultipartContract, parser_context["view"].multipart_contract)
