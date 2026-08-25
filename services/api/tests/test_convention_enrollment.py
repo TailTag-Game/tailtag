@@ -454,11 +454,13 @@ def test_clear_active_convention() -> None:
         user=user, convention=con, is_active=True
     )
 
+    old_updated_at = enrollment.updated_at
     response = client.delete("/api/conventions/active/")
     assert response.status_code == 204
 
     enrollment.refresh_from_db()
     assert enrollment.is_active is False
+    assert enrollment.updated_at > old_updated_at
 
     # Calling delete when none active is also 204 (idempotent)
     assert client.delete("/api/conventions/active/").status_code == 204

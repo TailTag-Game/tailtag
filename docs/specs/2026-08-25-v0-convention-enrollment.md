@@ -78,7 +78,7 @@ Any mutation (enrolling, selecting active convention, clearing active convention
 
 ### 5. Inactive / Ended Convention Handling
 - If a convention is moved from `ACTIVE` to `PAUSED`, `COMPLETED`, or `CANCELLED` by an operator, existing enrollment rows remain intact with `is_active=True` in the database.
-- Read operations expose the latest convention `status` and `is_playable` state.
+- Read operations expose the latest convention `status` (which reflects whether the convention is active and playable).
 - Attempting to *select* or *enroll* into a non-active convention is rejected.
 
 ## API Contracts

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from django.db import transaction
 from django.db.models import QuerySet
+from django.utils import timezone
 
 from accounts.models import User
 from conventions.models import Convention, ConventionEnrollment
 from profiles.eligibility import is_participation_eligible
+from profiles.models import PlayerProfile
 
 
 class ConventionParticipationIneligibleError(Exception):
@@ -56,14 +58,18 @@ def enroll_in_convention(
     """Enroll the player in an active convention idempotently."""
     require_convention_participation_eligible(user)
 
-    convention = Convention.objects.get(pk=convention_id)
-    if not convention.is_playable:
-        raise ConventionNotEligibleForEnrollmentError()
-
     with transaction.atomic():
+        _locked_eligible_profile(user)
+        convention = Convention.objects.filter(pk=convention_id).first()
+        if convention is None:
+            raise Convention.DoesNotExist()
+        if not convention.is_playable:
+            raise ConventionNotEligibleForEnrollmentError()
+
+        now = timezone.now()
         if set_active:
             ConventionEnrollment.objects.filter(user=user, is_active=True).update(
-                is_active=False
+                is_active=False, updated_at=now
             )
 
         enrollment, created = ConventionEnrollment.objects.get_or_create(
@@ -84,6 +90,7 @@ def set_active_convention(user: User, *, convention_id: int) -> ConventionEnroll
     require_convention_participation_eligible(user)
 
     with transaction.atomic():
+        _locked_eligible_profile(user)
         enrollment = (
             ConventionEnrollment.objects.select_for_update()
             .filter(user=user, convention_id=convention_id)
@@ -97,9 +104,10 @@ def set_active_convention(user: User, *, convention_id: int) -> ConventionEnroll
             raise ConventionNotActiveError()
 
         if not enrollment.is_active:
+            now = timezone.now()
             ConventionEnrollment.objects.filter(user=user, is_active=True).exclude(
                 pk=enrollment.pk
-            ).update(is_active=False)
+            ).update(is_active=False, updated_at=now)
             enrollment.is_active = True
             enrollment.save(update_fields=["is_active", "updated_at"])
 
@@ -111,6 +119,27 @@ def clear_active_convention(user: User) -> None:
     require_convention_participation_eligible(user)
 
     with transaction.atomic():
+        _locked_eligible_profile(user)
+        now = timezone.now()
         ConventionEnrollment.objects.filter(user=user, is_active=True).update(
-            is_active=False
+            is_active=False, updated_at=now
         )
+
+
+def _locked_eligible_profile(user: User) -> PlayerProfile:
+    """Lock an already-complete enabled profile, ensuring atomic serialization."""
+    profile = (
+        PlayerProfile.objects.select_for_update()
+        .filter(
+            user=user,
+            onboarding_completed_at__isnull=False,
+            handle__isnull=False,
+            display_name__isnull=False,
+            is_enabled=True,
+        )
+        .exclude(display_name="")
+        .first()
+    )
+    if profile is None:
+        raise ConventionParticipationIneligibleError()
+    return profile
