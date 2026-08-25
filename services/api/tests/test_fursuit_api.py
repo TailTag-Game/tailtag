@@ -221,7 +221,7 @@ def test_absent_and_cross_owner_ids_have_no_eligibility_normalization_media_url_
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Concealment precedes all request work, including GET presigning."""
-    from fursuits import normalization, services
+    from fursuits import services
     from media import service as media_service
 
     owner = create_eligible_user()
@@ -235,7 +235,7 @@ def test_absent_and_cross_owner_ids_have_no_eligibility_normalization_media_url_
     monkeypatch.setattr(services, "require_fursuit_write_eligible", forbidden)
     monkeypatch.setattr(services, "update_fursuit_name", forbidden)
     monkeypatch.setattr(services, "replace_fursuit_photo", forbidden)
-    monkeypatch.setattr(normalization, "normalize_fursuit_name", forbidden)
+    monkeypatch.setattr(services, "normalize_fursuit_name", forbidden)
     monkeypatch.setattr(media_service, "store_image", forbidden)
     monkeypatch.setattr(media_service, "read_image_url", forbidden)
     for identifier in (target.id, 999999):
@@ -261,41 +261,43 @@ def test_absent_and_cross_owner_ids_have_no_eligibility_normalization_media_url_
 
 
 @pytest.mark.django_db
-def test_every_profile_ineligible_shape_forbids_all_writes_but_disabled_fursuit_is_remediable() -> (
-    None
-):
-    for shape in ("missing", "incomplete", "disabled"):
-        user = create_eligible_user()
-        client = force_authenticated_client(user=user)
-        record = create_fursuit_record(owner=user)
-        if shape == "missing":
-            PlayerProfile.objects.filter(user=user).delete()
-        elif shape == "incomplete":
-            PlayerProfile.objects.filter(user=user).update(
-                onboarding_completed_at=None, handle=None, display_name=None
-            )
-        else:
-            PlayerProfile.objects.filter(user=user).update(is_enabled=False)
-        assert (
-            client.post(
-                "/api/fursuits/", {"name": "Bad", "photo": image_upload()}
-            ).status_code
-            == 403
+@pytest.mark.parametrize("shape", ("missing", "incomplete", "disabled"))
+def test_every_profile_ineligible_shape_forbids_all_writes(shape: str) -> None:
+    user = create_eligible_user()
+    client = force_authenticated_client(user=user)
+    record = create_fursuit_record(owner=user)
+    if shape == "missing":
+        PlayerProfile.objects.filter(user=user).delete()
+    elif shape == "incomplete":
+        PlayerProfile.objects.filter(user=user).update(
+            onboarding_completed_at=None, handle=None, display_name=None
         )
-        assert (
-            client.patch(
-                f"/api/fursuits/{record.id}/",
-                {"name": "Bad"},
-                content_type="application/json",
-            ).status_code
-            == 403
-        )
-        assert (
-            client.put(
-                f"/api/fursuits/{record.id}/photo/", {"photo": image_upload()}
-            ).status_code
-            == 403
-        )
+    else:
+        PlayerProfile.objects.filter(user=user).update(is_enabled=False)
+    assert (
+        client.post(
+            "/api/fursuits/", {"name": "Bad", "photo": image_upload()}
+        ).status_code
+        == 403
+    )
+    assert (
+        client.patch(
+            f"/api/fursuits/{record.id}/",
+            {"name": "Bad"},
+            content_type="application/json",
+        ).status_code
+        == 403
+    )
+    assert (
+        client.put(
+            f"/api/fursuits/{record.id}/photo/", {"photo": image_upload()}
+        ).status_code
+        == 403
+    )
+
+
+@pytest.mark.django_db
+def test_operator_disabled_fursuit_is_remediable() -> None:
     user = create_eligible_user()
     record = create_fursuit_record(owner=user)
     type(record).objects.filter(pk=record.pk).update(is_enabled=False)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Never, Protocol, cast
 
 import pytest
@@ -32,24 +33,56 @@ class _BytesRequestFactory(Protocol):
     ) -> WSGIRequest: ...
 
 
+@dataclass(frozen=True, slots=True)
+class _UploadDescriptor:
+    name: str = "avatar.png"
+
+
+type _PayloadValue = str | _UploadDescriptor
+type _PayloadDescriptor = dict[str, _PayloadValue | tuple[_PayloadValue, ...]]
+
+
+def _materialize_payload(descriptor: _PayloadDescriptor) -> dict[str, object]:
+    payload: dict[str, object] = {}
+    for key, value in descriptor.items():
+        if isinstance(value, tuple):
+            payload[key] = [
+                image_upload(name=item.name)
+                if isinstance(item, _UploadDescriptor)
+                else item
+                for item in value
+            ]
+        else:
+            payload[key] = (
+                image_upload(name=value.name)
+                if isinstance(value, _UploadDescriptor)
+                else value
+            )
+    return payload
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("path_kind", "payload"),
+    ("path_kind", "payload_descriptor"),
     (
         ("create", {}),
         ("create", {"name": "Valid"}),
-        ("create", {"photo": image_upload()}),
-        ("create", {"name": "Valid", "photo": image_upload(), "extra": "x"}),
-        ("replace", {"name": "Forbidden", "photo": image_upload()}),
+        ("create", {"photo": _UploadDescriptor()}),
+        (
+            "create",
+            {"name": "Valid", "photo": _UploadDescriptor(), "extra": "x"},
+        ),
+        ("replace", {"name": "Forbidden", "photo": _UploadDescriptor()}),
         ("replace", {}),
-        ("replace", {"photo": image_upload(), "extra": "x"}),
+        ("replace", {"photo": _UploadDescriptor(), "extra": "x"}),
     ),
 )
 def test_multipart_endpoints_reject_missing_forbidden_and_additional_entries(
-    path_kind: str, payload: dict[str, object]
+    path_kind: str, payload_descriptor: _PayloadDescriptor
 ) -> None:
     user = create_eligible_user()
     client = force_authenticated_client(user=user)
+    payload = _materialize_payload(payload_descriptor)
     path = (
         "/api/fursuits/"
         if path_kind == "create"
@@ -81,42 +114,64 @@ def test_repeated_multipart_values_and_files_are_not_collapsed_by_querydict_get(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("path_kind", "payload"),
+    ("path_kind", "payload_descriptor"),
     (
-        ("create", {"name": ["Valid", "Repeated"], "photo": [image_upload()]}),
+        (
+            "create",
+            {"name": ("Valid", "Repeated"), "photo": (_UploadDescriptor(),)},
+        ),
         (
             "create",
             {
-                "name": ["Valid"],
-                "photo": [image_upload(), image_upload(name="again.png")],
+                "name": ("Valid",),
+                "photo": (_UploadDescriptor(), _UploadDescriptor("again.png")),
             },
         ),
-        ("create", {"name": ["Valid"], "photo": [image_upload()], "owner": ["1"]}),
         (
             "create",
-            {"name": ["Valid"], "photo": [image_upload()], "is_enabled": ["true"]},
+            {"name": ("Valid",), "photo": (_UploadDescriptor(),), "owner": ("1",)},
         ),
-        (
-            "create",
-            {"name": [image_upload(name="name.png")], "photo": [image_upload()]},
-        ),
-        ("create", {"name": ["Valid"], "photo": ["not-a-file"]}),
         (
             "create",
             {
-                "name": ["Valid"],
-                "photo": [image_upload()],
-                "extra": [image_upload(name="extra.png")],
+                "name": ("Valid",),
+                "photo": (_UploadDescriptor(),),
+                "is_enabled": ("true",),
             },
         ),
-        ("replace", {"photo": [image_upload(), image_upload(name="again.png")]}),
-        ("replace", {"name": ["Forbidden"], "photo": [image_upload()]}),
-        ("replace", {"photo": [image_upload()], "extra": ["value"]}),
-        ("replace", {"photo": [image_upload()], "owner": ["1"]}),
-        ("replace", {"photo": ["not-a-file"]}),
+        (
+            "create",
+            {
+                "name": (_UploadDescriptor("name.png"),),
+                "photo": (_UploadDescriptor(),),
+            },
+        ),
+        ("create", {"name": ("Valid",), "photo": ("not-a-file",)}),
+        (
+            "create",
+            {
+                "name": ("Valid",),
+                "photo": (_UploadDescriptor(),),
+                "extra": (_UploadDescriptor("extra.png"),),
+            },
+        ),
         (
             "replace",
-            {"photo": [image_upload()], "extra": [image_upload(name="extra.png")]},
+            {"photo": (_UploadDescriptor(), _UploadDescriptor("again.png"))},
+        ),
+        (
+            "replace",
+            {"name": ("Forbidden",), "photo": (_UploadDescriptor(),)},
+        ),
+        ("replace", {"photo": (_UploadDescriptor(),), "extra": ("value",)}),
+        ("replace", {"photo": (_UploadDescriptor(),), "owner": ("1",)}),
+        ("replace", {"photo": ("not-a-file",)}),
+        (
+            "replace",
+            {
+                "photo": (_UploadDescriptor(),),
+                "extra": (_UploadDescriptor("extra.png"),),
+            },
         ),
     ),
     ids=(
@@ -136,11 +191,12 @@ def test_repeated_multipart_values_and_files_are_not_collapsed_by_querydict_get(
     ),
 )
 def test_raw_multivalued_multipart_inputs_are_closed_per_entry(
-    path_kind: str, payload: dict[str, object]
+    path_kind: str, payload_descriptor: _PayloadDescriptor
 ) -> None:
     """Rejects repeated parts after proving the raw body parses to duplicate lists."""
     user = create_eligible_user()
     client = force_authenticated_client(user=user)
+    payload = _materialize_payload(payload_descriptor)
     path = (
         "/api/fursuits/"
         if path_kind == "create"

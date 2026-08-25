@@ -95,6 +95,13 @@ def test_admin_search_excludes_clerk_and_opaque_key_but_finds_safe_record_identi
         name="Searchable Character 115",
         photo_key="images/0123456789abcdef0123456789abcdef.png",
     )
+    if record.pk == owner.pk:
+        record = create_fursuit_record(
+            owner=owner,
+            name="Searchable Character 115 Alternate",
+            photo_key="images/fedcba9876543210fedcba9876543210.png",
+        )
+    assert str(record.pk) != str(owner.pk)
     client = Client()
     client.force_login(operator)
     changelist = reverse("admin:fursuits_fursuit_changelist")
@@ -115,6 +122,7 @@ def test_view_only_staff_cannot_toggle_and_change_staff_cannot_forge_hidden_fiel
     None
 ):
     record = create_fursuit_record(owner=create_eligible_user())
+    name_before = record.name
     owner_before = record.owner_id
     created_before = record.created_at
     for codes, expected in (
@@ -145,6 +153,6 @@ def test_view_only_staff_cannot_toggle_and_change_staff_cannot_forge_hidden_fiel
         )
         assert response.status_code == expected
         record.refresh_from_db()
-        assert record.name == "Example Character" and record.photo_key != "forged"
+        assert record.name == name_before and record.photo_key != "forged"
         assert record.owner_id == owner_before and record.created_at == created_before
         assert record.updated_at.year != 2000
