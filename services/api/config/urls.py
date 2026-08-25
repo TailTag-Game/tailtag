@@ -14,6 +14,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("admin/", admin.site.urls),
     path("api/me/", CurrentUserView.as_view(), name="current-user"),
     path("api/", include("profiles.urls")),
+    path("api/fursuits/", include("fursuits.urls")),
     path("api/conventions/", include("conventions.urls")),
     path(
         "api/schema/",
