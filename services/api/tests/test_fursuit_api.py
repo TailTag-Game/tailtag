@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Callable
+
 import pytest
 from django.core.files.storage import default_storage
+from django.db import connection
 from django.test import Client, override_settings
 
 from profiles.models import PlayerProfile
@@ -21,6 +25,29 @@ from tests.profile_test_support import (
     RecordingStorage,
     image_upload,
 )
+
+
+class AdvisoryLockObserver:
+    """Record PostgreSQL advisory-lock acquisitions without coupling to imports."""
+
+    _acquisition = re.compile(
+        r"\bpg_(?:try_)?advisory_(?:xact_)?lock(?:_shared)?\s*\(", re.IGNORECASE
+    )
+
+    def __init__(self) -> None:
+        self.acquisitions: list[tuple[str, object]] = []
+
+    def __call__(
+        self,
+        execute: Callable[..., object],
+        sql: str,
+        params: object,
+        many: bool,
+        context: object,
+    ) -> object:
+        if self._acquisition.search(sql):
+            self.acquisitions.append((sql, params))
+        return execute(sql, params, many, context)
 
 
 @override_settings(CLERK_AUTHENTICATION=TEST_CLERK_CONFIGURATION)
@@ -287,7 +314,7 @@ def test_every_profile_ineligible_shape_forbids_all_writes_but_disabled_fursuit_
 @pytest.mark.django_db
 @pytest.mark.parametrize("shape", ("missing", "incomplete", "disabled"))
 @override_settings(STORAGES=RECORDING_STORAGES)
-def test_ineligible_writes_stop_before_parsing_normalization_or_media_side_effects(
+def test_ineligible_writes_stop_before_parsing_normalization_media_or_locking(
     shape: str,
 ) -> None:
     user = create_eligible_user()
@@ -305,27 +332,41 @@ def test_ineligible_writes_stop_before_parsing_normalization_or_media_side_effec
         PlayerProfile.objects.filter(user=user).update(is_enabled=False)
 
     client = force_authenticated_client(user=user)
-    assert (
-        client.post(
-            "/api/fursuits/", {"name": "bad\x00name", "photo": image_upload()}
-        ).status_code
-        == 403
-    )
-    assert (
-        client.patch(
-            f"/api/fursuits/{record.id}/", b"not json", content_type="application/json"
-        ).status_code
-        == 403
-    )
-    assert (
-        client.generic(
-            "PUT",
-            f"/api/fursuits/{record.id}/photo/",
-            data=b"not multipart",
-            content_type="multipart/form-data",
-        ).status_code
-        == 403
-    )
+    advisory_locks = AdvisoryLockObserver()
+    with connection.execute_wrapper(advisory_locks):
+        assert (
+            client.generic(
+                "POST",
+                "/api/fursuits/",
+                data=b"not multipart",
+                content_type="multipart/form-data",
+            ).status_code
+            == 403
+        )
+        assert (
+            client.post(
+                "/api/fursuits/", {"name": "bad\x00name", "photo": image_upload()}
+            ).status_code
+            == 403
+        )
+        assert (
+            client.patch(
+                f"/api/fursuits/{record.id}/",
+                b"not json",
+                content_type="application/json",
+            ).status_code
+            == 403
+        )
+        assert (
+            client.generic(
+                "PUT",
+                f"/api/fursuits/{record.id}/photo/",
+                data=b"not multipart",
+                content_type="multipart/form-data",
+            ).status_code
+            == 403
+        )
+    assert advisory_locks.acquisitions == []
     assert storage.events == []
     record.refresh_from_db()
     assert (record.photo_key, record.updated_at) == (original_key, original_updated_at)
