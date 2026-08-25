@@ -293,7 +293,9 @@ def test_post_commit_url_failure_does_not_revert_authoritative_photo_reference(
     monkeypatch.setattr(
         storage, "url", lambda _key: (_ for _ in ()).throw(RuntimeError("url failure"))
     )
-    response = force_authenticated_client(user=user).put(
+    client = force_authenticated_client(user=user)
+    client.raise_request_exception = False
+    response = client.put(
         f"/api/fursuits/{record.id}/photo/", {"photo": image_upload()}
     )
     record.refresh_from_db()
