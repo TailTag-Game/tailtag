@@ -24,6 +24,7 @@ def assert_fursuit_response(
     assert isinstance(data["id"], int)
     assert isinstance(data["name"], str)
     assert isinstance(data["photo_url"], str)
+    assert data["photo_url"]
     assert isinstance(data["is_enabled"], bool)
     return data
 

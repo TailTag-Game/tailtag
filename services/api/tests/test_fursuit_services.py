@@ -10,6 +10,7 @@ from fursuits.services import (
     FursuitWriteIneligibleError,
     create_fursuit,
     get_owned_fursuit,
+    replace_fursuit_photo,
     require_fursuit_write_eligible,
     update_fursuit_name,
 )
@@ -107,6 +108,48 @@ def test_create_saves_media_before_commit_and_compensates_commit_failure(
     with pytest.raises(RuntimeError) as raised:
         create_fursuit(owner, name="New", upload=image_upload())
     assert raised.value is failure
+    assert [event[0] for event in storage.events] == ["save", "delete"]
+
+
+@pytest.mark.django_db
+@override_settings(STORAGES=RECORDING_STORAGES)
+def test_create_compensation_does_not_replace_the_original_commit_failure_when_delete_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fursuits import services
+
+    owner = create_eligible_user()
+    storage = default_storage
+    assert isinstance(storage, RecordingStorage)
+    failure = RuntimeError("authoritative commit failure")
+    monkeypatch.setattr(
+        services,
+        "_commit_created_fursuit",
+        lambda *args, **kwargs: (_ for _ in ()).throw(failure),
+    )
+    monkeypatch.setattr(
+        storage,
+        "delete",
+        lambda _key: (_ for _ in ()).throw(RuntimeError("cleanup failed")),
+    )
+    with pytest.raises(RuntimeError) as raised:
+        create_fursuit(owner, name="New", upload=image_upload())
+    assert raised.value is failure
+
+
+@pytest.mark.django_db
+@override_settings(STORAGES=RECORDING_STORAGES)
+def test_replace_fursuit_photo_is_a_service_boundary_and_commits_before_old_cleanup() -> (
+    None
+):
+    owner = create_eligible_user()
+    record = create_fursuit_record(owner=owner)
+    old_key = record.photo_key
+    storage = default_storage
+    assert isinstance(storage, RecordingStorage)
+    new_key = replace_fursuit_photo(owner, record, upload=image_upload())
+    record.refresh_from_db()
+    assert record.photo_key == new_key and new_key != old_key
     assert [event[0] for event in storage.events] == ["save", "delete"]
 
 

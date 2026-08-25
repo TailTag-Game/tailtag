@@ -58,6 +58,29 @@ def test_list_is_unpaginated_ascending_and_owner_scoped_but_readable_when_disabl
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("profile_state", ("missing", "incomplete", "disabled"))
+def test_owner_reads_remain_available_for_every_profile_state(
+    profile_state: str,
+) -> None:
+    user = create_eligible_user()
+    record = create_fursuit_record(owner=user)
+    if profile_state == "missing":
+        PlayerProfile.objects.filter(user=user).delete()
+    elif profile_state == "incomplete":
+        PlayerProfile.objects.filter(user=user).update(
+            onboarding_completed_at=None, handle=None, display_name=None
+        )
+    else:
+        PlayerProfile.objects.filter(user=user).update(is_enabled=False)
+    client = force_authenticated_client(user=user)
+    listed = client.get("/api/fursuits/")
+    detail = client.get(f"/api/fursuits/{record.id}/")
+    assert listed.status_code == detail.status_code == 200
+    assert [item["id"] for item in listed.json()] == [record.id]
+    assert assert_fursuit_response(detail)["id"] == record.id
+
+
+@pytest.mark.django_db
 def test_create_patch_and_detail_are_closed_and_never_accept_server_fields() -> None:
     owner = create_eligible_user()
     client = force_authenticated_client(user=owner)
@@ -131,6 +154,49 @@ def test_cross_owner_and_missing_detail_writes_are_indistinguishable_404_before_
 
 
 @pytest.mark.django_db
+def test_absent_and_cross_owner_ids_have_no_eligibility_normalization_media_url_or_service_side_effect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Concealment precedes all request work, including GET presigning."""
+    from fursuits import normalization, services
+    from media import service as media_service
+
+    owner = create_eligible_user()
+    target = create_fursuit_record(owner=owner)
+    caller = create_eligible_user()
+    client = force_authenticated_client(user=caller)
+
+    def forbidden(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("owner-filtered 404 must not perform this side effect")
+
+    monkeypatch.setattr(services, "require_fursuit_write_eligible", forbidden)
+    monkeypatch.setattr(services, "update_fursuit_name", forbidden)
+    monkeypatch.setattr(services, "replace_fursuit_photo", forbidden)
+    monkeypatch.setattr(normalization, "normalize_fursuit_name", forbidden)
+    monkeypatch.setattr(media_service, "store_image", forbidden)
+    monkeypatch.setattr(media_service, "read_image_url", forbidden)
+    for identifier in (target.id, 999999):
+        assert client.get(f"/api/fursuits/{identifier}/").status_code == 404
+        assert (
+            client.patch(
+                f"/api/fursuits/{identifier}/",
+                b"not json",
+                content_type="application/json",
+            ).status_code
+            == 404
+        )
+        assert (
+            client.generic(
+                "PUT",
+                f"/api/fursuits/{identifier}/photo/",
+                data=b"not multipart",
+                content_type="multipart/form-data",
+            ).status_code
+            == 404
+        )
+
+
+@pytest.mark.django_db
 def test_every_profile_ineligible_shape_forbids_all_writes_but_disabled_fursuit_is_remediable() -> (
     None
 ):
@@ -179,3 +245,22 @@ def test_every_profile_ineligible_shape_forbids_all_writes_but_disabled_fursuit_
         .status_code
         == 200
     )
+    assert (
+        force_authenticated_client(user=user)
+        .put(f"/api/fursuits/{record.id}/photo/", {"photo": image_upload()})
+        .status_code
+        == 200
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("bad_name", ("", " \t", "bad\x00name", "x" * 51))
+def test_invalid_name_is_a_safe_name_field_error(bad_name: str) -> None:
+    user = create_eligible_user()
+    record = create_fursuit_record(owner=user)
+    response = force_authenticated_client(user=user).patch(
+        f"/api/fursuits/{record.id}/",
+        {"name": bad_name},
+        content_type="application/json",
+    )
+    assert response.status_code == 400 and set(response.json()) == {"name"}

@@ -19,6 +19,20 @@ def test_fursuit_model_has_the_exact_durable_shape() -> None:
         "fursuits_fursuit_name_not_empty",
         "fursuits_fursuit_photo_key_not_empty",
     }
+    owner = Fursuit._meta.get_field("owner")
+    name = Fursuit._meta.get_field("name")
+    key = Fursuit._meta.get_field("photo_key")
+    enabled = Fursuit._meta.get_field("is_enabled")
+    created = Fursuit._meta.get_field("created_at")
+    updated = Fursuit._meta.get_field("updated_at")
+    assert isinstance(owner, models.ForeignKey) and not owner.null
+    assert (
+        isinstance(name, models.CharField) and name.max_length == 50 and not name.null
+    )
+    assert isinstance(key, models.TextField) and not key.null
+    assert isinstance(enabled, models.BooleanField) and enabled.default is True
+    assert isinstance(created, models.DateTimeField) and not created.null
+    assert isinstance(updated, models.DateTimeField) and not updated.null
 
 
 @pytest.mark.django_db
@@ -46,6 +60,19 @@ def test_defaults_timestamps_ordering_and_non_unique_names() -> None:
     assert first.created_at == created_at
     assert first.updated_at > updated_at
     assert list(Fursuit.objects.values_list("id", flat=True)) == [first.id, second.id]
+
+
+@pytest.mark.django_db
+def test_player_domain_services_cannot_mutate_an_existing_fursuit_owner() -> None:
+    from fursuits.services import update_fursuit_name
+
+    owner = create_eligible_user()
+    different_user = create_eligible_user()
+    record = create_fursuit_record(owner=owner)
+    update_fursuit_name(owner, record, name="Changed")
+    record.refresh_from_db()
+    assert record.owner_id == owner.id
+    assert record.owner_id != different_user.id
 
 
 @pytest.mark.parametrize(

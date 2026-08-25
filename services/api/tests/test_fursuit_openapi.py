@@ -55,6 +55,12 @@ def test_fursuit_openapi_is_exact_closed_authenticated_and_has_safe_media_shapes
     assert set(patch["requestBody"]["content"]) == {"application/json"}
     for operation in (post, patch, photo):
         assert {"400", "403"}.issubset(operation["responses"])
+    assert {"200", "401", "405"}.issubset(paths["/api/fursuits/"]["get"]["responses"])
+    assert {"200", "401", "404", "405"}.issubset(
+        paths["/api/fursuits/{id}/"]["get"]["responses"]
+    )
+    assert {"200", "400", "401", "403", "404", "405"}.issubset(patch["responses"])
+    assert {"200", "400", "401", "403", "404", "405"}.issubset(photo["responses"])
     successful = _dereference(
         schema, post["responses"]["201"]["content"]["application/json"]["schema"]
     )
@@ -83,3 +89,25 @@ def test_fursuit_openapi_is_exact_closed_authenticated_and_has_safe_media_shapes
         photo_body["required"] == ["photo"]
         and photo_body["properties"]["photo"]["format"] == "binary"
     )
+    patch_body = _dereference(
+        schema, patch["requestBody"]["content"]["application/json"]["schema"]
+    )
+    assert patch_body.get("additionalProperties") is False
+    assert set(patch_body["properties"]) == {"name"}
+    assert patch_body["required"] == ["name"]
+    for body, expected in (
+        (create_body, {"name", "photo"}),
+        (photo_body, {"photo"}),
+    ):
+        assert body.get("additionalProperties") is False
+        assert set(body["properties"]) == expected
+    for request_schema in (create_body, photo_body, patch_body):
+        assert not {
+            "id",
+            "owner",
+            "photo_url",
+            "photo_key",
+            "is_enabled",
+            "created_at",
+            "updated_at",
+        }.intersection(request_schema["properties"])

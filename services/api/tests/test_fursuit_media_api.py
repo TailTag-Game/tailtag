@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from django.core.files.storage import default_storage
 from django.test import override_settings
+from django.utils.datastructures import MultiValueDict
 
 from media.images import ImageRejectionCode, ImageValidationError
 from tests.authentication_support import force_authenticated_client
@@ -64,6 +65,126 @@ def test_repeated_multipart_values_and_files_are_not_collapsed_by_querydict_get(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("path_kind", "payload"),
+    (
+        (
+            "create",
+            MultiValueDict({"name": ["Valid", "Repeated"], "photo": [image_upload()]}),
+        ),
+        (
+            "create",
+            MultiValueDict(
+                {
+                    "name": ["Valid"],
+                    "photo": [image_upload(), image_upload(name="again.png")],
+                }
+            ),
+        ),
+        (
+            "create",
+            MultiValueDict(
+                {"name": ["Valid"], "photo": [image_upload()], "owner": ["1"]}
+            ),
+        ),
+        (
+            "create",
+            MultiValueDict(
+                {"name": ["Valid"], "photo": [image_upload()], "is_enabled": ["true"]}
+            ),
+        ),
+        (
+            "create",
+            MultiValueDict(
+                {"name": [image_upload(name="name.png")], "photo": [image_upload()]}
+            ),
+        ),
+        (
+            "create",
+            MultiValueDict({"name": ["Valid"], "photo": ["not-a-file"]}),
+        ),
+        (
+            "create",
+            MultiValueDict(
+                {
+                    "name": ["Valid"],
+                    "photo": [image_upload()],
+                    "extra": [image_upload(name="extra.png")],
+                }
+            ),
+        ),
+        (
+            "replace",
+            MultiValueDict({"photo": [image_upload(), image_upload(name="again.png")]}),
+        ),
+        ("replace", MultiValueDict({"name": ["Forbidden"], "photo": [image_upload()]})),
+        ("replace", MultiValueDict({"photo": [image_upload()], "extra": ["value"]})),
+        ("replace", MultiValueDict({"photo": [image_upload()], "owner": ["1"]})),
+        ("replace", MultiValueDict({"photo": ["not-a-file"]})),
+        (
+            "replace",
+            MultiValueDict(
+                {
+                    "photo": [image_upload()],
+                    "extra": [image_upload(name="extra.png")],
+                }
+            ),
+        ),
+    ),
+    ids=(
+        "create-repeated-name",
+        "create-repeated-photo",
+        "create-owner",
+        "create-enabled",
+        "create-name-file",
+        "create-photo-value",
+        "create-extra-file",
+        "replace-repeated-photo",
+        "replace-name",
+        "replace-extra-value",
+        "replace-owner",
+        "replace-photo-value",
+        "replace-extra-file",
+    ),
+)
+def test_raw_multivalued_multipart_inputs_are_closed_per_entry(
+    path_kind: str, payload: MultiValueDict[str, object]
+) -> None:
+    """Rejects `get()`-based cardinality checks and cross-channel writable fields."""
+    user = create_eligible_user()
+    client = force_authenticated_client(user=user)
+    path = (
+        "/api/fursuits/"
+        if path_kind == "create"
+        else f"/api/fursuits/{create_fursuit_record(owner=user).id}/photo/"
+    )
+    response = (
+        client.post(path, payload)
+        if path_kind == "create"
+        else client.put(path, payload)
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("method", "path"),
+    (("post", "/api/fursuits/"), ("put", "/api/fursuits/{id}/photo/")),
+)
+def test_media_writes_reject_json_and_non_multipart_requests(
+    method: str, path: str
+) -> None:
+    user = create_eligible_user()
+    record = create_fursuit_record(owner=user)
+    response = getattr(force_authenticated_client(user=user), method)(
+        path.format(id=record.id),
+        {"name": "Valid", "photo": "not-a-file"},
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("code", tuple(ImageRejectionCode))
 def test_each_image_rejection_is_a_safe_photo_field_error(
     monkeypatch: pytest.MonkeyPatch, code: ImageRejectionCode
@@ -87,14 +208,24 @@ def test_each_image_rejection_is_a_safe_photo_field_error(
 
 @pytest.mark.django_db
 @override_settings(STORAGES=RECORDING_STORAGES)
-def test_replacement_commits_new_reference_before_old_cleanup_and_url_generation() -> (
-    None
-):
+def test_replacement_commits_new_reference_before_old_cleanup_and_url_generation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     user = create_eligible_user()
     record = create_fursuit_record(owner=user)
     storage = default_storage
     assert isinstance(storage, RecordingStorage)
     storage.save(record.photo_key, image_upload())
+    old_key = record.photo_key
+    original_delete = storage.delete
+
+    def assert_committed_before_cleanup(key: str) -> None:
+        assert key == old_key
+        record.refresh_from_db()
+        assert record.photo_key != old_key
+        original_delete(key)
+
+    monkeypatch.setattr(storage, "delete", assert_committed_before_cleanup)
     response = force_authenticated_client(user=user).put(
         f"/api/fursuits/{record.id}/photo/", {"photo": image_upload()}
     )
@@ -121,3 +252,55 @@ def test_post_commit_url_failure_does_not_revert_authoritative_photo_reference(
     )
     record.refresh_from_db()
     assert response.status_code >= 500 and record.photo_key != old
+
+
+@pytest.mark.django_db
+@override_settings(STORAGES=RECORDING_STORAGES)
+def test_replacement_commit_failure_compensates_and_cleanup_failure_preserves_primary_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The new upload is compensated, but cleanup must never hide commit failure."""
+    from fursuits import services
+
+    user = create_eligible_user()
+    record = create_fursuit_record(owner=user)
+    storage = default_storage
+    assert isinstance(storage, RecordingStorage)
+    failure = RuntimeError("commit failure sentinel")
+    monkeypatch.setattr(
+        services,
+        "_commit_replaced_fursuit_photo",
+        lambda *args, **kwargs: (_ for _ in ()).throw(failure),
+    )
+    monkeypatch.setattr(
+        storage,
+        "delete",
+        lambda _key: (_ for _ in ()).throw(RuntimeError("cleanup failure")),
+    )
+    with pytest.raises(RuntimeError) as raised:
+        services.replace_fursuit_photo(user, record, upload=image_upload())
+    assert raised.value is failure
+
+
+@pytest.mark.django_db
+@override_settings(STORAGES=RECORDING_STORAGES)
+def test_old_cleanup_failure_keeps_new_reference_and_logs_only_sanitized_warning(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    user = create_eligible_user()
+    record = create_fursuit_record(owner=user)
+    old_key = record.photo_key
+    storage = default_storage
+    assert isinstance(storage, RecordingStorage)
+    monkeypatch.setattr(
+        storage,
+        "delete",
+        lambda _key: (_ for _ in ()).throw(RuntimeError("bucket credential secret")),
+    )
+    response = force_authenticated_client(user=user).put(
+        f"/api/fursuits/{record.id}/photo/", {"photo": image_upload()}
+    )
+    record.refresh_from_db()
+    assert response.status_code == 200 and record.photo_key != old_key
+    assert "bucket credential secret" not in caplog.text
+    assert "Media cleanup failed after replacement commit." in caplog.text
