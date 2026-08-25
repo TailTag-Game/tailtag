@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Never, Protocol, cast
+
 import pytest
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import UploadedFile
+from django.core.handlers.wsgi import WSGIRequest
 from django.test import RequestFactory, override_settings
 from django.test.client import BOUNDARY, encode_multipart
 
@@ -14,12 +17,19 @@ from tests.fursuit_test_support import (
     assert_fursuit_response,
     create_eligible_user,
     create_fursuit_record,
+    raw_client_request,
 )
 from tests.profile_test_support import (
     RECORDING_STORAGES,
     RecordingStorage,
     image_upload,
 )
+
+
+class _BytesRequestFactory(Protocol):
+    def generic(
+        self, method: str, path: str, data: bytes, content_type: str
+    ) -> WSGIRequest: ...
 
 
 @pytest.mark.django_db
@@ -137,23 +147,28 @@ def test_raw_multivalued_multipart_inputs_are_closed_per_entry(
         else f"/api/fursuits/{create_fursuit_record(owner=user).id}/photo/"
     )
     body = encode_multipart(BOUNDARY, payload)
-    probe = RequestFactory().generic(
+    probe = cast(_BytesRequestFactory, RequestFactory()).generic(
         "POST",
         path,
         data=body,
         content_type=f"multipart/form-data; boundary={BOUNDARY}",
     )
     for key, raw_values in payload.items():
-        values = raw_values if isinstance(raw_values, list) else [raw_values]
+        values = (
+            cast(list[object], raw_values)
+            if isinstance(raw_values, list)
+            else [raw_values]
+        )
         expected_post = [
             value for value in values if not isinstance(value, UploadedFile)
         ]
         expected_files = [value for value in values if isinstance(value, UploadedFile)]
         assert len(probe.POST.getlist(key)) == len(expected_post)
         assert len(probe.FILES.getlist(key)) == len(expected_files)
-    response = client.generic(
-        "POST" if path_kind == "create" else "PUT",
-        path,
+    response = raw_client_request(
+        client,
+        method="POST" if path_kind == "create" else "PUT",
+        path=path,
         data=body,
         content_type=f"multipart/form-data; boundary={BOUNDARY}",
     )
@@ -185,10 +200,13 @@ def test_each_image_rejection_is_a_safe_photo_field_error(
 ) -> None:
     from media import service
 
+    def reject_image(*_args: object, **_kwargs: object) -> Never:
+        raise ImageValidationError(code)
+
     monkeypatch.setattr(
         service,
         "store_image",
-        lambda *args, **kwargs: (_ for _ in ()).throw(ImageValidationError(code)),
+        reject_image,
     )
     response = force_authenticated_client(user=create_eligible_user()).post(
         "/api/fursuits/",
@@ -209,10 +227,14 @@ def test_replacement_maps_each_stable_image_rejection_to_a_safe_photo_error(
 
     user = create_eligible_user()
     record = create_fursuit_record(owner=user)
+
+    def reject_image(*_args: object, **_kwargs: object) -> Never:
+        raise ImageValidationError(code)
+
     monkeypatch.setattr(
         service,
         "store_image",
-        lambda *args, **kwargs: (_ for _ in ()).throw(ImageValidationError(code)),
+        reject_image,
     )
     response = force_authenticated_client(user=user).put(
         f"/api/fursuits/{record.id}/photo/", {"photo": image_upload(name="secret.png")}
@@ -230,12 +252,14 @@ def test_unexpected_storage_failures_remain_5xx(
 
     user = create_eligible_user()
     record = create_fursuit_record(owner=user)
+
+    def fail_storage(*_args: object, **_kwargs: object) -> Never:
+        raise RuntimeError("unexpected storage sentinel")
+
     monkeypatch.setattr(
         service,
         "store_image",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            RuntimeError("unexpected storage sentinel")
-        ),
+        fail_storage,
     )
     client = force_authenticated_client(user=user)
     client.raise_request_exception = False
@@ -290,8 +314,14 @@ def test_post_commit_url_failure_does_not_revert_authoritative_photo_reference(
     old = record.photo_key
     storage = default_storage
     assert isinstance(storage, RecordingStorage)
+
+    def fail_url(_key: str) -> Never:
+        raise RuntimeError("url failure")
+
     monkeypatch.setattr(
-        storage, "url", lambda _key: (_ for _ in ()).throw(RuntimeError("url failure"))
+        storage,
+        "url",
+        fail_url,
     )
     client = force_authenticated_client(user=user)
     client.raise_request_exception = False
@@ -315,15 +345,22 @@ def test_replacement_commit_failure_compensates_and_cleanup_failure_preserves_pr
     storage = default_storage
     assert isinstance(storage, RecordingStorage)
     failure = RuntimeError("commit failure sentinel")
+
+    def fail_commit(*_args: object, **_kwargs: object) -> Never:
+        raise failure
+
+    def fail_cleanup(_key: str) -> Never:
+        raise RuntimeError("cleanup failure")
+
     monkeypatch.setattr(
         services,
         "_commit_replaced_fursuit_photo",
-        lambda *args, **kwargs: (_ for _ in ()).throw(failure),
+        fail_commit,
     )
     monkeypatch.setattr(
         storage,
         "delete",
-        lambda _key: (_ for _ in ()).throw(RuntimeError("cleanup failure")),
+        fail_cleanup,
     )
     with pytest.raises(RuntimeError) as raised:
         services.replace_fursuit_photo(user, fursuit_id=record.id, photo=image_upload())
@@ -340,10 +377,14 @@ def test_old_cleanup_failure_keeps_new_reference_and_logs_only_sanitized_warning
     old_key = record.photo_key
     storage = default_storage
     assert isinstance(storage, RecordingStorage)
+
+    def fail_cleanup(_key: str) -> Never:
+        raise RuntimeError("bucket credential secret")
+
     monkeypatch.setattr(
         storage,
         "delete",
-        lambda _key: (_ for _ in ()).throw(RuntimeError("bucket credential secret")),
+        fail_cleanup,
     )
     response = force_authenticated_client(user=user).put(
         f"/api/fursuits/{record.id}/photo/", {"photo": image_upload()}

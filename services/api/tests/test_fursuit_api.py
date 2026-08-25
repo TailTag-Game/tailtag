@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from typing import cast
 
 import pytest
 from django.core.files.storage import default_storage
@@ -16,9 +17,11 @@ from tests.authentication_support import (
     force_authenticated_client,
 )
 from tests.fursuit_test_support import (
+    assert_fursuit_data,
     assert_fursuit_response,
     create_eligible_user,
     create_fursuit_record,
+    raw_client_request,
 )
 from tests.profile_test_support import (
     RECORDING_STORAGES,
@@ -85,8 +88,8 @@ def test_list_is_unpaginated_ascending_and_owner_scoped_but_readable_when_disabl
     response = force_authenticated_client(user=owner).get("/api/fursuits/")
     assert response.status_code == 200
     assert [
-        assert_fursuit_response(type("R", (), {"json": lambda self, d=data: d})())["id"]
-        for data in response.json()
+        assert_fursuit_data(data)["id"]
+        for data in cast(list[dict[str, object]], response.json())
     ] == [first.id, second.id]
 
 
@@ -202,9 +205,10 @@ def test_cross_owner_and_missing_detail_writes_are_indistinguishable_404_before_
                 b"malformed",
                 content_type="application/json",
             ),
-            client.generic(
-                "PUT",
-                f"/api/fursuits/{identifier}/photo/",
+            raw_client_request(
+                client,
+                method="PUT",
+                path=f"/api/fursuits/{identifier}/photo/",
                 data=b"malformed",
                 content_type="multipart/form-data",
             ),
@@ -245,9 +249,10 @@ def test_absent_and_cross_owner_ids_have_no_eligibility_normalization_media_url_
             == 404
         )
         assert (
-            client.generic(
-                "PUT",
-                f"/api/fursuits/{identifier}/photo/",
+            raw_client_request(
+                client,
+                method="PUT",
+                path=f"/api/fursuits/{identifier}/photo/",
                 data=b"not multipart",
                 content_type="multipart/form-data",
             ).status_code
@@ -336,9 +341,10 @@ def test_ineligible_writes_stop_before_parsing_normalization_media_or_locking(
     advisory_locks = AdvisoryLockObserver()
     with connection.execute_wrapper(advisory_locks):
         assert (
-            client.generic(
-                "POST",
-                "/api/fursuits/",
+            raw_client_request(
+                client,
+                method="POST",
+                path="/api/fursuits/",
                 data=b"not multipart",
                 content_type="multipart/form-data",
             ).status_code
@@ -359,9 +365,10 @@ def test_ineligible_writes_stop_before_parsing_normalization_media_or_locking(
             == 403
         )
         assert (
-            client.generic(
-                "PUT",
-                f"/api/fursuits/{record.id}/photo/",
+            raw_client_request(
+                client,
+                method="PUT",
+                path=f"/api/fursuits/{record.id}/photo/",
                 data=b"not multipart",
                 content_type="multipart/form-data",
             ).status_code

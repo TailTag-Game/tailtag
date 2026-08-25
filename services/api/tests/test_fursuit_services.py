@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from typing import Never
+
 import pytest
 from django.core.files.storage import default_storage
 from django.test import override_settings
 from django.utils import timezone
 
 from accounts.models import User
+from fursuits.models import Fursuit
 from fursuits.services import (
     FursuitWriteIneligibleError,
     create_fursuit,
@@ -66,7 +69,7 @@ def test_create_and_update_only_persist_server_controlled_fields_and_noop_does_n
     saves = 0
     original = type(created).save
 
-    def record_save(record: object, *args: object, **kwargs: object) -> object:
+    def record_save(record: Fursuit, *args: object, **kwargs: object) -> object:
         nonlocal saves
         saves += 1
         return original(record, *args, **kwargs)
@@ -102,10 +105,14 @@ def test_create_saves_media_before_commit_and_compensates_commit_failure(
     from fursuits import services
 
     failure = RuntimeError("commit sentinel")
+
+    def fail_commit(*_args: object, **_kwargs: object) -> Never:
+        raise failure
+
     monkeypatch.setattr(
         services,
         "_commit_created_fursuit",
-        lambda *args, **kwargs: (_ for _ in ()).throw(failure),
+        fail_commit,
     )
     with pytest.raises(RuntimeError) as raised:
         create_fursuit(owner, name="New", photo=image_upload())
@@ -124,15 +131,22 @@ def test_create_compensation_does_not_replace_the_original_commit_failure_when_d
     storage = default_storage
     assert isinstance(storage, RecordingStorage)
     failure = RuntimeError("authoritative commit failure")
+
+    def fail_commit(*_args: object, **_kwargs: object) -> Never:
+        raise failure
+
+    def fail_cleanup(_key: str) -> Never:
+        raise RuntimeError("cleanup failed")
+
     monkeypatch.setattr(
         services,
         "_commit_created_fursuit",
-        lambda *args, **kwargs: (_ for _ in ()).throw(failure),
+        fail_commit,
     )
     monkeypatch.setattr(
         storage,
         "delete",
-        lambda _key: (_ for _ in ()).throw(RuntimeError("cleanup failed")),
+        fail_cleanup,
     )
     with pytest.raises(RuntimeError) as raised:
         create_fursuit(owner, name="New", photo=image_upload())

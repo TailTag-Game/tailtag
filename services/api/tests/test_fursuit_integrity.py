@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Protocol, cast
+
 import pytest
 from django.db import IntegrityError, models, transaction
 
@@ -10,11 +12,14 @@ from fursuits.normalization import FursuitNameError, normalize_fursuit_name
 from tests.fursuit_test_support import create_eligible_user, create_fursuit_record
 
 
+class _OwnerRelation(Protocol):
+    on_delete: object
+    related_name: str | None
+
+
 def test_fursuit_model_has_the_exact_durable_shape() -> None:
     assert Fursuit._meta.pk.get_internal_type() == "BigAutoField"
     assert Fursuit._meta.ordering == ["id"]
-    assert Fursuit._meta.get_field("owner").remote_field.on_delete is models.PROTECT
-    assert Fursuit._meta.get_field("owner").remote_field.related_name == "fursuits"
     assert {constraint.name for constraint in Fursuit._meta.constraints} == {
         "fursuits_fursuit_name_not_empty",
         "fursuits_fursuit_photo_key_not_empty",
@@ -26,6 +31,9 @@ def test_fursuit_model_has_the_exact_durable_shape() -> None:
     created = Fursuit._meta.get_field("created_at")
     updated = Fursuit._meta.get_field("updated_at")
     assert isinstance(owner, models.ForeignKey) and not owner.null
+    owner_relation = cast(_OwnerRelation, owner.remote_field)
+    assert owner_relation.on_delete is models.PROTECT
+    assert owner_relation.related_name == "fursuits"
     assert (
         isinstance(name, models.CharField) and name.max_length == 50 and not name.null
     )

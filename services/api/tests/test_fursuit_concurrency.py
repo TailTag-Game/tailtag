@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier, Event
 
@@ -17,6 +18,16 @@ from tests.profile_test_support import (
     BlockingRecordingStorage,
     image_upload,
 )
+
+
+def _record_call[**P, R](
+    label: str, calls: list[str], function: Callable[P, R]
+) -> Callable[P, R]:
+    def recorded(*args: P.args, **kwargs: P.kwargs) -> R:
+        calls.append(label)
+        return function(*args, **kwargs)
+
+    return recorded
 
 
 @pytest.mark.django_db(transaction=True)
@@ -245,13 +256,8 @@ def test_commit_transactions_lock_profile_before_fursuit(
     profile_lock = PlayerProfile.objects.select_for_update
     fursuit_lock = Fursuit.objects.select_for_update
 
-    def record_profile_lock(*args: object, **kwargs: object) -> object:
-        order.append("profile")
-        return profile_lock(*args, **kwargs)
-
-    def record_fursuit_lock(*args: object, **kwargs: object) -> object:
-        order.append("fursuit")
-        return fursuit_lock(*args, **kwargs)
+    record_profile_lock = _record_call("profile", order, profile_lock)
+    record_fursuit_lock = _record_call("fursuit", order, fursuit_lock)
 
     monkeypatch.setattr(PlayerProfile.objects, "select_for_update", record_profile_lock)
     monkeypatch.setattr(Fursuit.objects, "select_for_update", record_fursuit_lock)

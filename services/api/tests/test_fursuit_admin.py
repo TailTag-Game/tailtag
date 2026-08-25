@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Protocol, cast
+
 import pytest
 from django.contrib.admin.models import LogEntry
 from django.contrib.auth.models import Permission
@@ -12,6 +14,14 @@ from django.urls import reverse
 from accounts.models import User
 from tests.fursuit_test_support import create_eligible_user, create_fursuit_record
 from tests.profile_test_support import RECORDING_STORAGES
+
+
+class _PermissionManager(Protocol):
+    def add(self, *permissions: Permission) -> None: ...
+
+
+class _UserWithPermissions(Protocol):
+    user_permissions: _PermissionManager
 
 
 @pytest.mark.django_db
@@ -114,7 +124,7 @@ def test_view_only_staff_cannot_toggle_and_change_staff_cannot_forge_hidden_fiel
         staff = create_eligible_user()
         staff.is_staff = True
         staff.save(update_fields=["is_staff"])
-        staff.user_permissions.add(
+        cast(_UserWithPermissions, staff).user_permissions.add(
             *Permission.objects.filter(
                 content_type__app_label="fursuits", codename__in=codes
             )
