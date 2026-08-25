@@ -81,7 +81,7 @@ class FursuitListCreateView(_FursuitAPIView):
             401: _AUTH_401,
             405: _METHOD_405,
             500: _SERVER_500,
-        }
+        },
     )
     def get(self, request: Request) -> Response:
         fursuits = Fursuit.objects.filter(owner=_user(request)).order_by("id")
@@ -132,7 +132,7 @@ class FursuitDetailView(_FursuitAPIView):
             404: _NOT_FOUND_404,
             405: _METHOD_405,
             500: _SERVER_500,
-        }
+        },
     )
     def get(self, request: Request, id: int) -> Response:
         return _fursuit_response(_owned_or_404(_user(request), id))

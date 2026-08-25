@@ -67,12 +67,16 @@ class PhotoUploadField(serializers.FileField):
 
 
 class FursuitCreateSerializer(serializers.Serializer[dict[str, object]]):
-    name = serializers.CharField(allow_blank=False, allow_null=False, trim_whitespace=False)
+    name = serializers.CharField(
+        allow_blank=False, allow_null=False, trim_whitespace=False
+    )
     photo = PhotoUploadField(allow_empty_file=False)
 
 
 class FursuitNamePatchSerializer(serializers.Serializer[dict[str, str]]):
-    name = serializers.CharField(allow_blank=False, allow_null=False, trim_whitespace=False)
+    name = serializers.CharField(
+        allow_blank=False, allow_null=False, trim_whitespace=False
+    )
 
     def to_internal_value(self, data: Any) -> dict[str, str]:
         if not isinstance(data, Mapping) or set(cast(Mapping[str, object], data)) != {

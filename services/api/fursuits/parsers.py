@@ -33,22 +33,16 @@ class ClosedMultiPartParser(MultiPartParser):
             )
         except ParseError:
             raise ParseError(
-                {
-                    "photo": [
-                        ErrorDetail("Upload a valid image.", code="invalid")
-                    ]
-                }
+                {"photo": [ErrorDetail("Upload a valid image.", code="invalid")]}
             ) from None
         if parser_context is None:
             raise RuntimeError("multipart parser context is required")
         contract = cast(MultipartContract, parser_context["view"].multipart_contract)
-        value_invalid = (
-            frozenset(parsed.data.keys()) != contract.value_fields
-            or any(len(parsed.data.getlist(field)) != 1 for field in parsed.data)
+        value_invalid = frozenset(parsed.data.keys()) != contract.value_fields or any(
+            len(parsed.data.getlist(field)) != 1 for field in parsed.data
         )
-        file_invalid = (
-            frozenset(parsed.files.keys()) != contract.file_fields
-            or any(len(parsed.files.getlist(field)) != 1 for field in parsed.files)
+        file_invalid = frozenset(parsed.files.keys()) != contract.file_fields or any(
+            len(parsed.files.getlist(field)) != 1 for field in parsed.files
         )
         if value_invalid or file_invalid:
             errors: dict[str, list[ErrorDetail]] = {}

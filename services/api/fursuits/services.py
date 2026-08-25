@@ -124,9 +124,7 @@ def _commit_created_fursuit(user: User, name: str, photo_key: str) -> Fursuit:
         return Fursuit.objects.create(owner=user, name=name, photo_key=photo_key)
 
 
-def _commit_replaced_fursuit_photo(
-    user: User, fursuit_id: int, photo_key: str
-) -> None:
+def _commit_replaced_fursuit_photo(user: User, fursuit_id: int, photo_key: str) -> None:
     """Commit a replacement reference after locking profile before fursuit."""
     with transaction.atomic():
         _locked_eligible_profile(user)
