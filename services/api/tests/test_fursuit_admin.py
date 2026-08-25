@@ -23,7 +23,8 @@ def test_admin_allows_only_enabled_toggle_and_never_exposes_key_or_clerk_identit
         "operator", password="safe-local-admin-password"
     )
     record = create_fursuit_record(
-        owner=create_eligible_user(), photo_key="images/secret-object-key.png"
+        owner=create_eligible_user(),
+        photo_key="images/0123456789abcdef0123456789abcdef.png",
     )
     client = Client()
     client.force_login(operator)
@@ -51,7 +52,7 @@ def test_admin_allows_only_enabled_toggle_and_never_exposes_key_or_clerk_identit
     assert record.updated_at > before_update
     rendered = list_response.content + detail.content
     assert (
-        b"secret-object-key" not in rendered
+        b"0123456789abcdef0123456789abcdef" not in rendered
         and record.owner.clerk_user_id.encode() not in rendered
     )
     assert client.get(reverse("admin:fursuits_fursuit_add")).status_code == 403
