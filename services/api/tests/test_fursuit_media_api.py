@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from django.core.files.storage import default_storage
+from django.core.files.uploadedfile import UploadedFile
 from django.test import RequestFactory, override_settings
 from django.test.client import BOUNDARY, encode_multipart
 
@@ -142,10 +143,14 @@ def test_raw_multivalued_multipart_inputs_are_closed_per_entry(
         data=body,
         content_type=f"multipart/form-data; boundary={BOUNDARY}",
     )
-    if "name" in payload and isinstance(payload["name"], list):
-        assert len(probe.POST.getlist("name")) == len(payload["name"])
-    if "photo" in payload and isinstance(payload["photo"], list):
-        assert len(probe.FILES.getlist("photo")) == len(payload["photo"])
+    for key, raw_values in payload.items():
+        values = raw_values if isinstance(raw_values, list) else [raw_values]
+        expected_post = [
+            value for value in values if not isinstance(value, UploadedFile)
+        ]
+        expected_files = [value for value in values if isinstance(value, UploadedFile)]
+        assert len(probe.POST.getlist(key)) == len(expected_post)
+        assert len(probe.FILES.getlist(key)) == len(expected_files)
     response = client.generic(
         "POST" if path_kind == "create" else "PUT",
         path,

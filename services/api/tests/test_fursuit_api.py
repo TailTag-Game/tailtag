@@ -50,6 +50,7 @@ class AdvisoryLockObserver:
         return execute(sql, params, many, context)
 
 
+@pytest.mark.django_db
 @override_settings(CLERK_AUTHENTICATION=TEST_CLERK_CONFIGURATION)
 def test_fursuit_routes_require_bearer_authentication_and_reject_unsupported_methods() -> (
     None
