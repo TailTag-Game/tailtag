@@ -830,8 +830,10 @@ application-user provisioning and account deletion remain outside #95.
 A Django superuser is an `accounts.User` with Django's staff and superuser flags
 and a local admin password. Those flags are Django administration infrastructure,
 not TailTag product roles, and the local password does not implement Clerk player
-authentication. Do not infer administration for profiles, fursuits, conventions,
-or catches from this surface: those domain models and workflows do not yet exist.
+authentication. The implemented fursuit admin is intentionally restricted to
+inspection and per-object `is_enabled` changes; it does not imply broader
+profile or fursuit administration. Convention and catch domain workflows remain
+outside this administrative surface.
 
 Create a development-only Django superuser after PostgreSQL is available. There
 is no canonical Make target for this one Django operation, so use this narrow
