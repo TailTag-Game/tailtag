@@ -341,5 +341,8 @@ def test_identity_authentication_adds_only_current_user_identity_route_alongside
         "/api/profile/avatar/",
         "/api/conventions/",
         "/api/conventions/{id}/",
+        "/api/fursuits/",
+        "/api/fursuits/{id}/",
+        "/api/fursuits/{id}/photo/",
         "/api/schema/",
     }
