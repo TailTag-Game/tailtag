@@ -4,8 +4,9 @@
 administration, PostgreSQL-backed liveness/readiness checks, the authenticated
 identity-proof endpoint at `GET /api/me/`, and OpenAPI schema/documentation
 infrastructure. It also defines TailTag's application-user identity, verifies
-Clerk requests, and resolves verified identities for DRF requests. It
-intentionally does not implement player profiles or gameplay APIs.
+Clerk requests, resolves verified identities for DRF requests, and provides the
+authenticated V0 player-profile surface. Gameplay APIs remain outside this
+service's current product scope.
 
 The service uses Python 3.13, Django, Django REST Framework, PostgreSQL 17,
 `uv`, Ruff, strict Pyright, pytest, drf-spectacular, Gunicorn, and Docker. This is
@@ -18,15 +19,15 @@ should use the [backend development delivery operations guide](../../docs/develo
 ## Current foundation boundary
 
 `accounts.User` is Django's configured user model and TailTag's canonical
-application identity. The `fursuits` app remains a neutral shell with no models,
-migrations, or public API behavior. Current TailTag product-domain
-administration does not exist.
+application identity. The dedicated `profiles` module owns V0 player product
+state; the `fursuits` app remains a neutral shell with no models, migrations, or
+public API behavior.
 
 The POC application migrations were intentionally reset. On a clean database,
-`make api-migrate` applies the initial `accounts.User` migration and Django
-framework migrations; future TailTag domain migrations require approved feature
-work. Historical Django POC documents remain evaluation evidence and are not
-current setup instructions.
+`make api-migrate` applies the approved TailTag and Django framework migrations;
+future TailTag domain migrations require approved feature work. Historical
+Django POC documents remain evaluation evidence and are not current setup
+instructions.
 
 ## Application identity contract
 
@@ -285,8 +286,45 @@ external subjects, SQL, connection information, constraint details, or provider
 internals.
 
 Issue #99 owns reusable and live developer tooling. Issue #100 owns Railway
-validation. This README makes no claim about profiles, provider metadata sync,
-account lifecycle, webhooks, or production operations.
+validation. This README makes no claim about provider metadata sync, account
+lifecycle, webhooks, or production operations.
+
+## V0 player profiles
+
+The dedicated `profiles` module owns player-facing product state separately
+from canonical `accounts.User` identity. Its authenticated endpoints are:
+
+```text
+GET   /api/profile/
+PUT   /api/profile/
+PATCH /api/profile/
+PUT   /api/profile/avatar/
+DELETE /api/profile/avatar/
+```
+
+Profile reads and successful mutations return exactly `handle`, `display_name`,
+`avatar_url`, `onboarding_complete`, and `is_enabled`. `handle` is normalized to
+lowercase before validation and persistence; `display_name` is NFC-normalized,
+trimmed, and has internal Unicode whitespace collapsed. Initial onboarding is
+the atomic `PUT` of both valid text fields. After onboarding, `PUT` replaces the
+complete text profile and `PATCH` changes either or both fields. Avatar upload,
+replacement, and removal are independent of onboarding.
+
+Every application user has a conceptual incomplete, enabled profile. A profile
+surface read may lazily materialize its otherwise invisible default row; this
+does not occur during Clerk identity resolution or application-user creation.
+Profile mutations require both authentication and an enabled profile. Disabled
+players retain profile-read and identity-proof access, while their text and
+avatar mutations return `403`. Later domains must use the non-creating,
+fail-closed participation-eligibility predicate rather than treating a profile
+read as eligibility.
+
+Only opaque avatar object keys persist. Read URLs are generated fresh when a
+profile is represented and are never persisted or logged. Profile tests use
+PostgreSQL plus deterministic in-memory or recording media storage and make no
+Clerk or object-storage network requests. `GET /api/me/` remains identity-only,
+returning only the TailTag application-user ID; it is not a profile endpoint.
+There is no Issue #113 Railway profile smoke command.
 
 ## Canonical backend commands
 

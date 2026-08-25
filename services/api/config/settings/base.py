@@ -21,6 +21,7 @@ INSTALLED_APPS = [
     "fursuits.apps.FursuitsConfig",
     "health.apps.HealthConfig",
     "media.apps.MediaConfig",
+    "profiles.apps.ProfilesConfig",
 ]
 
 MIDDLEWARE = [

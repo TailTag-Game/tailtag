@@ -326,9 +326,10 @@ def test_global_authentication_contract_has_one_tailtag_class_and_no_permission_
     assert "DEFAULT_PERMISSION_CLASSES" not in settings.REST_FRAMEWORK
 
 
-def test_identity_authentication_adds_only_the_current_user_production_route(
+def test_identity_authentication_adds_only_current_user_identity_route_alongside_approved_product_routes(
     client: Client,
 ) -> None:
+    """Profiles are separately approved product routes, not identity-authentication routes."""
     schema_response = client.get("/api/schema/")
 
     assert client.post("/api/auth/signup", data={}).status_code == 404
@@ -336,6 +337,8 @@ def test_identity_authentication_adds_only_the_current_user_production_route(
     assert schema_response.status_code == 200
     assert set(yaml.safe_load(schema_response.content)["paths"]) == {
         "/api/me/",
+        "/api/profile/",
+        "/api/profile/avatar/",
         "/api/conventions/",
         "/api/conventions/{id}/",
         "/api/schema/",
