@@ -69,7 +69,7 @@ class ConventionEnrollmentAdmin(ConventionEnrollmentAdminBase):
 
     list_display = (
         "id",
-        "user_id",
+        "user",
         "convention",
         "is_active",
         "created_at",
@@ -77,6 +77,7 @@ class ConventionEnrollmentAdmin(ConventionEnrollmentAdminBase):
     )
     list_filter = (
         "is_active",
+        "convention__status",
         "convention",
         "created_at",
     )

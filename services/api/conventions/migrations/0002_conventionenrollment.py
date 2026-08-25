@@ -55,7 +55,7 @@ class Migration(migrations.Migration):
                 "constraints": [
                     models.UniqueConstraint(
                         fields=("user", "convention"),
-                        name="conventions_enrollment_user_con_unique",
+                        name="conventions_enrollment_user_convention_unique",
                     ),
                     models.UniqueConstraint(
                         condition=models.Q(("is_active", True)),

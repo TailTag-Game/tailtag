@@ -135,7 +135,7 @@ class ConventionEnrollment(models.Model):
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
                 fields=["user", "convention"],
-                name="conventions_enrollment_user_con_unique",
+                name="conventions_enrollment_user_convention_unique",
             ),
             models.UniqueConstraint(
                 fields=["user"],

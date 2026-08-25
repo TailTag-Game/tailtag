@@ -495,7 +495,9 @@ def test_convention_enrollment_admin_registration() -> None:
     assert isinstance(model_admin, ConventionEnrollmentAdmin)
     assert "user__clerk_user_id" in model_admin.search_fields
     assert "is_active" in model_admin.list_filter
+    assert "convention__status" in model_admin.list_filter
     assert "id" in model_admin.list_display
+    assert "user" in model_admin.list_display
 
 
 @pytest.mark.django_db
