@@ -276,18 +276,25 @@ def test_every_profile_ineligible_shape_forbids_all_writes_but_disabled_fursuit_
         .status_code
         == 200
     )
+    assert (
+        force_authenticated_client(user=user)
+        .put(f"/api/fursuits/{record.id}/photo/", {"photo": image_upload()})
+        .status_code
+        == 200
+    )
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("shape", ("missing", "incomplete", "disabled"))
-def test_ineligible_writes_stop_before_parsing_normalization_media_or_mutation_services(
-    monkeypatch: pytest.MonkeyPatch, shape: str
+@override_settings(STORAGES=RECORDING_STORAGES)
+def test_ineligible_writes_stop_before_parsing_normalization_or_media_side_effects(
+    shape: str,
 ) -> None:
-    from fursuits import normalization, services
-    from media import service as media_service
-
     user = create_eligible_user()
     record = create_fursuit_record(owner=user)
+    original_key, original_updated_at = record.photo_key, record.updated_at
+    storage = default_storage
+    assert isinstance(storage, RecordingStorage)
     if shape == "missing":
         PlayerProfile.objects.filter(user=user).delete()
     elif shape == "incomplete":
@@ -297,19 +304,10 @@ def test_ineligible_writes_stop_before_parsing_normalization_media_or_mutation_s
     else:
         PlayerProfile.objects.filter(user=user).update(is_enabled=False)
 
-    def forbidden(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("ineligible request crossed a forbidden work boundary")
-
-    monkeypatch.setattr(normalization, "normalize_fursuit_name", forbidden)
-    monkeypatch.setattr(media_service, "store_image", forbidden)
-    monkeypatch.setattr(services, "create_fursuit", forbidden)
-    monkeypatch.setattr(services, "update_fursuit_name", forbidden)
-    monkeypatch.setattr(services, "replace_fursuit_photo", forbidden)
-    monkeypatch.setattr(services, "fursuit_advisory_lock_key", forbidden)
     client = force_authenticated_client(user=user)
     assert (
         client.post(
-            "/api/fursuits/", {"name": "Valid", "photo": image_upload()}
+            "/api/fursuits/", {"name": "bad\x00name", "photo": image_upload()}
         ).status_code
         == 403
     )
@@ -328,12 +326,9 @@ def test_ineligible_writes_stop_before_parsing_normalization_media_or_mutation_s
         ).status_code
         == 403
     )
-    assert (
-        force_authenticated_client(user=user)
-        .put(f"/api/fursuits/{record.id}/photo/", {"photo": image_upload()})
-        .status_code
-        == 200
-    )
+    assert storage.events == []
+    record.refresh_from_db()
+    assert (record.photo_key, record.updated_at) == (original_key, original_updated_at)
 
 
 @pytest.mark.django_db
