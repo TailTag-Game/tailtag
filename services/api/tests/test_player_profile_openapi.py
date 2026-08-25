@@ -31,6 +31,9 @@ def test_profile_openapi_documents_exact_paths_methods_representation_and_media_
     assert set(schema["paths"]) == {
         "/api/conventions/",
         "/api/conventions/{id}/",
+        "/api/fursuits/",
+        "/api/fursuits/{id}/",
+        "/api/fursuits/{id}/photo/",
         "/api/me/",
         "/api/profile/",
         "/api/profile/avatar/",

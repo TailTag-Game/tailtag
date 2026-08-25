@@ -20,8 +20,8 @@ should use the [backend development delivery operations guide](../../docs/develo
 
 `accounts.User` is Django's configured user model and TailTag's canonical
 application identity. The dedicated `profiles` module owns V0 player product
-state; the `fursuits` app remains a neutral shell with no models, migrations, or
-public API behavior.
+state, and the `fursuits` module owns durable, owner-scoped participating
+character records.
 
 The POC application migrations were intentionally reset. On a clean database,
 `make api-migrate` applies the approved TailTag and Django framework migrations;
@@ -325,6 +325,63 @@ PostgreSQL plus deterministic in-memory or recording media storage and make no
 Clerk or object-storage network requests. `GET /api/me/` remains identity-only,
 returning only the TailTag application-user ID; it is not a profile endpoint.
 There is no Issue #113 Railway profile smoke command.
+
+## V0 fursuits
+
+The `fursuits` module owns a durable participating-character record. A fursuit
+belongs to exactly one TailTag application user (`accounts.User`); its owner is
+immutable and no Clerk identifier is stored or exposed. Its name and required
+photo can be updated by its owner, while `is_enabled` is a global,
+operator-controlled moderation state. Player representations contain only the
+fursuit ID, name, fresh short-lived `photo_url`, and read-only `is_enabled`.
+Object keys and persistent URLs are never exposed.
+
+Authenticated players use these owner-scoped endpoints:
+
+```text
+POST  /api/fursuits/
+GET   /api/fursuits/
+GET   /api/fursuits/{id}/
+PATCH /api/fursuits/{id}/
+PUT   /api/fursuits/{id}/photo/
+```
+
+`POST` accepts a required name and required photo as closed multipart input.
+`PATCH` accepts only a name as closed JSON input, and photo replacement accepts
+only one photo as closed multipart input. Creation is intentionally
+non-idempotent: each successful repeated request creates a distinct fursuit.
+The owner list is unpaginated and ordered by ascending ID. Missing and
+cross-owner detail IDs both return `404`; player endpoints never permit owner,
+enablement, or photo-key mutation.
+
+Reads require authentication and remain available for incomplete or
+profile-disabled players. Writes require the existing, non-creating
+participation-eligibility predicate: authenticated, onboarding completed, and
+profile enabled. An operator-disabled fursuit remains editable by an otherwise
+eligible owner so it can be remediated. The complete behavior contract,
+including status and closed-schema rules, is in the
+[V0 fursuit domain specification](../../docs/specs/2026-08-24-v0-fursuit-domain.md).
+
+Fursuit photos use the established #112 media boundary: image validation,
+server-generated opaque object keys, short-lived read URLs, and compensating
+cleanup. URLs are generated afresh for every successful player representation
+and are never persisted or logged. PostgreSQL-backed API and concurrency tests,
+with deterministic media fakes where appropriate, are the acceptance boundary;
+this issue introduces no live Railway or object-storage smoke workflow.
+
+Django admin permits fursuit inspection and per-object `is_enabled` changes
+only. It does not permit fursuit creation, deletion, bulk enablement changes,
+owner changes, or manually supplied media references; it identifies owners by
+their TailTag application ID, not Clerk identity.
+
+Controlled V0 deliberately has no fursuit deletion, archival, ownership
+transfer, aggregate storage quota, fursuit-specific throttling, or general
+orphaned-object reconciliation. Storage exhaustion for authenticated users is
+an accepted controlled-V0 risk that requires reassessment before a broader
+untrusted rollout. The fursuit migration may be reversed only before durable
+fursuit data exists. After use begins, preserve the table, rows, and migration
+history; use compatible code or a forward schema repair rather than destructive
+reversal.
 
 ## Canonical backend commands
 
@@ -773,8 +830,10 @@ application-user provisioning and account deletion remain outside #95.
 A Django superuser is an `accounts.User` with Django's staff and superuser flags
 and a local admin password. Those flags are Django administration infrastructure,
 not TailTag product roles, and the local password does not implement Clerk player
-authentication. Do not infer administration for profiles, fursuits, conventions,
-or catches from this surface: those domain models and workflows do not yet exist.
+authentication. The implemented fursuit admin is intentionally restricted to
+inspection and per-object `is_enabled` changes; it does not imply broader
+profile or fursuit administration. Convention and catch domain workflows remain
+outside this administrative surface.
 
 Create a development-only Django superuser after PostgreSQL is available. There
 is no canonical Make target for this one Django operation, so use this narrow

@@ -162,6 +162,9 @@ def test_product_routes_remain_unversioned_and_do_not_add_public_user_surfaces(
         "/api/profile/avatar/",
         "/api/conventions/",
         "/api/conventions/{id}/",
+        "/api/fursuits/",
+        "/api/fursuits/{id}/",
+        "/api/fursuits/{id}/photo/",
         "/api/schema/",
     }
     assert client.get("/api/v0/me/").status_code == 404
