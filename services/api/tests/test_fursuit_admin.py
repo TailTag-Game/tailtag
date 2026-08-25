@@ -50,6 +50,11 @@ def test_admin_allows_only_enabled_toggle_and_never_exposes_key_or_clerk_identit
         and LogEntry.objects.filter(object_id=str(record.pk)).exists()
     )
     assert record.updated_at > before_update
+    after_toggle = record.updated_at
+    repeated = client.post(change, {"is_enabled": ""})
+    record.refresh_from_db()
+    assert repeated.status_code == 302
+    assert record.is_enabled is False and record.updated_at == after_toggle
     rendered = list_response.content + detail.content
     assert (
         b"0123456789abcdef0123456789abcdef" not in rendered
@@ -65,6 +70,34 @@ def test_admin_allows_only_enabled_toggle_and_never_exposes_key_or_clerk_identit
     assert b'name="action"' not in list_response.content
     assert b"https://media.example.test/read/" not in list_response.content
     assert b"photo" in list_response.content.lower()
+
+
+@pytest.mark.django_db
+def test_admin_search_excludes_clerk_and_opaque_key_but_finds_safe_record_identifiers() -> (
+    None
+):
+    operator = User.objects.create_superuser(
+        "search_operator", password="safe-local-admin-password"
+    )
+    owner = create_eligible_user(clerk_user_id="user_clerk_search_secret_115")
+    record = create_fursuit_record(
+        owner=owner,
+        name="Searchable Character 115",
+        photo_key="images/0123456789abcdef0123456789abcdef.png",
+    )
+    client = Client()
+    client.force_login(operator)
+    changelist = reverse("admin:fursuits_fursuit_changelist")
+
+    for forbidden in (owner.clerk_user_id, record.photo_key):
+        response = client.get(changelist, {"q": forbidden})
+        assert response.status_code == 200
+        assert record.name.encode() not in response.content
+
+    for allowed in (str(record.pk), str(owner.pk), record.name):
+        response = client.get(changelist, {"q": allowed})
+        assert response.status_code == 200
+        assert record.name.encode() in response.content
 
 
 @pytest.mark.django_db
