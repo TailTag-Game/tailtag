@@ -33,7 +33,7 @@ def create_eligible_user(*, clerk_user_id: str | None = None) -> User:
     user = create_test_user(clerk_user_id=clerk_user_id)
     PlayerProfile.objects.create(
         user=user,
-        handle="eligible_1",
+        handle=f"eligible_{user.pk}",
         display_name="Eligible Player",
         onboarding_completed_at=timezone.now(),
         is_enabled=True,

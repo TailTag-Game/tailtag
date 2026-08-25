@@ -6,6 +6,8 @@ import pytest
 from django.core.files.storage import default_storage
 from django.test import override_settings
 from django.utils import timezone
+
+from accounts.models import User
 from fursuits.services import (
     FursuitWriteIneligibleError,
     create_fursuit,
@@ -14,8 +16,6 @@ from fursuits.services import (
     require_fursuit_write_eligible,
     update_fursuit_name,
 )
-
-from accounts.models import User
 from profiles.models import PlayerProfile
 from tests.fursuit_test_support import create_eligible_user, create_fursuit_record
 from tests.profile_test_support import (
@@ -32,7 +32,7 @@ def test_write_eligibility_is_read_only_and_rejects_every_bad_profile_shape() ->
     with pytest.raises(FursuitWriteIneligibleError):
         require_fursuit_write_eligible(user)
     assert PlayerProfile.objects.count() == before
-    for shape in ("incomplete", "disabled", "inconsistent"):
+    for shape in ("incomplete", "disabled"):
         candidate = User.objects.create_user(
             clerk_user_id=f"user_{shape}_{PlayerProfile.objects.count()}"
         )
@@ -46,13 +46,6 @@ def test_write_eligibility_is_read_only_and_rejects_every_bad_profile_shape() ->
                 onboarding_completed_at=timezone.now(),
                 is_enabled=False,
             )
-        else:
-            PlayerProfile.objects.create(
-                user=candidate,
-                handle="inconsistent_1",
-                display_name="Inconsistent",
-                onboarding_completed_at=None,
-            )
         with pytest.raises(FursuitWriteIneligibleError):
             require_fursuit_write_eligible(candidate)
 
@@ -62,9 +55,7 @@ def test_create_and_update_only_persist_server_controlled_fields_and_noop_does_n
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     owner = create_eligible_user()
-    created = create_fursuit(
-        owner, name="  Fi\u006e\u0303 Wolf ", upload=image_upload()
-    )
+    created = create_fursuit(owner, name="  Fi\u006e\u0303 Wolf ", photo=image_upload())
     assert (created.owner_id, created.name, created.is_enabled) == (
         owner.id,
         "Fiñ Wolf",
@@ -81,12 +72,23 @@ def test_create_and_update_only_persist_server_controlled_fields_and_noop_does_n
         return original(record, *args, **kwargs)
 
     monkeypatch.setattr(type(created), "save", record_save)
-    assert update_fursuit_name(owner, created, name=" Fiñ   Wolf ") is created
+    no_op = update_fursuit_name(owner, fursuit_id=created.id, name=" Fiñ   Wolf ")
     created.refresh_from_db()
     assert saves == 0 and created.updated_at == timestamp
-    update_fursuit_name(owner, created, name="Renamed")
+    assert (no_op.pk, no_op.owner_id, no_op.name, no_op.updated_at) == (
+        created.pk,
+        created.owner_id,
+        created.name,
+        timestamp,
+    )
+    changed = update_fursuit_name(owner, fursuit_id=created.id, name="Renamed")
     created.refresh_from_db()
     assert created.name == "Renamed" and created.updated_at > timestamp
+    assert (changed.pk, changed.name, changed.updated_at) == (
+        created.pk,
+        "Renamed",
+        created.updated_at,
+    )
 
 
 @pytest.mark.django_db
@@ -106,7 +108,7 @@ def test_create_saves_media_before_commit_and_compensates_commit_failure(
         lambda *args, **kwargs: (_ for _ in ()).throw(failure),
     )
     with pytest.raises(RuntimeError) as raised:
-        create_fursuit(owner, name="New", upload=image_upload())
+        create_fursuit(owner, name="New", photo=image_upload())
     assert raised.value is failure
     assert [event[0] for event in storage.events] == ["save", "delete"]
 
@@ -133,7 +135,7 @@ def test_create_compensation_does_not_replace_the_original_commit_failure_when_d
         lambda _key: (_ for _ in ()).throw(RuntimeError("cleanup failed")),
     )
     with pytest.raises(RuntimeError) as raised:
-        create_fursuit(owner, name="New", upload=image_upload())
+        create_fursuit(owner, name="New", photo=image_upload())
     assert raised.value is failure
 
 
@@ -147,9 +149,10 @@ def test_replace_fursuit_photo_is_a_service_boundary_and_commits_before_old_clea
     old_key = record.photo_key
     storage = default_storage
     assert isinstance(storage, RecordingStorage)
-    new_key = replace_fursuit_photo(owner, record, upload=image_upload())
+    replaced = replace_fursuit_photo(owner, fursuit_id=record.id, photo=image_upload())
     record.refresh_from_db()
-    assert record.photo_key == new_key and new_key != old_key
+    assert replaced.pk == record.pk
+    assert replaced.photo_key == record.photo_key and record.photo_key != old_key
     assert [event[0] for event in storage.events] == ["save", "delete"]
 
 

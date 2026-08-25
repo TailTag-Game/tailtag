@@ -319,7 +319,7 @@ def test_replacement_commit_failure_compensates_and_cleanup_failure_preserves_pr
         lambda _key: (_ for _ in ()).throw(RuntimeError("cleanup failure")),
     )
     with pytest.raises(RuntimeError) as raised:
-        services.replace_fursuit_photo(user, record, upload=image_upload())
+        services.replace_fursuit_photo(user, fursuit_id=record.id, photo=image_upload())
     assert raised.value is failure
 
 

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 from django.db import IntegrityError, models, transaction
-from fursuits.normalization import FursuitNameError, normalize_fursuit_name
 
 from fursuits.models import Fursuit
+from fursuits.normalization import FursuitNameError, normalize_fursuit_name
 from tests.fursuit_test_support import create_eligible_user, create_fursuit_record
 
 
@@ -69,7 +69,7 @@ def test_player_domain_services_cannot_mutate_an_existing_fursuit_owner() -> Non
     owner = create_eligible_user()
     different_user = create_eligible_user()
     record = create_fursuit_record(owner=owner)
-    update_fursuit_name(owner, record, name="Changed")
+    update_fursuit_name(owner, fursuit_id=record.id, name="Changed")
     record.refresh_from_db()
     assert record.owner_id == owner.id
     assert record.owner_id != different_user.id
