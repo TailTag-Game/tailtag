@@ -60,7 +60,9 @@ def enroll_in_convention(
 
     with transaction.atomic():
         _locked_eligible_profile(user)
-        convention = Convention.objects.filter(pk=convention_id).first()
+        convention = (
+            Convention.objects.select_for_update().filter(pk=convention_id).first()
+        )
         if convention is None:
             raise Convention.DoesNotExist()
         if not convention.is_playable:
@@ -91,17 +93,22 @@ def set_active_convention(user: User, *, convention_id: int) -> ConventionEnroll
 
     with transaction.atomic():
         _locked_eligible_profile(user)
+        convention = (
+            Convention.objects.select_for_update().filter(pk=convention_id).first()
+        )
+        if convention is None:
+            raise Convention.DoesNotExist()
+        if not convention.is_playable:
+            raise ConventionNotActiveError()
+
         enrollment = (
             ConventionEnrollment.objects.select_for_update()
-            .filter(user=user, convention_id=convention_id)
+            .filter(user=user, convention=convention)
             .select_related("convention")
             .first()
         )
         if enrollment is None:
             raise ConventionNotEnrolledError()
-
-        if not enrollment.convention.is_playable:
-            raise ConventionNotActiveError()
 
         if not enrollment.is_active:
             now = timezone.now()
