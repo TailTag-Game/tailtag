@@ -51,15 +51,18 @@ Convention row with `SELECT FOR UPDATE`, updates it to PAUSED, and signals while
 holding the uncommitted row lock.
 
 Only after that signal does the test start the real enrollment endpoint on a
-second connection. The enrollment worker reports its PostgreSQL backend PID.
-The observer connection uses `pg_blocking_pids(waiter_pid)` to prove the
-enrollment connection is waiting on the pause worker. After this positive lock
-contention signal, the pause worker is released and commits. Enrollment then
-re-reads the locked row as PAUSED, returns 400, and creates no enrollment.
+second connection. The test gates enrollment immediately before
+`ConventionEnrollment.objects.get_or_create`, and the worker reports its
+PostgreSQL backend PID. The observer connection requires
+`pg_blocking_pids(waiter_pid)` to identify the pause backend while the
+downstream gate is still unreached. This uniquely proves enrollment blocked at
+its explicit Convention read lock, before any foreign-key insert lock exists.
 
-An implementation that reads the Convention without `SELECT FOR UPDATE` sees
-the last committed ACTIVE state and does not enter the required wait, so the
-test fails.
+After this positive signal, the pause worker is released and commits.
+Enrollment re-reads the locked row as PAUSED, returns 400, and creates no
+enrollment. An implementation that reads without `SELECT FOR UPDATE` reaches
+the downstream gate first and fails immediately. A later foreign-key key-share
+wait therefore cannot produce a false-positive lifecycle-lock proof.
 
 ### Same-user active mutations
 
@@ -99,6 +102,17 @@ Every event wait and future result has a bounded timeout so a broken lock does
 not hang the suite. Worker connections are closed in `finally` blocks. Holder
 transactions are always released in cleanup paths so assertion failures cannot
 strand executor threads.
+
+Every worker also installs PostgreSQL `lock_timeout` and `statement_timeout`
+session bounds. Cleanup retains each worker backend PID and uses
+`pg_cancel_backend` for unfinished futures before executor shutdown. Observer
+helpers surface early worker completion or exceptions instead of masking them
+as event timeouts. A short polling backoff reduces database load; correctness
+still requires an event or positive PostgreSQL predicate.
+
+Timeouts use one strict hierarchy: 5 seconds for observation, 15 seconds for
+holder gates, 18 seconds for PostgreSQL lock timeout, 20 seconds for statement
+timeout, and 25 seconds for future results.
 
 ## Regression Evidence
 

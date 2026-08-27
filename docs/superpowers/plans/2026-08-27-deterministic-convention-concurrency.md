@@ -18,6 +18,59 @@
 - Do not modify the user's unrelated `.gitignore` change.
 - The final authoritative gate is `make api-check`.
 
+## Final Review Amendment
+
+This amendment supersedes every raw `Queue.get`, `Event.wait`,
+`Future.result`, and polling timeout shown later in Task 1. Use one strict
+hierarchy:
+
+```python
+_OBSERVER_TIMEOUT_SECONDS = 5.0
+_HOLDER_GATE_TIMEOUT_SECONDS = 15.0
+_SESSION_LOCK_TIMEOUT_MS = 18_000
+_SESSION_STATEMENT_TIMEOUT_MS = 20_000
+_FUTURE_RESULT_TIMEOUT_SECONDS = 25.0
+_INITIAL_POLL_SECONDS = 0.005
+_MAX_POLL_SECONDS = 0.050
+```
+
+Every worker configures its fresh PostgreSQL session before publishing its PID:
+
+```python
+def _configure_worker_session_and_get_pid() -> int:
+    with connection.cursor() as cursor:
+        cursor.execute("SET lock_timeout TO 18000")
+        cursor.execute("SET statement_timeout TO 20000")
+        cursor.execute("SELECT pg_backend_pid()")
+        row = cursor.fetchone()
+    assert row is not None
+    return int(row[0])
+```
+
+Observer helpers must:
+
+- wait at most `_OBSERVER_TIMEOUT_SECONDS` for a PID, event, or PostgreSQL
+  blocker predicate;
+- check `future.done()` on each poll and immediately surface its exception or
+  unexpected result;
+- use exponential polling backoff from `_INITIAL_POLL_SECONDS` through
+  `_MAX_POLL_SECONDS`; and
+- treat only the expected event or positive PostgreSQL predicate as success.
+
+All futures and backend PIDs are initialized to `None`. In the `finally` block
+inside each executor context, set every release event, then cancel any known
+unfinished backend with `SELECT pg_cancel_backend(pid)` before executor
+shutdown. Every result uses `_FUTURE_RESULT_TIMEOUT_SECONDS`. Worker-side
+preflight, downstream, and pause gates use
+`_HOLDER_GATE_TIMEOUT_SECONDS`.
+
+For the lifecycle race, patch `ConventionEnrollment.objects.get_or_create`
+with `_pause_first_downstream_call`. The lifecycle observer accepts the pause
+backend as the enrollment backend's blocker only while the downstream event is
+false, and rechecks that event before returning. Reaching the downstream seam
+first is immediate failure. This proves the explicit Convention read lock and
+prevents a later foreign-key key-share wait from satisfying the assertion.
+
 ---
 
 ### Task 1: Implement the deterministic Convention concurrency acceptance suite
@@ -28,7 +81,7 @@
 
 **Interfaces:**
 - Consumes: Django's thread-local `connection`, PostgreSQL functions `pg_backend_pid()` and `pg_blocking_pids(integer)`, and downstream `ConventionEnrollment` manager operations reached by both corrected and historical implementations.
-- Produces: `_postgres_backend_pid() -> int`, `_assert_backend_blocked_by(*, waiter_pid: int, holder_pid: int, timeout: float = 10.0) -> None`, `_pause_first_downstream_call(function: Callable[P, R]) -> tuple[Callable[P, R], Event, Event]`, and four deterministic behavioral regression scenarios.
+- Produces: the bounded worker/observer/cancellation helpers defined by the Final Review Amendment, `_pause_first_downstream_call(function: Callable[P, R]) -> tuple[Callable[P, R], Event, Event]`, and four deterministic behavioral regression scenarios.
 
 - [ ] **Step 1: Extend the synchronization imports**
 
@@ -37,6 +90,7 @@ timing-only tests are replaced in this same task:
 
 ```python
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from queue import Queue
 from threading import Event, Lock
 from typing import Any, cast
@@ -200,7 +254,7 @@ monkeypatch.setattr(
     cast(Any, gated_target_lookup),
 )
 
-def switch_active(con_id: int) -> int:
+def switch_active(con_id: int) -> Any:
     close_old_connections()
     try:
         backend_pids.put(_postgres_backend_pid())
@@ -209,7 +263,7 @@ def switch_active(con_id: int) -> int:
             "/api/conventions/active/",
             {"convention_id": con_id},
             content_type="application/json",
-        ).status_code
+        )
     finally:
         connection.close()
 
@@ -287,55 +341,83 @@ before the request resumes.
 
 Start with an ACTIVE Convention. The pause worker locks and updates the row,
 signals while its transaction remains open, and reports its backend PID. Start
-the endpoint only after the holder signal, capture the endpoint PID, and prove
-the blocker relationship before allowing the pause transaction to commit:
+the endpoint only after the holder signal. Gate enrollment before
+`get_or_create`, then prove the endpoint is blocked by the pause backend while
+that downstream event remains false:
 
 ```python
-backend_pids: Queue[int] = Queue()
-pause_holds_convention = Event()
-release_pause = Event()
+original_get_or_create = cast(
+    Callable[..., tuple[ConventionEnrollment, bool]],
+    ConventionEnrollment.objects.get_or_create,
+)
+gated_get_or_create, downstream_reached, release_downstream = (
+    _pause_first_downstream_call(original_get_or_create)
+)
+monkeypatch.setattr(
+    ConventionEnrollment.objects,
+    "get_or_create",
+    cast(Any, gated_get_or_create),
+)
+pause_row_updated, release_pause = Event(), Event()
+pause_pids: Queue[int] = Queue()
+enrollment_pids: Queue[int] = Queue()
+pause: Future[Any] | None = None
+enrollment: Future[Any] | None = None
+pause_pid: int | None = None
+enrollment_pid: int | None = None
 
 def pause_convention() -> None:
     close_old_connections()
     try:
-        backend_pids.put(_postgres_backend_pid())
         with transaction.atomic():
+            pause_pids.put(_configure_worker_session_and_get_pid())
             locked = Convention.objects.select_for_update().get(pk=con.pk)
             locked.status = ConventionStatus.PAUSED
             locked.save(update_fields=["status", "updated_at"])
-            pause_holds_convention.set()
-            assert release_pause.wait(10)
+            pause_row_updated.set()
+            if not release_pause.wait(_HOLDER_GATE_TIMEOUT_SECONDS):
+                raise TimeoutError("pause transaction was never released")
     finally:
         connection.close()
 
-def enroll() -> int:
-    close_old_connections()
-    try:
-        backend_pids.put(_postgres_backend_pid())
-        db_user = User.objects.get(pk=user.pk)
-        return force_authenticated_client(user=db_user).post(
+def enroll() -> Any:
+    return _request_in_bounded_worker(
+        user_id=user.pk,
+        backend_pids=enrollment_pids,
+        request=lambda client: client.post(
             "/api/conventions/enrollments/",
             {"convention_id": con.pk},
             content_type="application/json",
-        ).status_code
-    finally:
-        connection.close()
+        ),
+    )
 
 with ThreadPoolExecutor(max_workers=2) as executor:
-    pause = executor.submit(pause_convention)
-    pause_pid = backend_pids.get(timeout=10)
-    assert pause_holds_convention.wait(10)
-    request = executor.submit(enroll)
-    request_pid = backend_pids.get(timeout=10)
     try:
-        _assert_backend_blocked_by(
-            waiter_pid=request_pid,
+        pause = executor.submit(pause_convention)
+        pause_pid = _wait_for_pid_or_worker_finish(pause_pids, pause)
+        _wait_for_event_or_worker_finish(pause_row_updated, pause)
+        enrollment = executor.submit(enroll)
+        enrollment_pid = _wait_for_pid_or_worker_finish(
+            enrollment_pids,
+            enrollment,
+        )
+        _assert_blocked_by_holder_before_downstream(
+            waiter_pid=enrollment_pid,
             holder_pid=pause_pid,
+            downstream_reached=downstream_reached,
+            worker=enrollment,
+        )
+        release_pause.set()
+        assert pause.result(timeout=_FUTURE_RESULT_TIMEOUT_SECONDS) is None
+        assert (
+            enrollment.result(timeout=_FUTURE_RESULT_TIMEOUT_SECONDS).status_code
+            == 400
         )
     finally:
         release_pause.set()
-    pause.result(timeout=15)
-    assert request.result(timeout=15) == 400
+        release_downstream.set()
+        _cancel_if_unfinished(future=pause, backend_pid=pause_pid)
+        _cancel_if_unfinished(future=enrollment, backend_pid=enrollment_pid)
 ```
 
 Refresh the Convention and assert it is PAUSED, then assert no enrollment
@@ -401,9 +483,9 @@ uv --directory services/api run --locked --no-sync pytest -q \
   tests/test_convention_concurrency.py::test_convention_paused_during_enrollment_is_rejected
 ```
 
-Expected: FAIL because PostgreSQL never reports the pause transaction as the
-request's blocker before enrollment commits against stale ACTIVE state. Retain
-the actual blocker-assertion failure transcript.
+Expected: FAIL because enrollment reaches the gated `get_or_create` seam before
+the pause transaction is observed as its blocker. Retain the downstream-first
+failure transcript; a later foreign-key insert wait must not satisfy the test.
 Restore the production query immediately and confirm the service diff is empty.
 
 - [ ] **Step 3: Verify missing same-user serialization is rejected**
