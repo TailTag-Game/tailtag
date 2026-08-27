@@ -44,4 +44,4 @@ This is a documentation-only decision: it creates no application secret, Flutter
 - [FVM project configuration](https://fvm.app/documentation/getting-started/configuration)
 - [Dart compilation environment declarations](https://api.dart.dev/stable/dart-core/String/String.fromEnvironment.html)
 - [`package:http`](https://pub.dev/packages/http), [Riverpod testing and overrides](https://riverpod.dev/docs/how_to/testing), and [`go_router`](https://pub.dev/packages/go_router)
-- [Clerk Flutter SDK](https://clerk.com/docs/references/flutter/overview)
+- [Clerk Flutter SDK](https://github.com/clerk/clerk-sdk-flutter/blob/main/packages/clerk_flutter/README.md)
