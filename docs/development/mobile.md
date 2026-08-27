@@ -49,13 +49,33 @@ onboarding.
 TailTag will own a typed `AppConfig` populated by compile-time Dart defines.
 The configuration selects the API, rather than using flavors or schemes:
 
-| Environment | Approved API base URL |
+| Environment | Approved backend API root |
 | --- | --- |
 | Local | `http://127.0.0.1:8000` |
 | Railway Development | `https://api-development-8fa7.up.railway.app` |
 
-Android emulator loopback translation and connectivity guidance are owned by
-issue #132 and are intentionally not specified here.
+The Local row names the API on the contributor host; it is not a portable
+device URL. In the standard Android Emulator, `127.0.0.1` is the emulator
+itself. Reaching the host API requires `http://10.0.2.2:8000` or an equivalent
+`adb reverse` setup that preserves the approved Local API root. Issue #132 owns
+the final commands, configuration mapping, and launch proof. Until that issue
+lands, Android Local connectivity is not a supported contributor workflow.
+
+The authentication transport rule is invariant across environments: attach a
+Clerk session token as `Authorization: Bearer` only to an HTTPS request within
+the configured TailTag API origin. For an HTTP base URL, omit the header; that
+configuration cannot exercise authenticated endpoints. Authenticated requests
+must not follow redirects automatically. A redirect may be followed only by
+validating that its target remains HTTPS and within the configured API origin
+before issuing a new request with the header. Use HTTPS termination for
+authenticated Local testing or use Railway Development. Never transmit a Clerk
+session token over cleartext HTTP or to another origin.
+
+Android apps targeting API 28 or newer reject cleartext HTTP by default. If
+issue #132 retains unauthenticated Local HTTP, it must use a narrowly scoped
+debug policy rather than a release-wide cleartext exception and must cover the
+API 28+ behavior in its validation. The transport rule above still forbids
+attaching a Clerk token to those requests.
 
 Future configuration also includes the Clerk Development publishable
 configuration. Publishable values are not application secrets, but
@@ -78,5 +98,7 @@ application files. Those are implemented only by their assigned child issues.
   [supported platforms](https://docs.flutter.dev/reference/supported-platforms)
 - [Android setup](https://docs.flutter.dev/platform-integration/android/setup)
   and [iOS setup](https://docs.flutter.dev/platform-integration/ios/setup)
+- [Android Emulator host networking](https://developer.android.com/studio/run/emulator-networking-address)
+  and [Android network security configuration](https://developer.android.com/privacy-and-security/security-config)
 - [Dart compile-time configuration](https://dart.dev/libraries/core/environment-declarations)
   and [app-embedded values](https://docs.flutter.dev/deployment/obfuscate)

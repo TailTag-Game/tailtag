@@ -168,13 +168,15 @@ Features own their Views, ViewModels, Repositories, and Services. A feature may 
 
 ### API contracts and generated code
 
-The backend is authoritative for product/domain rules. The mobile client uses the current unversioned `/api/` namespace, with schema at `/api/schema/`, docs at `/api/docs/`, and authenticated `/api/me/` as the identity proof. It sends exactly one Clerk session token in `Authorization: Bearer`.
+The backend is authoritative for product/domain rules. The mobile client uses the current unversioned `/api/` namespace, with schema at `/api/schema/`, docs at `/api/docs/`, and authenticated `/api/me/` as the identity proof. For an authenticated request, it sends exactly one Clerk session token in `Authorization: Bearer`, and only to an HTTPS URL within the configured TailTag API origin. It omits the header over HTTP, so a cleartext Local configuration cannot exercise authenticated endpoints. Authenticated requests must not follow redirects automatically; following one requires validating that its target remains HTTPS and within the configured API origin before issuing a new request with the header.
 
 A generated, low-level OpenAPI client and DTO layer may model the wire API, but is isolated behind TailTag-owned repositories and services. Feature code must never import generated wire models. Issue #134 must pin the generator and its configuration; regeneration from the authoritative backend schema followed by a clean-diff check must deterministically detect drift.
 
 ### Runtime configuration and authentication
 
 TailTag owns a typed `AppConfig` populated from compile-time Dart defines. Selecting a local versus Railway Development API is configuration rather than flavors or schemes. Compile-time values embedded in an application are not secrets. This does not repurpose the existing backend-smoke `TAILTAG_DEVELOPMENT_API_BASE_URL` variable or the fixed `http://localhost:3000` auth-tooling origin as the mobile configuration contract.
+
+The approved Local API root is `http://127.0.0.1:8000` on the contributor host. An Android Emulator must reach it through `http://10.0.2.2:8000` or an equivalent `adb reverse` mapping. Issue #132 owns that mapping and must cover Android API 28+ cleartext behavior if unauthenticated Local HTTP is retained; it must not enable cleartext release-wide. Authenticated Local testing requires HTTPS termination or the HTTPS Railway Development API.
 
 `clerk_flutter` is contained behind an injectable TailTag-owned auth/session interface. Clerk owns session persistence and token refresh; TailTag must not create a separate persistent bearer-token store, and product features receive no Clerk types. It is an initial beta SDK direction to be reassessed in #135, not a dependency pin here.
 
@@ -186,7 +188,7 @@ Tests exercise feature behavior through the above owned boundaries: Riverpod ove
 
 ### Child-issue ownership and scope boundary
 
-Issue #131 owns the scaffold, identifiers/minimum-platform implementation, committed `apps/mobile/.fvmrc` exact Flutter `3.47.1` pin, and both platform builds/launches. Issue #132 owns root commands, `AppConfig` implementation, configuration inputs, and diagnostics. Issue #133 owns CI. Issue #134 owns generator/client implementation and proof. Issue #135 owns live Clerk proof. Issue #136 owns independent clean-environment validation.
+Issue #131 owns the scaffold, identifiers/minimum-platform implementation, committed `apps/mobile/.fvmrc` exact Flutter `3.47.1` pin, and both platform builds/launches. Issue #132 owns root commands, `AppConfig` implementation, configuration inputs, Android emulator host mapping and API 28+ Local HTTP coverage, and diagnostics. Issue #133 owns CI. Issue #134 owns generator/client implementation and proof. Issue #135 owns live Clerk proof. Issue #136 owns independent clean-environment validation.
 
 Issue #130 establishes only this architecture contract and ADR. It adds no application secret, Flutter scaffold, dependency, platform project, screen, command implementation, diagnostic implementation, product behavior, or `apps/mobile/` directory.
 
