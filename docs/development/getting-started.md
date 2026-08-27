@@ -3,7 +3,7 @@
 This guide takes an accepted TailTag contributor from repository access to a
 usable V0 backend development environment. For the detailed backend operating
 reference—including configuration, database lifecycle, commands, and
-troubleshooting—see the [API README](../../services/api/README.md).
+troubleshooting—see the [API README](../../services/api/README.md). For the mobile app reference, see the [App README](../../app/mobile/README.md).
 
 The Django/DRF service at `services/api` is a minimal V0 foundation. Historical
 Django POC documents are evaluation evidence, not current setup instructions or
