@@ -69,6 +69,7 @@ Any mutation (enrolling, selecting active convention, clearing active convention
 
 ### 3. Active Convention Selection (`set_active_convention`)
 - Atomically selects the specified convention for the user.
+- Unknown and existing-but-unenrolled Convention IDs both use the same ownership-safe HTTP 400 not-enrolled response.
 - Target convention must already be enrolled by the user.
 - Target convention must currently be in `ACTIVE` status.
 - Atomically deactivates any existing active enrollment for that user and sets `is_active=True` on the target enrollment.

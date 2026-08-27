@@ -97,9 +97,7 @@ def set_active_convention(user: User, *, convention_id: int) -> ConventionEnroll
             Convention.objects.select_for_update().filter(pk=convention_id).first()
         )
         if convention is None:
-            raise Convention.DoesNotExist()
-        if not convention.is_playable:
-            raise ConventionNotActiveError()
+            raise ConventionNotEnrolledError()
 
         enrollment = (
             ConventionEnrollment.objects.select_for_update()
@@ -109,6 +107,8 @@ def set_active_convention(user: User, *, convention_id: int) -> ConventionEnroll
         )
         if enrollment is None:
             raise ConventionNotEnrolledError()
+        if not convention.is_playable:
+            raise ConventionNotActiveError()
 
         if not enrollment.is_active:
             now = timezone.now()

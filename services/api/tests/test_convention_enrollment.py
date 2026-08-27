@@ -427,6 +427,66 @@ def test_select_active_convention_not_enrolled_returns_400() -> None:
         content_type="application/json",
     )
     assert response.status_code == 400
+    assert response.json() == {
+        "convention_id": ["You are not enrolled in this convention."]
+    }
+
+
+@pytest.mark.django_db
+def test_select_active_convention_unknown_id_returns_ownership_safe_400_without_changing_active_selection() -> (
+    None
+):
+    """Unknown convention IDs use the not-enrolled contract and preserve active state."""
+    user, client = _setup_eligible_player("user_unknown_active_convention")
+    convention = _create_convention(name="Current Active Con")
+    enrollment = ConventionEnrollment.objects.create(
+        user=user, convention=convention, is_active=True
+    )
+    unknown_convention_id = convention.pk + 1
+    assert not Convention.objects.filter(pk=unknown_convention_id).exists()
+
+    response = client.put(
+        "/api/conventions/active/",
+        {"convention_id": unknown_convention_id},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "convention_id": ["You are not enrolled in this convention."]
+    }
+    enrollment.refresh_from_db()
+    assert enrollment.is_active is True
+    assert ConventionEnrollment.objects.filter(user=user, is_active=True).count() == 1
+
+
+@pytest.mark.django_db
+def test_select_active_convention_inactive_unenrolled_returns_ownership_safe_400_without_changing_active_selection() -> (
+    None
+):
+    """Unenrolled inactive convention IDs use the not-enrolled contract."""
+    user, client = _setup_eligible_player("user_inactive_unenrolled_active_convention")
+    active_convention = _create_convention(name="Current Active Con")
+    enrollment = ConventionEnrollment.objects.create(
+        user=user, convention=active_convention, is_active=True
+    )
+    inactive_convention = _create_convention(
+        name="Inactive Unenrolled Con", status=ConventionStatus.PAUSED
+    )
+
+    response = client.put(
+        "/api/conventions/active/",
+        {"convention_id": inactive_convention.pk},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "convention_id": ["You are not enrolled in this convention."]
+    }
+    enrollment.refresh_from_db()
+    assert enrollment.is_active is True
+    assert ConventionEnrollment.objects.filter(user=user, is_active=True).count() == 1
 
 
 @pytest.mark.django_db
@@ -550,6 +610,14 @@ def test_enrollment_openapi_schema_contract(client: Client) -> None:
     assert "get" in active_path
     assert "put" in active_path
     assert "delete" in active_path
+    active_put = active_path["put"]
+    assert set(active_put["responses"]) == {"200", "400", "401", "403"}
+    active_put_400_schema = _dereference_schema(
+        schema,
+        active_put["responses"]["400"]["content"]["application/json"]["schema"],
+    )
+    assert set(active_put_400_schema["properties"]) == {"convention_id"}
+    assert "does not exist" in active_put["responses"]["400"]["description"].lower()
 
     # Verify enrollment list schema
     list_op = enrollments_path["get"]

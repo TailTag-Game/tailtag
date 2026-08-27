@@ -246,7 +246,7 @@ class ActiveConventionView(APIView):
             200: ActiveConventionResponseSerializer,
             400: OpenApiResponse(
                 response=VALIDATION_ERROR_RESPONSE_SCHEMA,
-                description="Convention is not enrolled or is not in an active playable state.",
+                description="Convention does not exist, is not enrolled, or is not in an active playable state.",
             ),
             401: OpenApiResponse(
                 response=AUTHENTICATION_ERROR_RESPONSE_SCHEMA,
