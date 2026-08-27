@@ -27,8 +27,8 @@
 - Test: `services/api/tests/test_convention_concurrency.py`
 
 **Interfaces:**
-- Consumes: Django's thread-local `connection` and PostgreSQL functions `pg_backend_pid()` and `pg_blocking_pids(integer)`.
-- Produces: `_postgres_backend_pid() -> int` and `_assert_backend_blocked_by(*, waiter_pid: int, holder_pid: int, timeout: float = 10.0) -> None` for later concurrency scenarios.
+- Consumes: Django's thread-local `connection`, PostgreSQL functions `pg_backend_pid()` and `pg_blocking_pids(integer)`, and the real `conventions.services._locked_eligible_profile` helper.
+- Produces: `_postgres_backend_pid() -> int`, `_assert_backend_blocked_by(*, waiter_pid: int, holder_pid: int, timeout: float = 10.0) -> None`, and `_gate_first_profile_lock(monkeypatch: pytest.MonkeyPatch) -> tuple[Event, Event]` for later concurrency scenarios.
 
 - [ ] **Step 1: Extend the synchronization imports**
 
@@ -38,6 +38,8 @@ Add `time`, `Queue`, and `Event` while retaining `Barrier` for any existing test
 import time
 from queue import Queue
 from threading import Event
+
+from conventions import services
 ```
 
 - [ ] **Step 2: Add backend identity and lock-observation helpers**
@@ -76,7 +78,40 @@ def _assert_backend_blocked_by(
 The loop may retry only until it positively observes PostgreSQL's blocker
 relationship. Elapsed time is a failure bound, not evidence of correctness.
 
-- [ ] **Step 3: Run static checks on the helper shape**
+- [ ] **Step 3: Add the reusable first-profile-lock gate**
+
+Keep the reusable boundary narrow: it installs a fresh wrapper around the real
+profile-lock helper and returns only the acquired/release events. Endpoint
+requests, backend PIDs, blocker assertions, and durable-state assertions remain
+inside their individual acceptance tests.
+
+```python
+def _gate_first_profile_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[Event, Event]:
+    first_holds_profile = Event()
+    release_first = Event()
+    original_locked_profile = services._locked_eligible_profile
+    first_call = True
+
+    def hold_first_profile_lock(db_user: User) -> PlayerProfile:
+        nonlocal first_call
+        profile = original_locked_profile(db_user)
+        if first_call:
+            first_call = False
+            first_holds_profile.set()
+            assert release_first.wait(10)
+        return profile
+
+    monkeypatch.setattr(
+        services,
+        "_locked_eligible_profile",
+        hold_first_profile_lock,
+    )
+    return first_holds_profile, release_first
+```
+
+- [ ] **Step 4: Run static checks on the helper shape**
 
 Run:
 
@@ -97,43 +132,27 @@ inference, narrow it explicitly without weakening project-wide type checking.
 - Test: `services/api/tests/test_convention_concurrency.py`
 
 **Interfaces:**
-- Consumes: `_postgres_backend_pid`, `_assert_backend_blocked_by`, `conventions.services.require_convention_participation_eligible`, and `conventions.services._locked_eligible_profile`.
+- Consumes: `_postgres_backend_pid`, `_assert_backend_blocked_by`, `_gate_first_profile_lock`, and `conventions.services.require_convention_participation_eligible`.
 - Produces: four deterministic regression scenarios covering same-user active enrollment, same-user active selection, post-preflight profile disablement, and ACTIVE-to-PAUSED Convention serialization.
 
 - [ ] **Step 1: Add the service and transaction imports**
 
-Use the production module as the monkeypatch boundary and make holder commits
-explicit:
+Make holder commits explicit:
 
 ```python
 from django.db import close_old_connections, connection, transaction
-
-from conventions import services
 ```
 
 - [ ] **Step 2: Strengthen concurrent active enrollment**
 
-Add `monkeypatch: pytest.MonkeyPatch`, replace the start-only barrier with
-`Queue[int]`, `Event`, and a wrapper around the real profile-lock helper. Submit
-the first request alone, wait until its wrapper has acquired the real profile
-lock, then submit the second request and assert its backend is blocked by the
-first before releasing the holder:
+Add `monkeypatch: pytest.MonkeyPatch`, replace the start-only barrier with the
+reusable profile-lock gate, and submit the first request alone. Wait until the
+gate has acquired the real profile lock, then submit the second request and
+assert its backend is blocked by the first before releasing the holder:
 
 ```python
 backend_pids: Queue[int] = Queue()
-first_holds_profile = Event()
-release_first = Event()
-original_locked_profile = services._locked_eligible_profile
-lock_calls = 0
-
-def hold_first_profile_lock(db_user: User) -> PlayerProfile:
-    nonlocal lock_calls
-    profile = original_locked_profile(db_user)
-    lock_calls += 1
-    if lock_calls == 1:
-        first_holds_profile.set()
-        assert release_first.wait(10)
-    return profile
+first_holds_profile, release_first = _gate_first_profile_lock(monkeypatch)
 
 def enroll(con_id: int) -> int:
     close_old_connections()
@@ -148,8 +167,6 @@ def enroll(con_id: int) -> int:
         return response.status_code
     finally:
         connection.close()
-
-monkeypatch.setattr(services, "_locked_eligible_profile", hold_first_profile_lock)
 
 with ThreadPoolExecutor(max_workers=2) as executor:
     first = executor.submit(enroll, con1.pk)
@@ -178,19 +195,7 @@ profile lock before the second request starts:
 
 ```python
 backend_pids: Queue[int] = Queue()
-first_holds_profile = Event()
-release_first = Event()
-original_locked_profile = services._locked_eligible_profile
-lock_calls = 0
-
-def hold_first_profile_lock(db_user: User) -> PlayerProfile:
-    nonlocal lock_calls
-    profile = original_locked_profile(db_user)
-    lock_calls += 1
-    if lock_calls == 1:
-        first_holds_profile.set()
-        assert release_first.wait(10)
-    return profile
+first_holds_profile, release_first = _gate_first_profile_lock(monkeypatch)
 
 def switch_active(con_id: int) -> int:
     close_old_connections()
@@ -204,8 +209,6 @@ def switch_active(con_id: int) -> int:
         ).status_code
     finally:
         connection.close()
-
-monkeypatch.setattr(services, "_locked_eligible_profile", hold_first_profile_lock)
 
 with ThreadPoolExecutor(max_workers=2) as executor:
     first = executor.submit(switch_active, con1.pk)
