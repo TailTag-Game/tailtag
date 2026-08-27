@@ -10,7 +10,7 @@ The future application belongs at `apps/mobile/`. Its canonical domain is `tailt
 
 ## Decision
 
-Use Flutter for the V0 Android and iOS application. Pin exact stable Flutter `3.47.1` with repository-owned FVM project configuration; use the Dart SDK bundled with Flutter rather than independently pinning Dart. The corresponding upstream Flutter tag is `6655482ec06e547f90abf8ae7590466f4415978d` and it bundles Dart `3.13.1`. Flutter upgrades require an explicit reviewed pull request and must never track a moving channel.
+Use Flutter for the V0 Android and iOS application. Issue #131 will create and commit repository-owned `apps/mobile/.fvmrc` configuration pinning exact stable Flutter `3.47.1`; use the Dart SDK bundled with Flutter rather than independently pinning Dart. The corresponding upstream Flutter tag is `6655482ec06e547f90abf8ae7590466f4415978d` and it bundles Dart `3.13.1`. Flutter upgrades require an explicit reviewed pull request and must never track a moving channel.
 
 Support Android API 24 and newer and iOS 15.1 and newer. Phones are primary; tablets must remain compatible but receive no V0-specific optimization. Physical devices are optional for baseline validation.
 
@@ -34,7 +34,7 @@ Compile-time values must be treated as public application contents. Server-side 
 
 ## Validation and future migration
 
-Issue #131 owns the scaffold, identifiers, minimum implementations, and Android/iOS build and launch proof. Issue #132 owns root commands, `AppConfig` implementation, configuration inputs, and diagnostics. Issue #133 owns CI. Issue #134 owns generator and client implementation plus regeneration proof. Issue #135 owns live Clerk proof. Issue #136 owns independent clean-environment validation. Frontend architecture requires approval from `@TailTag-Game/core-maintainers`, with relevant mobile/frontend contributors reviewing changes.
+Issue #131 owns the scaffold, identifiers, minimum implementations, committed `apps/mobile/.fvmrc` exact Flutter `3.47.1` pin, and Android/iOS build and launch proof. Issue #132 owns root commands, `AppConfig` implementation, configuration inputs, and diagnostics. Issue #133 owns CI. Issue #134 owns generator and client implementation plus regeneration proof. Issue #135 owns live Clerk proof. Issue #136 owns independent clean-environment validation. Frontend architecture requires approval from `@TailTag-Game/core-maintainers`, with relevant mobile/frontend contributors reviewing changes.
 
 This is a documentation-only decision: it creates no application secret, Flutter scaffold, dependency, platform project, screen, command or diagnostic implementation, product behavior, or `apps/mobile/` directory. If Flutter or the contained integrations cease to meet the approved requirements, replace this ADR through a reviewed successor that preserves API/auth contracts and provides a migration and rollback plan.
 
