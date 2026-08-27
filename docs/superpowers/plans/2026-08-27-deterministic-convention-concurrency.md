@@ -27,18 +27,21 @@
 - Test: `services/api/tests/test_convention_concurrency.py`
 
 **Interfaces:**
-- Consumes: Django's thread-local `connection`, PostgreSQL functions `pg_backend_pid()` and `pg_blocking_pids(integer)`, and the real `conventions.services._locked_eligible_profile` helper.
-- Produces: `_postgres_backend_pid() -> int`, `_assert_backend_blocked_by(*, waiter_pid: int, holder_pid: int, timeout: float = 10.0) -> None`, `_gate_first_profile_lock(monkeypatch: pytest.MonkeyPatch) -> tuple[Event, Event]`, and four deterministic behavioral regression scenarios.
+- Consumes: Django's thread-local `connection`, PostgreSQL functions `pg_backend_pid()` and `pg_blocking_pids(integer)`, and downstream `ConventionEnrollment` manager operations reached by both corrected and historical implementations.
+- Produces: `_postgres_backend_pid() -> int`, `_assert_backend_blocked_by(*, waiter_pid: int, holder_pid: int, timeout: float = 10.0) -> None`, `_pause_first_downstream_call(function: Callable[P, R]) -> tuple[Callable[P, R], Event, Event]`, and four deterministic behavioral regression scenarios.
 
 - [ ] **Step 1: Extend the synchronization imports**
 
-Add `time`, `Queue`, and `Event`; remove `Barrier` when the timing-only tests are
-replaced in this same task:
+Add `time`, `Queue`, `Event`, `Lock`, and `cast`; remove `Barrier` when the
+timing-only tests are replaced in this same task:
 
 ```python
 import time
 from queue import Queue
-from threading import Event
+from threading import Event, Lock
+from typing import Any, cast
+
+from django.db.models import QuerySet
 
 from conventions import services
 ```
@@ -79,37 +82,33 @@ def _assert_backend_blocked_by(
 The loop may retry only until it positively observes PostgreSQL's blocker
 relationship. Elapsed time is a failure bound, not evidence of correctness.
 
-- [ ] **Step 3: Add the reusable first-profile-lock gate**
+- [ ] **Step 3: Add the reusable downstream-operation gate**
 
-Keep the reusable boundary narrow: it installs a fresh wrapper around the real
-profile-lock helper and returns only the acquired/release events. Endpoint
-requests, backend PIDs, blocker assertions, and durable-state assertions remain
-inside their individual acceptance tests.
+Pause only the first caller before an original downstream ORM operation runs.
+Fresh lock/event state is created for each test, and the second caller is never
+artificially paused:
 
 ```python
-def _gate_first_profile_lock(
-    monkeypatch: pytest.MonkeyPatch,
-) -> tuple[Event, Event]:
-    first_holds_profile = Event()
-    release_first = Event()
-    original_locked_profile = services._locked_eligible_profile  # pyright: ignore[reportPrivateUsage]
+def _pause_first_downstream_call[**P, R](
+    function: Callable[P, R],
+) -> tuple[Callable[P, R], Event, Event]:
+    first_call_guard = Lock()
     first_call = True
+    first_at_downstream_seam = Event()
+    release_first = Event()
 
-    def hold_first_profile_lock(db_user: User) -> PlayerProfile:
+    def paused(*args: P.args, **kwargs: P.kwargs) -> R:
         nonlocal first_call
-        profile = original_locked_profile(db_user)
-        if first_call:
+        with first_call_guard:
+            pause_this_call = first_call
             first_call = False
-            first_holds_profile.set()
-            assert release_first.wait(10)
-        return profile
+        if pause_this_call:
+            first_at_downstream_seam.set()
+            if not release_first.wait(10):
+                raise TimeoutError("first downstream request was never released")
+        return function(*args, **kwargs)
 
-    monkeypatch.setattr(
-        services,
-        "_locked_eligible_profile",
-        hold_first_profile_lock,
-    )
-    return first_holds_profile, release_first
+    return paused, first_at_downstream_seam, release_first
 ```
 
 #### Behavioral acceptance tests
@@ -124,14 +123,25 @@ from django.db import close_old_connections, connection, transaction
 
 - [ ] **Step 5: Strengthen concurrent active enrollment**
 
-Add `monkeypatch: pytest.MonkeyPatch`, replace the start-only barrier with the
-reusable profile-lock gate, and submit the first request alone. Wait until the
-gate has acquired the real profile lock, then submit the second request and
-assert its backend is blocked by the first before releasing the holder:
+Add `monkeypatch: pytest.MonkeyPatch` and gate the first request immediately
+before `get_or_create`, which both corrected and missing-profile-lock
+implementations reach. The corrected request already holds the real profile
+and target Convention locks at this seam:
 
 ```python
 backend_pids: Queue[int] = Queue()
-first_holds_profile, release_first = _gate_first_profile_lock(monkeypatch)
+original_get_or_create = cast(
+    Callable[..., tuple[ConventionEnrollment, bool]],
+    ConventionEnrollment.objects.get_or_create,
+)
+gated_get_or_create, first_at_enrollment_create, release_first = (
+    _pause_first_downstream_call(original_get_or_create)
+)
+monkeypatch.setattr(
+    ConventionEnrollment.objects,
+    "get_or_create",
+    cast(Any, gated_get_or_create),
+)
 
 def enroll(con_id: int) -> int:
     close_old_connections()
@@ -148,33 +158,47 @@ def enroll(con_id: int) -> int:
         connection.close()
 
 with ThreadPoolExecutor(max_workers=2) as executor:
-    first = executor.submit(enroll, con1.pk)
-    first_pid = backend_pids.get(timeout=10)
-    assert first_holds_profile.wait(10)
-    second = executor.submit(enroll, con2.pk)
-    second_pid = backend_pids.get(timeout=10)
     try:
+        first = executor.submit(enroll, con1.pk)
+        first_pid = backend_pids.get(timeout=10)
+        assert first_at_enrollment_create.wait(10)
+        second = executor.submit(enroll, con2.pk)
+        second_pid = backend_pids.get(timeout=10)
         _assert_backend_blocked_by(
             waiter_pid=second_pid,
             holder_pid=first_pid,
         )
+        release_first.set()
+        assert first.result(timeout=15) in (200, 201)
+        assert second.result(timeout=15) in (200, 201)
     finally:
         release_first.set()
-    statuses = (first.result(timeout=15), second.result(timeout=15))
 ```
 
-Retain assertions that both responses are 200/201, both enrollments exist, and
-exactly one is active. Keep the release in `finally` so failed blocker evidence
-cannot strand the executor.
+Retain assertions that both enrollments exist and exactly one is active. The
+inner `finally` releases the first downstream call before executor shutdown can
+join workers.
 
 - [ ] **Step 6: Strengthen concurrent active selection**
 
-Use fresh synchronization state and make the first selection own the real
-profile lock before the second request starts:
+Gate the first request immediately before the target-enrollment lookup. Both
+corrected and historical implementations reach this manager method, while the
+two target Convention and enrollment rows remain distinct:
 
 ```python
 backend_pids: Queue[int] = Queue()
-first_holds_profile, release_first = _gate_first_profile_lock(monkeypatch)
+original_target_lookup = cast(
+    Callable[..., QuerySet[ConventionEnrollment]],
+    ConventionEnrollment.objects.select_for_update,
+)
+gated_target_lookup, first_at_target_lookup, release_first = (
+    _pause_first_downstream_call(original_target_lookup)
+)
+monkeypatch.setattr(
+    ConventionEnrollment.objects,
+    "select_for_update",
+    cast(Any, gated_target_lookup),
+)
 
 def switch_active(con_id: int) -> int:
     close_old_connections()
@@ -190,22 +214,24 @@ def switch_active(con_id: int) -> int:
         connection.close()
 
 with ThreadPoolExecutor(max_workers=2) as executor:
-    first = executor.submit(switch_active, con1.pk)
-    first_pid = backend_pids.get(timeout=10)
-    assert first_holds_profile.wait(10)
-    second = executor.submit(switch_active, con2.pk)
-    second_pid = backend_pids.get(timeout=10)
     try:
+        first = executor.submit(switch_active, con1.pk)
+        first_pid = backend_pids.get(timeout=10)
+        assert first_at_target_lookup.wait(10)
+        second = executor.submit(switch_active, con2.pk)
+        second_pid = backend_pids.get(timeout=10)
         _assert_backend_blocked_by(
             waiter_pid=second_pid,
             holder_pid=first_pid,
         )
+        release_first.set()
+        assert first.result(timeout=15).status_code == 200
+        assert second.result(timeout=15).status_code == 200
     finally:
         release_first.set()
-    statuses = (first.result(timeout=15), second.result(timeout=15))
 ```
 
-Assert both statuses are 200 and exactly one enrollment is active. Do not share
+Assert exactly one enrollment is active and one is inactive. Do not share
 synchronization state between tests.
 
 - [ ] **Step 7: Reproduce profile disablement between preflight and locked revalidation**
@@ -376,7 +402,8 @@ uv --directory services/api run --locked --no-sync pytest -q \
 ```
 
 Expected: FAIL because PostgreSQL never reports the pause transaction as the
-request's blocker, or because enrollment commits against stale ACTIVE state.
+request's blocker before enrollment commits against stale ACTIVE state. Retain
+the actual blocker-assertion failure transcript.
 Restore the production query immediately and confirm the service diff is empty.
 
 - [ ] **Step 3: Verify missing same-user serialization is rejected**
@@ -391,7 +418,8 @@ uv --directory services/api run --locked --no-sync pytest -q \
 ```
 
 Expected: FAIL because the second backend is not blocked by the first profile
-lock. Restore both lines immediately and confirm the service diff is empty.
+lock even though both requests started and reached their downstream ORM seams.
+Restore both lines immediately and confirm the service diff is empty.
 
 - [ ] **Step 4: Run the deterministic inner-loop checks**
 
@@ -416,7 +444,10 @@ make api-check
 
 Expected: formatting, Ruff lint, strict Pyright, Semgrep, the PostgreSQL-backed
 test suite, Django checks, migration drift, OpenAPI validation, and Gunicorn
-configuration all pass.
+configuration all pass. When an isolated database is needed, record its exact
+generated identifier and sanitized creation/drop transcript so cleanup is
+auditable without exposing credentials or altering the user's existing local
+database.
 
 - [ ] **Step 6: Inspect the final diff and worktree**
 

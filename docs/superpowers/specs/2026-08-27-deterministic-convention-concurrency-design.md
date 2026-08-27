@@ -63,19 +63,24 @@ test fails.
 
 ### Same-user active mutations
 
-The concurrent active-enrollment and active-selection tests wrap
-`_locked_eligible_profile`. The first request calls the real helper, thereby
-acquiring the profile row lock, signals that it holds the critical-section
-gate, and waits. The second request then begins and reports its backend PID
-before attempting the same helper.
+The concurrent active-enrollment and active-selection tests pause the first
+request at an always-reached downstream ORM seam, after the corrected service
+has acquired the profile row lock. Enrollment gates immediately before
+`ConventionEnrollment.objects.get_or_create`; active selection gates before
+the target-enrollment lookup. The two requests target distinct Convention and
+enrollment rows, leaving the shared profile row as the only expected blocker.
 
-The observer connection asserts that `pg_blocking_pids(second_pid)` contains
-the first request's PID. It then releases the first request. Both requests must
-complete successfully, all intended enrollments must remain durable, and
+After the first request reaches its seam, the second request begins and reports
+its backend PID. The observer asserts that `pg_blocking_pids(second_pid)`
+contains the first request's PID, then releases the first request. Both requests
+must complete successfully, all intended enrollments must remain durable, and
 exactly one enrollment must be active.
 
-The wrapper applies only to the target user and all workers finish before the
-monkeypatch lifetime ends.
+The tests deliberately do not gate on `_locked_eligible_profile`: an old
+implementation that omits the profile lock must still start both requests and
+reach both downstream seams. Its second backend has no blocker relationship to
+the first, so the PostgreSQL assertion fails for the intended behavioral
+reason rather than because a private helper was not called.
 
 ## PostgreSQL Observation Helper
 
