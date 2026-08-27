@@ -39,8 +39,14 @@ Every worker configures its fresh PostgreSQL session before publishing its PID:
 ```python
 def _configure_worker_session_and_get_pid() -> int:
     with connection.cursor() as cursor:
-        cursor.execute("SET lock_timeout TO 18000")
-        cursor.execute("SET statement_timeout TO 20000")
+        cursor.execute(
+            "SELECT set_config('lock_timeout', %s, false)",
+            [f"{_SESSION_LOCK_TIMEOUT_MS}ms"],
+        )
+        cursor.execute(
+            "SELECT set_config('statement_timeout', %s, false)",
+            [f"{_SESSION_STATEMENT_TIMEOUT_MS}ms"],
+        )
         cursor.execute("SELECT pg_backend_pid()")
         row = cursor.fetchone()
     assert row is not None
@@ -197,36 +203,58 @@ monkeypatch.setattr(
     cast(Any, gated_get_or_create),
 )
 
-def enroll(con_id: int) -> int:
-    close_old_connections()
-    try:
-        backend_pids.put(_postgres_backend_pid())
-        db_user = User.objects.get(pk=user.pk)
-        response = force_authenticated_client(user=db_user).post(
+def enroll(con_id: int) -> Any:
+    return _request_in_bounded_worker(
+        user_id=user.pk,
+        backend_pids=backend_pids,
+        request=lambda client: client.post(
             "/api/conventions/enrollments/",
             {"convention_id": con_id, "set_active": True},
             content_type="application/json",
-        )
-        return response.status_code
-    finally:
-        connection.close()
+        ),
+    )
 
+first: Future[Any] | None = None
+second: Future[Any] | None = None
+first_pid: int | None = None
+second_pid: int | None = None
 with ThreadPoolExecutor(max_workers=2) as executor:
     try:
         first = executor.submit(enroll, con1.pk)
-        first_pid = backend_pids.get(timeout=10)
-        assert first_at_enrollment_create.wait(10)
+        first_pid = _wait_for_pid_or_worker_finish(
+            backend_pids=backend_pids,
+            future=first,
+            expected="the first enrollment request setup",
+        )
+        _wait_for_event_or_worker_finish(
+            event=first_at_enrollment_create,
+            future=first,
+            expected="the first enrollment downstream gate",
+        )
         second = executor.submit(enroll, con2.pk)
-        second_pid = backend_pids.get(timeout=10)
+        second_pid = _wait_for_pid_or_worker_finish(
+            backend_pids=backend_pids,
+            future=second,
+            expected="the second enrollment request setup",
+        )
         _assert_backend_blocked_by(
             waiter_pid=second_pid,
             holder_pid=first_pid,
+            worker=second,
+            expected="the same-user profile lock during active enrollment",
         )
         release_first.set()
-        assert first.result(timeout=15) in (200, 201)
-        assert second.result(timeout=15) in (200, 201)
+        assert first.result(timeout=_FUTURE_RESULT_TIMEOUT_SECONDS).status_code in (
+            200,
+            201,
+        )
+        assert second.result(
+            timeout=_FUTURE_RESULT_TIMEOUT_SECONDS
+        ).status_code in (200, 201)
     finally:
         release_first.set()
+        _cancel_if_unfinished(future=first, backend_pid=first_pid)
+        _cancel_if_unfinished(future=second, backend_pid=second_pid)
 ```
 
 Retain assertions that both enrollments exist and exactly one is active. The
@@ -255,34 +283,56 @@ monkeypatch.setattr(
 )
 
 def switch_active(con_id: int) -> Any:
-    close_old_connections()
-    try:
-        backend_pids.put(_postgres_backend_pid())
-        db_user = User.objects.get(pk=user.pk)
-        return force_authenticated_client(user=db_user).put(
+    return _request_in_bounded_worker(
+        user_id=user.pk,
+        backend_pids=backend_pids,
+        request=lambda client: client.put(
             "/api/conventions/active/",
             {"convention_id": con_id},
             content_type="application/json",
-        )
-    finally:
-        connection.close()
+        ),
+    )
 
+first: Future[Any] | None = None
+second: Future[Any] | None = None
+first_pid: int | None = None
+second_pid: int | None = None
 with ThreadPoolExecutor(max_workers=2) as executor:
     try:
         first = executor.submit(switch_active, con1.pk)
-        first_pid = backend_pids.get(timeout=10)
-        assert first_at_target_lookup.wait(10)
+        first_pid = _wait_for_pid_or_worker_finish(
+            backend_pids=backend_pids,
+            future=first,
+            expected="the first selection request setup",
+        )
+        _wait_for_event_or_worker_finish(
+            event=first_at_target_lookup,
+            future=first,
+            expected="the first selection downstream gate",
+        )
         second = executor.submit(switch_active, con2.pk)
-        second_pid = backend_pids.get(timeout=10)
+        second_pid = _wait_for_pid_or_worker_finish(
+            backend_pids=backend_pids,
+            future=second,
+            expected="the second selection request setup",
+        )
         _assert_backend_blocked_by(
             waiter_pid=second_pid,
             holder_pid=first_pid,
+            worker=second,
+            expected="the same-user profile lock during active selection",
         )
         release_first.set()
-        assert first.result(timeout=15).status_code == 200
-        assert second.result(timeout=15).status_code == 200
+        assert (
+            first.result(timeout=_FUTURE_RESULT_TIMEOUT_SECONDS).status_code == 200
+        )
+        assert (
+            second.result(timeout=_FUTURE_RESULT_TIMEOUT_SECONDS).status_code == 200
+        )
     finally:
         release_first.set()
+        _cancel_if_unfinished(future=first, backend_pid=first_pid)
+        _cancel_if_unfinished(future=second, backend_pid=second_pid)
 ```
 
 Assert exactly one enrollment is active and one is inactive. Do not share
@@ -302,19 +352,21 @@ original_preflight = services.require_convention_participation_eligible
 def pause_after_preflight(db_user: User) -> None:
     original_preflight(db_user)
     preflight_passed.set()
-    assert release_after_disable.wait(10)
+    if not release_after_disable.wait(_HOLDER_GATE_TIMEOUT_SECONDS):
+        raise TimeoutError("enrollment was never resumed after disablement")
 
-def enroll() -> int:
-    close_old_connections()
-    try:
-        db_user = User.objects.get(pk=user.pk)
-        return force_authenticated_client(user=db_user).post(
+backend_pids: Queue[int] = Queue()
+
+def enroll() -> Any:
+    return _request_in_bounded_worker(
+        user_id=user.pk,
+        backend_pids=backend_pids,
+        request=lambda client: client.post(
             "/api/conventions/enrollments/",
             {"convention_id": con.pk},
             content_type="application/json",
-        ).status_code
-    finally:
-        connection.close()
+        ),
+    )
 
 monkeypatch.setattr(
     services,
@@ -322,15 +374,30 @@ monkeypatch.setattr(
     pause_after_preflight,
 )
 
+request: Future[Any] | None = None
+request_pid: int | None = None
 with ThreadPoolExecutor(max_workers=1) as executor:
-    request = executor.submit(enroll)
-    assert preflight_passed.wait(10)
     try:
+        request = executor.submit(enroll)
+        request_pid = _wait_for_pid_or_worker_finish(
+            backend_pids=backend_pids,
+            future=request,
+            expected="the enrollment request setup",
+        )
+        _wait_for_event_or_worker_finish(
+            event=preflight_passed,
+            future=request,
+            expected="successful eligibility preflight",
+        )
         with transaction.atomic():
             PlayerProfile.objects.filter(user=user).update(is_enabled=False)
+        release_after_disable.set()
+        assert (
+            request.result(timeout=_FUTURE_RESULT_TIMEOUT_SECONDS).status_code == 403
+        )
     finally:
         release_after_disable.set()
-    assert request.result(timeout=15) == 403
+        _cancel_if_unfinished(future=request, backend_pid=request_pid)
 ```
 
 Assert no enrollment exists. The main test connection and endpoint worker are

@@ -43,8 +43,14 @@ _MAX_POLL_SECONDS = 0.050
 def _configure_worker_session_and_get_pid() -> int:
     """Install bounded PostgreSQL settings on this fresh test-worker session."""
     with connection.cursor() as cursor:
-        cursor.execute("SET lock_timeout TO 18000")
-        cursor.execute("SET statement_timeout TO 20000")
+        cursor.execute(
+            "SELECT set_config('lock_timeout', %s, false)",
+            [f"{_SESSION_LOCK_TIMEOUT_MS}ms"],
+        )
+        cursor.execute(
+            "SELECT set_config('statement_timeout', %s, false)",
+            [f"{_SESSION_STATEMENT_TIMEOUT_MS}ms"],
+        )
         cursor.execute("SELECT pg_backend_pid()")
         row = cursor.fetchone()
     assert row is not None
@@ -121,14 +127,18 @@ def _wait_for_event_or_worker_finish(
 
 
 def _assert_backend_blocked_by(
-    *, waiter_pid: int, holder_pid: int, worker: Future[Any]
+    *,
+    waiter_pid: int,
+    holder_pid: int,
+    worker: Future[Any],
+    expected: str,
 ) -> None:
     deadline = monotonic() + _OBSERVER_TIMEOUT_SECONDS
     delay = _INITIAL_POLL_SECONDS
     while monotonic() < deadline:
         _raise_if_worker_finished_early(
             worker,
-            expected="the expected profile-row lock block",
+            expected=expected,
         )
         with connection.cursor() as cursor:
             cursor.execute(
@@ -143,7 +153,7 @@ def _assert_backend_blocked_by(
         delay = min(delay * 2, _MAX_POLL_SECONDS)
     _raise_if_worker_finished_early(
         worker,
-        expected="the expected profile-row lock block",
+        expected=expected,
     )
     pytest.fail(f"PostgreSQL backend {waiter_pid} was not blocked by {holder_pid}")
 
@@ -315,6 +325,7 @@ def test_concurrent_active_enrollments_same_user_serialize_cleanly_and_leave_exa
                 waiter_pid=second_pid,
                 holder_pid=first_pid,
                 worker=second,
+                expected="the same-user profile lock during active enrollment",
             )
             release_first.set()
             assert first.result(timeout=_FUTURE_RESULT_TIMEOUT_SECONDS).status_code in (
@@ -398,6 +409,7 @@ def test_concurrent_active_selections_same_user_serialize_cleanly_and_leave_exac
                 waiter_pid=second_pid,
                 holder_pid=first_pid,
                 worker=second,
+                expected="the same-user profile lock during active selection",
             )
             release_first.set()
             assert (
