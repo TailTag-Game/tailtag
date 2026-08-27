@@ -249,7 +249,7 @@ The API service uses PostgreSQL for runtime checks and does not provide a SQLite
 
 ## Decision log
 
-The accepted backend decisions are recorded in:
+The accepted architecture decisions are recorded in:
 
 - [0001 — Use Django and DRF for the backend](adrs/0001-use-django-and-drf-for-backend.md)
 - [0002 — Use PostgreSQL as the primary database](adrs/0002-use-postgresql-as-primary-database.md)
