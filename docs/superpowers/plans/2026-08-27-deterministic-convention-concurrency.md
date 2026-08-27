@@ -20,7 +20,7 @@
 
 ---
 
-### Task 1: Add PostgreSQL lock-observation test helpers
+### Task 1: Implement the deterministic Convention concurrency acceptance suite
 
 **Files:**
 - Modify: `services/api/tests/test_convention_concurrency.py`
@@ -28,11 +28,12 @@
 
 **Interfaces:**
 - Consumes: Django's thread-local `connection`, PostgreSQL functions `pg_backend_pid()` and `pg_blocking_pids(integer)`, and the real `conventions.services._locked_eligible_profile` helper.
-- Produces: `_postgres_backend_pid() -> int`, `_assert_backend_blocked_by(*, waiter_pid: int, holder_pid: int, timeout: float = 10.0) -> None`, and `_gate_first_profile_lock(monkeypatch: pytest.MonkeyPatch) -> tuple[Event, Event]` for later concurrency scenarios.
+- Produces: `_postgres_backend_pid() -> int`, `_assert_backend_blocked_by(*, waiter_pid: int, holder_pid: int, timeout: float = 10.0) -> None`, `_gate_first_profile_lock(monkeypatch: pytest.MonkeyPatch) -> tuple[Event, Event]`, and four deterministic behavioral regression scenarios.
 
 - [ ] **Step 1: Extend the synchronization imports**
 
-Add `time`, `Queue`, and `Event` while retaining `Barrier` for any existing test that still needs it during the red phase:
+Add `time`, `Queue`, and `Event`; remove `Barrier` when the timing-only tests are
+replaced in this same task:
 
 ```python
 import time
@@ -91,7 +92,7 @@ def _gate_first_profile_lock(
 ) -> tuple[Event, Event]:
     first_holds_profile = Event()
     release_first = Event()
-    original_locked_profile = services._locked_eligible_profile
+    original_locked_profile = services._locked_eligible_profile  # pyright: ignore[reportPrivateUsage]
     first_call = True
 
     def hold_first_profile_lock(db_user: User) -> PlayerProfile:
@@ -111,31 +112,9 @@ def _gate_first_profile_lock(
     return first_holds_profile, release_first
 ```
 
-- [ ] **Step 4: Run static checks on the helper shape**
+#### Behavioral acceptance tests
 
-Run:
-
-```bash
-uv --directory services/api run --locked --no-sync ruff check tests/test_convention_concurrency.py
-uv --directory services/api run --locked --no-sync pyright tests/test_convention_concurrency.py
-```
-
-Expected: both commands pass. If strict Pyright does not accept the cursor row
-inference, narrow it explicitly without weakening project-wide type checking.
-
----
-
-### Task 2: Replace timing-only races with deterministic acceptance tests
-
-**Files:**
-- Modify: `services/api/tests/test_convention_concurrency.py`
-- Test: `services/api/tests/test_convention_concurrency.py`
-
-**Interfaces:**
-- Consumes: `_postgres_backend_pid`, `_assert_backend_blocked_by`, `_gate_first_profile_lock`, and `conventions.services.require_convention_participation_eligible`.
-- Produces: four deterministic regression scenarios covering same-user active enrollment, same-user active selection, post-preflight profile disablement, and ACTIVE-to-PAUSED Convention serialization.
-
-- [ ] **Step 1: Add the service and transaction imports**
+- [ ] **Step 4: Add the transaction import**
 
 Make holder commits explicit:
 
@@ -143,7 +122,7 @@ Make holder commits explicit:
 from django.db import close_old_connections, connection, transaction
 ```
 
-- [ ] **Step 2: Strengthen concurrent active enrollment**
+- [ ] **Step 5: Strengthen concurrent active enrollment**
 
 Add `monkeypatch: pytest.MonkeyPatch`, replace the start-only barrier with the
 reusable profile-lock gate, and submit the first request alone. Wait until the
@@ -188,7 +167,7 @@ Retain assertions that both responses are 200/201, both enrollments exist, and
 exactly one is active. Keep the release in `finally` so failed blocker evidence
 cannot strand the executor.
 
-- [ ] **Step 3: Strengthen concurrent active selection**
+- [ ] **Step 6: Strengthen concurrent active selection**
 
 Use fresh synchronization state and make the first selection own the real
 profile lock before the second request starts:
@@ -229,7 +208,7 @@ with ThreadPoolExecutor(max_workers=2) as executor:
 Assert both statuses are 200 and exactly one enrollment is active. Do not share
 synchronization state between tests.
 
-- [ ] **Step 4: Reproduce profile disablement between preflight and locked revalidation**
+- [ ] **Step 7: Reproduce profile disablement between preflight and locked revalidation**
 
 Change the test signature to accept `monkeypatch`. Wrap the real preflight,
 pause only after it succeeds, run the real endpoint in a separate worker, commit
@@ -278,7 +257,7 @@ Assert no enrollment exists. The main test connection and endpoint worker are
 separate connections; leaving `transaction.atomic()` commits the disablement
 before the request resumes.
 
-- [ ] **Step 5: Reproduce an ACTIVE-to-PAUSED transition that wins the row lock**
+- [ ] **Step 8: Reproduce an ACTIVE-to-PAUSED transition that wins the row lock**
 
 Start with an ACTIVE Convention. The pause worker locks and updates the row,
 signals while its transaction remains open, and reports its backend PID. Start
@@ -336,7 +315,7 @@ with ThreadPoolExecutor(max_workers=2) as executor:
 Refresh the Convention and assert it is PAUSED, then assert no enrollment
 exists.
 
-- [ ] **Step 6: Run the focused module and confirm all five tests pass**
+- [ ] **Step 9: Run the focused module and confirm all five tests pass**
 
 Run:
 
@@ -347,7 +326,7 @@ uv --directory services/api run --locked --no-sync pytest -q tests/test_conventi
 Expected: all deterministic race tests and the existing lock-order test pass
 against PostgreSQL with no hang or timeout.
 
-- [ ] **Step 7: Format and commit the deterministic test suite**
+- [ ] **Step 10: Format and commit the deterministic test suite**
 
 Run:
 
@@ -362,14 +341,14 @@ Do not stage `.gitignore`.
 
 ---
 
-### Task 3: Prove regression strength and run authoritative verification
+### Task 2: Prove regression strength and run authoritative verification
 
 **Files:**
 - Temporarily modify and restore: `services/api/conventions/services.py`
 - Verify: `services/api/tests/test_convention_concurrency.py`
 
 **Interfaces:**
-- Consumes: the deterministic tests from Task 2 and the current production locking implementation.
+- Consumes: the deterministic tests from Task 1 and the current production locking implementation.
 - Produces: fresh evidence that each test rejects its corresponding former defect, plus the full repository completion evidence.
 
 - [ ] **Step 1: Verify the missing locked revalidation mutant is rejected**
