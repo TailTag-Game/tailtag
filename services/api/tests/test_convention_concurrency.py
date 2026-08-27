@@ -7,11 +7,12 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
-from threading import Event
-from typing import Any
+from threading import Event, Lock
+from typing import Any, cast
 
 import pytest
 from django.db import close_old_connections, connection, transaction
+from django.db.models import QuerySet
 
 from accounts.models import User
 from conventions import services
@@ -58,29 +59,27 @@ def _assert_backend_blocked_by(
             )
 
 
-def _gate_first_profile_lock(
-    monkeypatch: pytest.MonkeyPatch,
-) -> tuple[Event, Event]:
-    first_holds_profile = Event()
-    release_first = Event()
-    original_locked_profile = services._locked_eligible_profile  # pyright: ignore[reportPrivateUsage]
+def _pause_first_downstream_call[**P, R](
+    function: Callable[P, R],
+) -> tuple[Callable[P, R], Event, Event]:
+    """Pause only the first invocation immediately before `function` runs."""
+    first_call_guard = Lock()
     first_call = True
+    first_at_downstream_seam = Event()
+    release_first = Event()
 
-    def hold_first_profile_lock(db_user: User) -> PlayerProfile:
+    def paused(*args: P.args, **kwargs: P.kwargs) -> R:
         nonlocal first_call
-        profile = original_locked_profile(db_user)
-        if first_call:
+        with first_call_guard:
+            pause_this_call = first_call
             first_call = False
-            first_holds_profile.set()
-            assert release_first.wait(10)
-        return profile
+        if pause_this_call:
+            first_at_downstream_seam.set()
+            if not release_first.wait(10):
+                raise TimeoutError("first downstream request was never released")
+        return function(*args, **kwargs)
 
-    monkeypatch.setattr(
-        services,
-        "_locked_eligible_profile",
-        hold_first_profile_lock,
-    )
-    return first_holds_profile, release_first
+    return paused, first_at_downstream_seam, release_first
 
 
 def _setup_eligible_player(clerk_id: str) -> User:
@@ -116,7 +115,18 @@ def test_concurrent_active_enrollments_same_user_serialize_cleanly_and_leave_exa
     con1 = _create_convention(name="Con 1")
     con2 = _create_convention(name="Con 2")
     backend_pids: Queue[int] = Queue()
-    first_holds_profile, release_first = _gate_first_profile_lock(monkeypatch)
+    original_get_or_create = cast(
+        Callable[..., tuple[ConventionEnrollment, bool]],
+        ConventionEnrollment.objects.get_or_create,
+    )
+    gated_get_or_create, first_at_enrollment_create, release_first = (
+        _pause_first_downstream_call(original_get_or_create)
+    )
+    monkeypatch.setattr(
+        ConventionEnrollment.objects,
+        "get_or_create",
+        cast(Any, gated_get_or_create),
+    )
 
     def enroll(con_id: int) -> int:
         close_old_connections()
@@ -136,7 +146,7 @@ def test_concurrent_active_enrollments_same_user_serialize_cleanly_and_leave_exa
         try:
             first = executor.submit(enroll, con1.pk)
             first_pid = backend_pids.get(timeout=10)
-            assert first_holds_profile.wait(10)
+            assert first_at_enrollment_create.wait(10)
             second = executor.submit(enroll, con2.pk)
             second_pid = backend_pids.get(timeout=10)
             _assert_backend_blocked_by(
@@ -167,18 +177,32 @@ def test_concurrent_active_selections_same_user_serialize_cleanly_and_leave_exac
     ConventionEnrollment.objects.create(user=user, convention=con1, is_active=False)
     ConventionEnrollment.objects.create(user=user, convention=con2, is_active=False)
     backend_pids: Queue[int] = Queue()
-    first_holds_profile, release_first = _gate_first_profile_lock(monkeypatch)
+    original_target_lookup = cast(
+        Callable[..., QuerySet[ConventionEnrollment]],
+        ConventionEnrollment.objects.select_for_update,
+    )
+    gated_target_lookup, first_at_target_lookup, release_first = (
+        _pause_first_downstream_call(original_target_lookup)
+    )
+    monkeypatch.setattr(
+        ConventionEnrollment.objects,
+        "select_for_update",
+        cast(Any, gated_target_lookup),
+    )
 
-    def switch_active(con_id: int) -> Any:
+    def switch_active(con_id: int) -> int:
         close_old_connections()
         try:
             backend_pids.put(_postgres_backend_pid())
             db_user = User.objects.get(pk=user.pk)
-            client = force_authenticated_client(user=db_user)
-            return client.put(
-                "/api/conventions/active/",
-                {"convention_id": con_id},
-                content_type="application/json",
+            return (
+                force_authenticated_client(user=db_user)
+                .put(
+                    "/api/conventions/active/",
+                    {"convention_id": con_id},
+                    content_type="application/json",
+                )
+                .status_code
             )
         finally:
             connection.close()
@@ -187,7 +211,7 @@ def test_concurrent_active_selections_same_user_serialize_cleanly_and_leave_exac
         try:
             first = executor.submit(switch_active, con1.pk)
             first_pid = backend_pids.get(timeout=10)
-            assert first_holds_profile.wait(10)
+            assert first_at_target_lookup.wait(10)
             second = executor.submit(switch_active, con2.pk)
             second_pid = backend_pids.get(timeout=10)
             _assert_backend_blocked_by(
@@ -195,13 +219,14 @@ def test_concurrent_active_selections_same_user_serialize_cleanly_and_leave_exac
                 holder_pid=first_pid,
             )
             release_first.set()
-            assert first.result(timeout=15).status_code == 200
-            assert second.result(timeout=15).status_code == 200
+            assert first.result(timeout=15) == 200
+            assert second.result(timeout=15) == 200
         finally:
             release_first.set()
 
     # Exactly one enrollment is active
     assert ConventionEnrollment.objects.filter(user=user, is_active=True).count() == 1
+    assert ConventionEnrollment.objects.filter(user=user, is_active=False).count() == 1
 
 
 @pytest.mark.django_db(transaction=True)
