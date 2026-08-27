@@ -5,8 +5,11 @@ from __future__ import annotations
 import datetime
 from typing import ClassVar
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+
+from accounts.models import User
 
 
 class ConventionStatus(models.TextChoices):
@@ -93,3 +96,54 @@ class Convention(models.Model):
     def __str__(self) -> str:
         """Return the convention name and identifier."""
         return f"{self.name} ({self.pk})"
+
+
+class ConventionEnrollment(models.Model):
+    """Player-owned enrollment in a convention for TailTag gameplay."""
+
+    id: int
+    pk: int
+    user_id: int
+    user: models.ForeignKey[User, User] = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="convention_enrollments",
+    )
+    convention_id: int
+    convention: models.ForeignKey[Convention, Convention] = models.ForeignKey(
+        Convention,
+        on_delete=models.PROTECT,
+        related_name="enrollments",
+    )
+    is_active: models.BooleanField[bool, bool] = models.BooleanField(
+        default=False,
+        help_text="Whether this convention is the player's selected active gameplay convention.",
+    )
+    created_at: models.DateTimeField[datetime.datetime, datetime.datetime] = (
+        models.DateTimeField(
+            auto_now_add=True,
+        )
+    )
+    updated_at: models.DateTimeField[datetime.datetime, datetime.datetime] = (
+        models.DateTimeField(
+            auto_now=True,
+        )
+    )
+
+    class Meta:
+        ordering: ClassVar[list[str]] = ["-created_at", "id"]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["user", "convention"],
+                name="conventions_enrollment_user_convention_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["user"],
+                condition=models.Q(is_active=True),
+                name="conventions_enrollment_user_single_active",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        """Return human-readable enrollment representation."""
+        return f"Enrollment: {self.user_id} -> {self.convention_id} (active={self.is_active})"
