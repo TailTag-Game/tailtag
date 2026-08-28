@@ -9,3 +9,8 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
+
+linter:
+  rules:
+    prefer_single_quotes: false
+    prefer_double_quotes: true
