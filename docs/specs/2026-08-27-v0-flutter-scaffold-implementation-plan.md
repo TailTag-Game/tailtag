@@ -155,7 +155,11 @@ Expected: Flutter creates only `android/` and `ios/`; no `web/`, `linux/`, `maco
 fvm flutter pub add flutter_riverpod:^3.4.2 go_router:^18.0.0
 ```
 
-Keep the generator's used Flutter lint development dependency. Confirm `pubspec.yaml` contains package name `tailtag_mobile`, only the approved direct runtime dependencies, and no `http` or Clerk package. Confirm `pubspec.lock` is present.
+Replace the generator's Flutter lint development dependency with
+`very_good_analysis: ^10.3.0` and include its canonical analysis configuration.
+Confirm `pubspec.yaml` contains package name `tailtag_mobile`, only the approved
+direct runtime dependencies, and no `http` or Clerk package. Confirm
+`pubspec.lock` is present.
 
 - [ ] **Step 3: Normalize Android identity and name**
 

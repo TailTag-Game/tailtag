@@ -6,7 +6,7 @@ import 'package:tailtag_mobile/main.dart' as app;
 
 void main() {
   testWidgets(
-    'production startup resolves the root route to the neutral TailTag placeholder',
+    'production startup renders the root TailTag placeholder',
     (tester) async {
       app.main();
 
