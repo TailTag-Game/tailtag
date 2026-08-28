@@ -19,7 +19,7 @@ not mandated.
 
 | Area | Required baseline | Notes |
 | --- | --- | --- |
-| Common | Git, FVM, the repository-pinned Flutter SDK, future dependency resolution, the future repository-owned validation command, and one supported target | FVM selects Flutter `3.47.1` from `apps/mobile/.fvmrc`; use its bundled Dart `3.13.1`. |
+| Common | Git, FVM, the repository-pinned Flutter SDK, dependency resolution, the future repository-owned validation command, and one supported target | FVM selects Flutter `3.47.1` from `apps/mobile/.fvmrc`; use its bundled Dart `3.13.1`. |
 | Android | A compatible JDK, Android SDK and tooling, plus an Android API 24-or-newer emulator | Android is supported on Windows, Linux, and macOS. Android Studio is recommended, but equivalent command-line tooling is sufficient when it satisfies future diagnostics. |
 | iOS | macOS, Xcode with its command-line tools selected, completed Xcode first-run/license setup, and an iOS 15.1-or-newer Simulator runtime | CocoaPods is required when native Flutter plugins require it. Windows and Linux contributors do not need Xcode or iOS support. |
 
