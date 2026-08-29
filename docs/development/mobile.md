@@ -20,8 +20,8 @@ not mandated.
 | Area | Required baseline | Notes |
 | --- | --- | --- |
 | Common | Git, FVM, the repository-pinned Flutter SDK, dependency resolution, the future repository-owned validation command, and one supported target | FVM selects Flutter `3.47.1` from `apps/mobile/.fvmrc`; use its bundled Dart `3.13.1`. |
-| Android | A compatible JDK, Android SDK and tooling, plus an Android API 26-or-newer emulator | Android is supported on Windows, Linux, and macOS. Android Studio is recommended, but equivalent command-line tooling is sufficient when it satisfies future diagnostics. |
-| iOS | macOS, Xcode with its command-line tools selected, completed Xcode first-run/license setup, and an iOS 15.1-or-newer Simulator runtime | CocoaPods is required when native Flutter plugins require it. Windows and Linux contributors do not need Xcode or iOS support. |
+| Android | A compatible JDK, Android SDK and tooling, plus an Android API 26-or-newer emulator | Android is supported on Windows, Linux, and macOS. Android Studio provides the best-supported development experience, but equivalent command-line tooling is sufficient when it satisfies future diagnostics. |
+| iOS | macOS, Xcode with its command-line tools selected, completed Xcode first-run/license setup, and an iOS 15.1-or-newer Simulator runtime | Xcode is required to install and run the iOS Simulator. CocoaPods is required when native Flutter plugins require it. Windows and Linux contributors do not need Xcode or iOS support. |
 
 macOS contributors may validate either Android or iOS. Phones are the primary
 V0 UX target; tablets remain compatible but have no V0-specific optimization
