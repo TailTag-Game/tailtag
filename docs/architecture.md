@@ -156,7 +156,7 @@ Delivery failures have distinct primary surfaces:
 
 ### Application identity and targets
 
-The TailTag V0 Flutter application scaffold is at `apps/mobile/`. The canonical domain is `tailtag.app`; its Android application ID and namespace and iOS bundle identifier are all `app.tailtag`. There is no legacy-app, `finnthepanther`, signing, store-continuity, migration, or compatibility obligation. The V0 target is Android API 24+ and iOS 15.1+. Phones are primary, while tablets remain compatible without a V0-specific optimization. A physical-device requirement is not part of baseline validation.
+The TailTag V0 Flutter application scaffold is at `apps/mobile/`. The canonical domain is `tailtag.app`; its Android application ID and namespace and iOS bundle identifier are all `app.tailtag`. There is no legacy-app, `finnthepanther`, signing, store-continuity, migration, or compatibility obligation. The V0 target is Android API 26+ and iOS 15.1+. Phones are primary, while tablets remain compatible without a V0-specific optimization. A physical-device requirement is not part of baseline validation.
 
 Issue #131 supplies the scaffold, repository-owned `apps/mobile/.fvmrc` exact stable Flutter `3.47.1` pin, native identifiers and minimum-platform floors, and initial Android and iOS platform proof. Dart comes from that Flutter SDK and is not independently pinned. Flutter must never follow a moving channel. Any upgrade requires an explicit reviewed pull request. The upstream Flutter tag is `6655482ec06e547f90abf8ae7590466f4415978d` (bundling Dart `3.13.1`).
 

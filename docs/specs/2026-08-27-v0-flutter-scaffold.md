@@ -21,7 +21,7 @@ behavior or consuming work assigned to later Flutter-foundation issues.
 - The installed and user-facing application name is `TailTag`.
 - Android application ID and namespace are exactly `app.tailtag`.
 - The iOS application bundle identifier is exactly `app.tailtag`.
-- Android supports API 24 and newer. iOS supports 15.1 and newer.
+- Android supports API 26 and newer. iOS supports 15.1 and newer.
 - `apps/mobile/.fvmrc` pins exact stable Flutter `3.47.1`; Dart comes from that
   Flutter SDK and is not independently pinned.
 - Generate and retain only Android and iOS platform projects.
@@ -103,7 +103,7 @@ native identity. In particular, do not rely on `flutter create --org
 app.tailtag`, because its derived identifier would include the project name.
 
 All relevant Android application ID and namespace declarations must resolve to
-`app.tailtag`, and the minimum SDK must be API 24. All relevant iOS build
+`app.tailtag`, and the minimum SDK must be API 26. All relevant iOS build
 configurations must resolve the application bundle identifier to `app.tailtag`
 and the deployment target to iOS 15.1. Generated test-host identifiers may use
 the platform's conventional derived suffix where required, but no installable
@@ -123,10 +123,11 @@ actual solver. Do not independently pin Dart or follow a moving Flutter
 channel.
 
 Align Flutter build outputs, local FVM state, IDE files, and platform-local
-state with the repository's ignore conventions. Do not overwrite or absorb the
-pre-existing unrelated `.gitignore` worktree change. No contributor path,
-secret, token, emulator identifier, Xcode user data, or machine-specific state
-may be committed.
+state with the repository's ignore conventions. Keep the dirty primary checkout
+out of scaffold verification evidence. The later-approved root
+`AGENTS.override.md` ignore and obsolete documentation removals are deliberate
+repository housekeeping. No contributor path, secret, token, emulator
+identifier, Xcode user data, or machine-specific state may be committed.
 
 ## Documentation
 
@@ -147,7 +148,7 @@ Completion requires fresh evidence for all of the following:
    SDK-bundled Dart 3.13.1.
 3. Only Android and iOS platform projects exist.
 4. Every installable Android configuration uses application ID and namespace
-   `app.tailtag`, with minimum API 24.
+   `app.tailtag`, with minimum API 26.
 5. Every installable iOS configuration uses bundle identifier `app.tailtag`,
    with minimum iOS 15.1.
 6. Locked dependency resolution succeeds without manually editing generated

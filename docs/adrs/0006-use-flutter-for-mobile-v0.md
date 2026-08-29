@@ -12,7 +12,7 @@ The future application belongs at `apps/mobile/`. Its canonical domain is `tailt
 
 Use Flutter for the V0 Android and iOS application. Issue #131 will create and commit repository-owned `apps/mobile/.fvmrc` configuration pinning exact stable Flutter `3.47.1`; use the Dart SDK bundled with Flutter rather than independently pinning Dart. The corresponding upstream Flutter tag is `6655482ec06e547f90abf8ae7590466f4415978d` and it bundles Dart `3.13.1`. Flutter upgrades require an explicit reviewed pull request and must never track a moving channel.
 
-Support Android API 24 and newer and iOS 15.1 and newer. Phones are primary; tablets must remain compatible but receive no V0-specific optimization. Physical devices are optional for baseline validation.
+Support Android API 26 and newer and iOS 15.1 and newer. Phones are primary; tablets must remain compatible but receive no V0-specific optimization. Physical devices are optional for baseline validation.
 
 Organize the application by feature with Views, ViewModels, Repositories, and Services. Features may depend only on shared, explicitly owned boundaries, not on sibling features. Do not add a domain/use-case layer until demonstrated complexity justifies it. Use `go_router` for routing, Riverpod for state and dependency ownership without a second DI framework or foundation code generation, and `package:http` through an injected, composable `Client`.
 

@@ -13,13 +13,15 @@
 - The application path is exactly `apps/mobile/`.
 - The Dart package and Flutter project name is exactly `tailtag_mobile`.
 - The installed/user-facing name is exactly `TailTag`.
-- Android application ID and namespace are exactly `app.tailtag`; minimum Android is API 24.
+- Android application ID and namespace are exactly `app.tailtag`; minimum Android is API 26.
 - The iOS Runner bundle identifier is exactly `app.tailtag`; minimum iOS is 15.1.
 - Generate and retain only Android and iOS platform projects.
 - `apps/mobile/.fvmrc` pins exact Flutter `3.47.1`; do not independently pin Dart or track a moving channel.
 - Use compatible direct constraints `flutter_riverpod: ^3.4.2` and `go_router: ^18.0.0`; commit `pubspec.lock`.
 - Do not add `package:http`, `clerk_flutter`, product UI, AppConfig, mobile root commands, diagnostics, CI, API behavior, or auth behavior.
-- Do not modify or commit the user's unrelated root `.gitignore` change.
+- Keep the dirty primary checkout out of scaffold verification evidence. The
+  root `AGENTS.override.md` ignore and two obsolete deterministic-convention
+  document removals were later explicitly approved for inclusion.
 - Do not commit machine paths, local SDK state, emulator state, Xcode user data, screenshots, logs, secrets, or tokens.
 - Record sanitized launch/build evidence in the PR or issue, not in the repository.
 
@@ -70,7 +72,7 @@
 
 - [ ] **Step 1: Create an isolated worktree without touching the dirty checkout**
 
-Use the `superpowers:using-git-worktrees` skill. Verify the repository/worktree state first, choose a focused branch such as `feat/131-flutter-scaffold`, and confirm that the new worktree includes the approved specification while the primary checkout's `.gitignore` edit remains only in the primary checkout.
+Use the `superpowers:using-git-worktrees` skill. Verify the repository/worktree state first, choose a focused branch such as `feat/131-flutter-scaffold`, and confirm that the new worktree includes the approved specification while the primary checkout's `.gitignore` edit remains only in the primary checkout during isolated scaffold implementation.
 
 Run in both checkouts:
 
@@ -79,7 +81,7 @@ git status --short --branch
 git diff -- .gitignore
 ```
 
-Expected: the implementation worktree is clean; only the primary checkout reports the unrelated `.gitignore` modification.
+Expected at worktree creation: the implementation worktree is clean; only the primary checkout reports the then-unrelated `.gitignore` modification. Copy it into the feature branch only after its later explicit scope approval.
 
 - [ ] **Step 2: Establish FVM without creating repository state**
 
@@ -171,7 +173,7 @@ android {
 
     defaultConfig {
         applicationId = "app.tailtag"
-        minSdk = 24
+        minSdk = 26
     }
 }
 ```
@@ -549,9 +551,9 @@ Expected: all commands pass and `git status --short` reports no tracked-file dri
 git worktree remove "$TAILTAG_VERIFY_ROOT"
 ```
 
-- [ ] **Step 4: Prove Android launch on an API 24-or-newer target**
+- [ ] **Step 4: Prove Android launch on an API 26-or-newer target**
 
-Install/activate the Android SDK and an API 24+ emulator using the official Android Studio setup if this host lacks them. Accept required Android SDK licenses, start the chosen emulator, then run from the clean committed branch:
+Install/activate the Android SDK and an API 26+ emulator using the official Android Studio setup if this host lacks them. Accept required Android SDK licenses, start the chosen emulator, then run from the clean committed branch:
 
 ```bash
 fvm flutter devices
