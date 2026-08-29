@@ -34,7 +34,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version-file: .fvmrc
+          flutter-version-file: apps/mobile/.fvmrc
           cache: true
       - name: Install dependencies
         run: flutter pub get
@@ -58,7 +58,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version-file: .fvmrc
+          flutter-version-file: apps/mobile/.fvmrc
           cache: true
       - name: Install dependencies
         run: flutter pub get
