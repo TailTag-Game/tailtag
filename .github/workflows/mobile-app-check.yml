@@ -1,0 +1,66 @@
+name: Mobile App Build Test
+on:
+  pull_request:
+    paths:
+      - 'apps/mobile/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/mobile/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android Build Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v7
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Java sanity check
+        run: java --version
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version-file: .fvmrc
+          cache: true
+      - name: Install dependencies
+        run: flutter pub get
+      - name: Lint and analyze
+        run: flutter analyze
+      - name: Run tests
+        run: flutter test
+      - name: Build APK
+        run: flutter build apk
+      - name: Build AAB
+        run: flutter build appbundle
+  ios:
+    name: iOS Build Test
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v7
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version-file: .fvmrc
+          cache: true
+      - name: Install dependencies
+        run: flutter pub get
+      - name: Build App
+        run: flutter build ios --release --no-codesign
