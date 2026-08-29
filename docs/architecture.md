@@ -156,9 +156,9 @@ Delivery failures have distinct primary surfaces:
 
 ### Application identity and targets
 
-The accepted mobile application is a future Flutter application at `apps/mobile/`. The canonical domain is `tailtag.app`; its Android application ID and namespace and iOS bundle identifier are all `app.tailtag`. There is no legacy-app, `finnthepanther`, signing, store-continuity, migration, or compatibility obligation. The V0 target is Android API 24+ and iOS 15.1+. Phones are primary, while tablets remain compatible without a V0-specific optimization. A physical-device requirement is not part of baseline validation.
+The TailTag V0 Flutter application scaffold is at `apps/mobile/`. The canonical domain is `tailtag.app`; its Android application ID and namespace and iOS bundle identifier are all `app.tailtag`. There is no legacy-app, `finnthepanther`, signing, store-continuity, migration, or compatibility obligation. The V0 target is Android API 26+ and iOS 15.1+. Phones are primary, while tablets remain compatible without a V0-specific optimization. A physical-device requirement is not part of baseline validation.
 
-Issue #131 will create and commit repository-owned `apps/mobile/.fvmrc` configuration pinning exact stable Flutter `3.47.1`; Dart comes from that Flutter SDK and is not independently pinned. Flutter must never follow a moving channel. Any upgrade requires an explicit reviewed pull request. The upstream Flutter tag is `6655482ec06e547f90abf8ae7590466f4415978d` (bundling Dart `3.13.1`).
+Issue #131 supplies the scaffold, repository-owned `apps/mobile/.fvmrc` exact stable Flutter `3.47.1` pin, native identifiers and minimum-platform floors, and initial Android and iOS platform proof. Dart comes from that Flutter SDK and is not independently pinned. Flutter must never follow a moving channel. Any upgrade requires an explicit reviewed pull request. The upstream Flutter tag is `6655482ec06e547f90abf8ae7590466f4415978d` (bundling Dart `3.13.1`).
 
 ### Structure, dependencies, routing, and state
 
@@ -213,9 +213,9 @@ flow is owned by #120; #113 adds no Railway profile smoke command.
 ## Current repository and open decisions
 
 The repository currently contains documentation, repository checks, the API
-foundation, and the V0 player-profile module. Before adding client applications,
-shared packages, gameplay capabilities, or other runtime areas, an approved spec
-and any necessary ADR should establish:
+foundation, the V0 player-profile module, and the mobile application scaffold.
+Before adding shared packages, gameplay capabilities, or other runtime areas,
+an approved spec and any necessary ADR should establish:
 
 1. the user-visible behavior and trust boundaries;
 2. data ownership, retention, and privacy requirements;
