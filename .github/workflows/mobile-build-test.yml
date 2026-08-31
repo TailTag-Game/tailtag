@@ -3,11 +3,13 @@ on:
   pull_request:
     paths:
       - 'apps/mobile/**'
+      - '.github/workflows/mobile-build-test.yml'
   push:
     branches:
       - main
     paths:
       - 'apps/mobile/**'
+      - '.github/workflows/mobile-build-test.yml'
   workflow_dispatch:
 
 permissions:
