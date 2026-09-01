@@ -2,11 +2,46 @@
 
 from __future__ import annotations
 
-from typing import TypedDict
+from collections.abc import Mapping
+from typing import Any, TypedDict, cast
 
 from rest_framework import serializers
+from rest_framework.exceptions import ErrorDetail
 
-from .models import Convention, ConventionEnrollment
+from .models import Convention, ConventionEnrollment, FursuitActivation
+
+FURSUIT_ACTIVATION_RESPONSE_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "fursuit_id": {"type": "integer", "readOnly": True},
+        "convention_id": {"type": "integer", "readOnly": True},
+        "is_active": {"type": "boolean", "readOnly": True},
+        "is_eligible": {"type": "boolean", "readOnly": True},
+        "activated_at": {"type": "string", "format": "date-time", "readOnly": True},
+        "deactivated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": True,
+            "readOnly": True,
+        },
+    },
+    "required": [
+        "fursuit_id",
+        "convention_id",
+        "is_active",
+        "is_eligible",
+        "activated_at",
+        "deactivated_at",
+    ],
+}
+
+FURSUIT_ACTIVATION_REQUEST_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {"is_active": {"type": "boolean"}},
+    "required": ["is_active"],
+}
 
 
 class ConventionSerializer(serializers.ModelSerializer[Convention]):
@@ -66,6 +101,29 @@ class SelectActiveConventionRequestSerializer(
     convention_id = serializers.IntegerField(min_value=1, required=True)
 
 
+class FursuitActivationRequestSerializer(serializers.Serializer[dict[str, bool]]):
+    """Accept exactly one explicit desired activation state."""
+
+    is_active = serializers.BooleanField(required=True, allow_null=False)
+
+    def to_internal_value(self, data: Any) -> dict[str, bool]:
+        if (
+            not isinstance(data, Mapping)
+            or set(cast(Mapping[str, object], data)) != {"is_active"}
+            or type(cast(Mapping[str, object], data)["is_active"]) is not bool
+        ):
+            raise serializers.ValidationError(
+                {
+                    "is_active": [
+                        ErrorDetail(
+                            "Provide exactly the is_active field.", code="invalid"
+                        )
+                    ]
+                }
+            )
+        return cast(dict[str, bool], super().to_internal_value(data))
+
+
 class ActiveConventionResponseSerializer(serializers.Serializer[dict[str, object]]):
     """Response wrapper for active convention enrollment query."""
 
@@ -91,6 +149,15 @@ class ActiveConventionResponseData(TypedDict):
     enrollment: ConventionEnrollmentResponseData | None
 
 
+class FursuitActivationResponseData(TypedDict):
+    fursuit_id: int
+    convention_id: int
+    is_active: bool
+    is_eligible: bool
+    activated_at: str
+    deactivated_at: str | None
+
+
 def convention_response_data(convention: Convention) -> ConventionResponseData:
     """Project durable convention state to player-facing representation."""
     return {
@@ -111,4 +178,22 @@ def enrollment_response_data(
         "convention": convention_response_data(enrollment.convention),
         "is_active": enrollment.is_active,
         "created_at": enrollment.created_at.isoformat(),
+    }
+
+
+def fursuit_activation_response_data(
+    activation: FursuitActivation, *, is_eligible: bool
+) -> FursuitActivationResponseData:
+    """Project an activation and its current computed eligibility."""
+    return {
+        "fursuit_id": activation.fursuit_id,
+        "convention_id": activation.convention_id,
+        "is_active": activation.is_active,
+        "is_eligible": is_eligible,
+        "activated_at": activation.activated_at.isoformat().replace("+00:00", "Z"),
+        "deactivated_at": (
+            activation.deactivated_at.isoformat().replace("+00:00", "Z")
+            if activation.deactivated_at is not None
+            else None
+        ),
     }

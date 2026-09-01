@@ -9,6 +9,8 @@ from .views import (
     ConventionDetailView,
     ConventionEnrollmentListCreateView,
     ConventionListView,
+    FursuitActivationDetailView,
+    FursuitActivationListView,
 )
 
 urlpatterns = [
@@ -20,4 +22,14 @@ urlpatterns = [
         name="convention-enrollment-list-create",
     ),
     path("active/", ActiveConventionView.as_view(), name="convention-active"),
+    path(
+        "<int:convention_id>/fursuit-activations/",
+        FursuitActivationListView.as_view(),
+        name="fursuit-activation-list",
+    ),
+    path(
+        "<int:convention_id>/fursuit-activations/<int:fursuit_id>/",
+        FursuitActivationDetailView.as_view(),
+        name="fursuit-activation-detail",
+    ),
 ]

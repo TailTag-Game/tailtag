@@ -164,6 +164,8 @@ def test_product_routes_remain_unversioned_and_do_not_add_public_user_surfaces(
         "/api/conventions/{id}/",
         "/api/conventions/active/",
         "/api/conventions/enrollments/",
+        "/api/conventions/{convention_id}/fursuit-activations/",
+        "/api/conventions/{convention_id}/fursuit-activations/{fursuit_id}/",
         "/api/fursuits/",
         "/api/fursuits/{id}/",
         "/api/fursuits/{id}/photo/",
