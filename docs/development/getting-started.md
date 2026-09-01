@@ -5,10 +5,11 @@ usable V0 backend development environment. For the detailed backend operating
 reference—including configuration, database lifecycle, commands, and
 troubleshooting—see the [API README](../../services/api/README.md).
 
-For the approved future Flutter contributor environment contract, see [Mobile
-contributor environment](mobile.md). The application and its commands do not
-exist until the assigned mobile child issues land; this guide's backend flow is
-the currently implemented setup.
+For the Flutter contributor environment contract, see [Mobile contributor
+environment](mobile.md). The application scaffold exists at `apps/mobile/`,
+while supported root mobile commands and the complete contributor workflow
+remain assigned to #132 and later validation issues; this guide's backend flow
+is the currently implemented setup.
 
 The Django/DRF service at `services/api` is a minimal V0 foundation. Historical
 Django POC documents are evaluation evidence, not current setup instructions or

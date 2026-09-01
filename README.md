@@ -29,9 +29,11 @@ The repository is a monorepo. Current top-level areas are:
 docs/             Architecture and development documentation
 scripts/          Repository automation and developer utilities
 services/api/     TailTag V0 Django API foundation
+apps/mobile/      TailTag V0 Flutter application scaffold
 ```
 
-Additional application and shared-package directories will be added as their scope and implementation are approved; this list describes only directories that currently exist.
+The listed directories describe the currently implemented repository. Additional
+application and shared-package directories expand only through approved work.
 
 ## Work tracking
 

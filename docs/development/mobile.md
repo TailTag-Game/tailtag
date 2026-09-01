@@ -1,14 +1,15 @@
-# Mobile contributor environment (future contract)
+# Mobile contributor environment (current scaffold and future contract)
 
-This is the approved contributor environment contract for TailTag's future
-Flutter V0 application. It documents the environment that child issues will
-implement; there is no mobile application, mobile command, platform project,
-or `apps/mobile/` directory in the repository yet.
+TailTag's Flutter V0 scaffold now exists at `apps/mobile/`, with its
+repository-owned FVM configuration at `apps/mobile/.fvmrc`. This guide records
+the current scaffold and the contributor environment contract that later child
+issues will implement. It does not yet define supported root mobile commands,
+runtime configuration, or diagnostics.
 
-The future application will live at `apps/mobile/`. Its repository-owned FVM
-configuration will pin exact stable Flutter `3.47.1` in
-`apps/mobile/.fvmrc`, rather than following a moving `stable` channel. That
-Flutter SDK bundles Dart `3.13.1`; Dart is not independently pinned. A Flutter
+The application uses its repository-owned FVM configuration to pin exact stable
+Flutter `3.47.2` in `apps/mobile/.fvmrc`, rather than following a moving
+`stable` channel. That
+Flutter SDK bundles Dart `3.13.2`; Dart is not independently pinned. A Flutter
 upgrade requires an explicit, reviewed pull request.
 
 ## Prerequisites
@@ -18,9 +19,9 @@ not mandated.
 
 | Area | Required baseline | Notes |
 | --- | --- | --- |
-| Common | Git, FVM, the repository-pinned Flutter SDK, future dependency resolution, the future repository-owned validation command, and one supported target | FVM will select Flutter `3.47.1` from `apps/mobile/.fvmrc`; use its bundled Dart `3.13.1`. |
-| Android | A compatible JDK, Android SDK and tooling, plus an Android API 24-or-newer emulator | Android is supported on Windows, Linux, and macOS. Android Studio is recommended, but equivalent command-line tooling is sufficient when it satisfies future diagnostics. |
-| iOS | macOS, Xcode with its command-line tools selected, completed Xcode first-run/license setup, and an iOS 15.1-or-newer Simulator runtime | CocoaPods is required when native Flutter plugins require it. Windows and Linux contributors do not need Xcode or iOS support. |
+| Common | Git, FVM, the repository-pinned Flutter SDK, dependency resolution, the future repository-owned validation command, and one supported target | FVM selects Flutter `3.47.2` from `apps/mobile/.fvmrc`; use its bundled Dart `3.13.2`. |
+| Android | A compatible JDK, Android SDK and tooling, plus an Android API 26-or-newer emulator | Android is supported on Windows, Linux, and macOS. Android Studio provides the best-supported development experience, but equivalent command-line tooling is sufficient when it satisfies future diagnostics. |
+| iOS | macOS, Xcode with its command-line tools selected, completed Xcode first-run/license setup, and an iOS 15.1-or-newer Simulator runtime | Xcode is required to install iOS Simulator runtimes. Android Studio with the Flutter plugin is recommended for running TailTag on those simulators. CocoaPods is required when native Flutter plugins require it. Windows and Linux contributors do not need Xcode or iOS support. |
 
 macOS contributors may validate either Android or iOS. Phones are the primary
 V0 UX target; tablets remain compatible but have no V0-specific optimization
@@ -38,11 +39,10 @@ following:
    Simulator.
 
 The future root `make mobile-*` commands, configuration flow, and diagnostics
-will be defined by issue #132. Do not infer or rely on those commands before
-that issue lands. Issue #131 will create the scaffold and prove initial Android
-and iOS builds and launches; issue #133 adds CI; issue #134 adds OpenAPI;
-issue #135 proves live Clerk; and issue #136 independently validates clean
-onboarding.
+are issue #132 work. Do not infer or rely on those commands before that issue
+lands. Issue #131 implements the scaffold and proves initial Android and iOS
+builds and launches; issue #133 adds CI; issue #134 adds OpenAPI; issue #135
+proves live Clerk; and issue #136 independently validates clean onboarding.
 
 ## Future runtime configuration
 
@@ -88,9 +88,9 @@ storage.
 
 ## Scope and references
 
-This guide is documentation only. Issue #130 does not create `apps/mobile/`,
-`.fvmrc`, dependencies, Make targets, diagnostics, platform projects, or
-application files. Those are implemented only by their assigned child issues.
+Issue #130 was documentation-only. Issue #131 implements `apps/mobile/`,
+`.fvmrc`, dependencies, platform projects, and application files; Make targets,
+runtime configuration, and diagnostics remain assigned to their child issues.
 
 - [FVM project configuration](https://fvm.app/documentation/getting-started/configuration)
   and [basic commands](https://fvm.app/documentation/guides/basic-commands)

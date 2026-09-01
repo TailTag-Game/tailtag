@@ -11,6 +11,7 @@ Contributors may optionally add themselves below through their onboarding pull r
 | [nikwalton](https://github.com/nikwalton)           | Mobile and frontend dev | 
 | [signalno11](https://github.com/signalno11)         | Mobile and frontend dev |
 | [bdalleva](https://github.com/bdalleva)             | Backend and Database |
+| [Sc0pz](https://github.com/sc0pz)                   | Backend and Security |
 | [Derwin](https://github.com/grsmhiker)              | Community Operations and Convention Outreach | 
 | [gtrotsuka](https://github.com/gtrotsuka)           | Product Designer and Frontend Dev |
 | [RadiantCyrus](https://github.com/radiantcyrus)     | UI/UX and Graphic Design | 

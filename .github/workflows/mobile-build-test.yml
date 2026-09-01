@@ -1,0 +1,70 @@
+name: Mobile App Build Test
+on:
+  pull_request:
+    paths:
+      - 'apps/mobile/**'
+      - '.github/workflows/mobile-build-test.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/mobile/**'
+      - '.github/workflows/mobile-build-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android Build Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Java
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Java sanity check
+        run: java --version
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version-file: apps/mobile/.fvmrc
+          cache: true
+      - name: Install dependencies
+        run: flutter pub get --enforce-lockfile
+      - name: Code format validation
+        run: dart format --output=none --set-exit-if-changed .
+      - name: Lint and analyze
+        run: flutter analyze
+      - name: Run tests
+        run: flutter test
+      - name: Build APK
+        run: flutter build apk
+      - name: Build AAB
+        run: flutter build appbundle
+  ios:
+    name: iOS Build Test
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version-file: apps/mobile/.fvmrc
+          cache: true
+      - name: Install dependencies
+        run: flutter pub get --enforce-lockfile
+      - name: Build App
+        run: flutter build ios --release --no-codesign

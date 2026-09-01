@@ -3,6 +3,7 @@
 
 # Coding Tools
 /\.codex/
+/AGENTS.override.md
 /.superpowers/
 /.vscode/
 /docs/plans/
