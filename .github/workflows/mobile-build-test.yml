@@ -1,10 +1,7 @@
 name: Mobile App Build Test
 on:
   pull_request:
-    paths:
-      - 'apps/mobile/**'
-      - '.github/workflows/mobile-build-test.yml'
-  push:
+  push: # Quick post-push compile test
     branches:
       - main
     paths:
@@ -16,8 +13,25 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect mobile changes
+    runs-on: ubuntu-latest
+    outputs: 
+      mobile: ${{ steps.filter.outputs.mobile }}
+    steps: 
+      - name: Detect mobile app changes
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            mobile:
+              - 'apps/mobile/**'
+              - '.github/workflows/mobile-build-test.yml'
+        
   android:
     name: Android Build Test
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -52,6 +66,8 @@ jobs:
         run: flutter build appbundle
   ios:
     name: iOS Build Test
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
     runs-on: macos-latest
     defaults:
       run:
@@ -68,3 +84,32 @@ jobs:
         run: flutter pub get --enforce-lockfile
       - name: Build App
         run: flutter build ios --release --no-codesign
+  mobile-validation:
+    name: Mobile validation
+    needs: 
+      - changes
+      - android
+      - ios
+    if: always()
+    runs-on: ubuntu-latest
+    steps: 
+      - name: Validate build status
+        env: 
+          MOBILE_CHANGED: ${{ needs.changes.outputs.mobile }}
+          ANDROID_RESULT: ${{ needs.android.result }}
+          IOS_RESULT: ${{ needs.ios.result }}
+        run: |
+          if [ "$MOBILE_CHANGED" != "true" ]; then
+            echo "No mobile app changes."
+            exit 0
+          fi
+          if [ "$ANDROID_RESULT" != "success" ]; then
+            echo "Android build failed."
+            exit 1
+          fi
+          if [ "$IOS_RESULT" != "success" ]; then
+            echo "iOS build failed."
+            exit 1
+          fi
+          echo "All builds succeeded."
+          exit 0
