@@ -196,3 +196,83 @@ class FursuitActivation(models.Model):
                 name="conventions_activation_state_timestamps_valid",
             ),
         ]
+
+
+class FursuitCatchSessionEndReason(models.TextChoices):
+    """The bounded set of terminal causes for a catch session."""
+
+    OWNER = "owner", "Owner"
+    OPERATOR = "operator", "Operator"
+    ELIGIBILITY_LOST = "eligibility_lost", "Eligibility lost"
+    EXPIRED = "expired", "Expired"
+
+
+class FursuitCatchSession(models.Model):
+    """One append-only owner declaration that a fursuit is currently out."""
+
+    id: int
+    pk: int
+    activation_id: int
+    activation: models.ForeignKey[FursuitActivation, FursuitActivation] = (
+        models.ForeignKey(
+            FursuitActivation,
+            on_delete=models.PROTECT,
+            related_name="catch_sessions",
+        )
+    )
+    started_at: models.DateTimeField[datetime.datetime, datetime.datetime] = (
+        models.DateTimeField()
+    )
+    expires_at: models.DateTimeField[datetime.datetime, datetime.datetime] = (
+        models.DateTimeField()
+    )
+    ended_at: models.DateTimeField[
+        datetime.datetime | None, datetime.datetime | None
+    ] = models.DateTimeField(null=True, blank=True)
+    end_reason: models.CharField[str | None, str | None] = models.CharField(
+        max_length=32,
+        choices=FursuitCatchSessionEndReason.choices,
+        null=True,
+        blank=True,
+    )
+    created_at: models.DateTimeField[datetime.datetime, datetime.datetime] = (
+        models.DateTimeField(auto_now_add=True)
+    )
+    updated_at: models.DateTimeField[datetime.datetime, datetime.datetime] = (
+        models.DateTimeField(auto_now=True)
+    )
+
+    class Meta:
+        ordering: ClassVar[list[str]] = ["-started_at", "-id"]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=models.Q(expires_at__gt=models.F("started_at")),
+                name="conventions_catch_session_expiry_after_start",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(ended_at__isnull=True, end_reason__isnull=True)
+                    | models.Q(ended_at__isnull=False, end_reason__isnull=False)
+                ),
+                name="conventions_catch_session_end_fields_paired",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(ended_at__isnull=True)
+                    | models.Q(ended_at__gte=models.F("started_at"))
+                ),
+                name="conventions_catch_session_end_not_before_start",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(end_reason__isnull=True)
+                    | models.Q(end_reason__in=FursuitCatchSessionEndReason.values)
+                ),
+                name="conventions_catch_session_end_reason_valid",
+            ),
+            models.UniqueConstraint(
+                fields=["activation"],
+                condition=models.Q(ended_at__isnull=True),
+                name="conventions_catch_session_one_unended_per_activation",
+            ),
+        ]
