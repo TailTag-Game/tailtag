@@ -38,7 +38,7 @@ def catch_session_path(convention_id: int, fursuit_id: int) -> str:
 
 def catch_session_model() -> type[Any]:
     """Look up the future model at runtime so RED is an observable missing feature."""
-    return cast(type[Any], apps.get_model("conventions", "FursuitCatchSession"))
+    return apps.get_model("conventions", "FursuitCatchSession")
 
 
 def create_catch_session(

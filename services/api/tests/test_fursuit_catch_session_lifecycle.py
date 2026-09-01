@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import User
-from conventions.models import ConventionEnrollment, ConventionStatus
+from conventions.models import ConventionEnrollment, ConventionStatus, FursuitActivation
 from tests.fursuit_activation_test_support import (
+    ActivationScenario,
     create_activation_row,
     create_activation_scenario,
 )
@@ -22,7 +25,7 @@ from tests.fursuit_catch_session_test_support import (
 
 def _live_session(
     *, clerk_user_id: str = "activation_owner"
-) -> tuple[object, object, object]:
+) -> tuple[ActivationScenario, FursuitActivation, Any]:
     scenario = create_activation_scenario(clerk_user_id=clerk_user_id)
     activation = create_activation_row(
         fursuit=scenario.fursuit, convention=scenario.convention, active=True
@@ -30,13 +33,13 @@ def _live_session(
     return scenario, activation, create_catch_session(activation=activation)
 
 
-def _assert_eligibility_lost(session: object) -> None:
-    session.refresh_from_db()  # type: ignore[attr-defined]
-    assert session.ended_at is not None and session.end_reason == "eligibility_lost"  # type: ignore[attr-defined]
+def _assert_eligibility_lost(session: Any) -> None:
+    session.refresh_from_db()
+    assert session.ended_at is not None and session.end_reason == "eligibility_lost"
 
 
-def _start_catch_session(scenario: object) -> object:
-    return scenario.client.put(  # type: ignore[attr-defined]
+def _start_catch_session(scenario: ActivationScenario) -> Any:
+    return scenario.client.put(
         f"/api/conventions/{scenario.convention.pk}/fursuit-activations/{scenario.fursuit.pk}/catch-session/",  # type: ignore[attr-defined]
         {"is_active": True},
         content_type="application/json",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+from typing import Any
 
 import pytest
 from django.db import IntegrityError, models, transaction
@@ -64,7 +65,7 @@ def test_catch_session_database_constraints_reject_invalid_lifecycle_states_and_
     named = {constraint.name for constraint in session_model._meta.constraints}
     assert all(name for name in named)
     start = datetime.datetime(2026, 9, 1, tzinfo=datetime.UTC)
-    invalid_rows = (
+    invalid_rows: tuple[dict[str, Any], ...] = (
         {"expires_at": start},
         {"ended_at": start},
         {"end_reason": "owner"},

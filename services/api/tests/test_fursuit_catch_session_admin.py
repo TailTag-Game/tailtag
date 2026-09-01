@@ -27,7 +27,7 @@ from tests.fursuit_catch_session_test_support import (
 def _listed_session_ids(response: object) -> set[int]:
     context = cast(dict[str, object], response.context)  # type: ignore[attr-defined]
     changelist = cast(ChangeList, context["cl"])
-    return {cast(Any, row).pk for row in changelist.result_list}
+    return {row.pk for row in changelist.result_list}
 
 
 @pytest.mark.django_db
@@ -54,7 +54,7 @@ def test_catch_session_admin_inspects_history_but_prohibits_add_delete_bulk_and_
         end_reason="owner",
     )
     session_model = catch_session_model()
-    model_admin = admin.site._registry[session_model]  # type: ignore[reportPrivateUsage]
+    model_admin: Any = admin.site._registry[session_model]  # type: ignore[reportPrivateUsage]
     assert model_admin.actions is None
     assert model_admin.search_fields and model_admin.list_filter
     effective_active = model_admin.is_effectively_active

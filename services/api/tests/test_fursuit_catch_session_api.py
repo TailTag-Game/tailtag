@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import re
+from typing import Any
 
 import pytest
 from django.test import Client, override_settings
@@ -14,6 +15,7 @@ from fursuits.models import Fursuit
 from profiles.models import PlayerProfile
 from tests.authentication_support import TEST_CLERK_CONFIGURATION
 from tests.fursuit_activation_test_support import (
+    ActivationScenario,
     create_activation_row,
     create_activation_scenario,
 )
@@ -27,9 +29,9 @@ from tests.fursuit_catch_session_test_support import (
 )
 
 
-def _put(scenario: object, active: bool) -> object:
-    return scenario.client.put(  # type: ignore[attr-defined]
-        catch_session_path(scenario.convention.pk, scenario.fursuit.pk),  # type: ignore[attr-defined]
+def _put(scenario: ActivationScenario, active: bool) -> Any:
+    return scenario.client.put(
+        catch_session_path(scenario.convention.pk, scenario.fursuit.pk),
         {"is_active": active},
         content_type="application/json",
     )
@@ -235,7 +237,7 @@ def test_owner_route_authentication_concealment_resource_precedence_and_closed_b
         scenario.client.delete,
     ):
         assert method(path).status_code == 405
-    for body, content_type in (
+    invalid_bodies: tuple[tuple[Any, str], ...] = (
         ({}, "application/json"),
         ({"is_active": True, "extra": 1}, "application/json"),
         ({"is_active": None}, "application/json"),
@@ -243,7 +245,8 @@ def test_owner_route_authentication_concealment_resource_precedence_and_closed_b
         ([], "application/json"),
         ("not-an-object", "application/json"),
         (b'{"is_active": true}', "text/plain"),
-    ):
+    )
+    for body, content_type in invalid_bodies:
         assert (
             scenario.client.put(path, body, content_type=content_type).status_code
             == 400
