@@ -3,17 +3,25 @@
 from __future__ import annotations
 
 import datetime
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from queue import Empty, Queue
-from threading import Event
 from time import monotonic, sleep
 from typing import Any
 
 import pytest
 from django.db import close_old_connections, connection, transaction
+from django.urls import reverse
 
 from accounts.models import User
-from conventions.models import FursuitActivation
+from conventions.models import (
+    Convention,
+    ConventionEnrollment,
+    ConventionStatus,
+    FursuitActivation,
+)
+from fursuits.models import Fursuit
+from profiles.models import PlayerProfile
 from tests.authentication_support import force_authenticated_client
 from tests.fursuit_activation_test_support import (
     create_activation_row,
@@ -30,7 +38,7 @@ _WAIT_SECONDS = 5.0
 _RESULT_SECONDS = 25.0
 
 
-def _pid() -> int:
+def _configured_pid() -> int:
     with connection.cursor() as cursor:
         cursor.execute("SELECT set_config('lock_timeout', '18000ms', false)")
         cursor.execute("SELECT set_config('statement_timeout', '20000ms', false)")
@@ -40,28 +48,61 @@ def _pid() -> int:
     return int(row[0])
 
 
-def _request(
-    *,
-    user_id: int,
-    convention_id: int,
-    fursuit_id: int,
-    desired: bool,
-    pids: Queue[int],
-) -> Any:
+def _worker(action: Callable[[], Any], pids: Queue[int]) -> Any:
     close_old_connections()
     try:
-        pids.put(_pid())
-        user = User.objects.get(pk=user_id)
-        return force_authenticated_client(user=user).put(
-            catch_session_path(convention_id, fursuit_id),
-            {"is_active": desired},
-            content_type="application/json",
-        )
+        pids.put(_configured_pid())
+        return action()
     finally:
         connection.close()
 
 
-def _await_pid(queue: Queue[int], future: Future[Any]) -> int:
+def _owner(*, user_id: int, convention_id: int, fursuit_id: int, active: bool) -> Any:
+    user = User.objects.get(pk=user_id)
+    return force_authenticated_client(user=user).put(
+        catch_session_path(convention_id, fursuit_id),
+        {"is_active": active},
+        content_type="application/json",
+    )
+
+
+def _operator(*, user_id: int, session_id: int) -> Any:
+    """The parent-approved `terminate` form control is a real admin UI seam."""
+    user = User.objects.get(pk=user_id)
+    client = force_authenticated_client(user=user)
+    client.force_login(user)
+    return client.post(
+        reverse("admin:conventions_fursuitcatchsession_change", args=(session_id,)),
+        {"terminate": "1"},
+    )
+
+
+# Delayed imports make missing #118 service behavior an ordinary RED failure.
+def _fursuit_enabled(fursuit_id: int, value: bool) -> Any:
+    from fursuits.services import set_fursuit_enabled
+
+    return set_fursuit_enabled(fursuit_id=fursuit_id, is_enabled=value)
+
+
+def _profile_enabled(profile_id: int, value: bool) -> Any:
+    from profiles.services import set_player_profile_enabled
+
+    return set_player_profile_enabled(profile_id=profile_id, is_enabled=value)
+
+
+def _remove_enrollment(enrollment_id: int) -> Any:
+    from conventions.services import remove_convention_enrollment
+
+    return remove_convention_enrollment(enrollment_id=enrollment_id)
+
+
+def _convention_status(convention_id: int, value: str) -> Any:
+    from conventions.services import set_convention_status
+
+    return set_convention_status(convention_id=convention_id, status=value)
+
+
+def _pid(queue: Queue[int], future: Future[Any]) -> int:
     deadline = monotonic() + _WAIT_SECONDS
     while monotonic() < deadline:
         try:
@@ -69,19 +110,17 @@ def _await_pid(queue: Queue[int], future: Future[Any]) -> int:
         except Empty:
             if future.done():
                 pytest.fail(
-                    f"worker completed before lock observation: {future.result()!r}"
+                    f"worker completed before lock evidence: {future.result()!r}"
                 )
             sleep(0.01)
-    pytest.fail("worker did not publish PostgreSQL backend PID")
+    pytest.fail("worker did not publish a backend PID")
 
 
-def _assert_blocked(*, waiter: int, holder: int, future: Future[Any]) -> None:
+def _blocked(waiter: int, holder: int, future: Future[Any]) -> None:
     deadline = monotonic() + _WAIT_SECONDS
     while monotonic() < deadline:
         if future.done():
-            pytest.fail(
-                f"worker completed before expected row lock: {future.result()!r}"
-            )
+            pytest.fail(f"worker completed before lock evidence: {future.result()!r}")
         with connection.cursor() as cursor:
             cursor.execute("SELECT %s = ANY(pg_blocking_pids(%s))", [holder, waiter])
             row = cursor.fetchone()
@@ -89,94 +128,254 @@ def _assert_blocked(*, waiter: int, holder: int, future: Future[Any]) -> None:
         if row[0]:
             return
         sleep(0.01)
-    pytest.fail(f"backend {waiter} was not blocked by {holder}")
+    pytest.fail(f"backend {waiter} did not block behind holder {holder}")
 
 
-def _assert_race_invariant(
-    activation: FursuitActivation, *, allowed_reasons: set[str]
-) -> None:
-    rows = catch_session_model().objects.filter(activation=activation)
-    unended = rows.filter(ended_at__isnull=True)
-    terminal = rows.exclude(ended_at__isnull=True)
-    assert unended.count() <= 1
-    assert not terminal.filter(ended_at__isnull=True).exists()
-    assert all(row.end_reason in allowed_reasons for row in terminal)
+def _race(
+    lock: Callable[[], Any],
+    first_action: Callable[[], Any],
+    second_action: Callable[[], Any],
+) -> tuple[Any, Any]:
+    """The holder and pg_blocking_pids form the deterministic barrier; no sleep picks a winner."""
+    one_pids: Queue[int] = Queue()
+    two_pids: Queue[int] = Queue()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        with transaction.atomic():
+            holder = lock()
+            holder_pid = _configured_pid()
+            assert holder.pk
+            one = pool.submit(_worker, first_action, one_pids)
+            _blocked(_pid(one_pids, one), holder_pid, one)
+            two = pool.submit(_worker, second_action, two_pids)
+            _blocked(_pid(two_pids, two), holder_pid, two)
+        return one.result(timeout=_RESULT_SECONDS), two.result(timeout=_RESULT_SECONDS)
+
+
+def _rows(activation: FursuitActivation) -> list[Any]:
+    rows = list(catch_session_model().objects.filter(activation=activation))
+    assert sum(row.ended_at is None for row in rows) <= 1
+    assert all(
+        row.end_reason in {"owner", "operator", "eligibility_lost", "expired"}
+        for row in rows
+        if row.ended_at is not None
+    )
+    return rows
+
+
+def _setup(name: str) -> tuple[Any, FursuitActivation]:
+    scenario = create_activation_scenario(clerk_user_id=name)
+    return scenario, create_activation_row(
+        fursuit=scenario.fursuit, convention=scenario.convention, active=True
+    )
+
+
+def _start(s: Any) -> Callable[[], Any]:
+    return lambda: _owner(
+        user_id=s.user.pk,
+        convention_id=s.convention.pk,
+        fursuit_id=s.fursuit.pk,
+        active=True,
+    )
+
+
+def _stop(s: Any) -> Callable[[], Any]:
+    return lambda: _owner(
+        user_id=s.user.pk,
+        convention_id=s.convention.pk,
+        fursuit_id=s.fursuit.pk,
+        active=False,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_race_1_two_starts_create_exactly_one_unended_row() -> None:
+    """AC-13 race 1: rejects unprotected duplicate first starts."""
+    s, activation = _setup("catch_race_one")
+    a, b = _race(
+        lambda: FursuitActivation.objects.select_for_update().get(pk=activation.pk),
+        _start(s),
+        _start(s),
+    )
+    assert a.status_code == b.status_code == 200
+    rows = _rows(activation)
+    assert len(rows) == 1 and rows[0].ended_at is None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_race_2_two_stops_have_one_owner_terminal_transition() -> None:
+    """AC-12 race 2: rejects duplicate/incorrect terminal reasons."""
+    s, activation = _setup("catch_race_two")
+    session = create_catch_session(activation=activation)
+    a, b = _race(
+        lambda: FursuitActivation.objects.select_for_update().get(pk=activation.pk),
+        _stop(s),
+        _stop(s),
+    )
+    assert a.status_code == b.status_code == 200
+    session.refresh_from_db()
+    assert session.ended_at is not None and session.end_reason == "owner"
+    assert len(_rows(activation)) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_race_3_start_and_stop_produce_only_owner_terminal_history_or_one_new_live_row() -> (
+    None
+):
+    """AC-12 race 3: rejects stale start or a rewritten terminal row."""
+    s, activation = _setup("catch_race_three")
+    create_catch_session(activation=activation)
+    a, b = _race(
+        lambda: FursuitActivation.objects.select_for_update().get(pk=activation.pk),
+        _start(s),
+        _stop(s),
+    )
+    assert a.status_code == b.status_code == 200
+    rows = _rows(activation)
+    assert any(row.end_reason == "owner" for row in rows)
+    assert all(row.end_reason in {None, "owner"} for row in rows)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_races_4_and_12_two_expired_restarts_finalize_once_and_create_one_replacement() -> (
+    None
+):
+    """AC-04/06/13 races 4,12: rejects non-canonical expiry or multiple replacements."""
+    s, activation = _setup("catch_race_four")
+    expiry = datetime.datetime(2026, 9, 1, tzinfo=datetime.UTC)
+    old = create_catch_session(
+        activation=activation,
+        started_at=expiry - CATCH_SESSION_LIFETIME,
+        expires_at=expiry,
+    )
+    a, b = _race(
+        lambda: FursuitActivation.objects.select_for_update().get(pk=activation.pk),
+        _start(s),
+        _start(s),
+    )
+    assert a.status_code == b.status_code == 200
+    old.refresh_from_db()
+    rows = _rows(activation)
+    assert (
+        old.ended_at == expiry
+        and old.end_reason == "expired"
+        and len(rows) == 2
+        and sum(row.ended_at is None for row in rows) == 1
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_race_5_owner_stop_vs_admin_termination_preserves_the_winning_reason() -> None:
+    """AC-11/12 race 5: rejects owner/operator terminal overwrite."""
+    s, activation = _setup("catch_race_five")
+    session = create_catch_session(activation=activation)
+    operator = User.objects.create_superuser(
+        "catch_race_five_operator", password="password"
+    )
+    owner, admin = _race(
+        lambda: FursuitActivation.objects.select_for_update().get(pk=activation.pk),
+        _stop(s),
+        lambda: _operator(user_id=operator.pk, session_id=session.pk),
+    )
+    assert owner.status_code == 200 and admin.status_code == 302
+    session.refresh_from_db()
+    assert session.ended_at is not None and session.end_reason in {"owner", "operator"}
+    assert len(_rows(activation)) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_race_6_start_vs_owner_activation_deactivation_leaves_no_unended_session() -> (
+    None
+):
+    """AC-10/13 race 6: rejects a start left catchable after durable deactivation."""
+    s, activation = _setup("catch_race_six")
+    start, deactivate = _race(
+        lambda: FursuitActivation.objects.select_for_update().get(pk=activation.pk),
+        _start(s),
+        _stop(s),
+    )
+    assert start.status_code in {200, 400} and deactivate.status_code == 200
+    activation.refresh_from_db()
+    assert activation.is_active is False
+    assert not any(row.ended_at is None for row in _rows(activation))
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    ("race", "first_desired", "second_desired", "prepare"),
+    ("label", "locker", "transition"),
     (
-        ("1 simultaneous first starts", True, True, "none"),
-        ("2 simultaneous stops", False, False, "live"),
-        ("3 start races stop", True, False, "live"),
-        ("4 restart races lazy expiry", True, True, "expired"),
-        ("5 owner stop races operator termination", False, False, "live"),
-        ("6 start races activation deactivation", True, False, "live"),
-        ("7 start races fursuit disablement", True, False, "live"),
-        ("8 start races profile disablement", True, False, "live"),
-        ("9 start races enrollment removal", True, False, "live"),
-        ("10 start races convention non-playable", True, False, "live"),
-        ("11 restored eligibility races restart", True, True, "expired"),
-        ("12 simultaneous expired restarts", True, True, "expired"),
-        ("13 eligibility loss races expiration boundary", False, False, "expired"),
+        ("7 fursuit", "fursuit", "fursuit"),
+        ("8 profile", "profile", "profile"),
+        ("9 enrollment", "enrollment", "enrollment"),
+        ("10 Convention", "convention", "convention"),
     ),
 )
-def test_postgresql_locked_catch_session_race_serializes_to_one_stable_history(
-    race: str, first_desired: bool, second_desired: bool, prepare: str
+def test_races_7_to_10_start_vs_each_real_eligibility_service_leaves_no_live_row(
+    label: str, locker: str, transition: str
 ) -> None:
-    """AC-12/13 race matrix: rejects unlocked starts, duplicate unended rows, and terminal rewrites."""
-    scenario = create_activation_scenario(clerk_user_id=f"catch_race_{race.split()[0]}")
-    activation = create_activation_row(
-        fursuit=scenario.fursuit, convention=scenario.convention, active=True
-    )
-    if prepare == "live":
-        create_catch_session(activation=activation)
-    elif prepare == "expired":
-        expiry = datetime.datetime(2026, 9, 1, tzinfo=datetime.UTC)
-        create_catch_session(
-            activation=activation,
-            started_at=expiry - CATCH_SESSION_LIFETIME,
-            expires_at=expiry,
+    """AC-09/13/14 races 7–10: rejects stale start after each upstream boundary."""
+    s, activation = _setup(f"catch_race_{locker}")
+    if locker == "fursuit":
+        lock = lambda: Fursuit.objects.select_for_update().get(pk=s.fursuit.pk)
+        operation = lambda: _fursuit_enabled(s.fursuit.pk, False)
+    elif locker == "profile":
+        lock = lambda: PlayerProfile.objects.select_for_update().get(pk=s.profile.pk)
+        operation = lambda: _profile_enabled(s.profile.pk, False)
+    elif locker == "enrollment":
+        assert s.enrollment is not None
+        lock = lambda: ConventionEnrollment.objects.select_for_update().get(
+            pk=s.enrollment.pk
         )
-    # A real holder transaction establishes the required activation -> session lock
-    # observation; race-specific product entry points replace the desired-state
-    # calls during implementation without relying on a scheduler or winner sleep.
-    pids_one: Queue[int] = Queue()
-    pids_two: Queue[int] = Queue()
-    release = Event()
-    with transaction.atomic():
-        holder = FursuitActivation.objects.select_for_update().get(pk=activation.pk)
-        holder_pid = _pid()
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            one = executor.submit(
-                _request,
-                user_id=scenario.user.pk,
-                convention_id=scenario.convention.pk,
-                fursuit_id=scenario.fursuit.pk,
-                desired=first_desired,
-                pids=pids_one,
-            )
-            one_pid = _await_pid(pids_one, one)
-            _assert_blocked(waiter=one_pid, holder=holder_pid, future=one)
-            two = executor.submit(
-                _request,
-                user_id=scenario.user.pk,
-                convention_id=scenario.convention.pk,
-                fursuit_id=scenario.fursuit.pk,
-                desired=second_desired,
-                pids=pids_two,
-            )
-            two_pid = _await_pid(pids_two, two)
-            _assert_blocked(waiter=two_pid, holder=holder_pid, future=two)
-        del holder, release
-    first = one.result(timeout=_RESULT_SECONDS)
-    second = two.result(timeout=_RESULT_SECONDS)
-    assert first.status_code in {200, 400, 403} and second.status_code in {
-        200,
-        400,
-        403,
-    }
-    _assert_race_invariant(
-        activation, allowed_reasons={"owner", "operator", "eligibility_lost", "expired"}
+        operation = lambda: _remove_enrollment(s.enrollment.pk)
+    else:
+        lock = lambda: Convention.objects.select_for_update().get(pk=s.convention.pk)
+        operation = lambda: _convention_status(s.convention.pk, ConventionStatus.PAUSED)
+    start, _ = _race(lock, _start(s), operation)
+    assert start.status_code in {200, 400, 403}, label
+    rows = _rows(activation)
+    assert not any(row.ended_at is None for row in rows), label
+    assert all(row.end_reason == "eligibility_lost" for row in rows), label
+
+
+@pytest.mark.django_db(transaction=True)
+def test_race_11_profile_restoration_vs_restart_never_resurrects_prior_session() -> (
+    None
+):
+    """AC-09 race 11: rejects restore rewriting the historical terminal row."""
+    s, activation = _setup("catch_race_eleven")
+    prior = create_catch_session(
+        activation=activation,
+        ended_at=datetime.datetime(2026, 9, 1, tzinfo=datetime.UTC),
+        end_reason="eligibility_lost",
     )
+    s.profile.is_enabled = False
+    s.profile.save(update_fields=["is_enabled"])
+    restart, _ = _race(
+        lambda: PlayerProfile.objects.select_for_update().get(pk=s.profile.pk),
+        _start(s),
+        lambda: _profile_enabled(s.profile.pk, True),
+    )
+    assert restart.status_code in {200, 403}
+    prior.refresh_from_db()
+    assert prior.ended_at is not None and prior.end_reason == "eligibility_lost"
+    assert len(_rows(activation)) in {1, 2}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_race_13_eligibility_loss_at_expiration_boundary_keeps_expired_reason() -> None:
+    """AC-04/09/12 race 13: rejects eligibility_lost relabeling of an expired row."""
+    s, activation = _setup("catch_race_thirteen")
+    expiry = datetime.datetime(2026, 9, 1, tzinfo=datetime.UTC)
+    session = create_catch_session(
+        activation=activation,
+        started_at=expiry - CATCH_SESSION_LIFETIME,
+        expires_at=expiry,
+    )
+    stop, _ = _race(
+        lambda: Fursuit.objects.select_for_update().get(pk=s.fursuit.pk),
+        _stop(s),
+        lambda: _fursuit_enabled(s.fursuit.pk, False),
+    )
+    assert stop.status_code == 200
+    session.refresh_from_db()
+    assert session.ended_at == expiry and session.end_reason == "expired"
+    _rows(activation)
