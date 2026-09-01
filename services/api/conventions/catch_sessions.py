@@ -186,17 +186,16 @@ def _start_fursuit_catch_session(
     with transaction.atomic():
         profile = (
             PlayerProfile.objects.select_for_update()
-            .filter(
-                user=user,
-                onboarding_completed_at__isnull=False,
-                handle__isnull=False,
-                display_name__isnull=False,
-                is_enabled=True,
-            )
-            .exclude(display_name="")
+            .filter(user=user)
             .first()
         )
-        if profile is None:
+        if (
+            profile is None
+            or profile.onboarding_completed_at is None
+            or profile.handle is None
+            or profile.display_name in (None, "")
+            or not profile.is_enabled
+        ):
             raise ConventionParticipationIneligibleError()
         convention = (
             Convention.objects.select_for_update().filter(pk=convention_id).first()
