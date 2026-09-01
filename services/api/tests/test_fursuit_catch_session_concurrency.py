@@ -110,12 +110,6 @@ def _remove_enrollment(enrollment_id: int) -> Any:
     return remove_convention_enrollment(enrollment_id=enrollment_id)
 
 
-def _finalize_expired(session_id: int) -> Any:
-    from conventions.services import finalize_expired_fursuit_catch_session
-
-    return finalize_expired_fursuit_catch_session(session_id=session_id)
-
-
 def _convention_admin_state(
     *,
     convention_id: int,
@@ -285,7 +279,7 @@ def test_race_4_restart_vs_lazy_expiration_finalization_creates_one_replacement(
     )
     a, b = _race(
         lambda: FursuitActivation.objects.select_for_update().get(pk=activation.pk),
-        lambda: _finalize_expired(old.pk),
+        _stop(s),
         _start(s),
     )
     assert a.status_code == b.status_code == 200

@@ -35,7 +35,8 @@ def test_catch_session_admin_inspects_history_but_prohibits_add_delete_bulk_and_
     model_admin = admin.site._registry[session_model]  # type: ignore[reportPrivateUsage]
     assert model_admin.actions is None
     assert model_admin.search_fields and model_admin.list_filter
-    assert any("active" in str(field).lower() for field in model_admin.list_display)
+    effective_active = model_admin.is_effectively_active
+    assert effective_active(session) is True
     operator = User.objects.create_superuser(
         "catch_session_operator", password="password"
     )
@@ -45,6 +46,8 @@ def test_catch_session_admin_inspects_history_but_prohibits_add_delete_bulk_and_
     changelist = reverse("admin:conventions_fursuitcatchsession_changelist")
     searched = client.get(changelist, {"q": str(session.pk)})
     assert searched.status_code == 200 and str(session.pk).encode() in searched.content
+    filtered = client.get(changelist, {"is_effectively_active": "1"})
+    assert filtered.status_code == 200 and str(session.pk).encode() in filtered.content
     detail = client.get(change)
     assert detail.status_code == 200
     for field in (

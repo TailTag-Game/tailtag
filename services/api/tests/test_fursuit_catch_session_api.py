@@ -100,6 +100,19 @@ def test_start_and_stop_retries_preserve_history_and_timestamps_and_first_stop_i
         session.updated_at,
     ) == snapshot
     assert catch_session_model().objects.filter(activation=activation).count() == 1
+    first_stop = _put(scenario, False)
+    assert first_stop.status_code == 200
+    first_stop_data = assert_catch_session_data(
+        first_stop.json(),
+        fursuit_id=scenario.fursuit.pk,
+        convention_id=scenario.convention.pk,
+    )
+    assert (
+        first_stop_data["ended_at"] is not None
+        and first_stop_data["end_reason"] == "owner"
+    )
+    session.refresh_from_db()
+    terminal = (session.ended_at, session.end_reason, session.updated_at)
     repeated_stop = _put(scenario, False)
     assert repeated_stop.status_code == 200
     repeated_stop_data = assert_catch_session_data(
@@ -107,13 +120,7 @@ def test_start_and_stop_retries_preserve_history_and_timestamps_and_first_stop_i
         fursuit_id=scenario.fursuit.pk,
         convention_id=scenario.convention.pk,
     )
-    assert (
-        repeated_stop_data["ended_at"] is not None
-        and repeated_stop_data["end_reason"] == "owner"
-    )
-    session.refresh_from_db()
-    terminal = (session.ended_at, session.end_reason, session.updated_at)
-    assert _put(scenario, False).status_code == 200
+    assert repeated_stop_data == first_stop_data
     session.refresh_from_db()
     assert (session.ended_at, session.end_reason, session.updated_at) == terminal
 
@@ -150,9 +157,9 @@ def test_expired_restart_finalizes_at_exact_expiry_then_creates_one_replacement(
 
 
 @pytest.mark.django_db
-def test_effective_catchability_is_inactive_at_expiry_without_finalizing_or_writing() -> (
-    None
-):
+def test_effective_catchability_is_inactive_at_expiry_without_finalizing_or_writing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """AC-03/16: rejects `now == expires_at` activity or read-side cleanup writes."""
     scenario = create_activation_scenario()
     activation = create_activation_row(
@@ -164,11 +171,27 @@ def test_effective_catchability_is_inactive_at_expiry_without_finalizing_or_writ
         started_at=now - CATCH_SESSION_LIFETIME,
         expires_at=now,
     )
-    from conventions.services import is_fursuit_catch_session_effectively_active
+    from conventions import catch_sessions
+
+    monkeypatch.setattr(catch_sessions.timezone, "now", lambda: now)
 
     before = (session.ended_at, session.end_reason, session.updated_at)
-    assert is_fursuit_catch_session_effectively_active(session, now=now) is False
-    assert is_fursuit_catch_session_effectively_active(session, now=now) is False
+    assert (
+        catch_sessions.get_effective_fursuit_catch_session(
+            scenario.user,
+            convention_id=scenario.convention.pk,
+            fursuit_id=scenario.fursuit.pk,
+        )
+        is None
+    )
+    assert (
+        catch_sessions.get_effective_fursuit_catch_session(
+            scenario.user,
+            convention_id=scenario.convention.pk,
+            fursuit_id=scenario.fursuit.pk,
+        )
+        is None
+    )
     session.refresh_from_db()
     assert (session.ended_at, session.end_reason, session.updated_at) == before
 

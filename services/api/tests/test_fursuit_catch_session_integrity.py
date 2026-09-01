@@ -6,6 +6,7 @@ import datetime
 
 import pytest
 from django.db import IntegrityError, models, transaction
+from django.utils import timezone
 
 from tests.fursuit_activation_test_support import (
     create_activation_row,
@@ -37,12 +38,14 @@ def test_catch_session_has_protected_activation_append_only_shape_and_newest_his
     for name in ("started_at", "expires_at", "created_at", "updated_at"):
         assert fields[name].null is False
     assert fields["ended_at"].null is True and fields["end_reason"].null is True
+    now = timezone.now()
     first = create_catch_session(
         activation=activation,
-        ended_at=datetime.datetime(2026, 9, 1, 2, tzinfo=datetime.UTC),
+        started_at=now - CATCH_SESSION_LIFETIME,
+        ended_at=now - datetime.timedelta(hours=11),
         end_reason="owner",
     )
-    second = create_catch_session(activation=activation)
+    second = create_catch_session(activation=activation, started_at=now)
     assert list(session_model.objects.filter(activation=activation)) == [second, first]
     with pytest.raises(models.ProtectedError):
         activation.delete()
