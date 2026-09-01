@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import datetime
+from typing import Any, cast
 
 import pytest
 from django.contrib import admin
+from django.contrib.admin.views.main import ChangeList
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
@@ -21,6 +23,12 @@ from tests.fursuit_catch_session_test_support import (
 )
 
 
+def _listed_session_ids(response: object) -> set[int]:
+    context = cast(dict[str, object], response.context)  # type: ignore[attr-defined]
+    changelist = cast(ChangeList, context["cl"])
+    return {cast(Any, row).pk for row in changelist.result_list}
+
+
 @pytest.mark.django_db
 def test_catch_session_admin_inspects_history_but_prohibits_add_delete_bulk_and_raw_lifecycle_edits() -> (
     None
@@ -31,6 +39,17 @@ def test_catch_session_admin_inspects_history_but_prohibits_add_delete_bulk_and_
         fursuit=scenario.fursuit, convention=scenario.convention, active=True
     )
     session = create_catch_session(activation=activation)
+    nonmatching = create_activation_scenario(clerk_user_id="catch_session_search_other")
+    nonmatching_activation = create_activation_row(
+        fursuit=nonmatching.fursuit,
+        convention=nonmatching.convention,
+        active=True,
+    )
+    historical = create_catch_session(
+        activation=nonmatching_activation,
+        ended_at=timezone.now(),
+        end_reason="owner",
+    )
     session_model = catch_session_model()
     model_admin = admin.site._registry[session_model]  # type: ignore[reportPrivateUsage]
     assert model_admin.actions is None
@@ -44,10 +63,14 @@ def test_catch_session_admin_inspects_history_but_prohibits_add_delete_bulk_and_
     client.force_login(operator)
     change = reverse("admin:conventions_fursuitcatchsession_change", args=(session.pk,))
     changelist = reverse("admin:conventions_fursuitcatchsession_changelist")
-    searched = client.get(changelist, {"q": str(session.pk)})
-    assert searched.status_code == 200 and str(session.pk).encode() in searched.content
+    searched = client.get(changelist, {"q": scenario.fursuit.name})
+    assert searched.status_code == 200
+    assert _listed_session_ids(searched) == {session.pk}
     filtered = client.get(changelist, {"is_effectively_active": "1"})
-    assert filtered.status_code == 200 and str(session.pk).encode() in filtered.content
+    assert filtered.status_code == 200
+    assert _listed_session_ids(filtered) == {session.pk}
+    assert historical.pk not in _listed_session_ids(searched)
+    assert historical.pk not in _listed_session_ids(filtered)
     detail = client.get(change)
     assert detail.status_code == 200
     for field in (
