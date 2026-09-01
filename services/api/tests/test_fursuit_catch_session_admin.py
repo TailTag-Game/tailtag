@@ -18,6 +18,7 @@ from tests.fursuit_activation_test_support import (
     create_activation_scenario,
 )
 from tests.fursuit_catch_session_test_support import (
+    CATCH_SESSION_LIFETIME,
     catch_session_model,
     create_catch_session,
 )
@@ -45,9 +46,11 @@ def test_catch_session_admin_inspects_history_but_prohibits_add_delete_bulk_and_
         convention=nonmatching.convention,
         active=True,
     )
+    historical_now = timezone.now()
     historical = create_catch_session(
         activation=nonmatching_activation,
-        ended_at=timezone.now(),
+        started_at=historical_now - CATCH_SESSION_LIFETIME,
+        ended_at=historical_now,
         end_reason="owner",
     )
     session_model = catch_session_model()
