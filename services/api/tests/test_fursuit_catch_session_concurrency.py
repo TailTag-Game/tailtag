@@ -158,6 +158,39 @@ def _blocked(waiter: int, holder: int, future: Future[Any]) -> None:
     pytest.fail(f"backend {waiter} did not block behind holder {holder}")
 
 
+def _blocked_directly_or_transitively(
+    *, waiter: int, holder: int, predecessor: int, worker: Future[Any]
+) -> None:
+    """Require a real direct holder wait or a holder -> predecessor -> waiter chain."""
+    deadline = monotonic() + _WAIT_SECONDS
+    while monotonic() < deadline:
+        if worker.done():
+            pytest.fail(
+                "second worker completed before the holder released; it never joined "
+                "the serialized lock chain"
+            )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_blocking_pids(%s), pg_blocking_pids(%s)",
+                [waiter, predecessor],
+            )
+            row = cursor.fetchone()
+        assert row is not None
+        waiter_blockers, predecessor_blockers = (
+            set(row[0]),
+            set(row[1]),
+        )
+        if holder in waiter_blockers:
+            return
+        if predecessor in waiter_blockers and holder in predecessor_blockers:
+            return
+        sleep(0.01)
+    pytest.fail(
+        "second worker did not block directly on the holder or transitively through "
+        "the first serialized worker"
+    )
+
+
 def _race(
     lock: Callable[[], Any],
     first_action: Callable[[], Any],
@@ -172,9 +205,16 @@ def _race(
             holder_pid = _configured_pid()
             assert holder.pk
             one = pool.submit(_worker, first_action, one_pids)
-            _blocked(_pid(one_pids, one), holder_pid, one)
+            one_pid = _pid(one_pids, one)
+            _blocked(one_pid, holder_pid, one)
             two = pool.submit(_worker, second_action, two_pids)
-            _blocked(_pid(two_pids, two), holder_pid, two)
+            two_pid = _pid(two_pids, two)
+            _blocked_directly_or_transitively(
+                waiter=two_pid,
+                holder=holder_pid,
+                predecessor=one_pid,
+                worker=two,
+            )
         return one.result(timeout=_RESULT_SECONDS), two.result(timeout=_RESULT_SECONDS)
 
 
