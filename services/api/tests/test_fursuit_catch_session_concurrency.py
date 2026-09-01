@@ -1,4 +1,4 @@
-"""Real PostgreSQL lock-observed #118 catch-session race acceptance tests."""
+"""Real PostgreSQL lock-observed catch-session race acceptance tests."""
 
 from __future__ import annotations
 
@@ -71,7 +71,7 @@ def _owner(*, user_id: int, convention_id: int, fursuit_id: int, active: bool) -
 def _activation_state(
     *, user_id: int, convention_id: int, fursuit_id: int, active: bool
 ) -> Any:
-    """Use Issue #117's owner activation route, not the catch-session route."""
+    """Use the owner activation route, not the catch-session route."""
     user = User.objects.get(pk=user_id)
     return force_authenticated_client(user=user).put(
         activation_detail_path(convention_id, fursuit_id),
@@ -91,7 +91,7 @@ def _operator(*, user_id: int, session_id: int) -> Any:
     )
 
 
-# Delayed imports make missing #118 service behavior an ordinary RED failure.
+# Delayed imports make missing service behavior an ordinary RED failure.
 def _fursuit_enabled(fursuit_id: int, value: bool) -> Any:
     from fursuits.services import set_fursuit_enabled
 

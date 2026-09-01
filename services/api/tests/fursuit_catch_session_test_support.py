@@ -1,4 +1,4 @@
-"""Literal fixtures and projections for #118 catch-session acceptance tests."""
+"""Literal fixtures and projections for catch-session acceptance tests."""
 
 from __future__ import annotations
 

@@ -295,7 +295,7 @@ class FursuitCatchSessionDetailView(_FursuitActivationAPIView):
 
     @extend_schema(operation=_FURSUIT_CATCH_SESSION_OPENAPI_OPERATION)
     def put(self, request: Request, convention_id: int, fursuit_id: int) -> Response:
-        # Resolve resources before parsing to preserve #117 ownership concealment.
+        # Resolve resources before parsing to preserve ownership concealment.
         fursuit = _owned_fursuit_or_404(_user(request), fursuit_id)
         convention = _convention_or_404(convention_id)
         if not FursuitActivation.objects.filter(

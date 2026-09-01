@@ -1,4 +1,4 @@
-"""Restricted support-admin acceptance contract for #118 catch sessions."""
+"""Restricted support-admin acceptance contract for catch sessions."""
 
 from __future__ import annotations
 

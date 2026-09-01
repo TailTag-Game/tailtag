@@ -1,4 +1,4 @@
-"""PostgreSQL persistence acceptance contract for #118 catch sessions."""
+"""PostgreSQL persistence acceptance contract for catch sessions."""
 
 from __future__ import annotations
 

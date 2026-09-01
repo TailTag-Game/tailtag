@@ -1,4 +1,4 @@
-"""Repository-owned upstream lifecycle acceptance tests for #118."""
+"""Repository-owned upstream lifecycle acceptance tests for catch sessions."""
 
 from __future__ import annotations
 

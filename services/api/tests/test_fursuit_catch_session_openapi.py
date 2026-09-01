@@ -1,4 +1,4 @@
-"""Generated OpenAPI acceptance contract for #118 catch sessions."""
+"""Generated OpenAPI acceptance contract for catch sessions."""
 
 from __future__ import annotations
 
