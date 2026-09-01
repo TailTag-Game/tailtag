@@ -20,8 +20,10 @@ from tests.fursuit_catch_session_test_support import (
 )
 
 
-def _live_session() -> tuple[object, object, object]:
-    scenario = create_activation_scenario()
+def _live_session(
+    *, clerk_user_id: str = "activation_owner"
+) -> tuple[object, object, object]:
+    scenario = create_activation_scenario(clerk_user_id=clerk_user_id)
     activation = create_activation_row(
         fursuit=scenario.fursuit, convention=scenario.convention, active=True
     )
@@ -151,7 +153,7 @@ def test_owner_and_operator_activation_deactivation_use_eligibility_lost_and_ina
     assert _start_catch_session(scenario).status_code == 200
     assert catch_session_model().objects.filter(activation=activation).count() == 2
     # Registered admin is a separate required product entry point.
-    _other, _, other_session = _live_session()
+    _other, _, other_session = _live_session(clerk_user_id="activation_operator_target")
     operator = User.objects.create_superuser(
         "catch_activation_operator", password="password"
     )
