@@ -189,11 +189,98 @@ def _rows(activation: FursuitActivation) -> list[Any]:
     return rows
 
 
+def _terminate_profile_disable_worker(profile_id: int, pids: Queue[int]) -> int:
+    """Run the approved package-internal profile termination seam in one transaction."""
+    from conventions.catch_sessions import terminate_for_profile_disable
+
+    close_old_connections()
+    try:
+        with transaction.atomic():
+            pids.put(_configured_pid())
+            profile = PlayerProfile.objects.select_for_update().get(pk=profile_id)
+            return terminate_for_profile_disable(profile, now=timezone.now())
+    finally:
+        connection.close()
+
+
+def _terminate_enrollment_removal_worker(enrollment_id: int, pids: Queue[int]) -> int:
+    """Run the approved package-internal enrollment termination seam in one transaction."""
+    from conventions.catch_sessions import terminate_for_enrollment_removal
+
+    close_old_connections()
+    try:
+        with transaction.atomic():
+            pids.put(_configured_pid())
+            enrollment = ConventionEnrollment.objects.select_for_update().get(
+                pk=enrollment_id
+            )
+            return terminate_for_enrollment_removal(enrollment, now=timezone.now())
+    finally:
+        connection.close()
+
+
+def _blocks_on_holder(waiter_pid: int, holder_pid: int, worker: Future[Any]) -> bool:
+    """Observe whether the activation query locks an unrelated joined fursuit row."""
+    deadline = monotonic() + _WAIT_SECONDS
+    while monotonic() < deadline:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT %s = ANY(pg_blocking_pids(%s))", [holder_pid, waiter_pid]
+            )
+            row = cursor.fetchone()
+        assert row is not None
+        if row[0]:
+            return True
+        if worker.done():
+            return False
+        sleep(0.01)
+    pytest.fail("termination worker neither completed nor reached its activation query")
+
+
 def _setup(name: str) -> tuple[Any, FursuitActivation]:
     scenario = create_activation_scenario(clerk_user_id=name)
     return scenario, create_activation_row(
         fursuit=scenario.fursuit, convention=scenario.convention, active=True
     )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("seam", ("profile", "enrollment"))
+def test_multiscope_termination_does_not_lock_joined_fursuit_before_activation_session(
+    seam: str,
+) -> None:
+    """AC-13: rejects implicit joined-Fursuit locks that violate frozen lock order."""
+    scenario, activation = _setup(f"catch_join_lock_{seam}")
+    session = create_catch_session(activation=activation)
+    assert scenario.enrollment is not None
+    pids: Queue[int] = Queue()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with transaction.atomic():
+            held_fursuit = Fursuit.objects.select_for_update().get(
+                pk=scenario.fursuit.pk
+            )
+            holder_pid = _configured_pid()
+            if seam == "profile":
+                worker = executor.submit(
+                    _terminate_profile_disable_worker, scenario.profile.pk, pids
+                )
+            else:
+                worker = executor.submit(
+                    _terminate_enrollment_removal_worker,
+                    scenario.enrollment.pk,
+                    pids,
+                )
+            worker_pid = _pid(pids, worker)
+            blocked_on_fursuit = _blocks_on_holder(worker_pid, holder_pid, worker)
+            del held_fursuit
+        terminated = worker.result(timeout=_RESULT_SECONDS)
+    assert not blocked_on_fursuit, (
+        f"{seam} termination locked the joined Fursuit row before its "
+        "activation/session traversal; use select_for_update(of=('self',))."
+    )
+    assert terminated == 1
+    session.refresh_from_db()
+    assert session.ended_at is not None and session.end_reason == "eligibility_lost"
 
 
 def _start(s: Any) -> Callable[[], Any]:
