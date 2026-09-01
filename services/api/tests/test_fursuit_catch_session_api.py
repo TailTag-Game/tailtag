@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import re
 
 import pytest
 from django.test import Client, override_settings
@@ -34,6 +35,11 @@ def _put(scenario: object, active: bool) -> object:
     )
 
 
+def _assert_rfc3339_utc_timestamp(value: object) -> None:
+    assert isinstance(value, str)
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", value)
+
+
 @pytest.mark.django_db
 def test_put_starts_and_stops_with_closed_seven_field_projection() -> None:
     """AC-05/07: rejects missing route, open projection, or non-owner terminal reason."""
@@ -53,6 +59,8 @@ def test_put_starts_and_stops_with_closed_seven_field_projection() -> None:
         and data["ended_at"] is None
         and data["end_reason"] is None
     )
+    _assert_rfc3339_utc_timestamp(data["started_at"])
+    _assert_rfc3339_utc_timestamp(data["expires_at"])
     stopped = _put(scenario, False)
     assert stopped.status_code == 200
     stopped_data = assert_catch_session_data(
@@ -61,6 +69,9 @@ def test_put_starts_and_stops_with_closed_seven_field_projection() -> None:
         convention_id=scenario.convention.pk,
     )
     assert stopped_data["is_active"] is False and stopped_data["end_reason"] == "owner"
+    _assert_rfc3339_utc_timestamp(stopped_data["started_at"])
+    _assert_rfc3339_utc_timestamp(stopped_data["expires_at"])
+    _assert_rfc3339_utc_timestamp(stopped_data["ended_at"])
 
 
 @pytest.mark.django_db

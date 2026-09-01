@@ -38,6 +38,7 @@ def test_catch_session_openapi_is_exact_closed_authenticated_and_documents_non_a
     ]
     assert len(bearer) == 1 and put["security"] == [{bearer[0]: []}]
     assert set(put["responses"]) == {"200", "400", "401", "403", "404", "405"}
+    assert put["requestBody"]["required"] is True
     request = _deref(
         schema, put["requestBody"]["content"]["application/json"]["schema"]
     )
