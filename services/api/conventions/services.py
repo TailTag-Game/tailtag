@@ -225,9 +225,11 @@ def deactivate_fursuit_activation_as_operator(
 
 def remove_convention_enrollment(*, enrollment_id: int) -> None:
     """Delete an enrollment and terminally end its affected catch sessions."""
-    candidate = ConventionEnrollment.objects.filter(pk=enrollment_id).values(
-        "user_id", "convention_id"
-    ).first()
+    candidate = (
+        ConventionEnrollment.objects.filter(pk=enrollment_id)
+        .values("user_id", "convention_id")
+        .first()
+    )
     if candidate is None:
         return
     with transaction.atomic():
@@ -242,7 +244,9 @@ def remove_convention_enrollment(*, enrollment_id: int) -> None:
         )
         enrollment = (
             ConventionEnrollment.objects.select_for_update()
-            .filter(pk=enrollment_id, user_id=candidate["user_id"], convention=convention)
+            .filter(
+                pk=enrollment_id, user_id=candidate["user_id"], convention=convention
+            )
             .first()
         )
         if enrollment is None:

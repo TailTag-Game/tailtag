@@ -184,11 +184,7 @@ def _start_fursuit_catch_session(
     )
 
     with transaction.atomic():
-        profile = (
-            PlayerProfile.objects.select_for_update()
-            .filter(user=user)
-            .first()
-        )
+        profile = PlayerProfile.objects.select_for_update().filter(user=user).first()
         if (
             profile is None
             or profile.onboarding_completed_at is None

@@ -355,16 +355,18 @@ def _effectively_active_sessions(
         user_id=OuterRef("activation__fursuit__owner_id"),
         convention_id=OuterRef("activation__convention_id"),
     )
-    return queryset.filter(
-        ended_at__isnull=True,
-        expires_at__gt=timezone.now(),
-        activation__is_active=True,
-        activation__fursuit__is_enabled=True,
-        activation__convention__status="active",
-        activation__fursuit__owner__player_profile__is_enabled=True,
-        activation__fursuit__owner__player_profile__onboarding_completed_at__isnull=False,
-        activation__fursuit__owner__player_profile__handle__isnull=False,
-        activation__fursuit__owner__player_profile__display_name__isnull=False,
-    ).filter(Exists(enrollment_exists)).exclude(
-        activation__fursuit__owner__player_profile__display_name=""
+    return (
+        queryset.filter(
+            ended_at__isnull=True,
+            expires_at__gt=timezone.now(),
+            activation__is_active=True,
+            activation__fursuit__is_enabled=True,
+            activation__convention__status="active",
+            activation__fursuit__owner__player_profile__is_enabled=True,
+            activation__fursuit__owner__player_profile__onboarding_completed_at__isnull=False,
+            activation__fursuit__owner__player_profile__handle__isnull=False,
+            activation__fursuit__owner__player_profile__display_name__isnull=False,
+        )
+        .filter(Exists(enrollment_exists))
+        .exclude(activation__fursuit__owner__player_profile__display_name="")
     )
