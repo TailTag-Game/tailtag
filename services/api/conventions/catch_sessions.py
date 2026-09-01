@@ -97,7 +97,7 @@ def terminate_for_profile_disable(
 ) -> int:
     """End sessions affected by a locked profile becoming disabled."""
     activations = list(
-        FursuitActivation.objects.select_for_update()
+        FursuitActivation.objects.select_for_update(of=("self",))
         .filter(fursuit__owner_id=profile.user_id)
         .order_by("pk")
     )
@@ -119,7 +119,7 @@ def terminate_for_enrollment_removal(
 ) -> int:
     """End sessions affected by a locked enrollment being removed."""
     activations = list(
-        FursuitActivation.objects.select_for_update()
+        FursuitActivation.objects.select_for_update(of=("self",))
         .filter(
             convention_id=enrollment.convention_id,
             fursuit__owner_id=enrollment.user_id,
