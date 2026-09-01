@@ -10,6 +10,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from accounts.models import User
+from fursuits.models import Fursuit
 
 
 class ConventionStatus(models.TextChoices):
@@ -147,3 +148,51 @@ class ConventionEnrollment(models.Model):
     def __str__(self) -> str:
         """Return human-readable enrollment representation."""
         return f"Enrollment: {self.user_id} -> {self.convention_id} (active={self.is_active})"
+
+
+class FursuitActivation(models.Model):
+    """A fursuit owner's durable participation selection for a convention."""
+
+    id: int
+    pk: int
+    fursuit_id: int
+    fursuit: models.ForeignKey[Fursuit, Fursuit] = models.ForeignKey(
+        "fursuits.Fursuit",
+        on_delete=models.PROTECT,
+        related_name="convention_activations",
+    )
+    convention_id: int
+    convention: models.ForeignKey[Convention, Convention] = models.ForeignKey(
+        Convention,
+        on_delete=models.PROTECT,
+        related_name="fursuit_activations",
+    )
+    is_active: models.BooleanField[bool, bool] = models.BooleanField()
+    activated_at: models.DateTimeField[datetime.datetime, datetime.datetime] = (
+        models.DateTimeField()
+    )
+    deactivated_at: models.DateTimeField[
+        datetime.datetime | None, datetime.datetime | None
+    ] = models.DateTimeField(null=True, blank=True)
+    created_at: models.DateTimeField[datetime.datetime, datetime.datetime] = (
+        models.DateTimeField(auto_now_add=True)
+    )
+    updated_at: models.DateTimeField[datetime.datetime, datetime.datetime] = (
+        models.DateTimeField(auto_now=True)
+    )
+
+    class Meta:
+        ordering: ClassVar[list[str]] = ["fursuit_id", "id"]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["fursuit", "convention"],
+                name="conventions_activation_fursuit_convention_unique",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(is_active=True, deactivated_at__isnull=True)
+                    | models.Q(is_active=False, deactivated_at__isnull=False)
+                ),
+                name="conventions_activation_state_timestamps_valid",
+            ),
+        ]
