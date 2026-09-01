@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 from collections.abc import Mapping
 from typing import Any, TypedDict, cast
 
@@ -269,8 +270,8 @@ def fursuit_catch_session_response_data(
             "end_reason": None,
         }
 
-    def timestamp(value: object) -> str:
-        return str(value).replace("+00:00", "Z")
+    def timestamp(value: datetime.datetime) -> str:
+        return value.astimezone(datetime.UTC).isoformat().replace("+00:00", "Z")
 
     return {
         "fursuit_id": state.activation.fursuit_id,

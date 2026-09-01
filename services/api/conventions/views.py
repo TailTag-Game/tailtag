@@ -100,6 +100,48 @@ _FURSUIT_ACTIVATION_LIST_SCHEMA: dict[str, object] = {
     "type": "array",
     "items": FURSUIT_ACTIVATION_RESPONSE_SCHEMA,
 }
+_FURSUIT_CATCH_SESSION_OPENAPI_OPERATION: dict[str, object] = {
+    "operationId": "convention_fursuit_catch_session_set_state",
+    "description": (
+        "Idempotently set the desired current catchability. A live session has a "
+        "fixed 12-hour expiration; is_active is computed from unexpired session "
+        "state and current operational participation. This endpoint is not catch "
+        "authorization and catch creation must revalidate its own requirements."
+    ),
+    "parameters": [
+        {
+            "in": "path",
+            "name": "convention_id",
+            "schema": {"type": "integer"},
+            "required": True,
+        },
+        {
+            "in": "path",
+            "name": "fursuit_id",
+            "schema": {"type": "integer"},
+            "required": True,
+        },
+    ],
+    "tags": ["conventions"],
+    "requestBody": {
+        "required": True,
+        "content": {"application/json": {"schema": FURSUIT_ACTIVATION_REQUEST_SCHEMA}},
+    },
+    "security": [{"BearerAuth": []}],
+    "responses": {
+        "200": {
+            "description": "The canonical desired catch-session state.",
+            "content": {
+                "application/json": {"schema": FURSUIT_CATCH_SESSION_RESPONSE_SCHEMA}
+            },
+        },
+        "400": {"description": "The supplied activation state is invalid."},
+        "401": {"description": "Authentication credentials were not provided."},
+        "403": {"description": "The player profile is not eligible for participation."},
+        "404": {"description": "The requested resource was not found."},
+        "405": {"description": "Method not allowed."},
+    },
+}
 
 
 class _FursuitActivationAPIView(APIView):
@@ -251,24 +293,7 @@ class FursuitActivationDetailView(_FursuitActivationAPIView):
 class FursuitCatchSessionDetailView(_FursuitActivationAPIView):
     """Set the caller's desired current catchability for one activation."""
 
-    @extend_schema(
-        operation_id="convention_fursuit_catch_session_set_state",
-        description=(
-            "Idempotently set the desired current catchability. A live session has a "
-            "fixed 12-hour expiration; is_active is computed from unexpired session "
-            "state and current operational participation. This endpoint is not catch "
-            "authorization and catch creation must revalidate its own requirements."
-        ),
-        request={"application/json": FURSUIT_ACTIVATION_REQUEST_SCHEMA},
-        responses={
-            200: OpenApiResponse(response=FURSUIT_CATCH_SESSION_RESPONSE_SCHEMA),
-            400: _INVALID_400,
-            401: _AUTH_401,
-            403: _FORBIDDEN_403,
-            404: _NOT_FOUND_404,
-            405: _METHOD_405,
-        },
-    )
+    @extend_schema(operation=_FURSUIT_CATCH_SESSION_OPENAPI_OPERATION)
     def put(self, request: Request, convention_id: int, fursuit_id: int) -> Response:
         # Resolve resources before parsing to preserve #117 ownership concealment.
         fursuit = _owned_fursuit_or_404(_user(request), fursuit_id)
