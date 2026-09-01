@@ -24,6 +24,7 @@ from tests.fursuit_activation_test_support import (
     activation_detail_path,
     activation_list_path,
     assert_activation_data,
+    create_activation_row,
     create_activation_scenario,
 )
 from tests.fursuit_test_support import create_eligible_user, create_fursuit_record
@@ -33,16 +34,13 @@ def _utc(value: str) -> datetime.datetime:
     return datetime.datetime.fromisoformat(value)
 
 
-def _create_activation(
-    *, fursuit: Fursuit, convention: Convention, active: bool
-) -> FursuitActivation:
-    now = timezone.now()
-    return FursuitActivation.objects.create(
-        fursuit=fursuit,
-        convention=convention,
-        is_active=active,
-        activated_at=now,
-        deactivated_at=None if active else now,
+def _operational_activation(
+    scenario: ActivationScenario,
+) -> FursuitActivation | None:
+    return get_operational_fursuit_activation(
+        scenario.user,
+        convention_id=scenario.convention.pk,
+        fursuit_id=scenario.fursuit.pk,
     )
 
 
@@ -77,7 +75,7 @@ def test_activation_identity_is_protected_unique_and_inactive_rows_remain_durabl
     None
 ):
     scenario = create_activation_scenario()
-    first = _create_activation(
+    first = create_activation_row(
         fursuit=scenario.fursuit, convention=scenario.convention, active=False
     )
     fields = {field.name: field for field in FursuitActivation._meta.fields}
@@ -132,10 +130,10 @@ def test_activation_identity_is_protected_unique_and_inactive_rows_remain_durabl
             activated_at=invalid_timestamp_state,
             deactivated_at=None,
         )
-    assert _create_activation(
+    assert create_activation_row(
         fursuit=scenario.fursuit, convention=other_convention, active=True
     ).pk
-    assert _create_activation(
+    assert create_activation_row(
         fursuit=other_fursuit, convention=scenario.convention, active=True
     ).pk
     assert FursuitActivation.objects.get(pk=first.pk).is_active is False
@@ -177,14 +175,14 @@ def test_list_is_owner_scoped_exact_ascending_and_never_synthesizes_relationship
     scenario = create_activation_scenario()
     second = create_fursuit_record(owner=scenario.user, name="Second")
     unactivated = create_fursuit_record(owner=scenario.user, name="Unactivated")
-    first_row = _create_activation(
+    first_row = create_activation_row(
         fursuit=scenario.fursuit, convention=scenario.convention, active=False
     )
-    second_row = _create_activation(
+    second_row = create_activation_row(
         fursuit=second, convention=scenario.convention, active=True
     )
     other = create_activation_scenario(clerk_user_id="other_activation_owner")
-    _create_activation(
+    create_activation_row(
         fursuit=other.fursuit, convention=scenario.convention, active=True
     )
     response = scenario.client.get(activation_list_path(scenario.convention.pk))
@@ -210,7 +208,7 @@ def test_list_projects_current_eligibility_without_rewriting_active_selection(
     lost_requirement: str,
 ) -> None:
     scenario = create_activation_scenario()
-    activation = _create_activation(
+    activation = create_activation_row(
         fursuit=scenario.fursuit, convention=scenario.convention, active=True
     )
     if lost_requirement == "enrollment":
@@ -236,7 +234,7 @@ def test_list_computes_ineligible_for_every_profile_predicate_shape(
     profile_shape: str,
 ) -> None:
     scenario = create_activation_scenario()
-    activation = _create_activation(
+    activation = create_activation_row(
         fursuit=scenario.fursuit, convention=scenario.convention, active=True
     )
     _make_profile_ineligible(scenario, profile_shape)
@@ -254,13 +252,13 @@ def test_list_computes_ineligible_for_every_profile_predicate_shape(
 def test_put_is_closed_and_404_resource_precedence_precedes_body_validation() -> None:
     scenario = create_activation_scenario()
     stranger = create_activation_scenario(clerk_user_id="activation_stranger")
-    active = _create_activation(
+    active = create_activation_row(
         fursuit=scenario.fursuit, convention=scenario.convention, active=True
     )
     inactive_fursuit = create_fursuit_record(
         owner=scenario.user, name="Inactive invalid-body fursuit"
     )
-    inactive = _create_activation(
+    inactive = create_activation_row(
         fursuit=inactive_fursuit, convention=scenario.convention, active=False
     )
     invalid_requests: tuple[tuple[dict[str, object] | bytes, str], ...] = (
@@ -290,7 +288,7 @@ def test_put_is_closed_and_404_resource_precedence_precedes_body_validation() ->
                 activation.deactivated_at,
                 activation.updated_at,
             ) == before
-    hidden = _create_activation(
+    hidden = create_activation_row(
         fursuit=stranger.fursuit, convention=scenario.convention, active=True
     )
     hidden_before = (
@@ -541,7 +539,7 @@ def test_deactivation_permits_each_individual_lost_eligibility_requirement(
     lost_requirement: str,
 ) -> None:
     scenario = create_activation_scenario()
-    activation = _create_activation(
+    activation = create_activation_row(
         fursuit=scenario.fursuit, convention=scenario.convention, active=True
     )
     if lost_requirement == "profile":
@@ -575,7 +573,7 @@ def test_operational_query_requires_owned_active_and_currently_eligible_without_
     None
 ):
     scenario = create_activation_scenario()
-    activation = _create_activation(
+    activation = create_activation_row(
         fursuit=scenario.fursuit, convention=scenario.convention, active=True
     )
     timestamps = (
@@ -583,14 +581,7 @@ def test_operational_query_requires_owned_active_and_currently_eligible_without_
         activation.deactivated_at,
         activation.updated_at,
     )
-    assert (
-        get_operational_fursuit_activation(
-            scenario.user,
-            convention_id=scenario.convention.pk,
-            fursuit_id=scenario.fursuit.pk,
-        )
-        == activation
-    )
+    assert _operational_activation(scenario) == activation
     other = create_eligible_user(clerk_user_id="activation_query_other")
     assert (
         get_operational_fursuit_activation(
@@ -603,63 +594,32 @@ def test_operational_query_requires_owned_active_and_currently_eligible_without_
     FursuitActivation.objects.filter(pk=activation.pk).update(
         is_active=False, deactivated_at=timezone.now()
     )
-    assert (
-        get_operational_fursuit_activation(
-            scenario.user,
-            convention_id=scenario.convention.pk,
-            fursuit_id=scenario.fursuit.pk,
-        )
-        is None
-    )
+    assert _operational_activation(scenario) is None
     FursuitActivation.objects.filter(pk=activation.pk).update(
         is_active=True, deactivated_at=None
     )
+    assert _operational_activation(scenario) == activation
     PlayerProfile.objects.filter(pk=scenario.profile.pk).update(is_enabled=False)
-    assert (
-        get_operational_fursuit_activation(
-            scenario.user,
-            convention_id=scenario.convention.pk,
-            fursuit_id=scenario.fursuit.pk,
-        )
-        is None
-    )
+    assert _operational_activation(scenario) is None
     PlayerProfile.objects.filter(pk=scenario.profile.pk).update(is_enabled=True)
+    assert _operational_activation(scenario) == activation
     assert scenario.enrollment is not None
     scenario.enrollment.delete()
-    assert (
-        get_operational_fursuit_activation(
-            scenario.user,
-            convention_id=scenario.convention.pk,
-            fursuit_id=scenario.fursuit.pk,
-        )
-        is None
-    )
+    assert _operational_activation(scenario) is None
     ConventionEnrollment.objects.create(
         user=scenario.user, convention=scenario.convention
     )
+    assert _operational_activation(scenario) == activation
     Convention.objects.filter(pk=scenario.convention.pk).update(
         status=ConventionStatus.PAUSED
     )
-    assert (
-        get_operational_fursuit_activation(
-            scenario.user,
-            convention_id=scenario.convention.pk,
-            fursuit_id=scenario.fursuit.pk,
-        )
-        is None
-    )
+    assert _operational_activation(scenario) is None
     Convention.objects.filter(pk=scenario.convention.pk).update(
         status=ConventionStatus.ACTIVE
     )
+    assert _operational_activation(scenario) == activation
     Fursuit.objects.filter(pk=scenario.fursuit.pk).update(is_enabled=False)
-    assert (
-        get_operational_fursuit_activation(
-            scenario.user,
-            convention_id=scenario.convention.pk,
-            fursuit_id=scenario.fursuit.pk,
-        )
-        is None
-    )
+    assert _operational_activation(scenario) is None
     activation.refresh_from_db()
     assert (
         activation.activated_at,
@@ -674,7 +634,7 @@ def test_operational_query_rejects_every_profile_predicate_shape_without_writes(
     profile_shape: str,
 ) -> None:
     scenario = create_activation_scenario()
-    activation = _create_activation(
+    activation = create_activation_row(
         fursuit=scenario.fursuit, convention=scenario.convention, active=True
     )
     timestamps = (

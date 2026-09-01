@@ -26,7 +26,9 @@ from profiles.models import PlayerProfile
 from tests.authentication_support import force_authenticated_client
 from tests.fursuit_activation_test_support import (
     activation_detail_path,
+    activation_list_path,
     assert_activation_data,
+    create_activation_row,
     create_activation_scenario,
 )
 
@@ -482,19 +484,6 @@ def test_activation_waits_for_convention_cancellation_then_rejects_stale_eligibi
     ).exists()
 
 
-def _create_activation(*, scenario: Any, is_active: bool) -> FursuitActivation:
-    from django.utils import timezone
-
-    now = timezone.now()
-    return FursuitActivation.objects.create(
-        fursuit=scenario.fursuit,
-        convention=scenario.convention,
-        is_active=is_active,
-        activated_at=now,
-        deactivated_at=None if is_active else now,
-    )
-
-
 def _hold_activation_row(
     *, activation_id: int, backend_pids: Queue[int], locked: Event, release: Event
 ) -> None:
@@ -600,7 +589,9 @@ def _run_desired_state_race_under_activation_holder(
 @pytest.mark.django_db(transaction=True)
 def test_concurrent_active_retries_preserve_existing_active_timestamps() -> None:
     scenario = create_activation_scenario(clerk_user_id="activation_active_retry_race")
-    activation = _create_activation(scenario=scenario, is_active=True)
+    activation = create_activation_row(
+        fursuit=scenario.fursuit, convention=scenario.convention, active=True
+    )
     before = (activation.activated_at, activation.deactivated_at, activation.updated_at)
     responses = _run_desired_state_race_under_activation_holder(
         scenario=scenario,
@@ -630,7 +621,9 @@ def test_concurrent_active_and_inactive_requests_leave_only_real_transition_time
     None
 ):
     scenario = create_activation_scenario(clerk_user_id="activation_mixed_desired_race")
-    activation = _create_activation(scenario=scenario, is_active=False)
+    activation = create_activation_row(
+        fursuit=scenario.fursuit, convention=scenario.convention, active=False
+    )
     original_activated_at = activation.activated_at
     responses = _run_desired_state_race_under_activation_holder(
         scenario=scenario,
@@ -661,7 +654,9 @@ def test_concurrent_inactive_retries_preserve_existing_inactive_timestamps() -> 
     scenario = create_activation_scenario(
         clerk_user_id="activation_inactive_retry_race"
     )
-    activation = _create_activation(scenario=scenario, is_active=False)
+    activation = create_activation_row(
+        fursuit=scenario.fursuit, convention=scenario.convention, active=False
+    )
     before = (activation.activated_at, activation.deactivated_at, activation.updated_at)
     responses = _run_desired_state_race_under_activation_holder(
         scenario=scenario,
@@ -764,7 +759,11 @@ def test_activation_acquires_each_adjacent_lock_in_frozen_order(
     scenario = create_activation_scenario(clerk_user_id=f"activation_lock_{later}")
     assert scenario.enrollment is not None
     existing_activation = (
-        _create_activation(scenario=scenario, is_active=False)
+        create_activation_row(
+            fursuit=scenario.fursuit,
+            convention=scenario.convention,
+            active=False,
+        )
         if later == "activation"
         else None
     )
@@ -949,9 +948,7 @@ def test_activation_committed_before_lifecycle_update_stays_active_but_becomes_i
         fursuit=scenario.fursuit, convention=scenario.convention
     )
     assert activation_row.is_active
-    response = scenario.client.get(
-        f"/api/conventions/{scenario.convention.pk}/fursuit-activations/"
-    )
+    response = scenario.client.get(activation_list_path(scenario.convention.pk))
     assert response.status_code == 200
     data = assert_activation_data(response.json()[0])
     assert data["is_active"] is True

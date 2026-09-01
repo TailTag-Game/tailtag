@@ -10,7 +10,12 @@ from django.test import Client
 from django.utils import timezone
 
 from accounts.models import User
-from conventions.models import Convention, ConventionEnrollment, ConventionStatus
+from conventions.models import (
+    Convention,
+    ConventionEnrollment,
+    ConventionStatus,
+    FursuitActivation,
+)
 from fursuits.models import Fursuit
 from profiles.models import PlayerProfile
 from tests.authentication_support import create_test_user, force_authenticated_client
@@ -70,6 +75,20 @@ def create_activation_scenario(
         convention=convention,
         fursuit=fursuit,
         enrollment=enrollment,
+    )
+
+
+def create_activation_row(
+    *, fursuit: Fursuit, convention: Convention, active: bool
+) -> FursuitActivation:
+    """Create one invariant-valid durable activation test row."""
+    now = timezone.now()
+    return FursuitActivation.objects.create(
+        fursuit=fursuit,
+        convention=convention,
+        is_active=active,
+        activated_at=now,
+        deactivated_at=None if active else now,
     )
 
 
