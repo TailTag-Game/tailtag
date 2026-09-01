@@ -1,7 +1,7 @@
 # TailTag mobile
 
 This directory is the TailTag V0 Flutter host for Android and iOS. FVM selects
-Flutter 3.47.1; Dart is bundled with that Flutter SDK.
+Flutter 3.47.2; Dart is bundled with that Flutter SDK.
 
 The Dart project is `tailtag_mobile`. Installed apps use the name `TailTag` and
 the identifier `app.tailtag`.
