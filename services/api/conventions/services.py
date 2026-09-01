@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime
+
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
@@ -187,10 +189,98 @@ def _deactivate_fursuit(
             raise FursuitActivation.DoesNotExist()
         if not activation.is_active:
             return activation
+        now = timezone.now()
+        from conventions.catch_sessions import terminate_for_activation_deactivation
+
+        terminate_for_activation_deactivation(activation, now=now)
         activation.is_active = False
-        activation.deactivated_at = timezone.now()
+        activation.deactivated_at = now
         activation.save(update_fields=["is_active", "deactivated_at", "updated_at"])
         return activation
+
+
+def deactivate_fursuit_activation_as_operator(
+    *, activation_id: int
+) -> FursuitActivation:
+    """Deactivate one durable activation through the operator lifecycle seam."""
+    with transaction.atomic():
+        candidate = FursuitActivation.objects.filter(pk=activation_id).first()
+        if candidate is None:
+            raise FursuitActivation.DoesNotExist()
+        fursuit = Fursuit.objects.select_for_update().get(pk=candidate.fursuit_id)
+        activation = FursuitActivation.objects.select_for_update().get(pk=candidate.pk)
+        if not activation.is_active:
+            return activation
+        now = timezone.now()
+        from conventions.catch_sessions import terminate_for_activation_deactivation
+
+        terminate_for_activation_deactivation(activation, now=now)
+        activation.is_active = False
+        activation.deactivated_at = now
+        activation.save(update_fields=["is_active", "deactivated_at", "updated_at"])
+        # Keep the fursuit lock until the state transition commits.
+        del fursuit
+        return activation
+
+
+def remove_convention_enrollment(*, enrollment_id: int) -> None:
+    """Delete an enrollment and terminally end its affected catch sessions."""
+    candidate = ConventionEnrollment.objects.filter(pk=enrollment_id).values(
+        "user_id", "convention_id"
+    ).first()
+    if candidate is None:
+        return
+    with transaction.atomic():
+        # Profile is optional for legacy/incomplete users but, when present, is first.
+        profile = (
+            PlayerProfile.objects.select_for_update()
+            .filter(user_id=candidate["user_id"])
+            .first()
+        )
+        convention = Convention.objects.select_for_update().get(
+            pk=candidate["convention_id"]
+        )
+        enrollment = (
+            ConventionEnrollment.objects.select_for_update()
+            .filter(pk=enrollment_id, user_id=candidate["user_id"], convention=convention)
+            .first()
+        )
+        if enrollment is None:
+            return
+        now = timezone.now()
+        from conventions.catch_sessions import terminate_for_enrollment_removal
+
+        terminate_for_enrollment_removal(enrollment, now=now)
+        enrollment.delete()
+        # Keep optional upstream locks until commit.
+        del profile
+
+
+def set_convention_admin_state(
+    *,
+    convention_id: int,
+    name: str,
+    status: str,
+    start_date: datetime.date,
+    end_date: datetime.date,
+) -> Convention:
+    """Persist an admin Convention edit and end sessions on loss of playability."""
+    with transaction.atomic():
+        convention = Convention.objects.select_for_update().get(pk=convention_id)
+        became_nonplayable = convention.is_playable and status != "active"
+        now = timezone.now()
+        if became_nonplayable:
+            from conventions.catch_sessions import terminate_for_convention_nonplayable
+
+            terminate_for_convention_nonplayable(convention, now=now)
+        convention.name = name
+        convention.status = status
+        convention.start_date = start_date
+        convention.end_date = end_date
+        convention.save(
+            update_fields=["name", "status", "start_date", "end_date", "updated_at"]
+        )
+        return convention
 
 
 def _is_fursuit_activation_unique_violation(error: IntegrityError) -> bool:
