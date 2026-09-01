@@ -14,6 +14,7 @@ from tests.fursuit_activation_test_support import (
 from tests.fursuit_catch_session_test_support import (
     CATCH_SESSION_LIFETIME,
     catch_session_model,
+    catch_session_path,
     create_catch_session,
 )
 
@@ -86,5 +87,11 @@ def test_catch_session_exact_twelve_hour_lifetime_is_server_controlled_for_a_rea
     activation = create_activation_row(
         fursuit=scenario.fursuit, convention=scenario.convention, active=True
     )
-    session = create_catch_session(activation=activation)
+    response = scenario.client.put(
+        catch_session_path(scenario.convention.pk, scenario.fursuit.pk),
+        {"is_active": True},
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    session = catch_session_model().objects.get(activation=activation)
     assert session.expires_at - session.started_at == CATCH_SESSION_LIFETIME

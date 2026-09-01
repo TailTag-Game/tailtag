@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 from django.db import close_old_connections, connection, transaction
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import User
 from conventions.models import (
@@ -24,6 +25,7 @@ from fursuits.models import Fursuit
 from profiles.models import PlayerProfile
 from tests.authentication_support import force_authenticated_client
 from tests.fursuit_activation_test_support import (
+    activation_detail_path,
     create_activation_row,
     create_activation_scenario,
 )
@@ -66,6 +68,18 @@ def _owner(*, user_id: int, convention_id: int, fursuit_id: int, active: bool) -
     )
 
 
+def _activation_state(
+    *, user_id: int, convention_id: int, fursuit_id: int, active: bool
+) -> Any:
+    """Use Issue #117's owner activation route, not the catch-session route."""
+    user = User.objects.get(pk=user_id)
+    return force_authenticated_client(user=user).put(
+        activation_detail_path(convention_id, fursuit_id),
+        {"is_active": active},
+        content_type="application/json",
+    )
+
+
 def _operator(*, user_id: int, session_id: int) -> Any:
     """The parent-approved `terminate` form control is a real admin UI seam."""
     user = User.objects.get(pk=user_id)
@@ -85,9 +99,9 @@ def _fursuit_enabled(fursuit_id: int, value: bool) -> Any:
 
 
 def _profile_enabled(profile_id: int, value: bool) -> Any:
-    from profiles.services import set_player_profile_enabled
+    from profiles.services import set_profile_enabled
 
-    return set_player_profile_enabled(profile_id=profile_id, is_enabled=value)
+    return set_profile_enabled(profile_id=profile_id, is_enabled=value)
 
 
 def _remove_enrollment(enrollment_id: int) -> Any:
@@ -96,10 +110,29 @@ def _remove_enrollment(enrollment_id: int) -> Any:
     return remove_convention_enrollment(enrollment_id=enrollment_id)
 
 
-def _convention_status(convention_id: int, value: str) -> Any:
-    from conventions.services import set_convention_status
+def _finalize_expired(session_id: int) -> Any:
+    from conventions.services import finalize_expired_fursuit_catch_session
 
-    return set_convention_status(convention_id=convention_id, status=value)
+    return finalize_expired_fursuit_catch_session(session_id=session_id)
+
+
+def _convention_admin_state(
+    *,
+    convention_id: int,
+    name: str,
+    status: str,
+    start_date: datetime.date,
+    end_date: datetime.date,
+) -> Any:
+    from conventions.services import set_convention_admin_state
+
+    return set_convention_admin_state(
+        convention_id=convention_id,
+        name=name,
+        status=status,
+        start_date=start_date,
+        end_date=end_date,
+    )
 
 
 def _pid(queue: Queue[int], future: Future[Any]) -> int:
@@ -236,12 +269,46 @@ def test_race_3_start_and_stop_produce_only_owner_terminal_history_or_one_new_li
 
 
 @pytest.mark.django_db(transaction=True)
-def test_races_4_and_12_two_expired_restarts_finalize_once_and_create_one_replacement() -> (
-    None
-):
-    """AC-04/06/13 races 4,12: rejects non-canonical expiry or multiple replacements."""
+def test_race_4_restart_vs_lazy_expiration_finalization_creates_one_replacement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-04/06/13 race 4: rejects a restart that races lazy finalization incorrectly."""
     s, activation = _setup("catch_race_four")
-    expiry = datetime.datetime(2026, 9, 1, tzinfo=datetime.UTC)
+    expiry = timezone.now()
+    from conventions import services
+
+    monkeypatch.setattr(services.timezone, "now", lambda: expiry)
+    old = create_catch_session(
+        activation=activation,
+        started_at=expiry - CATCH_SESSION_LIFETIME,
+        expires_at=expiry,
+    )
+    a, b = _race(
+        lambda: FursuitActivation.objects.select_for_update().get(pk=activation.pk),
+        lambda: _finalize_expired(old.pk),
+        _start(s),
+    )
+    assert a.status_code == b.status_code == 200
+    old.refresh_from_db()
+    rows = _rows(activation)
+    assert (
+        old.ended_at == expiry
+        and old.end_reason == "expired"
+        and len(rows) == 2
+        and sum(row.ended_at is None for row in rows) == 1
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_race_12_two_expired_restarts_finalize_once_and_create_one_replacement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-04/06/13 race 12: rejects duplicate replacement rows after expiry."""
+    s, activation = _setup("catch_race_twelve")
+    expiry = timezone.now()
+    from conventions import services
+
+    monkeypatch.setattr(services.timezone, "now", lambda: expiry)
     old = create_catch_session(
         activation=activation,
         started_at=expiry - CATCH_SESSION_LIFETIME,
@@ -291,7 +358,12 @@ def test_race_6_start_vs_owner_activation_deactivation_leaves_no_unended_session
     start, deactivate = _race(
         lambda: FursuitActivation.objects.select_for_update().get(pk=activation.pk),
         _start(s),
-        _stop(s),
+        lambda: _activation_state(
+            user_id=s.user.pk,
+            convention_id=s.convention.pk,
+            fursuit_id=s.fursuit.pk,
+            active=False,
+        ),
     )
     assert start.status_code in {200, 400} and deactivate.status_code == 200
     activation.refresh_from_db()
@@ -328,7 +400,13 @@ def test_races_7_to_10_start_vs_each_real_eligibility_service_leaves_no_live_row
         operation = lambda: _remove_enrollment(s.enrollment.pk)
     else:
         lock = lambda: Convention.objects.select_for_update().get(pk=s.convention.pk)
-        operation = lambda: _convention_status(s.convention.pk, ConventionStatus.PAUSED)
+        operation = lambda: _convention_admin_state(
+            convention_id=s.convention.pk,
+            name=s.convention.name,
+            status=ConventionStatus.PAUSED,
+            start_date=s.convention.start_date,
+            end_date=s.convention.end_date,
+        )
     start, _ = _race(lock, _start(s), operation)
     assert start.status_code in {200, 400, 403}, label
     rows = _rows(activation)
@@ -342,9 +420,11 @@ def test_race_11_profile_restoration_vs_restart_never_resurrects_prior_session()
 ):
     """AC-09 race 11: rejects restore rewriting the historical terminal row."""
     s, activation = _setup("catch_race_eleven")
+    now = timezone.now()
     prior = create_catch_session(
         activation=activation,
-        ended_at=datetime.datetime(2026, 9, 1, tzinfo=datetime.UTC),
+        started_at=now - CATCH_SESSION_LIFETIME,
+        ended_at=now,
         end_reason="eligibility_lost",
     )
     s.profile.is_enabled = False
@@ -355,16 +435,30 @@ def test_race_11_profile_restoration_vs_restart_never_resurrects_prior_session()
         lambda: _profile_enabled(s.profile.pk, True),
     )
     assert restart.status_code in {200, 403}
+    s.profile.refresh_from_db()
+    assert s.profile.is_enabled is True
+    explicit_restart = _owner(
+        user_id=s.user.pk,
+        convention_id=s.convention.pk,
+        fursuit_id=s.fursuit.pk,
+        active=True,
+    )
+    assert explicit_restart.status_code == 200
     prior.refresh_from_db()
     assert prior.ended_at is not None and prior.end_reason == "eligibility_lost"
-    assert len(_rows(activation)) in {1, 2}
+    assert len(_rows(activation)) == 2
 
 
 @pytest.mark.django_db(transaction=True)
-def test_race_13_eligibility_loss_at_expiration_boundary_keeps_expired_reason() -> None:
+def test_race_13_eligibility_loss_at_expiration_boundary_keeps_expired_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """AC-04/09/12 race 13: rejects eligibility_lost relabeling of an expired row."""
     s, activation = _setup("catch_race_thirteen")
-    expiry = datetime.datetime(2026, 9, 1, tzinfo=datetime.UTC)
+    expiry = timezone.now()
+    from conventions import services
+
+    monkeypatch.setattr(services.timezone, "now", lambda: expiry)
     session = create_catch_session(
         activation=activation,
         started_at=expiry - CATCH_SESSION_LIFETIME,

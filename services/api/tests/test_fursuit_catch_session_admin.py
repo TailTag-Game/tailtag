@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import datetime
+
 import pytest
 from django.contrib import admin
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import User
 from tests.fursuit_activation_test_support import (
@@ -32,12 +35,16 @@ def test_catch_session_admin_inspects_history_but_prohibits_add_delete_bulk_and_
     model_admin = admin.site._registry[session_model]  # type: ignore[reportPrivateUsage]
     assert model_admin.actions is None
     assert model_admin.search_fields and model_admin.list_filter
+    assert any("active" in str(field).lower() for field in model_admin.list_display)
     operator = User.objects.create_superuser(
         "catch_session_operator", password="password"
     )
     client = Client()
     client.force_login(operator)
     change = reverse("admin:conventions_fursuitcatchsession_change", args=(session.pk,))
+    changelist = reverse("admin:conventions_fursuitcatchsession_changelist")
+    searched = client.get(changelist, {"q": str(session.pk)})
+    assert searched.status_code == 200 and str(session.pk).encode() in searched.content
     detail = client.get(change)
     assert detail.status_code == 200
     for field in (
@@ -69,9 +76,9 @@ def test_catch_session_admin_inspects_history_but_prohibits_add_delete_bulk_and_
 
 
 @pytest.mark.django_db
-def test_admin_per_object_operator_termination_ends_only_live_row_and_never_relables_expired_history() -> (
-    None
-):
+def test_admin_per_object_operator_termination_ends_only_live_row_and_never_relables_expired_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """AC-11/12: rejects raw field editing or rewriting an expired terminal reason."""
     scenario = create_activation_scenario()
     activation = create_activation_row(
@@ -91,3 +98,19 @@ def test_admin_per_object_operator_termination_ends_only_live_row_and_never_rela
     assert client.post(change, {"terminate": "1"}).status_code in {200, 302, 403}
     live.refresh_from_db()
     assert (live.ended_at, live.end_reason, live.updated_at) == before
+    # A separate stale unended row is allowed only after the live row is terminal.
+    from conventions import services
+
+    now = timezone.now()
+    monkeypatch.setattr(services.timezone, "now", lambda: now)
+    expired = create_catch_session(
+        activation=activation,
+        started_at=now - datetime.timedelta(hours=12),
+        expires_at=now,
+    )
+    expired_change = reverse(
+        "admin:conventions_fursuitcatchsession_change", args=(expired.pk,)
+    )
+    assert client.post(expired_change, {"terminate": "1"}).status_code == 302
+    expired.refresh_from_db()
+    assert expired.ended_at == now and expired.end_reason == "expired"

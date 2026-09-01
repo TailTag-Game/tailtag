@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import datetime
-
 import pytest
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import User
-from conventions.models import ConventionStatus
+from conventions.models import ConventionEnrollment, ConventionStatus
 from tests.fursuit_activation_test_support import (
     create_activation_row,
     create_activation_scenario,
@@ -34,6 +33,14 @@ def _assert_eligibility_lost(session: object) -> None:
     assert session.ended_at is not None and session.end_reason == "eligibility_lost"  # type: ignore[attr-defined]
 
 
+def _start_catch_session(scenario: object) -> object:
+    return scenario.client.put(  # type: ignore[attr-defined]
+        f"/api/conventions/{scenario.convention.pk}/fursuit-activations/{scenario.fursuit.pk}/catch-session/",  # type: ignore[attr-defined]
+        {"is_active": True},
+        content_type="application/json",
+    )
+
+
 @pytest.mark.django_db
 def test_profile_admin_disablement_ends_live_session_without_rewriting_activation_or_resurrecting_on_restore() -> (
     None
@@ -53,6 +60,8 @@ def test_profile_admin_disablement_ends_live_session_without_rewriting_activatio
     assert client.post(url, {"is_enabled": "on"}).status_code == 302
     session.refresh_from_db()
     assert session.ended_at is not None
+    assert _start_catch_session(scenario).status_code == 200
+    assert catch_session_model().objects.filter(activation=activation).count() == 2
 
 
 @pytest.mark.django_db
@@ -73,6 +82,8 @@ def test_fursuit_admin_disablement_ends_live_session_and_reenable_requires_expli
     session.refresh_from_db()
     assert session.ended_at is not None
     assert catch_session_model().objects.filter(activation=activation).count() == 1
+    assert _start_catch_session(scenario).status_code == 200
+    assert catch_session_model().objects.filter(activation=activation).count() == 2
 
 
 @pytest.mark.django_db
@@ -98,6 +109,11 @@ def test_enrollment_admin_removal_ends_live_session_but_active_selection_changes
     _assert_eligibility_lost(session)
     activation.refresh_from_db()
     assert activation.is_active
+    ConventionEnrollment.objects.create(
+        user=scenario.user, convention=scenario.convention
+    )
+    assert _start_catch_session(scenario).status_code == 200
+    assert catch_session_model().objects.filter(activation=activation).count() == 2
 
 
 @pytest.mark.django_db
@@ -105,7 +121,7 @@ def test_owner_and_operator_activation_deactivation_use_eligibility_lost_and_ina
     None
 ):
     """AC-10/14: rejects owner/operator reasons or rewrites on an inactive retry."""
-    scenario, _activation, session = _live_session()
+    scenario, activation, session = _live_session()
     response = scenario.client.put(
         f"/api/conventions/{scenario.convention.pk}/fursuit-activations/{scenario.fursuit.pk}/",
         {"is_active": False},
@@ -124,6 +140,16 @@ def test_owner_and_operator_activation_deactivation_use_eligibility_lost_and_ina
     )
     session.refresh_from_db()
     assert (session.ended_at, session.end_reason, session.updated_at) == before
+    assert (
+        scenario.client.put(
+            f"/api/conventions/{scenario.convention.pk}/fursuit-activations/{scenario.fursuit.pk}/",
+            {"is_active": True},
+            content_type="application/json",
+        ).status_code
+        == 200
+    )
+    assert _start_catch_session(scenario).status_code == 200
+    assert catch_session_model().objects.filter(activation=activation).count() == 2
     # Registered admin is a separate required product entry point.
     _other, _, other_session = _live_session()
     operator = User.objects.create_superuser(
@@ -183,6 +209,8 @@ def test_convention_admin_non_playable_transition_ends_live_session_and_restore_
     )
     session.refresh_from_db()
     assert session.ended_at is not None and activation.is_active
+    assert _start_catch_session(scenario).status_code == 200
+    assert catch_session_model().objects.filter(activation=activation).count() == 2
 
 
 @pytest.mark.django_db
@@ -190,11 +218,18 @@ def test_convention_admin_non_playable_transition_ends_live_session_and_restore_
     "mutation", ("profile", "fursuit", "enrollment", "activation", "convention")
 )
 def test_every_eligibility_loss_path_gives_expired_row_expiration_precedence(
-    mutation: str,
+    mutation: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """AC-04/09/10: rejects relabeling an already expired row eligibility_lost."""
-    scenario, activation, _ = _live_session()
-    expired_at = datetime.datetime(2026, 9, 1, tzinfo=datetime.UTC)
+    scenario = create_activation_scenario()
+    activation = create_activation_row(
+        fursuit=scenario.fursuit, convention=scenario.convention, active=True
+    )
+    now = timezone.now()
+    from conventions import services
+
+    monkeypatch.setattr(services.timezone, "now", lambda: now)
+    expired_at = now
     stale = create_catch_session(
         activation=activation,
         started_at=expired_at - CATCH_SESSION_LIFETIME,
