@@ -106,12 +106,23 @@ def test_credential_admin_is_staff_only_safe_history_with_exact_search_and_no_mu
     by_name = client.get(changelist, {"q": f'"{scenario.fursuit.name}"'})
     by_token = client.get(changelist, {"q": TOKEN_A})
     by_payload = client.get(changelist, {"q": PAYLOAD_A})
+    adversarial_searches = (
+        f"prefix-{TOKEN_A}-suffix",
+        f'  "{TOKEN_A}"  ',
+        f"prefix-{PAYLOAD_A}-suffix",
+        f"  '{PAYLOAD_A}'  ",
+    )
+    adversarial_responses = [
+        client.get(changelist, {"q": query}) for query in adversarial_searches
+    ]
     detail = client.get(change)
     assert by_name.status_code == by_token.status_code == by_payload.status_code == 200
     assert detail.status_code == 200
     assert _listed_ids(by_name) == {credential.pk}
     assert _listed_ids(by_token) == set()
     assert _listed_ids(by_payload) == set()
+    assert all(response.status_code == 200 for response in adversarial_responses)
+    assert all(_listed_ids(response) == set() for response in adversarial_responses)
     listed = next(iter(cast(ChangeList, by_name.context["cl"]).result_list))
     assert model_admin.is_current(listed) is True
     assert model_admin.is_current(credential) is True
@@ -136,6 +147,8 @@ def test_credential_admin_is_staff_only_safe_history_with_exact_search_and_no_mu
     assert b'name="action"' not in client.get(changelist).content
     _assert_token_absent(TOKEN_A, by_name, by_token, by_payload, detail)
     _assert_token_absent(PAYLOAD_A, by_name, by_token, by_payload, detail)
+    _assert_token_absent(TOKEN_A, *adversarial_responses)
+    _assert_token_absent(PAYLOAD_A, *adversarial_responses)
 
     # The sole mutation is a per-object revoke; it must not couple to a session.
     revoke_response = client.post(change, {"revoke": "1"}, follow=True)
