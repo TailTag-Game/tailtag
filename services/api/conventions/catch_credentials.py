@@ -25,7 +25,6 @@ from profiles.eligibility import is_participation_eligible
 from profiles.models import PlayerProfile
 
 from .services import (
-    ConventionNotEnrolledError,
     ConventionParticipationIneligibleError,
     FursuitActivationNotEligibleError,
 )
@@ -208,7 +207,5 @@ def _lock_owner_operational_activation(
         or not convention.is_playable
         or not fursuit.is_enabled
     ):
-        if enrollment is None:
-            raise ConventionNotEnrolledError()
         raise FursuitActivationNotEligibleError()
     return activation
