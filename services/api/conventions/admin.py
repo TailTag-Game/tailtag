@@ -4,22 +4,38 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from django import forms
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
+from django.db.models import Exists, OuterRef, QuerySet
 from django.forms import ModelForm
 from django.http import HttpRequest
 from django.utils import timezone
 
-from .models import Convention, ConventionEnrollment, FursuitActivation
+from .catch_sessions import terminate_session_as_operator
+from .models import (
+    Convention,
+    ConventionEnrollment,
+    ConventionStatus,
+    FursuitActivation,
+    FursuitCatchSession,
+)
+from .services import (
+    deactivate_fursuit_activation_as_operator,
+    remove_convention_enrollment,
+    set_convention_admin_state,
+)
 
 if TYPE_CHECKING:
     ConventionAdminBase = admin.ModelAdmin[Convention]
     ConventionEnrollmentAdminBase = admin.ModelAdmin[ConventionEnrollment]
     FursuitActivationAdminBase = admin.ModelAdmin[FursuitActivation]
+    FursuitCatchSessionAdminBase = admin.ModelAdmin[FursuitCatchSession]
 else:
     ConventionAdminBase = admin.ModelAdmin
     ConventionEnrollmentAdminBase = admin.ModelAdmin
     FursuitActivationAdminBase = admin.ModelAdmin
+    FursuitCatchSessionAdminBase = admin.ModelAdmin
 
 
 @admin.register(Convention)
@@ -68,6 +84,26 @@ class ConventionAdmin(ConventionAdminBase):
         ),
     )
 
+    def save_model(
+        self,
+        request: HttpRequest,
+        obj: Convention,
+        form: ModelForm[Convention],
+        change: bool,
+    ) -> None:
+        """Route edits through the lock-aware Convention lifecycle seam."""
+        if not change:
+            super().save_model(request, obj, form, change)
+            return
+        updated = set_convention_admin_state(
+            convention_id=obj.pk,
+            name=obj.name,
+            status=obj.status,
+            start_date=obj.start_date,
+            end_date=obj.end_date,
+        )
+        obj.updated_at = updated.updated_at
+
 
 @admin.register(ConventionEnrollment)
 class ConventionEnrollmentAdmin(ConventionEnrollmentAdminBase):
@@ -99,6 +135,20 @@ class ConventionEnrollmentAdmin(ConventionEnrollmentAdminBase):
         "created_at",
         "updated_at",
     )
+    actions = None
+
+    def get_readonly_fields(
+        self, request: HttpRequest, obj: ConventionEnrollment | None = None
+    ) -> tuple[str, ...]:
+        """Enrollment identity is immutable after creation."""
+        if obj is None:
+            return tuple(self.readonly_fields)
+        return (*tuple(self.readonly_fields), "user", "convention")
+
+    def delete_model(self, request: HttpRequest, obj: ConventionEnrollment) -> None:
+        """Route per-object removal through its transactional termination seam."""
+        del request
+        remove_convention_enrollment(enrollment_id=obj.pk)
 
 
 @admin.register(FursuitActivation)
@@ -172,14 +222,160 @@ class FursuitActivationAdmin(FursuitActivationAdminBase):
         if obj.is_active:
             raise PermissionDenied
 
-        now = timezone.now()
-        updated = FursuitActivation.objects.filter(pk=obj.pk, is_active=True).update(
-            is_active=False,
-            deactivated_at=now,
-            updated_at=now,
+        updated = deactivate_fursuit_activation_as_operator(activation_id=obj.pk)
+        obj.is_active = updated.is_active
+        obj.deactivated_at = updated.deactivated_at
+        obj.updated_at = updated.updated_at
+
+
+class CatchSessionActiveFilter(admin.SimpleListFilter):
+    """Filter using the same effective-active predicate shown in session admin."""
+
+    title = "effectively active"
+    parameter_name = "is_effectively_active"
+
+    def lookups(
+        self,
+        request: HttpRequest,
+        model_admin: admin.ModelAdmin[FursuitCatchSession],
+    ) -> tuple[tuple[str, str], ...]:
+        del request, model_admin
+        return (("1", "Yes"), ("0", "No"))
+
+    def queryset(
+        self, request: HttpRequest, queryset: QuerySet[FursuitCatchSession]
+    ) -> QuerySet[FursuitCatchSession]:
+        del request
+        value = self.value()
+        if value is None:
+            return queryset
+        active = _effectively_active_sessions(queryset)
+        return active if value == "1" else queryset.exclude(pk__in=active.values("pk"))
+
+
+if TYPE_CHECKING:
+    CatchSessionAdminFormBase = forms.ModelForm[FursuitCatchSession]
+else:
+    CatchSessionAdminFormBase = forms.ModelForm
+
+
+class CatchSessionAdminForm(CatchSessionAdminFormBase):
+    """A single explicit operator action, never a history-edit form."""
+
+    terminate = forms.BooleanField(required=False, label="Terminate active session")
+
+    class Meta:
+        model = FursuitCatchSession
+        fields: tuple[()] = ()
+
+
+@admin.register(FursuitCatchSession)
+class FursuitCatchSessionAdmin(FursuitCatchSessionAdminBase):
+    """Inspect catch-session history and permit only one per-object termination."""
+
+    form = CatchSessionAdminForm
+    fields = (
+        "activation",
+        "started_at",
+        "expires_at",
+        "ended_at",
+        "end_reason",
+        "created_at",
+        "updated_at",
+        "terminate",
+    )
+    readonly_fields = (
+        "activation",
+        "started_at",
+        "expires_at",
+        "ended_at",
+        "end_reason",
+        "created_at",
+        "updated_at",
+    )
+    list_display = (
+        "id",
+        "activation",
+        "started_at",
+        "expires_at",
+        "ended_at",
+        "end_reason",
+        "is_effectively_active",
+    )
+    list_filter = (CatchSessionActiveFilter, "end_reason", "activation__convention")
+    search_fields = (
+        "id__exact",
+        "activation__fursuit__id__exact",
+        "activation__fursuit__name",
+        "activation__fursuit__owner__id__exact",
+        "activation__convention__id__exact",
+        "activation__convention__name__exact",
+    )
+    ordering = ("-started_at", "-id")
+    actions = None
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[FursuitCatchSession]:
+        effective_session = _effectively_active_sessions(
+            FursuitCatchSession.objects.filter(pk=OuterRef("pk"))
         )
-        if not updated:
-            obj.refresh_from_db()
+        return (
+            super()
+            .get_queryset(request)
+            .annotate(_is_effectively_active=Exists(effective_session))
+        )
+
+    @admin.display(boolean=True, description="Effectively active")
+    def is_effectively_active(self, session: FursuitCatchSession) -> bool:
+        """Show state computed from time and current operational participation."""
+        return bool(getattr(session, "_is_effectively_active", False))
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_delete_permission(
+        self, request: HttpRequest, obj: FursuitCatchSession | None = None
+    ) -> bool:
+        return False
+
+    def save_model(
+        self,
+        request: HttpRequest,
+        obj: FursuitCatchSession,
+        form: CatchSessionAdminForm,
+        change: bool,
+    ) -> None:
+        """Use the session-domain operator transition rather than editing history."""
+        del request
+        if not change:
+            raise PermissionDenied
+        if not form.cleaned_data["terminate"]:
             return
-        obj.deactivated_at = now
-        obj.updated_at = now
+        updated = terminate_session_as_operator(obj.pk)
+        obj.ended_at = updated.ended_at
+        obj.end_reason = updated.end_reason
+        obj.updated_at = updated.updated_at
+
+
+def _effectively_active_sessions(
+    queryset: QuerySet[FursuitCatchSession],
+) -> QuerySet[FursuitCatchSession]:
+    """Return sessions that are live and presently operationally participating."""
+    enrollment_exists = ConventionEnrollment.objects.filter(
+        user_id=OuterRef("activation__fursuit__owner_id"),
+        convention_id=OuterRef("activation__convention_id"),
+    )
+    return (
+        queryset.filter(
+            ended_at__isnull=True,
+            expires_at__gt=timezone.now(),
+            activation__is_active=True,
+            activation__fursuit__is_enabled=True,
+            activation__convention__status=ConventionStatus.ACTIVE,
+            activation__fursuit__owner__player_profile__is_enabled=True,
+            activation__fursuit__owner__player_profile__onboarding_completed_at__isnull=False,
+            activation__fursuit__owner__player_profile__handle__isnull=False,
+            activation__fursuit__owner__player_profile__display_name__isnull=False,
+        )
+        .filter(Exists(enrollment_exists))
+        .exclude(activation__fursuit__owner__player_profile__display_name="")
+    )

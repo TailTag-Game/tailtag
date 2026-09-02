@@ -35,6 +35,7 @@ def test_profile_openapi_documents_exact_paths_methods_representation_and_media_
         "/api/conventions/enrollments/",
         "/api/conventions/{convention_id}/fursuit-activations/",
         "/api/conventions/{convention_id}/fursuit-activations/{fursuit_id}/",
+        "/api/conventions/{convention_id}/fursuit-activations/{fursuit_id}/catch-session/",
         "/api/fursuits/",
         "/api/fursuits/{id}/",
         "/api/fursuits/{id}/photo/",

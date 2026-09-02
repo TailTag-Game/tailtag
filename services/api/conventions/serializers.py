@@ -2,13 +2,58 @@
 
 from __future__ import annotations
 
+import datetime
 from collections.abc import Mapping
 from typing import Any, TypedDict, cast
 
 from rest_framework import serializers
 from rest_framework.exceptions import ErrorDetail
 
+from .catch_sessions import FursuitCatchSessionState
 from .models import Convention, ConventionEnrollment, FursuitActivation
+
+FURSUIT_CATCH_SESSION_RESPONSE_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "fursuit_id": {"type": "integer", "readOnly": True},
+        "convention_id": {"type": "integer", "readOnly": True},
+        "is_active": {"type": "boolean", "readOnly": True},
+        "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": True,
+            "readOnly": True,
+        },
+        "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": True,
+            "readOnly": True,
+        },
+        "ended_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": True,
+            "readOnly": True,
+        },
+        "end_reason": {
+            "type": "string",
+            "nullable": True,
+            "enum": ["owner", "operator", "eligibility_lost", "expired"],
+            "readOnly": True,
+        },
+    },
+    "required": [
+        "fursuit_id",
+        "convention_id",
+        "is_active",
+        "started_at",
+        "expires_at",
+        "ended_at",
+        "end_reason",
+    ],
+}
 
 FURSUIT_ACTIVATION_RESPONSE_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -158,6 +203,16 @@ class FursuitActivationResponseData(TypedDict):
     deactivated_at: str | None
 
 
+class FursuitCatchSessionResponseData(TypedDict):
+    fursuit_id: int
+    convention_id: int
+    is_active: bool
+    started_at: str | None
+    expires_at: str | None
+    ended_at: str | None
+    end_reason: str | None
+
+
 def convention_response_data(convention: Convention) -> ConventionResponseData:
     """Project durable convention state to player-facing representation."""
     return {
@@ -196,4 +251,36 @@ def fursuit_activation_response_data(
             if activation.deactivated_at is not None
             else None
         ),
+    }
+
+
+def fursuit_catch_session_response_data(
+    state: FursuitCatchSessionState,
+) -> FursuitCatchSessionResponseData:
+    """Project the domain's canonical desired-state result without internal IDs."""
+    session = state.session
+    if session is None:
+        return {
+            "fursuit_id": state.activation.fursuit_id,
+            "convention_id": state.activation.convention_id,
+            "is_active": False,
+            "started_at": None,
+            "expires_at": None,
+            "ended_at": None,
+            "end_reason": None,
+        }
+
+    def timestamp(value: datetime.datetime) -> str:
+        return value.astimezone(datetime.UTC).isoformat().replace("+00:00", "Z")
+
+    return {
+        "fursuit_id": state.activation.fursuit_id,
+        "convention_id": state.activation.convention_id,
+        "is_active": state.is_active,
+        "started_at": timestamp(session.started_at),
+        "expires_at": timestamp(session.expires_at),
+        "ended_at": timestamp(session.ended_at)
+        if session.ended_at is not None
+        else None,
+        "end_reason": session.end_reason,
     }

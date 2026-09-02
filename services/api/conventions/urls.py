@@ -11,6 +11,7 @@ from .views import (
     ConventionListView,
     FursuitActivationDetailView,
     FursuitActivationListView,
+    FursuitCatchSessionDetailView,
 )
 
 urlpatterns = [
@@ -26,6 +27,11 @@ urlpatterns = [
         "<int:convention_id>/fursuit-activations/",
         FursuitActivationListView.as_view(),
         name="fursuit-activation-list",
+    ),
+    path(
+        "<int:convention_id>/fursuit-activations/<int:fursuit_id>/catch-session/",
+        FursuitCatchSessionDetailView.as_view(),
+        name="fursuit-catch-session-detail",
     ),
     path(
         "<int:convention_id>/fursuit-activations/<int:fursuit_id>/",
