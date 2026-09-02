@@ -1,0 +1,130 @@
+"""Privacy-safe credential resolution acceptance contract."""
+
+from __future__ import annotations
+
+import pytest
+
+from conventions.models import Convention
+from fursuits.models import Fursuit
+from profiles.models import PlayerProfile
+from tests.catch_credential_test_support import (
+    PAYLOAD_A,
+    TOKEN_A,
+    assert_not_found,
+    assert_resolution_data,
+    create_credential,
+    create_credential_scenario,
+    resolution_path,
+)
+from tests.fursuit_activation_test_support import create_activation_row
+from tests.fursuit_catch_session_test_support import create_catch_session
+
+
+@pytest.mark.django_db
+def test_resolution_accepts_only_closed_exact_payload_and_authorized_nonowner_caller() -> (
+    None
+):
+    """AC-04/10: rejects normalization/open bodies and incorrect owner-scoped target checks."""
+    target = create_credential_scenario(clerk_user_id="credential_target")
+    activation = create_activation_row(
+        fursuit=target.fursuit, convention=target.convention, active=True
+    )
+    create_catch_session(activation=activation)
+    create_credential(activation=activation, token=TOKEN_A)
+    caller = create_credential_scenario(clerk_user_id="credential_resolver")
+    # The resolver's own enrollment in the target convention, not ownership, authorizes use.
+    from conventions.models import ConventionEnrollment
+
+    ConventionEnrollment.objects.create(user=caller.user, convention=target.convention)
+    path = resolution_path(target.convention.pk)
+    for body in (
+        {},
+        {"payload": PAYLOAD_A, "extra": 1},
+        {"payload": TOKEN_A},
+        {"payload": PAYLOAD_A + " "},
+        {"payload": "tailtag:catch:v2:" + TOKEN_A},
+        [],
+        "bad",
+    ):
+        response = caller.client.post(path, body, content_type="application/json")
+        assert response.status_code == 400
+        assert PAYLOAD_A not in response.content.decode()
+    response = caller.client.post(
+        path, {"payload": PAYLOAD_A}, content_type="application/json"
+    )
+    assert response.status_code == 200
+    assert_resolution_data(
+        response.json(),
+        convention_id=target.convention.pk,
+        tailtag_id=str(target.fursuit.tailtag_id),
+        name=target.fursuit.name,
+        photo_url="http://testserver/media/" + target.fursuit.photo_key,
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "failure", ("wrong_convention", "random", "revoked", "inactive", "no_session")
+)
+def test_resolution_target_failures_are_one_generic_non_echoing_404(
+    failure: str,
+) -> None:
+    """AC-11/12: rejects target-state disclosure or resolving a non-catchable target."""
+    scenario = create_credential_scenario()
+    activation = create_activation_row(
+        fursuit=scenario.fursuit, convention=scenario.convention, active=True
+    )
+    create_catch_session(activation=activation)
+    credential = create_credential(activation=activation, token=TOKEN_A)
+    path = resolution_path(scenario.convention.pk)
+    payload = PAYLOAD_A
+    if failure == "wrong_convention":
+        other = Convention.objects.create(
+            name="Other",
+            status="active",
+            start_date=scenario.convention.start_date,
+            end_date=scenario.convention.end_date,
+        )
+        path = resolution_path(other.pk)
+    elif failure == "random":
+        payload = "tailtag:catch:v1:" + "Z" * 43
+    elif failure == "revoked":
+        credential.revoked_at = credential.updated_at
+        credential.revocation_reason = "operator"
+        credential.save(update_fields=["revoked_at", "revocation_reason", "updated_at"])
+    elif failure == "inactive":
+        Fursuit.objects.filter(pk=scenario.fursuit.pk).update(is_enabled=False)
+    else:
+        activation.catch_sessions.all().delete()
+    assert_not_found(
+        scenario.client.post(
+            path, {"payload": payload}, content_type="application/json"
+        ),
+        payload,
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("failure", ("disabled_profile", "missing_enrollment"))
+def test_resolution_rejects_an_ineligible_caller_before_target_resolution(
+    failure: str,
+) -> None:
+    """AC-10: rejects caller authorization bypasses without target ownership as auth."""
+    scenario = create_credential_scenario()
+    activation = create_activation_row(
+        fursuit=scenario.fursuit, convention=scenario.convention, active=True
+    )
+    create_catch_session(activation=activation)
+    create_credential(activation=activation, token=TOKEN_A)
+    if failure == "disabled_profile":
+        PlayerProfile.objects.filter(pk=scenario.profile.pk).update(is_enabled=False)
+    else:
+        assert scenario.enrollment is not None
+        scenario.enrollment.delete()
+    response = scenario.client.post(
+        resolution_path(scenario.convention.pk),
+        {"payload": PAYLOAD_A},
+        content_type="application/json",
+    )
+    assert response.status_code == 403
+    assert PAYLOAD_A not in response.content.decode()
