@@ -63,7 +63,13 @@ def test_catch_session_database_constraints_reject_invalid_lifecycle_states_and_
     )
     session_model = catch_session_model()
     named = {constraint.name for constraint in session_model._meta.constraints}
-    assert all(name for name in named)
+    assert named == {
+        "conventions_catch_session_expiry_after_start",
+        "conventions_catch_session_end_fields_paired",
+        "conventions_catch_session_end_not_before_start",
+        "conventions_catch_session_end_reason_valid",
+        "conventions_catch_session_one_unended_per_activation",
+    }
     start = datetime.datetime(2026, 9, 1, tzinfo=datetime.UTC)
     invalid_rows: tuple[dict[str, Any], ...] = (
         {"expires_at": start},

@@ -9,7 +9,12 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 from accounts.models import User
-from conventions.models import Convention, ConventionEnrollment, FursuitActivation
+from conventions.models import (
+    Convention,
+    ConventionEnrollment,
+    ConventionStatus,
+    FursuitActivation,
+)
 from fursuits.models import Fursuit
 from profiles.eligibility import is_participation_eligible
 from profiles.models import PlayerProfile
@@ -271,7 +276,9 @@ def set_convention_admin_state(
     """Persist an admin Convention edit and end sessions on loss of playability."""
     with transaction.atomic():
         convention = Convention.objects.select_for_update().get(pk=convention_id)
-        became_nonplayable = convention.is_playable and status != "active"
+        became_nonplayable = (
+            convention.is_playable and status != ConventionStatus.ACTIVE.value
+        )
         now = timezone.now()
         if became_nonplayable:
             from conventions.catch_sessions import terminate_for_convention_nonplayable

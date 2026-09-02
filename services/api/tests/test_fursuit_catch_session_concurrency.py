@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import datetime
+import math
+import os
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from queue import Empty, Queue
@@ -36,7 +38,16 @@ from tests.fursuit_catch_session_test_support import (
     create_catch_session,
 )
 
-_WAIT_SECONDS = 5.0
+
+def _configured_wait_seconds() -> float:
+    try:
+        value = float(os.environ.get("TAILTAG_TEST_LOCK_WAIT_SECONDS", "5.0"))
+    except ValueError:
+        return 5.0
+    return value if math.isfinite(value) and value > 0 else 5.0
+
+
+_WAIT_SECONDS = _configured_wait_seconds()
 _RESULT_SECONDS = 25.0
 
 
@@ -489,7 +500,9 @@ def test_race_6_start_vs_owner_activation_deactivation_leaves_no_unended_session
     assert start.status_code in {200, 400} and deactivate.status_code == 200
     activation.refresh_from_db()
     assert activation.is_active is False
-    assert not any(row.ended_at is None for row in _rows(activation))
+    rows = _rows(activation)
+    assert len(rows) == (1 if start.status_code == 200 else 0)
+    assert not any(row.ended_at is None for row in rows)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -531,6 +544,7 @@ def test_races_7_to_10_start_vs_each_real_eligibility_service_leaves_no_live_row
     start, _ = _race(lock, _start(s), operation)
     assert start.status_code in {200, 400, 403}, label
     rows = _rows(activation)
+    assert len(rows) == (1 if start.status_code == 200 else 0), label
     assert not any(row.ended_at is None for row in rows), label
     assert all(row.end_reason == "eligibility_lost" for row in rows), label
 

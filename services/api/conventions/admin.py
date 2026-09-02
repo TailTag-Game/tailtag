@@ -16,6 +16,7 @@ from .catch_sessions import terminate_session_as_operator
 from .models import (
     Convention,
     ConventionEnrollment,
+    ConventionStatus,
     FursuitActivation,
     FursuitCatchSession,
 )
@@ -313,12 +314,20 @@ class FursuitCatchSessionAdmin(FursuitCatchSessionAdminBase):
     ordering = ("-started_at", "-id")
     actions = None
 
+    def get_queryset(self, request: HttpRequest) -> QuerySet[FursuitCatchSession]:
+        effective_session = _effectively_active_sessions(
+            FursuitCatchSession.objects.filter(pk=OuterRef("pk"))
+        )
+        return (
+            super()
+            .get_queryset(request)
+            .annotate(_is_effectively_active=Exists(effective_session))
+        )
+
     @admin.display(boolean=True, description="Effectively active")
     def is_effectively_active(self, session: FursuitCatchSession) -> bool:
         """Show state computed from time and current operational participation."""
-        return _effectively_active_sessions(
-            FursuitCatchSession.objects.filter(pk=session.pk)
-        ).exists()
+        return bool(getattr(session, "_is_effectively_active", False))
 
     def has_add_permission(self, request: HttpRequest) -> bool:
         return False
@@ -361,7 +370,7 @@ def _effectively_active_sessions(
             expires_at__gt=timezone.now(),
             activation__is_active=True,
             activation__fursuit__is_enabled=True,
-            activation__convention__status="active",
+            activation__convention__status=ConventionStatus.ACTIVE,
             activation__fursuit__owner__player_profile__is_enabled=True,
             activation__fursuit__owner__player_profile__onboarding_completed_at__isnull=False,
             activation__fursuit__owner__player_profile__handle__isnull=False,

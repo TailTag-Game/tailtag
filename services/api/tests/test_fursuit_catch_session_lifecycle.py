@@ -13,12 +13,14 @@ from accounts.models import User
 from conventions.models import ConventionEnrollment, ConventionStatus, FursuitActivation
 from tests.fursuit_activation_test_support import (
     ActivationScenario,
+    activation_detail_path,
     create_activation_row,
     create_activation_scenario,
 )
 from tests.fursuit_catch_session_test_support import (
     CATCH_SESSION_LIFETIME,
     catch_session_model,
+    catch_session_path,
     create_catch_session,
 )
 
@@ -40,7 +42,7 @@ def _assert_eligibility_lost(session: Any) -> None:
 
 def _start_catch_session(scenario: ActivationScenario) -> Any:
     return scenario.client.put(
-        f"/api/conventions/{scenario.convention.pk}/fursuit-activations/{scenario.fursuit.pk}/catch-session/",  # type: ignore[attr-defined]
+        catch_session_path(scenario.convention.pk, scenario.fursuit.pk),
         {"is_active": True},
         content_type="application/json",
     )
@@ -128,7 +130,7 @@ def test_owner_and_operator_activation_deactivation_use_eligibility_lost_and_ina
     """AC-10/14: rejects owner/operator reasons or rewrites on an inactive retry."""
     scenario, activation, session = _live_session()
     response = scenario.client.put(
-        f"/api/conventions/{scenario.convention.pk}/fursuit-activations/{scenario.fursuit.pk}/",
+        activation_detail_path(scenario.convention.pk, scenario.fursuit.pk),
         {"is_active": False},
         content_type="application/json",
     )
@@ -137,7 +139,7 @@ def test_owner_and_operator_activation_deactivation_use_eligibility_lost_and_ina
     before = (session.ended_at, session.end_reason, session.updated_at)
     assert (
         scenario.client.put(
-            f"/api/conventions/{scenario.convention.pk}/fursuit-activations/{scenario.fursuit.pk}/",
+            activation_detail_path(scenario.convention.pk, scenario.fursuit.pk),
             {"is_active": False},
             content_type="application/json",
         ).status_code
@@ -147,7 +149,7 @@ def test_owner_and_operator_activation_deactivation_use_eligibility_lost_and_ina
     assert (session.ended_at, session.end_reason, session.updated_at) == before
     assert (
         scenario.client.put(
-            f"/api/conventions/{scenario.convention.pk}/fursuit-activations/{scenario.fursuit.pk}/",
+            activation_detail_path(scenario.convention.pk, scenario.fursuit.pk),
             {"is_active": True},
             content_type="application/json",
         ).status_code
@@ -213,6 +215,7 @@ def test_convention_admin_non_playable_transition_ends_live_session_and_restore_
         == 302
     )
     session.refresh_from_db()
+    activation.refresh_from_db()
     assert session.ended_at is not None and activation.is_active
     assert _start_catch_session(scenario).status_code == 200
     assert catch_session_model().objects.filter(activation=activation).count() == 2
@@ -243,7 +246,7 @@ def test_every_eligibility_loss_path_gives_expired_row_expiration_precedence(
     )
     if mutation == "activation":
         response = scenario.client.put(
-            f"/api/conventions/{scenario.convention.pk}/fursuit-activations/{scenario.fursuit.pk}/",
+            activation_detail_path(scenario.convention.pk, scenario.fursuit.pk),
             {"is_active": False},
             content_type="application/json",
         )
