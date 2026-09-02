@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from django.db import connection
+from django.db import IntegrityError, connection, transaction
 
 from fursuits.models import Fursuit
 from tests.fursuit_test_support import create_eligible_user, create_fursuit_record
@@ -26,6 +26,20 @@ def test_tailtag_id_is_non_null_unique_read_only_uuid_with_per_record_default() 
     assert isinstance(second.tailtag_id, uuid.UUID)
     assert first.tailtag_id != second.tailtag_id
     assert first.tailtag_id != first.id
+
+
+@pytest.mark.django_db
+def test_tailtag_id_database_uniqueness_rejects_a_duplicate_value() -> None:
+    owner = create_eligible_user()
+    existing = create_fursuit_record(owner=owner, name="Existing identity")
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Fursuit.objects.create(
+            owner=owner,
+            name="Duplicate identity",
+            photo_key="images/33333333333333333333333333333333.png",
+            tailtag_id=existing.tailtag_id,
+        )
 
 
 @pytest.mark.django_db(transaction=True)

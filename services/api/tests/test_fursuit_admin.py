@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Protocol, cast
 
 import pytest
+from django.contrib import admin
 from django.contrib.admin.models import LogEntry
 from django.contrib.auth.models import Permission
 from django.core.files.storage import default_storage
-from django.test import Client, override_settings
+from django.test import Client, RequestFactory, override_settings
 from django.urls import reverse
 
 from accounts.models import User
@@ -49,6 +51,12 @@ def test_admin_allows_only_enabled_toggle_and_never_exposes_key_or_clerk_identit
     assert storage.url_calls == 1
     before_update = record.updated_at
     tailtag_id_before = record.tailtag_id
+    request = RequestFactory().get(change)
+    request.user = operator
+    model_admin = admin.site._registry[type(record)]
+    form_class = model_admin.get_form(request, obj=record, change=True)
+    assert "tailtag_id" in model_admin.get_readonly_fields(request, record)
+    assert "tailtag_id" not in form_class.base_fields
     posted = client.post(change, {"is_enabled": ""})
     record.refresh_from_db()
     assert [response.status_code for response in (list_response, detail, posted)] == [
@@ -67,6 +75,13 @@ def test_admin_allows_only_enabled_toggle_and_never_exposes_key_or_clerk_identit
     record.refresh_from_db()
     assert repeated.status_code == 302
     assert record.is_enabled is False and record.updated_at == after_toggle
+    assert record.tailtag_id == tailtag_id_before
+    forged = client.post(
+        change,
+        {"is_enabled": "", "tailtag_id": str(uuid.uuid4())},
+    )
+    record.refresh_from_db()
+    assert forged.status_code == 302
     assert record.tailtag_id == tailtag_id_before
     rendered = list_response.content + detail.content
     assert (
