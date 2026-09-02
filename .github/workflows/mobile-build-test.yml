@@ -17,9 +17,9 @@ jobs:
   changes:
     name: Detect mobile changes
     runs-on: ubuntu-latest
-    outputs: 
+    outputs:
       mobile: ${{ steps.filter.outputs.mobile || steps.skip-filter.outputs.mobile }}
-    steps: 
+    steps:
       - name: Detect mobile app changes
         id: filter
         if: github.event_name == 'pull_request'
@@ -33,7 +33,7 @@ jobs:
         id: skip-filter
         if: github.event_name != 'pull_request'
         run: echo "mobile=true" >> "$GITHUB_OUTPUT"
-        
+
   android:
     name: Android Build Test
     needs: changes
@@ -92,19 +92,24 @@ jobs:
         run: flutter build ios --release --no-codesign
   mobile-validation:
     name: Mobile validation
-    needs: 
+    needs:
       - changes
       - android
       - ios
     if: always()
     runs-on: ubuntu-latest
-    steps: 
+    steps:
       - name: Validate build status
-        env: 
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
           MOBILE_CHANGED: ${{ needs.changes.outputs.mobile }}
           ANDROID_RESULT: ${{ needs.android.result }}
           IOS_RESULT: ${{ needs.ios.result }}
         run: |
+          if [ "$CHANGES_RESULT" != "success" ]; then
+            echo "Mobile change detection failed."
+            exit 1
+          fi
           if [ "$MOBILE_CHANGED" != "true" ]; then
             echo "No mobile app changes."
             exit 0
