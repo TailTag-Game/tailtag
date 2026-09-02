@@ -4,6 +4,19 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 
+def preserve_credential_history_on_reverse(apps, schema_editor):
+    """Prevent reversal from dropping durable credential history."""
+    Credential = apps.get_model("conventions", "FursuitCatchCredential")
+    if Credential.objects.exists():
+        raise RuntimeError(
+            "Cannot reverse catch credential migration while credential history exists."
+        )
+
+
+def noop_forward(apps, schema_editor):
+    """Keep the reverse history guard paired with this additive migration."""
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("conventions", "0004_fursuitcatchsession"),
@@ -89,4 +102,5 @@ class Migration(migrations.Migration):
                 ],
             },
         ),
+        migrations.RunPython(noop_forward, preserve_credential_history_on_reverse),
     ]
