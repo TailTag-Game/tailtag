@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime
+
 import pytest
 from django.test import Client
 from django.urls import reverse
@@ -176,6 +178,78 @@ def test_every_repository_eligibility_loss_revokes_current_credential_and_preser
     assert_owner_payload(response, PAYLOAD_B)
     current = catch_credential_model().objects.get(revoked_at__isnull=True)
     assert current.pk != credential.pk and current.token == TOKEN_B
+
+
+@pytest.mark.django_db
+def test_eligibility_loss_revokes_credential_when_unfinalized_session_has_expired(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-08/14: expiry finalization cannot bypass credential revocation."""
+    scenario, session, credential = _scenario_with_current()
+    now = session.expires_at
+    before_session = (session.started_at, session.expires_at, session.updated_at)
+    from conventions import services
+
+    monkeypatch.setattr(services.timezone, "now", lambda: now)
+    response = scenario.client.put(
+        activation_detail_path(scenario.convention.pk, scenario.fursuit.pk),
+        {"is_active": False},
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+
+    credential.refresh_from_db()
+    session.refresh_from_db()
+    assert (credential.revoked_at, credential.revocation_reason) == (
+        now,
+        "eligibility_lost",
+    )
+    assert (session.started_at, session.expires_at) == before_session[:2]
+    assert (session.ended_at, session.end_reason) == (now, "expired")
+
+
+@pytest.mark.django_db
+def test_eligibility_loss_revokes_credential_without_rewriting_terminal_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-08/14: a terminal session cannot suppress revocation or be rewritten."""
+    scenario, session, credential = _scenario_with_current()
+    terminal_at = session.started_at + datetime.timedelta(minutes=1)
+    session.ended_at = terminal_at
+    session.end_reason = "owner"
+    session.save(update_fields=("ended_at", "end_reason", "updated_at"))
+    session.refresh_from_db()
+    session_before = (
+        session.started_at,
+        session.expires_at,
+        session.ended_at,
+        session.end_reason,
+        session.updated_at,
+    )
+    now = terminal_at + datetime.timedelta(minutes=1)
+    from conventions import services
+
+    monkeypatch.setattr(services.timezone, "now", lambda: now)
+    response = scenario.client.put(
+        activation_detail_path(scenario.convention.pk, scenario.fursuit.pk),
+        {"is_active": False},
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+
+    credential.refresh_from_db()
+    session.refresh_from_db()
+    assert (credential.revoked_at, credential.revocation_reason) == (
+        now,
+        "eligibility_lost",
+    )
+    assert (
+        session.started_at,
+        session.expires_at,
+        session.ended_at,
+        session.end_reason,
+        session.updated_at,
+    ) == session_before
 
 
 @pytest.mark.django_db
