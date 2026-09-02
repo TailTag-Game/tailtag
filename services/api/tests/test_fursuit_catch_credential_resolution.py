@@ -83,6 +83,7 @@ def test_resolution_accepts_only_closed_exact_payload_and_authorized_nonowner_ca
         "wrong_convention",
         "random",
         "revoked",
+        "revoked_with_successor",
         "inactive_activation",
         "target_profile",
         "target_fursuit",
@@ -118,10 +119,12 @@ def test_resolution_target_failures_are_one_generic_non_echoing_404(
         path = resolution_path(other.pk)
     elif failure == "random":
         payload = "tailtag:catch:v1:" + "Z" * 43
-    elif failure == "revoked":
+    elif failure in {"revoked", "revoked_with_successor"}:
         credential.revoked_at = credential.updated_at
         credential.revocation_reason = "operator"
         credential.save(update_fields=["revoked_at", "revocation_reason", "updated_at"])
+        if failure == "revoked_with_successor":
+            create_credential(activation=activation, token="B" * 43)
     elif failure == "inactive_activation":
         activation.is_active = False
         activation.deactivated_at = timezone.now()

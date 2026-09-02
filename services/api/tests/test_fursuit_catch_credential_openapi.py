@@ -157,6 +157,7 @@ def test_credential_openapi_is_exact_closed_authenticated_and_has_no_rendering_b
             _assert_detail_error(schema, operation["responses"][status])
     for operation in (paths[owner]["get"], paths[rotate]["post"]):
         _assert_detail_error(schema, operation["responses"]["400"])
+    _assert_detail_error(schema, paths[resolve]["post"]["responses"]["400"])
     generic_not_found = paths[resolve]["post"]["responses"]["404"]
     assert "catch credential not found" in str(generic_not_found).lower()
     rendered = " ".join(paths).lower()
