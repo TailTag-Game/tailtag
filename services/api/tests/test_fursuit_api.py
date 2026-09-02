@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from typing import Protocol, cast
-from uuid import UUID
+from typing import cast
 
 import pytest
 from django.core.files.storage import default_storage
@@ -19,6 +18,8 @@ from tests.authentication_support import (
     force_authenticated_client,
 )
 from tests.fursuit_test_support import (
+    assert_fursuit_data,
+    assert_fursuit_response,
     create_eligible_user,
     create_fursuit_record,
     raw_client_request,
@@ -51,27 +52,6 @@ class AdvisoryLockObserver:
         if self._acquisition.search(sql):
             self.acquisitions.append((sql, params))
         return execute(sql, params, many, context)
-
-
-class _JsonResponse(Protocol):
-    def json(self) -> dict[str, object]: ...
-
-
-def assert_fursuit_data(data: dict[str, object]) -> dict[str, object]:
-    """Assert the frozen canonical owner representation, including TailTag ID."""
-    assert set(data) == {"id", "tailtag_id", "name", "photo_url", "is_enabled"}
-    assert isinstance(data["id"], int)
-    assert isinstance(data["tailtag_id"], str)
-    assert isinstance(UUID(data["tailtag_id"]), UUID)
-    assert isinstance(data["name"], str)
-    assert isinstance(data["photo_url"], str)
-    assert data["photo_url"]
-    assert isinstance(data["is_enabled"], bool)
-    return data
-
-
-def assert_fursuit_response(response: _JsonResponse) -> dict[str, object]:
-    return assert_fursuit_data(response.json())
 
 
 @pytest.mark.django_db
