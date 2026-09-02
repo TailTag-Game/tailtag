@@ -7,7 +7,8 @@ from types import SimpleNamespace
 from typing import Any, NoReturn
 
 import pytest
-from django.db import IntegrityError, models, transaction
+from django.db import IntegrityError, connection, models, transaction
+from django.db.migrations.executor import MigrationExecutor
 from django.utils import timezone
 
 from tests.catch_credential_test_support import (
@@ -67,6 +68,77 @@ def test_credential_history_has_protected_activation_shape_safe_representation_a
     assert TOKEN_A not in str(first) and TOKEN_A not in repr(first)
     with pytest.raises(models.ProtectedError):
         activation.delete()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_credential_migration_reversal_preserves_existing_history() -> None:
+    """AC-03/18: 0005 reverses cleanly but refuses to drop credential history."""
+    before_credential_migration = ("conventions", "0004_fursuitcatchsession")
+    credential_migration = ("conventions", "0005_fursuitcatchcredential")
+    executor = MigrationExecutor(connection)
+    latest = executor.loader.graph.leaf_nodes()
+    try:
+        # Before credential use, the additive schema can still be reversed normally.
+        executor.migrate([before_credential_migration])
+        executor = MigrationExecutor(connection)
+        executor.migrate([credential_migration])
+        Credential = executor.loader.project_state(
+            [credential_migration]
+        ).apps.get_model("conventions", "FursuitCatchCredential")
+        assert Credential.objects.count() == 0
+        executor.migrate([before_credential_migration])
+
+        # Once durable history exists, the reverse guard must run before DropModel.
+        executor = MigrationExecutor(connection)
+        executor.migrate([credential_migration])
+        Credential = executor.loader.project_state(
+            [credential_migration]
+        ).apps.get_model("conventions", "FursuitCatchCredential")
+        scenario = create_credential_scenario(
+            clerk_user_id="credential_migration_reversal_owner"
+        )
+        activation = create_activation_row(
+            fursuit=scenario.fursuit, convention=scenario.convention, active=True
+        )
+        credential = Credential.objects.create(
+            activation_id=activation.pk,
+            token=TOKEN_A,
+        )
+        history_before = list(
+            Credential.objects.filter(pk=credential.pk).values(
+                "id",
+                "activation_id",
+                "token",
+                "revoked_at",
+                "revocation_reason",
+                "created_at",
+                "updated_at",
+            )
+        )
+
+        with pytest.raises(RuntimeError) as raised:
+            executor.migrate([before_credential_migration])
+
+        error = str(raised.value)
+        assert TOKEN_A not in error
+        assert f"tailtag:catch:v1:{TOKEN_A}" not in error
+        assert Credential._meta.db_table in connection.introspection.table_names()
+        assert (
+            list(
+                Credential.objects.filter(pk=credential.pk).values(
+                    "id",
+                    "activation_id",
+                    "token",
+                    "revoked_at",
+                    "revocation_reason",
+                    "created_at",
+                    "updated_at",
+                )
+            )
+            == history_before
+        )
+    finally:
+        MigrationExecutor(connection).migrate(latest)
 
 
 @pytest.mark.django_db
