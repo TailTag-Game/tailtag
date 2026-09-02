@@ -34,7 +34,7 @@ class CatchCredentialPayloadInvalidError(Exception):
 
 def format_catch_credential_payload(token: str) -> str:
     """Wrap a persisted opaque token in the exact V1 application envelope."""
-    return f"{CATCH_CREDENTIAL_PAYLOAD_PREFIX}{token}"
+    return f"{CATCH_CREDENTIAL_PAYLOAD_PREFIX}{_valid_catch_credential_token(token)}"
 
 
 def parse_catch_credential_payload(payload: str) -> str:
@@ -42,6 +42,11 @@ def parse_catch_credential_payload(payload: str) -> str:
     if not payload.isascii() or not payload.startswith(CATCH_CREDENTIAL_PAYLOAD_PREFIX):
         raise CatchCredentialPayloadInvalidError()
     token = payload.removeprefix(CATCH_CREDENTIAL_PAYLOAD_PREFIX)
+    return _valid_catch_credential_token(token)
+
+
+def _valid_catch_credential_token(token: str) -> str:
+    """Return a token only when it uses the exact persisted-token grammar."""
     if _TOKEN_PATTERN.fullmatch(token) is None:
         raise CatchCredentialPayloadInvalidError()
     return token
