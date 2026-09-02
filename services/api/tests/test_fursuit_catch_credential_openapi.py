@@ -29,6 +29,18 @@ def _assert_detail_error(
     assert error["properties"] == {"detail": {"type": "string"}}
 
 
+def _assert_payload_validation_error(
+    schema: Mapping[str, Any], response: Mapping[str, Any]
+) -> None:
+    """The closed resolution request always reports validation against `payload`."""
+    error = _deref(schema, response["content"]["application/json"]["schema"])
+    assert error.get("additionalProperties") is False
+    assert error["required"] == ["payload"]
+    assert error["properties"] == {
+        "payload": {"type": "array", "items": {"type": "string"}}
+    }
+
+
 def _without_generator_presentation_metadata(
     value: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -151,14 +163,17 @@ def test_credential_openapi_is_exact_closed_authenticated_and_has_no_rendering_b
         projection["properties"]
     ) == {"convention_id", "fursuit"}
     assert set(projection["required"]) == {"convention_id", "fursuit"}
-    assert projection["properties"]["convention_id"] == {"type": "integer"}
+    assert projection["properties"]["convention_id"] == {
+        "type": "integer",
+        "readOnly": True,
+    }
     fursuit = _deref(schema, projection["properties"]["fursuit"])
     assert fursuit.get("additionalProperties") is False
     assert set(fursuit["required"]) == {"tailtag_id", "name", "photo_url"}
     assert fursuit["properties"] == {
-        "tailtag_id": {"type": "string", "format": "uuid"},
-        "name": {"type": "string"},
-        "photo_url": {"type": "string", "format": "uri"},
+        "tailtag_id": {"type": "string", "format": "uuid", "readOnly": True},
+        "name": {"type": "string", "readOnly": True},
+        "photo_url": {"type": "string", "format": "uri", "readOnly": True},
     }
     for operation in (
         paths[owner]["get"],
@@ -169,7 +184,7 @@ def test_credential_openapi_is_exact_closed_authenticated_and_has_no_rendering_b
             _assert_detail_error(schema, operation["responses"][status])
     for operation in (paths[owner]["get"], paths[rotate]["post"]):
         _assert_detail_error(schema, operation["responses"]["400"])
-    _assert_detail_error(schema, paths[resolve]["post"]["responses"]["400"])
+    _assert_payload_validation_error(schema, paths[resolve]["post"]["responses"]["400"])
     generic_not_found = paths[resolve]["post"]["responses"]["404"]
     assert "catch credential not found" in str(generic_not_found).lower()
     rendered = " ".join(paths).lower()
