@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from django import forms
@@ -9,7 +10,7 @@ from django.contrib import admin
 from django.core.exceptions import PermissionDenied
 from django.db.models import Exists, OuterRef, QuerySet
 from django.forms import ModelForm
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 
 from .catch_credentials import revoke_catch_credential_as_operator
@@ -27,6 +28,11 @@ from .services import (
     remove_convention_enrollment,
     set_convention_admin_state,
 )
+
+_SENSITIVE_CREDENTIAL_SEARCH_PATTERN = re.compile(
+    r"^(?:tailtag:catch:v1:)?[A-Za-z0-9_-]{43}$", re.ASCII
+)
+_REDACTED_CREDENTIAL_SEARCH_QUERY = "__tailtag_admin_credential_query_redacted__"
 
 if TYPE_CHECKING:
     ConventionAdminBase = admin.ModelAdmin[Convention]
@@ -292,6 +298,22 @@ class FursuitCatchCredentialAdmin(FursuitCatchCredentialAdminBase):
     )
     ordering = ("-created_at", "-id")
     actions = None
+
+    def changelist_view(
+        self,
+        request: HttpRequest,
+        extra_context: dict[str, object] | None = None,
+    ) -> HttpResponse:
+        """Redact credential-shaped queries before Django renders preserved filters."""
+        if any(
+            _SENSITIVE_CREDENTIAL_SEARCH_PATTERN.fullmatch(value)
+            for value in request.GET.getlist("q")
+        ):
+            query = request.GET.copy()
+            query.setlist("q", [_REDACTED_CREDENTIAL_SEARCH_QUERY])
+            object.__setattr__(request, "GET", query)
+            request.META["QUERY_STRING"] = query.urlencode()
+        return super().changelist_view(request, extra_context=extra_context)
 
     @admin.display(boolean=True, description="Current")
     def is_current(self, credential: FursuitCatchCredential) -> bool:
