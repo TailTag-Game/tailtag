@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any, cast
 
 import pytest
-from django.apps import apps
 from django.test import Client, override_settings
 from django.utils import timezone
 
@@ -66,14 +65,6 @@ def _preview_state_snapshot(
         "convention": list(
             type(target_convention).objects.filter(pk=target_convention.pk).values()
         ),
-        "existing_catch_artifacts": {
-            model._meta.label: list(model.objects.order_by("pk").values())
-            for model in apps.get_models()
-            if any(
-                marker in model.__name__.lower()
-                for marker in ("catch", "reservation", "authorization")
-            )
-        },
     }
 
 

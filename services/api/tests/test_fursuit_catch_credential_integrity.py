@@ -243,7 +243,7 @@ def test_credential_payload_protocol_is_exact_and_malformed_inputs_are_safe_and_
 
 
 @pytest.mark.django_db
-def test_private_current_creation_generates_raw_token_once_and_formats_only_at_protocol_boundary(
+def test_owner_creation_generates_raw_token_once_and_formats_only_at_protocol_boundary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """AC-04: rejects envelope persistence, wrong entropy size, or implicit formatting."""
@@ -260,7 +260,13 @@ def test_private_current_creation_generates_raw_token_once_and_formats_only_at_p
         return TOKEN_A
 
     monkeypatch.setattr(catch_credentials.secrets, "token_urlsafe", token_urlsafe)
-    credential = catch_credentials._create_current_catch_credential(activation)  # pyright: ignore[reportPrivateUsage] # Acceptance contract exercises the private creation seam.
+    payload = catch_credentials.get_or_create_owner_catch_credential(
+        scenario.user,
+        convention_id=scenario.convention.pk,
+        fursuit_id=scenario.fursuit.pk,
+    )
+    credential = catch_credential_model().objects.get(activation=activation)
+    assert payload == catch_credentials.format_catch_credential_payload(TOKEN_A)
     assert calls == [32] and credential.token == TOKEN_A
     assert credential.token != catch_credentials.format_catch_credential_payload(
         credential.token
@@ -271,7 +277,7 @@ def test_private_current_creation_generates_raw_token_once_and_formats_only_at_p
 
 
 @pytest.mark.django_db
-def test_private_creation_retries_only_one_named_token_collision(
+def test_owner_creation_retries_only_one_named_token_collision(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """AC-04/05: rejects message matching, no retry, or unbounded token collision loops."""
@@ -304,7 +310,13 @@ def test_private_creation_retries_only_one_named_token_collision(
 
     monkeypatch.setattr(catch_credentials.secrets, "token_urlsafe", token_urlsafe)
     monkeypatch.setattr(model.objects, "create", create)
-    credential = catch_credentials._create_current_catch_credential(activation)  # pyright: ignore[reportPrivateUsage] # Acceptance contract exercises the private creation seam.
+    payload = catch_credentials.get_or_create_owner_catch_credential(
+        scenario.user,
+        convention_id=scenario.convention.pk,
+        fursuit_id=scenario.fursuit.pk,
+    )
+    credential = model.objects.get(activation=activation)
+    assert payload == catch_credentials.format_catch_credential_payload(TOKEN_B)
     assert credential.token == TOKEN_B
     assert token_calls == [32, 32] and create_calls == 2
 
@@ -320,15 +332,17 @@ def test_private_creation_retries_only_one_named_token_collision(
         _raise(second)
 
     monkeypatch.setattr(model.objects, "create", raise_second_collision)
+    retry_scenario = create_credential_scenario(clerk_user_id="retry_second")
+    create_activation_row(
+        fursuit=retry_scenario.fursuit,
+        convention=retry_scenario.convention,
+        active=True,
+    )
     with pytest.raises(IntegrityError) as raised:
-        catch_credentials._create_current_catch_credential(  # pyright: ignore[reportPrivateUsage] # Acceptance contract exercises the private creation seam.
-            create_activation_row(
-                fursuit=create_credential_scenario(
-                    clerk_user_id="retry_second"
-                ).fursuit,
-                convention=scenario.convention,
-                active=True,
-            )
+        catch_credentials.get_or_create_owner_catch_credential(
+            retry_scenario.user,
+            convention_id=retry_scenario.convention.pk,
+            fursuit_id=retry_scenario.fursuit.pk,
         )
     assert raised.value is second
     assert token_calls == [32, 32, 32, 32]
@@ -376,10 +390,11 @@ def test_private_creation_recovers_only_named_current_winner_and_preserves_trans
 
 
 @pytest.mark.django_db
-def test_private_revocation_is_one_terminal_current_to_historical_transition() -> None:
+def test_operator_revocation_is_one_terminal_current_to_historical_transition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """AC-03/06/08: rejects history rewrites or a no-op that fails to set terminal fields."""
     from conventions import catch_credentials
-    from conventions.models import FursuitCatchCredentialRevocationReason
 
     scenario = create_credential_scenario()
     activation = create_activation_row(
@@ -388,11 +403,8 @@ def test_private_revocation_is_one_terminal_current_to_historical_transition() -
     credential = create_credential(activation=activation, token=TOKEN_A)
     updated_before = credential.updated_at
     now = updated_before + datetime.timedelta(seconds=1)
-    result = catch_credentials._revoke_current_catch_credential(  # pyright: ignore[reportPrivateUsage] # Acceptance contract exercises the private revocation seam.
-        activation,
-        now=now,
-        reason=FursuitCatchCredentialRevocationReason.OPERATOR,
-    )
+    monkeypatch.setattr(catch_credentials.timezone, "now", lambda: now)
+    result = catch_credentials.revoke_catch_credential_as_operator(credential.pk)
     assert result is not None
     credential.refresh_from_db()
     assert credential.revoked_at == now
@@ -403,13 +415,10 @@ def test_private_revocation_is_one_terminal_current_to_historical_transition() -
         credential.revocation_reason,
         credential.updated_at,
     )
-    assert (
-        catch_credentials._revoke_current_catch_credential(  # pyright: ignore[reportPrivateUsage] # Acceptance contract exercises the private revocation seam.
-            activation,
-            now=now + datetime.timedelta(seconds=1),
-            reason=FursuitCatchCredentialRevocationReason.ELIGIBILITY_LOST,
-        )
-        is None
+    later = now + datetime.timedelta(seconds=1)
+    monkeypatch.setattr(catch_credentials.timezone, "now", lambda: later)
+    assert catch_credentials.revoke_catch_credential_as_operator(credential.pk).pk == (
+        credential.pk
     )
     credential.refresh_from_db()
     assert (
