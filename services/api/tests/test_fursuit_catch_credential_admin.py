@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 from unittest.mock import patch
+from urllib.parse import parse_qs
 
 import pytest
 from django.contrib import admin
@@ -50,6 +51,14 @@ def _admin_urls(credential: Any) -> tuple[str, str, str, str]:
 def _assert_token_absent(token: str, *responses: Any) -> None:
     for response in responses:
         assert token not in response.content.decode()
+
+
+def _assert_sensitive_search_request_is_sanitized(response: Any) -> None:
+    query_string = response.wsgi_request.META["QUERY_STRING"]
+    assert TOKEN_A not in query_string and PAYLOAD_A not in query_string
+    assert parse_qs(query_string) == {
+        "q": ["__tailtag_admin_credential_query_redacted__"]
+    }
 
 
 def _assert_credential_surface_has_no_secret(credential: Any, client: Client) -> None:
@@ -149,6 +158,8 @@ def test_credential_admin_is_staff_only_safe_history_with_exact_search_and_no_mu
     _assert_token_absent(PAYLOAD_A, by_name, by_token, by_payload, detail)
     _assert_token_absent(TOKEN_A, *adversarial_responses)
     _assert_token_absent(PAYLOAD_A, *adversarial_responses)
+    for sensitive_response in (by_token, by_payload, *adversarial_responses):
+        _assert_sensitive_search_request_is_sanitized(sensitive_response)
 
     # The sole mutation is a per-object revoke; it must not couple to a session.
     revoke_response = client.post(change, {"revoke": "1"}, follow=True)
