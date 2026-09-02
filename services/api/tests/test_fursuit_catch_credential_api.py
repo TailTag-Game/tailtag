@@ -19,8 +19,10 @@ from tests.catch_credential_test_support import (
     OWNER_INELIGIBLE_DETAIL,
     PAYLOAD_A,
     PAYLOAD_B,
+    PAYLOAD_C,
     TOKEN_A,
     TOKEN_B,
+    TOKEN_C,
     assert_owner_payload,
     catch_credential_model,
     create_credential,
@@ -79,17 +81,21 @@ def test_rotation_revokes_current_once_or_creates_without_a_current_row_and_reje
         scenario.client.post(path, b"{}", content_type="application/json").status_code
         == 400
     )
-    with patch("secrets.token_urlsafe", return_value=TOKEN_A):
+    with patch("secrets.token_urlsafe", return_value=TOKEN_C):
         second = scenario.client.post(path, b"", content_type="application/json")
-    assert_owner_payload(second, PAYLOAD_A)
+    assert_owner_payload(second, PAYLOAD_C)
     replacement.refresh_from_db()
     assert (
         replacement.revoked_at is not None
         and replacement.revocation_reason == "owner_rotation"
     )
-    assert catch_credential_model().objects.get(revoked_at__isnull=True).pk not in {
-        old.pk,
-        replacement.pk,
+    current = catch_credential_model().objects.get(revoked_at__isnull=True)
+    assert current.token == TOKEN_C and current.pk not in {old.pk, replacement.pk}
+    history = list(catch_credential_model().objects.filter(activation=activation))
+    assert len(history) == 3 and {row.token for row in history} == {
+        TOKEN_A,
+        TOKEN_B,
+        TOKEN_C,
     }
 
 

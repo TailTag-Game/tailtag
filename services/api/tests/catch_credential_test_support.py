@@ -15,8 +15,10 @@ from tests.fursuit_activation_test_support import (
 
 TOKEN_A = "A" * 43
 TOKEN_B = "B" * 43
+TOKEN_C = "C" * 43
 PAYLOAD_A = f"tailtag:catch:v1:{TOKEN_A}"
 PAYLOAD_B = f"tailtag:catch:v1:{TOKEN_B}"
+PAYLOAD_C = f"tailtag:catch:v1:{TOKEN_C}"
 OWNER_INELIGIBLE_DETAIL = "The fursuit cannot currently participate in this convention."
 NOT_FOUND_DETAIL = "Catch credential not found."
 AUTHENTICATION_DETAIL = "Authentication credentials were not provided."
