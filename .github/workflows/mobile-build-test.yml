@@ -60,7 +60,7 @@ jobs:
       - name: Run tests
         run: flutter test
       - name: Build APK
-        run: exit 1
+        run: flutter build apk
       - name: Build AAB
         run: flutter build appbundle
   ios:
