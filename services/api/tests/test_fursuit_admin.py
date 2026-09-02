@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 import pytest
 from django.contrib import admin
@@ -53,7 +53,7 @@ def test_admin_allows_only_enabled_toggle_and_never_exposes_key_or_clerk_identit
     tailtag_id_before = record.tailtag_id
     request = RequestFactory().get(change)
     request.user = operator
-    model_admin = admin.site._registry[type(record)]
+    model_admin: Any = cast(Any, admin.site)._registry[type(record)]
     form_class = model_admin.get_form(request, obj=record, change=True)
     assert "tailtag_id" in model_admin.get_readonly_fields(request, record)
     assert "tailtag_id" not in form_class.base_fields

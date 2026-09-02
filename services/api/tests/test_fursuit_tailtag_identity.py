@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any, cast
 
 import pytest
 from django.db import IntegrityError, connection, transaction
@@ -13,7 +14,7 @@ from tests.fursuit_test_support import create_eligible_user, create_fursuit_reco
 
 @pytest.mark.django_db
 def test_tailtag_id_is_non_null_unique_read_only_uuid_with_per_record_default() -> None:
-    field = Fursuit._meta.get_field("tailtag_id")
+    field = cast(Any, Fursuit._meta.get_field("tailtag_id"))
     assert field.default is uuid.uuid4
     assert field.null is False
     assert field.unique is True

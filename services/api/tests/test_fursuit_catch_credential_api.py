@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -55,7 +56,7 @@ def test_owner_fetch_is_lazy_idempotent_raw_token_only_and_does_not_start_a_sess
     credential.refresh_from_db()
     assert (credential.created_at, credential.updated_at) == snapshot
     assert catch_credential_model().objects.filter(activation=activation).count() == 1
-    assert not activation.catch_sessions.exists()
+    assert not cast(Any, activation).catch_sessions.exists()
 
 
 @pytest.mark.django_db

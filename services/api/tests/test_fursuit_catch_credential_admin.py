@@ -62,7 +62,7 @@ def _assert_credential_surface_has_no_secret(credential: Any, client: Client) ->
     for entry in LogEntry.objects.filter(
         content_type__app_label="conventions", object_id=str(credential.pk)
     ):
-        assert credential.token not in entry.object_repr
+        assert credential.token not in cast(Any, entry).object_repr
 
 
 @pytest.mark.django_db
@@ -163,7 +163,7 @@ def test_credential_admin_is_staff_only_safe_history_with_exact_search_and_no_mu
     log = LogEntry.objects.filter(
         content_type__app_label="conventions", object_id=str(credential.pk)
     ).latest("action_time")
-    assert TOKEN_A not in str(credential) and TOKEN_A not in log.object_repr
+    assert TOKEN_A not in str(credential) and TOKEN_A not in cast(Any, log).object_repr
     assert history_response.status_code == 200
     _assert_token_absent(TOKEN_A, history_response)
     _assert_credential_surface_has_no_secret(credential, client)

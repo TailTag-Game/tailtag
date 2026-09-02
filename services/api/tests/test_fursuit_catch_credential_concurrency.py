@@ -11,7 +11,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from queue import Empty, Queue
 from threading import Event
 from time import monotonic, sleep
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from django.db import IntegrityError, close_old_connections, connection, transaction
@@ -223,6 +223,22 @@ def _setup(label: str, *, session: bool = False) -> tuple[Any, FursuitActivation
     if session:
         create_catch_session(activation=activation)
     return scenario, activation, credential
+
+
+def _lock_fursuit(s: Any) -> Fursuit:
+    return Fursuit.objects.select_for_update().get(pk=s.fursuit.pk)
+
+
+def _lock_profile(s: Any) -> PlayerProfile:
+    return PlayerProfile.objects.select_for_update().get(pk=s.profile.pk)
+
+
+def _lock_enrollment(s: Any) -> ConventionEnrollment:
+    return ConventionEnrollment.objects.select_for_update().get(pk=s.enrollment.pk)
+
+
+def _lock_convention(s: Any) -> Convention:
+    return Convention.objects.select_for_update().get(pk=s.convention.pk)
 
 
 def _fetch(s: Any) -> Any:
@@ -488,7 +504,7 @@ def test_races_6_and_7_operation_vs_activation_deactivation_leaves_no_current_ro
         s, activation, initial = _setup(
             f"activation_{operation.__name__}_{owner_first}", session=True
         )
-        session = activation.catch_sessions.get(ended_at__isnull=True)
+        session = cast(Any, activation).catch_sessions.get(ended_at__isnull=True)
         first = lambda s=s, owner_first=owner_first: (
             operation(s) if owner_first else _deactivate(s)
         )
@@ -528,27 +544,25 @@ def test_races_6_and_7_operation_vs_activation_deactivation_leaves_no_current_ro
         (
             8,
             "fursuit",
-            lambda s: Fursuit.objects.select_for_update().get(pk=s.fursuit.pk),
+            _lock_fursuit,
             _disable_fursuit,
         ),
         (
             9,
             "profile",
-            lambda s: PlayerProfile.objects.select_for_update().get(pk=s.profile.pk),
+            _lock_profile,
             _disable_profile,
         ),
         (
             10,
             "enrollment",
-            lambda s: ConventionEnrollment.objects.select_for_update().get(
-                pk=s.enrollment.pk
-            ),
+            _lock_enrollment,
             _remove_enrollment,
         ),
         (
             11,
             "convention",
-            lambda s: Convention.objects.select_for_update().get(pk=s.convention.pk),
+            _lock_convention,
             _pause_convention,
         ),
     ),
@@ -572,7 +586,7 @@ def test_races_8_to_11_owner_operation_vs_each_eligibility_loss_has_no_current_r
         s, activation, initial = _setup(
             f"{label}_{operation.__name__}_{owner_first}", session=True
         )
-        session = activation.catch_sessions.get(ended_at__isnull=True)
+        session = cast(Any, activation).catch_sessions.get(ended_at__isnull=True)
         first = lambda s=s, owner_first=owner_first: (
             operation(s) if owner_first else loss(s)
         )
@@ -768,7 +782,7 @@ def test_race_15_resolution_vs_session_stop_expiration_and_restart_preserves_cre
         credential.updated_at,
     ) == before
     assert _separate_connection(lambda s=s: _session(s, True)).status_code == 200
-    live = activation.catch_sessions.get(ended_at__isnull=True)
+    live = cast(Any, activation).catch_sessions.get(ended_at__isnull=True)
     live.expires_at = timezone.now()
     live.save(update_fields=["expires_at", "updated_at"])
     assert (
@@ -818,5 +832,7 @@ def test_race_16_session_start_stop_vs_credential_operations_keeps_histories_ind
     )
     _assert_results(rotate, stop)
     assert rotate.status_code == stop.status_code == 200
-    assert activation.catch_sessions.filter(ended_at__isnull=True).count() == 0
+    assert (
+        cast(Any, activation).catch_sessions.filter(ended_at__isnull=True).count() == 0
+    )
     assert_credential_history(activation)

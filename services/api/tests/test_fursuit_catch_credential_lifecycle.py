@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+from typing import Any
 
 import pytest
 from django.test import Client
@@ -22,6 +23,7 @@ from tests.catch_credential_test_support import (
     owner_credential_path,
 )
 from tests.fursuit_activation_test_support import (
+    ActivationScenario,
     activation_detail_path,
     create_activation_row,
 )
@@ -31,7 +33,7 @@ from tests.fursuit_catch_session_test_support import (
 )
 
 
-def _scenario_with_current() -> tuple[object, object, object]:
+def _scenario_with_current() -> tuple[ActivationScenario, Any, Any]:
     scenario = create_credential_scenario()
     activation = create_activation_row(
         fursuit=scenario.fursuit, convention=scenario.convention, active=True

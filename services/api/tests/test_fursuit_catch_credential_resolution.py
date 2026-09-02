@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 from django.apps import apps
 from django.test import Client, override_settings
 from django.utils import timezone
 
-from conventions.models import Convention, ConventionEnrollment
+from conventions.models import Convention, ConventionEnrollment, FursuitActivation
 from fursuits.models import Fursuit
 from profiles.models import PlayerProfile
 from tests.authentication_support import TEST_CLERK_CONFIGURATION
@@ -23,14 +25,20 @@ from tests.catch_credential_test_support import (
     create_credential_scenario,
     resolution_path,
 )
-from tests.fursuit_activation_test_support import create_activation_row
+from tests.fursuit_activation_test_support import (
+    ActivationScenario,
+    create_activation_row,
+)
 from tests.fursuit_catch_session_test_support import create_catch_session
 
 INVALID_PAYLOAD = {"payload": ["Invalid catch credential payload."]}
 
 
 def _preview_state_snapshot(
-    *, target: object, caller: object, activation: object
+    *,
+    target: ActivationScenario,
+    caller: ActivationScenario,
+    activation: FursuitActivation,
 ) -> dict[str, object]:
     """Capture every currently existing state surface that preview must not mutate."""
     credential_model = catch_credential_model()
@@ -40,7 +48,7 @@ def _preview_state_snapshot(
     return {
         "credential_history": list(credential_model.objects.order_by("pk").values()),
         "activation": list(type(activation).objects.filter(pk=activation.pk).values()),
-        "sessions": list(activation.catch_sessions.order_by("pk").values()),
+        "sessions": list(cast(Any, activation).catch_sessions.order_by("pk").values()),
         "fursuit": list(
             type(target_fursuit).objects.filter(pk=target_fursuit.pk).values()
         ),
@@ -87,22 +95,25 @@ def test_resolution_accepts_only_closed_exact_payload_and_authorized_nonowner_ca
     before = _preview_state_snapshot(
         target=target, caller=caller, activation=activation
     )
-    for body in (
-        {},
-        {"payload": PAYLOAD_A, "extra": 1},
-        {"payload": TOKEN_A},
-        {"payload": None},
-        {"payload": 1},
-        {"payload": PAYLOAD_A + " "},
-        {"payload": " " + PAYLOAD_A},
-        {"payload": "tailtag:catch:v2:" + TOKEN_A},
-        {"payload": "tailtag:catch:v1:" + "A" * 42},
-        {"payload": "tailtag:catch:v1:" + "A" * 44},
-        {"payload": "tailtag:catch:v1:" + "A" * 42 + "="},
-        {"payload": "tailtag:catch:v1:" + "A" * 42 + "!"},
-        {"payload": "tailtag:catch:v1:" + "A" * 42 + "é"},
-        [],
-        "bad",
+    for body in cast(
+        tuple[object, ...],
+        (
+            {},
+            {"payload": PAYLOAD_A, "extra": 1},
+            {"payload": TOKEN_A},
+            {"payload": None},
+            {"payload": 1},
+            {"payload": PAYLOAD_A + " "},
+            {"payload": " " + PAYLOAD_A},
+            {"payload": "tailtag:catch:v2:" + TOKEN_A},
+            {"payload": "tailtag:catch:v1:" + "A" * 42},
+            {"payload": "tailtag:catch:v1:" + "A" * 44},
+            {"payload": "tailtag:catch:v1:" + "A" * 42 + "="},
+            {"payload": "tailtag:catch:v1:" + "A" * 42 + "!"},
+            {"payload": "tailtag:catch:v1:" + "A" * 42 + "é"},
+            [],
+            "bad",
+        ),
     ):
         response = caller.client.post(path, body, content_type="application/json")
         assert response.status_code == 400
@@ -188,7 +199,7 @@ def test_resolution_target_failures_are_one_generic_non_echoing_404(
     elif failure == "paused_convention":
         Convention.objects.filter(pk=target.convention.pk).update(status="paused")
     elif failure == "missing_session":
-        activation.catch_sessions.all().delete()
+        cast(Any, activation).catch_sessions.all().delete()
     elif failure == "stopped_session":
         session.ended_at = timezone.now()
         session.end_reason = "owner"
@@ -222,7 +233,7 @@ def test_resolution_rechecks_current_credential_after_target_evaluation(
 
     original_eligible = catch_credentials.is_fursuit_activation_eligible
 
-    def revoke_after_target_check(checked_activation: object) -> bool:
+    def revoke_after_target_check(checked_activation: FursuitActivation) -> bool:
         assert checked_activation == activation
         credential.revoked_at = timezone.now()
         credential.revocation_reason = "operator"

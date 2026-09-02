@@ -54,9 +54,17 @@ def _serialized_strings(value: object) -> list[str]:
     if isinstance(value, str):
         return [value]
     if isinstance(value, Mapping):
-        return [item for child in value.values() for item in _serialized_strings(child)]
+        return [
+            item
+            for child in cast(Mapping[object, object], value).values()
+            for item in _serialized_strings(child)
+        ]
     if isinstance(value, list):
-        return [item for child in value for item in _serialized_strings(child)]
+        return [
+            item
+            for child in cast(list[object], value)
+            for item in _serialized_strings(child)
+        ]
     return []
 
 

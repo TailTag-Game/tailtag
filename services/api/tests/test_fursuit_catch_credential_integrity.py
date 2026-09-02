@@ -93,13 +93,17 @@ def test_named_constraints_reject_invalid_pairs_reasons_duplicate_tokens_and_two
         for constraint in constraints
     )
     now = datetime.datetime(2026, 9, 1, tzinfo=datetime.UTC)
-    for overrides in (
-        {"revoked_at": now},
-        {"revocation_reason": "operator"},
-        {"revoked_at": now, "revocation_reason": "invalid"},
+    for revoked_at, revocation_reason in (
+        (now, None),
+        (None, "operator"),
+        (now, "invalid"),
     ):
         with pytest.raises(IntegrityError), transaction.atomic():
-            create_credential(activation=activation, **overrides)
+            create_credential(
+                activation=activation,
+                revoked_at=revoked_at,
+                revocation_reason=revocation_reason,
+            )
     create_credential(activation=activation, token=TOKEN_A)
     other = create_activation_row(
         fursuit=create_credential_scenario(clerk_user_id="credential_other").fursuit,
@@ -184,7 +188,7 @@ def test_private_current_creation_generates_raw_token_once_and_formats_only_at_p
         return TOKEN_A
 
     monkeypatch.setattr(catch_credentials.secrets, "token_urlsafe", token_urlsafe)
-    credential = catch_credentials._create_current_catch_credential(activation)
+    credential = catch_credentials._create_current_catch_credential(activation)  # pyright: ignore[reportPrivateUsage] # Acceptance contract exercises the private creation seam.
     assert calls == [32] and credential.token == TOKEN_A
     assert credential.token != catch_credentials.format_catch_credential_payload(
         credential.token
@@ -228,7 +232,7 @@ def test_private_creation_retries_only_one_named_token_collision(
 
     monkeypatch.setattr(catch_credentials.secrets, "token_urlsafe", token_urlsafe)
     monkeypatch.setattr(model.objects, "create", create)
-    credential = catch_credentials._create_current_catch_credential(activation)
+    credential = catch_credentials._create_current_catch_credential(activation)  # pyright: ignore[reportPrivateUsage] # Acceptance contract exercises the private creation seam.
     assert credential.token == TOKEN_B
     assert token_calls == [32, 32] and create_calls == 2
 
@@ -245,7 +249,7 @@ def test_private_creation_retries_only_one_named_token_collision(
 
     monkeypatch.setattr(model.objects, "create", raise_second_collision)
     with pytest.raises(IntegrityError) as raised:
-        catch_credentials._create_current_catch_credential(
+        catch_credentials._create_current_catch_credential(  # pyright: ignore[reportPrivateUsage] # Acceptance contract exercises the private creation seam.
             create_activation_row(
                 fursuit=create_credential_scenario(
                     clerk_user_id="retry_second"
@@ -276,22 +280,26 @@ def test_private_creation_recovers_only_named_current_winner_and_preserves_trans
         IntegrityError("hostile text has no authority"),
         "conventions_catch_credential_one_current_per_activation",
     )
-    monkeypatch.setattr(
-        model.objects, "create", lambda *_args, **_kwargs: _raise(conflict)
-    )
+
+    def raise_conflict(*_args: Any, **_kwargs: Any) -> NoReturn:
+        _raise(conflict)
+
+    monkeypatch.setattr(model.objects, "create", raise_conflict)
     with transaction.atomic():
-        assert catch_credentials._create_current_catch_credential(activation) == winner
+        assert catch_credentials._create_current_catch_credential(activation) == winner  # pyright: ignore[reportPrivateUsage] # Acceptance contract exercises the private creation seam.
         assert model.objects.filter(pk=winner.pk).exists()
 
     unrelated = _with_constraint_cause(
         IntegrityError("mentions token unique but wrong metadata"),
         "unrelated_constraint",
     )
-    monkeypatch.setattr(
-        model.objects, "create", lambda *_args, **_kwargs: _raise(unrelated)
-    )
+
+    def raise_unrelated(*_args: Any, **_kwargs: Any) -> NoReturn:
+        _raise(unrelated)
+
+    monkeypatch.setattr(model.objects, "create", raise_unrelated)
     with pytest.raises(IntegrityError) as raised:
-        catch_credentials._create_current_catch_credential(activation)
+        catch_credentials._create_current_catch_credential(activation)  # pyright: ignore[reportPrivateUsage] # Acceptance contract exercises the private creation seam.
     assert raised.value is unrelated
 
 
@@ -308,7 +316,7 @@ def test_private_revocation_is_one_terminal_current_to_historical_transition() -
     credential = create_credential(activation=activation, token=TOKEN_A)
     updated_before = credential.updated_at
     now = updated_before + datetime.timedelta(seconds=1)
-    result = catch_credentials._revoke_current_catch_credential(
+    result = catch_credentials._revoke_current_catch_credential(  # pyright: ignore[reportPrivateUsage] # Acceptance contract exercises the private revocation seam.
         activation,
         now=now,
         reason=FursuitCatchCredentialRevocationReason.OPERATOR,
@@ -324,7 +332,7 @@ def test_private_revocation_is_one_terminal_current_to_historical_transition() -
         credential.updated_at,
     )
     assert (
-        catch_credentials._revoke_current_catch_credential(
+        catch_credentials._revoke_current_catch_credential(  # pyright: ignore[reportPrivateUsage] # Acceptance contract exercises the private revocation seam.
             activation,
             now=now + datetime.timedelta(seconds=1),
             reason=FursuitCatchCredentialRevocationReason.ELIGIBILITY_LOST,
