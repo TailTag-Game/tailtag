@@ -86,4 +86,3 @@ other current protection parameters.
 If the workflow change must be rolled back, first remove `Mobile validation`
 from the required-check list so pull requests are not blocked by an unavailable
 or unsafe check, then revert the workflow change through a pull request.
-
