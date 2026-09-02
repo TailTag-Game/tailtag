@@ -1,0 +1,613 @@
+"""Real PostgreSQL, lock-observed credential race acceptance tests."""
+
+from __future__ import annotations
+
+import math
+import os
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
+from queue import Empty, Queue
+from time import monotonic, sleep
+from typing import Any
+
+import pytest
+from django.db import IntegrityError, close_old_connections, connection, transaction
+from django.test import Client
+from django.urls import reverse
+from django.utils import timezone
+
+from accounts.models import User
+from conventions.models import (
+    Convention,
+    ConventionEnrollment,
+    ConventionStatus,
+    FursuitActivation,
+)
+from fursuits.models import Fursuit
+from profiles.models import PlayerProfile
+from tests.authentication_support import force_authenticated_client
+from tests.catch_credential_test_support import (
+    NOT_FOUND_DETAIL,
+    PAYLOAD_A,
+    TOKEN_A,
+    catch_credential_model,
+    create_credential,
+    create_credential_scenario,
+    owner_credential_path,
+    resolution_path,
+    rotation_path,
+)
+from tests.fursuit_activation_test_support import (
+    activation_detail_path,
+    create_activation_row,
+)
+from tests.fursuit_catch_session_test_support import (
+    catch_session_path,
+    create_catch_session,
+)
+
+
+def _wait_seconds() -> float:
+    try:
+        value = float(os.environ.get("TAILTAG_TEST_LOCK_WAIT_SECONDS", "5.0"))
+    except ValueError:
+        return 5.0
+    return value if math.isfinite(value) and value > 0 else 5.0
+
+
+_WAIT_SECONDS = _wait_seconds()
+_RESULT_SECONDS = 25.0
+
+
+def _configured_pid() -> int:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT set_config('lock_timeout', '18000ms', false)")
+        cursor.execute("SELECT set_config('statement_timeout', '20000ms', false)")
+        cursor.execute("SELECT pg_backend_pid()")
+        row = cursor.fetchone()
+    assert row is not None
+    return int(row[0])
+
+
+def _worker(action: Callable[[], Any], pids: Queue[int]) -> Any:
+    close_old_connections()
+    try:
+        pids.put(_configured_pid())
+        return action()
+    finally:
+        connection.close()
+
+
+def _pid(queue: Queue[int], future: Future[Any]) -> int:
+    deadline = monotonic() + _WAIT_SECONDS
+    while monotonic() < deadline:
+        try:
+            return queue.get_nowait()
+        except Empty:
+            if future.done():
+                pytest.fail(
+                    f"worker completed before lock evidence: {future.result()!r}"
+                )
+            sleep(0.01)
+    pytest.fail("worker did not publish a backend PID")
+
+
+def _blocked(waiter: int, holder: int, future: Future[Any]) -> None:
+    deadline = monotonic() + _WAIT_SECONDS
+    while monotonic() < deadline:
+        if future.done():
+            pytest.fail(f"worker completed before lock evidence: {future.result()!r}")
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT %s = ANY(pg_blocking_pids(%s))", [holder, waiter])
+            row = cursor.fetchone()
+        assert row is not None
+        if row[0]:
+            return
+        sleep(0.01)
+    pytest.fail(f"backend {waiter} did not block behind holder {holder}")
+
+
+def _blocked_directly_or_transitively(
+    *, waiter: int, holder: int, predecessor: int, future: Future[Any]
+) -> None:
+    deadline = monotonic() + _WAIT_SECONDS
+    while monotonic() < deadline:
+        if future.done():
+            pytest.fail("second worker completed before lock evidence")
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_blocking_pids(%s), pg_blocking_pids(%s)",
+                [waiter, predecessor],
+            )
+            row = cursor.fetchone()
+        assert row is not None
+        waiter_blockers, predecessor_blockers = map(set, row)
+        if holder in waiter_blockers or (
+            predecessor in waiter_blockers and holder in predecessor_blockers
+        ):
+            return
+        sleep(0.01)
+    pytest.fail("second worker did not join the serialized PostgreSQL lock chain")
+
+
+def _race(
+    lock: Callable[[], Any], first: Callable[[], Any], second: Callable[[], Any]
+) -> tuple[Any, Any]:
+    """Use a held row plus pg_blocking_pids, never a sleep-selected winner."""
+    first_pids: Queue[int] = Queue()
+    second_pids: Queue[int] = Queue()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        with transaction.atomic():
+            held = lock()
+            assert held.pk
+            holder_pid = _configured_pid()
+            one = pool.submit(_worker, first, first_pids)
+            one_pid = _pid(first_pids, one)
+            _blocked(one_pid, holder_pid, one)
+            two = pool.submit(_worker, second, second_pids)
+            two_pid = _pid(second_pids, two)
+            _blocked_directly_or_transitively(
+                waiter=two_pid, holder=holder_pid, predecessor=one_pid, future=two
+            )
+        try:
+            return one.result(timeout=_RESULT_SECONDS), two.result(
+                timeout=_RESULT_SECONDS
+            )
+        except IntegrityError as error:
+            pytest.fail(f"expected credential race leaked IntegrityError: {error}")
+
+
+def assert_credential_history(activation: FursuitActivation) -> list[Any]:
+    rows = list(catch_credential_model().objects.filter(activation=activation))
+    assert sum(row.revoked_at is None for row in rows) <= 1
+    assert all(
+        (row.revoked_at is None) == (row.revocation_reason is None) for row in rows
+    )
+    return rows
+
+
+def _assert_results(*results: Any) -> None:
+    for result in results:
+        status = getattr(result, "status_code", None)
+        assert status != 500, f"expected race leaked HTTP 500: {result!r}"
+
+
+def _setup(label: str, *, session: bool = False) -> tuple[Any, FursuitActivation, Any]:
+    scenario = create_credential_scenario(clerk_user_id=f"credential_race_{label}")
+    activation = create_activation_row(
+        fursuit=scenario.fursuit, convention=scenario.convention, active=True
+    )
+    credential = create_credential(activation=activation, token=TOKEN_A)
+    if session:
+        create_catch_session(activation=activation)
+    return scenario, activation, credential
+
+
+def _fetch(s: Any) -> Any:
+    return force_authenticated_client(user=User.objects.get(pk=s.user.pk)).get(
+        owner_credential_path(s.convention.pk, s.fursuit.pk)
+    )
+
+
+def _rotate(s: Any) -> Any:
+    return force_authenticated_client(user=User.objects.get(pk=s.user.pk)).post(
+        rotation_path(s.convention.pk, s.fursuit.pk), b""
+    )
+
+
+def _deactivate(s: Any) -> Any:
+    return force_authenticated_client(user=User.objects.get(pk=s.user.pk)).put(
+        activation_detail_path(s.convention.pk, s.fursuit.pk),
+        {"is_active": False},
+        content_type="application/json",
+    )
+
+
+def _operator_revoke(operator_id: int, credential_id: int) -> Any:
+    client = Client()
+    client.force_login(User.objects.get(pk=operator_id))
+    return client.post(
+        reverse(
+            "admin:conventions_fursuitcatchcredential_change", args=(credential_id,)
+        ),
+        {"revoke": "1"},
+    )
+
+
+def _resolve(s: Any) -> Any:
+    return force_authenticated_client(user=User.objects.get(pk=s.user.pk)).post(
+        resolution_path(s.convention.pk),
+        {"payload": PAYLOAD_A},
+        content_type="application/json",
+    )
+
+
+def _session(s: Any, active: bool) -> Any:
+    return force_authenticated_client(user=User.objects.get(pk=s.user.pk)).put(
+        catch_session_path(s.convention.pk, s.fursuit.pk),
+        {"is_active": active},
+        content_type="application/json",
+    )
+
+
+def _disable_fursuit(s: Any) -> Any:
+    from fursuits.services import set_fursuit_enabled
+
+    return set_fursuit_enabled(fursuit_id=s.fursuit.pk, is_enabled=False)
+
+
+def _disable_profile(s: Any) -> Any:
+    from profiles.services import set_profile_enabled
+
+    return set_profile_enabled(profile_id=s.profile.pk, is_enabled=False)
+
+
+def _remove_enrollment(s: Any) -> Any:
+    from conventions.services import remove_convention_enrollment
+
+    assert s.enrollment is not None
+    return remove_convention_enrollment(enrollment_id=s.enrollment.pk)
+
+
+def _pause_convention(s: Any) -> Any:
+    from conventions.services import set_convention_admin_state
+
+    return set_convention_admin_state(
+        convention_id=s.convention.pk,
+        name=s.convention.name,
+        status=ConventionStatus.PAUSED,
+        start_date=s.convention.start_date,
+        end_date=s.convention.end_date,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_race_1_two_first_fetches_converge_on_one_current_payload() -> None:
+    """AC-05/14: two first fetches have one visible credential, not two creators."""
+    # Keep this first-creation race collection-safe yet RED on the missing
+    # persistence contract, rather than reporting a misleading absent-route lock wait.
+    catch_credential_model()
+    s = create_credential_scenario(clerk_user_id="credential_race_first_fetch")
+    activation = create_activation_row(
+        fursuit=s.fursuit, convention=s.convention, active=True
+    )
+    one, two = _race(
+        lambda: FursuitActivation.objects.select_for_update().get(pk=activation.pk),
+        lambda: _fetch(s),
+        lambda: _fetch(s),
+    )
+    _assert_results(one, two)
+    assert one.status_code == two.status_code == 200
+    assert one.json() == two.json()
+    assert len(assert_credential_history(activation)) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_race_2_fetch_vs_rotation_has_a_legal_serial_payload_and_one_current_row() -> (
+    None
+):
+    """AC-05/06/14: fetch may see old or replacement, never a corrupt middle state."""
+    for fetch_first in (True, False):
+        s, activation, old = _setup(f"fetch_rotation_{fetch_first}")
+        first = lambda s=s, fetch_first=fetch_first: (
+            _fetch(s) if fetch_first else _rotate(s)
+        )
+        second = lambda s=s, fetch_first=fetch_first: (
+            _rotate(s) if fetch_first else _fetch(s)
+        )
+        one, two = _race(
+            lambda activation=activation: (
+                FursuitActivation.objects.select_for_update().get(pk=activation.pk)
+            ),
+            first,
+            second,
+        )
+        _assert_results(one, two)
+        fetch, rotation = (one, two) if fetch_first else (two, one)
+        assert fetch.status_code == rotation.status_code == 200
+        current = next(
+            row
+            for row in assert_credential_history(activation)
+            if row.revoked_at is None
+        )
+        if fetch_first:
+            assert fetch.json() == {"payload": PAYLOAD_A}
+        else:
+            assert fetch.json() == {"payload": f"tailtag:catch:v1:{current.token}"}
+            assert fetch.json() != {"payload": PAYLOAD_A}
+        old.refresh_from_db()
+        assert old.revocation_reason == "owner_rotation"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_race_3_two_rotations_leave_successive_terminal_history_and_one_current_row() -> (
+    None
+):
+    """AC-06/14: rotation is state-changing even when serialized concurrently."""
+    s, activation, old = _setup("double_rotation")
+    one, two = _race(
+        lambda: FursuitActivation.objects.select_for_update().get(pk=activation.pk),
+        lambda: _rotate(s),
+        lambda: _rotate(s),
+    )
+    _assert_results(one, two)
+    assert one.status_code == two.status_code == 200
+    rows = assert_credential_history(activation)
+    assert len(rows) == 3
+    assert sum(row.revocation_reason == "owner_rotation" for row in rows) == 2
+    old.refresh_from_db()
+    assert old.revocation_reason == "owner_rotation"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_race_4_rotation_vs_operator_revoke_never_rewrites_terminal_history() -> None:
+    """AC-06/15/14: legal serial order decides zero/one current rows, never relabeling."""
+    s, activation, old = _setup("rotation_operator")
+    operator = User.objects.create_superuser("credential_race_operator", password="pw")
+    rotation, revoke = _race(
+        lambda: FursuitActivation.objects.select_for_update().get(pk=activation.pk),
+        lambda: _rotate(s),
+        lambda: _operator_revoke(operator.pk, old.pk),
+    )
+    _assert_results(rotation, revoke)
+    assert rotation.status_code == 200 and revoke.status_code in {200, 302, 403}
+    rows = assert_credential_history(activation)
+    assert old.pk in {row.pk for row in rows}
+    assert all(
+        row.revocation_reason in {None, "owner_rotation", "operator"} for row in rows
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_race_5_operator_revoke_vs_fetch_forces_both_serial_outcomes() -> None:
+    """AC-05/15/14: fetch-first is old/no-current; revoke-first creates a successor."""
+    operator = User.objects.create_superuser(
+        "credential_race_fetch_operator", password="pw"
+    )
+    for fetch_first in (True, False):
+        s, activation, old = _setup(f"operator_fetch_{fetch_first}")
+        first = lambda s=s, old=old, fetch_first=fetch_first: (
+            _fetch(s) if fetch_first else _operator_revoke(operator.pk, old.pk)
+        )
+        second = lambda s=s, old=old, fetch_first=fetch_first: (
+            _operator_revoke(operator.pk, old.pk) if fetch_first else _fetch(s)
+        )
+        one, two = _race(
+            lambda activation=activation: (
+                FursuitActivation.objects.select_for_update().get(pk=activation.pk)
+            ),
+            first,
+            second,
+        )
+        _assert_results(one, two)
+        fetch = one if fetch_first else two
+        assert fetch.status_code == 200
+        rows = assert_credential_history(activation)
+        current = [row for row in rows if row.revoked_at is None]
+        old.refresh_from_db()
+        assert old.revocation_reason == "operator"
+        if fetch_first:
+            assert fetch.json() == {"payload": PAYLOAD_A}
+            assert current == []
+        else:
+            assert len(current) == 1 and current[0].pk != old.pk
+            assert fetch.json()["payload"] != PAYLOAD_A
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("operation", (_fetch, _rotate), ids=("fetch", "rotation"))
+def test_races_6_and_7_operation_vs_activation_deactivation_leaves_no_current_row(
+    operation: Callable[[Any], Any],
+) -> None:
+    """AC-05/06/08/14: committed activation loss dominates an in-flight owner operation."""
+    s, activation, _ = _setup(f"activation_{operation.__name__}")
+    action, deactivate = _race(
+        lambda: FursuitActivation.objects.select_for_update().get(pk=activation.pk),
+        lambda: operation(s),
+        lambda: _deactivate(s),
+    )
+    _assert_results(action, deactivate)
+    assert action.status_code in {200, 400} and deactivate.status_code == 200
+    activation.refresh_from_db()
+    assert activation.is_active is False
+    assert not [
+        row for row in assert_credential_history(activation) if row.revoked_at is None
+    ]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("number", "label", "lock", "loss"),
+    (
+        (
+            8,
+            "fursuit",
+            lambda s: Fursuit.objects.select_for_update().get(pk=s.fursuit.pk),
+            _disable_fursuit,
+        ),
+        (
+            9,
+            "profile",
+            lambda s: PlayerProfile.objects.select_for_update().get(pk=s.profile.pk),
+            _disable_profile,
+        ),
+        (
+            10,
+            "enrollment",
+            lambda s: ConventionEnrollment.objects.select_for_update().get(
+                pk=s.enrollment.pk
+            ),
+            _remove_enrollment,
+        ),
+        (
+            11,
+            "convention",
+            lambda s: Convention.objects.select_for_update().get(pk=s.convention.pk),
+            _pause_convention,
+        ),
+    ),
+)
+@pytest.mark.parametrize("operation", (_fetch, _rotate), ids=("fetch", "rotation"))
+def test_races_8_to_11_owner_operation_vs_each_eligibility_loss_has_no_current_row(
+    number: int,
+    label: str,
+    lock: Callable[[Any], Any],
+    loss: Callable[[Any], Any],
+    operation: Callable[[Any], Any],
+) -> None:
+    """AC-05/06/08/14: every upstream loss is atomic with credential revocation."""
+    s, activation, _ = _setup(f"{label}_{operation.__name__}")
+    action, transition = _race(lambda: lock(s), lambda: operation(s), lambda: loss(s))
+    _assert_results(action, transition)
+    assert action.status_code in {200, 400, 403}, f"race {number} {label}"
+    assert not [
+        row for row in assert_credential_history(activation) if row.revoked_at is None
+    ]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_race_12_restoration_vs_fetch_never_reactivates_a_revoked_row() -> None:
+    """AC-08/14: restoration creates nothing; a later fetch can create only a distinct row."""
+    s, activation, old = _setup("restoration")
+    old.revoked_at = timezone.now()
+    old.revocation_reason = "eligibility_lost"
+    old.save(update_fields=["revoked_at", "revocation_reason", "updated_at"])
+    PlayerProfile.objects.filter(pk=s.profile.pk).update(is_enabled=False)
+    fetch, restore = _race(
+        lambda: PlayerProfile.objects.select_for_update().get(pk=s.profile.pk),
+        lambda: _fetch(s),
+        lambda: __import__(
+            "profiles.services", fromlist=["set_profile_enabled"]
+        ).set_profile_enabled(s.profile.pk, True),
+    )
+    _assert_results(fetch, restore)
+    assert fetch.status_code in {200, 403}
+    old.refresh_from_db()
+    assert old.revocation_reason == "eligibility_lost"
+    assert all(
+        row.pk != old.pk
+        for row in assert_credential_history(activation)
+        if row.revoked_at is None
+    )
+    assert _fetch(s).status_code == 200
+    current = catch_credential_model().objects.get(
+        activation=activation, revoked_at__isnull=True
+    )
+    assert current.pk != old.pk
+
+
+@pytest.mark.django_db(transaction=True)
+def test_race_13_resolution_vs_rotation_or_operator_revoke_is_only_a_stale_preview() -> (
+    None
+):
+    """AC-06/13/14: resolution may precede mutation but the old payload fails after commit."""
+    operator = User.objects.create_superuser(
+        "credential_race_resolution_operator", password="pw"
+    )
+    for mutation in ("rotation", "operator"):
+        s, activation, old = _setup(f"resolve_{mutation}", session=True)
+        resolve, change = _race(
+            lambda activation=activation: (
+                FursuitActivation.objects.select_for_update().get(pk=activation.pk)
+            ),
+            lambda s=s: _resolve(s),
+            (
+                (lambda s=s: _rotate(s))
+                if mutation == "rotation"
+                else lambda old=old: _operator_revoke(operator.pk, old.pk)
+            ),
+        )
+        _assert_results(resolve, change)
+        assert resolve.status_code in {200, 404}
+        assert _resolve(s).status_code == 404
+        assert _resolve(s).json() == {"detail": NOT_FOUND_DETAIL}
+        assert_credential_history(activation)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_race_14_resolution_vs_eligibility_loss_fails_after_the_committed_transition() -> (
+    None
+):
+    """AC-08/13/14: preview success before the transaction is intentionally stale only."""
+    s, activation, _ = _setup("resolve_eligibility", session=True)
+    resolve, loss = _race(
+        lambda: Fursuit.objects.select_for_update().get(pk=s.fursuit.pk),
+        lambda: _resolve(s),
+        lambda: _disable_fursuit(s),
+    )
+    _assert_results(resolve, loss)
+    assert resolve.status_code in {200, 404}
+    assert _resolve(s).status_code == 404
+    assert not [
+        row for row in assert_credential_history(activation) if row.revoked_at is None
+    ]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_race_15_resolution_vs_session_stop_expiration_and_restart_preserves_credential() -> (
+    None
+):
+    """AC-07/13/14: session timing controls preview, never credential terminal history."""
+    s, activation, credential = _setup("resolve_session", session=True)
+    before = (
+        credential.revoked_at,
+        credential.revocation_reason,
+        credential.updated_at,
+    )
+    resolve, stop = _race(
+        lambda: FursuitActivation.objects.select_for_update().get(pk=activation.pk),
+        lambda: _resolve(s),
+        lambda: _session(s, False),
+    )
+    _assert_results(resolve, stop)
+    assert resolve.status_code in {200, 404} and stop.status_code == 200
+    credential.refresh_from_db()
+    assert (
+        credential.revoked_at,
+        credential.revocation_reason,
+        credential.updated_at,
+    ) == before
+    assert _resolve(s).status_code == 404
+    assert _session(s, True).status_code == 200
+    live = activation.catch_sessions.get(ended_at__isnull=True)
+    live.expires_at = timezone.now()
+    live.save(update_fields=["expires_at", "updated_at"])
+    assert _resolve(s).status_code == 404
+    assert _session(s, True).status_code == 200
+    assert _resolve(s).status_code == 200
+    assert_credential_history(activation)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_race_16_session_start_stop_vs_credential_operations_keeps_histories_independent() -> (
+    None
+):
+    """AC-05/06/07/14: independent domains serialize without cross-history writes."""
+    s, activation, credential = _setup("session_operations")
+    before = (
+        credential.revoked_at,
+        credential.revocation_reason,
+        credential.updated_at,
+    )
+    fetch, start = _race(
+        lambda: FursuitActivation.objects.select_for_update().get(pk=activation.pk),
+        lambda: _fetch(s),
+        lambda: _session(s, True),
+    )
+    _assert_results(fetch, start)
+    assert fetch.status_code == start.status_code == 200
+    credential.refresh_from_db()
+    assert (
+        credential.revoked_at,
+        credential.revocation_reason,
+        credential.updated_at,
+    ) == before
+    rotate, stop = _race(
+        lambda: FursuitActivation.objects.select_for_update().get(pk=activation.pk),
+        lambda: _rotate(s),
+        lambda: _session(s, False),
+    )
+    _assert_results(rotate, stop)
+    assert rotate.status_code == stop.status_code == 200
+    assert activation.catch_sessions.filter(ended_at__isnull=True).count() == 0
+    assert_credential_history(activation)
