@@ -9,6 +9,8 @@ from typing import Any, TypedDict, cast
 from rest_framework import serializers
 from rest_framework.exceptions import ErrorDetail
 
+from media import service as media_service
+
 from .catch_sessions import FursuitCatchSessionState
 from .models import Convention, ConventionEnrollment, FursuitActivation
 
@@ -100,6 +102,38 @@ FURSUIT_CATCH_CREDENTIAL_RESPONSE_SCHEMA: dict[str, object] = {
     "required": ["payload"],
 }
 
+FURSUIT_CATCH_CREDENTIAL_RESOLUTION_REQUEST_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "payload": {
+            "type": "string",
+            "pattern": r"^tailtag:catch:v1:[A-Za-z0-9_-]{43}$",
+        }
+    },
+    "required": ["payload"],
+}
+
+FURSUIT_CATCH_CREDENTIAL_RESOLUTION_RESPONSE_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "convention_id": {"type": "integer"},
+        "fursuit": {
+            "type": "object",
+            "additionalProperties": False,
+            "readOnly": True,
+            "properties": {
+                "tailtag_id": {"type": "string", "format": "uuid"},
+                "name": {"type": "string"},
+                "photo_url": {"type": "string", "format": "uri"},
+            },
+            "required": ["tailtag_id", "name", "photo_url"],
+        },
+    },
+    "required": ["convention_id", "fursuit"],
+}
+
 
 class ConventionSerializer(serializers.ModelSerializer[Convention]):
     """Serializer exposing safe, read-only convention representation."""
@@ -181,6 +215,37 @@ class FursuitActivationRequestSerializer(serializers.Serializer[dict[str, bool]]
         return cast(dict[str, bool], super().to_internal_value(data))
 
 
+class FursuitCatchCredentialResolutionRequestSerializer(
+    serializers.Serializer[dict[str, str]]
+):
+    """Accept only the exact V1 credential-payload request body."""
+
+    payload = serializers.CharField(allow_blank=False, trim_whitespace=False)
+
+    def to_internal_value(self, data: Any) -> dict[str, str]:
+        from .catch_credentials import (
+            CatchCredentialPayloadInvalidError,
+            parse_catch_credential_payload,
+        )
+
+        invalid = {
+            "payload": [
+                ErrorDetail("Invalid catch credential payload.", code="invalid")
+            ]
+        }
+        if (
+            not isinstance(data, Mapping)
+            or set(cast(Mapping[str, object], data)) != {"payload"}
+            or not isinstance(cast(Mapping[str, object], data)["payload"], str)
+        ):
+            raise serializers.ValidationError(invalid)
+        try:
+            parse_catch_credential_payload(cast(Mapping[str, str], data)["payload"])
+        except CatchCredentialPayloadInvalidError:
+            raise serializers.ValidationError(invalid) from None
+        return cast(dict[str, str], super().to_internal_value(data))
+
+
 class ActiveConventionResponseSerializer(serializers.Serializer[dict[str, object]]):
     """Response wrapper for active convention enrollment query."""
 
@@ -227,6 +292,17 @@ class FursuitCatchSessionResponseData(TypedDict):
 
 class FursuitCatchCredentialResponseData(TypedDict):
     payload: str
+
+
+class FursuitCatchCredentialResolutionFursuitData(TypedDict):
+    tailtag_id: str
+    name: str
+    photo_url: str
+
+
+class FursuitCatchCredentialResolutionResponseData(TypedDict):
+    convention_id: int
+    fursuit: FursuitCatchCredentialResolutionFursuitData
 
 
 def convention_response_data(convention: Convention) -> ConventionResponseData:
@@ -307,3 +383,20 @@ def fursuit_catch_credential_response_data(
 ) -> FursuitCatchCredentialResponseData:
     """Project an opaque credential only through its public payload envelope."""
     return {"payload": payload}
+
+
+def fursuit_catch_credential_resolution_response_data(
+    activation: FursuitActivation, *, request: Any
+) -> FursuitCatchCredentialResolutionResponseData:
+    """Project a resolved target through the intentionally safe preview shape."""
+    fursuit = activation.fursuit
+    return {
+        "convention_id": activation.convention_id,
+        "fursuit": {
+            "tailtag_id": str(fursuit.tailtag_id),
+            "name": fursuit.name,
+            "photo_url": request.build_absolute_uri(
+                media_service.read_image_url(fursuit.photo_key)
+            ),
+        },
+    }

@@ -24,9 +24,11 @@ from fursuits.models import Fursuit
 from profiles.eligibility import is_participation_eligible
 from profiles.models import PlayerProfile
 
+from .catch_sessions import get_effective_fursuit_catch_session_for_activation
 from .services import (
     ConventionParticipationIneligibleError,
     FursuitActivationNotEligibleError,
+    is_fursuit_activation_eligible,
 )
 
 CATCH_CREDENTIAL_TOKEN_BYTES: Final = 32
@@ -44,6 +46,10 @@ class CatchCredentialPayloadInvalidError(Exception):
     """The submitted payload does not use the exact supported protocol grammar."""
 
 
+class CatchCredentialNotFoundError(Exception):
+    """A credential cannot currently resolve to a safe catchable preview."""
+
+
 def format_catch_credential_payload(token: str) -> str:
     """Wrap a persisted opaque token in the exact V1 application envelope."""
     return f"{CATCH_CREDENTIAL_PAYLOAD_PREFIX}{_valid_catch_credential_token(token)}"
@@ -55,6 +61,49 @@ def parse_catch_credential_payload(payload: str) -> str:
         raise CatchCredentialPayloadInvalidError()
     token = payload.removeprefix(CATCH_CREDENTIAL_PAYLOAD_PREFIX)
     return _valid_catch_credential_token(token)
+
+
+def resolve_catch_credential(
+    *, convention_id: int, payload: str
+) -> FursuitCatchCredential:
+    """Resolve a current credential to its catchable activation without locking.
+
+    This is intentionally a preview-only read.  The final current-row query
+    closes the meaningful revocation/rotation race without adding reservations.
+    """
+    token = parse_catch_credential_payload(payload)
+    credential = (
+        FursuitCatchCredential.objects.filter(
+            token=token,
+            activation__convention_id=convention_id,
+            revoked_at__isnull=True,
+        )
+        .select_related(
+            "activation__fursuit",
+            "activation__fursuit__owner",
+            "activation__convention",
+        )
+        .first()
+    )
+    if credential is None:
+        raise CatchCredentialNotFoundError()
+
+    activation = credential.activation
+    if (
+        not activation.is_active
+        or not is_fursuit_activation_eligible(activation)
+        or get_effective_fursuit_catch_session_for_activation(activation) is None
+    ):
+        raise CatchCredentialNotFoundError()
+
+    if not FursuitCatchCredential.objects.filter(
+        pk=credential.pk,
+        activation_id=credential.activation_id,
+        token=token,
+        revoked_at__isnull=True,
+    ).exists():
+        raise CatchCredentialNotFoundError()
+    return credential
 
 
 def _valid_catch_credential_token(token: str) -> str:

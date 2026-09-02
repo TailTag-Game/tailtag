@@ -68,6 +68,18 @@ def get_effective_fursuit_catch_session(
     )
     if activation is None:
         return None
+    return get_effective_fursuit_catch_session_for_activation(activation)
+
+
+def get_effective_fursuit_catch_session_for_activation(
+    activation: FursuitActivation,
+) -> FursuitCatchSession | None:
+    """Return an activation's effective session without owner-scoped resolution."""
+    # Keep this import local so services can continue to depend on this module.
+    from conventions.services import is_fursuit_activation_eligible
+
+    if not activation.is_active or not is_fursuit_activation_eligible(activation):
+        return None
     return (
         FursuitCatchSession.objects.filter(
             activation=activation,
