@@ -118,20 +118,37 @@ FURSUIT_CATCH_CREDENTIAL_RESOLUTION_RESPONSE_SCHEMA: dict[str, object] = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "convention_id": {"type": "integer"},
+        "convention_id": {"type": "integer", "readOnly": True},
         "fursuit": {
             "type": "object",
             "additionalProperties": False,
             "readOnly": True,
             "properties": {
-                "tailtag_id": {"type": "string", "format": "uuid"},
-                "name": {"type": "string"},
-                "photo_url": {"type": "string", "format": "uri"},
+                "tailtag_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "readOnly": True,
+                },
+                "name": {"type": "string", "readOnly": True},
+                "photo_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "readOnly": True,
+                },
             },
             "required": ["tailtag_id", "name", "photo_url"],
         },
     },
     "required": ["convention_id", "fursuit"],
+}
+
+FURSUIT_CATCH_CREDENTIAL_RESOLUTION_VALIDATION_ERROR_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "payload": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["payload"],
 }
 
 
