@@ -18,6 +18,15 @@ def _deref(schema: Mapping[str, Any], value: Mapping[str, Any]) -> dict[str, Any
     return result
 
 
+def _assert_detail_error(
+    schema: Mapping[str, Any], response: Mapping[str, Any]
+) -> None:
+    error = _deref(schema, response["content"]["application/json"]["schema"])
+    assert error.get("additionalProperties") is False
+    assert error["required"] == ["detail"]
+    assert error["properties"] == {"detail": {"type": "string"}}
+
+
 @pytest.mark.django_db
 def test_credential_openapi_is_exact_closed_authenticated_and_has_no_rendering_boundary() -> (
     None
@@ -49,10 +58,55 @@ def test_credential_openapi_is_exact_closed_authenticated_and_has_no_rendering_b
         paths[resolve]["post"],
     ):
         assert operation["security"] == [{bearer[0]: []}]
+    assert set(paths[owner]["get"]["responses"]) == {
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "405",
+    }
+    assert set(paths[rotate]["post"]["responses"]) == {
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "405",
+    }
+    assert set(paths[resolve]["post"]["responses"]) == {
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "405",
+    }
     assert (
         "requestBody" not in paths[owner]["get"]
         and "requestBody" not in paths[rotate]["post"]
     )
+    owner_payload = _deref(
+        schema,
+        paths[owner]["get"]["responses"]["200"]["content"]["application/json"][
+            "schema"
+        ],
+    )
+    assert owner_payload.get("additionalProperties") is False
+    assert owner_payload["required"] == ["payload"]
+    assert owner_payload["properties"] == {
+        "payload": {
+            "type": "string",
+            "pattern": r"^tailtag:catch:v1:[A-Za-z0-9_-]{43}$",
+        }
+    }
+    rotation_payload = _deref(
+        schema,
+        paths[rotate]["post"]["responses"]["200"]["content"]["application/json"][
+            "schema"
+        ],
+    )
+    assert rotation_payload == owner_payload
     request = _deref(
         schema,
         paths[resolve]["post"]["requestBody"]["content"]["application/json"]["schema"],
@@ -73,6 +127,26 @@ def test_credential_openapi_is_exact_closed_authenticated_and_has_no_rendering_b
     assert projection.get("additionalProperties") is False and set(
         projection["properties"]
     ) == {"convention_id", "fursuit"}
+    assert set(projection["required"]) == {"convention_id", "fursuit"}
+    assert projection["properties"]["convention_id"] == {"type": "integer"}
+    fursuit = _deref(schema, projection["properties"]["fursuit"])
+    assert fursuit.get("additionalProperties") is False
+    assert set(fursuit["required"]) == {"tailtag_id", "name", "photo_url"}
+    assert fursuit["properties"] == {
+        "tailtag_id": {"type": "string", "format": "uuid"},
+        "name": {"type": "string"},
+        "photo_url": {"type": "string", "format": "uri"},
+    }
+    for operation in (
+        paths[owner]["get"],
+        paths[rotate]["post"],
+        paths[resolve]["post"],
+    ):
+        for status in ("401", "403", "404", "405"):
+            _assert_detail_error(schema, operation["responses"][status])
+    _assert_detail_error(schema, paths[resolve]["post"]["responses"]["400"])
+    generic_not_found = paths[resolve]["post"]["responses"]["404"]
+    assert "catch credential not found" in str(generic_not_found).lower()
     rendered = " ".join(paths).lower()
     assert not any(
         term in rendered for term in ("qr", "png", "svg", "base64", "render")

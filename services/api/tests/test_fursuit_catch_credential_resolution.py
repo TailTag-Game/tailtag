@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import pytest
+from django.test import Client, override_settings
+from django.utils import timezone
 
-from conventions.models import Convention
+from conventions.models import Convention, ConventionEnrollment
 from fursuits.models import Fursuit
 from profiles.models import PlayerProfile
+from tests.authentication_support import TEST_CLERK_CONFIGURATION
 from tests.catch_credential_test_support import (
+    AUTHENTICATION_DETAIL,
+    FORBIDDEN_DETAIL,
     PAYLOAD_A,
     TOKEN_A,
     assert_not_found,
@@ -18,6 +23,8 @@ from tests.catch_credential_test_support import (
 )
 from tests.fursuit_activation_test_support import create_activation_row
 from tests.fursuit_catch_session_test_support import create_catch_session
+
+INVALID_PAYLOAD = {"payload": ["Invalid catch credential payload."]}
 
 
 @pytest.mark.django_db
@@ -33,21 +40,28 @@ def test_resolution_accepts_only_closed_exact_payload_and_authorized_nonowner_ca
     create_credential(activation=activation, token=TOKEN_A)
     caller = create_credential_scenario(clerk_user_id="credential_resolver")
     # The resolver's own enrollment in the target convention, not ownership, authorizes use.
-    from conventions.models import ConventionEnrollment
-
     ConventionEnrollment.objects.create(user=caller.user, convention=target.convention)
     path = resolution_path(target.convention.pk)
     for body in (
         {},
         {"payload": PAYLOAD_A, "extra": 1},
         {"payload": TOKEN_A},
+        {"payload": None},
+        {"payload": 1},
         {"payload": PAYLOAD_A + " "},
+        {"payload": " " + PAYLOAD_A},
         {"payload": "tailtag:catch:v2:" + TOKEN_A},
+        {"payload": "tailtag:catch:v1:" + "A" * 42},
+        {"payload": "tailtag:catch:v1:" + "A" * 44},
+        {"payload": "tailtag:catch:v1:" + "A" * 42 + "="},
+        {"payload": "tailtag:catch:v1:" + "A" * 42 + "!"},
+        {"payload": "tailtag:catch:v1:" + "A" * 42 + "é"},
         [],
         "bad",
     ):
         response = caller.client.post(path, body, content_type="application/json")
         assert response.status_code == 400
+        assert response.json() == INVALID_PAYLOAD
         assert PAYLOAD_A not in response.content.decode()
     response = caller.client.post(
         path, {"payload": PAYLOAD_A}, content_type="application/json"
@@ -64,42 +78,77 @@ def test_resolution_accepts_only_closed_exact_payload_and_authorized_nonowner_ca
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "failure", ("wrong_convention", "random", "revoked", "inactive", "no_session")
+    "failure",
+    (
+        "wrong_convention",
+        "random",
+        "revoked",
+        "ceased_current",
+        "inactive_activation",
+        "target_profile",
+        "target_fursuit",
+        "target_enrollment",
+        "paused_convention",
+        "missing_session",
+        "stopped_session",
+        "expired_session",
+    ),
 )
 def test_resolution_target_failures_are_one_generic_non_echoing_404(
     failure: str,
 ) -> None:
     """AC-11/12: rejects target-state disclosure or resolving a non-catchable target."""
-    scenario = create_credential_scenario()
+    target = create_credential_scenario(clerk_user_id="credential_target_failure")
     activation = create_activation_row(
-        fursuit=scenario.fursuit, convention=scenario.convention, active=True
+        fursuit=target.fursuit, convention=target.convention, active=True
     )
-    create_catch_session(activation=activation)
+    session = create_catch_session(activation=activation)
     credential = create_credential(activation=activation, token=TOKEN_A)
-    path = resolution_path(scenario.convention.pk)
+    caller = create_credential_scenario(clerk_user_id="credential_failure_resolver")
+    ConventionEnrollment.objects.create(user=caller.user, convention=target.convention)
+    path = resolution_path(target.convention.pk)
     payload = PAYLOAD_A
     if failure == "wrong_convention":
         other = Convention.objects.create(
             name="Other",
             status="active",
-            start_date=scenario.convention.start_date,
-            end_date=scenario.convention.end_date,
+            start_date=target.convention.start_date,
+            end_date=target.convention.end_date,
         )
+        ConventionEnrollment.objects.create(user=caller.user, convention=other)
         path = resolution_path(other.pk)
     elif failure == "random":
         payload = "tailtag:catch:v1:" + "Z" * 43
-    elif failure == "revoked":
+    elif failure in {"revoked", "ceased_current"}:
         credential.revoked_at = credential.updated_at
         credential.revocation_reason = "operator"
         credential.save(update_fields=["revoked_at", "revocation_reason", "updated_at"])
-    elif failure == "inactive":
-        Fursuit.objects.filter(pk=scenario.fursuit.pk).update(is_enabled=False)
-    else:
+        if failure == "ceased_current":
+            create_credential(activation=activation, token="B" * 43)
+    elif failure == "inactive_activation":
+        activation.is_active = False
+        activation.deactivated_at = timezone.now()
+        activation.save(update_fields=["is_active", "deactivated_at", "updated_at"])
+    elif failure == "target_profile":
+        PlayerProfile.objects.filter(pk=target.profile.pk).update(is_enabled=False)
+    elif failure == "target_fursuit":
+        Fursuit.objects.filter(pk=target.fursuit.pk).update(is_enabled=False)
+    elif failure == "target_enrollment":
+        assert target.enrollment is not None
+        target.enrollment.delete()
+    elif failure == "paused_convention":
+        Convention.objects.filter(pk=target.convention.pk).update(status="paused")
+    elif failure == "missing_session":
         activation.catch_sessions.all().delete()
+    elif failure == "stopped_session":
+        session.ended_at = timezone.now()
+        session.end_reason = "owner"
+        session.save(update_fields=["ended_at", "end_reason", "updated_at"])
+    else:
+        session.expires_at = timezone.now()
+        session.save(update_fields=["expires_at", "updated_at"])
     assert_not_found(
-        scenario.client.post(
-            path, {"payload": payload}, content_type="application/json"
-        ),
+        caller.client.post(path, {"payload": payload}, content_type="application/json"),
         payload,
     )
 
@@ -127,4 +176,26 @@ def test_resolution_rejects_an_ineligible_caller_before_target_resolution(
         content_type="application/json",
     )
     assert response.status_code == 403
+    assert response.json() == {"detail": FORBIDDEN_DETAIL}
+    assert PAYLOAD_A not in response.content.decode()
+
+
+@pytest.mark.django_db
+@override_settings(CLERK_AUTHENTICATION=TEST_CLERK_CONFIGURATION)
+def test_resolution_authenticates_before_validation_and_missing_path_convention_is_404() -> (
+    None
+):
+    """AC-10/16: rejects validation-first authentication and payload-reflecting path errors."""
+    bad = {"payload": "not-a-payload"}
+    unauthenticated = Client().post(
+        resolution_path(999999), bad, content_type="application/json"
+    )
+    assert unauthenticated.status_code == 401
+    assert unauthenticated.json() == {"detail": AUTHENTICATION_DETAIL}
+    scenario = create_credential_scenario()
+    response = scenario.client.post(
+        resolution_path(999999), {"payload": PAYLOAD_A}, content_type="application/json"
+    )
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not found."}
     assert PAYLOAD_A not in response.content.decode()

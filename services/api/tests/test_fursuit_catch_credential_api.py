@@ -12,6 +12,9 @@ from conventions.models import Convention
 from fursuits.models import Fursuit
 from tests.authentication_support import TEST_CLERK_CONFIGURATION
 from tests.catch_credential_test_support import (
+    AUTHENTICATION_DETAIL,
+    CONCEALED_DETAIL,
+    FORBIDDEN_DETAIL,
     OWNER_INELIGIBLE_DETAIL,
     PAYLOAD_A,
     PAYLOAD_B,
@@ -74,11 +77,18 @@ def test_rotation_revokes_current_once_or_creates_without_a_current_row_and_reje
         scenario.client.post(path, b"{}", content_type="application/json").status_code
         == 400
     )
-    replacement.revoked_at = timezone.now()
-    replacement.revocation_reason = "operator"
-    replacement.save(update_fields=["revoked_at", "revocation_reason", "updated_at"])
     with patch("secrets.token_urlsafe", return_value=TOKEN_A):
-        assert_owner_payload(scenario.client.post(path, b""), PAYLOAD_A)
+        second = scenario.client.post(path, b"")
+    assert_owner_payload(second, PAYLOAD_A)
+    replacement.refresh_from_db()
+    assert (
+        replacement.revoked_at is not None
+        and replacement.revocation_reason == "owner_rotation"
+    )
+    assert catch_credential_model().objects.get(revoked_at__isnull=True).pk not in {
+        old.pk,
+        replacement.pk,
+    }
 
 
 @pytest.mark.django_db
@@ -99,7 +109,9 @@ def test_owner_routes_enforce_auth_concealment_precedence_methods_and_operationa
         else rotation_path(scenario.convention.pk, scenario.fursuit.pk)
     )
     method = "get" if route == "fetch" else "post"
-    assert getattr(Client(), method)(path).status_code == 401
+    unauthenticated = getattr(Client(), method)(path)
+    assert unauthenticated.status_code == 401
+    assert unauthenticated.json() == {"detail": AUTHENTICATION_DETAIL}
     wrong_methods = (
         (
             scenario.client.post,
@@ -116,20 +128,28 @@ def test_owner_routes_enforce_auth_concealment_precedence_methods_and_operationa
         )
     )
     for wrong in wrong_methods:
-        assert (
-            wrong(
-                owner_credential_path(scenario.convention.pk, scenario.fursuit.pk)
-            ).status_code
-            == 405
-        )
+        response = wrong(path)
+        assert response.status_code == 405
+        assert response.json() == {
+            "detail": f'Method "{response.request["REQUEST_METHOD"]}" not allowed.'
+        }
     other = create_credential_scenario(clerk_user_id="credential_cross_owner")
     cross_path = path.replace(str(scenario.fursuit.pk), str(other.fursuit.pk))
-    assert (
-        getattr(scenario.client, method)(
-            cross_path, b"bad" if route == "rotate" else None
-        ).status_code
-        == 404
+    concealed = getattr(scenario.client, method)(
+        cross_path, b"bad" if route == "rotate" else None
     )
+    assert concealed.status_code == 404 and concealed.json() == {
+        "detail": CONCEALED_DETAIL
+    }
+    from profiles.models import PlayerProfile
+
+    PlayerProfile.objects.filter(pk=scenario.profile.pk).update(is_enabled=False)
+    forbidden = getattr(scenario.client, method)(
+        path, b"" if route == "rotate" else None
+    )
+    assert forbidden.status_code == 403 and forbidden.json() == {
+        "detail": FORBIDDEN_DETAIL
+    }
     for state in (
         "missing_enrollment",
         "inactive_activation",

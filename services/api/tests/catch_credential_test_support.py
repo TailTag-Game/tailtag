@@ -19,6 +19,9 @@ PAYLOAD_A = f"tailtag:catch:v1:{TOKEN_A}"
 PAYLOAD_B = f"tailtag:catch:v1:{TOKEN_B}"
 OWNER_INELIGIBLE_DETAIL = "The fursuit cannot currently participate in this convention."
 NOT_FOUND_DETAIL = "Catch credential not found."
+AUTHENTICATION_DETAIL = "Authentication credentials were not provided."
+FORBIDDEN_DETAIL = "You do not have permission to perform this action."
+CONCEALED_DETAIL = "Not found."
 
 
 def owner_credential_path(convention_id: int, fursuit_id: int) -> str:
