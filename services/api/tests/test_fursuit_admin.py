@@ -48,6 +48,7 @@ def test_admin_allows_only_enabled_toggle_and_never_exposes_key_or_clerk_identit
     detail = client.get(change)
     assert storage.url_calls == 1
     before_update = record.updated_at
+    tailtag_id_before = record.tailtag_id
     posted = client.post(change, {"is_enabled": ""})
     record.refresh_from_db()
     assert [response.status_code for response in (list_response, detail, posted)] == [
@@ -60,11 +61,13 @@ def test_admin_allows_only_enabled_toggle_and_never_exposes_key_or_clerk_identit
         and LogEntry.objects.filter(object_id=str(record.pk)).exists()
     )
     assert record.updated_at > before_update
+    assert record.tailtag_id == tailtag_id_before
     after_toggle = record.updated_at
     repeated = client.post(change, {"is_enabled": ""})
     record.refresh_from_db()
     assert repeated.status_code == 302
     assert record.is_enabled is False and record.updated_at == after_toggle
+    assert record.tailtag_id == tailtag_id_before
     rendered = list_response.content + detail.content
     assert (
         b"0123456789abcdef0123456789abcdef" not in rendered
@@ -80,6 +83,7 @@ def test_admin_allows_only_enabled_toggle_and_never_exposes_key_or_clerk_identit
     assert b'name="action"' not in list_response.content
     assert b"https://media.example.test/read/" not in list_response.content
     assert b"photo" in list_response.content.lower()
+    assert str(tailtag_id_before).encode() in detail.content
 
 
 @pytest.mark.django_db
@@ -111,10 +115,15 @@ def test_admin_search_excludes_clerk_and_opaque_key_but_finds_safe_record_identi
         assert response.status_code == 200
         assert record.name.encode() not in response.content
 
-    for allowed in (str(record.pk), str(owner.pk), record.name):
+    for allowed in (str(record.pk), str(owner.pk), record.name, str(record.tailtag_id)):
         response = client.get(changelist, {"q": allowed})
         assert response.status_code == 200
         assert record.name.encode() in response.content
+
+    partial_tailtag_id = str(record.tailtag_id).split("-", maxsplit=1)[0]
+    response = client.get(changelist, {"q": partial_tailtag_id})
+    assert response.status_code == 200
+    assert record.name.encode() not in response.content
 
 
 @pytest.mark.django_db
