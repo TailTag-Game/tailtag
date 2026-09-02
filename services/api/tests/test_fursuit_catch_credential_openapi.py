@@ -27,6 +27,15 @@ def _assert_detail_error(
     assert error["properties"] == {"detail": {"type": "string"}}
 
 
+def _without_generator_presentation_metadata(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Descriptions/titles are generator presentation metadata, not API semantics."""
+    return {
+        key: item for key, item in value.items() if key not in {"description", "title"}
+    }
+
+
 @pytest.mark.django_db
 def test_credential_openapi_is_exact_closed_authenticated_and_has_no_rendering_boundary() -> (
     None
@@ -114,10 +123,12 @@ def test_credential_openapi_is_exact_closed_authenticated_and_has_no_rendering_b
     assert request.get("additionalProperties") is False and request["required"] == [
         "payload"
     ]
-    assert (
-        request["properties"]["payload"]["pattern"]
-        == r"^tailtag:catch:v1:[A-Za-z0-9_-]{43}$"
-    )
+    assert _without_generator_presentation_metadata(
+        request["properties"]["payload"]
+    ) == {
+        "type": "string",
+        "pattern": r"^tailtag:catch:v1:[A-Za-z0-9_-]{43}$",
+    }
     projection = _deref(
         schema,
         paths[resolve]["post"]["responses"]["200"]["content"]["application/json"][
@@ -144,7 +155,8 @@ def test_credential_openapi_is_exact_closed_authenticated_and_has_no_rendering_b
     ):
         for status in ("401", "403", "404", "405"):
             _assert_detail_error(schema, operation["responses"][status])
-    _assert_detail_error(schema, paths[resolve]["post"]["responses"]["400"])
+    for operation in (paths[owner]["get"], paths[rotate]["post"]):
+        _assert_detail_error(schema, operation["responses"]["400"])
     generic_not_found = paths[resolve]["post"]["responses"]["404"]
     assert "catch credential not found" in str(generic_not_found).lower()
     rendered = " ".join(paths).lower()

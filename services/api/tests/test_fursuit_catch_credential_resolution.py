@@ -83,7 +83,6 @@ def test_resolution_accepts_only_closed_exact_payload_and_authorized_nonowner_ca
         "wrong_convention",
         "random",
         "revoked",
-        "ceased_current",
         "inactive_activation",
         "target_profile",
         "target_fursuit",
@@ -119,12 +118,10 @@ def test_resolution_target_failures_are_one_generic_non_echoing_404(
         path = resolution_path(other.pk)
     elif failure == "random":
         payload = "tailtag:catch:v1:" + "Z" * 43
-    elif failure in {"revoked", "ceased_current"}:
+    elif failure == "revoked":
         credential.revoked_at = credential.updated_at
         credential.revocation_reason = "operator"
         credential.save(update_fields=["revoked_at", "revocation_reason", "updated_at"])
-        if failure == "ceased_current":
-            create_credential(activation=activation, token="B" * 43)
     elif failure == "inactive_activation":
         activation.is_active = False
         activation.deactivated_at = timezone.now()
@@ -150,6 +147,46 @@ def test_resolution_target_failures_are_one_generic_non_echoing_404(
     assert_not_found(
         caller.client.post(path, {"payload": payload}, content_type="application/json"),
         payload,
+    )
+
+
+@pytest.mark.django_db
+def test_resolution_rechecks_current_credential_after_target_evaluation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-11/13: rejects a resolver that returns a preview after rotation/revocation wins."""
+    target = create_credential_scenario(clerk_user_id="credential_final_check_target")
+    activation = create_activation_row(
+        fursuit=target.fursuit, convention=target.convention, active=True
+    )
+    create_catch_session(activation=activation)
+    credential = create_credential(activation=activation, token=TOKEN_A)
+    caller = create_credential_scenario(clerk_user_id="credential_final_check_caller")
+    ConventionEnrollment.objects.create(user=caller.user, convention=target.convention)
+    # This is the approved activation-oriented target-eligibility collaborator.
+    # It leaves the credential current for lookup, then makes it terminal before
+    # the resolver's required final-current check.
+    from conventions import catch_credentials
+
+    original_eligible = catch_credentials.is_fursuit_activation_eligible
+
+    def revoke_after_target_check(checked_activation: object) -> bool:
+        assert checked_activation == activation
+        credential.revoked_at = timezone.now()
+        credential.revocation_reason = "operator"
+        credential.save(update_fields=["revoked_at", "revocation_reason", "updated_at"])
+        return original_eligible(checked_activation)
+
+    monkeypatch.setattr(
+        catch_credentials, "is_fursuit_activation_eligible", revoke_after_target_check
+    )
+    assert_not_found(
+        caller.client.post(
+            resolution_path(target.convention.pk),
+            {"payload": PAYLOAD_A},
+            content_type="application/json",
+        ),
+        PAYLOAD_A,
     )
 
 
