@@ -11,7 +11,7 @@ from django.test import Client
 def test_foundation_exposes_profile_current_user_and_infrastructure_routes(
     client: Client,
 ) -> None:
-    """The promoted service has only the identity proof, not POC player resources."""
+    """The promoted service exposes only its explicitly approved route inventory."""
     schema_response = client.get("/api/schema/")
 
     assert settings.AUTH_USER_MODEL == "accounts.User"
@@ -38,6 +38,9 @@ def test_foundation_exposes_profile_current_user_and_infrastructure_routes(
         "/api/conventions/{convention_id}/fursuit-activations/",
         "/api/conventions/{convention_id}/fursuit-activations/{fursuit_id}/",
         "/api/conventions/{convention_id}/fursuit-activations/{fursuit_id}/catch-session/",
+        "/api/conventions/{convention_id}/fursuit-activations/{fursuit_id}/catch-credential/",
+        "/api/conventions/{convention_id}/fursuit-activations/{fursuit_id}/catch-credential/rotate/",
+        "/api/conventions/{convention_id}/catch-credentials/resolve/",
         "/api/fursuits/",
         "/api/fursuits/{id}/",
         "/api/fursuits/{id}/photo/",

@@ -11,6 +11,7 @@ from django.core.files.storage import default_storage
 from django.db import connection
 from django.test import Client, override_settings
 
+from fursuits.models import Fursuit
 from profiles.models import PlayerProfile
 from tests.authentication_support import (
     TEST_CLERK_CONFIGURATION,
@@ -159,6 +160,7 @@ def test_create_patch_and_detail_are_closed_and_never_accept_server_fields() -> 
         {"name": "New Name", "is_enabled": False},
         {"photo_key": "x"},
         {"id": 1},
+        {"tailtag_id": "550e8400-e29b-41d4-a716-446655440000"},
         {"created_at": "x"},
     ):
         response = client.patch(
@@ -174,6 +176,63 @@ def test_create_patch_and_detail_are_closed_and_never_accept_server_fields() -> 
         updated.status_code == 200
         and assert_fursuit_response(updated)["name"] == "New Name"
     )
+    assert (
+        client.post(
+            "/api/fursuits/",
+            {
+                "name": "Client Chosen Identity",
+                "photo": image_upload(),
+                "tailtag_id": "550e8400-e29b-41d4-a716-446655440000",
+            },
+        ).status_code
+        == 400
+    )
+    assert (
+        client.put(
+            f"/api/fursuits/{record.id}/photo/",
+            {
+                "photo": image_upload(),
+                "tailtag_id": "550e8400-e29b-41d4-a716-446655440000",
+            },
+        ).status_code
+        == 400
+    )
+
+
+@pytest.mark.django_db
+def test_tailtag_id_persists_across_every_canonical_owner_response_and_mutation() -> (
+    None
+):
+    owner = create_eligible_user()
+    client = force_authenticated_client(user=owner)
+    created = client.post(
+        "/api/fursuits/", {"name": "Persistent Character", "photo": image_upload()}
+    )
+    assert created.status_code == 201
+    created_data = assert_fursuit_response(created)
+    created_record = Fursuit.objects.get(pk=created_data["id"])
+    expected = str(created_record.tailtag_id)
+    assert created_data["tailtag_id"] == expected
+
+    listed = client.get("/api/fursuits/")
+    detail = client.get(f"/api/fursuits/{created_record.id}/")
+    assert listed.status_code == detail.status_code == 200
+    assert assert_fursuit_data(listed.json()[0])["tailtag_id"] == expected
+    assert assert_fursuit_response(detail)["tailtag_id"] == expected
+
+    renamed = client.patch(
+        f"/api/fursuits/{created_record.id}/",
+        {"name": "Renamed Persistent Character"},
+        content_type="application/json",
+    )
+    replaced_photo = client.put(
+        f"/api/fursuits/{created_record.id}/photo/", {"photo": image_upload()}
+    )
+    assert renamed.status_code == replaced_photo.status_code == 200
+    assert assert_fursuit_response(renamed)["tailtag_id"] == expected
+    assert assert_fursuit_response(replaced_photo)["tailtag_id"] == expected
+    created_record.refresh_from_db()
+    assert str(created_record.tailtag_id) == expected
 
 
 @pytest.mark.django_db

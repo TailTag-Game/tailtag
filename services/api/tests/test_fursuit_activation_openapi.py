@@ -49,6 +49,18 @@ def test_fursuit_activation_openapi_is_exact_closed_authenticated_and_documents_
     response_schema = _dereference(
         schema, put["responses"]["200"]["content"]["application/json"]["schema"]
     )
+    validation_schema = _dereference(
+        schema, put["responses"]["400"]["content"]["application/json"]["schema"]
+    )
+    assert validation_schema == {
+        "type": "object",
+        "properties": {
+            "convention_id": {
+                "type": "array",
+                "items": {"type": "string"},
+            }
+        },
+    }
     list_schema = _dereference(
         schema, get["responses"]["200"]["content"]["application/json"]["schema"]
     )

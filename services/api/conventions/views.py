@@ -10,7 +10,12 @@ from drf_spectacular.utils import (  # pyright: ignore[reportUnknownVariableType
     extend_schema,  # pyright: ignore[reportUnknownVariableType]
 )
 from rest_framework import generics, serializers, status
-from rest_framework.exceptions import ErrorDetail, NotFound, UnsupportedMediaType
+from rest_framework.exceptions import (
+    ErrorDetail,
+    NotFound,
+    ParseError,
+    UnsupportedMediaType,
+)
 from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -20,20 +25,32 @@ from rest_framework.views import APIView
 from accounts.models import User
 from fursuits.models import Fursuit
 
-from . import catch_sessions, services
-from .models import Convention, ConventionStatus, FursuitActivation
+from . import catch_credentials, catch_sessions, services
+from .models import (
+    Convention,
+    ConventionEnrollment,
+    ConventionStatus,
+    FursuitActivation,
+)
 from .serializers import (
     FURSUIT_ACTIVATION_REQUEST_SCHEMA,
     FURSUIT_ACTIVATION_RESPONSE_SCHEMA,
+    FURSUIT_CATCH_CREDENTIAL_RESOLUTION_REQUEST_SCHEMA,
+    FURSUIT_CATCH_CREDENTIAL_RESOLUTION_RESPONSE_SCHEMA,
+    FURSUIT_CATCH_CREDENTIAL_RESOLUTION_VALIDATION_ERROR_SCHEMA,
+    FURSUIT_CATCH_CREDENTIAL_RESPONSE_SCHEMA,
     FURSUIT_CATCH_SESSION_RESPONSE_SCHEMA,
     ActiveConventionResponseSerializer,
     ConventionEnrollmentSerializer,
     ConventionEnrollRequestSerializer,
     ConventionSerializer,
     FursuitActivationRequestSerializer,
+    FursuitCatchCredentialResolutionRequestSerializer,
     SelectActiveConventionRequestSerializer,
     enrollment_response_data,
     fursuit_activation_response_data,
+    fursuit_catch_credential_resolution_response_data,
+    fursuit_catch_credential_response_data,
     fursuit_catch_session_response_data,
 )
 
@@ -46,6 +63,7 @@ else:
 
 AUTHENTICATION_ERROR_RESPONSE_SCHEMA = {
     "type": "object",
+    "additionalProperties": False,
     "properties": {
         "detail": {
             "type": "string",
@@ -56,6 +74,7 @@ AUTHENTICATION_ERROR_RESPONSE_SCHEMA = {
 
 NOT_FOUND_RESPONSE_SCHEMA = {
     "type": "object",
+    "additionalProperties": False,
     "properties": {
         "detail": {
             "type": "string",
@@ -66,6 +85,7 @@ NOT_FOUND_RESPONSE_SCHEMA = {
 
 FORBIDDEN_RESPONSE_SCHEMA = {
     "type": "object",
+    "additionalProperties": False,
     "properties": {
         "detail": {
             "type": "string",
@@ -89,13 +109,25 @@ def _user(request: Request) -> User:
     return cast(User, request.user)
 
 
-_AUTH_401 = OpenApiResponse(description="Authentication credentials were not provided.")
-_FORBIDDEN_403 = OpenApiResponse(
-    description="The player profile is not eligible for participation."
+_AUTH_401 = OpenApiResponse(
+    response=AUTHENTICATION_ERROR_RESPONSE_SCHEMA,
+    description="Authentication credentials were not provided.",
 )
-_NOT_FOUND_404 = OpenApiResponse(description="The requested resource was not found.")
-_INVALID_400 = OpenApiResponse(description="The supplied activation state is invalid.")
-_METHOD_405 = OpenApiResponse(description="Method not allowed.")
+_FORBIDDEN_403 = OpenApiResponse(
+    response=FORBIDDEN_RESPONSE_SCHEMA,
+    description="The player profile is not eligible for participation.",
+)
+_NOT_FOUND_404 = OpenApiResponse(
+    response=NOT_FOUND_RESPONSE_SCHEMA,
+    description="The requested resource was not found.",
+)
+_INVALID_400 = OpenApiResponse(
+    response=NOT_FOUND_RESPONSE_SCHEMA,
+    description="The supplied activation state is invalid.",
+)
+_METHOD_405 = OpenApiResponse(
+    response=NOT_FOUND_RESPONSE_SCHEMA, description="Method not allowed."
+)
 _FURSUIT_ACTIVATION_LIST_SCHEMA: dict[str, object] = {
     "type": "array",
     "items": FURSUIT_ACTIVATION_RESPONSE_SCHEMA,
@@ -142,6 +174,27 @@ _FURSUIT_CATCH_SESSION_OPENAPI_OPERATION: dict[str, object] = {
         "405": {"description": "Method not allowed."},
     },
 }
+_FURSUIT_CATCH_CREDENTIAL_OPENAPI_RESPONSES: dict[int, OpenApiResponse] = {
+    200: OpenApiResponse(response=FURSUIT_CATCH_CREDENTIAL_RESPONSE_SCHEMA),
+    400: _INVALID_400,
+    401: _AUTH_401,
+    403: _FORBIDDEN_403,
+    404: _NOT_FOUND_404,
+    405: _METHOD_405,
+}
+_FURSUIT_CATCH_CREDENTIAL_RESOLUTION_OPENAPI_RESPONSES: dict[int, OpenApiResponse] = {
+    200: OpenApiResponse(response=FURSUIT_CATCH_CREDENTIAL_RESOLUTION_RESPONSE_SCHEMA),
+    400: OpenApiResponse(
+        response=FURSUIT_CATCH_CREDENTIAL_RESOLUTION_VALIDATION_ERROR_SCHEMA,
+        description="The supplied catch credential payload is invalid.",
+    ),
+    401: _AUTH_401,
+    403: _FORBIDDEN_403,
+    404: OpenApiResponse(
+        response=NOT_FOUND_RESPONSE_SCHEMA, description="Catch credential not found."
+    ),
+    405: _METHOD_405,
+}
 
 
 class _FursuitActivationAPIView(APIView):
@@ -159,6 +212,66 @@ class _FursuitActivationAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return super().handle_exception(exc)
+
+
+class FursuitCatchCredentialResolutionView(APIView):
+    """Resolve a credential preview without mutating credential or session state."""
+
+    permission_classes = (IsAuthenticated,)
+    parser_classes = (JSONParser,)
+
+    def handle_exception(self, exc: Exception) -> Response:
+        if isinstance(exc, (ParseError, UnsupportedMediaType)):
+            return Response(
+                {
+                    "payload": [
+                        ErrorDetail("Invalid catch credential payload.", code="invalid")
+                    ]
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().handle_exception(exc)
+
+    @extend_schema(
+        operation_id="convention_fursuit_catch_credential_resolve",
+        description=(
+            "Resolve an opaque catch credential to a safe current preview only. This is "
+            "not catch authorization; future Wave 3 catch writes must submit and "
+            "independently revalidate the original payload."
+        ),
+        request={
+            "application/json": FURSUIT_CATCH_CREDENTIAL_RESOLUTION_REQUEST_SCHEMA
+        },
+        responses=_FURSUIT_CATCH_CREDENTIAL_RESOLUTION_OPENAPI_RESPONSES,
+    )
+    def post(self, request: Request, convention_id: int) -> Response:
+        serializer = FursuitCatchCredentialResolutionRequestSerializer(
+            data=request.data
+        )
+        serializer.is_valid(raise_exception=True)
+        convention = Convention.objects.filter(pk=convention_id).first()
+        if convention is None:
+            raise NotFound() from None
+        try:
+            services.require_convention_participation_eligible(_user(request))
+        except services.ConventionParticipationIneligibleError:
+            raise PermissionDenied from None
+        if not ConventionEnrollment.objects.filter(
+            user=_user(request), convention=convention
+        ).exists():
+            raise PermissionDenied from None
+        try:
+            credential = catch_credentials.resolve_catch_credential(
+                convention_id=convention.pk,
+                payload=serializer.validated_data["payload"],
+            )
+        except catch_credentials.CatchCredentialNotFoundError:
+            raise NotFound("Catch credential not found.") from None
+        return Response(
+            fursuit_catch_credential_resolution_response_data(
+                credential.activation, request=request
+            )
+        )
 
 
 def _owned_fursuit_or_404(user: User, fursuit_id: int) -> Fursuit:
@@ -188,6 +301,106 @@ def _catch_session_response(
     state: catch_sessions.FursuitCatchSessionState,
 ) -> Response:
     return Response(fursuit_catch_session_response_data(state))
+
+
+def _owner_catch_credential_error() -> Response:
+    return Response(
+        {"detail": "The fursuit cannot currently participate in this convention."},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+def _owner_catch_credential_response(payload: str) -> Response:
+    """Return an owner-only credential without permitting intermediary storage."""
+    response = Response(fursuit_catch_credential_response_data(payload))
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+def _resolve_owner_credential_resources(
+    user: User, *, convention_id: int, fursuit_id: int
+) -> None:
+    """Resolve owner resources in the public route's required precedence order."""
+    if not Fursuit.objects.filter(pk=fursuit_id, owner=user).exists():
+        raise NotFound() from None
+    _convention_or_404(convention_id)
+    if not FursuitActivation.objects.filter(
+        fursuit_id=fursuit_id, convention_id=convention_id
+    ).exists():
+        raise NotFound("No fursuit activation found matching the given ID.")
+
+
+class FursuitCatchCredentialFetchView(_FursuitActivationAPIView):
+    """Fetch an owned activation's opaque credential."""
+
+    @extend_schema(
+        operation_id="convention_fursuit_catch_credential_get",
+        description=(
+            "Return the owner's current opaque catch credential, creating it lazily "
+            "when absent. This does not start a catch session and is not catch authorization."
+        ),
+        responses=_FURSUIT_CATCH_CREDENTIAL_OPENAPI_RESPONSES,
+    )
+    def get(self, request: Request, convention_id: int, fursuit_id: int) -> Response:
+        _resolve_owner_credential_resources(
+            _user(request), convention_id=convention_id, fursuit_id=fursuit_id
+        )
+        try:
+            payload = catch_credentials.get_or_create_owner_catch_credential(
+                _user(request), convention_id=convention_id, fursuit_id=fursuit_id
+            )
+        except services.ConventionParticipationIneligibleError:
+            raise PermissionDenied from None
+        except (
+            Convention.DoesNotExist,
+            Fursuit.DoesNotExist,
+            FursuitActivation.DoesNotExist,
+        ):
+            raise NotFound() from None
+        except (
+            services.ConventionNotEnrolledError,
+            services.FursuitActivationNotEligibleError,
+        ):
+            return _owner_catch_credential_error()
+        return _owner_catch_credential_response(payload)
+
+
+class FursuitCatchCredentialRotationView(_FursuitActivationAPIView):
+    """Explicitly rotate an owned activation's opaque credential."""
+
+    @extend_schema(
+        operation_id="convention_fursuit_catch_credential_rotate",
+        description=(
+            "Revoke the owner's current opaque catch credential and create a replacement. "
+            "The request accepts zero body bytes only and is not catch authorization."
+        ),
+        request=None,
+        responses=_FURSUIT_CATCH_CREDENTIAL_OPENAPI_RESPONSES,
+    )
+    def post(self, request: Request, convention_id: int, fursuit_id: int) -> Response:
+        _resolve_owner_credential_resources(
+            _user(request), convention_id=convention_id, fursuit_id=fursuit_id
+        )
+        if len(request.body) > 0:
+            return _owner_catch_credential_error()
+        try:
+            payload = catch_credentials.rotate_owner_catch_credential(
+                _user(request), convention_id=convention_id, fursuit_id=fursuit_id
+            )
+        except services.ConventionParticipationIneligibleError:
+            raise PermissionDenied from None
+        except (
+            Convention.DoesNotExist,
+            Fursuit.DoesNotExist,
+            FursuitActivation.DoesNotExist,
+        ):
+            raise NotFound() from None
+        except (
+            services.ConventionNotEnrolledError,
+            services.FursuitActivationNotEligibleError,
+        ):
+            return _owner_catch_credential_error()
+        return _owner_catch_credential_response(payload)
 
 
 class FursuitActivationListView(_FursuitActivationAPIView):
@@ -236,7 +449,10 @@ class FursuitActivationDetailView(_FursuitActivationAPIView):
         request={"application/json": FURSUIT_ACTIVATION_REQUEST_SCHEMA},
         responses={
             200: OpenApiResponse(response=FURSUIT_ACTIVATION_RESPONSE_SCHEMA),
-            400: _INVALID_400,
+            400: OpenApiResponse(
+                response=VALIDATION_ERROR_RESPONSE_SCHEMA,
+                description="The supplied activation state is invalid.",
+            ),
             401: _AUTH_401,
             403: _FORBIDDEN_403,
             404: _NOT_FOUND_404,

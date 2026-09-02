@@ -12,6 +12,8 @@ from django.db import models
 from accounts.models import User
 from fursuits.models import Fursuit
 
+from .catch_credential_protocol import CATCH_CREDENTIAL_TOKEN_LENGTH
+
 
 class ConventionStatus(models.TextChoices):
     """Operational lifecycle status of a Convention."""
@@ -276,3 +278,80 @@ class FursuitCatchSession(models.Model):
                 name="conventions_catch_session_one_unended_per_activation",
             ),
         ]
+
+
+class FursuitCatchCredentialRevocationReason(models.TextChoices):
+    """The bounded terminal causes for a catch credential."""
+
+    OWNER_ROTATION = "owner_rotation", "Owner rotation"
+    OPERATOR = "operator", "Operator"
+    ELIGIBILITY_LOST = "eligibility_lost", "Eligibility lost"
+
+
+class FursuitCatchCredential(models.Model):
+    """One append-only opaque catch-credential record for an activation."""
+
+    id: int
+    pk: int
+    activation_id: int
+    activation: models.ForeignKey[FursuitActivation, FursuitActivation] = (
+        models.ForeignKey(
+            FursuitActivation,
+            on_delete=models.PROTECT,
+            related_name="catch_credentials",
+        )
+    )
+    token: models.CharField[str, str] = models.CharField(
+        max_length=CATCH_CREDENTIAL_TOKEN_LENGTH
+    )
+    revoked_at: models.DateTimeField[
+        datetime.datetime | None, datetime.datetime | None
+    ] = models.DateTimeField(null=True, blank=True)
+    revocation_reason: models.CharField[str | None, str | None] = models.CharField(
+        max_length=32,
+        choices=FursuitCatchCredentialRevocationReason.choices,
+        null=True,
+        blank=True,
+    )
+    created_at: models.DateTimeField[datetime.datetime, datetime.datetime] = (
+        models.DateTimeField(auto_now_add=True)
+    )
+    updated_at: models.DateTimeField[datetime.datetime, datetime.datetime] = (
+        models.DateTimeField(auto_now=True)
+    )
+
+    class Meta:
+        ordering: ClassVar[list[str]] = ["-created_at", "-id"]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(revoked_at__isnull=True, revocation_reason__isnull=True)
+                    | models.Q(
+                        revoked_at__isnull=False, revocation_reason__isnull=False
+                    )
+                ),
+                name="conventions_catch_credential_revocation_fields_paired",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(revocation_reason__isnull=True)
+                    | models.Q(
+                        revocation_reason__in=FursuitCatchCredentialRevocationReason.values
+                    )
+                ),
+                name="conventions_catch_credential_revocation_reason_valid",
+            ),
+            models.UniqueConstraint(
+                fields=["token"],
+                name="conventions_catch_credential_token_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["activation"],
+                condition=models.Q(revoked_at__isnull=True),
+                name="conventions_catch_credential_one_current_per_activation",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        """Return a safe diagnostic representation without the opaque token."""
+        return f"Catch credential {self.pk}"

@@ -63,9 +63,11 @@ def set_profile_enabled(*, profile_id: int, is_enabled: bool) -> PlayerProfile:
         now = timezone.now()
         if not is_enabled:
             # The profile lock is the first member of the shared lifecycle order.
-            from conventions.catch_sessions import terminate_for_profile_disable
+            from conventions.catch_credentials import revoke_for_profile_disable
+            from conventions.catch_sessions import terminate_for_locked_activations
 
-            terminate_for_profile_disable(profile, now=now)
+            activations = revoke_for_profile_disable(profile, now=now)
+            terminate_for_locked_activations(activations, now=now)
         profile.is_enabled = is_enabled
         profile.save(update_fields=["is_enabled"])
         return profile

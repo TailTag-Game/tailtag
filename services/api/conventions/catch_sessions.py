@@ -68,6 +68,18 @@ def get_effective_fursuit_catch_session(
     )
     if activation is None:
         return None
+    return get_effective_fursuit_catch_session_for_activation(activation)
+
+
+def get_effective_fursuit_catch_session_for_activation(
+    activation: FursuitActivation,
+) -> FursuitCatchSession | None:
+    """Return an activation's effective session without owner-scoped resolution."""
+    # Keep this import local so services can continue to depend on this module.
+    from conventions.services import is_fursuit_activation_eligible
+
+    if not activation.is_active or not is_fursuit_activation_eligible(activation):
+        return None
     return (
         FursuitCatchSession.objects.filter(
             activation=activation,
@@ -90,6 +102,13 @@ def terminate_for_activation_deactivation(
         session, now=now, live_reason=FursuitCatchSessionEndReason.ELIGIBILITY_LOST
     )
     return session
+
+
+def terminate_for_locked_activations(
+    activations: tuple[FursuitActivation, ...], *, now: datetime.datetime
+) -> int:
+    """Terminate sessions after callers have locked activations and credentials."""
+    return _terminate_sessions_for_activations(activations, now=now)
 
 
 def terminate_for_profile_disable(
@@ -299,7 +318,9 @@ def _latest_session(activation: FursuitActivation) -> FursuitCatchSession | None
 
 
 def _terminate_sessions_for_activations(
-    activations: list[FursuitActivation], *, now: datetime.datetime
+    activations: tuple[FursuitActivation, ...] | list[FursuitActivation],
+    *,
+    now: datetime.datetime,
 ) -> int:
     """Lock sessions after all activations, then apply expiration-first termination."""
     if not activations:
