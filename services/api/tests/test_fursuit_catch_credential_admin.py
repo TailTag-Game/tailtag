@@ -83,7 +83,7 @@ def test_credential_admin_is_staff_only_safe_history_with_exact_search_and_no_mu
     model = catch_credential_model()
     model_admin: Any = admin.site._registry[model]  # type: ignore[reportPrivateUsage]
     operator = User.objects.create_superuser("credential_admin_operator", password="pw")
-    non_staff = User.objects.create_user("credential_non_staff", password="pw")
+    non_staff = User.objects.create_user("credential_non_staff")
     client = Client()
     client.force_login(operator)
     changelist, change, history, delete = _admin_urls(credential)
@@ -183,7 +183,9 @@ def test_admin_stale_revoke_cannot_overwrite_rotation_or_eligibility_history_or_
 
     with patch("secrets.token_urlsafe", return_value=TOKEN_B):
         rotated = scenario.client.post(
-            rotation_path(scenario.convention.pk, scenario.fursuit.pk), b""
+            rotation_path(scenario.convention.pk, scenario.fursuit.pk),
+            b"",
+            content_type="application/json",
         )
     assert rotated.json() == {"payload": PAYLOAD_B}
     old.refresh_from_db()
