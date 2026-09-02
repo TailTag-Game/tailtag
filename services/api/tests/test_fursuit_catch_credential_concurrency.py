@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import hashlib
 import math
 import os
 from collections.abc import Callable
@@ -30,8 +31,6 @@ from profiles.models import PlayerProfile
 from tests.authentication_support import force_authenticated_client
 from tests.catch_credential_test_support import (
     NOT_FOUND_DETAIL,
-    PAYLOAD_A,
-    TOKEN_A,
     catch_credential_model,
     create_credential,
     create_credential_scenario,
@@ -206,12 +205,21 @@ def _gate_resolution_eligibility(
     return entered, continue_resolution
 
 
+def _token(label: str) -> str:
+    """Return a deterministic, URL-safe, globally distinct test token."""
+    return hashlib.sha256(label.encode()).hexdigest()[:43]
+
+
+def _payload(token: str) -> str:
+    return f"tailtag:catch:v1:{token}"
+
+
 def _setup(label: str, *, session: bool = False) -> tuple[Any, FursuitActivation, Any]:
     scenario = create_credential_scenario(clerk_user_id=f"credential_race_{label}")
     activation = create_activation_row(
         fursuit=scenario.fursuit, convention=scenario.convention, active=True
     )
-    credential = create_credential(activation=activation, token=TOKEN_A)
+    credential = create_credential(activation=activation, token=_token(label))
     if session:
         create_catch_session(activation=activation)
     return scenario, activation, credential
@@ -225,7 +233,9 @@ def _fetch(s: Any) -> Any:
 
 def _rotate(s: Any) -> Any:
     return force_authenticated_client(user=User.objects.get(pk=s.user.pk)).post(
-        rotation_path(s.convention.pk, s.fursuit.pk), b""
+        rotation_path(s.convention.pk, s.fursuit.pk),
+        b"",
+        content_type="application/json",
     )
 
 
@@ -248,10 +258,10 @@ def _operator_revoke(operator_id: int, credential_id: int) -> Any:
     )
 
 
-def _resolve(s: Any) -> Any:
+def _resolve(s: Any, token: str) -> Any:
     return force_authenticated_client(user=User.objects.get(pk=s.user.pk)).post(
         resolution_path(s.convention.pk),
-        {"payload": PAYLOAD_A},
+        {"payload": _payload(token)},
         content_type="application/json",
     )
 
@@ -365,10 +375,10 @@ def test_race_2_fetch_vs_rotation_has_a_legal_serial_payload_and_one_current_row
             if row.revoked_at is None
         )
         if fetch_first:
-            assert fetch.json() == {"payload": PAYLOAD_A}
+            assert fetch.json() == {"payload": _payload(old.token)}
         else:
             assert fetch.json() == {"payload": f"tailtag:catch:v1:{current.token}"}
-            assert fetch.json() != {"payload": PAYLOAD_A}
+            assert fetch.json() != {"payload": _payload(old.token)}
         old.refresh_from_db()
         assert old.revocation_reason == "owner_rotation"
 
@@ -456,11 +466,11 @@ def test_race_5_operator_revoke_vs_fetch_forces_both_serial_outcomes() -> None:
         old.refresh_from_db()
         assert old.revocation_reason == "operator"
         if fetch_first:
-            assert fetch.json() == {"payload": PAYLOAD_A}
+            assert fetch.json() == {"payload": _payload(old.token)}
             assert current == []
         else:
             assert len(current) == 1 and current[0].pk != old.pk
-            assert fetch.json()["payload"] != PAYLOAD_A
+            assert fetch.json()["payload"] != _payload(old.token)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -601,7 +611,7 @@ def test_race_12_restoration_vs_fetch_never_reactivates_a_revoked_row() -> None:
         lambda: _fetch(s),
         lambda: __import__(
             "profiles.services", fromlist=["set_profile_enabled"]
-        ).set_profile_enabled(s.profile.pk, True),
+        ).set_profile_enabled(profile_id=s.profile.pk, is_enabled=True),
     )
     _assert_results(fetch, restore)
     assert fetch.status_code in {200, 403}
@@ -630,7 +640,7 @@ def test_race_13_resolution_vs_rotation_or_operator_revoke_is_only_a_stale_previ
     for mutation in ("rotation", "operator"):
         # Evaluation first is a legal stale-preview success, on a separate resolver connection.
         s, activation, old = _setup(f"resolve_before_{mutation}", session=True)
-        before = _separate_connection(lambda s=s: _resolve(s))
+        before = _separate_connection(lambda s=s, old=old: _resolve(s, old.token))
         assert before.status_code == 200
         change = _separate_connection(
             (lambda s=s: _rotate(s))
@@ -638,9 +648,9 @@ def test_race_13_resolution_vs_rotation_or_operator_revoke_is_only_a_stale_previ
             else lambda old=old: _operator_revoke(operator.pk, old.pk)
         )
         _assert_results(change)
-        assert _separate_connection(lambda s=s: _resolve(s)).json() == {
-            "detail": NOT_FOUND_DETAIL
-        }
+        assert _separate_connection(
+            lambda s=s, old=old: _resolve(s, old.token)
+        ).json() == {"detail": NOT_FOUND_DETAIL}
         assert_credential_history(activation)
 
         # A real concurrent change after target evaluation but before final-current
@@ -650,7 +660,9 @@ def test_race_13_resolution_vs_rotation_or_operator_revoke_is_only_a_stale_previ
             entered, release = _gate_resolution_eligibility(gate_patch)
             pids: Queue[int] = Queue()
             with ThreadPoolExecutor(max_workers=1) as pool:
-                resolver = pool.submit(_worker, lambda s=s: _resolve(s), pids)
+                resolver = pool.submit(
+                    _worker, lambda s=s, old=old: _resolve(s, old.token), pids
+                )
                 _pid(pids, resolver)
                 assert entered.wait(_WAIT_SECONDS), (
                     "resolver did not evaluate target eligibility"
@@ -673,21 +685,26 @@ def test_race_14_resolution_vs_eligibility_loss_fails_after_the_committed_transi
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """AC-08/13/14: target evaluation timing, not a preview lock, controls staleness."""
-    s, activation, _ = _setup("resolve_loss_before", session=True)
-    assert _separate_connection(lambda s=s: _resolve(s)).status_code == 200
+    s, activation, old = _setup("resolve_loss_before", session=True)
+    assert (
+        _separate_connection(lambda s=s, old=old: _resolve(s, old.token)).status_code
+        == 200
+    )
     _assert_results(_separate_connection(lambda s=s: _disable_fursuit(s)))
-    assert _separate_connection(lambda s=s: _resolve(s)).json() == {
+    assert _separate_connection(lambda s=s, old=old: _resolve(s, old.token)).json() == {
         "detail": NOT_FOUND_DETAIL
     }
     assert not [
         row for row in assert_credential_history(activation) if row.revoked_at is None
     ]
 
-    s, activation, _ = _setup("resolve_loss_after", session=True)
+    s, activation, old = _setup("resolve_loss_after", session=True)
     entered, release = _gate_resolution_eligibility(monkeypatch)
     pids: Queue[int] = Queue()
     with ThreadPoolExecutor(max_workers=1) as pool:
-        resolver = pool.submit(_worker, lambda s=s: _resolve(s), pids)
+        resolver = pool.submit(
+            _worker, lambda s=s, old=old: _resolve(s, old.token), pids
+        )
         _pid(pids, resolver)
         assert entered.wait(_WAIT_SECONDS), (
             "resolver did not evaluate target eligibility"
@@ -713,15 +730,29 @@ def test_race_15_resolution_vs_session_stop_expiration_and_restart_preserves_cre
         credential.revocation_reason,
         credential.updated_at,
     )
-    assert _separate_connection(lambda s=s: _resolve(s)).status_code == 200
+    assert (
+        _separate_connection(
+            lambda s=s, credential=credential: _resolve(s, credential.token)
+        ).status_code
+        == 200
+    )
     assert _separate_connection(lambda s=s: _session(s, False)).status_code == 200
-    assert _separate_connection(lambda s=s: _resolve(s)).status_code == 404
+    assert (
+        _separate_connection(
+            lambda s=s, credential=credential: _resolve(s, credential.token)
+        ).status_code
+        == 404
+    )
     assert _separate_connection(lambda s=s: _session(s, True)).status_code == 200
 
     entered, release = _gate_resolution_eligibility(monkeypatch)
     pids: Queue[int] = Queue()
     with ThreadPoolExecutor(max_workers=1) as pool:
-        resolver = pool.submit(_worker, lambda s=s: _resolve(s), pids)
+        resolver = pool.submit(
+            _worker,
+            lambda s=s, credential=credential: _resolve(s, credential.token),
+            pids,
+        )
         _pid(pids, resolver)
         assert entered.wait(_WAIT_SECONDS), (
             "resolver did not evaluate target eligibility"
@@ -740,9 +771,19 @@ def test_race_15_resolution_vs_session_stop_expiration_and_restart_preserves_cre
     live = activation.catch_sessions.get(ended_at__isnull=True)
     live.expires_at = timezone.now()
     live.save(update_fields=["expires_at", "updated_at"])
-    assert _separate_connection(lambda s=s: _resolve(s)).status_code == 404
+    assert (
+        _separate_connection(
+            lambda s=s, credential=credential: _resolve(s, credential.token)
+        ).status_code
+        == 404
+    )
     assert _separate_connection(lambda s=s: _session(s, True)).status_code == 200
-    assert _separate_connection(lambda s=s: _resolve(s)).status_code == 200
+    assert (
+        _separate_connection(
+            lambda s=s, credential=credential: _resolve(s, credential.token)
+        ).status_code
+        == 200
+    )
     assert_credential_history(activation)
 
 
