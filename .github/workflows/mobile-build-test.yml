@@ -17,7 +17,7 @@ jobs:
     name: Detect mobile changes
     runs-on: ubuntu-latest
     outputs: 
-      mobile: ${{ steps.filter.outputs.mobile }}
+      mobile: ${{ steps.filter.outputs.mobile || steps.skip-filter.outputs.mobile }}
     steps: 
       - name: Detect mobile app changes
         id: filter
