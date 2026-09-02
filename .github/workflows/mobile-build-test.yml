@@ -23,7 +23,7 @@ jobs:
       - name: Detect mobile app changes
         id: filter
         if: github.event_name == 'pull_request'
-        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        uses: dorny/paths-filter@0000000000000000000000000000000000000000 # temporary Task 4 fault
         with:
           filters: |
             mobile:
