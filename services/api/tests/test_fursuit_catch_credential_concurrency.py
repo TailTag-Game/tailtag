@@ -7,6 +7,7 @@ import os
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from queue import Empty, Queue
+from threading import Event
 from time import monotonic, sleep
 from typing import Any
 
@@ -172,6 +173,38 @@ def _assert_results(*results: Any) -> None:
         assert status != 500, f"expected race leaked HTTP 500: {result!r}"
 
 
+def _separate_connection(action: Callable[[], Any]) -> Any:
+    """Execute a lock-free read/write participant on its own PostgreSQL connection."""
+    pids: Queue[int] = Queue()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_worker, action, pids)
+        _pid(pids, future)
+        return future.result(timeout=_RESULT_SECONDS)
+
+
+def _gate_resolution_eligibility(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[Event, Event]:
+    """Pause a lock-free preview at its approved target-eligibility collaborator."""
+    # Delayed import retains RED collection safety until the credential module exists.
+    from conventions import catch_credentials
+
+    entered = Event()
+    continue_resolution = Event()
+    original = catch_credentials.is_fursuit_activation_eligible
+
+    def gated(activation: FursuitActivation) -> bool:
+        result = original(activation)
+        entered.set()
+        assert continue_resolution.wait(_WAIT_SECONDS), (
+            "resolution gate was not released"
+        )
+        return result
+
+    monkeypatch.setattr(catch_credentials, "is_fursuit_activation_eligible", gated)
+    return entered, continue_resolution
+
+
 def _setup(label: str, *, session: bool = False) -> tuple[Any, FursuitActivation, Any]:
     scenario = create_credential_scenario(clerk_user_id=f"credential_race_{label}")
     activation = create_activation_row(
@@ -280,6 +313,26 @@ def test_race_1_two_first_fetches_converge_on_one_current_payload() -> None:
     assert one.status_code == two.status_code == 200
     assert one.json() == two.json()
     assert len(assert_credential_history(activation)) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_unrelated_credential_creation_integrity_error_propagates_without_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-05/06/14: recovery is limited to the two named credential constraints."""
+    model = catch_credential_model()
+    s = create_credential_scenario(clerk_user_id="credential_unrelated_integrity")
+    create_activation_row(fursuit=s.fursuit, convention=s.convention, active=True)
+
+    def unrelated_constraint(*args: Any, **kwargs: Any) -> Any:
+        del args, kwargs
+        raise IntegrityError(
+            'violates constraint "unrelated_credential_test_constraint"'
+        )
+
+    monkeypatch.setattr(model.objects, "create", unrelated_constraint)
+    with pytest.raises(IntegrityError, match="unrelated_credential_test_constraint"):
+        _fetch(s)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -400,19 +453,36 @@ def test_races_6_and_7_operation_vs_activation_deactivation_leaves_no_current_ro
     operation: Callable[[Any], Any],
 ) -> None:
     """AC-05/06/08/14: committed activation loss dominates an in-flight owner operation."""
-    s, activation, _ = _setup(f"activation_{operation.__name__}")
-    action, deactivate = _race(
-        lambda: FursuitActivation.objects.select_for_update().get(pk=activation.pk),
-        lambda: operation(s),
-        lambda: _deactivate(s),
-    )
-    _assert_results(action, deactivate)
-    assert action.status_code in {200, 400} and deactivate.status_code == 200
-    activation.refresh_from_db()
-    assert activation.is_active is False
-    assert not [
-        row for row in assert_credential_history(activation) if row.revoked_at is None
-    ]
+    for owner_first in (True, False):
+        s, activation, initial = _setup(
+            f"activation_{operation.__name__}_{owner_first}", session=True
+        )
+        session = activation.catch_sessions.get(ended_at__isnull=True)
+        first = lambda s=s, owner_first=owner_first: (
+            operation(s) if owner_first else _deactivate(s)
+        )
+        second = lambda s=s, owner_first=owner_first: (
+            _deactivate(s) if owner_first else operation(s)
+        )
+        one, two = _race(
+            lambda activation=activation: (
+                FursuitActivation.objects.select_for_update().get(pk=activation.pk)
+            ),
+            first,
+            second,
+        )
+        _assert_results(one, two)
+        action, deactivate = (one, two) if owner_first else (two, one)
+        assert action.status_code == (200 if owner_first else 400)
+        assert deactivate.status_code == 200
+        activation.refresh_from_db()
+        initial.refresh_from_db()
+        session.refresh_from_db()
+        assert activation.is_active is False
+        assert session.ended_at is not None and session.end_reason == "eligibility_lost"
+        rows = assert_credential_history(activation)
+        assert not [row for row in rows if row.revoked_at is None]
+        assert any(row.revocation_reason == "eligibility_lost" for row in rows)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -456,13 +526,30 @@ def test_races_8_to_11_owner_operation_vs_each_eligibility_loss_has_no_current_r
     operation: Callable[[Any], Any],
 ) -> None:
     """AC-05/06/08/14: every upstream loss is atomic with credential revocation."""
-    s, activation, _ = _setup(f"{label}_{operation.__name__}")
-    action, transition = _race(lambda: lock(s), lambda: operation(s), lambda: loss(s))
-    _assert_results(action, transition)
-    assert action.status_code in {200, 400, 403}, f"race {number} {label}"
-    assert not [
-        row for row in assert_credential_history(activation) if row.revoked_at is None
-    ]
+    loss_first_status = 403 if label == "profile" else 400
+    for owner_first in (True, False):
+        s, activation, initial = _setup(
+            f"{label}_{operation.__name__}_{owner_first}", session=True
+        )
+        session = activation.catch_sessions.get(ended_at__isnull=True)
+        first = lambda s=s, owner_first=owner_first: (
+            operation(s) if owner_first else loss(s)
+        )
+        second = lambda s=s, owner_first=owner_first: (
+            loss(s) if owner_first else operation(s)
+        )
+        action_one, transition_one = _race(lambda s=s: lock(s), first, second)
+        _assert_results(action_one, transition_one)
+        action = action_one if owner_first else transition_one
+        assert action.status_code == (200 if owner_first else loss_first_status), (
+            f"race {number} {label}"
+        )
+        initial.refresh_from_db()
+        session.refresh_from_db()
+        rows = assert_credential_history(activation)
+        assert not [row for row in rows if row.revoked_at is None]
+        assert session.ended_at is not None and session.end_reason == "eligibility_lost"
+        assert any(row.revocation_reason == "eligibility_lost" for row in rows)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -497,84 +584,129 @@ def test_race_12_restoration_vs_fetch_never_reactivates_a_revoked_row() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-def test_race_13_resolution_vs_rotation_or_operator_revoke_is_only_a_stale_preview() -> (
-    None
-):
-    """AC-06/13/14: resolution may precede mutation but the old payload fails after commit."""
+def test_race_13_resolution_vs_rotation_or_operator_revoke_is_only_a_stale_preview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-06/13/14: preview never locks activation and final-current proof wins."""
     operator = User.objects.create_superuser(
         "credential_race_resolution_operator", password="pw"
     )
     for mutation in ("rotation", "operator"):
-        s, activation, old = _setup(f"resolve_{mutation}", session=True)
-        resolve, change = _race(
-            lambda activation=activation: (
-                FursuitActivation.objects.select_for_update().get(pk=activation.pk)
-            ),
-            lambda s=s: _resolve(s),
-            (
-                (lambda s=s: _rotate(s))
-                if mutation == "rotation"
-                else lambda old=old: _operator_revoke(operator.pk, old.pk)
-            ),
+        # Evaluation first is a legal stale-preview success, on a separate resolver connection.
+        s, activation, old = _setup(f"resolve_before_{mutation}", session=True)
+        before = _separate_connection(lambda s=s: _resolve(s))
+        assert before.status_code == 200
+        change = _separate_connection(
+            (lambda s=s: _rotate(s))
+            if mutation == "rotation"
+            else lambda old=old: _operator_revoke(operator.pk, old.pk)
         )
-        _assert_results(resolve, change)
-        assert resolve.status_code in {200, 404}
-        assert _resolve(s).status_code == 404
-        assert _resolve(s).json() == {"detail": NOT_FOUND_DETAIL}
+        _assert_results(change)
+        assert _separate_connection(lambda s=s: _resolve(s)).json() == {
+            "detail": NOT_FOUND_DETAIL
+        }
+        assert_credential_history(activation)
+
+        # A real concurrent change after target evaluation but before final-current
+        # proof yields generic 404 without forcing the resolver to lock activation.
+        s, activation, old = _setup(f"resolve_after_{mutation}", session=True)
+        with monkeypatch.context() as gate_patch:
+            entered, release = _gate_resolution_eligibility(gate_patch)
+            pids: Queue[int] = Queue()
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                resolver = pool.submit(_worker, lambda s=s: _resolve(s), pids)
+                _pid(pids, resolver)
+                assert entered.wait(_WAIT_SECONDS), (
+                    "resolver did not evaluate target eligibility"
+                )
+                change = _separate_connection(
+                    (lambda s=s: _rotate(s))
+                    if mutation == "rotation"
+                    else lambda old=old: _operator_revoke(operator.pk, old.pk)
+                )
+                release.set()
+                after = resolver.result(timeout=_RESULT_SECONDS)
+        _assert_results(change, after)
+        assert after.status_code == 404
+        assert after.json() == {"detail": NOT_FOUND_DETAIL}
         assert_credential_history(activation)
 
 
 @pytest.mark.django_db(transaction=True)
-def test_race_14_resolution_vs_eligibility_loss_fails_after_the_committed_transition() -> (
-    None
-):
-    """AC-08/13/14: preview success before the transaction is intentionally stale only."""
-    s, activation, _ = _setup("resolve_eligibility", session=True)
-    resolve, loss = _race(
-        lambda: Fursuit.objects.select_for_update().get(pk=s.fursuit.pk),
-        lambda: _resolve(s),
-        lambda: _disable_fursuit(s),
-    )
-    _assert_results(resolve, loss)
-    assert resolve.status_code in {200, 404}
-    assert _resolve(s).status_code == 404
+def test_race_14_resolution_vs_eligibility_loss_fails_after_the_committed_transition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-08/13/14: target evaluation timing, not a preview lock, controls staleness."""
+    s, activation, _ = _setup("resolve_loss_before", session=True)
+    assert _separate_connection(lambda s=s: _resolve(s)).status_code == 200
+    _assert_results(_separate_connection(lambda s=s: _disable_fursuit(s)))
+    assert _separate_connection(lambda s=s: _resolve(s)).json() == {
+        "detail": NOT_FOUND_DETAIL
+    }
+    assert not [
+        row for row in assert_credential_history(activation) if row.revoked_at is None
+    ]
+
+    s, activation, _ = _setup("resolve_loss_after", session=True)
+    entered, release = _gate_resolution_eligibility(monkeypatch)
+    pids: Queue[int] = Queue()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        resolver = pool.submit(_worker, lambda s=s: _resolve(s), pids)
+        _pid(pids, resolver)
+        assert entered.wait(_WAIT_SECONDS), (
+            "resolver did not evaluate target eligibility"
+        )
+        _assert_results(_separate_connection(lambda s=s: _disable_fursuit(s)))
+        release.set()
+        after = resolver.result(timeout=_RESULT_SECONDS)
+    assert after.status_code == 404
+    assert after.json() == {"detail": NOT_FOUND_DETAIL}
     assert not [
         row for row in assert_credential_history(activation) if row.revoked_at is None
     ]
 
 
 @pytest.mark.django_db(transaction=True)
-def test_race_15_resolution_vs_session_stop_expiration_and_restart_preserves_credential() -> (
-    None
-):
-    """AC-07/13/14: session timing controls preview, never credential terminal history."""
+def test_race_15_resolution_vs_session_stop_expiration_and_restart_preserves_credential(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-07/13/14: effective-session timing controls preview, not credential history."""
     s, activation, credential = _setup("resolve_session", session=True)
     before = (
         credential.revoked_at,
         credential.revocation_reason,
         credential.updated_at,
     )
-    resolve, stop = _race(
-        lambda: FursuitActivation.objects.select_for_update().get(pk=activation.pk),
-        lambda: _resolve(s),
-        lambda: _session(s, False),
-    )
-    _assert_results(resolve, stop)
-    assert resolve.status_code in {200, 404} and stop.status_code == 200
+    assert _separate_connection(lambda s=s: _resolve(s)).status_code == 200
+    assert _separate_connection(lambda s=s: _session(s, False)).status_code == 200
+    assert _separate_connection(lambda s=s: _resolve(s)).status_code == 404
+    assert _separate_connection(lambda s=s: _session(s, True)).status_code == 200
+
+    entered, release = _gate_resolution_eligibility(monkeypatch)
+    pids: Queue[int] = Queue()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        resolver = pool.submit(_worker, lambda s=s: _resolve(s), pids)
+        _pid(pids, resolver)
+        assert entered.wait(_WAIT_SECONDS), (
+            "resolver did not evaluate target eligibility"
+        )
+        assert _separate_connection(lambda s=s: _session(s, False)).status_code == 200
+        release.set()
+        after_stop = resolver.result(timeout=_RESULT_SECONDS)
+    assert after_stop.status_code == 404
     credential.refresh_from_db()
     assert (
         credential.revoked_at,
         credential.revocation_reason,
         credential.updated_at,
     ) == before
-    assert _resolve(s).status_code == 404
-    assert _session(s, True).status_code == 200
+    assert _separate_connection(lambda s=s: _session(s, True)).status_code == 200
     live = activation.catch_sessions.get(ended_at__isnull=True)
     live.expires_at = timezone.now()
     live.save(update_fields=["expires_at", "updated_at"])
-    assert _resolve(s).status_code == 404
-    assert _session(s, True).status_code == 200
-    assert _resolve(s).status_code == 200
+    assert _separate_connection(lambda s=s: _resolve(s)).status_code == 404
+    assert _separate_connection(lambda s=s: _session(s, True)).status_code == 200
+    assert _separate_connection(lambda s=s: _resolve(s)).status_code == 200
     assert_credential_history(activation)
 
 
