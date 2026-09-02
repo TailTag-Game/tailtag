@@ -13,6 +13,7 @@ from django.forms import ModelForm
 from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 
+from .catch_credential_protocol import CATCH_CREDENTIAL_TOKEN_PATTERN
 from .catch_credentials import revoke_catch_credential_as_operator
 from .catch_sessions import terminate_session_as_operator
 from .models import (
@@ -29,7 +30,9 @@ from .services import (
     set_convention_admin_state,
 )
 
-_SENSITIVE_CREDENTIAL_SEARCH_PATTERN = re.compile(r"[A-Za-z0-9_-]{43}", re.ASCII)
+_SENSITIVE_CREDENTIAL_SEARCH_PATTERN = re.compile(
+    CATCH_CREDENTIAL_TOKEN_PATTERN, re.ASCII
+)
 _REDACTED_CREDENTIAL_SEARCH_QUERY = "__tailtag_admin_credential_query_redacted__"
 
 if TYPE_CHECKING:

@@ -12,6 +12,8 @@ from django.db import models
 from accounts.models import User
 from fursuits.models import Fursuit
 
+from .catch_credential_protocol import CATCH_CREDENTIAL_TOKEN_LENGTH
+
 
 class ConventionStatus(models.TextChoices):
     """Operational lifecycle status of a Convention."""
@@ -299,7 +301,9 @@ class FursuitCatchCredential(models.Model):
             related_name="catch_credentials",
         )
     )
-    token: models.CharField[str, str] = models.CharField(max_length=43)
+    token: models.CharField[str, str] = models.CharField(
+        max_length=CATCH_CREDENTIAL_TOKEN_LENGTH
+    )
     revoked_at: models.DateTimeField[
         datetime.datetime | None, datetime.datetime | None
     ] = models.DateTimeField(null=True, blank=True)

@@ -310,6 +310,13 @@ def _owner_catch_credential_error() -> Response:
     )
 
 
+def _owner_catch_credential_response(payload: str) -> Response:
+    """Return an owner-only credential without permitting intermediary storage."""
+    response = Response(fursuit_catch_credential_response_data(payload))
+    response["Cache-Control"] = "no-store"
+    return response
+
+
 def _resolve_owner_credential_resources(
     user: User, *, convention_id: int, fursuit_id: int
 ) -> None:
@@ -355,7 +362,7 @@ class FursuitCatchCredentialFetchView(_FursuitActivationAPIView):
             services.FursuitActivationNotEligibleError,
         ):
             return _owner_catch_credential_error()
-        return Response(fursuit_catch_credential_response_data(payload))
+        return _owner_catch_credential_response(payload)
 
 
 class FursuitCatchCredentialRotationView(_FursuitActivationAPIView):
@@ -393,7 +400,7 @@ class FursuitCatchCredentialRotationView(_FursuitActivationAPIView):
             services.FursuitActivationNotEligibleError,
         ):
             return _owner_catch_credential_error()
-        return Response(fursuit_catch_credential_response_data(payload))
+        return _owner_catch_credential_response(payload)
 
 
 class FursuitActivationListView(_FursuitActivationAPIView):
@@ -442,7 +449,10 @@ class FursuitActivationDetailView(_FursuitActivationAPIView):
         request={"application/json": FURSUIT_ACTIVATION_REQUEST_SCHEMA},
         responses={
             200: OpenApiResponse(response=FURSUIT_ACTIVATION_RESPONSE_SCHEMA),
-            400: _INVALID_400,
+            400: OpenApiResponse(
+                response=VALIDATION_ERROR_RESPONSE_SCHEMA,
+                description="The supplied activation state is invalid.",
+            ),
             401: _AUTH_401,
             403: _FORBIDDEN_403,
             404: _NOT_FOUND_404,

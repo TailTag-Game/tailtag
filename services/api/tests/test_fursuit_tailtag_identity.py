@@ -26,7 +26,9 @@ def test_tailtag_id_is_non_null_unique_read_only_uuid_with_per_record_default() 
     assert isinstance(first.tailtag_id, uuid.UUID)
     assert isinstance(second.tailtag_id, uuid.UUID)
     assert first.tailtag_id != second.tailtag_id
-    assert first.tailtag_id != first.id
+    assert field is not Fursuit._meta.pk
+    assert field.primary_key is False
+    assert Fursuit._meta.pk.name == "id"
 
 
 @pytest.mark.django_db

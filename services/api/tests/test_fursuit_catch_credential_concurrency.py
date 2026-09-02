@@ -20,6 +20,10 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import User
+from conventions.catch_credential_protocol import (
+    CATCH_CREDENTIAL_PAYLOAD_PREFIX,
+    CATCH_CREDENTIAL_TOKEN_LENGTH,
+)
 from conventions.models import (
     Convention,
     ConventionEnrollment,
@@ -207,11 +211,11 @@ def _gate_resolution_eligibility(
 
 def _token(label: str) -> str:
     """Return a deterministic, URL-safe, globally distinct test token."""
-    return hashlib.sha256(label.encode()).hexdigest()[:43]
+    return hashlib.sha256(label.encode()).hexdigest()[:CATCH_CREDENTIAL_TOKEN_LENGTH]
 
 
 def _payload(token: str) -> str:
-    return f"tailtag:catch:v1:{token}"
+    return f"{CATCH_CREDENTIAL_PAYLOAD_PREFIX}{token}"
 
 
 def _setup(label: str, *, session: bool = False) -> tuple[Any, FursuitActivation, Any]:
@@ -393,7 +397,7 @@ def test_race_2_fetch_vs_rotation_has_a_legal_serial_payload_and_one_current_row
         if fetch_first:
             assert fetch.json() == {"payload": _payload(old.token)}
         else:
-            assert fetch.json() == {"payload": f"tailtag:catch:v1:{current.token}"}
+            assert fetch.json() == {"payload": _payload(current.token)}
             assert fetch.json() != {"payload": _payload(old.token)}
         old.refresh_from_db()
         assert old.revocation_reason == "owner_rotation"

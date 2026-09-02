@@ -390,6 +390,22 @@ def test_private_creation_recovers_only_named_current_winner_and_preserves_trans
 
 
 @pytest.mark.django_db
+def test_private_creation_recovers_a_real_database_current_winner() -> None:
+    """AC-05/14: the named PostgreSQL conflict leaves its savepoint usable."""
+    from conventions import catch_credentials
+
+    scenario = create_credential_scenario()
+    activation = create_activation_row(
+        fursuit=scenario.fursuit, convention=scenario.convention, active=True
+    )
+    winner = create_credential(activation=activation, token=TOKEN_A)
+
+    with transaction.atomic():
+        assert catch_credentials._create_current_catch_credential(activation) == winner  # pyright: ignore[reportPrivateUsage] # Final database-defense seam.
+        assert catch_credential_model().objects.get(pk=winner.pk) == winner
+
+
+@pytest.mark.django_db
 def test_operator_revocation_is_one_terminal_current_to_historical_transition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

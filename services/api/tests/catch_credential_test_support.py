@@ -7,18 +7,22 @@ from typing import Any, cast
 from django.apps import apps
 from django.utils import timezone
 
+from conventions.catch_credential_protocol import (
+    CATCH_CREDENTIAL_PAYLOAD_PREFIX,
+    CATCH_CREDENTIAL_TOKEN_LENGTH,
+)
 from conventions.models import FursuitActivation
 from tests.fursuit_activation_test_support import (
     ActivationScenario,
     create_activation_scenario,
 )
 
-TOKEN_A = "A" * 43
-TOKEN_B = "B" * 43
-TOKEN_C = "C" * 43
-PAYLOAD_A = f"tailtag:catch:v1:{TOKEN_A}"
-PAYLOAD_B = f"tailtag:catch:v1:{TOKEN_B}"
-PAYLOAD_C = f"tailtag:catch:v1:{TOKEN_C}"
+TOKEN_A = "A" * CATCH_CREDENTIAL_TOKEN_LENGTH
+TOKEN_B = "B" * CATCH_CREDENTIAL_TOKEN_LENGTH
+TOKEN_C = "C" * CATCH_CREDENTIAL_TOKEN_LENGTH
+PAYLOAD_A = f"{CATCH_CREDENTIAL_PAYLOAD_PREFIX}{TOKEN_A}"
+PAYLOAD_B = f"{CATCH_CREDENTIAL_PAYLOAD_PREFIX}{TOKEN_B}"
+PAYLOAD_C = f"{CATCH_CREDENTIAL_PAYLOAD_PREFIX}{TOKEN_C}"
 OWNER_INELIGIBLE_DETAIL = "The fursuit cannot currently participate in this convention."
 NOT_FOUND_DETAIL = "Catch credential not found."
 AUTHENTICATION_DETAIL = "Authentication credentials were not provided."
@@ -68,6 +72,7 @@ def create_credential(
 def assert_owner_payload(response: Any, payload: str) -> None:
     assert response.status_code == 200
     assert response.json() == {"payload": payload}
+    assert response.headers["Cache-Control"] == "no-store"
 
 
 def assert_not_found(response: Any, submitted_payload: str) -> None:

@@ -11,6 +11,7 @@ from rest_framework.exceptions import ErrorDetail
 
 from media import service as media_service
 
+from .catch_credential_protocol import CATCH_CREDENTIAL_PAYLOAD_PATTERN
 from .catch_sessions import FursuitCatchSessionState
 from .models import Convention, ConventionEnrollment, FursuitActivation
 
@@ -96,7 +97,7 @@ FURSUIT_CATCH_CREDENTIAL_RESPONSE_SCHEMA: dict[str, object] = {
     "properties": {
         "payload": {
             "type": "string",
-            "pattern": r"^tailtag:catch:v1:[A-Za-z0-9_-]{43}$",
+            "pattern": CATCH_CREDENTIAL_PAYLOAD_PATTERN,
         }
     },
     "required": ["payload"],
@@ -108,7 +109,7 @@ FURSUIT_CATCH_CREDENTIAL_RESOLUTION_REQUEST_SCHEMA: dict[str, object] = {
     "properties": {
         "payload": {
             "type": "string",
-            "pattern": r"^tailtag:catch:v1:[A-Za-z0-9_-]{43}$",
+            "pattern": CATCH_CREDENTIAL_PAYLOAD_PATTERN,
         }
     },
     "required": ["payload"],

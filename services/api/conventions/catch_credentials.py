@@ -24,6 +24,11 @@ from fursuits.models import Fursuit
 from profiles.eligibility import is_participation_eligible
 from profiles.models import PlayerProfile
 
+from .catch_credential_protocol import (
+    CATCH_CREDENTIAL_PAYLOAD_PREFIX,
+    CATCH_CREDENTIAL_TOKEN_BYTES,
+    CATCH_CREDENTIAL_TOKEN_PATTERN,
+)
 from .catch_sessions import get_effective_fursuit_catch_session_for_activation
 from .services import (
     ConventionParticipationIneligibleError,
@@ -31,10 +36,7 @@ from .services import (
     is_fursuit_activation_eligible,
 )
 
-CATCH_CREDENTIAL_TOKEN_BYTES: Final = 32
-CATCH_CREDENTIAL_TOKEN_LENGTH: Final = 43
-CATCH_CREDENTIAL_PAYLOAD_PREFIX: Final = "tailtag:catch:v1:"
-_TOKEN_PATTERN: Final = re.compile(r"^[A-Za-z0-9_-]{43}$", re.ASCII)
+_TOKEN_PATTERN: Final = re.compile(rf"^{CATCH_CREDENTIAL_TOKEN_PATTERN}$", re.ASCII)
 
 _TOKEN_UNIQUE_CONSTRAINT: Final = "conventions_catch_credential_token_unique"
 _ONE_CURRENT_CONSTRAINT: Final = (

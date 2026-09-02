@@ -9,6 +9,7 @@ import pytest
 import yaml
 from django.test import Client
 
+from conventions.catch_credential_protocol import CATCH_CREDENTIAL_PAYLOAD_PATTERN
 from tests.catch_credential_test_support import PAYLOAD_A, TOKEN_A
 
 
@@ -80,8 +81,8 @@ def test_credential_openapi_is_exact_closed_authenticated_and_has_no_rendering_b
     owner = "/api/conventions/{convention_id}/fursuit-activations/{fursuit_id}/catch-credential/"
     rotate = owner + "rotate/"
     resolve = "/api/conventions/{convention_id}/catch-credentials/resolve/"
-    credential_paths = [path for path in paths if "catch-credential" in path]
-    assert credential_paths == [resolve, owner, rotate]
+    credential_paths = {path for path in paths if "catch-credential" in path}
+    assert credential_paths == {resolve, owner, rotate}
     assert (
         set(paths[owner]) == {"get"}
         and set(paths[rotate]) == {"post"}
@@ -138,7 +139,7 @@ def test_credential_openapi_is_exact_closed_authenticated_and_has_no_rendering_b
     assert owner_payload["properties"] == {
         "payload": {
             "type": "string",
-            "pattern": r"^tailtag:catch:v1:[A-Za-z0-9_-]{43}$",
+            "pattern": CATCH_CREDENTIAL_PAYLOAD_PATTERN,
         }
     }
     rotation_payload = _deref(
@@ -159,7 +160,7 @@ def test_credential_openapi_is_exact_closed_authenticated_and_has_no_rendering_b
         request["properties"]["payload"]
     ) == {
         "type": "string",
-        "pattern": r"^tailtag:catch:v1:[A-Za-z0-9_-]{43}$",
+        "pattern": CATCH_CREDENTIAL_PAYLOAD_PATTERN,
     }
     projection = _deref(
         schema,
@@ -197,11 +198,11 @@ def test_credential_openapi_is_exact_closed_authenticated_and_has_no_rendering_b
     assert "catch credential not found" in str(generic_not_found).lower()
     # The exact credential-path inventory above excludes credential rendering
     # routes without constraining unrelated present or future API namespaces.
-    description = str(paths[resolve]["post"]).lower()
+    description = cast(str, paths[resolve]["post"]["description"]).lower()
+    assert "not catch authorization" in description
     assert (
-        "not" in description
-        and "authorization" in description
-        and "wave 3" in description
+        "future wave 3 catch writes must submit and independently revalidate "
+        "the original payload" in description
     )
     serialized = _serialized_strings(schema)
-    assert TOKEN_A not in serialized and PAYLOAD_A not in serialized
+    assert all(TOKEN_A not in value and PAYLOAD_A not in value for value in serialized)
