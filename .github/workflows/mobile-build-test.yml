@@ -7,6 +7,7 @@ on:
     paths:
       - 'apps/mobile/**'
       - '.github/workflows/mobile-build-test.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,12 +21,17 @@ jobs:
     steps: 
       - name: Detect mobile app changes
         id: filter
+        if: github.event_name == 'pull_request'
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           filters: |
             mobile:
               - 'apps/mobile/**'
               - '.github/workflows/mobile-build-test.yml'
+      - name: Skip mobile app change detection
+        id: skip-filter
+        if: github.event_name != 'pull_request'
+        run: echo "mobile=true" >> "$GITHUB_OUTPUT"
         
   android:
     name: Android Build Test
