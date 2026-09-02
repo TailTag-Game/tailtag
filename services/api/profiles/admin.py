@@ -5,9 +5,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from django.contrib import admin
+from django.core.exceptions import PermissionDenied
+from django.forms import ModelForm
 from django.http import HttpRequest
 
 from profiles.models import PlayerProfile
+from profiles.services import set_profile_enabled
 
 if TYPE_CHECKING:
     PlayerProfileAdminBase = admin.ModelAdmin[PlayerProfile]
@@ -71,3 +74,19 @@ class PlayerProfileAdmin(PlayerProfileAdminBase):
     ) -> bool:
         """Profile deletion is outside the V0 administrative contract."""
         return False
+
+    def save_model(
+        self,
+        request: HttpRequest,
+        obj: PlayerProfile,
+        form: ModelForm[PlayerProfile],
+        change: bool,
+    ) -> None:
+        """Route the sole editable field through its transactional lifecycle seam."""
+        del request
+        if not change or set(form.changed_data) - {"is_enabled"}:
+            raise PermissionDenied
+        if "is_enabled" not in form.changed_data:
+            return
+        updated = set_profile_enabled(profile_id=obj.pk, is_enabled=obj.is_enabled)
+        obj.is_enabled = updated.is_enabled

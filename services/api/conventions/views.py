@@ -10,23 +10,31 @@ from drf_spectacular.utils import (  # pyright: ignore[reportUnknownVariableType
     extend_schema,  # pyright: ignore[reportUnknownVariableType]
 )
 from rest_framework import generics, serializers, status
-from rest_framework.exceptions import ErrorDetail, NotFound
+from rest_framework.exceptions import ErrorDetail, NotFound, UnsupportedMediaType
+from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import User
+from fursuits.models import Fursuit
 
-from . import services
-from .models import Convention, ConventionStatus
+from . import catch_sessions, services
+from .models import Convention, ConventionStatus, FursuitActivation
 from .serializers import (
+    FURSUIT_ACTIVATION_REQUEST_SCHEMA,
+    FURSUIT_ACTIVATION_RESPONSE_SCHEMA,
+    FURSUIT_CATCH_SESSION_RESPONSE_SCHEMA,
     ActiveConventionResponseSerializer,
     ConventionEnrollmentSerializer,
     ConventionEnrollRequestSerializer,
     ConventionSerializer,
+    FursuitActivationRequestSerializer,
     SelectActiveConventionRequestSerializer,
     enrollment_response_data,
+    fursuit_activation_response_data,
+    fursuit_catch_session_response_data,
 )
 
 if TYPE_CHECKING:
@@ -79,6 +87,262 @@ VALIDATION_ERROR_RESPONSE_SCHEMA = {
 
 def _user(request: Request) -> User:
     return cast(User, request.user)
+
+
+_AUTH_401 = OpenApiResponse(description="Authentication credentials were not provided.")
+_FORBIDDEN_403 = OpenApiResponse(
+    description="The player profile is not eligible for participation."
+)
+_NOT_FOUND_404 = OpenApiResponse(description="The requested resource was not found.")
+_INVALID_400 = OpenApiResponse(description="The supplied activation state is invalid.")
+_METHOD_405 = OpenApiResponse(description="Method not allowed.")
+_FURSUIT_ACTIVATION_LIST_SCHEMA: dict[str, object] = {
+    "type": "array",
+    "items": FURSUIT_ACTIVATION_RESPONSE_SCHEMA,
+}
+_FURSUIT_CATCH_SESSION_OPENAPI_OPERATION: dict[str, object] = {
+    "operationId": "convention_fursuit_catch_session_set_state",
+    "description": (
+        "Idempotently set the desired current catchability. A live session has a "
+        "fixed 12-hour expiration; is_active is computed from unexpired session "
+        "state and current operational participation. This endpoint is not catch "
+        "authorization and catch creation must revalidate its own requirements."
+    ),
+    "parameters": [
+        {
+            "in": "path",
+            "name": "convention_id",
+            "schema": {"type": "integer"},
+            "required": True,
+        },
+        {
+            "in": "path",
+            "name": "fursuit_id",
+            "schema": {"type": "integer"},
+            "required": True,
+        },
+    ],
+    "tags": ["conventions"],
+    "requestBody": {
+        "required": True,
+        "content": {"application/json": {"schema": FURSUIT_ACTIVATION_REQUEST_SCHEMA}},
+    },
+    "security": [{"BearerAuth": []}],
+    "responses": {
+        "200": {
+            "description": "The canonical desired catch-session state.",
+            "content": {
+                "application/json": {"schema": FURSUIT_CATCH_SESSION_RESPONSE_SCHEMA}
+            },
+        },
+        "400": {"description": "The supplied activation state is invalid."},
+        "401": {"description": "Authentication credentials were not provided."},
+        "403": {"description": "The player profile is not eligible for participation."},
+        "404": {"description": "The requested resource was not found."},
+        "405": {"description": "Method not allowed."},
+    },
+}
+
+
+class _FursuitActivationAPIView(APIView):
+    permission_classes = (IsAuthenticated,)
+    parser_classes = (JSONParser,)
+
+    def handle_exception(self, exc: Exception) -> Response:
+        if isinstance(exc, UnsupportedMediaType):
+            return Response(
+                {
+                    "is_active": [
+                        ErrorDetail("Provide a JSON desired state.", code="invalid")
+                    ]
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().handle_exception(exc)
+
+
+def _owned_fursuit_or_404(user: User, fursuit_id: int) -> Fursuit:
+    try:
+        return Fursuit.objects.get(pk=fursuit_id, owner=user)
+    except Fursuit.DoesNotExist:
+        raise NotFound("No fursuit found matching the given ID.") from None
+
+
+def _convention_or_404(convention_id: int) -> Convention:
+    try:
+        return Convention.objects.get(pk=convention_id)
+    except Convention.DoesNotExist:
+        raise NotFound("No convention found matching the given ID.") from None
+
+
+def _fursuit_activation_response(activation: FursuitActivation) -> Response:
+    return Response(
+        fursuit_activation_response_data(
+            activation,
+            is_eligible=services.is_fursuit_activation_eligible(activation),
+        )
+    )
+
+
+def _catch_session_response(
+    state: catch_sessions.FursuitCatchSessionState,
+) -> Response:
+    return Response(fursuit_catch_session_response_data(state))
+
+
+class FursuitActivationListView(_FursuitActivationAPIView):
+    """List the caller's durable fursuit selections for one Convention."""
+
+    @extend_schema(
+        operation_id="convention_fursuit_activations_list",
+        description=(
+            "Return existing owner selections in ascending fursuit_id order. "
+            "is_active is the stored selection; is_eligible is computed from "
+            "current upstream state. Operational participation requires both."
+        ),
+        responses={
+            200: OpenApiResponse(response=_FURSUIT_ACTIVATION_LIST_SCHEMA),
+            401: _AUTH_401,
+            404: _NOT_FOUND_404,
+            405: _METHOD_405,
+        },
+    )
+    def get(self, request: Request, convention_id: int) -> Response:
+        convention = _convention_or_404(convention_id)
+        activations = services.list_owned_fursuit_activations(
+            _user(request), convention=convention
+        )
+        return Response(
+            [
+                fursuit_activation_response_data(
+                    activation,
+                    is_eligible=services.is_fursuit_activation_eligible(activation),
+                )
+                for activation in activations
+            ]
+        )
+
+
+class FursuitActivationDetailView(_FursuitActivationAPIView):
+    """Set the caller's desired fursuit participation state for one Convention."""
+
+    @extend_schema(
+        operation_id="convention_fursuit_activations_set_state",
+        description=(
+            "Idempotently set the stored is_active owner selection. "
+            "is_eligible is computed from current upstream state; operational "
+            "participation requires both the stored selection and computed eligibility."
+        ),
+        request={"application/json": FURSUIT_ACTIVATION_REQUEST_SCHEMA},
+        responses={
+            200: OpenApiResponse(response=FURSUIT_ACTIVATION_RESPONSE_SCHEMA),
+            400: _INVALID_400,
+            401: _AUTH_401,
+            403: _FORBIDDEN_403,
+            404: _NOT_FOUND_404,
+            405: _METHOD_405,
+        },
+    )
+    def put(self, request: Request, convention_id: int, fursuit_id: int) -> Response:
+        # Resolve owner-scoped resources before parsing to preserve concealment.
+        _owned_fursuit_or_404(_user(request), fursuit_id)
+        _convention_or_404(convention_id)
+        if request.content_type.split(";", maxsplit=1)[0] != "application/json":
+            raise serializers.ValidationError(
+                {
+                    "is_active": [
+                        ErrorDetail("Provide a JSON desired state.", code="invalid")
+                    ]
+                }
+            )
+        serializer = FursuitActivationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            activation = services.set_fursuit_activation_state(
+                _user(request),
+                convention_id=convention_id,
+                fursuit_id=fursuit_id,
+                is_active=serializer.validated_data["is_active"],
+            )
+        except (Fursuit.DoesNotExist, FursuitActivation.DoesNotExist):
+            raise NotFound(
+                "No fursuit activation found matching the given ID."
+            ) from None
+        except Convention.DoesNotExist:
+            raise NotFound("No convention found matching the given ID.") from None
+        except services.ConventionParticipationIneligibleError:
+            raise PermissionDenied from None
+        except (
+            services.ConventionNotEnrolledError,
+            services.FursuitActivationNotEligibleError,
+        ):
+            raise serializers.ValidationError(
+                {
+                    "is_active": [
+                        ErrorDetail(
+                            "The fursuit cannot currently participate in this convention.",
+                            code="invalid",
+                        )
+                    ]
+                }
+            ) from None
+        return _fursuit_activation_response(activation)
+
+
+class FursuitCatchSessionDetailView(_FursuitActivationAPIView):
+    """Set the caller's desired current catchability for one activation."""
+
+    @extend_schema(operation=_FURSUIT_CATCH_SESSION_OPENAPI_OPERATION)
+    def put(self, request: Request, convention_id: int, fursuit_id: int) -> Response:
+        # Resolve resources before parsing to preserve ownership concealment.
+        fursuit = _owned_fursuit_or_404(_user(request), fursuit_id)
+        convention = _convention_or_404(convention_id)
+        if not FursuitActivation.objects.filter(
+            fursuit=fursuit, convention=convention
+        ).exists():
+            raise NotFound("No fursuit activation found matching the given ID.")
+        if request.content_type.split(";", maxsplit=1)[0] != "application/json":
+            raise serializers.ValidationError(
+                {
+                    "is_active": [
+                        ErrorDetail("Provide a JSON desired state.", code="invalid")
+                    ]
+                }
+            )
+        serializer = FursuitActivationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            state = catch_sessions.set_fursuit_catch_session_state(
+                _user(request),
+                convention_id=convention_id,
+                fursuit_id=fursuit_id,
+                is_active=serializer.validated_data["is_active"],
+            )
+        except (Fursuit.DoesNotExist, FursuitActivation.DoesNotExist):
+            raise NotFound(
+                "No fursuit activation found matching the given ID."
+            ) from None
+        except Convention.DoesNotExist:
+            raise NotFound("No convention found matching the given ID.") from None
+        except services.ConventionParticipationIneligibleError:
+            raise PermissionDenied from None
+        except (
+            services.ConventionNotEnrolledError,
+            services.FursuitActivationNotEligibleError,
+        ):
+            raise serializers.ValidationError(
+                {
+                    "is_active": [
+                        ErrorDetail(
+                            "The fursuit cannot currently participate in this convention.",
+                            code="invalid",
+                        )
+                    ]
+                }
+            ) from None
+        return _catch_session_response(state)
 
 
 class ConventionListView(ListAPIViewBase):

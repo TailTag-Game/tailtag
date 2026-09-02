@@ -71,10 +71,6 @@ def test_fursuit_openapi_is_exact_closed_authenticated_and_has_safe_media_shapes
         not successful["properties"][field].get("nullable", False)
         for field in successful["properties"]
     )
-    assert not any(
-        term in str(schema).lower()
-        for term in ("photo_key", "owner", "activation", "catch", " qr")
-    )
     create_body = _dereference(
         schema, post["requestBody"]["content"]["multipart/form-data"]["schema"]
     )
@@ -111,3 +107,32 @@ def test_fursuit_openapi_is_exact_closed_authenticated_and_has_safe_media_shapes
             "created_at",
             "updated_at",
         }.intersection(request_schema["properties"])
+    list_response = _dereference(
+        schema,
+        paths["/api/fursuits/"]["get"]["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"],
+    )
+    list_item = _dereference(schema, cast(Mapping[str, Any], list_response["items"]))
+    detail_response = _dereference(
+        schema,
+        paths["/api/fursuits/{id}/"]["get"]["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"],
+    )
+    fursuit_schema_surface = str(
+        (
+            operations,
+            successful,
+            list_response,
+            list_item,
+            detail_response,
+            create_body,
+            photo_body,
+            patch_body,
+        )
+    ).lower()
+    assert not any(
+        term in fursuit_schema_surface
+        for term in ("photo_key", "owner", "activation", "catch", " qr")
+    )
