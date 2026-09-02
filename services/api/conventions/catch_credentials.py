@@ -152,10 +152,21 @@ def _revoke_current_catch_credential(
     credential = _locked_current_catch_credential(activation)
     if credential is None:
         return None
+    _terminally_revoke_locked_credential(credential, now=now, reason=reason)
+    return credential
+
+
+def _terminally_revoke_locked_credential(
+    credential: FursuitCatchCredential,
+    *,
+    now: datetime.datetime,
+    reason: FursuitCatchCredentialRevocationReason,
+) -> None:
+    """Apply the sole allowed terminal mutation to an already-locked current row."""
     credential.revoked_at = now
     credential.revocation_reason = reason
-    credential.save(update_fields=["revoked_at", "revocation_reason", "updated_at"])
-    return credential
+    credential.updated_at = now
+    credential.save(update_fields={"revoked_at", "revocation_reason", "updated_at"})
 
 
 def _locked_current_catch_credential(
@@ -165,8 +176,105 @@ def _locked_current_catch_credential(
     return (
         FursuitCatchCredential.objects.select_for_update()
         .filter(activation=activation, revoked_at__isnull=True)
+        .order_by("pk")
         .first()
     )
+
+
+def revoke_for_activation_deactivation(
+    activation: FursuitActivation, *, now: datetime.datetime
+) -> FursuitActivation:
+    """Revoke a locked activation's current credential for eligibility loss."""
+    _revoke_current_catch_credential(
+        activation,
+        now=now,
+        reason=FursuitCatchCredentialRevocationReason.ELIGIBILITY_LOST,
+    )
+    return activation
+
+
+def revoke_for_profile_disable(
+    profile: PlayerProfile, *, now: datetime.datetime
+) -> tuple[FursuitActivation, ...]:
+    """Lock a profile's activations, then revoke their current credentials."""
+    activations = _locked_activations_for_profile(profile)
+    _revoke_current_credentials_for_locked_activations(activations, now=now)
+    return activations
+
+
+def revoke_for_fursuit_disable(
+    fursuit: Fursuit, *, now: datetime.datetime
+) -> tuple[FursuitActivation, ...]:
+    """Lock a fursuit's activations, then revoke their current credentials."""
+    activations = tuple(
+        FursuitActivation.objects.select_for_update()
+        .filter(fursuit=fursuit)
+        .order_by("pk")
+    )
+    _revoke_current_credentials_for_locked_activations(activations, now=now)
+    return activations
+
+
+def revoke_for_enrollment_removal(
+    enrollment: ConventionEnrollment, *, now: datetime.datetime
+) -> tuple[FursuitActivation, ...]:
+    """Lock an enrollment's activations, then revoke their current credentials."""
+    activations = tuple(
+        FursuitActivation.objects.select_for_update(of=("self",))
+        .filter(
+            convention_id=enrollment.convention_id,
+            fursuit__owner_id=enrollment.user_id,
+        )
+        .order_by("pk")
+    )
+    _revoke_current_credentials_for_locked_activations(activations, now=now)
+    return activations
+
+
+def revoke_for_convention_nonplayable(
+    convention: Convention, *, now: datetime.datetime
+) -> tuple[FursuitActivation, ...]:
+    """Lock a Convention's activations, then revoke their current credentials."""
+    activations = tuple(
+        FursuitActivation.objects.select_for_update()
+        .filter(convention=convention)
+        .order_by("pk")
+    )
+    _revoke_current_credentials_for_locked_activations(activations, now=now)
+    return activations
+
+
+def _locked_activations_for_profile(
+    profile: PlayerProfile,
+) -> tuple[FursuitActivation, ...]:
+    """Lock only activation rows after the already-locked profile."""
+    return tuple(
+        FursuitActivation.objects.select_for_update(of=("self",))
+        .filter(fursuit__owner_id=profile.user_id)
+        .order_by("pk")
+    )
+
+
+def _revoke_current_credentials_for_locked_activations(
+    activations: tuple[FursuitActivation, ...], *, now: datetime.datetime
+) -> None:
+    """Lock current credentials after activations and apply one terminal mutation."""
+    if not activations:
+        return
+    credentials = (
+        FursuitCatchCredential.objects.select_for_update()
+        .filter(
+            activation__in=activations,
+            revoked_at__isnull=True,
+        )
+        .order_by("pk")
+    )
+    for credential in credentials:
+        _terminally_revoke_locked_credential(
+            credential,
+            now=now,
+            reason=FursuitCatchCredentialRevocationReason.ELIGIBILITY_LOST,
+        )
 
 
 def _is_token_unique_constraint_violation(error: IntegrityError) -> bool:
@@ -209,15 +317,11 @@ def rotate_owner_catch_credential(
         activation = _lock_owner_operational_activation(
             user, convention_id=convention_id, fursuit_id=fursuit_id
         )
-        credential = _locked_current_catch_credential(activation)
-        if credential is not None:
-            credential.revoked_at = now
-            credential.revocation_reason = (
-                FursuitCatchCredentialRevocationReason.OWNER_ROTATION
-            )
-            credential.save(
-                update_fields=["revoked_at", "revocation_reason", "updated_at"]
-            )
+        _revoke_current_catch_credential(
+            activation,
+            now=now,
+            reason=FursuitCatchCredentialRevocationReason.OWNER_ROTATION,
+        )
         replacement = _create_current_catch_credential(activation)
         return format_catch_credential_payload(replacement.token)
 

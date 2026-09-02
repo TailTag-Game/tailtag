@@ -104,6 +104,13 @@ def terminate_for_activation_deactivation(
     return session
 
 
+def terminate_for_locked_activations(
+    activations: tuple[FursuitActivation, ...], *, now: datetime.datetime
+) -> int:
+    """Terminate sessions after callers have locked activations and credentials."""
+    return _terminate_sessions_for_activations(activations, now=now)
+
+
 def terminate_for_profile_disable(
     profile: PlayerProfile, *, now: datetime.datetime
 ) -> int:
@@ -311,7 +318,9 @@ def _latest_session(activation: FursuitActivation) -> FursuitCatchSession | None
 
 
 def _terminate_sessions_for_activations(
-    activations: list[FursuitActivation], *, now: datetime.datetime
+    activations: tuple[FursuitActivation, ...] | list[FursuitActivation],
+    *,
+    now: datetime.datetime,
 ) -> int:
     """Lock sessions after all activations, then apply expiration-first termination."""
     if not activations:
