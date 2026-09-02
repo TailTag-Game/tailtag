@@ -89,7 +89,7 @@ jobs:
       - name: Install dependencies
         run: flutter pub get --enforce-lockfile
       - name: Build App
-        run: exit 1
+        run: flutter build ios --release --no-codesign
   mobile-validation:
     name: Mobile validation
     needs:
