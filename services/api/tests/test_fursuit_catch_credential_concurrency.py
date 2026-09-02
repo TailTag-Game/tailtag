@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import math
 import os
 from collections.abc import Callable
@@ -394,21 +395,36 @@ def test_race_3_two_rotations_leave_successive_terminal_history_and_one_current_
 
 @pytest.mark.django_db(transaction=True)
 def test_race_4_rotation_vs_operator_revoke_never_rewrites_terminal_history() -> None:
-    """AC-06/15/14: legal serial order decides zero/one current rows, never relabeling."""
-    s, activation, old = _setup("rotation_operator")
+    """AC-06/15/14: forced order fixes exact terminal history without relabeling."""
     operator = User.objects.create_superuser("credential_race_operator", password="pw")
-    rotation, revoke = _race(
-        lambda: FursuitActivation.objects.select_for_update().get(pk=activation.pk),
-        lambda: _rotate(s),
-        lambda: _operator_revoke(operator.pk, old.pk),
-    )
-    _assert_results(rotation, revoke)
-    assert rotation.status_code == 200 and revoke.status_code in {200, 302, 403}
-    rows = assert_credential_history(activation)
-    assert old.pk in {row.pk for row in rows}
-    assert all(
-        row.revocation_reason in {None, "owner_rotation", "operator"} for row in rows
-    )
+    for rotation_first in (True, False):
+        s, activation, old = _setup(f"rotation_operator_{rotation_first}")
+        first = lambda s=s, old=old, rotation_first=rotation_first: (
+            _rotate(s) if rotation_first else _operator_revoke(operator.pk, old.pk)
+        )
+        second = lambda s=s, old=old, rotation_first=rotation_first: (
+            _operator_revoke(operator.pk, old.pk) if rotation_first else _rotate(s)
+        )
+        one, two = _race(
+            lambda activation=activation: (
+                FursuitActivation.objects.select_for_update().get(pk=activation.pk)
+            ),
+            first,
+            second,
+        )
+        _assert_results(one, two)
+        rotation, revoke = (one, two) if rotation_first else (two, one)
+        assert rotation.status_code == 200 and revoke.status_code in {200, 302, 403}
+        old.refresh_from_db()
+        old_terminal = (old.revoked_at, old.revocation_reason, old.updated_at)
+        assert old_terminal[0] is not None
+        assert old_terminal[1] == ("owner_rotation" if rotation_first else "operator")
+        rows = assert_credential_history(activation)
+        assert len(rows) == 2
+        successor = next(row for row in rows if row.pk != old.pk)
+        assert successor.revoked_at is None and successor.pk != old.pk
+        old.refresh_from_db()
+        assert (old.revoked_at, old.revocation_reason, old.updated_at) == old_terminal
 
 
 @pytest.mark.django_db(transaction=True)
@@ -451,8 +467,13 @@ def test_race_5_operator_revoke_vs_fetch_forces_both_serial_outcomes() -> None:
 @pytest.mark.parametrize("operation", (_fetch, _rotate), ids=("fetch", "rotation"))
 def test_races_6_and_7_operation_vs_activation_deactivation_leaves_no_current_row(
     operation: Callable[[Any], Any],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """AC-05/06/08/14: committed activation loss dominates an in-flight owner operation."""
+    from conventions import services
+
+    captured_now = datetime.datetime(2026, 9, 1, tzinfo=datetime.UTC)
+    monkeypatch.setattr(services.timezone, "now", lambda: captured_now)
     for owner_first in (True, False):
         s, activation, initial = _setup(
             f"activation_{operation.__name__}_{owner_first}", session=True
@@ -480,9 +501,14 @@ def test_races_6_and_7_operation_vs_activation_deactivation_leaves_no_current_ro
         session.refresh_from_db()
         assert activation.is_active is False
         assert session.ended_at is not None and session.end_reason == "eligibility_lost"
+        assert session.ended_at == captured_now
         rows = assert_credential_history(activation)
         assert not [row for row in rows if row.revoked_at is None]
-        assert any(row.revocation_reason == "eligibility_lost" for row in rows)
+        eligibility_revocations = [
+            row for row in rows if row.revocation_reason == "eligibility_lost"
+        ]
+        assert eligibility_revocations
+        assert all(row.revoked_at == captured_now for row in eligibility_revocations)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -524,8 +550,13 @@ def test_races_8_to_11_owner_operation_vs_each_eligibility_loss_has_no_current_r
     lock: Callable[[Any], Any],
     loss: Callable[[Any], Any],
     operation: Callable[[Any], Any],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """AC-05/06/08/14: every upstream loss is atomic with credential revocation."""
+    from conventions import services
+
+    captured_now = datetime.datetime(2026, 9, 1, tzinfo=datetime.UTC)
+    monkeypatch.setattr(services.timezone, "now", lambda: captured_now)
     loss_first_status = 403 if label == "profile" else 400
     for owner_first in (True, False):
         s, activation, initial = _setup(
@@ -549,7 +580,12 @@ def test_races_8_to_11_owner_operation_vs_each_eligibility_loss_has_no_current_r
         rows = assert_credential_history(activation)
         assert not [row for row in rows if row.revoked_at is None]
         assert session.ended_at is not None and session.end_reason == "eligibility_lost"
-        assert any(row.revocation_reason == "eligibility_lost" for row in rows)
+        assert session.ended_at == captured_now
+        eligibility_revocations = [
+            row for row in rows if row.revocation_reason == "eligibility_lost"
+        ]
+        assert eligibility_revocations
+        assert all(row.revoked_at == captured_now for row in eligibility_revocations)
 
 
 @pytest.mark.django_db(transaction=True)

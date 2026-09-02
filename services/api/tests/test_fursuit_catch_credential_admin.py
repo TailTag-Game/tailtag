@@ -22,7 +22,10 @@ from tests.catch_credential_test_support import (
     create_credential_scenario,
     rotation_path,
 )
-from tests.fursuit_activation_test_support import create_activation_row
+from tests.fursuit_activation_test_support import (
+    activation_detail_path,
+    create_activation_row,
+)
 from tests.fursuit_catch_session_test_support import create_catch_session
 
 
@@ -207,3 +210,62 @@ def test_admin_stale_revoke_cannot_overwrite_rotation_or_eligibility_history_or_
     _assert_token_absent(TOKEN_B, response)
     _assert_credential_surface_has_no_secret(replacement, client)
     assert catch_credential_model().objects.filter(activation=activation).count() == 2
+
+
+@pytest.mark.django_db
+def test_admin_stale_revoke_after_eligibility_loss_preserves_terminal_history_and_session() -> (
+    None
+):
+    """AC-08/15: an old admin form cannot relabel eligibility-loss history."""
+    scenario = create_credential_scenario()
+    activation = create_activation_row(
+        fursuit=scenario.fursuit, convention=scenario.convention, active=True
+    )
+    credential = create_credential(activation=activation, token=TOKEN_A)
+    session = create_catch_session(activation=activation)
+    operator = User.objects.create_superuser(
+        "credential_eligibility_stale_operator", password="pw"
+    )
+    admin_client = Client()
+    admin_client.force_login(operator)
+    _, change, _, _ = _admin_urls(credential)
+    assert admin_client.get(change).status_code == 200
+
+    loss = scenario.client.put(
+        activation_detail_path(scenario.convention.pk, scenario.fursuit.pk),
+        {"is_active": False},
+        content_type="application/json",
+    )
+    assert loss.status_code == 200
+    credential.refresh_from_db()
+    session.refresh_from_db()
+    terminal = (
+        credential.revoked_at,
+        credential.revocation_reason,
+        credential.updated_at,
+    )
+    session_terminal = (session.ended_at, session.end_reason, session.updated_at)
+    assert credential.revocation_reason == "eligibility_lost"
+    assert session.end_reason == "eligibility_lost"
+
+    stale = admin_client.post(change, {"revoke": "1"}, follow=True)
+    assert stale.status_code == 200
+    credential.refresh_from_db()
+    session.refresh_from_db()
+    assert (
+        credential.revoked_at,
+        credential.revocation_reason,
+        credential.updated_at,
+    ) == terminal
+    assert (
+        session.ended_at,
+        session.end_reason,
+        session.updated_at,
+    ) == session_terminal
+    assert catch_credential_model().objects.filter(activation=activation).count() == 1
+    assert (
+        not catch_credential_model()
+        .objects.filter(activation=activation, revoked_at__isnull=True)
+        .exists()
+    )
+    _assert_token_absent(TOKEN_A, stale)
