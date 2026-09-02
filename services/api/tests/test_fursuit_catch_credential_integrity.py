@@ -152,7 +152,9 @@ def test_credential_payload_protocol_is_exact_and_malformed_inputs_are_safe_and_
     for token in ("", TOKEN_A[:-1], TOKEN_A + "A", TOKEN_A[:-1] + "!"):
         with pytest.raises(CatchCredentialPayloadInvalidError) as formatted:
             format_catch_credential_payload(token)
-        assert formatted.value.args == () and token not in str(formatted.value)
+        assert formatted.value.args == ()
+        if token:
+            assert token not in str(formatted.value)
 
 
 @pytest.mark.django_db
