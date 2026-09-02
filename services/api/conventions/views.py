@@ -20,11 +20,12 @@ from rest_framework.views import APIView
 from accounts.models import User
 from fursuits.models import Fursuit
 
-from . import catch_sessions, services
+from . import catch_credentials, catch_sessions, services
 from .models import Convention, ConventionStatus, FursuitActivation
 from .serializers import (
     FURSUIT_ACTIVATION_REQUEST_SCHEMA,
     FURSUIT_ACTIVATION_RESPONSE_SCHEMA,
+    FURSUIT_CATCH_CREDENTIAL_RESPONSE_SCHEMA,
     FURSUIT_CATCH_SESSION_RESPONSE_SCHEMA,
     ActiveConventionResponseSerializer,
     ConventionEnrollmentSerializer,
@@ -34,6 +35,7 @@ from .serializers import (
     SelectActiveConventionRequestSerializer,
     enrollment_response_data,
     fursuit_activation_response_data,
+    fursuit_catch_credential_response_data,
     fursuit_catch_session_response_data,
 )
 
@@ -142,6 +144,14 @@ _FURSUIT_CATCH_SESSION_OPENAPI_OPERATION: dict[str, object] = {
         "405": {"description": "Method not allowed."},
     },
 }
+_FURSUIT_CATCH_CREDENTIAL_OPENAPI_RESPONSES: dict[int, OpenApiResponse] = {
+    200: OpenApiResponse(response=FURSUIT_CATCH_CREDENTIAL_RESPONSE_SCHEMA),
+    400: _INVALID_400,
+    401: _AUTH_401,
+    403: _FORBIDDEN_403,
+    404: _NOT_FOUND_404,
+    405: _METHOD_405,
+}
 
 
 class _FursuitActivationAPIView(APIView):
@@ -188,6 +198,98 @@ def _catch_session_response(
     state: catch_sessions.FursuitCatchSessionState,
 ) -> Response:
     return Response(fursuit_catch_session_response_data(state))
+
+
+def _owner_catch_credential_error() -> Response:
+    return Response(
+        {"detail": "The fursuit cannot currently participate in this convention."},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+def _resolve_owner_credential_resources(
+    user: User, *, convention_id: int, fursuit_id: int
+) -> None:
+    """Resolve owner resources in the public route's required precedence order."""
+    if not Fursuit.objects.filter(pk=fursuit_id, owner=user).exists():
+        raise NotFound() from None
+    _convention_or_404(convention_id)
+    if not FursuitActivation.objects.filter(
+        fursuit_id=fursuit_id, convention_id=convention_id
+    ).exists():
+        raise NotFound("No fursuit activation found matching the given ID.")
+
+
+class FursuitCatchCredentialFetchView(_FursuitActivationAPIView):
+    """Fetch an owned activation's opaque credential."""
+
+    @extend_schema(
+        operation_id="convention_fursuit_catch_credential_get",
+        description=(
+            "Return the owner's current opaque catch credential, creating it lazily "
+            "when absent. This does not start a catch session and is not catch authorization."
+        ),
+        responses=_FURSUIT_CATCH_CREDENTIAL_OPENAPI_RESPONSES,
+    )
+    def get(self, request: Request, convention_id: int, fursuit_id: int) -> Response:
+        _resolve_owner_credential_resources(
+            _user(request), convention_id=convention_id, fursuit_id=fursuit_id
+        )
+        try:
+            payload = catch_credentials.get_or_create_owner_catch_credential(
+                _user(request), convention_id=convention_id, fursuit_id=fursuit_id
+            )
+        except services.ConventionParticipationIneligibleError:
+            raise PermissionDenied from None
+        except (
+            Convention.DoesNotExist,
+            Fursuit.DoesNotExist,
+            FursuitActivation.DoesNotExist,
+        ):
+            raise NotFound() from None
+        except (
+            services.ConventionNotEnrolledError,
+            services.FursuitActivationNotEligibleError,
+        ):
+            return _owner_catch_credential_error()
+        return Response(fursuit_catch_credential_response_data(payload))
+
+
+class FursuitCatchCredentialRotationView(_FursuitActivationAPIView):
+    """Explicitly rotate an owned activation's opaque credential."""
+
+    @extend_schema(
+        operation_id="convention_fursuit_catch_credential_rotate",
+        description=(
+            "Revoke the owner's current opaque catch credential and create a replacement. "
+            "The request accepts zero body bytes only and is not catch authorization."
+        ),
+        responses=_FURSUIT_CATCH_CREDENTIAL_OPENAPI_RESPONSES,
+    )
+    def post(self, request: Request, convention_id: int, fursuit_id: int) -> Response:
+        _resolve_owner_credential_resources(
+            _user(request), convention_id=convention_id, fursuit_id=fursuit_id
+        )
+        if len(request.body) > 0:
+            return _owner_catch_credential_error()
+        try:
+            payload = catch_credentials.rotate_owner_catch_credential(
+                _user(request), convention_id=convention_id, fursuit_id=fursuit_id
+            )
+        except services.ConventionParticipationIneligibleError:
+            raise PermissionDenied from None
+        except (
+            Convention.DoesNotExist,
+            Fursuit.DoesNotExist,
+            FursuitActivation.DoesNotExist,
+        ):
+            raise NotFound() from None
+        except (
+            services.ConventionNotEnrolledError,
+            services.FursuitActivationNotEligibleError,
+        ):
+            return _owner_catch_credential_error()
+        return Response(fursuit_catch_credential_response_data(payload))
 
 
 class FursuitActivationListView(_FursuitActivationAPIView):

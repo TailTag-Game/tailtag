@@ -88,6 +88,18 @@ FURSUIT_ACTIVATION_REQUEST_SCHEMA: dict[str, object] = {
     "required": ["is_active"],
 }
 
+FURSUIT_CATCH_CREDENTIAL_RESPONSE_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "payload": {
+            "type": "string",
+            "pattern": r"^tailtag:catch:v1:[A-Za-z0-9_-]{43}$",
+        }
+    },
+    "required": ["payload"],
+}
+
 
 class ConventionSerializer(serializers.ModelSerializer[Convention]):
     """Serializer exposing safe, read-only convention representation."""
@@ -213,6 +225,10 @@ class FursuitCatchSessionResponseData(TypedDict):
     end_reason: str | None
 
 
+class FursuitCatchCredentialResponseData(TypedDict):
+    payload: str
+
+
 def convention_response_data(convention: Convention) -> ConventionResponseData:
     """Project durable convention state to player-facing representation."""
     return {
@@ -284,3 +300,10 @@ def fursuit_catch_session_response_data(
         else None,
         "end_reason": session.end_reason,
     }
+
+
+def fursuit_catch_credential_response_data(
+    payload: str,
+) -> FursuitCatchCredentialResponseData:
+    """Project an opaque credential only through its public payload envelope."""
+    return {"payload": payload}

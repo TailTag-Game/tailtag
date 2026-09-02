@@ -11,6 +11,8 @@ from .views import (
     ConventionListView,
     FursuitActivationDetailView,
     FursuitActivationListView,
+    FursuitCatchCredentialFetchView,
+    FursuitCatchCredentialRotationView,
     FursuitCatchSessionDetailView,
 )
 
@@ -27,6 +29,16 @@ urlpatterns = [
         "<int:convention_id>/fursuit-activations/",
         FursuitActivationListView.as_view(),
         name="fursuit-activation-list",
+    ),
+    path(
+        "<int:convention_id>/fursuit-activations/<int:fursuit_id>/catch-credential/",
+        FursuitCatchCredentialFetchView.as_view(),
+        name="fursuit-catch-credential-detail",
+    ),
+    path(
+        "<int:convention_id>/fursuit-activations/<int:fursuit_id>/catch-credential/rotate/",
+        FursuitCatchCredentialRotationView.as_view(),
+        name="fursuit-catch-credential-rotate",
     ),
     path(
         "<int:convention_id>/fursuit-activations/<int:fursuit_id>/catch-session/",

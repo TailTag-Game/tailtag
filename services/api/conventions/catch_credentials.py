@@ -10,11 +10,24 @@ import secrets
 from typing import Final
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
+from accounts.models import User
 from conventions.models import (
+    Convention,
+    ConventionEnrollment,
     FursuitActivation,
     FursuitCatchCredential,
     FursuitCatchCredentialRevocationReason,
+)
+from fursuits.models import Fursuit
+from profiles.eligibility import is_participation_eligible
+from profiles.models import PlayerProfile
+
+from .services import (
+    ConventionNotEnrolledError,
+    ConventionParticipationIneligibleError,
+    FursuitActivationNotEligibleError,
 )
 
 CATCH_CREDENTIAL_TOKEN_BYTES: Final = 32
@@ -123,3 +136,79 @@ def _constraint_name(error: IntegrityError) -> str | None:
     diagnostic = getattr(error.__cause__, "diag", None)
     constraint_name = getattr(diagnostic, "constraint_name", None)
     return constraint_name if isinstance(constraint_name, str) else None
+
+
+def get_or_create_owner_catch_credential(
+    user: User, *, convention_id: int, fursuit_id: int
+) -> str:
+    """Return the owner's current credential, creating it lazily when absent."""
+    with transaction.atomic():
+        activation = _lock_owner_operational_activation(
+            user, convention_id=convention_id, fursuit_id=fursuit_id
+        )
+        credential = _locked_current_catch_credential(activation)
+        if credential is None:
+            credential = _create_current_catch_credential(activation)
+        return format_catch_credential_payload(credential.token)
+
+
+def rotate_owner_catch_credential(
+    user: User, *, convention_id: int, fursuit_id: int
+) -> str:
+    """Revoke the current credential and return a newly created replacement."""
+    with transaction.atomic():
+        now = timezone.now()
+        activation = _lock_owner_operational_activation(
+            user, convention_id=convention_id, fursuit_id=fursuit_id
+        )
+        credential = _locked_current_catch_credential(activation)
+        if credential is not None:
+            credential.revoked_at = now
+            credential.revocation_reason = (
+                FursuitCatchCredentialRevocationReason.OWNER_ROTATION
+            )
+            credential.save(
+                update_fields=["revoked_at", "revocation_reason", "updated_at"]
+            )
+        replacement = _create_current_catch_credential(activation)
+        return format_catch_credential_payload(replacement.token)
+
+
+def _lock_owner_operational_activation(
+    user: User, *, convention_id: int, fursuit_id: int
+) -> FursuitActivation:
+    """Lock and revalidate the owner eligibility chain in the global lock order."""
+    profile = PlayerProfile.objects.select_for_update().filter(user=user).first()
+    if profile is None or not is_participation_eligible(user):
+        raise ConventionParticipationIneligibleError()
+
+    convention = Convention.objects.select_for_update().filter(pk=convention_id).first()
+    if convention is None:
+        raise Convention.DoesNotExist()
+    enrollment = (
+        ConventionEnrollment.objects.select_for_update()
+        .filter(user=user, convention=convention)
+        .first()
+    )
+    fursuit = (
+        Fursuit.objects.select_for_update().filter(pk=fursuit_id, owner=user).first()
+    )
+    if fursuit is None:
+        raise Fursuit.DoesNotExist()
+    activation = (
+        FursuitActivation.objects.select_for_update()
+        .filter(fursuit=fursuit, convention=convention)
+        .first()
+    )
+    if activation is None:
+        raise FursuitActivation.DoesNotExist()
+    if (
+        enrollment is None
+        or not activation.is_active
+        or not convention.is_playable
+        or not fursuit.is_enabled
+    ):
+        if enrollment is None:
+            raise ConventionNotEnrolledError()
+        raise FursuitActivationNotEligibleError()
+    return activation
