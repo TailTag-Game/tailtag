@@ -31,8 +31,9 @@ update, confirm that:
 - package sources remain expected, including hosted packages from `pub.dev` and
   Flutter or Dart SDK packages, with no unexpected Git, path, or alternate
   hosted sources; and
-- Dart and Flutter SDK constraints remain compatible with the versions pinned
-  by `apps/mobile/.fvmrc`.
+- Flutter SDK constraints remain compatible with Flutter `3.47.2`, pinned by
+  `apps/mobile/.fvmrc`, and Dart SDK constraints remain compatible with Dart
+  `3.13.2`, supplied by that Flutter SDK bundle.
 
 From `apps/mobile/`, validate the generated dependency graph and application
 with the repository-pinned FVM toolchain:
