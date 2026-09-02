@@ -80,7 +80,7 @@ def test_rotation_revokes_current_once_or_creates_without_a_current_row_and_reje
         == 400
     )
     with patch("secrets.token_urlsafe", return_value=TOKEN_A):
-        second = scenario.client.post(path, b"")
+        second = scenario.client.post(path, b"", content_type="application/json")
     assert_owner_payload(second, PAYLOAD_A)
     replacement.refresh_from_db()
     assert (
@@ -138,7 +138,9 @@ def test_owner_routes_enforce_auth_concealment_precedence_methods_and_operationa
     other = create_credential_scenario(clerk_user_id="credential_cross_owner")
     cross_path = path.replace(str(scenario.fursuit.pk), str(other.fursuit.pk))
     concealed = getattr(scenario.client, method)(
-        cross_path, b"bad" if route == "rotate" else None
+        cross_path,
+        b"bad" if route == "rotate" else None,
+        **({"content_type": "application/json"} if route == "rotate" else {}),
     )
     assert concealed.status_code == 404 and concealed.json() == {
         "detail": CONCEALED_DETAIL
@@ -147,7 +149,9 @@ def test_owner_routes_enforce_auth_concealment_precedence_methods_and_operationa
 
     PlayerProfile.objects.filter(pk=scenario.profile.pk).update(is_enabled=False)
     forbidden = getattr(scenario.client, method)(
-        path, b"" if route == "rotate" else None
+        path,
+        b"" if route == "rotate" else None,
+        **({"content_type": "application/json"} if route == "rotate" else {}),
     )
     assert forbidden.status_code == 403 and forbidden.json() == {
         "detail": FORBIDDEN_DETAIL
@@ -179,7 +183,9 @@ def test_owner_routes_enforce_auth_concealment_precedence_methods_and_operationa
             else rotation_path(local.convention.pk, local.fursuit.pk)
         )
         response = getattr(local.client, method)(
-            local_path, b"" if route == "rotate" else None
+            local_path,
+            b"" if route == "rotate" else None,
+            **({"content_type": "application/json"} if route == "rotate" else {}),
         )
         assert response.status_code == 400
         assert response.json() == {"detail": OWNER_INELIGIBLE_DETAIL}
@@ -202,8 +208,13 @@ def test_credential_routes_do_not_deliberately_expose_tokens_in_repository_logs_
         with patch("secrets.token_urlsafe", return_value=TOKEN_A):
             assert_owner_payload(scenario.client.get(owner_path), PAYLOAD_A)
         with patch("secrets.token_urlsafe", return_value=TOKEN_B):
-            assert_owner_payload(scenario.client.post(rotate_path, b""), PAYLOAD_B)
-        owner_error = scenario.client.post(rotate_path, b"unexpected")
+            assert_owner_payload(
+                scenario.client.post(rotate_path, b"", content_type="application/json"),
+                PAYLOAD_B,
+            )
+        owner_error = scenario.client.post(
+            rotate_path, b"unexpected", content_type="application/json"
+        )
         assert owner_error.status_code == 400
         assert (
             scenario.client.post(
