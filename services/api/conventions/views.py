@@ -367,6 +367,7 @@ class FursuitCatchCredentialRotationView(_FursuitActivationAPIView):
             "Revoke the owner's current opaque catch credential and create a replacement. "
             "The request accepts zero body bytes only and is not catch authorization."
         ),
+        request=None,
         responses=_FURSUIT_CATCH_CREDENTIAL_OPENAPI_RESPONSES,
     )
     def post(self, request: Request, convention_id: int, fursuit_id: int) -> Response:

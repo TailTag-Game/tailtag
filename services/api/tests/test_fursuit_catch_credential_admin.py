@@ -103,7 +103,7 @@ def test_credential_admin_is_staff_only_safe_history_with_exact_search_and_no_mu
         "activation__fursuit__name",
         "activation__convention__name",
     }
-    by_name = client.get(changelist, {"q": scenario.fursuit.name})
+    by_name = client.get(changelist, {"q": f'"{scenario.fursuit.name}"'})
     by_token = client.get(changelist, {"q": TOKEN_A})
     by_payload = client.get(changelist, {"q": PAYLOAD_A})
     detail = client.get(change)
