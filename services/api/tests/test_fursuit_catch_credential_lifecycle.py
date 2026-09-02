@@ -251,3 +251,50 @@ def test_all_routine_session_transitions_do_not_mutate_credential_history(
         credential.revocation_reason,
         credential.updated_at,
     ) == before
+
+
+@pytest.mark.django_db
+def test_active_convention_selection_and_clear_leave_credentials_and_sessions_unchanged() -> (
+    None
+):
+    """AC-07/08: rejects treating selected-convention state as operational eligibility."""
+    scenario, session, credential = _scenario_with_current()
+    other = ConventionEnrollment.objects.create(
+        user=scenario.user,
+        convention=type(scenario.convention).objects.create(
+            name="Credential Selection Other",
+            status=ConventionStatus.ACTIVE,
+            start_date=scenario.convention.start_date,
+            end_date=scenario.convention.end_date,
+        ),
+        is_active=True,
+    )
+    credential_before = list(
+        catch_credential_model()
+        .objects.filter(activation=credential.activation)
+        .values()
+    )
+    session_before = list(credential.activation.catch_sessions.values())
+    for request in (
+        lambda: scenario.client.put(
+            "/api/conventions/active/",
+            {"convention_id": scenario.convention.pk},
+            content_type="application/json",
+        ),
+        lambda: scenario.client.delete("/api/conventions/active/"),
+    ):
+        assert request().status_code in {200, 204}
+        assert (
+            list(
+                catch_credential_model()
+                .objects.filter(activation=credential.activation)
+                .values()
+            )
+            == credential_before
+        )
+        assert list(credential.activation.catch_sessions.values()) == session_before
+    other.refresh_from_db()
+    assert other.is_active is False
+    credential.refresh_from_db()
+    session.refresh_from_db()
+    assert credential.revoked_at is None and session.ended_at is None

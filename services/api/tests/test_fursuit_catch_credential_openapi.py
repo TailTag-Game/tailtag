@@ -9,6 +9,8 @@ import pytest
 import yaml
 from django.test import Client
 
+from tests.catch_credential_test_support import PAYLOAD_A, TOKEN_A
+
 
 def _deref(schema: Mapping[str, Any], value: Mapping[str, Any]) -> dict[str, Any]:
     result = dict(value)
@@ -34,6 +36,16 @@ def _without_generator_presentation_metadata(
     return {
         key: item for key, item in value.items() if key not in {"description", "title"}
     }
+
+
+def _serialized_strings(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, Mapping):
+        return [item for child in value.values() for item in _serialized_strings(child)]
+    if isinstance(value, list):
+        return [item for child in value for item in _serialized_strings(child)]
+    return []
 
 
 @pytest.mark.django_db
@@ -170,3 +182,5 @@ def test_credential_openapi_is_exact_closed_authenticated_and_has_no_rendering_b
         and "authorization" in description
         and "wave 3" in description
     )
+    serialized = _serialized_strings(schema)
+    assert TOKEN_A not in serialized and PAYLOAD_A not in serialized

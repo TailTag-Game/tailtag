@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from django.apps import apps
 from django.test import Client, override_settings
 from django.utils import timezone
 
@@ -17,6 +18,7 @@ from tests.catch_credential_test_support import (
     TOKEN_A,
     assert_not_found,
     assert_resolution_data,
+    catch_credential_model,
     create_credential,
     create_credential_scenario,
     resolution_path,
@@ -25,6 +27,46 @@ from tests.fursuit_activation_test_support import create_activation_row
 from tests.fursuit_catch_session_test_support import create_catch_session
 
 INVALID_PAYLOAD = {"payload": ["Invalid catch credential payload."]}
+
+
+def _preview_state_snapshot(
+    *, target: object, caller: object, activation: object
+) -> dict[str, object]:
+    """Capture every currently existing state surface that preview must not mutate."""
+    credential_model = catch_credential_model()
+    target_fursuit = target.fursuit
+    target_profile = target.profile
+    target_convention = target.convention
+    return {
+        "credential_history": list(credential_model.objects.order_by("pk").values()),
+        "activation": list(type(activation).objects.filter(pk=activation.pk).values()),
+        "sessions": list(activation.catch_sessions.order_by("pk").values()),
+        "fursuit": list(
+            type(target_fursuit).objects.filter(pk=target_fursuit.pk).values()
+        ),
+        "profile": list(
+            type(target_profile).objects.filter(pk=target_profile.pk).values()
+        ),
+        "enrollments": list(
+            ConventionEnrollment.objects.filter(
+                user_id__in=(target.user.pk, caller.user.pk),
+                convention=target_convention,
+            )
+            .order_by("pk")
+            .values()
+        ),
+        "convention": list(
+            type(target_convention).objects.filter(pk=target_convention.pk).values()
+        ),
+        "existing_catch_artifacts": {
+            model._meta.label: list(model.objects.order_by("pk").values())
+            for model in apps.get_models()
+            if any(
+                marker in model.__name__.lower()
+                for marker in ("catch", "reservation", "authorization")
+            )
+        },
+    }
 
 
 @pytest.mark.django_db
@@ -42,6 +84,9 @@ def test_resolution_accepts_only_closed_exact_payload_and_authorized_nonowner_ca
     # The resolver's own enrollment in the target convention, not ownership, authorizes use.
     ConventionEnrollment.objects.create(user=caller.user, convention=target.convention)
     path = resolution_path(target.convention.pk)
+    before = _preview_state_snapshot(
+        target=target, caller=caller, activation=activation
+    )
     for body in (
         {},
         {"payload": PAYLOAD_A, "extra": 1},
@@ -73,6 +118,10 @@ def test_resolution_accepts_only_closed_exact_payload_and_authorized_nonowner_ca
         tailtag_id=str(target.fursuit.tailtag_id),
         name=target.fursuit.name,
         photo_url="http://testserver/media/" + target.fursuit.photo_key,
+    )
+    assert (
+        _preview_state_snapshot(target=target, caller=caller, activation=activation)
+        == before
     )
 
 

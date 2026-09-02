@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import patch
 
 import pytest
@@ -28,6 +29,7 @@ from tests.catch_credential_test_support import (
     rotation_path,
 )
 from tests.fursuit_activation_test_support import create_activation_row
+from tests.fursuit_catch_session_test_support import create_catch_session
 
 
 @pytest.mark.django_db
@@ -181,3 +183,70 @@ def test_owner_routes_enforce_auth_concealment_precedence_methods_and_operationa
         )
         assert response.status_code == 400
         assert response.json() == {"detail": OWNER_INELIGIBLE_DETAIL}
+
+
+@pytest.mark.django_db
+def test_credential_routes_do_not_deliberately_expose_tokens_in_repository_logs_or_errors(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-16: rejects secret-bearing repository logging, errors, or preview failures."""
+    scenario = create_credential_scenario()
+    activation = create_activation_row(
+        fursuit=scenario.fursuit, convention=scenario.convention, active=True
+    )
+    create_catch_session(activation=activation)
+    owner_path = owner_credential_path(scenario.convention.pk, scenario.fursuit.pk)
+    rotate_path = rotation_path(scenario.convention.pk, scenario.fursuit.pk)
+    resolution = f"/api/conventions/{scenario.convention.pk}/catch-credentials/resolve/"
+    with caplog.at_level(logging.DEBUG):
+        with patch("secrets.token_urlsafe", return_value=TOKEN_A):
+            assert_owner_payload(scenario.client.get(owner_path), PAYLOAD_A)
+        with patch("secrets.token_urlsafe", return_value=TOKEN_B):
+            assert_owner_payload(scenario.client.post(rotate_path, b""), PAYLOAD_B)
+        owner_error = scenario.client.post(rotate_path, b"unexpected")
+        assert owner_error.status_code == 400
+        assert (
+            scenario.client.post(
+                resolution, {"payload": PAYLOAD_B}, content_type="application/json"
+            ).status_code
+            == 200
+        )
+        missing = scenario.client.post(
+            resolution,
+            {"payload": "tailtag:catch:v1:" + "Z" * 43},
+            content_type="application/json",
+        )
+        assert missing.status_code == 404
+    log_text = "\n".join(record.getMessage() for record in caplog.records)
+    for secret in (TOKEN_A, TOKEN_B, PAYLOAD_A, PAYLOAD_B):
+        assert secret not in log_text
+        assert secret not in missing.content.decode()
+        assert secret not in owner_error.content.decode()
+
+    exception_scenario = create_credential_scenario(
+        clerk_user_id="credential_exception"
+    )
+    create_activation_row(
+        fursuit=exception_scenario.fursuit,
+        convention=exception_scenario.convention,
+        active=True,
+    )
+    from conventions import catch_credentials
+
+    def fail_token_generation(_: int) -> str:
+        raise RuntimeError("synthetic credential generator failure")
+
+    monkeypatch.setattr(
+        catch_credentials.secrets, "token_urlsafe", fail_token_generation
+    )
+    with pytest.raises(
+        RuntimeError, match="synthetic credential generator failure"
+    ) as error:
+        exception_scenario.client.get(
+            owner_credential_path(
+                exception_scenario.convention.pk, exception_scenario.fursuit.pk
+            )
+        )
+    assert TOKEN_A not in str(error.value) and PAYLOAD_A not in str(error.value)
+    log_text = "\n".join(record.getMessage() for record in caplog.records)
+    assert TOKEN_A not in log_text and PAYLOAD_A not in log_text
