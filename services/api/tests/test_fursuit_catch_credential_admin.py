@@ -14,6 +14,7 @@ from django.urls import reverse
 
 from accounts.models import User
 from tests.catch_credential_test_support import (
+    PAYLOAD_A,
     PAYLOAD_B,
     TOKEN_A,
     TOKEN_B,
@@ -104,10 +105,13 @@ def test_credential_admin_is_staff_only_safe_history_with_exact_search_and_no_mu
     }
     by_name = client.get(changelist, {"q": scenario.fursuit.name})
     by_token = client.get(changelist, {"q": TOKEN_A})
+    by_payload = client.get(changelist, {"q": PAYLOAD_A})
     detail = client.get(change)
-    assert by_name.status_code == by_token.status_code == detail.status_code == 200
+    assert by_name.status_code == by_token.status_code == by_payload.status_code == 200
+    assert detail.status_code == 200
     assert _listed_ids(by_name) == {credential.pk}
     assert _listed_ids(by_token) == set()
+    assert _listed_ids(by_payload) == set()
     listed = next(iter(cast(ChangeList, by_name.context["cl"]).result_list))
     assert model_admin.is_current(listed) is True
     assert model_admin.is_current(credential) is True
@@ -130,7 +134,8 @@ def test_credential_admin_is_staff_only_safe_history_with_exact_search_and_no_mu
     )
     assert client.get(delete).status_code == 403
     assert b'name="action"' not in client.get(changelist).content
-    _assert_token_absent(TOKEN_A, by_name, by_token, detail)
+    _assert_token_absent(TOKEN_A, by_name, by_token, by_payload, detail)
+    _assert_token_absent(PAYLOAD_A, by_name, by_token, by_payload, detail)
 
     # The sole mutation is a per-object revoke; it must not couple to a session.
     revoke_response = client.post(change, {"revoke": "1"}, follow=True)
