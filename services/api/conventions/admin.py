@@ -12,12 +12,14 @@ from django.forms import ModelForm
 from django.http import HttpRequest
 from django.utils import timezone
 
+from .catch_credentials import revoke_catch_credential_as_operator
 from .catch_sessions import terminate_session_as_operator
 from .models import (
     Convention,
     ConventionEnrollment,
     ConventionStatus,
     FursuitActivation,
+    FursuitCatchCredential,
     FursuitCatchSession,
 )
 from .services import (
@@ -30,11 +32,13 @@ if TYPE_CHECKING:
     ConventionAdminBase = admin.ModelAdmin[Convention]
     ConventionEnrollmentAdminBase = admin.ModelAdmin[ConventionEnrollment]
     FursuitActivationAdminBase = admin.ModelAdmin[FursuitActivation]
+    FursuitCatchCredentialAdminBase = admin.ModelAdmin[FursuitCatchCredential]
     FursuitCatchSessionAdminBase = admin.ModelAdmin[FursuitCatchSession]
 else:
     ConventionAdminBase = admin.ModelAdmin
     ConventionEnrollmentAdminBase = admin.ModelAdmin
     FursuitActivationAdminBase = admin.ModelAdmin
+    FursuitCatchCredentialAdminBase = admin.ModelAdmin
     FursuitCatchSessionAdminBase = admin.ModelAdmin
 
 
@@ -225,6 +229,101 @@ class FursuitActivationAdmin(FursuitActivationAdminBase):
         updated = deactivate_fursuit_activation_as_operator(activation_id=obj.pk)
         obj.is_active = updated.is_active
         obj.deactivated_at = updated.deactivated_at
+        obj.updated_at = updated.updated_at
+
+
+if TYPE_CHECKING:
+    CatchCredentialAdminFormBase = forms.ModelForm[FursuitCatchCredential]
+else:
+    CatchCredentialAdminFormBase = forms.ModelForm
+
+
+class CatchCredentialAdminForm(CatchCredentialAdminFormBase):
+    """Expose only the explicit terminal operator control."""
+
+    revoke = forms.BooleanField(required=False, label="Revoke current credential")
+
+    class Meta:
+        model = FursuitCatchCredential
+        fields: tuple[()] = ()
+
+
+@admin.register(FursuitCatchCredential)
+class FursuitCatchCredentialAdmin(FursuitCatchCredentialAdminBase):
+    """Inspect credential history and permit only current-row revocation."""
+
+    form = CatchCredentialAdminForm
+    fields = (
+        "id",
+        "activation",
+        "revoked_at",
+        "revocation_reason",
+        "created_at",
+        "updated_at",
+        "revoke",
+    )
+    readonly_fields = (
+        "id",
+        "activation",
+        "revoked_at",
+        "revocation_reason",
+        "created_at",
+        "updated_at",
+    )
+    list_display = (
+        "id",
+        "activation",
+        "is_current",
+        "revoked_at",
+        "revocation_reason",
+        "created_at",
+        "updated_at",
+    )
+    list_filter = ("revocation_reason", "activation__convention")
+    search_fields = (
+        "id__exact",
+        "activation__id__exact",
+        "activation__fursuit__id__exact",
+        "activation__fursuit__tailtag_id__exact",
+        "activation__fursuit__owner__id__exact",
+        "activation__convention__id__exact",
+        "activation__fursuit__name",
+        "activation__convention__name",
+    )
+    ordering = ("-created_at", "-id")
+    actions = None
+
+    @admin.display(boolean=True, description="Current")
+    def is_current(self, credential: FursuitCatchCredential) -> bool:
+        """Derive current state solely from the terminal timestamp."""
+        return credential.revoked_at is None
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        """Credentials originate only from the owner lifecycle."""
+        return False
+
+    def has_delete_permission(
+        self, request: HttpRequest, obj: FursuitCatchCredential | None = None
+    ) -> bool:
+        """Credential history is append-only and cannot be deleted."""
+        return False
+
+    def save_model(
+        self,
+        request: HttpRequest,
+        obj: FursuitCatchCredential,
+        form: CatchCredentialAdminForm,
+        change: bool,
+    ) -> None:
+        """Delegate the sole permitted mutation to its lock-aware service."""
+        del request
+        if not change or set(form.changed_data) - {"revoke"}:
+            raise PermissionDenied
+        if not form.cleaned_data["revoke"]:
+            return
+        updated = revoke_catch_credential_as_operator(obj.pk)
+        obj.revoked_at = updated.revoked_at
+        obj.revocation_reason = updated.revocation_reason
         obj.updated_at = updated.updated_at
 
 

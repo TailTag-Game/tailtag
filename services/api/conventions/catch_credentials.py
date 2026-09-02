@@ -326,6 +326,44 @@ def rotate_owner_catch_credential(
         return format_catch_credential_payload(replacement.token)
 
 
+def revoke_catch_credential_as_operator(
+    credential_id: int,
+) -> FursuitCatchCredential:
+    """Terminally revoke one selected current credential for an operator.
+
+    The preliminary identifiers keep the lock order stable while the final
+    current-state check prevents a stale admin form from changing history.
+    """
+    candidate = (
+        FursuitCatchCredential.objects.filter(pk=credential_id)
+        .values("pk", "activation_id")
+        .first()
+    )
+    if candidate is None:
+        raise FursuitCatchCredential.DoesNotExist()
+
+    with transaction.atomic():
+        activation = FursuitActivation.objects.select_for_update().get(
+            pk=candidate["activation_id"]
+        )
+        credential = (
+            FursuitCatchCredential.objects.select_for_update()
+            .filter(pk=candidate["pk"], activation=activation)
+            .first()
+        )
+        if credential is None:
+            raise FursuitCatchCredential.DoesNotExist()
+        if credential.revoked_at is None:
+            _terminally_revoke_locked_credential(
+                credential,
+                now=timezone.now(),
+                reason=FursuitCatchCredentialRevocationReason.OPERATOR,
+            )
+        # Keep the activation lock until the terminal outcome commits.
+        del activation
+        return credential
+
+
 def _lock_owner_operational_activation(
     user: User, *, convention_id: int, fursuit_id: int
 ) -> FursuitActivation:
