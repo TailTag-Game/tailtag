@@ -147,12 +147,21 @@ def test_credential_payload_protocol_is_exact_and_malformed_inputs_are_safe_and_
         before = model.objects.count()
         with pytest.raises(CatchCredentialPayloadInvalidError) as parsed:
             parse_catch_credential_payload(value)
-        assert parsed.value.args == () and not str(parsed.value)
+        assert parsed.value.args == () and not vars(parsed.value)
+        if value:
+            assert value not in str(parsed.value)
         assert model.objects.count() == before
-    for token in ("", TOKEN_A[:-1], TOKEN_A + "A", TOKEN_A[:-1] + "!"):
+    for token in (
+        "",
+        TOKEN_A[:-1],
+        TOKEN_A + "A",
+        TOKEN_A[:-1] + "!",
+        TOKEN_A[:-1] + "=",
+        TOKEN_A[:-1] + "é",
+    ):
         with pytest.raises(CatchCredentialPayloadInvalidError) as formatted:
             format_catch_credential_payload(token)
-        assert formatted.value.args == ()
+        assert formatted.value.args == () and not vars(formatted.value)
         if token:
             assert token not in str(formatted.value)
 
@@ -227,9 +236,14 @@ def test_private_creation_retries_only_one_named_token_collision(
         IntegrityError("different hostile unique prose"),
         "conventions_catch_credential_token_unique",
     )
-    monkeypatch.setattr(
-        model.objects, "create", lambda *_args, **_kwargs: _raise(second)
-    )
+    second_create_calls = 0
+
+    def raise_second_collision(*_args: Any, **_kwargs: Any) -> NoReturn:
+        nonlocal second_create_calls
+        second_create_calls += 1
+        _raise(second)
+
+    monkeypatch.setattr(model.objects, "create", raise_second_collision)
     with pytest.raises(IntegrityError) as raised:
         catch_credentials._create_current_catch_credential(
             create_activation_row(
@@ -241,6 +255,8 @@ def test_private_creation_retries_only_one_named_token_collision(
             )
         )
     assert raised.value is second
+    assert token_calls == [32, 32, 32, 32]
+    assert second_create_calls == 2
 
 
 @pytest.mark.django_db
@@ -290,7 +306,8 @@ def test_private_revocation_is_one_terminal_current_to_historical_transition() -
         fursuit=scenario.fursuit, convention=scenario.convention, active=True
     )
     credential = create_credential(activation=activation, token=TOKEN_A)
-    now = datetime.datetime(2026, 9, 1, tzinfo=datetime.UTC)
+    updated_before = credential.updated_at
+    now = updated_before + datetime.timedelta(seconds=1)
     result = catch_credentials._revoke_current_catch_credential(
         activation,
         now=now,
@@ -300,6 +317,7 @@ def test_private_revocation_is_one_terminal_current_to_historical_transition() -
     credential.refresh_from_db()
     assert credential.revoked_at == now
     assert credential.revocation_reason == "operator"
+    assert credential.updated_at > updated_before
     terminal = (
         credential.revoked_at,
         credential.revocation_reason,
