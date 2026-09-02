@@ -29,9 +29,7 @@ from .services import (
     set_convention_admin_state,
 )
 
-_SENSITIVE_CREDENTIAL_SEARCH_PATTERN = re.compile(
-    r"^(?:tailtag:catch:v1:)?[A-Za-z0-9_-]{43}$", re.ASCII
-)
+_SENSITIVE_CREDENTIAL_SEARCH_PATTERN = re.compile(r"[A-Za-z0-9_-]{43}", re.ASCII)
 _REDACTED_CREDENTIAL_SEARCH_QUERY = "__tailtag_admin_credential_query_redacted__"
 
 if TYPE_CHECKING:
@@ -306,7 +304,7 @@ class FursuitCatchCredentialAdmin(FursuitCatchCredentialAdminBase):
     ) -> HttpResponse:
         """Redact credential-shaped queries before Django renders preserved filters."""
         if any(
-            _SENSITIVE_CREDENTIAL_SEARCH_PATTERN.fullmatch(value)
+            _SENSITIVE_CREDENTIAL_SEARCH_PATTERN.search(value)
             for value in request.GET.getlist("q")
         ):
             query = request.GET.copy()
