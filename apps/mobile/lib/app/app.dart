@@ -4,7 +4,7 @@ import "package:tailtag_mobile/app/router.dart";
 /// Root application widget for TailTag.
 class TailTagApp extends StatelessWidget {
   /// Constructor for the TailTag widget.
-  const TailTagApp({super.key});
+  const new({super.key});
 
   @override
   Widget build(BuildContext context) {
