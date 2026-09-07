@@ -12,6 +12,7 @@ from contextlib import contextmanager
 
 from django.core.files import File
 from django.db import connection, transaction
+from django.utils import timezone
 
 from accounts.models import User
 from fursuits.models import Fursuit
@@ -27,6 +28,7 @@ __all__ = [
     "get_owned_fursuit",
     "replace_fursuit_photo",
     "require_fursuit_write_eligible",
+    "set_fursuit_enabled",
     "update_fursuit_name",
 ]
 
@@ -44,6 +46,23 @@ def require_fursuit_write_eligible(user: User) -> None:
 def get_owned_fursuit(user: User, fursuit_id: int) -> Fursuit:
     """Return only a fursuit owned by ``user`` (including 404 concealment)."""
     return Fursuit.objects.get(pk=fursuit_id, owner=user)
+
+
+def set_fursuit_enabled(*, fursuit_id: int, is_enabled: bool) -> Fursuit:
+    """Set operator-controlled fursuit enablement transactionally."""
+    with transaction.atomic():
+        fursuit = Fursuit.objects.select_for_update().get(pk=fursuit_id)
+        if fursuit.is_enabled == is_enabled:
+            return fursuit
+        now = timezone.now()
+        if not is_enabled:
+            # The fursuit lock precedes affected activations and their sessions.
+            from conventions.catch_sessions import terminate_for_fursuit_disable
+
+            terminate_for_fursuit_disable(fursuit, now=now)
+        fursuit.is_enabled = is_enabled
+        fursuit.save(update_fields=["is_enabled", "updated_at"])
+        return fursuit
 
 
 def create_fursuit(user: User, *, name: str, photo: File[bytes]) -> Fursuit:

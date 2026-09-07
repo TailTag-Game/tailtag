@@ -32,6 +32,7 @@ __all__ = [
     "put_text_profile",
     "remove_profile_avatar",
     "replace_profile_avatar",
+    "set_profile_enabled",
 ]
 
 
@@ -51,6 +52,23 @@ def get_or_create_profile(user: User) -> PlayerProfile:
     """Idempotently materialize profile state for a profile-surface caller."""
     profile, _ = PlayerProfile.objects.get_or_create(user=user)
     return profile
+
+
+def set_profile_enabled(*, profile_id: int, is_enabled: bool) -> PlayerProfile:
+    """Set operator-controlled eligibility and end live sessions on disable."""
+    with transaction.atomic():
+        profile = PlayerProfile.objects.select_for_update().get(pk=profile_id)
+        if profile.is_enabled == is_enabled:
+            return profile
+        now = timezone.now()
+        if not is_enabled:
+            # The profile lock is the first member of the shared lifecycle order.
+            from conventions.catch_sessions import terminate_for_profile_disable
+
+            terminate_for_profile_disable(profile, now=now)
+        profile.is_enabled = is_enabled
+        profile.save(update_fields=["is_enabled"])
+        return profile
 
 
 def put_text_profile(user: User, *, handle: str, display_name: str) -> PlayerProfile:

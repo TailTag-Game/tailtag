@@ -8,12 +8,12 @@ from django.contrib import admin
 from django.core.exceptions import PermissionDenied
 from django.forms import ModelForm
 from django.http import HttpRequest
-from django.utils import timezone
 from django.utils.html import format_html
 
 from media.service import read_image_url
 
 from .models import Fursuit
+from .services import set_fursuit_enabled
 
 if TYPE_CHECKING:
     FursuitAdminBase = admin.ModelAdmin[Fursuit]
@@ -100,9 +100,6 @@ class FursuitAdmin(FursuitAdminBase):
         if "is_enabled" not in form.changed_data:
             return
 
-        updated_at = timezone.now()
-        Fursuit.objects.filter(pk=obj.pk).update(
-            is_enabled=obj.is_enabled,
-            updated_at=updated_at,
-        )
-        obj.updated_at = updated_at
+        updated = set_fursuit_enabled(fursuit_id=obj.pk, is_enabled=obj.is_enabled)
+        obj.is_enabled = updated.is_enabled
+        obj.updated_at = updated.updated_at

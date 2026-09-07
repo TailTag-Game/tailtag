@@ -37,6 +37,7 @@ def test_foundation_exposes_profile_current_user_and_infrastructure_routes(
         "/api/conventions/enrollments/",
         "/api/conventions/{convention_id}/fursuit-activations/",
         "/api/conventions/{convention_id}/fursuit-activations/{fursuit_id}/",
+        "/api/conventions/{convention_id}/fursuit-activations/{fursuit_id}/catch-session/",
         "/api/fursuits/",
         "/api/fursuits/{id}/",
         "/api/fursuits/{id}/photo/",
