@@ -54,12 +54,14 @@ def test_fursuit_activation_openapi_is_exact_closed_authenticated_and_documents_
     )
     assert validation_schema == {
         "type": "object",
+        "additionalProperties": False,
         "properties": {
-            "convention_id": {
+            "is_active": {
                 "type": "array",
                 "items": {"type": "string"},
             }
         },
+        "required": ["is_active"],
     }
     list_schema = _dereference(
         schema, get["responses"]["200"]["content"]["application/json"]["schema"]

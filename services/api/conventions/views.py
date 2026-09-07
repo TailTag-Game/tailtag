@@ -104,6 +104,18 @@ VALIDATION_ERROR_RESPONSE_SCHEMA = {
     },
 }
 
+FURSUIT_ACTIVATION_VALIDATION_ERROR_RESPONSE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "is_active": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+    },
+    "required": ["is_active"],
+}
+
 
 def _user(request: Request) -> User:
     return cast(User, request.user)
@@ -450,7 +462,7 @@ class FursuitActivationDetailView(_FursuitActivationAPIView):
         responses={
             200: OpenApiResponse(response=FURSUIT_ACTIVATION_RESPONSE_SCHEMA),
             400: OpenApiResponse(
-                response=VALIDATION_ERROR_RESPONSE_SCHEMA,
+                response=FURSUIT_ACTIVATION_VALIDATION_ERROR_RESPONSE_SCHEMA,
                 description="The supplied activation state is invalid.",
             ),
             401: _AUTH_401,
