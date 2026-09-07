@@ -356,6 +356,20 @@ def test_put_is_closed_and_404_resource_precedence_precedes_body_validation() ->
 
 
 @pytest.mark.django_db
+def test_put_malformed_json_matches_documented_validation_error_shape() -> None:
+    scenario = create_activation_scenario()
+
+    response = scenario.client.put(
+        activation_detail_path(scenario.convention.pk, scenario.fursuit.pk),
+        b"not json",
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"is_active": ["Provide a JSON desired state."]}
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("profile_state", PROFILE_INELIGIBLE_SHAPES)
 def test_activation_requires_every_profile_eligibility_shape(
     profile_state: str,

@@ -214,7 +214,7 @@ class _FursuitActivationAPIView(APIView):
     parser_classes = (JSONParser,)
 
     def handle_exception(self, exc: Exception) -> Response:
-        if isinstance(exc, UnsupportedMediaType):
+        if isinstance(exc, (ParseError, UnsupportedMediaType)):
             return Response(
                 {
                     "is_active": [
