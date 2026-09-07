@@ -56,10 +56,12 @@ def set_fursuit_enabled(*, fursuit_id: int, is_enabled: bool) -> Fursuit:
             return fursuit
         now = timezone.now()
         if not is_enabled:
-            # The fursuit lock precedes affected activations and their sessions.
-            from conventions.catch_sessions import terminate_for_fursuit_disable
+            # The fursuit lock precedes activations, credentials, and sessions.
+            from conventions.catch_credentials import revoke_for_fursuit_disable
+            from conventions.catch_sessions import terminate_for_locked_activations
 
-            terminate_for_fursuit_disable(fursuit, now=now)
+            activations = revoke_for_fursuit_disable(fursuit, now=now)
+            terminate_for_locked_activations(activations, now=now)
         fursuit.is_enabled = is_enabled
         fursuit.save(update_fields=["is_enabled", "updated_at"])
         return fursuit

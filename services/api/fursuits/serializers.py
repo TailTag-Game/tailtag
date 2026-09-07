@@ -29,11 +29,12 @@ FURSUIT_RESPONSE_SCHEMA: dict[str, object] = {
     "additionalProperties": False,
     "properties": {
         "id": {"type": "integer", "readOnly": True},
+        "tailtag_id": {"type": "string", "format": "uuid", "readOnly": True},
         "name": {"type": "string"},
         "photo_url": {"type": "string", "format": "uri", "readOnly": True},
         "is_enabled": {"type": "boolean", "readOnly": True},
     },
-    "required": ["id", "name", "photo_url", "is_enabled"],
+    "required": ["id", "tailtag_id", "name", "photo_url", "is_enabled"],
 }
 
 FURSUIT_CREATE_REQUEST_SCHEMA: dict[str, object] = {
@@ -98,6 +99,7 @@ class FursuitPhotoSerializer(serializers.Serializer[dict[str, object]]):
 
 class FursuitResponseData(TypedDict):
     id: int
+    tailtag_id: str
     name: str
     photo_url: str
     is_enabled: bool
@@ -107,6 +109,7 @@ def fursuit_response_data(fursuit: Fursuit) -> FursuitResponseData:
     """Project durable state to the exact player-visible representation."""
     return {
         "id": fursuit.pk,
+        "tailtag_id": str(fursuit.tailtag_id),
         "name": fursuit.name,
         "photo_url": media_service.read_image_url(fursuit.photo_key),
         "is_enabled": fursuit.is_enabled,

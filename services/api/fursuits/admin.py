@@ -27,6 +27,7 @@ class FursuitAdmin(FursuitAdminBase):
 
     fields = (
         "id",
+        "tailtag_id",
         "application_owner_id",
         "name",
         "is_enabled",
@@ -37,6 +38,7 @@ class FursuitAdmin(FursuitAdminBase):
     )
     readonly_fields = (
         "id",
+        "tailtag_id",
         "application_owner_id",
         "name",
         "photo_present",
@@ -46,6 +48,7 @@ class FursuitAdmin(FursuitAdminBase):
     )
     list_display = (
         "id",
+        "tailtag_id",
         "application_owner_id",
         "name",
         "is_enabled",
@@ -54,7 +57,12 @@ class FursuitAdmin(FursuitAdminBase):
         "updated_at",
     )
     list_filter = ("is_enabled",)
-    search_fields = ("id__exact", "owner__id__exact", "name__exact")
+    search_fields = (
+        "id__exact",
+        "tailtag_id__exact",
+        "owner__id__exact",
+        "name__exact",
+    )
     ordering = ("id",)
     actions = None
 

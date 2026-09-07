@@ -64,8 +64,20 @@ def test_fursuit_openapi_is_exact_closed_authenticated_and_has_safe_media_shapes
     successful = _dereference(
         schema, post["responses"]["201"]["content"]["application/json"]["schema"]
     )
-    assert set(successful["properties"]) == {"id", "name", "photo_url", "is_enabled"}
-    assert successful["required"] == ["id", "name", "photo_url", "is_enabled"]
+    assert set(successful["properties"]) == {
+        "id",
+        "tailtag_id",
+        "name",
+        "photo_url",
+        "is_enabled",
+    }
+    assert successful["required"] == [
+        "id",
+        "tailtag_id",
+        "name",
+        "photo_url",
+        "is_enabled",
+    ]
     assert successful.get("additionalProperties") is False
     assert all(
         not successful["properties"][field].get("nullable", False)
@@ -100,6 +112,7 @@ def test_fursuit_openapi_is_exact_closed_authenticated_and_has_safe_media_shapes
     for request_schema in (create_body, photo_body, patch_body):
         assert not {
             "id",
+            "tailtag_id",
             "owner",
             "photo_url",
             "photo_key",
@@ -120,6 +133,40 @@ def test_fursuit_openapi_is_exact_closed_authenticated_and_has_safe_media_shapes
             "application/json"
         ]["schema"],
     )
+    canonical_response_schemas = (
+        successful,
+        list_item,
+        detail_response,
+        _dereference(
+            schema,
+            patch["responses"]["200"]["content"]["application/json"]["schema"],
+        ),
+        _dereference(
+            schema,
+            photo["responses"]["200"]["content"]["application/json"]["schema"],
+        ),
+    )
+    for response_schema in canonical_response_schemas:
+        assert set(response_schema["properties"]) == {
+            "id",
+            "tailtag_id",
+            "name",
+            "photo_url",
+            "is_enabled",
+        }
+        assert response_schema["required"] == [
+            "id",
+            "tailtag_id",
+            "name",
+            "photo_url",
+            "is_enabled",
+        ]
+        assert response_schema["properties"]["tailtag_id"] == {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": True,
+        }
+        assert response_schema.get("additionalProperties") is False
     fursuit_schema_surface = str(
         (
             operations,

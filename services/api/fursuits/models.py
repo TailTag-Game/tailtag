@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import uuid
 from typing import ClassVar
 
 from django.conf import settings
@@ -23,6 +24,11 @@ class Fursuit(models.Model):
         related_name="fursuits",
     )
     name: models.CharField[str, str] = models.CharField(max_length=50)
+    tailtag_id: models.UUIDField[uuid.UUID, uuid.UUID] = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+    )
     photo_key: models.TextField[str, str] = models.TextField()
     is_enabled: models.BooleanField[bool, bool] = models.BooleanField(default=True)
     created_at: models.DateTimeField[datetime.datetime, datetime.datetime] = (

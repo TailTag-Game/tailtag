@@ -26,6 +26,12 @@ A fursuit character registered in TailTag. Its Convention activation,
 operational eligibility, and catch-session state are distinct; do not shorten
 this term to “user.”
 
+### Fursuit TailTag identity
+
+The immutable public identity of one participating character across
+Conventions. It is distinct from an internal record identifier and from every
+Convention-scoped catch credential.
+
 ### Catch
 
 The core game interaction in which a player discovers and catches a participating character. The exact eligibility, validation, and lifecycle rules are not yet defined.
@@ -61,6 +67,29 @@ eligible. This is distinct from the owner's durable activation selection alone.
 
 A temporary period when an operationally participating fursuit is out and
 catchable. A catch session is distinct from durable Convention activation.
+
+### Catch credential
+
+An opaque, revocable locator for one fursuit activation at one Convention. It
+may survive catch-session boundaries but is neither a global fursuit identity
+nor authorization to create a catch.
+
+### Current catch credential
+
+The sole unrevoked catch credential for a fursuit activation. A revoked catch
+credential is historical and can never become current again.
+
+### Catch credential payload
+
+The versioned application-protocol value encoded by a client as a QR code and
+submitted for resolution. It contains no player, fursuit, Convention, or
+relationship identity beyond its opaque credential value.
+
+### Catch credential resolution
+
+A current preview that maps a catch credential payload to safe participating-
+character information only while the target is catchable. Resolution is not
+authorization to create a catch.
 
 ## Unresolved language
 

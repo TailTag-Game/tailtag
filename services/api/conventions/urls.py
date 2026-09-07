@@ -11,6 +11,9 @@ from .views import (
     ConventionListView,
     FursuitActivationDetailView,
     FursuitActivationListView,
+    FursuitCatchCredentialFetchView,
+    FursuitCatchCredentialResolutionView,
+    FursuitCatchCredentialRotationView,
     FursuitCatchSessionDetailView,
 )
 
@@ -24,9 +27,24 @@ urlpatterns = [
     ),
     path("active/", ActiveConventionView.as_view(), name="convention-active"),
     path(
+        "<int:convention_id>/catch-credentials/resolve/",
+        FursuitCatchCredentialResolutionView.as_view(),
+        name="fursuit-catch-credential-resolve",
+    ),
+    path(
         "<int:convention_id>/fursuit-activations/",
         FursuitActivationListView.as_view(),
         name="fursuit-activation-list",
+    ),
+    path(
+        "<int:convention_id>/fursuit-activations/<int:fursuit_id>/catch-credential/",
+        FursuitCatchCredentialFetchView.as_view(),
+        name="fursuit-catch-credential-detail",
+    ),
+    path(
+        "<int:convention_id>/fursuit-activations/<int:fursuit_id>/catch-credential/rotate/",
+        FursuitCatchCredentialRotationView.as_view(),
+        name="fursuit-catch-credential-rotate",
     ),
     path(
         "<int:convention_id>/fursuit-activations/<int:fursuit_id>/catch-session/",

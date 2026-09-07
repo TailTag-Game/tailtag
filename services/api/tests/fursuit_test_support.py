@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Protocol, cast
+from uuid import UUID
 
 from django.http import HttpResponse
 from django.test import Client
@@ -25,8 +26,10 @@ class _BytesGenericClient(Protocol):
 
 
 def assert_fursuit_data(data: dict[str, object]) -> dict[str, object]:
-    assert set(data) == {"id", "name", "photo_url", "is_enabled"}
+    assert set(data) == {"id", "tailtag_id", "name", "photo_url", "is_enabled"}
     assert isinstance(data["id"], int)
+    assert isinstance(data["tailtag_id"], str)
+    assert isinstance(UUID(data["tailtag_id"]), UUID)
     assert isinstance(data["name"], str)
     assert isinstance(data["photo_url"], str)
     assert data["photo_url"]

@@ -195,8 +195,10 @@ def _deactivate_fursuit(
         if not activation.is_active:
             return activation
         now = timezone.now()
+        from conventions.catch_credentials import revoke_for_activation_deactivation
         from conventions.catch_sessions import terminate_for_activation_deactivation
 
+        revoke_for_activation_deactivation(activation, now=now)
         terminate_for_activation_deactivation(activation, now=now)
         activation.is_active = False
         activation.deactivated_at = now
@@ -217,8 +219,10 @@ def deactivate_fursuit_activation_as_operator(
         if not activation.is_active:
             return activation
         now = timezone.now()
+        from conventions.catch_credentials import revoke_for_activation_deactivation
         from conventions.catch_sessions import terminate_for_activation_deactivation
 
+        revoke_for_activation_deactivation(activation, now=now)
         terminate_for_activation_deactivation(activation, now=now)
         activation.is_active = False
         activation.deactivated_at = now
@@ -257,9 +261,11 @@ def remove_convention_enrollment(*, enrollment_id: int) -> None:
         if enrollment is None:
             return
         now = timezone.now()
-        from conventions.catch_sessions import terminate_for_enrollment_removal
+        from conventions.catch_credentials import revoke_for_enrollment_removal
+        from conventions.catch_sessions import terminate_for_locked_activations
 
-        terminate_for_enrollment_removal(enrollment, now=now)
+        activations = revoke_for_enrollment_removal(enrollment, now=now)
+        terminate_for_locked_activations(activations, now=now)
         enrollment.delete()
         # Keep optional upstream locks until commit.
         del profile
@@ -281,9 +287,11 @@ def set_convention_admin_state(
         )
         now = timezone.now()
         if became_nonplayable:
-            from conventions.catch_sessions import terminate_for_convention_nonplayable
+            from conventions.catch_credentials import revoke_for_convention_nonplayable
+            from conventions.catch_sessions import terminate_for_locked_activations
 
-            terminate_for_convention_nonplayable(convention, now=now)
+            activations = revoke_for_convention_nonplayable(convention, now=now)
+            terminate_for_locked_activations(activations, now=now)
         convention.name = name
         convention.status = status
         convention.start_date = start_date

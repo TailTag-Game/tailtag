@@ -6,6 +6,7 @@ Small, reversible changes with clear acceptance criteria do not need a spec. Spe
 
 ## Current V0 specifications
 
+- [V0 persistent fursuit identity and Convention-scoped catch credentials](2026-09-01-v0-fursuit-catch-credentials.md)
 - [V0 fursuit catch sessions](2026-09-01-v0-fursuit-catch-sessions.md)
 - [V0 per-Convention fursuit activation](2026-08-31-v0-fursuit-activation.md)
 - [V0 fursuit domain and owner-scoped APIs](2026-08-24-v0-fursuit-domain.md)
