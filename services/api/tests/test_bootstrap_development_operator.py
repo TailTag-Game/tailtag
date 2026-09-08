@@ -266,6 +266,8 @@ def test_concurrent_first_bootstraps_create_and_reconcile_one_full_operator(
         stderr = TtyStream()
         close_old_connections()
         try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET statement_timeout = '10s'")
             start.wait()
             call_command(COMMAND_NAME, stdout=stdout, stderr=stderr)
         except (CommandError, IntegrityError) as error:
@@ -312,28 +314,31 @@ def test_concurrent_first_bootstraps_create_and_reconcile_one_full_operator(
             "SELECT pg_advisory_lock(%s, %s)", [lock_class_id, lock_object_id]
         )
 
+    executor = ThreadPoolExecutor(max_workers=2)
     try:
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            first = executor.submit(run_bootstrap)
-            second = executor.submit(run_bootstrap)
-            deadline = time.monotonic() + 10
-            while waiting_worker_count() < 2 and time.monotonic() < deadline:
-                time.sleep(0.01)
-            blocked_workers = waiting_worker_count()
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT pg_advisory_unlock(%s, %s)",
-                    [lock_class_id, lock_object_id],
-                )
-            assert blocked_workers == 2, "both first-use inserts must block"
-            first_result = first.result(timeout=10)
-            second_result = second.result(timeout=10)
+        first = executor.submit(run_bootstrap)
+        second = executor.submit(run_bootstrap)
+        deadline = time.monotonic() + 10
+        while waiting_worker_count() < 2 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        blocked_workers = waiting_worker_count()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_unlock(%s, %s)",
+                [lock_class_id, lock_object_id],
+            )
+        assert blocked_workers == 2, "both first-use inserts must block"
+        first_result = first.result(timeout=10)
+        second_result = second.result(timeout=10)
     finally:
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT pg_advisory_unlock(%s, %s)",
                 [lock_class_id, lock_object_id],
             )
+        executor.shutdown(wait=False, cancel_futures=True)
+        with connection.cursor() as cursor:
+            cursor.execute("SET lock_timeout = '10s'")
             cursor.execute(f"DROP TRIGGER IF EXISTS {barrier_trigger} ON {table_name}")
             cursor.execute(f"DROP FUNCTION IF EXISTS {barrier_function}()")
 
@@ -378,6 +383,7 @@ def test_bootstrap_converts_database_failures_to_a_generic_secret_safe_command_e
     failure_trigger = "accounts_user_bootstrap_database_failure_trigger"
     existing_before: dict[str, Any] | None = None
     existing: User | None = None
+    existing_password_hash: str | None = None
     replacement_password = INITIAL_PASSWORD
 
     if existing_operator:
@@ -385,6 +391,7 @@ def test_bootstrap_converts_database_failures_to_a_generic_secret_safe_command_e
             OPERATOR_IDENTIFIER, password=INITIAL_PASSWORD
         )
         existing_before = stored_user_state(existing)
+        existing_password_hash = stored_password_hash(existing)
         replacement_password = ROTATED_PASSWORD
 
     with connection.cursor() as cursor:
@@ -421,6 +428,7 @@ def test_bootstrap_converts_database_failures_to_a_generic_secret_safe_command_e
     if existing_operator:
         assert existing_before is not None
         assert existing is not None
+        assert existing_password_hash is not None
         assert stored_user_state(existing) == existing_before
     else:
         assert User.objects.filter(clerk_user_id=OPERATOR_IDENTIFIER).count() == 0
@@ -431,6 +439,7 @@ def test_bootstrap_converts_database_failures_to_a_generic_secret_safe_command_e
         INITIAL_PASSWORD,
         replacement_password,
         stored_password_hash(unrelated),
+        *(existing_password_hash,) if existing_password_hash is not None else (),
         exception_text=str(error.value),
     )
 
