@@ -128,6 +128,8 @@ The run is blocked, without changing this design, until all of these are true:
   linked target is `TailTag` / `development` / `api`;
 - the existing Clerk Development secret is available through its approved
   hidden, process-local boundary;
+- the configured Railway Development media-storage endpoint origin is
+  privately available through the same kind of process-local operator boundary;
 - two dedicated persistent Clerk Development identities are privately
   available as User A and User B;
 - the existing Django-admin/operator login and required model permissions work;
@@ -187,6 +189,9 @@ these rules:
   identifiers in process memory only;
 - validate the exact approved HTTPS Railway Development origin and never
   follow redirects for authenticated API requests;
+- validate the configured HTTPS media-storage origin privately and reject any
+  returned media URL whose exact origin differs before fetching it; never
+  follow media redirects or print either origin;
 - never print or serialize authorization headers, sensitive request bodies,
   full response bodies, exception details that may contain request material,
   or fixture identifiers;
@@ -250,9 +255,11 @@ attempted through approved public APIs or Django admin.
 4. Through User A's owner API, reconcile Fursuit A and Fursuit B. Create only a
    missing, unambiguous fixture; otherwise reuse it.
 5. Upload or replace each fursuit's synthetic photo through the actual owner
-   API. Fetch the returned short-lived read URL in memory without redirecting;
-   require a successful response with an image media type and nonempty body,
-   then discard the URL and bytes without logging either.
+   API. Before fetching the returned short-lived read URL, require its exact
+   origin to match the privately supplied configured media-storage origin.
+   Fetch without redirecting, require a successful response with an image
+   media type and nonempty body, then discard the URL and bytes without logging
+   either.
 6. Ensure Fursuit A and Fursuit B are globally enabled. Ensure Fursuit B has no
    Convention 1 activation by inspecting User A's activation list. If a durable
    relationship already exists, mark the run `BLOCKED` for approved fixture
@@ -281,8 +288,9 @@ attempted through approved public APIs or Django admin.
    process-local payload, `Cache-Control: no-store`, and one current credential.
 6. Enroll User B in Convention 1. User B resolves the payload and receives only
    Convention 1 plus Fursuit A's safe `tailtag_id`, name, and temporary photo
-   URL. Fetch the photo without redirecting and require a successful image media
-   type plus nonempty body; do not log the URL or bytes.
+   URL. Require the same exact configured media-origin match before fetching
+   without redirecting, then require a successful image media type plus
+   nonempty body; do not log the URL or bytes.
 7. After successful resolution, User B attempts applicable owner operations
    against Fursuit A: fursuit detail/name update/photo replacement, activation
    mutation, catch-session mutation, and owner credential fetch. Require the
@@ -358,8 +366,10 @@ attempted through approved public APIs or Django admin.
    the matrix below, Bearer security, closed request/response schemas, relevant
    status responses, and the distinction between preview resolution and catch
    authorization. Inspect credential rotation in schema only; do not invoke it.
-2. Confirm no catch-creation route was called or introduced and no catch was
-   recorded.
+2. Confirm the correlated Wave 2 revision has no catch model or catch-write
+   route and that the probe's fixed invocation set contains no catch write.
+   Therefore this validation cannot and did not record a catch; it does not
+   claim that unrelated future or pre-existing data was inspected.
 3. Stop any remaining Issue #120 catch session through the owner API.
 4. Leave Fursuit A and Fursuit B globally enabled. Leave Fursuit B without a
    Convention 1 activation and the Convention 2 activation inactive. Do not
@@ -385,7 +395,7 @@ field sets and error shapes remain those of the authoritative specifications.
 | AUTH-01 | Real authentication | Authenticate User A and User B and call `/api/me/`. | Both return `200`; identities and bodies are not recorded. |
 | PROF-01 | Participation eligibility | Read and, only if needed, complete both profiles. | Both aliases are onboarded and enabled; private profile values are not recorded. |
 | FIX-01 | Stable Conventions | Reconcile Convention 1 and Convention 2 in Django admin. | Exactly two intended synthetic fixtures are independently playable. |
-| MEDIA-01 | Real configured media path | Create or update both fursuit photos, then fetch each returned read URL without redirects. | Owner operations succeed; responses have successful status, image media type, and nonempty body without logging URLs, keys, endpoints, or bytes. |
+| MEDIA-01 | Real configured media path | Create or update both fursuit photos, require each returned read URL to match the private configured storage origin, then fetch without redirects. | Owner operations succeed; exact origins match and responses have successful status, image media type, and nonempty body without logging URLs, keys, endpoints, or bytes. |
 | FUR-01 | Stable fursuits | Reconcile Fursuit A and Fursuit B through User A's API. | Exactly the designated owner fixtures are used; ambiguous creation is never replayed. |
 | FIX-02 | Missing-activation precondition | Inspect A's Convention 1 activation list for Fursuit B. | No relationship exists; an existing durable row blocks rather than weakens NEG-01. |
 | FIX-03 | Non-enrollment precondition | Inspect B's enrollment list for Convention 2. | No enrollment exists; an existing durable row blocks rather than weakens ENR-03. |
@@ -412,7 +422,7 @@ field sets and error shapes remain those of the authoritative specifications.
 | LIFE-03 | Disabled non-participation | Retry old resolution and normal owner session/credential operations while disabled. | Resolver returns generic `404`; owner participation operations fail safely under approved `400`/eligibility behavior. |
 | LIFE-04 | No resurrection | Operator re-enables Fursuit A without an owner start/fetch action. | Eligibility returns, but the ended session and revoked credential remain terminal and old payload stays `404`. |
 | API-01 | Deployed OpenAPI | Parse the deployed schema for profile, Convention, enrollment, fursuit, activation, session, credential fetch/rotation, and resolution paths. | Exact supported methods, Bearer security, closed schemas, statuses, and preview-not-authorization language match implemented contracts. |
-| API-02 | No catch behavior | Review invoked operations and deployed Wave 2 surface. | No catch-create operation is invoked or introduced; no catch is recorded. |
+| API-02 | No catch behavior | Review the probe invocation set and correlated deployed Wave 2 source/OpenAPI. | No catch model or catch-write route exists and no catch-write operation is invoked; therefore this validation records no catch, without claiming a database-wide absence check. |
 | END-01 | Benign fixture state | Run approved final-state actions even after a failure. | No active Issue #120 session, both fursuits enabled, Convention 2 activation inactive, no unrelated state change. |
 | END-02 | Temporary-artifact cleanup | Remove the one-off probe directory and check its path. | Local absence check passes; no probe, token, payload, URL, or generated artifact remains. |
 | SEC-01 | Sensitive-value containment | Review probe output, committed diff, and recorded evidence. | No token, payload, URL, signature, Clerk ID, account data, operator identity, secret, or rendered Railway variable is present. |
