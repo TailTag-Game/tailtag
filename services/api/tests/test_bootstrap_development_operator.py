@@ -14,6 +14,7 @@ from typing import Any, cast
 import pytest
 from django.core.management import CommandError, call_command
 from django.db import IntegrityError, close_old_connections, connection
+from psycopg import sql
 
 from accounts.models import User
 
@@ -245,7 +246,7 @@ def test_concurrent_first_bootstraps_create_and_reconcile_one_full_operator(
     command_module = importlib.import_module(COMMAND_MODULE)
     start = Barrier(2, timeout=10)
     shared_terminal = TtyStream()
-    table_name = connection.ops.quote_name(User._meta.db_table)
+    table_name = User._meta.db_table
     barrier_function = "accounts_user_bootstrap_insert_barrier"
     barrier_trigger = "accounts_user_bootstrap_insert_barrier_trigger"
     lock_class_id = 170
@@ -296,20 +297,27 @@ def test_concurrent_first_bootstraps_create_and_reconcile_one_full_operator(
     monkeypatch.setenv("RAILWAY_SERVICE_NAME", "api")
 
     with connection.cursor() as cursor:
-        cursor.execute(
-            f"CREATE FUNCTION {barrier_function}() RETURNS trigger "
-            "LANGUAGE plpgsql AS $$ "
-            "BEGIN "
-            f"PERFORM pg_advisory_lock_shared({lock_class_id}, {lock_object_id}); "
-            f"PERFORM pg_advisory_unlock_shared({lock_class_id}, {lock_object_id}); "
-            "RETURN NEW; "
-            "END; "
-            "$$"
+        create_barrier_function = sql.SQL(
+            "CREATE FUNCTION {}() RETURNS trigger LANGUAGE plpgsql AS {}"
+        ).format(
+            sql.Identifier(barrier_function),
+            sql.Literal(
+                "BEGIN "
+                f"PERFORM pg_advisory_lock_shared({lock_class_id}, {lock_object_id}); "
+                f"PERFORM pg_advisory_unlock_shared({lock_class_id}, {lock_object_id}); "
+                "RETURN NEW; "
+                "END; "
+            ),
         )
-        cursor.execute(
-            f"CREATE TRIGGER {barrier_trigger} BEFORE INSERT ON {table_name} "
-            f"FOR EACH ROW EXECUTE FUNCTION {barrier_function}()"
+        create_barrier_trigger = sql.SQL(
+            "CREATE TRIGGER {} BEFORE INSERT ON {} FOR EACH ROW EXECUTE FUNCTION {}()"
+        ).format(
+            sql.Identifier(barrier_trigger),
+            sql.Identifier(table_name),
+            sql.Identifier(barrier_function),
         )
+        cursor.execute(create_barrier_function)
+        cursor.execute(create_barrier_trigger)
         cursor.execute(
             "SELECT pg_advisory_lock(%s, %s)", [lock_class_id, lock_object_id]
         )
@@ -339,8 +347,14 @@ def test_concurrent_first_bootstraps_create_and_reconcile_one_full_operator(
         executor.shutdown(wait=False, cancel_futures=True)
         with connection.cursor() as cursor:
             cursor.execute("SET lock_timeout = '10s'")
-            cursor.execute(f"DROP TRIGGER IF EXISTS {barrier_trigger} ON {table_name}")
-            cursor.execute(f"DROP FUNCTION IF EXISTS {barrier_function}()")
+            drop_barrier_trigger = sql.SQL("DROP TRIGGER IF EXISTS {} ON {}").format(
+                sql.Identifier(barrier_trigger), sql.Identifier(table_name)
+            )
+            drop_barrier_function = sql.SQL("DROP FUNCTION IF EXISTS {}()").format(
+                sql.Identifier(barrier_function)
+            )
+            cursor.execute(drop_barrier_trigger)
+            cursor.execute(drop_barrier_function)
 
     results = (first_result, second_result)
     assert all(error is None for error, _, _ in results)
@@ -378,7 +392,7 @@ def test_bootstrap_converts_database_failures_to_a_generic_secret_safe_command_e
     unrelated_before = stored_user_state(unrelated)
     stdout = TtyStream()
     stderr = TtyStream()
-    table_name = connection.ops.quote_name(User._meta.db_table)
+    table_name = User._meta.db_table
     failure_function = "accounts_user_bootstrap_database_failure"
     failure_trigger = "accounts_user_bootstrap_database_failure_trigger"
     existing_before: dict[str, Any] | None = None
@@ -395,18 +409,26 @@ def test_bootstrap_converts_database_failures_to_a_generic_secret_safe_command_e
         replacement_password = ROTATED_PASSWORD
 
     with connection.cursor() as cursor:
-        cursor.execute(
-            f"CREATE FUNCTION {failure_function}() RETURNS trigger "
-            "LANGUAGE plpgsql AS $$ "
-            "BEGIN "
-            "RAISE EXCEPTION 'synthetic database failure for %', NEW.clerk_user_id; "
-            "END; "
-            "$$"
+        create_failure_function = sql.SQL(
+            "CREATE FUNCTION {}() RETURNS trigger LANGUAGE plpgsql AS {}"
+        ).format(
+            sql.Identifier(failure_function),
+            sql.Literal(
+                "BEGIN "
+                "RAISE EXCEPTION 'synthetic database failure for %', NEW.clerk_user_id; "
+                "END; "
+            ),
         )
-        cursor.execute(
-            f"CREATE TRIGGER {failure_trigger} BEFORE INSERT OR UPDATE ON {table_name} "
-            f"FOR EACH ROW EXECUTE FUNCTION {failure_function}()"
+        create_failure_trigger = sql.SQL(
+            "CREATE TRIGGER {} BEFORE INSERT OR UPDATE ON {} "
+            "FOR EACH ROW EXECUTE FUNCTION {}()"
+        ).format(
+            sql.Identifier(failure_trigger),
+            sql.Identifier(table_name),
+            sql.Identifier(failure_function),
         )
+        cursor.execute(create_failure_function)
+        cursor.execute(create_failure_trigger)
     try:
         with pytest.raises(CommandError) as error:
             invoke_command(
@@ -421,8 +443,14 @@ def test_bootstrap_converts_database_failures_to_a_generic_secret_safe_command_e
             )
     finally:
         with connection.cursor() as cursor:
-            cursor.execute(f"DROP TRIGGER IF EXISTS {failure_trigger} ON {table_name}")
-            cursor.execute(f"DROP FUNCTION IF EXISTS {failure_function}()")
+            drop_failure_trigger = sql.SQL("DROP TRIGGER IF EXISTS {} ON {}").format(
+                sql.Identifier(failure_trigger), sql.Identifier(table_name)
+            )
+            drop_failure_function = sql.SQL("DROP FUNCTION IF EXISTS {}()").format(
+                sql.Identifier(failure_function)
+            )
+            cursor.execute(drop_failure_trigger)
+            cursor.execute(drop_failure_function)
 
     assert str(error.value) == "Operator bootstrap failed."
     if existing_operator:
