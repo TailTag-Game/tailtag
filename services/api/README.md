@@ -383,6 +383,17 @@ fursuit data exists. After use begins, preserve the table, rows, and migration
 history; use compatible code or a forward schema repair rather than destructive
 reversal.
 
+## Complete Wave 2 participation validation
+
+Issue #120 owns the composed Railway Development proof across authentication,
+profiles, Conventions, enrollment, fursuit media, per-Convention activation,
+catch sessions, and Convention-scoped catch credentials. The maintained
+[Wave 2 participation validation procedure](../../docs/development/wave-2-participation-validation.md)
+defines its two-user fixture policy, security boundary, exact validation
+matrix, benign final state, and sanitized evidence format. It is a controlled
+one-off integration exercise, not a permanent smoke target, and it never
+records a catch.
+
 ## Canonical backend commands
 
 Run these commands from the repository root. They are the supported interface
@@ -483,10 +494,9 @@ fixed origin identifies the credential-creation context, while
 `CLERK_SMOKE_USER_ID` and `TAILTAG_DEVELOPMENT_API_BASE_URL` remain local
 operator/tooling inputs and do not belong in the Railway API runtime. The
 interactive `sk_test_` credential also remains local process-only input and
-must never be configured on Railway. See the sanitized
-[Railway Development authentication validation](../../docs/reviews/2026-08-18-railway-development-authentication-validation.md)
-for runtime evidence, negative credential checks, first-use provisioning,
-repeat resolution, OpenAPI verification, and limitations.
+must never be configured on Railway. The verified configuration and its
+operational limitations are maintained in this README and the
+[backend delivery operations guide](../../docs/development/backend-delivery-operations.md).
 
 ### Invocation
 

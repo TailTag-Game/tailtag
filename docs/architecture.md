@@ -59,9 +59,9 @@ already-current schema normally makes a subsequent invocation a no-op.
 The Docker CMD, Gunicorn process, Django startup, health endpoints, and local
 `make api-run` command do not run migrations. A non-zero pre-deploy command
 fails the candidate deployment before it becomes active; deployment state and
-deployment logs provide the diagnostic record. See the [Railway development
-environment review](reviews/2026-08-13-railway-development-environment.md) for
-the observed recovery and rollback boundaries.
+deployment logs provide the diagnostic record. See the maintained
+[backend development delivery operations](development/backend-delivery-operations.md)
+guide for recovery and rollback boundaries.
 
 The API service has normal GitHub autodeploy enabled for the
 `TailTag-Game/tailtag` `main` branch. Its Railway trigger is configured with

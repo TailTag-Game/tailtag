@@ -8,8 +8,9 @@ an incident-management process, or a production data-recovery plan.
 
 Backend contributor setup and commands remain in the
 [API README](../../services/api/README.md). Durable design and ownership live
-in [architecture.md](../architecture.md), while historical validation evidence
-remains in [`docs/reviews/`](../reviews/README.md).
+in [architecture.md](../architecture.md). The maintained Wave 2 integration
+procedure and sanitized evidence record live in the
+[Wave 2 participation validation](wave-2-participation-validation.md).
 
 ## Environment boundary and access
 
@@ -319,8 +320,9 @@ must complete this order for Railway `development`:
    the same smoke against the deployed revision, record the sanitized result,
    and close the issue manually afterward.
 
-   Full authenticated API media-flow validation remains deferred to the profile
-   and participating-character work in #113 and #115.
+   The composed authenticated media-flow proof is now owned by the
+   [Wave 2 participation validation](wave-2-participation-validation.md). Its
+   live Railway Development execution is currently `NOT EXECUTED`.
 
 The production storage backend creates only 600-second presigned `GET` URLs;
 they are bearer credentials and must never be persisted or logged. There are
@@ -389,12 +391,9 @@ If a secret may have been exposed, stop sharing the material, notify the
 project owner through the approved private channel, and rotate the affected
 credential before resuming normal work.
 
-## Related evidence and design
+## Related validation and design
 
-Use these records to understand why the current controls exist; keep detailed
-historical evidence there rather than copying it into this runbook:
-
-- [Railway development environment review](../reviews/2026-08-13-railway-development-environment.md)
-- [Post-deploy HTTP smoke verification review](../reviews/2026-08-15-post-deploy-http-smoke-verification.md)
-- [Main-to-Railway development delivery review](../reviews/2026-08-16-main-to-railway-development-delivery.md)
-- [Railway Development authentication validation](../reviews/2026-08-18-railway-development-authentication-validation.md)
+- [Wave 2 participation validation](wave-2-participation-validation.md)
+- [Main-to-Railway Development delivery specification](../specs/2026-08-16-main-to-railway-development-delivery.md)
+- [Post-deploy HTTP smoke verification specification](../specs/2026-08-15-post-deploy-http-smoke-verification.md)
+- [V0 media storage specification](../specs/2026-08-19-v0-media-storage.md)
