@@ -377,39 +377,36 @@ def assert_safe_operator_runbook(runbook: str) -> None:
         if "bootstrap_development_operator" in line
     ]
     assert command_lines == [OPERATOR_COMMAND]
-    command_blocks = re.findall(r"(?ms)^```[^\n]*\n(?P<body>.*?)^```$", runbook)
+    command_blocks = re.findall(
+        r"(?ms)^(?P<delimiter>`{3}|~{3})[^\n]*\n"
+        r"(?P<body>.*?)^(?P=delimiter)[ \t]*$",
+        runbook,
+    )
+    command_block_bodies = [body for _, body in command_blocks]
     operator_command_blocks = [
         block.strip()
-        for block in command_blocks
+        for block in command_block_bodies
         if "bootstrap_development_operator" in block
     ]
     assert operator_command_blocks == [OPERATOR_PROCEDURE]
     assert not any(
         credential in block
-        for block in command_blocks
+        for block in command_block_bodies
         for credential in (
             "DJANGO_SUPERUSER_PASSWORD",
             "RAILWAY_TOKEN",
             "RAILWAY_API_TOKEN",
         )
     )
-    for paragraph in runbook.split("\n\n"):
-        contains_credential_variable = any(
-            variable in paragraph
-            for variable in (
-                "DJANGO_SUPERUSER_PASSWORD",
-                "RAILWAY_TOKEN",
-                "RAILWAY_API_TOKEN",
-            )
-        )
-        if contains_credential_variable:
-            assert re.search(r"(?i)\b(?:do not|never|must not|don't)\b", paragraph)
-
-    assert "bootstrap Railway Development operator" in normalized_runbook
+    assert "RAILWAY_TOKEN" not in runbook
+    assert "RAILWAY_API_TOKEN" not in runbook
+    assert runbook.count("DJANGO_SUPERUSER_PASSWORD") == 1
     assert any(
         prohibition in normalized_runbook
         for prohibition in OPERATOR_AUTOMATION_PROHIBITIONS
     )
+
+    assert "bootstrap Railway Development operator" in normalized_runbook
     for prohibition in OPERATOR_AUTOMATION_PROHIBITIONS:
         normalized_runbook = normalized_runbook.replace(prohibition, "")
     assert "automatically" not in normalized_runbook
@@ -465,9 +462,14 @@ def test_railway_operator_runbook_rejects_plausible_unsafe_mutants() -> None:
         readme, "### Railway Development operator", "## Direct Compose usage"
     )
     unsafe_mutants = (
-        f"{runbook}\nAdd a RAILWAY_TOKEN variable in the Railway dashboard.\n",
+        runbook.replace(
+            "No Clerk secret is required.",
+            "No Clerk secret is required. Add a RAILWAY_TOKEN variable in the "
+            "Railway dashboard.",
+        ),
         f"{runbook}\n```shell\nRAILWAY_TOKEN\n```\n",
         f"{runbook}\n```\nRAILWAY_API_TOKEN\n```\n",
+        f"{runbook}\n~~~shell\nRAILWAY_TOKEN\n~~~\n",
         f"{runbook}\nRun it automatically during pre-deploy.\n",
     )
 
