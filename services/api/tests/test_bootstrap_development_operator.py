@@ -359,34 +359,36 @@ def test_concurrent_first_bootstraps_create_and_reconcile_one_full_operator(
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "development")
     monkeypatch.setenv("RAILWAY_SERVICE_NAME", "api")
 
-    with connection.cursor() as cursor:
-        create_barrier_function = sql.SQL(
-            "CREATE FUNCTION {}() RETURNS trigger LANGUAGE plpgsql AS {}"
-        ).format(
-            sql.Identifier(barrier_function),
-            sql.Literal(
-                "BEGIN "
-                f"PERFORM pg_advisory_lock_shared({lock_class_id}, {lock_object_id}); "
-                f"PERFORM pg_advisory_unlock_shared({lock_class_id}, {lock_object_id}); "
-                "RETURN NEW; "
-                "END; "
-            ),
-        )
-        create_barrier_trigger = sql.SQL(
-            "CREATE TRIGGER {} BEFORE INSERT ON {} FOR EACH ROW EXECUTE FUNCTION {}()"
-        ).format(
-            sql.Identifier(barrier_trigger),
-            sql.Identifier(table_name),
-            sql.Identifier(barrier_function),
-        )
-        cursor.execute(create_barrier_function)
-        cursor.execute(create_barrier_trigger)
-        cursor.execute(
-            "SELECT pg_advisory_lock(%s, %s)", [lock_class_id, lock_object_id]
-        )
-
-    executor = ThreadPoolExecutor(max_workers=2)
+    executor: ThreadPoolExecutor | None = None
     try:
+        with connection.cursor() as cursor:
+            create_barrier_function = sql.SQL(
+                "CREATE FUNCTION {}() RETURNS trigger LANGUAGE plpgsql AS {}"
+            ).format(
+                sql.Identifier(barrier_function),
+                sql.Literal(
+                    "BEGIN "
+                    f"PERFORM pg_advisory_lock_shared({lock_class_id}, {lock_object_id}); "
+                    f"PERFORM pg_advisory_unlock_shared({lock_class_id}, {lock_object_id}); "
+                    "RETURN NEW; "
+                    "END; "
+                ),
+            )
+            create_barrier_trigger = sql.SQL(
+                "CREATE TRIGGER {} BEFORE INSERT ON {} "
+                "FOR EACH ROW EXECUTE FUNCTION {}()"
+            ).format(
+                sql.Identifier(barrier_trigger),
+                sql.Identifier(table_name),
+                sql.Identifier(barrier_function),
+            )
+            cursor.execute(create_barrier_function)
+            cursor.execute(create_barrier_trigger)
+            cursor.execute(
+                "SELECT pg_advisory_lock(%s, %s)", [lock_class_id, lock_object_id]
+            )
+
+        executor = ThreadPoolExecutor(max_workers=2)
         first = executor.submit(run_bootstrap)
         second = executor.submit(run_bootstrap)
         deadline = time.monotonic() + 10
@@ -407,7 +409,8 @@ def test_concurrent_first_bootstraps_create_and_reconcile_one_full_operator(
                 "SELECT pg_advisory_unlock(%s, %s)",
                 [lock_class_id, lock_object_id],
             )
-        executor.shutdown(wait=False, cancel_futures=True)
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
         with connection.cursor() as cursor:
             cursor.execute("SET lock_timeout = '10s'")
             drop_barrier_trigger = sql.SQL("DROP TRIGGER IF EXISTS {} ON {}").format(
@@ -471,28 +474,30 @@ def test_bootstrap_converts_database_failures_to_a_generic_secret_safe_command_e
         existing_password_hash = stored_password_hash(existing)
         replacement_password = ROTATED_PASSWORD
 
-    with connection.cursor() as cursor:
-        create_failure_function = sql.SQL(
-            "CREATE FUNCTION {}() RETURNS trigger LANGUAGE plpgsql AS {}"
-        ).format(
-            sql.Identifier(failure_function),
-            sql.Literal(
-                "BEGIN "
-                "RAISE EXCEPTION 'synthetic database failure for %', NEW.clerk_user_id; "
-                "END; "
-            ),
-        )
-        create_failure_trigger = sql.SQL(
-            "CREATE TRIGGER {} BEFORE INSERT OR UPDATE ON {} "
-            "FOR EACH ROW EXECUTE FUNCTION {}()"
-        ).format(
-            sql.Identifier(failure_trigger),
-            sql.Identifier(table_name),
-            sql.Identifier(failure_function),
-        )
-        cursor.execute(create_failure_function)
-        cursor.execute(create_failure_trigger)
     try:
+        with connection.cursor() as cursor:
+            create_failure_function = sql.SQL(
+                "CREATE FUNCTION {}() RETURNS trigger LANGUAGE plpgsql AS {}"
+            ).format(
+                sql.Identifier(failure_function),
+                sql.Literal(
+                    "BEGIN "
+                    "RAISE EXCEPTION 'synthetic database failure for %', "
+                    "NEW.clerk_user_id; "
+                    "END; "
+                ),
+            )
+            create_failure_trigger = sql.SQL(
+                "CREATE TRIGGER {} BEFORE INSERT OR UPDATE ON {} "
+                "FOR EACH ROW EXECUTE FUNCTION {}()"
+            ).format(
+                sql.Identifier(failure_trigger),
+                sql.Identifier(table_name),
+                sql.Identifier(failure_function),
+            )
+            cursor.execute(create_failure_function)
+            cursor.execute(create_failure_trigger)
+
         with pytest.raises(CommandError) as error:
             invoke_command(
                 monkeypatch,
