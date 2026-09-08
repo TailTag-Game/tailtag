@@ -10,7 +10,7 @@ from typing import cast
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.core.management import BaseCommand, CommandError
-from django.db import transaction
+from django.db import DatabaseError, IntegrityError, transaction
 
 from accounts.models import User
 
@@ -44,36 +44,55 @@ class Command(BaseCommand):
         if password != password_confirmation:
             raise CommandError("Passwords do not match.")
 
-        with transaction.atomic():
-            operator = (
-                User.objects.select_for_update()
-                .filter(clerk_user_id=operator_id)
-                .first()
-            )
-            if operator is None:
-                candidate = User(
-                    clerk_user_id=operator_id,
-                    is_staff=True,
-                    is_superuser=True,
+        try:
+            with transaction.atomic():
+                operator = (
+                    User.objects.select_for_update()
+                    .filter(clerk_user_id=operator_id)
+                    .first()
                 )
-                self._validate_password(password, candidate)
-                User.objects.create_superuser(operator_id, password=password)
-                outcome = "Development operator created."
-            else:
-                if not operator.is_staff or not cast(
-                    bool,
-                    operator.is_superuser,  # pyright: ignore[reportUnknownMemberType]
-                ):
-                    raise CommandError(
-                        "Existing account cannot be used as an operator."
+                if operator is None:
+                    candidate = User(
+                        clerk_user_id=operator_id,
+                        is_staff=True,
+                        is_superuser=True,
                     )
-
-                self._validate_password(password, operator)
-                operator.set_password(password)
-                operator.save(update_fields={"password"})
-                outcome = "Development operator reconciled."
+                    self._validate_password(password, candidate)
+                    try:
+                        with transaction.atomic():
+                            User.objects.create_superuser(
+                                operator_id, password=password
+                            )
+                    except IntegrityError:
+                        operator = (
+                            User.objects.select_for_update()
+                            .filter(clerk_user_id=operator_id)
+                            .first()
+                        )
+                        if operator is None:
+                            raise
+                        outcome = self._reconcile_operator(password, operator)
+                    else:
+                        outcome = "Development operator created."
+                else:
+                    outcome = self._reconcile_operator(password, operator)
+        except DatabaseError:
+            raise CommandError("Operator bootstrap failed.") from None
 
         self.stdout.write(outcome)
+
+    def _reconcile_operator(self, password: str, operator: User) -> str:
+        """Validate and rotate the password for an existing full operator."""
+        if not operator.is_staff or not cast(
+            bool,
+            operator.is_superuser,  # pyright: ignore[reportUnknownMemberType]
+        ):
+            raise CommandError("Existing account cannot be used as an operator.")
+
+        self._validate_password(password, operator)
+        operator.set_password(password)
+        operator.save(update_fields={"password"})
+        return "Development operator reconciled."
 
     @staticmethod
     def _validate_password(password: str, user: User) -> None:
