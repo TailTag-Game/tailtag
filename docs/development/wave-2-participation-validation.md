@@ -22,9 +22,9 @@ storage.
 Issue: [#120 — Validate and document the complete Wave 2 participation
 flow](https://github.com/TailTag-Game/tailtag/issues/120)
 
-Status: Railway Development service recovery succeeded after the workspace plan
-was restored. The resumed deployment preflight stopped on a direct OpenAPI
-schema defect; no authentication or fixture mutation started.
+Status: Complete. The full matrix passed against the correlated Railway
+Development deployment on 2026-09-08, no catch was recorded, and the reusable
+fixtures were left in the required benign state.
 
 ## Global constraints
 
@@ -152,10 +152,10 @@ Committed evidence uses only these aliases:
 | User A | Onboarded, enabled ordinary player; owns Fursuit A and Fursuit B. |
 | User B | Onboarded, enabled ordinary player; resolves User A's Convention 1 credential and remains unenrolled in Convention 2. |
 | Operator | Existing Django staff/superuser path used only for Convention preparation and Fursuit A enablement changes. |
-| Convention 1 | Stable synthetic `Issue 120 Validation Convention 1`, independently playable and used for the primary flow. |
-| Convention 2 | Stable synthetic `Issue 120 Validation Convention 2`, independently playable and used for Convention-scope and non-enrollment proof. |
-| Fursuit A | Stable enabled synthetic `Issue 120 Validation Fursuit A`, owned by User A and used as the primary activated/catchable target. |
-| Fursuit B | Stable enabled synthetic `Issue 120 Validation Fursuit B`, owned by User A and kept without a Convention 1 activation. |
+| Convention 1 | Stable synthetic `Issue 120 Convention 1`, independently playable and used for the primary flow. |
+| Convention 2 | Stable synthetic `Issue 120 Convention 2`, independently playable and used for Convention-scope and non-enrollment proof. |
+| Fursuit A | Stable enabled synthetic `Issue 120 Fursuit A`, owned by User A and used as the primary activated/catchable target. |
+| Fursuit B | Stable enabled synthetic `Issue 120 Fursuit B`, owned by User A and kept without a Convention 1 activation. |
 
 Reuse these fixtures on reruns. Resolve them privately through owner-visible
 API results or Django admin and never record Clerk identifiers, internal user
@@ -492,53 +492,124 @@ mutation.
 
 ## Sanitized execution record
 
-The first live attempt stopped at the approved deployment prerequisite because
-the Railway workspace trial had expired. After the workspace owner restored an
-active plan, the existing PostgreSQL service and volume returned healthy and
-the intended Wave 2 application revision deployed successfully to the approved
-`development/api` target. The canonical credential-free smoke then passed for
-liveness, readiness, schema, and documentation, and the Django-admin route was
-reachable.
+The successful run exercised revision
+`ac0e70d20ca573e5b6c65d42a71d21ecca66d90a` in Railway Development deployment
+`a6cb2dfe-316a-4897-a731-91bf8898d20b`. Railway reported the deployment as
+successful for the approved `development/api` target, and observed live
+behavior matched that revision's contracts.
 
-The resumed run stopped before authentication when the fail-closed deployed
-OpenAPI check found that the current-user authentication error and seven
-existing profile/Convention components did not declare
-`additionalProperties: false`. This is a small direct Wave 2 schema defect. Its
-schema-only correction and focused regression tests pass the complete local
-backend gate with 1,106 tests, zero Semgrep findings, strict type checking,
-Django and migration checks, OpenAPI validation, and the production server
-configuration check. Independent review found no material issue. The live run
-remains blocked until that correction is merged and the correlated revision is
-successfully deployed.
+Before live authentication, the credential-free smoke passed its liveness,
+readiness, deployed-schema, and documentation stages. The deployed OpenAPI
+probe then passed for every Wave 2 path in this document, the supported method
+sets and statuses, Bearer security, closed request and response objects, the
+bodyless rotation request, and the documented distinction between preview
+resolution and catch authorization. The earlier schema mismatch was corrected
+and deployed through Issue #169. The Django-admin/operator prerequisite was
+restored through Issue #171.
 
-No Clerk session was created, no Django-admin operation ran, no application
-fixture changed, and no catch operation was available or attempted. Rerun this
-procedure from Phase 1 after the reviewed schema correction is deployed.
-Fixture final state was not inspected, so it remains blocked rather than
-verified; no recovery action was required for this attempt because fixture
-mutation never started.
+The one-off probe authenticated both persistent aliases, confirmed eligible
+profiles, reconciled and reused the stable fixtures, and exercised actual
+private media writes and reads for both fursuits. Every returned media URL
+matched the privately supplied configured storage origin, and each read
+returned a nonempty image response. No URL, origin, object key, signature,
+identifier, response body, or image content was retained.
 
-Record only this shape:
+The complete primary flow, ownership concealment, non-enrollment boundary,
+retry matrix, cross-Convention isolation, and global-disable lifecycle passed.
+User B successfully resolved User A's catchable Convention 1 credential but
+remained unable to read or mutate User A's owner-controlled fursuit,
+activation, session, photo, or credential surfaces. Repeated desired-state
+operations preserved one logical current state. The Convention 1 payload could
+not be repurposed for Convention 2, and the Convention 2 credential became
+terminal with `eligibility_lost` when its activation was deactivated.
+
+With a live Convention 1 session and resolvable credential, operator global
+disablement synchronously made the stored activation ineligible, ended the
+session with `eligibility_lost`, revoked the credential with
+`eligibility_lost`, and made the old payload non-resolving. Normal participation
+operations failed safely while disabled. Re-enablement restored eligibility
+without resurrecting the session or credential.
+
+The first disable-stage probe attempt expected the wrong established error
+shape for a disabled session operation. This was a temporary validation-probe
+diagnostic defect, not an application defect: the live `400` field-error shape
+matched deterministic coverage and the approved contract. The local-only
+probe assertion was corrected, independently reviewed, and the complete flow
+was rerun successfully. The probe server was stopped, all process-local values
+were discarded, and its temporary directory was removed.
+
+Final operator inspection confirmed zero active catch sessions, no current
+catch credential, both validation fursuits globally enabled, the Convention 2
+activation inactive, and no Convention 1 activation for Fursuit B. Both
+Conventions remain active as intentional reusable Development fixtures. No
+catch model or catch-write route exists in the correlated Wave 2 revision, and
+the probe contained and invoked no catch-write operation.
 
 ```text
 execution date (UTC): 2026-09-08
-validated application revision: 3347be9d8e4b2b42014e57e518f773ebe0c36156
+validated application revision: ac0e70d20ca573e5b6c65d42a71d21ecca66d90a
 Railway target: TailTag / development / api
+Railway deployment: a6cb2dfe-316a-4897-a731-91bf8898d20b
 deployment correlation: PASS
 deterministic baseline: PASS
-authentication/profile: BLOCKED
-fixtures/media: BLOCKED
-primary flow: BLOCKED
-ownership/enrollment negatives: BLOCKED
-retry/idempotency: BLOCKED
-Convention scope: BLOCKED
-global-disable cascade: BLOCKED
-deployed OpenAPI: FAIL — direct schema defect, correction pending deployment
-benign final state: BLOCKED
+authentication/profile: PASS
+fixtures/media: PASS
+primary flow: PASS
+ownership/enrollment negatives: PASS
+retry/idempotency: PASS
+Convention scope: PASS
+global-disable cascade: PASS
+deployed OpenAPI: PASS
+benign final state: PASS
 provider cleanup: PASS
 no catch recorded: PASS
-overall: BLOCKED
+overall: PASS
 ```
+
+Every frozen matrix row is accounted for below. Observations remain fixed and
+sanitized; values used to correlate or compare private resources were retained
+only in probe memory.
+
+| ID | Result | Sanitized observation |
+| --- | --- | --- |
+| PRE-01 | PASS | The complete network-independent backend gate passed: 1,134 tests, formatting, lint, strict typing, Semgrep with zero findings, Django checks, migration consistency, OpenAPI validation, and production server configuration. |
+| PRE-02 | PASS | `./scripts/doctor.sh` and `git diff --check` passed. |
+| PRE-03 | PASS | The checked revision, successful Railway deployment, and approved `development/api` target correlated. |
+| PRE-04 | PASS | Credential-free liveness, readiness, schema, and documentation smoke stages passed. |
+| AUTH-01 | PASS | Both actor aliases authenticated and `/api/me/` returned `200`; identities and bodies were discarded. |
+| PROF-01 | PASS | Both actor aliases were onboarded and enabled. |
+| FIX-01 | PASS | Exactly the two stable synthetic Conventions were independently active. |
+| MEDIA-01 | PASS | Both owner photo replacements and reads exercised the configured private storage origin and returned nonempty images. |
+| FUR-01 | PASS | The two stable owner fursuits were reconciled and reused without replaying creation. |
+| FIX-02 | PASS | Fursuit B had no Convention 1 activation. |
+| FIX-03 | PASS | User B had no Convention 2 enrollment. |
+| ENR-01 | PASS | Repeated Convention 1 enrollment converged to one relationship. |
+| ENR-02 | PASS | Repeated active-Convention selection preserved Convention 1 as the single selection. |
+| NEG-01 | PASS | Starting Fursuit B without an activation returned concealed `404` and synthesized no state. |
+| ACT-01 | PASS | Repeated activation `PUT` preserved one active row and its transition values. |
+| SES-01 | PASS | Repeated session-start `PUT` preserved one live session and its start/expiry values. |
+| CRED-01 | PASS | Repeated current-credential fetch returned `200`, `no-store`, one current row, and the same in-memory payload. |
+| RES-01 | PASS | User B resolved Fursuit A's current Convention 1 credential and received only the safe preview projection. |
+| OWN-01 | PASS | User B's detail, name, and photo operations against Fursuit A returned concealed `404` and changed no owner state. |
+| OWN-02 | PASS | User B's activation, session, and owner-credential operations against Fursuit A returned concealed `404`. |
+| OWN-03 | PASS | User B's fursuit and activation lists excluded User A's rows. |
+| SES-02 | PASS | Repeated Convention 1 stop converged to one owner-ended transition with no added history. |
+| RES-02 | PASS | The unchanged Convention 1 payload returned the generic resolver `404` after session stop. |
+| CRED-02 | PASS | Restart and refetch returned the original in-memory payload, which User B resolved successfully again. |
+| SCOPE-01 | PASS | Convention 2 used an independent activation, session, and distinct in-memory credential. |
+| SCOPE-02 | PASS | Each credential returned generic `404` when presented to the other Convention. |
+| ENR-03 | PASS | User B's Convention 2 resolution attempt returned the safe caller-authorization `403`. |
+| SCOPE-03 | PASS | Repeated Convention 2 stop added no history, and its credential remained byte-identical while stopped. |
+| SCOPE-04 | PASS | Repeated Convention 2 deactivation converged inactive and revoked its credential once with `eligibility_lost`. |
+| LIFE-01 | PASS | User B resolved Fursuit A immediately before global disablement. |
+| LIFE-02 | PASS | Global disablement synchronously made participation ineligible and terminated the session and credential with `eligibility_lost`. |
+| LIFE-03 | PASS | The old payload returned generic `404`, and owner participation operations failed with their established safe eligibility errors. |
+| LIFE-04 | PASS | Re-enablement restored eligibility without resurrecting the session, credential, or old payload. |
+| API-01 | PASS | Deployed Wave 2 paths, methods, statuses, Bearer security, closed schemas, and preview semantics matched the contract. |
+| API-02 | PASS | The correlated source/OpenAPI and probe invocation set contained no catch-write surface or operation. |
+| END-01 | PASS | No active session or current credential remained; both fursuits were enabled, Convention 2 was inactive, and unrelated state was untouched. |
+| END-02 | PASS | The temporary server stopped, process-local state was discarded, and the validated temporary directory was removed. |
+| SEC-01 | PASS | Probe output and the committed evidence were reviewed without retaining sensitive values. |
 
 For any non-PASS stage, add only a sanitized description, direct Wave 2 defect
 or external prerequisite classification, fixture-recovery result, and linked

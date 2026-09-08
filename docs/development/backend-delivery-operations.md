@@ -371,7 +371,9 @@ must complete this order for Railway `development`:
 
    The composed authenticated media-flow proof is now owned by the
    [Wave 2 participation validation](wave-2-participation-validation.md). Its
-   live Railway Development execution is currently `NOT EXECUTED`.
+   live Railway Development execution completed successfully on 2026-09-08;
+   the linked canonical record contains the sanitized evidence and rerun
+   procedure.
 
 The production storage backend creates only 600-second presigned `GET` URLs;
 they are bearer credentials and must never be persisted or logged. There are
