@@ -57,6 +57,9 @@ STORAGES = {  # pyright: ignore[reportConstantRedefinition]
             "url_expiry_seconds": 600,
         },
     },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
 }
 
 LOGGING: dict[str, object] = {

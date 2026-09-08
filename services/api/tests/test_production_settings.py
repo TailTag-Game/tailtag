@@ -76,6 +76,7 @@ def run_settings_import(
     environment: Mapping[str, str],
     *,
     inspect_clerk_configuration: bool = False,
+    inspect_static_configuration: bool = False,
     pre_import_patch: str = "",
     capture_improperly_configured: bool = False,
 ) -> subprocess.CompletedProcess[str]:
@@ -93,9 +94,22 @@ def run_settings_import(
         "repr(configuration)"
         ")))"
     )
+    static_inspection = (
+        "from django.conf import settings; "
+        "assert settings.DEBUG is False; "
+        "assert settings.MIDDLEWARE[1] == "
+        "'whitenoise.middleware.WhiteNoiseMiddleware'; "
+        "assert settings.STORAGES['staticfiles']['BACKEND'] == "
+        "'whitenoise.storage.CompressedManifestStaticFilesStorage'; "
+        "assert settings.STORAGES['default']['BACKEND'] == "
+        "'media.storage.S3MediaStorage'; "
+        "print('production-static-configuration-validated')"
+    )
     command = pre_import_patch + (
         inspection
         if inspect_clerk_configuration
+        else static_inspection
+        if inspect_static_configuration
         else "import config.settings.production"
     )
     if capture_improperly_configured:
@@ -141,6 +155,30 @@ def test_production_settings_accept_all_required_values() -> None:
     completed = run_settings_import(VALID_ENVIRONMENT)
 
     assert completed.returncode == 0, completed.stderr
+
+
+def test_production_settings_configure_production_static_delivery_without_media_leakage() -> (
+    None
+):
+    """Production enables WhiteNoise while retaining the private media backend."""
+    completed = run_settings_import(
+        VALID_ENVIRONMENT, inspect_static_configuration=True
+    )
+
+    output_contains_media_configuration = any(
+        media_value in completed.stdout or media_value in completed.stderr
+        for media_value in MEDIA_CONFIGURATION_VALUES
+    )
+    assert not output_contains_media_configuration, (
+        "production settings emitted a media configuration value"
+    )
+    static_configuration_validated = (
+        completed.returncode == 0
+        and completed.stdout == "production-static-configuration-validated\n"
+    )
+    assert static_configuration_validated, (
+        "production static delivery configuration did not validate"
+    )
 
 
 @pytest.mark.parametrize("invalid_value", (",", "   "))

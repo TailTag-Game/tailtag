@@ -857,6 +857,43 @@ Supply a unique Clerk user ID for the administrative user when prompted, then
 sign in at `http://127.0.0.1:8000/admin/` with that ID and the local admin
 password.
 
+### Railway Development operator
+
+The local procedure above is not the Railway procedure. To establish or recover
+the dedicated operator in Railway **Development**, first copy the exact SSH
+command from the Railway dashboard for the `development` `api` service, or open
+an explicit CLI shell:
+
+```text
+railway ssh --service api --environment development
+python manage.py bootstrap_development_operator --settings=config.settings.production
+```
+
+The command creates the dedicated operator when its identifier is unused. On a
+rerun, it safely reconciles an account that is already both staff and superuser
+by rotating its local password without creating another account. It refuses an
+ordinary, staff-only, or superuser-only player account and leaves that account
+unchanged; investigate and use a separate dedicated identifier rather than
+trying to elevate a player.
+
+Enter the operator identifier and password only through the command's hidden
+interactive prompts. At its visible confirmation prompt, type the exact
+non-secret phrase `bootstrap Railway Development operator`. Never put either
+credential in command arguments, environment variables, shell history, logs,
+issues, pull requests, or committed evidence. No Clerk secret is required. Do
+not add a Make target or script, set a
+`DJANGO_SUPERUSER_PASSWORD`, configure Railway credential variables, or run the
+command automatically during build, pre-deploy, startup, health checks, or
+Gunicorn.
+
+If the command rejects the target, exit and confirm the Railway workspace,
+project, `development` environment, and `api` service before reconnecting. If
+it rejects the terminal or confirmation, start a real interactive SSH session
+and re-run the command manually. For empty, mismatched, or invalid passwords,
+correct the hidden input and run it again. For a database failure or any
+unexpected refusal, make no account changes by hand; retain only sanitized
+failure details and follow the operations runbook.
+
 ## Direct Compose usage
 
 Running the API service itself through plain Compose is lower-level reference

@@ -126,13 +126,23 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
     assert "RUN uv sync --locked --no-install-project" in development
     assert "apt-get install --no-install-recommends -y git make" in development
     assert "RUN uv sync --locked --no-dev --no-install-project" in production
-    assert 'CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]' in development
-    assert (
-        'CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]'
-        in production
+    production_copy_index = production.index("COPY --chown=tailtag:tailtag . ./")
+    static_collection = (
+        "RUN python manage.py collectstatic --settings=config.settings.build --noinput"
     )
+    assert production.count(static_collection) == 1
+    assert production_copy_index < production.index(static_collection)
+    assert 'CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]' in development
+    gunicorn_command = (
+        'CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]'
+    )
+    assert gunicorn_command in production
+    assert production.index(static_collection) < production.index(gunicorn_command)
     assert "migrate" not in development
     assert "migrate" not in production
+    assert "collectstatic" not in development
+    assert "bootstrap_development_operator" not in development
+    assert "bootstrap_development_operator" not in production
 
     assert "api:" in compose_file
     assert "db:" in compose_file
@@ -143,6 +153,8 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
     assert "pg_isready" in compose_file
     assert "service_healthy" in compose_file
     assert "migrate" not in compose_file
+    assert "collectstatic" not in compose_file
+    assert "bootstrap_development_operator" not in compose_file
     assert "- postgres_data:/var/lib/postgresql/data" in database
     assert "postgres_data:/var/lib/postgresql/data" not in api
     database_ports = re.findall(r'^\s+- "([^"]+)"$', database, re.MULTILINE)
@@ -311,6 +323,7 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
         "No backend-relevant changes detected; backend validation skipped." in workflow
     )
     assert "git diff --name-only -z" in workflow
+
     pull_request_trigger = re.search(
         r"(?ms)^  pull_request:\n(?P<configuration>.*?)(?=^  \w+:\n)",
         workflow,
@@ -331,6 +344,142 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
     ):
         assert api_job.count(setup_command) == 1
         assert api_job.index(setup_command) < validation_index
+
+
+OPERATOR_COMMAND = (
+    "python manage.py bootstrap_development_operator "
+    "--settings=config.settings.production"
+)
+OPERATOR_PROCEDURE = (
+    f"railway ssh --service api --environment development\n{OPERATOR_COMMAND}"
+)
+OPERATOR_AUTOMATION_PROHIBITIONS = (
+    (
+        "Do not add a Make target or script, set a `DJANGO_SUPERUSER_PASSWORD`, "
+        "configure Railway credential variables, or run the command automatically "
+        "during build, pre-deploy, startup, health checks, or Gunicorn."
+    ),
+    (
+        "Do not set `DJANGO_SUPERUSER_PASSWORD`, add Railway credential variables, "
+        "create a Make target or script, or run this command automatically in build, "
+        "pre-deploy, startup, health checks, or Gunicorn."
+    ),
+)
+
+
+def operator_runbook(document: str, start: str, end: str) -> str:
+    """Return one maintained operator-procedure section."""
+    return document[document.index(start) : document.index(end)]
+
+
+def assert_safe_operator_runbook(runbook: str) -> None:
+    """Require the canonical interactive operator procedure and no unsafe variant."""
+    normalized_runbook = " ".join(runbook.split())
+    command_lines = [
+        line
+        for line in runbook.splitlines()
+        if "bootstrap_development_operator" in line
+    ]
+    assert command_lines == [OPERATOR_COMMAND]
+    command_blocks = re.findall(
+        r"(?ms)^(?P<delimiter>`{3}|~{3})[^\n]*\n"
+        r"(?P<body>.*?)^(?P=delimiter)[ \t]*$",
+        runbook,
+    )
+    command_block_bodies = [body for _, body in command_blocks]
+    operator_command_blocks = [
+        block.strip()
+        for block in command_block_bodies
+        if "bootstrap_development_operator" in block
+    ]
+    assert operator_command_blocks == [OPERATOR_PROCEDURE]
+    assert not any(
+        credential in block
+        for block in command_block_bodies
+        for credential in (
+            "DJANGO_SUPERUSER_PASSWORD",
+            "RAILWAY_TOKEN",
+            "RAILWAY_API_TOKEN",
+        )
+    )
+    assert "RAILWAY_TOKEN" not in runbook
+    assert "RAILWAY_API_TOKEN" not in runbook
+    assert runbook.count("DJANGO_SUPERUSER_PASSWORD") == 1
+    assert any(
+        prohibition in normalized_runbook
+        for prohibition in OPERATOR_AUTOMATION_PROHIBITIONS
+    )
+
+    assert "bootstrap Railway Development operator" in normalized_runbook
+    for prohibition in OPERATOR_AUTOMATION_PROHIBITIONS:
+        normalized_runbook = normalized_runbook.replace(prohibition, "")
+    assert "automatically" not in normalized_runbook
+
+
+def test_railway_operator_documentation_preserves_the_interactive_boundary() -> None:
+    """The documented Railway operator path is canonical and credential-safe."""
+    readme = (SERVICE_ROOT / "README.md").read_text()
+    operations = (
+        REPOSITORY_ROOT / "docs/development/backend-delivery-operations.md"
+    ).read_text()
+    readme_runbook = operator_runbook(
+        readme, "### Railway Development operator", "## Direct Compose usage"
+    )
+    operations_runbook = operator_runbook(
+        operations,
+        "## Django admin and Development operator",
+        "## Find state and logs",
+    )
+
+    assert_safe_operator_runbook(readme_runbook)
+    assert_safe_operator_runbook(operations_runbook)
+    documentation = f"{readme}\n{operations}"
+    normalized_documentation = " ".join(documentation.split())
+
+    assert OPERATOR_PROCEDURE in readme
+    assert OPERATOR_PROCEDURE in operations
+    for required_guidance in (
+        "copy the exact SSH command from the Railway dashboard",
+        "hidden interactive prompts",
+        "visible confirmation prompt",
+        "bootstrap Railway Development operator",
+        "No Clerk secret is required.",
+        "shell history, logs, issues, pull requests, or committed evidence",
+        "ordinary, staff-only, or superuser-only player account",
+        "collects Django admin static assets during its image build",
+        "WhiteNoise",
+        "private media remains in the configured S3/R2 backend",
+        "Image build fails at `collectstatic`",
+        "runtime static-delivery failure",
+    ):
+        assert required_guidance in normalized_documentation
+
+    assert "Do not set `DJANGO_SUPERUSER_PASSWORD`" in normalized_documentation
+    assert "Railway credential variables" in normalized_documentation
+    assert "run the command automatically" in normalized_documentation
+
+
+def test_railway_operator_runbook_rejects_plausible_unsafe_mutants() -> None:
+    """Unsafe credential, fence, and automation guidance must fail the contract."""
+    readme = (SERVICE_ROOT / "README.md").read_text()
+    runbook = operator_runbook(
+        readme, "### Railway Development operator", "## Direct Compose usage"
+    )
+    unsafe_mutants = (
+        runbook.replace(
+            "No Clerk secret is required.",
+            "No Clerk secret is required. Add a RAILWAY_TOKEN variable in the "
+            "Railway dashboard.",
+        ),
+        f"{runbook}\n```shell\nRAILWAY_TOKEN\n```\n",
+        f"{runbook}\n```\nRAILWAY_API_TOKEN\n```\n",
+        f"{runbook}\n~~~shell\nRAILWAY_TOKEN\n~~~\n",
+        f"{runbook}\nRun it automatically during pre-deploy.\n",
+    )
+
+    for mutant in unsafe_mutants:
+        with pytest.raises(AssertionError):
+            assert_safe_operator_runbook(mutant)
 
 
 def test_api_workflow_permissions_reject_effective_escalation() -> None:

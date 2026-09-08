@@ -52,4 +52,6 @@ RUN uv sync --locked --no-dev --no-install-project
 
 COPY --chown=tailtag:tailtag . ./
 
+RUN python manage.py collectstatic --settings=config.settings.build --noinput
+
 CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]
