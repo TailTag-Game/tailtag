@@ -465,6 +465,12 @@ intended Wave 2 application revision passed its GitHub API foundation check but
 has no Railway Development deployment record. The linked `development/api`
 service reported failed, its PostgreSQL service reported offline, and the
 canonical credential-free smoke received HTTP `404` for every required route.
+Read-only follow-up confirmed that the last healthy API deployment was later
+marked inactive and that both services retained their approved source and
+configuration. Railway rejected both a redeploy request and an identical-image
+PostgreSQL recovery request because the workspace trial has expired. Neither
+request changed Railway state. An authorized workspace owner must restore an
+active Railway plan before deployment recovery can continue.
 The local `make api-check` completed successfully with 1,106 tests, and the
 required `./scripts/doctor.sh` and `git diff --check` documentation checks also
 passed.
@@ -472,9 +478,10 @@ passed.
 No Clerk session was created, no Django-admin operation ran, no application
 fixture changed, and no catch operation was available or attempted. This is an
 external Railway Development readiness block; it does not establish an
-application defect. An authorized maintainer must restore the approved
-main-to-Railway Development delivery/runtime path, successfully deploy the
-intended application revision, and rerun this procedure from Phase 1.
+application defect. After an authorized workspace owner restores an active
+Railway plan, an authorized maintainer must restore the approved main-to-Railway
+Development delivery/runtime path, successfully deploy the intended application
+revision, and rerun this procedure from Phase 1.
 Fixture final state was not inspected, so it remains blocked rather than
 verified; no recovery action was required for this attempt because fixture
 mutation never started.
