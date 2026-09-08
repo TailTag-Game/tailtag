@@ -5,11 +5,14 @@ from __future__ import annotations
 import importlib
 import sys
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
+from threading import Barrier
 from typing import Any, cast
 
 import pytest
 from django.core.management import CommandError, call_command
+from django.db import IntegrityError, close_old_connections, connection
 
 from accounts.models import User
 
@@ -229,6 +232,120 @@ def test_bootstrap_reconciliation_validates_before_replacing_a_full_operator_pas
         INITIAL_PASSWORD,
         invalid_replacement_password,
         old_password_hash,
+        exception_text=str(error.value),
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_first_bootstraps_create_and_reconcile_one_full_operator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-5/6/8: concurrent first runs never leak a duplicate-key failure or secret."""
+    command_module = importlib.import_module(COMMAND_MODULE)
+    start = Barrier(2, timeout=10)
+    shared_terminal = TtyStream()
+
+    def private_input(prompt: str, **_: object) -> str:
+        if prompt == "Operator identifier: ":
+            return OPERATOR_IDENTIFIER
+        return INITIAL_PASSWORD
+
+    def confirmation_input(_: str = "") -> str:
+        return CONFIRMATION_PHRASE
+
+    def run_bootstrap() -> tuple[
+        CommandError | IntegrityError | None, TtyStream, TtyStream
+    ]:
+        stdout = TtyStream()
+        stderr = TtyStream()
+        close_old_connections()
+        try:
+            start.wait()
+            call_command(COMMAND_NAME, stdout=stdout, stderr=stderr)
+        except (CommandError, IntegrityError) as error:
+            return error, stdout, stderr
+        finally:
+            close_old_connections()
+        return None, stdout, stderr
+
+    monkeypatch.setattr(sys, "stdin", shared_terminal)
+    monkeypatch.setattr(sys, "stdout", shared_terminal)
+    monkeypatch.setattr("builtins.input", confirmation_input)
+    monkeypatch.setattr(command_module.getpass, "getpass", private_input)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(run_bootstrap)
+        second = executor.submit(run_bootstrap)
+        first_result = first.result()
+        second_result = second.result()
+
+    results = (first_result, second_result)
+    assert all(error is None for error, _, _ in results)
+    assert {stdout.getvalue() for _, stdout, _ in results} == {
+        CREATED_OUTPUT,
+        RECONCILED_OUTPUT,
+    }
+    assert all(stderr.getvalue() == "" for _, _, stderr in results)
+
+    operator = User.objects.get(clerk_user_id=OPERATOR_IDENTIFIER)
+    assert operator.is_staff
+    assert is_superuser(operator)
+    assert operator.check_password(INITIAL_PASSWORD)
+    assert User.objects.filter(clerk_user_id=OPERATOR_IDENTIFIER).count() == 1
+    assert_sensitive_values_are_not_emitted(
+        tuple(stream for _, stdout, stderr in results for stream in (stdout, stderr)),
+        OPERATOR_IDENTIFIER,
+        INITIAL_PASSWORD,
+        stored_password_hash(operator),
+        exception_text="".join(
+            str(error) for error, _, _ in results if error is not None
+        ),
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_bootstrap_converts_database_failure_to_a_generic_secret_safe_command_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-8: an actual PostgreSQL write failure cannot disclose operator input."""
+    unrelated = User.objects.create_user("unrelated_database_failure_user")
+    unrelated_before = stored_user_state(unrelated)
+    stdout = TtyStream()
+    stderr = TtyStream()
+    constraint_name = "accounts_user_bootstrap_operator_failure"
+    table_name = connection.ops.quote_name(User._meta.db_table)
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"ALTER TABLE {table_name} ADD CONSTRAINT {constraint_name} "
+            "CHECK (clerk_user_id <> %s)",
+            [OPERATOR_IDENTIFIER],
+        )
+    try:
+        with pytest.raises(CommandError) as error:
+            invoke_command(
+                monkeypatch,
+                private_inputs=(
+                    OPERATOR_IDENTIFIER,
+                    INITIAL_PASSWORD,
+                    INITIAL_PASSWORD,
+                ),
+                stdout=stdout,
+                stderr=stderr,
+            )
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"ALTER TABLE {table_name} DROP CONSTRAINT {constraint_name}"
+            )
+
+    assert User.objects.filter(clerk_user_id=OPERATOR_IDENTIFIER).count() == 0
+    assert stored_user_state(unrelated) == unrelated_before
+    assert_sensitive_values_are_not_emitted(
+        (stdout, stderr),
+        OPERATOR_IDENTIFIER,
+        INITIAL_PASSWORD,
+        stored_password_hash(unrelated),
         exception_text=str(error.value),
     )
 
