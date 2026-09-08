@@ -24,6 +24,7 @@ CURRENT_USER_RESPONSE_SCHEMA = {
 
 AUTHENTICATION_ERROR_RESPONSE_SCHEMA = {
     "type": "object",
+    "additionalProperties": False,
     "properties": {
         "detail": {
             "type": "string",

@@ -104,6 +104,10 @@ SPECTACULAR_SETTINGS = {
     "TITLE": "TailTag API",
     "DESCRIPTION": "TailTag V0 API foundation.",
     "VERSION": "0.1.0",
+    "POSTPROCESSING_HOOKS": [
+        "drf_spectacular.hooks.postprocess_schema_enums",
+        "config.openapi.close_issue_120_component_schemas",
+    ],
 }
 
 

@@ -136,6 +136,7 @@ def test_current_user_openapi_contract_is_authenticated_and_exact(
     assert set(unauthenticated_schema["properties"]) == {"detail"}
     assert unauthenticated_schema["properties"]["detail"]["type"] == "string"
     assert unauthenticated_schema["required"] == ["detail"]
+    assert unauthenticated_schema.get("additionalProperties") is False
 
 
 @override_settings(CLERK_AUTHENTICATION=TEST_CLERK_CONFIGURATION)

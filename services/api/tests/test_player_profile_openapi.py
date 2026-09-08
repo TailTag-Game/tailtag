@@ -85,19 +85,24 @@ def test_profile_openapi_documents_exact_paths_methods_representation_and_media_
     assert successful["properties"]["avatar_url"]["nullable"] is True
     assert successful["properties"]["onboarding_complete"]["readOnly"] is True
     assert successful["properties"]["is_enabled"]["readOnly"] is True
-    put_body = _dereference(
-        schema, profile["put"]["requestBody"]["content"]["application/json"]["schema"]
-    )
+    put_body_reference = profile["put"]["requestBody"]["content"]["application/json"][
+        "schema"
+    ]
+    assert put_body_reference == {"$ref": "#/components/schemas/ProfilePut"}
+    put_body = _dereference(schema, put_body_reference)
     assert set(put_body["required"]) == {"handle", "display_name"}
+    assert put_body.get("additionalProperties") is False
     put_description = str(profile["put"].get("description", "")).lower()
     assert "avatar" in put_description
     assert "preserv" in put_description or "retain" in put_description
-    patch_body = _dereference(
-        schema,
-        profile["patch"]["requestBody"]["content"]["application/json"]["schema"],
-    )
+    patch_body_reference = profile["patch"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"]
+    assert patch_body_reference == {"$ref": "#/components/schemas/PatchedProfilePatch"}
+    patch_body = _dereference(schema, patch_body_reference)
     assert {"handle", "display_name"}.issubset(patch_body["properties"])
     assert not patch_body.get("required")
+    assert patch_body.get("additionalProperties") is False
     for operation in (profile["put"], profile["patch"], avatar["put"]):
         response_schema = _dereference(
             schema,
