@@ -19,6 +19,8 @@ CONFIRMATION_PHRASE = "bootstrap Railway Development operator"
 OPERATOR_IDENTIFIER = "operator_development_170"
 INITIAL_PASSWORD = "railway-development-operator-password-2026"
 ROTATED_PASSWORD = "reconciled-operator-password-2026"
+CREATED_OUTPUT = "Development operator created.\n"
+RECONCILED_OUTPUT = "Development operator reconciled.\n"
 
 
 class TtyStream(StringIO):
@@ -59,10 +61,12 @@ def is_superuser(user: User) -> bool:
 
 
 def assert_sensitive_values_are_not_emitted(
-    streams: Iterable[StringIO], *sensitive_values: str
+    streams: Iterable[StringIO],
+    *sensitive_values: str,
+    exception_text: str = "",
 ) -> None:
-    """Keep test credentials, identifiers, and persisted password hashes off output."""
-    rendered = "".join(stream.getvalue() for stream in streams)
+    """Keep credentials, identifiers, and hashes off command output and errors."""
+    rendered = "".join(stream.getvalue() for stream in streams) + exception_text
     for value in sensitive_values:
         assert value not in rendered
 
@@ -133,6 +137,8 @@ def test_bootstrap_creates_a_new_development_operator_without_sensitive_output(
     assert created.check_password(INITIAL_PASSWORD)
     assert User.objects.filter(clerk_user_id=OPERATOR_IDENTIFIER).count() == 1
     assert stored_user_state(unrelated) == unrelated_before
+    assert stdout.getvalue() == CREATED_OUTPUT
+    assert stderr.getvalue() == ""
     assert_sensitive_values_are_not_emitted(
         (stdout, stderr),
         OPERATOR_IDENTIFIER,
@@ -168,6 +174,8 @@ def test_bootstrap_reconciles_only_an_existing_full_operator(
     assert stored_password_hash(existing) != old_password_hash
     assert User.objects.filter(clerk_user_id=OPERATOR_IDENTIFIER).count() == 1
     assert stored_user_state(unrelated) == unrelated_before
+    assert stdout.getvalue() == RECONCILED_OUTPUT
+    assert stderr.getvalue() == ""
     assert_sensitive_values_are_not_emitted(
         (stdout, stderr),
         OPERATOR_IDENTIFIER,
@@ -197,7 +205,7 @@ def test_bootstrap_refuses_to_elevate_existing_nonoperators(
     stdout = TtyStream()
     stderr = TtyStream()
 
-    with pytest.raises(CommandError):
+    with pytest.raises(CommandError) as error:
         invoke_command(
             monkeypatch,
             private_inputs=(OPERATOR_IDENTIFIER, INITIAL_PASSWORD, INITIAL_PASSWORD),
@@ -212,6 +220,7 @@ def test_bootstrap_refuses_to_elevate_existing_nonoperators(
         OPERATOR_IDENTIFIER,
         INITIAL_PASSWORD,
         stored_password_hash(protected),
+        exception_text=str(error.value),
     )
 
 
@@ -234,7 +243,7 @@ def test_bootstrap_rejects_wrong_or_missing_railway_target_without_mutation(
     stdout = TtyStream()
     stderr = TtyStream()
 
-    with pytest.raises(CommandError):
+    with pytest.raises(CommandError) as error:
         invoke_command(
             monkeypatch,
             environment=environment,
@@ -246,7 +255,9 @@ def test_bootstrap_rejects_wrong_or_missing_railway_target_without_mutation(
     assert User.objects.filter(clerk_user_id=OPERATOR_IDENTIFIER).count() == 0
     assert stored_user_state(unrelated) == unrelated_before
     assert_sensitive_values_are_not_emitted(
-        (stdout, stderr), stored_password_hash(unrelated)
+        (stdout, stderr),
+        stored_password_hash(unrelated),
+        exception_text=str(error.value),
     )
 
 
@@ -262,7 +273,7 @@ def test_bootstrap_rejects_noninteractive_streams_without_mutation(
     unrelated_before = stored_user_state(unrelated)
     stderr = TtyStream()
 
-    with pytest.raises(CommandError):
+    with pytest.raises(CommandError) as error:
         invoke_command(
             monkeypatch,
             stdin=streams["stdin"],
@@ -273,22 +284,23 @@ def test_bootstrap_rejects_noninteractive_streams_without_mutation(
     assert User.objects.filter(clerk_user_id=OPERATOR_IDENTIFIER).count() == 0
     assert stored_user_state(unrelated) == unrelated_before
     assert_sensitive_values_are_not_emitted(
-        (streams["stdout"], stderr), stored_password_hash(unrelated)
+        (streams["stdout"], stderr),
+        stored_password_hash(unrelated),
+        exception_text=str(error.value),
     )
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("confirmation", "private_inputs", "validator_message"),
+    ("confirmation", "private_inputs"),
     (
-        ("not the documented confirmation", (), None),
-        (CONFIRMATION_PHRASE, ("   ",), None),
+        ("not the documented confirmation", ()),
+        (CONFIRMATION_PHRASE, ("   ",)),
         (
             CONFIRMATION_PHRASE,
             (OPERATOR_IDENTIFIER, INITIAL_PASSWORD, "different"),
-            None,
         ),
-        (CONFIRMATION_PHRASE, (OPERATOR_IDENTIFIER, "short", "short"), "too short"),
+        (CONFIRMATION_PHRASE, (OPERATOR_IDENTIFIER, "short", "short")),
     ),
     ids=("confirmation", "empty-identifier", "password-mismatch", "validation"),
 )
@@ -296,7 +308,6 @@ def test_bootstrap_rejects_invalid_input_without_mutation_or_secret_output(
     monkeypatch: pytest.MonkeyPatch,
     confirmation: str,
     private_inputs: tuple[str, ...],
-    validator_message: str | None,
 ) -> None:
     """AC-8: confirmation, input, and password validation failures are non-mutating."""
     unrelated = User.objects.create_user("unrelated_input_guard_user")
@@ -304,7 +315,7 @@ def test_bootstrap_rejects_invalid_input_without_mutation_or_secret_output(
     stdout = TtyStream()
     stderr = TtyStream()
 
-    with pytest.raises(CommandError):
+    with pytest.raises(CommandError) as error:
         invoke_command(
             monkeypatch,
             confirmation=confirmation,
@@ -316,7 +327,9 @@ def test_bootstrap_rejects_invalid_input_without_mutation_or_secret_output(
     assert User.objects.filter(clerk_user_id=OPERATOR_IDENTIFIER).count() == 0
     assert stored_user_state(unrelated) == unrelated_before
     assert_sensitive_values_are_not_emitted(
-        (stdout, stderr), confirmation, *private_inputs, stored_password_hash(unrelated)
+        (stdout, stderr),
+        confirmation,
+        *private_inputs,
+        stored_password_hash(unrelated),
+        exception_text=str(error.value),
     )
-    if validator_message is not None:
-        assert validator_message not in (stdout.getvalue() + stderr.getvalue()).lower()

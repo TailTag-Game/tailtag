@@ -165,11 +165,20 @@ def test_production_settings_configure_production_static_delivery_without_media_
         VALID_ENVIRONMENT, inspect_static_configuration=True
     )
 
-    assert completed.returncode == 0, completed.stderr
-    assert completed.stdout == "production-static-configuration-validated\n"
-    for media_value in MEDIA_CONFIGURATION_VALUES:
-        assert media_value not in completed.stdout
-        assert media_value not in completed.stderr
+    output_contains_media_configuration = any(
+        media_value in completed.stdout or media_value in completed.stderr
+        for media_value in MEDIA_CONFIGURATION_VALUES
+    )
+    assert not output_contains_media_configuration, (
+        "production settings emitted a media configuration value"
+    )
+    static_configuration_validated = (
+        completed.returncode == 0
+        and completed.stdout == "production-static-configuration-validated\n"
+    )
+    assert static_configuration_validated, (
+        "production static delivery configuration did not validate"
+    )
 
 
 @pytest.mark.parametrize("invalid_value", (",", "   "))
