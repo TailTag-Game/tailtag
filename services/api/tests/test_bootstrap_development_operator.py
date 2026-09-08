@@ -187,6 +187,53 @@ def test_bootstrap_reconciles_only_an_existing_full_operator(
 
 
 @pytest.mark.django_db
+def test_bootstrap_reconciliation_validates_before_replacing_a_full_operator_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-6/8: an invalid rotation leaves the existing full operator unchanged."""
+    existing = User.objects.create_superuser(
+        OPERATOR_IDENTIFIER, password=INITIAL_PASSWORD
+    )
+    existing_primary_key = existing.pk
+    old_password_hash = stored_password_hash(existing)
+    unrelated = User.objects.create_user("unrelated_invalid_reconciliation_user")
+    unrelated_before = stored_user_state(unrelated)
+    stdout = TtyStream()
+    stderr = TtyStream()
+    invalid_replacement_password = "short"
+
+    with pytest.raises(CommandError) as error:
+        invoke_command(
+            monkeypatch,
+            private_inputs=(
+                OPERATOR_IDENTIFIER,
+                invalid_replacement_password,
+                invalid_replacement_password,
+            ),
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    existing.refresh_from_db()
+    assert existing.pk == existing_primary_key
+    assert existing.is_staff
+    assert is_superuser(existing)
+    assert existing.has_usable_password()
+    assert existing.check_password(INITIAL_PASSWORD)
+    assert stored_password_hash(existing) == old_password_hash
+    assert User.objects.filter(clerk_user_id=OPERATOR_IDENTIFIER).count() == 1
+    assert stored_user_state(unrelated) == unrelated_before
+    assert_sensitive_values_are_not_emitted(
+        (stdout, stderr),
+        OPERATOR_IDENTIFIER,
+        INITIAL_PASSWORD,
+        invalid_replacement_password,
+        old_password_hash,
+        exception_text=str(error.value),
+    )
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("privilege", ("ordinary", "staff_only", "superuser_only"))
 def test_bootstrap_refuses_to_elevate_existing_nonoperators(
     monkeypatch: pytest.MonkeyPatch, privilege: str
@@ -230,8 +277,10 @@ def test_bootstrap_refuses_to_elevate_existing_nonoperators(
     (
         (None, "api"),
         ("Development", "api"),
+        ("production", "api"),
         ("development", None),
         ("development", "API"),
+        ("development", "worker"),
     ),
 )
 def test_bootstrap_rejects_wrong_or_missing_railway_target_without_mutation(
