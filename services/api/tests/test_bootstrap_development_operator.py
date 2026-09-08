@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+import time
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
@@ -244,6 +245,11 @@ def test_concurrent_first_bootstraps_create_and_reconcile_one_full_operator(
     command_module = importlib.import_module(COMMAND_MODULE)
     start = Barrier(2, timeout=10)
     shared_terminal = TtyStream()
+    table_name = connection.ops.quote_name(User._meta.db_table)
+    barrier_function = "accounts_user_bootstrap_insert_barrier"
+    barrier_trigger = "accounts_user_bootstrap_insert_barrier_trigger"
+    lock_class_id = 170
+    lock_object_id = 170
 
     def private_input(prompt: str, **_: object) -> str:
         if prompt == "Operator identifier: ":
@@ -268,16 +274,68 @@ def test_concurrent_first_bootstraps_create_and_reconcile_one_full_operator(
             close_old_connections()
         return None, stdout, stderr
 
+    def waiting_worker_count() -> int:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM pg_locks "
+                "WHERE locktype = 'advisory' "
+                "AND classid = %s AND objid = %s AND NOT granted",
+                [lock_class_id, lock_object_id],
+            )
+            row = cursor.fetchone()
+        assert row is not None
+        return cast(int, row[0])
+
     monkeypatch.setattr(sys, "stdin", shared_terminal)
     monkeypatch.setattr(sys, "stdout", shared_terminal)
     monkeypatch.setattr("builtins.input", confirmation_input)
     monkeypatch.setattr(command_module.getpass, "getpass", private_input)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "development")
+    monkeypatch.setenv("RAILWAY_SERVICE_NAME", "api")
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        first = executor.submit(run_bootstrap)
-        second = executor.submit(run_bootstrap)
-        first_result = first.result()
-        second_result = second.result()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"CREATE FUNCTION {barrier_function}() RETURNS trigger "
+            "LANGUAGE plpgsql AS $$ "
+            "BEGIN "
+            f"PERFORM pg_advisory_lock_shared({lock_class_id}, {lock_object_id}); "
+            f"PERFORM pg_advisory_unlock_shared({lock_class_id}, {lock_object_id}); "
+            "RETURN NEW; "
+            "END; "
+            "$$"
+        )
+        cursor.execute(
+            f"CREATE TRIGGER {barrier_trigger} BEFORE INSERT ON {table_name} "
+            f"FOR EACH ROW EXECUTE FUNCTION {barrier_function}()"
+        )
+        cursor.execute(
+            "SELECT pg_advisory_lock(%s, %s)", [lock_class_id, lock_object_id]
+        )
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first = executor.submit(run_bootstrap)
+            second = executor.submit(run_bootstrap)
+            deadline = time.monotonic() + 10
+            while waiting_worker_count() < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            blocked_workers = waiting_worker_count()
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_unlock(%s, %s)",
+                    [lock_class_id, lock_object_id],
+                )
+            assert blocked_workers == 2, "both first-use inserts must block"
+            first_result = first.result(timeout=10)
+            second_result = second.result(timeout=10)
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_unlock(%s, %s)",
+                [lock_class_id, lock_object_id],
+            )
+            cursor.execute(f"DROP TRIGGER IF EXISTS {barrier_trigger} ON {table_name}")
+            cursor.execute(f"DROP FUNCTION IF EXISTS {barrier_function}()")
 
     results = (first_result, second_result)
     assert all(error is None for error, _, _ in results)
@@ -304,22 +362,43 @@ def test_concurrent_first_bootstraps_create_and_reconcile_one_full_operator(
 
 
 @pytest.mark.django_db(transaction=True)
-def test_bootstrap_converts_database_failure_to_a_generic_secret_safe_command_error(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    "existing_operator", (False, True), ids=("create", "reconcile")
+)
+def test_bootstrap_converts_database_failures_to_a_generic_secret_safe_command_error(
+    monkeypatch: pytest.MonkeyPatch, existing_operator: bool
 ) -> None:
-    """AC-8: an actual PostgreSQL write failure cannot disclose operator input."""
+    """AC-6/8: create and reconciliation database errors cannot disclose input."""
     unrelated = User.objects.create_user("unrelated_database_failure_user")
     unrelated_before = stored_user_state(unrelated)
     stdout = TtyStream()
     stderr = TtyStream()
-    constraint_name = "accounts_user_bootstrap_operator_failure"
     table_name = connection.ops.quote_name(User._meta.db_table)
+    failure_function = "accounts_user_bootstrap_database_failure"
+    failure_trigger = "accounts_user_bootstrap_database_failure_trigger"
+    existing_before: dict[str, Any] | None = None
+    existing: User | None = None
+    replacement_password = INITIAL_PASSWORD
+
+    if existing_operator:
+        existing = User.objects.create_superuser(
+            OPERATOR_IDENTIFIER, password=INITIAL_PASSWORD
+        )
+        existing_before = stored_user_state(existing)
+        replacement_password = ROTATED_PASSWORD
 
     with connection.cursor() as cursor:
         cursor.execute(
-            f"ALTER TABLE {table_name} ADD CONSTRAINT {constraint_name} "
-            "CHECK (clerk_user_id <> %s)",
-            [OPERATOR_IDENTIFIER],
+            f"CREATE FUNCTION {failure_function}() RETURNS trigger "
+            "LANGUAGE plpgsql AS $$ "
+            "BEGIN "
+            "RAISE EXCEPTION 'synthetic database failure for %', NEW.clerk_user_id; "
+            "END; "
+            "$$"
+        )
+        cursor.execute(
+            f"CREATE TRIGGER {failure_trigger} BEFORE INSERT OR UPDATE ON {table_name} "
+            f"FOR EACH ROW EXECUTE FUNCTION {failure_function}()"
         )
     try:
         with pytest.raises(CommandError) as error:
@@ -327,24 +406,30 @@ def test_bootstrap_converts_database_failure_to_a_generic_secret_safe_command_er
                 monkeypatch,
                 private_inputs=(
                     OPERATOR_IDENTIFIER,
-                    INITIAL_PASSWORD,
-                    INITIAL_PASSWORD,
+                    replacement_password,
+                    replacement_password,
                 ),
                 stdout=stdout,
                 stderr=stderr,
             )
     finally:
         with connection.cursor() as cursor:
-            cursor.execute(
-                f"ALTER TABLE {table_name} DROP CONSTRAINT {constraint_name}"
-            )
+            cursor.execute(f"DROP TRIGGER IF EXISTS {failure_trigger} ON {table_name}")
+            cursor.execute(f"DROP FUNCTION IF EXISTS {failure_function}()")
 
-    assert User.objects.filter(clerk_user_id=OPERATOR_IDENTIFIER).count() == 0
+    assert str(error.value) == "Operator bootstrap failed."
+    if existing_operator:
+        assert existing_before is not None
+        assert existing is not None
+        assert stored_user_state(existing) == existing_before
+    else:
+        assert User.objects.filter(clerk_user_id=OPERATOR_IDENTIFIER).count() == 0
     assert stored_user_state(unrelated) == unrelated_before
     assert_sensitive_values_are_not_emitted(
         (stdout, stderr),
         OPERATOR_IDENTIFIER,
         INITIAL_PASSWORD,
+        replacement_password,
         stored_password_hash(unrelated),
         exception_text=str(error.value),
     )
