@@ -126,13 +126,23 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
     assert "RUN uv sync --locked --no-install-project" in development
     assert "apt-get install --no-install-recommends -y git make" in development
     assert "RUN uv sync --locked --no-dev --no-install-project" in production
-    assert 'CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]' in development
-    assert (
-        'CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]'
-        in production
+    production_copy_index = production.index("COPY --chown=tailtag:tailtag . ./")
+    static_collection = (
+        "RUN python manage.py collectstatic --settings=config.settings.build --noinput"
     )
+    assert production.count(static_collection) == 1
+    assert production_copy_index < production.index(static_collection)
+    assert 'CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]' in development
+    gunicorn_command = (
+        'CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]'
+    )
+    assert gunicorn_command in production
+    assert production.index(static_collection) < production.index(gunicorn_command)
     assert "migrate" not in development
     assert "migrate" not in production
+    assert "collectstatic" not in development
+    assert "bootstrap_development_operator" not in development
+    assert "bootstrap_development_operator" not in production
 
     assert "api:" in compose_file
     assert "db:" in compose_file
@@ -143,6 +153,8 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
     assert "pg_isready" in compose_file
     assert "service_healthy" in compose_file
     assert "migrate" not in compose_file
+    assert "collectstatic" not in compose_file
+    assert "bootstrap_development_operator" not in compose_file
     assert "- postgres_data:/var/lib/postgresql/data" in database
     assert "postgres_data:/var/lib/postgresql/data" not in api
     database_ports = re.findall(r'^\s+- "([^"]+)"$', database, re.MULTILINE)
