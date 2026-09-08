@@ -62,6 +62,53 @@ deployment can be redeployed. This is the observed access model, not a new
 TailTag organizational role. Re-check current membership before relying on it
 for a future operation.
 
+## Django admin and Development operator
+
+The production image collects Django admin static assets during its image build.
+Gunicorn serves the resulting `/static/` files through WhiteNoise. This is
+separate from private media: private media remains in the configured S3/R2
+backend and this procedure does not add a public `/media/` route.
+
+For the dedicated Django admin operator, use Railway Development only. In the
+Railway dashboard, select the `development` environment and `api` service, then
+copy its exact SSH command. Alternatively, from a correctly linked local CLI,
+open the canonical target explicitly:
+
+```text
+railway ssh --service api --environment development
+python manage.py bootstrap_development_operator --settings=config.settings.production
+```
+
+The command creates a dedicated operator for an unused identifier. Re-running
+it reconciles only an existing account that is already both staff and
+superuser, rotating that account's local password without creating a duplicate.
+It refuses ordinary, staff-only, and superuser-only player accounts without
+changing them. Do not use the command to elevate a player; investigate the
+account state and choose a separate dedicated identifier instead.
+
+The identifier and password are hidden interactive inputs only. Never supply
+them as command arguments or environment variables, or record them in shell
+history, logs, issues, pull requests, or committed evidence. No Clerk secret is
+required. Do not set `DJANGO_SUPERUSER_PASSWORD`, add Railway credential
+variables, create a Make target or script, or run this command automatically in
+build, pre-deploy, startup, health checks, or Gunicorn.
+
+If the command rejects the target, stop and verify the linked Railway workspace,
+project, environment, and service before reconnecting. If it rejects stdin or
+stdout as non-interactive, open a real SSH terminal rather than a redirected
+command. If confirmation, empty input, password mismatch, or password
+validation fails, correct the hidden input and run it again. For database or
+unexpected failures, do not manually alter accounts; retain only sanitized
+failure details and investigate before retrying.
+
+### Static and operator troubleshooting
+
+| Symptom | Boundary and recovery |
+| --- | --- |
+| Image build fails at `collectstatic` | This is a build-time failure; inspect the selected deployment's Build Logs, fix the static configuration or asset error, and deploy a reviewed fix. The candidate image was not promoted. |
+| `/admin/` loads but a `/static/admin/...` asset is `404` | This is a runtime static-delivery failure. Confirm the deployed revision contains the production collection step and that Gunicorn/WhiteNoise is serving `/static/`; inspect deployment/runtime logs and use normal reviewed recovery. Do not expose private media to work around it. |
+| Operator command rejects its target or TTY | Confirm `development`/`api` and use the dashboard's exact SSH command or the canonical CLI shell above. Do not pipe input, pass credentials, or use a non-interactive Railway command. |
+
 ## Find state and logs
 
 Start in the Railway `TailTag` project, select the `development` environment,

@@ -323,6 +323,7 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
         "No backend-relevant changes detected; backend validation skipped." in workflow
     )
     assert "git diff --name-only -z" in workflow
+
     pull_request_trigger = re.search(
         r"(?ms)^  pull_request:\n(?P<configuration>.*?)(?=^  \w+:\n)",
         workflow,
@@ -343,6 +344,50 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
     ):
         assert api_job.count(setup_command) == 1
         assert api_job.index(setup_command) < validation_index
+
+
+def test_railway_operator_documentation_preserves_the_interactive_boundary() -> None:
+    """The documented Railway operator path is canonical and credential-safe."""
+    readme = (SERVICE_ROOT / "README.md").read_text()
+    operations = (
+        REPOSITORY_ROOT / "docs/development/backend-delivery-operations.md"
+    ).read_text()
+    documentation = f"{readme}\n{operations}"
+    normalized_documentation = " ".join(documentation.split())
+    canonical_procedure = (
+        "railway ssh --service api --environment development\n"
+        "python manage.py bootstrap_development_operator "
+        "--settings=config.settings.production"
+    )
+
+    assert canonical_procedure in readme
+    assert canonical_procedure in operations
+    for required_guidance in (
+        "copy the exact SSH command from the Railway dashboard",
+        "hidden interactive prompts",
+        "No Clerk secret is required.",
+        "shell history, logs, issues, pull requests, or committed evidence",
+        "ordinary, staff-only, or superuser-only player account",
+        "collects Django admin static assets during its image build",
+        "WhiteNoise",
+        "private media remains in the configured S3/R2 backend",
+        "Image build fails at `collectstatic`",
+        "runtime static-delivery failure",
+    ):
+        assert required_guidance in normalized_documentation
+
+    for forbidden_credential_path in (
+        "bootstrap_development_operator --identifier",
+        "bootstrap_development_operator --password",
+        "DJANGO_SUPERUSER_PASSWORD=",
+        "RAILWAY_TOKEN=",
+        "RAILWAY_API_TOKEN=",
+    ):
+        assert forbidden_credential_path not in documentation
+
+    assert "Do not set `DJANGO_SUPERUSER_PASSWORD`" in normalized_documentation
+    assert "Railway credential variables" in normalized_documentation
+    assert "run the command automatically" in normalized_documentation
 
 
 def test_api_workflow_permissions_reject_effective_escalation() -> None:
