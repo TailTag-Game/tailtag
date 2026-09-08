@@ -1,5 +1,4 @@
 from .base import *
-from .base import STORAGES
 
 DEBUG = False
 SECRET_KEY = "tailtag-static-build-only-not-a-runtime-secret"
@@ -11,7 +10,7 @@ DATABASES = {
         "NAME": ":memory:",
     }
 }
-STORAGES = {
+STORAGES = {  # pyright: ignore[reportConstantRedefinition]
     **STORAGES,
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
