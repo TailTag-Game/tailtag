@@ -22,8 +22,9 @@ storage.
 Issue: [#120 — Validate and document the complete Wave 2 participation
 flow](https://github.com/TailTag-Game/tailtag/issues/120)
 
-Status: live Railway Development execution blocked at deployment preflight on
-2026-09-08 UTC; no authentication or fixture mutation started.
+Status: Railway Development service recovery succeeded after the workspace plan
+was restored. The resumed deployment preflight stopped on a direct OpenAPI
+schema defect; no authentication or fixture mutation started.
 
 ## Global constraints
 
@@ -94,6 +95,27 @@ If live evidence contradicts one of these contracts, stop the run. Fix only a
 small, direct Wave 2 defect through the normal reviewed development workflow.
 File a focused follow-up for a material redesign, generalized tool, unrelated
 problem, or changed product contract.
+
+### Direct defect acceptance contract
+
+The initial deployed OpenAPI preflight found that the current-user
+authentication error and several profile and Convention request/response
+components did not declare `additionalProperties: false`. Correct this as a
+schema-only Wave 2 defect before resuming the live run:
+
+- close the `/api/me/` `401` response object and the relevant profile and
+  Convention request/response object schemas through their deployed component
+  references;
+- preserve runtime request parsing, response status, and state behavior,
+  including the existing profile handling of unrecognized fields;
+- preserve the existing fields, methods, status codes, Bearer security, and
+  unrelated APIs; and
+- do not add a generalized schema framework, dependency, endpoint, or other
+  production surface.
+
+The approved test surface is the locally generated OpenAPI document exercised
+by the existing current-user, profile, and Convention enrollment schema tests.
+No production test seam or network-dependent automated test may be added.
 
 ## Environment and execution prerequisites
 
@@ -460,28 +482,28 @@ mutation.
 
 ## Sanitized execution record
 
-The first live attempt stopped at the approved deployment prerequisite. The
-intended Wave 2 application revision passed its GitHub API foundation check but
-has no Railway Development deployment record. The linked `development/api`
-service reported failed, its PostgreSQL service reported offline, and the
-canonical credential-free smoke received HTTP `404` for every required route.
-Read-only follow-up confirmed that the last healthy API deployment was later
-marked inactive and that both services retained their approved source and
-configuration. Railway rejected both a redeploy request and an identical-image
-PostgreSQL recovery request because the workspace trial has expired. Neither
-request changed Railway state. An authorized workspace owner must restore an
-active Railway plan before deployment recovery can continue.
-The local `make api-check` completed successfully with 1,106 tests, and the
-required `./scripts/doctor.sh` and `git diff --check` documentation checks also
-passed.
+The first live attempt stopped at the approved deployment prerequisite because
+the Railway workspace trial had expired. After the workspace owner restored an
+active plan, the existing PostgreSQL service and volume returned healthy and
+the intended Wave 2 application revision deployed successfully to the approved
+`development/api` target. The canonical credential-free smoke then passed for
+liveness, readiness, schema, and documentation, and the Django-admin route was
+reachable.
+
+The resumed run stopped before authentication when the fail-closed deployed
+OpenAPI check found that the current-user authentication error and seven
+existing profile/Convention components did not declare
+`additionalProperties: false`. This is a small direct Wave 2 schema defect. Its
+schema-only correction and focused regression tests pass the complete local
+backend gate with 1,106 tests, zero Semgrep findings, strict type checking,
+Django and migration checks, OpenAPI validation, and the production server
+configuration check. Independent review found no material issue. The live run
+remains blocked until that correction is merged and the correlated revision is
+successfully deployed.
 
 No Clerk session was created, no Django-admin operation ran, no application
-fixture changed, and no catch operation was available or attempted. This is an
-external Railway Development readiness block; it does not establish an
-application defect. After an authorized workspace owner restores an active
-Railway plan, an authorized maintainer must restore the approved main-to-Railway
-Development delivery/runtime path, successfully deploy the intended application
-revision, and rerun this procedure from Phase 1.
+fixture changed, and no catch operation was available or attempted. Rerun this
+procedure from Phase 1 after the reviewed schema correction is deployed.
 Fixture final state was not inspected, so it remains blocked rather than
 verified; no recovery action was required for this attempt because fixture
 mutation never started.
@@ -492,7 +514,7 @@ Record only this shape:
 execution date (UTC): 2026-09-08
 validated application revision: 3347be9d8e4b2b42014e57e518f773ebe0c36156
 Railway target: TailTag / development / api
-deployment correlation: BLOCKED
+deployment correlation: PASS
 deterministic baseline: PASS
 authentication/profile: BLOCKED
 fixtures/media: BLOCKED
@@ -501,7 +523,7 @@ ownership/enrollment negatives: BLOCKED
 retry/idempotency: BLOCKED
 Convention scope: BLOCKED
 global-disable cascade: BLOCKED
-deployed OpenAPI: BLOCKED
+deployed OpenAPI: FAIL — direct schema defect, correction pending deployment
 benign final state: BLOCKED
 provider cleanup: PASS
 no catch recorded: PASS

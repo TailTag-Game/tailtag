@@ -96,6 +96,7 @@ FORBIDDEN_RESPONSE_SCHEMA = {
 
 VALIDATION_ERROR_RESPONSE_SCHEMA = {
     "type": "object",
+    "additionalProperties": False,
     "properties": {
         "convention_id": {
             "type": "array",

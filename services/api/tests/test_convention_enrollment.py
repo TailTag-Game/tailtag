@@ -626,6 +626,7 @@ def test_enrollment_openapi_schema_contract(client: Client) -> None:
         schema, list_res_200["content"]["application/json"]["schema"]
     )
     assert list_schema["type"] == "array"
+    assert list_schema["items"] == {"$ref": "#/components/schemas/ConventionEnrollment"}
     item_schema = _dereference_schema(schema, list_schema["items"])
     assert set(item_schema["properties"]) == {
         "id",
@@ -636,7 +637,55 @@ def test_enrollment_openapi_schema_contract(client: Client) -> None:
 
     # Verify enroll request schema
     enroll_post = enrollments_path["post"]
-    enroll_req_schema = _dereference_schema(
-        schema, enroll_post["requestBody"]["content"]["application/json"]["schema"]
-    )
+    enroll_request_reference = enroll_post["requestBody"]["content"][
+        "application/json"
+    ]["schema"]
+    assert enroll_request_reference == {
+        "$ref": "#/components/schemas/ConventionEnrollRequest"
+    }
+    enroll_req_schema = _dereference_schema(schema, enroll_request_reference)
     assert set(enroll_req_schema["properties"]) == {"convention_id", "set_active"}
+
+    enrollment_response_reference = enroll_post["responses"]["201"]["content"][
+        "application/json"
+    ]["schema"]
+    assert enrollment_response_reference == {
+        "$ref": "#/components/schemas/ConventionEnrollment"
+    }
+    enrollment_response_schema = _dereference_schema(
+        schema, enrollment_response_reference
+    )
+    convention_response_reference = enrollment_response_schema["properties"][
+        "convention"
+    ]
+    assert convention_response_reference == {
+        "allOf": [{"$ref": "#/components/schemas/Convention"}],
+        "readOnly": True,
+    }
+    convention_response_schema = _dereference_schema(
+        schema, convention_response_reference["allOf"][0]
+    )
+    active_response_reference = active_path["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]
+    assert active_response_reference == {
+        "$ref": "#/components/schemas/ActiveConventionResponse"
+    }
+    active_response_schema = _dereference_schema(schema, active_response_reference)
+    active_request_reference = active_put["requestBody"]["content"]["application/json"][
+        "schema"
+    ]
+    assert active_request_reference == {
+        "$ref": "#/components/schemas/SelectActiveConventionRequest"
+    }
+    active_request_schema = _dereference_schema(schema, active_request_reference)
+    closure = {
+        "convention response": convention_response_schema.get("additionalProperties"),
+        "enrollment response": enrollment_response_schema.get("additionalProperties"),
+        "active convention response": active_response_schema.get(
+            "additionalProperties"
+        ),
+        "enrollment request": enroll_req_schema.get("additionalProperties"),
+        "active convention request": active_request_schema.get("additionalProperties"),
+    }
+    assert closure == {name: False for name in closure}
