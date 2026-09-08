@@ -86,10 +86,12 @@ It refuses ordinary, staff-only, and superuser-only player accounts without
 changing them. Do not use the command to elevate a player; investigate the
 account state and choose a separate dedicated identifier instead.
 
-The identifier and password are hidden interactive inputs only. Never supply
-them as command arguments or environment variables, or record them in shell
-history, logs, issues, pull requests, or committed evidence. No Clerk secret is
-required. Do not set `DJANGO_SUPERUSER_PASSWORD`, add Railway credential
+The identifier and password are hidden interactive inputs only. At the visible
+confirmation prompt, type the exact non-secret phrase
+`bootstrap Railway Development operator`. Never supply either credential as a
+command argument or environment variable, or record it in shell history, logs,
+issues, pull requests, or committed evidence. No Clerk secret is required. Do
+not set `DJANGO_SUPERUSER_PASSWORD`, add Railway credential
 variables, create a Make target or script, or run this command automatically in
 build, pre-deploy, startup, health checks, or Gunicorn.
 

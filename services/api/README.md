@@ -877,9 +877,11 @@ unchanged; investigate and use a separate dedicated identifier rather than
 trying to elevate a player.
 
 Enter the operator identifier and password only through the command's hidden
-interactive prompts. Never put either value in command arguments, environment
-variables, shell history, logs, issues, pull requests, or committed evidence.
-No Clerk secret is required. Do not add a Make target or script, set a
+interactive prompts. At its visible confirmation prompt, type the exact
+non-secret phrase `bootstrap Railway Development operator`. Never put either
+credential in command arguments, environment variables, shell history, logs,
+issues, pull requests, or committed evidence. No Clerk secret is required. Do
+not add a Make target or script, set a
 `DJANGO_SUPERUSER_PASSWORD`, configure Railway credential variables, or run the
 command automatically during build, pre-deploy, startup, health checks, or
 Gunicorn.

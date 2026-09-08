@@ -362,9 +362,40 @@ def test_railway_operator_documentation_preserves_the_interactive_boundary() -> 
 
     assert canonical_procedure in readme
     assert canonical_procedure in operations
+    command_lines = [
+        line
+        for line in documentation.splitlines()
+        if "bootstrap_development_operator" in line
+    ]
+    assert command_lines == [
+        "python manage.py bootstrap_development_operator "
+        "--settings=config.settings.production",
+        "python manage.py bootstrap_development_operator "
+        "--settings=config.settings.production",
+    ]
+    command_blocks = re.findall(
+        r"(?ms)^```(?:text|bash)\n(?P<body>.*?)^```$", documentation
+    )
+    operator_command_blocks = [
+        block.strip()
+        for block in command_blocks
+        if "bootstrap_development_operator" in block
+    ]
+    assert operator_command_blocks == [canonical_procedure, canonical_procedure]
+    assert not any(
+        credential in block
+        for block in command_blocks
+        for credential in (
+            "DJANGO_SUPERUSER_PASSWORD",
+            "RAILWAY_TOKEN",
+            "RAILWAY_API_TOKEN",
+        )
+    )
     for required_guidance in (
         "copy the exact SSH command from the Railway dashboard",
         "hidden interactive prompts",
+        "visible confirmation prompt",
+        "bootstrap Railway Development operator",
         "No Clerk secret is required.",
         "shell history, logs, issues, pull requests, or committed evidence",
         "ordinary, staff-only, or superuser-only player account",
@@ -376,14 +407,16 @@ def test_railway_operator_documentation_preserves_the_interactive_boundary() -> 
     ):
         assert required_guidance in normalized_documentation
 
-    for forbidden_credential_path in (
-        "bootstrap_development_operator --identifier",
-        "bootstrap_development_operator --password",
-        "DJANGO_SUPERUSER_PASSWORD=",
-        "RAILWAY_TOKEN=",
-        "RAILWAY_API_TOKEN=",
-    ):
-        assert forbidden_credential_path not in documentation
+    credential_recommendations = re.compile(
+        r"(?i)\b(?:set|export|pass|supply|configure|use)\b.*\b(?:"
+        r"DJANGO_SUPERUSER_PASSWORD|RAILWAY_TOKEN|RAILWAY_API_TOKEN)\b"
+    )
+    prohibitions = re.compile(r"(?i)\b(?:do not|never|must not|don't)\b")
+    assert not any(
+        credential_recommendations.search(paragraph)
+        and not prohibitions.search(paragraph)
+        for paragraph in documentation.split("\n\n")
+    )
 
     assert "Do not set `DJANGO_SUPERUSER_PASSWORD`" in normalized_documentation
     assert "Railway credential variables" in normalized_documentation
