@@ -22,8 +22,8 @@ storage.
 Issue: [#120 — Validate and document the complete Wave 2 participation
 flow](https://github.com/TailTag-Game/tailtag/issues/120)
 
-Status: approved validation plan; live Railway Development execution has not
-started.
+Status: live Railway Development execution blocked at deployment preflight on
+2026-09-08 UTC; no authentication or fixture mutation started.
 
 ## Global constraints
 
@@ -460,34 +460,46 @@ mutation.
 
 ## Sanitized execution record
 
-The live run has not been executed for this planning revision. Replace this
-statement only after the approved procedure completes or reaches a genuine
-external prerequisite block.
+The first live attempt stopped at the approved deployment prerequisite. The
+intended Wave 2 application revision passed its GitHub API foundation check but
+has no Railway Development deployment record. The linked `development/api`
+service reported failed, its PostgreSQL service reported offline, and the
+canonical credential-free smoke received HTTP `404` for every required route.
+The local `make api-check` completed successfully with 1,106 tests, and the
+required `./scripts/doctor.sh` and `git diff --check` documentation checks also
+passed.
+
+No Clerk session was created, no Django-admin operation ran, no application
+fixture changed, and no catch operation was available or attempted. This is an
+external Railway Development readiness block; it does not establish an
+application defect. An authorized maintainer must restore the approved
+main-to-Railway Development delivery/runtime path, successfully deploy the
+intended application revision, and rerun this procedure from Phase 1.
+Fixture final state was not inspected, so it remains blocked rather than
+verified; no recovery action was required for this attempt because fixture
+mutation never started.
 
 Record only this shape:
 
 ```text
-execution date (UTC): NOT EXECUTED
-validated application revision: NOT EXECUTED
+execution date (UTC): 2026-09-08
+validated application revision: 3347be9d8e4b2b42014e57e518f773ebe0c36156
 Railway target: TailTag / development / api
-deployment correlation: NOT EXECUTED
-deterministic baseline: NOT EXECUTED
-authentication/profile: NOT EXECUTED
-fixtures/media: NOT EXECUTED
-primary flow: NOT EXECUTED
-ownership/enrollment negatives: NOT EXECUTED
-retry/idempotency: NOT EXECUTED
-Convention scope: NOT EXECUTED
-global-disable cascade: NOT EXECUTED
-deployed OpenAPI: NOT EXECUTED
-benign final state: NOT EXECUTED
-provider cleanup: NOT EXECUTED
-no catch recorded: NOT EXECUTED
-overall: NOT EXECUTED
+deployment correlation: BLOCKED
+deterministic baseline: PASS
+authentication/profile: BLOCKED
+fixtures/media: BLOCKED
+primary flow: BLOCKED
+ownership/enrollment negatives: BLOCKED
+retry/idempotency: BLOCKED
+Convention scope: BLOCKED
+global-disable cascade: BLOCKED
+deployed OpenAPI: BLOCKED
+benign final state: BLOCKED
+provider cleanup: PASS
+no catch recorded: PASS
+overall: BLOCKED
 ```
-
-During live execution, replace `NOT EXECUTED` with the UTC date, deployed git
-SHA, or `PASS`, `FAIL`, or `BLOCKED` outcome appropriate to each line.
 
 For any non-PASS stage, add only a sanitized description, direct Wave 2 defect
 or external prerequisite classification, fixture-recovery result, and linked
