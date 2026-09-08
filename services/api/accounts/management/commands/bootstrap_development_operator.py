@@ -5,11 +5,12 @@ from __future__ import annotations
 import getpass
 import os
 import sys
-from typing import cast
+from typing import NoReturn, cast
 
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.core.management import BaseCommand, CommandError
+from django.core.management.base import CommandParser
 from django.db import DatabaseError, IntegrityError, transaction
 
 from accounts.models import User
@@ -23,6 +24,14 @@ __all__ = ["Command"]
 
 class Command(BaseCommand):
     """Create or reconcile the guarded Railway Development operator."""
+
+    def create_parser(
+        self, prog_name: str, subcommand: str, **kwargs: object
+    ) -> CommandParser:
+        """Use Django's parser while keeping invalid CLI inputs private."""
+        parser = super().create_parser(prog_name, subcommand, **kwargs)
+        parser.error = self._parser_error
+        return parser
 
     def handle(self, *args: object, **options: object) -> None:
         """Create or rotate a full operator's password after guarded confirmation."""
@@ -80,6 +89,14 @@ class Command(BaseCommand):
             raise CommandError("Operator bootstrap failed.") from None
 
         self.stdout.write(outcome)
+
+    def _parser_error(self, message: str) -> NoReturn:
+        """Reject invalid command-line arguments without reflecting their values."""
+        message = "Invalid command arguments. Use the documented interactive command."
+        if getattr(self, "_called_from_command_line", False):
+            self.stderr.write(message)
+            raise SystemExit(2)
+        raise CommandError(message)
 
     def _reconcile_operator(self, password: str, operator: User) -> str:
         """Validate and rotate the password for an existing full operator."""
