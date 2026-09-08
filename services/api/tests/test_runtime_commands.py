@@ -354,12 +354,16 @@ OPERATOR_PROCEDURE = (
     f"railway ssh --service api --environment development\n{OPERATOR_COMMAND}"
 )
 OPERATOR_AUTOMATION_PROHIBITIONS = (
-    "Do not add a Make target or script, set a `DJANGO_SUPERUSER_PASSWORD`, "
-    "configure Railway credential variables, or run the command automatically "
-    "during build, pre-deploy, startup, health checks, or Gunicorn.",
-    "Do not set `DJANGO_SUPERUSER_PASSWORD`, add Railway credential variables, "
-    "create a Make target or script, or run this command automatically in build, "
-    "pre-deploy, startup, health checks, or Gunicorn.",
+    (
+        "Do not add a Make target or script, set a `DJANGO_SUPERUSER_PASSWORD`, "
+        "configure Railway credential variables, or run the command automatically "
+        "during build, pre-deploy, startup, health checks, or Gunicorn."
+    ),
+    (
+        "Do not set `DJANGO_SUPERUSER_PASSWORD`, add Railway credential variables, "
+        "create a Make target or script, or run this command automatically in build, "
+        "pre-deploy, startup, health checks, or Gunicorn."
+    ),
 )
 
 
