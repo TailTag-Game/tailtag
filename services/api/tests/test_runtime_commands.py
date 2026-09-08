@@ -346,42 +346,44 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
         assert api_job.index(setup_command) < validation_index
 
 
-def test_railway_operator_documentation_preserves_the_interactive_boundary() -> None:
-    """The documented Railway operator path is canonical and credential-safe."""
-    readme = (SERVICE_ROOT / "README.md").read_text()
-    operations = (
-        REPOSITORY_ROOT / "docs/development/backend-delivery-operations.md"
-    ).read_text()
-    documentation = f"{readme}\n{operations}"
-    normalized_documentation = " ".join(documentation.split())
-    canonical_procedure = (
-        "railway ssh --service api --environment development\n"
-        "python manage.py bootstrap_development_operator "
-        "--settings=config.settings.production"
-    )
+OPERATOR_COMMAND = (
+    "python manage.py bootstrap_development_operator "
+    "--settings=config.settings.production"
+)
+OPERATOR_PROCEDURE = (
+    f"railway ssh --service api --environment development\n{OPERATOR_COMMAND}"
+)
+OPERATOR_AUTOMATION_PROHIBITIONS = (
+    "Do not add a Make target or script, set a `DJANGO_SUPERUSER_PASSWORD`, "
+    "configure Railway credential variables, or run the command automatically "
+    "during build, pre-deploy, startup, health checks, or Gunicorn.",
+    "Do not set `DJANGO_SUPERUSER_PASSWORD`, add Railway credential variables, "
+    "create a Make target or script, or run this command automatically in build, "
+    "pre-deploy, startup, health checks, or Gunicorn.",
+)
 
-    assert canonical_procedure in readme
-    assert canonical_procedure in operations
+
+def operator_runbook(document: str, start: str, end: str) -> str:
+    """Return one maintained operator-procedure section."""
+    return document[document.index(start) : document.index(end)]
+
+
+def assert_safe_operator_runbook(runbook: str) -> None:
+    """Require the canonical interactive operator procedure and no unsafe variant."""
+    normalized_runbook = " ".join(runbook.split())
     command_lines = [
         line
-        for line in documentation.splitlines()
+        for line in runbook.splitlines()
         if "bootstrap_development_operator" in line
     ]
-    assert command_lines == [
-        "python manage.py bootstrap_development_operator "
-        "--settings=config.settings.production",
-        "python manage.py bootstrap_development_operator "
-        "--settings=config.settings.production",
-    ]
-    command_blocks = re.findall(
-        r"(?ms)^```(?:text|bash)\n(?P<body>.*?)^```$", documentation
-    )
+    assert command_lines == [OPERATOR_COMMAND]
+    command_blocks = re.findall(r"(?ms)^```[^\n]*\n(?P<body>.*?)^```$", runbook)
     operator_command_blocks = [
         block.strip()
         for block in command_blocks
         if "bootstrap_development_operator" in block
     ]
-    assert operator_command_blocks == [canonical_procedure, canonical_procedure]
+    assert operator_command_blocks == [OPERATOR_PROCEDURE]
     assert not any(
         credential in block
         for block in command_blocks
@@ -391,6 +393,50 @@ def test_railway_operator_documentation_preserves_the_interactive_boundary() -> 
             "RAILWAY_API_TOKEN",
         )
     )
+    for paragraph in runbook.split("\n\n"):
+        contains_credential_variable = any(
+            variable in paragraph
+            for variable in (
+                "DJANGO_SUPERUSER_PASSWORD",
+                "RAILWAY_TOKEN",
+                "RAILWAY_API_TOKEN",
+            )
+        )
+        if contains_credential_variable:
+            assert re.search(r"(?i)\b(?:do not|never|must not|don't)\b", paragraph)
+
+    assert "bootstrap Railway Development operator" in normalized_runbook
+    assert any(
+        prohibition in normalized_runbook
+        for prohibition in OPERATOR_AUTOMATION_PROHIBITIONS
+    )
+    for prohibition in OPERATOR_AUTOMATION_PROHIBITIONS:
+        normalized_runbook = normalized_runbook.replace(prohibition, "")
+    assert "automatically" not in normalized_runbook
+
+
+def test_railway_operator_documentation_preserves_the_interactive_boundary() -> None:
+    """The documented Railway operator path is canonical and credential-safe."""
+    readme = (SERVICE_ROOT / "README.md").read_text()
+    operations = (
+        REPOSITORY_ROOT / "docs/development/backend-delivery-operations.md"
+    ).read_text()
+    readme_runbook = operator_runbook(
+        readme, "### Railway Development operator", "## Direct Compose usage"
+    )
+    operations_runbook = operator_runbook(
+        operations,
+        "## Django admin and Development operator",
+        "## Find state and logs",
+    )
+
+    assert_safe_operator_runbook(readme_runbook)
+    assert_safe_operator_runbook(operations_runbook)
+    documentation = f"{readme}\n{operations}"
+    normalized_documentation = " ".join(documentation.split())
+
+    assert OPERATOR_PROCEDURE in readme
+    assert OPERATOR_PROCEDURE in operations
     for required_guidance in (
         "copy the exact SSH command from the Railway dashboard",
         "hidden interactive prompts",
@@ -407,20 +453,27 @@ def test_railway_operator_documentation_preserves_the_interactive_boundary() -> 
     ):
         assert required_guidance in normalized_documentation
 
-    credential_recommendations = re.compile(
-        r"(?i)\b(?:set|export|pass|supply|configure|use)\b.*\b(?:"
-        r"DJANGO_SUPERUSER_PASSWORD|RAILWAY_TOKEN|RAILWAY_API_TOKEN)\b"
-    )
-    prohibitions = re.compile(r"(?i)\b(?:do not|never|must not|don't)\b")
-    assert not any(
-        credential_recommendations.search(paragraph)
-        and not prohibitions.search(paragraph)
-        for paragraph in documentation.split("\n\n")
-    )
-
     assert "Do not set `DJANGO_SUPERUSER_PASSWORD`" in normalized_documentation
     assert "Railway credential variables" in normalized_documentation
     assert "run the command automatically" in normalized_documentation
+
+
+def test_railway_operator_runbook_rejects_plausible_unsafe_mutants() -> None:
+    """Unsafe credential, fence, and automation guidance must fail the contract."""
+    readme = (SERVICE_ROOT / "README.md").read_text()
+    runbook = operator_runbook(
+        readme, "### Railway Development operator", "## Direct Compose usage"
+    )
+    unsafe_mutants = (
+        f"{runbook}\nAdd a RAILWAY_TOKEN variable in the Railway dashboard.\n",
+        f"{runbook}\n```shell\nRAILWAY_TOKEN\n```\n",
+        f"{runbook}\n```\nRAILWAY_API_TOKEN\n```\n",
+        f"{runbook}\nRun it automatically during pre-deploy.\n",
+    )
+
+    for mutant in unsafe_mutants:
+        with pytest.raises(AssertionError):
+            assert_safe_operator_runbook(mutant)
 
 
 def test_api_workflow_permissions_reject_effective_escalation() -> None:
