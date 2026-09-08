@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import importlib
+import os
+import subprocess
 import sys
 import time
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
+from pathlib import Path
 from threading import Barrier
 from typing import Any, cast
 
@@ -26,6 +29,24 @@ INITIAL_PASSWORD = "railway-development-operator-password-2026"
 ROTATED_PASSWORD = "reconciled-operator-password-2026"
 CREATED_OUTPUT = "Development operator created.\n"
 RECONCILED_OUTPUT = "Development operator reconciled.\n"
+GENERIC_INVALID_ARGUMENTS_ERROR = (
+    "Invalid command arguments. Use the documented interactive command."
+)
+API_ROOT = Path(__file__).resolve().parents[1]
+
+
+def run_invalid_command_arguments(
+    arguments: tuple[str, ...],
+) -> subprocess.CompletedProcess[str]:
+    """Exercise Django's parser before the command handler is reachable."""
+    return subprocess.run(
+        [sys.executable, "manage.py", COMMAND_NAME, *arguments],
+        cwd=API_ROOT,
+        env={"PATH": os.environ["PATH"]},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
 
 class TtyStream(StringIO):
@@ -121,6 +142,48 @@ def invoke_command(
 
     call_command(COMMAND_NAME, stdout=stdout, stderr=stderr)
     return stdout, stderr
+
+
+@pytest.mark.parametrize(
+    ("arguments", "sensitive_value"),
+    (
+        (
+            (
+                "--settings=config.settings.build",
+                "unexpected-positional-parser-sentinel-170",
+            ),
+            "unexpected-positional-parser-sentinel-170",
+        ),
+        (
+            (
+                "--password",
+                "credential-like-parser-sentinel-170",
+                "--settings=config.settings.build",
+            ),
+            "credential-like-parser-sentinel-170",
+        ),
+        (
+            (
+                "--settings=config.settings.build",
+                "--password",
+                "credential-like-parser-sentinel-170",
+            ),
+            "credential-like-parser-sentinel-170",
+        ),
+    ),
+    ids=("positional", "credential-like-option", "reordered-option"),
+)
+def test_bootstrap_rejects_invalid_parser_arguments_without_echoing_them(
+    arguments: tuple[str, ...], sensitive_value: str
+) -> None:
+    """SECURITY: Django's pre-handler parser never reflects supplied arguments."""
+    completed = run_invalid_command_arguments(arguments)
+
+    rendered_output = completed.stdout + completed.stderr
+    assert completed.returncode != 0
+    assert sensitive_value not in rendered_output
+    assert completed.stdout == ""
+    assert completed.stderr == f"{GENERIC_INVALID_ARGUMENTS_ERROR}\n"
 
 
 @pytest.mark.django_db
