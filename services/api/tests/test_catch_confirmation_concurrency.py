@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from queue import Empty, Queue
-from threading import Barrier, Event
+from threading import Barrier
 from time import monotonic, sleep
 from typing import Any
 
@@ -22,6 +22,7 @@ from django.db import IntegrityError, close_old_connections, connection, transac
 from accounts.models import User
 from catches import services as catch_services
 from conventions.catch_credentials import (
+    format_catch_credential_payload,
     revoke_catch_credential_as_operator,
     rotate_owner_catch_credential,
 )
@@ -216,7 +217,7 @@ def _mutation_for(scenario: Any, operation: str) -> tuple[Callable[[], Any], Cal
                 fursuit_id=scenario.fursuit.pk,
                 is_active=False,
             ),
-            lambda: PlayerProfile.objects.select_for_update().get(pk=scenario.target_profile.pk),
+            lambda: Fursuit.objects.select_for_update().get(pk=scenario.fursuit.pk),
         )
     if operation == "activation_deactivation":
         return (
@@ -342,27 +343,24 @@ def test_named_duplicate_constraint_recovers_the_raw_competing_winner(
     """AC-14/15: reject string matching or broad IntegrityError duplicate recovery."""
     assert connection.vendor == "postgresql"
     scenario = create_catch_confirmation_scenario()
-    inspected, resume = Event(), Event()
+    def miss_existing_catch(
+        *, catcher_user_id: int, fursuit_id: int, convention_id: int
+    ) -> None:
+        del catcher_user_id, fursuit_id, convention_id
 
-    def pause_after_inspection() -> None:
-        inspected.set()
-        assert resume.wait(timeout=10), "duplicate competitor was never committed"
-
-    monkeypatch.setattr(catch_services, "_after_existing_catch_inspection", pause_after_inspection)
+    monkeypatch.setattr(catch_services, "_find_existing_catch", miss_existing_catch)
     pids: Queue[int] = Queue()
+    winner = catch_model().objects.create(
+        catcher_user=scenario.catcher_user,
+        fursuit=scenario.fursuit,
+        convention=scenario.convention,
+        activation=scenario.activation,
+        catch_session=scenario.catch_session,
+    )
+    original = catch_model().objects.values().get(pk=winner.pk)
     with ThreadPoolExecutor(max_workers=1) as pool:
         future = pool.submit(_worker, lambda: _confirmation(scenario), pids)
         _pid(pids, future)
-        assert inspected.wait(timeout=10)
-        winner = catch_model().objects.create(
-            catcher_user=scenario.catcher_user,
-            fursuit=scenario.fursuit,
-            convention=scenario.convention,
-            activation=scenario.activation,
-            catch_session=scenario.catch_session,
-        )
-        original = catch_model().objects.values().get(pk=winner.pk)
-        resume.set()
         result = future.result(timeout=_FUTURE_TIMEOUT)
 
     assert result.status is CatchConfirmationStatus.ALREADY_CAUGHT
@@ -371,7 +369,9 @@ def test_named_duplicate_constraint_recovers_the_raw_competing_winner(
 
 
 @pytest.mark.django_db(transaction=True)
-def test_reciprocal_confirmations_create_two_catches_without_deadlock() -> None:
+def test_reciprocal_confirmations_lock_the_lower_profile_first_without_deadlock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """AC-09/15: reject caller-target profile locking that deadlocks reciprocal catches."""
     assert connection.vendor == "postgresql"
     first = create_catch_confirmation_scenario()
@@ -387,21 +387,37 @@ def test_reciprocal_confirmations_create_two_catches_without_deadlock() -> None:
     )
     owner_credential = create_credential(activation=owner_activation, token=TOKEN_B)
     owner_session = create_catch_session(activation=owner_activation)
-    payload = f"tailtag:catch:v1:{owner_credential.token}"
-    barrier = Barrier(2)
-    pids: Queue[int] = Queue()
+    payload = format_catch_credential_payload(owner_credential.token)
+    lower_profile_id = min(first.catcher_profile.pk, first.target_profile.pk)
+    observed_first_profile_ids: list[int] = []
+
+    def after_first_profile_lock(profile_id: int) -> None:
+        observed_first_profile_ids.append(profile_id)
+        assert profile_id == lower_profile_id
+
+    monkeypatch.setattr(
+        catch_services, "_after_first_profile_lock", after_first_profile_lock
+    )
+    first_pids: Queue[int] = Queue()
+    second_pids: Queue[int] = Queue()
 
     def a_to_b() -> Any:
-        barrier.wait(timeout=10)
         return _confirmation(first)
 
     def b_to_a() -> Any:
-        barrier.wait(timeout=10)
         return confirm_catch(User.objects.get(pk=first.target_user.pk), payload=payload)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        one = pool.submit(_worker, a_to_b, pids)
-        two = pool.submit(_worker, b_to_a, pids)
+        with transaction.atomic():
+            PlayerProfile.objects.select_for_update().get(pk=lower_profile_id)
+            holder_pid = _configure_worker()
+            one = pool.submit(_worker, a_to_b, first_pids)
+            two = pool.submit(_worker, b_to_a, second_pids)
+            one_pid = _pid(first_pids, one)
+            two_pid = _pid(second_pids, two)
+            _assert_blocked(waiter=one_pid, holder=holder_pid, future=one)
+            _assert_blocked(waiter=two_pid, holder=holder_pid, future=two)
+            assert observed_first_profile_ids == []
         results = [one.result(timeout=_FUTURE_TIMEOUT), two.result(timeout=_FUTURE_TIMEOUT)]
 
     assert [result.status for result in results] == [
@@ -409,6 +425,7 @@ def test_reciprocal_confirmations_create_two_catches_without_deadlock() -> None:
         CatchConfirmationStatus.CREATED,
     ]
     assert catch_model().objects.count() == 2
+    assert observed_first_profile_ids == [lower_profile_id, lower_profile_id]
     assert catch_model().objects.filter(
         activation_id__in=(first.activation.pk, owner_activation.pk),
         catch_session_id__in=(first.catch_session.pk, owner_session.pk),
