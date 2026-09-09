@@ -4,12 +4,12 @@
 # Coding Tools
 /\.codex/
 /AGENTS.override.md
-/.superpowers/
+**/.superpowers/
 /.worktrees/
 /.vscode/
 /docs/plans/
 /docs/reviews/
-/docs/superpowers/
+**/[Ss]uperpowers/
 /.agents/
 /scripts/__pycache__/
 /services/api/.media/

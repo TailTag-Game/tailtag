@@ -16,6 +16,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("api/", include("profiles.urls")),
     path("api/fursuits/", include("fursuits.urls")),
     path("api/conventions/", include("conventions.urls")),
+    path("api/catches/", include("catches.urls")),
     path(
         "api/schema/",
         SpectacularAPIView.as_view(permission_classes=[AllowAny]),
