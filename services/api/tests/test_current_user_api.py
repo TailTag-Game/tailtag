@@ -158,6 +158,7 @@ def test_product_routes_remain_unversioned_and_do_not_add_public_user_surfaces(
     schema = _schema(client)
 
     assert set(schema["paths"]) == {
+        "/api/catches/confirm/",
         "/api/me/",
         "/api/profile/",
         "/api/profile/avatar/",
