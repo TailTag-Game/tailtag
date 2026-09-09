@@ -44,7 +44,10 @@ from tests.catch_test_support import (
     catch_model,
     create_catch_confirmation_scenario,
 )
-from tests.fursuit_catch_session_test_support import catch_session_model
+from tests.fursuit_catch_session_test_support import (
+    catch_session_model,
+    create_catch_session,
+)
 
 
 def _catch_count() -> int:
@@ -453,6 +456,97 @@ def test_confirm_catch_reraises_an_unrelated_insert_integrity_error_and_rolls_ba
 
 
 @pytest.mark.django_db
+def test_confirm_catch_uses_structured_constraint_name_not_integrity_error_prose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-14: reject recovery when only error prose impersonates the constraint."""
+    scenario = create_catch_confirmation_scenario()
+    original = IntegrityError(
+        "catches_catcher_fursuit_convention_unique appeared in unrelated prose"
+    )
+
+    class DifferentConstraintCause(Exception):
+        class diag:
+            constraint_name = "catches_a_different_constraint"
+
+    original.__cause__ = DifferentConstraintCause()
+
+    def fail_insert(**_: object) -> object:
+        raise original
+
+    monkeypatch.setattr(catch_services, "_insert_catch", fail_insert)
+
+    with pytest.raises(IntegrityError) as captured:
+        confirm_catch(scenario.catcher_user, payload=scenario.payload)
+
+    assert captured.value is original
+    _assert_no_catch()
+
+
+@pytest.mark.django_db
+def test_confirm_catch_observably_uses_the_frozen_authoritative_lock_hierarchy() -> (
+    None
+):
+    """AC-09: reject reordered locks or Catch inspection before the final session lock."""
+    scenario = create_catch_confirmation_scenario()
+    statements: list[tuple[str, Any]] = []
+
+    def observe(
+        execute: Any, sql: str, params: Any, many: object, context: object
+    ) -> object:
+        statements.append((sql, params))
+        return execute(sql, params, many, context)
+
+    with connection.execute_wrapper(observe):
+        result = confirm_catch(scenario.catcher_user, payload=scenario.payload)
+
+    assert result.status is CatchConfirmationStatus.CREATED
+    table_order = (
+        "profiles_playerprofile",
+        "conventions_convention",
+        "conventions_conventionenrollment",
+        "fursuits_fursuit",
+        "conventions_fursuitactivation",
+        "conventions_fursuitcatchcredential",
+        "conventions_fursuitcatchsession",
+    )
+    locked: list[tuple[int, str, str, Any]] = []
+    catch_operations: list[tuple[int, str]] = []
+    for position, (sql, params) in enumerate(statements):
+        normalized = sql.casefold()
+        if "catches_catch" in normalized and (
+            normalized.lstrip().startswith("select")
+            or normalized.lstrip().startswith("insert")
+        ):
+            catch_operations.append((position, normalized))
+        if "for update" not in normalized:
+            continue
+        table = next((name for name in table_order if f'"{name}"' in normalized), None)
+        if table is not None:
+            locked.append((position, table, normalized, params))
+
+    assert [table for _, table, _, _ in locked] == [
+        "profiles_playerprofile",
+        "profiles_playerprofile",
+        *table_order[1:],
+    ]
+    assert [
+        params[0] for _, table, _, params in locked if table == "profiles_playerprofile"
+    ] == sorted((scenario.catcher_profile.pk, scenario.target_profile.pk))
+    enrollment_sql = next(
+        sql
+        for _, table, sql, _ in locked
+        if table == "conventions_conventionenrollment"
+    )
+    assert 'order by "conventions_conventionenrollment"."id" asc' in enrollment_sql
+    assert all(position < catch_operations[-1][0] for position, _, _, _ in locked)
+    assert len(catch_operations) == 3
+    assert catch_operations[0][0] < locked[0][0]
+    assert catch_operations[1][0] > locked[-1][0]
+    assert catch_operations[-1][1].lstrip().startswith("insert")
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "staleness",
     [
@@ -501,6 +595,33 @@ def test_confirm_catch_recovers_an_unchanged_durable_catch_after_target_stalenes
     assert repeated.status is CatchConfirmationStatus.ALREADY_CAUGHT
     assert repeated.catch.pk == first.catch.pk
     assert catch_model().objects.values().get(pk=first.catch.pk) == original_row
+
+
+@pytest.mark.django_db
+def test_confirm_catch_recovers_original_provenance_after_session_and_credential_replacement() -> (
+    None
+):
+    """AC-04/13: reject re-provenancing a retry through the current replacement state."""
+    scenario = create_catch_confirmation_scenario()
+    first = confirm_catch(scenario.catcher_user, payload=scenario.payload)
+    original = catch_model().objects.values().get(pk=first.catch.pk)
+
+    scenario.catch_session.ended_at = timezone.now()
+    scenario.catch_session.end_reason = "owner"
+    scenario.catch_session.save(update_fields=["ended_at", "end_reason", "updated_at"])
+    revoke_current_for(scenario.activation)
+    replacement_credential = create_credential(
+        activation=scenario.activation, token=TOKEN_B
+    )
+    replacement_session = create_catch_session(activation=scenario.activation)
+
+    repeated = confirm_catch(scenario.catcher_user, payload=scenario.payload)
+
+    assert replacement_credential.pk != scenario.credential.pk
+    assert replacement_session.pk != scenario.catch_session.pk
+    assert repeated.status is CatchConfirmationStatus.ALREADY_CAUGHT
+    assert repeated.catch.pk == first.catch.pk
+    assert catch_model().objects.values().get(pk=first.catch.pk) == original
 
 
 @pytest.mark.django_db

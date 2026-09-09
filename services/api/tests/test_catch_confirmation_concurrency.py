@@ -415,62 +415,79 @@ def test_concurrent_canonical_confirmations_converge_on_one_unchanged_catch() ->
 def test_named_duplicate_constraint_recovers_the_raw_competing_winner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """AC-14/15: reject string matching or broad IntegrityError duplicate recovery."""
+    """AC-14/15: prove the named-constraint recovery against a real late winner."""
     assert connection.vendor == "postgresql"
     scenario = create_catch_confirmation_scenario()
     original_lookup = catch_services._find_existing_catch  # pyright: ignore[reportPrivateUsage]
     original_insert = catch_services._insert_catch  # pyright: ignore[reportPrivateUsage]
-    insert_attempted = Event()
+    post_lock_inspection_complete = Event()
+    service_waiting_to_insert = Event()
+    raw_winner_committed = Event()
+    allow_service_insert = Event()
+    lookup_count = 0
 
-    def miss_existing_catch(
+    def observe_existing_catch(
         *, catcher_user_id: int, fursuit_id: int, convention_id: int
     ) -> Any:
-        if not insert_attempted.is_set():
-            return None
-        return original_lookup(
+        nonlocal lookup_count
+        result = original_lookup(
             catcher_user_id=catcher_user_id,
             fursuit_id=fursuit_id,
             convention_id=convention_id,
         )
+        lookup_count += 1
+        if lookup_count == 2:
+            assert result is None
+            post_lock_inspection_complete.set()
+        return result
 
-    def record_real_insert(*args: Any, **kwargs: Any) -> Any:
-        insert_attempted.set()
+    def wait_before_real_insert(*args: Any, **kwargs: Any) -> Any:
+        service_waiting_to_insert.set()
+        assert raw_winner_committed.wait(timeout=_OBSERVE_TIMEOUT)
+        assert allow_service_insert.wait(timeout=_OBSERVE_TIMEOUT)
         return original_insert(*args, **kwargs)
 
-    monkeypatch.setattr(catch_services, "_find_existing_catch", miss_existing_catch)
-    monkeypatch.setattr(catch_services, "_insert_catch", record_real_insert)
+    monkeypatch.setattr(catch_services, "_find_existing_catch", observe_existing_catch)
+    monkeypatch.setattr(catch_services, "_insert_catch", wait_before_real_insert)
 
     def insert_raw_winner() -> int:
-        return (
-            catch_model()
-            .objects.create(
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                # The service already holds parent-row UPDATE locks. This is a
+                # deliberately raw competitor, so suppress only FK trigger
+                # checks; PostgreSQL's unique index remains authoritative.
+                cursor.execute("SET LOCAL session_replication_role = replica")
+            winner = catch_model().objects.create(
                 catcher_user_id=scenario.catcher_user.pk,
                 fursuit_id=scenario.fursuit.pk,
                 convention_id=scenario.convention.pk,
                 activation_id=scenario.activation.pk,
                 catch_session_id=scenario.catch_session.pk,
             )
-            .pk
-        )
+        raw_winner_committed.set()
+        return winner.pk
 
+    service_pids: Queue[int] = Queue()
     raw_pids: Queue[int] = Queue()
-    with ThreadPoolExecutor(max_workers=1) as pool:
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        service = pool.submit(_worker, lambda: _confirmation(scenario), service_pids)
+        _pid(service_pids, service)
+        assert post_lock_inspection_complete.wait(timeout=_OBSERVE_TIMEOUT)
+        assert service_waiting_to_insert.wait(timeout=_OBSERVE_TIMEOUT)
+        assert not service.done()
         raw_winner = pool.submit(_worker, insert_raw_winner, raw_pids)
         _pid(raw_pids, raw_winner)
         winner_pk = raw_winner.result(timeout=_FUTURE_TIMEOUT)
+        assert raw_winner_committed.is_set()
+        allow_service_insert.set()
+        result = service.result(timeout=_FUTURE_TIMEOUT)
 
     winner = catch_model().objects.get(pk=winner_pk)
     original = catch_model().objects.values().get(pk=winner.pk)
-    pids: Queue[int] = Queue()
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(_worker, lambda: _confirmation(scenario), pids)
-        _pid(pids, future)
-        result = future.result(timeout=_FUTURE_TIMEOUT)
-
+    assert lookup_count == 3
     assert result.status is CatchConfirmationStatus.ALREADY_CAUGHT
     assert result.catch.pk == winner.pk
     assert catch_model().objects.values().get(pk=winner.pk) == original
-    assert insert_attempted.is_set()
 
 
 @pytest.mark.django_db(transaction=True)
