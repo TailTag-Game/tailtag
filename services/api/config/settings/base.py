@@ -17,6 +17,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "drf_spectacular",
     "accounts.apps.AccountsConfig",
+    "catches.apps.CatchesConfig",
     "conventions.apps.ConventionsConfig",
     "fursuits.apps.FursuitsConfig",
     "health.apps.HealthConfig",
