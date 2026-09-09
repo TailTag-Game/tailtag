@@ -43,6 +43,14 @@ def test_catch_is_the_exact_minimal_dedicated_domain_model() -> None:
     assert model._meta.ordering == ["-caught_at", "-id"]
     assert model.save is models.Model.save
     assert model.delete is models.Model.delete
+    for method_name in (
+        "clean_fields",
+        "clean",
+        "validate_unique",
+        "validate_constraints",
+        "full_clean",
+    ):
+        assert getattr(model, method_name) is getattr(models.Model, method_name)
     assert "__repr__" not in model.__dict__
     assert [(manager.name, manager.__class__) for manager in model._meta.managers] == [
         ("objects", models.Manager)
