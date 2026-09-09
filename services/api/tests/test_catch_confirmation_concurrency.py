@@ -10,6 +10,10 @@ from time import monotonic, sleep
 from typing import Any
 
 import pytest
+from django.db import IntegrityError, close_old_connections, connection, transaction
+
+from accounts.models import User
+from catches import services as catch_services
 from catches.services import (
     CatchActiveConventionMismatchError,
     CatchConfirmationStatus,
@@ -17,10 +21,6 @@ from catches.services import (
     CatchTargetInvalidError,
     confirm_catch,
 )
-from django.db import IntegrityError, close_old_connections, connection, transaction
-
-from accounts.models import User
-from catches import services as catch_services
 from conventions.catch_credentials import (
     format_catch_credential_payload,
     revoke_catch_credential_as_operator,

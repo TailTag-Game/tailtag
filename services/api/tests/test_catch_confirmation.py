@@ -14,6 +14,12 @@ from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
+from django.contrib.auth.models import AnonymousUser
+from django.db import IntegrityError, close_old_connections, connection, transaction
+from django.utils import timezone
+
+from accounts.models import User
+from catches import services as catch_services
 from catches.services import (
     CatchActiveConventionMismatchError,
     CatchAuthenticationError,
@@ -24,12 +30,6 @@ from catches.services import (
     CatchTargetInvalidError,
     confirm_catch,
 )
-from django.contrib.auth.models import AnonymousUser
-from django.db import IntegrityError, close_old_connections, connection, transaction
-from django.utils import timezone
-
-from accounts.models import User
-from catches import services as catch_services
 from conventions.catch_credential_protocol import CATCH_CREDENTIAL_PAYLOAD_PREFIX
 from conventions.catch_credentials import CatchCredentialPayloadInvalidError
 from conventions.models import Convention, ConventionEnrollment, ConventionStatus
