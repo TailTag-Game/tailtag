@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import cast
+from typing import Literal, cast
 
 from drf_spectacular.utils import (  # pyright: ignore[reportUnknownVariableType]
     OpenApiResponse,
@@ -96,7 +96,7 @@ class CatchConfirmationView(APIView):
             return Response(_INVALID_PAYLOAD, status=status.HTTP_400_BAD_REQUEST)
         if isinstance(exc, APIException):
             return super().handle_exception(exc)
-        return _unexpected_error()
+        return _unexpected_error(stage="boundary")
 
     @extend_schema(
         operation_id="catch_confirm",
@@ -140,7 +140,7 @@ class CatchConfirmationView(APIView):
                 status.HTTP_404_NOT_FOUND,
             )
         except Exception:  # noqa: BLE001 - all untyped service failures are sanitized.
-            return _unexpected_error()
+            return _unexpected_error(stage="service")
 
         response_status = (
             status.HTTP_201_CREATED
@@ -153,7 +153,7 @@ class CatchConfirmationView(APIView):
                 status=response_status,
             )
         except Exception:  # noqa: BLE001 - projection failures are sanitized.
-            return _unexpected_error()
+            return _unexpected_error(stage="projection")
 
 
 def _user(request: Request) -> User:
@@ -164,8 +164,10 @@ def _domain_error(code: str, detail: str, response_status: int) -> Response:
     return Response({"code": code, "detail": detail}, status=response_status)
 
 
-def _unexpected_error() -> Response:
-    _LOGGER.error("Unexpected catch confirmation failure.")
+def _unexpected_error(
+    *, stage: Literal["boundary", "service", "projection"]
+) -> Response:
+    _LOGGER.error("Unexpected catch confirmation failure.", extra={"stage": stage})
     return _domain_error(
         "server_error",
         "An unexpected error occurred.",

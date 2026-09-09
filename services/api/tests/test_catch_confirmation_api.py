@@ -143,6 +143,31 @@ def _assert_no_raw_credential_in_logs(
         assert credential not in caplog.text
 
 
+def _assert_sanitized_unexpected_failure_log(
+    caplog: pytest.LogCaptureFixture,
+    *,
+    stage: str,
+    sensitive_values: tuple[str, ...],
+) -> None:
+    view_records = [
+        record for record in caplog.records if record.name == "catches.views"
+    ]
+    assert len(view_records) == 1
+    record = view_records[0]
+    assert record.getMessage() == "Unexpected catch confirmation failure."
+    assert record.args == ()
+    assert record.exc_info is None
+    assert record.__dict__["stage"] == stage
+    standard_record_fields = set(logging.makeLogRecord({}).__dict__) | {
+        "asctime",
+        "message",
+    }
+    assert set(record.__dict__) - standard_record_fields == {"stage"}
+    log_material = (caplog.text, repr(record.__dict__))
+    for sensitive_value in sensitive_values:
+        assert all(sensitive_value not in material for material in log_material)
+
+
 @pytest.mark.django_db
 def test_confirmation_route_requires_repository_bearer_authentication(
     monkeypatch: pytest.MonkeyPatch,
@@ -437,25 +462,9 @@ def test_confirmation_maps_each_typed_service_error_to_its_closed_public_respons
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    "target_condition",
-    (
-        "unknown",
-        "revoked",
-        "stale",
-        "stopped",
-        "expired",
-        "disabled",
-        "ineligible",
-        "invalid_activation",
-    ),
-)
-def test_all_target_invalid_conditions_have_the_same_privacy_collapsed_response(
-    target_condition: str,
-) -> None:
+def test_catch_target_unavailable_has_the_privacy_collapsed_http_response() -> None:
     """AC-10 privacy risk: reject target-state distinctions through any public output."""
     authenticated = _authenticated_scenario()
-    del target_condition  # Test labels model private conditions, never request data.
     with patch("catches.views.confirm_catch", side_effect=CatchTargetInvalidError()):
         response = authenticated.client.post(
             PATH,
@@ -502,13 +511,61 @@ def test_confirmation_sanitizes_unexpected_failures_and_logs_no_raw_diagnostics(
     assert set(response.json()) == {"code", "detail"}
     assert authenticated.scenario.payload not in response.content.decode()
     assert diagnostic not in response.content.decode()
-    view_records = [
-        record for record in caplog.records if record.name == "catches.views"
-    ]
-    assert view_records
-    log_text = caplog.text
-    assert authenticated.scenario.payload not in log_text
-    assert diagnostic not in log_text
+    _assert_sanitized_unexpected_failure_log(
+        caplog,
+        stage="service",
+        sensitive_values=(
+            authenticated.scenario.payload,
+            authenticated.scenario.credential.token,
+            diagnostic,
+            "catcher_id",
+            "constraint",
+            "RuntimeError",
+        ),
+    )
+
+
+@pytest.mark.django_db
+def test_confirmation_sanitizes_unexpected_boundary_failures(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """AC-11: reject boundary diagnostics or raw request values in failure logs."""
+    authenticated = _authenticated_scenario()
+    diagnostic = (
+        f"payload={authenticated.scenario.payload}; "
+        "internal_boundary=credential_parser; synthetic boundary diagnostic"
+    )
+    with (
+        caplog.at_level(logging.ERROR, logger="catches.views"),
+        patch(
+            "catches.views.FursuitCatchCredentialResolutionRequestSerializer.is_valid",
+            side_effect=RuntimeError(diagnostic),
+        ),
+        patch("catches.views.confirm_catch") as confirm,
+    ):
+        response = authenticated.client.post(
+            PATH,
+            {"payload": authenticated.scenario.payload},
+            content_type="application/json",
+        )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "code": "server_error",
+        "detail": "An unexpected error occurred.",
+    }
+    confirm.assert_not_called()
+    _assert_sanitized_unexpected_failure_log(
+        caplog,
+        stage="boundary",
+        sensitive_values=(
+            authenticated.scenario.payload,
+            authenticated.scenario.credential.token,
+            diagnostic,
+            "internal_boundary",
+            "RuntimeError",
+        ),
+    )
 
 
 @pytest.mark.django_db
@@ -549,17 +606,13 @@ def test_confirmation_sanitizes_unexpected_success_projection_failures(
         "ValueError",
     ):
         assert sensitive_value not in response_text
-    view_records = [
-        record for record in caplog.records if record.name == "catches.views"
-    ]
-    assert len(view_records) == 1
-    assert view_records[0].getMessage()
-    assert view_records[0].args == ()
-    log_text = caplog.text
-    for sensitive_value in (
-        authenticated.scenario.payload,
-        authenticated.scenario.credential.token,
-        INVALID_PROJECTION_PHOTO_KEY,
-        "ValueError",
-    ):
-        assert sensitive_value not in log_text
+    _assert_sanitized_unexpected_failure_log(
+        caplog,
+        stage="projection",
+        sensitive_values=(
+            authenticated.scenario.payload,
+            authenticated.scenario.credential.token,
+            INVALID_PROJECTION_PHOTO_KEY,
+            "ValueError",
+        ),
+    )
