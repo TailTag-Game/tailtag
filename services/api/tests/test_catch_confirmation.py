@@ -461,9 +461,18 @@ def test_confirm_catch_uses_structured_constraint_name_not_integrity_error_prose
 ) -> None:
     """AC-14: reject recovery when only error prose impersonates the constraint."""
     scenario = create_catch_confirmation_scenario()
+    winner = catch_model().objects.create(
+        catcher_user=scenario.catcher_user,
+        fursuit=scenario.fursuit,
+        convention=scenario.convention,
+        activation=scenario.activation,
+        catch_session=scenario.catch_session,
+    )
     original = IntegrityError(
         "catches_catcher_fursuit_convention_unique appeared in unrelated prose"
     )
+    original_lookup = catch_services._find_existing_catch  # pyright: ignore[reportPrivateUsage]
+    lookup_count = 0
 
     class DifferentConstraintCause(Exception):
         class diag:
@@ -471,16 +480,33 @@ def test_confirm_catch_uses_structured_constraint_name_not_integrity_error_prose
 
     original.__cause__ = DifferentConstraintCause()
 
+    def hide_winner_until_uniqueness_recovery(
+        *, catcher_user_id: int, fursuit_id: int, convention_id: int
+    ) -> object:
+        nonlocal lookup_count
+        lookup_count += 1
+        if lookup_count < 3:
+            return None
+        return original_lookup(
+            catcher_user_id=catcher_user_id,
+            fursuit_id=fursuit_id,
+            convention_id=convention_id,
+        )
+
     def fail_insert(**_: object) -> object:
         raise original
 
+    monkeypatch.setattr(
+        catch_services, "_find_existing_catch", hide_winner_until_uniqueness_recovery
+    )
     monkeypatch.setattr(catch_services, "_insert_catch", fail_insert)
 
     with pytest.raises(IntegrityError) as captured:
         confirm_catch(scenario.catcher_user, payload=scenario.payload)
 
     assert captured.value is original
-    _assert_no_catch()
+    assert lookup_count == 2
+    assert catch_model().objects.get(pk=winner.pk) == winner
 
 
 @pytest.mark.django_db
@@ -615,10 +641,14 @@ def test_confirm_catch_recovers_original_provenance_after_session_and_credential
     )
     replacement_session = create_catch_session(activation=scenario.activation)
 
-    repeated = confirm_catch(scenario.catcher_user, payload=scenario.payload)
+    replacement_payload = (
+        f"{CATCH_CREDENTIAL_PAYLOAD_PREFIX}{replacement_credential.token}"
+    )
+    repeated = confirm_catch(scenario.catcher_user, payload=replacement_payload)
 
     assert replacement_credential.pk != scenario.credential.pk
     assert replacement_session.pk != scenario.catch_session.pk
+    assert replacement_payload != scenario.payload
     assert repeated.status is CatchConfirmationStatus.ALREADY_CAUGHT
     assert repeated.catch.pk == first.catch.pk
     assert catch_model().objects.values().get(pk=first.catch.pk) == original

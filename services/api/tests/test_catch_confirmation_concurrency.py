@@ -454,8 +454,8 @@ def test_named_duplicate_constraint_recovers_the_raw_competing_winner(
         with transaction.atomic():
             with connection.cursor() as cursor:
                 # The service already holds parent-row UPDATE locks. This is a
-                # deliberately raw competitor, so suppress only FK trigger
-                # checks; PostgreSQL's unique index remains authoritative.
+                # deliberately raw competitor, so suppress trigger-based
+                # checks generally; PostgreSQL's unique index remains active.
                 cursor.execute("SET LOCAL session_replication_role = replica")
             winner = catch_model().objects.create(
                 catcher_user_id=scenario.catcher_user.pk,
