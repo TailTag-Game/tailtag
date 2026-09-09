@@ -538,6 +538,32 @@ def test_confirm_catch_rejects_a_credential_rebound_after_historical_discovery(
     _assert_no_catch()
 
 
+@pytest.mark.django_db
+def test_confirm_catch_rejects_session_expiring_at_serialized_now_without_mutation() -> None:
+    """AC-10: reject equality expiry without lazily ending the unended session."""
+    scenario = create_catch_confirmation_scenario()
+    captured_now = timezone.now()
+    scenario.catch_session.expires_at = captured_now
+    scenario.catch_session.save(update_fields=["expires_at", "updated_at"])
+    before = catch_session_model().objects.filter(pk=scenario.catch_session.pk).values(
+        "ended_at", "end_reason", "updated_at"
+    ).get()
+
+    with (
+        patch("catches.services.timezone.now", return_value=captured_now),
+        pytest.raises(CatchTargetInvalidError),
+    ):
+        confirm_catch(scenario.catcher_user, payload=scenario.payload)
+
+    after = catch_session_model().objects.filter(pk=scenario.catch_session.pk).values(
+        "ended_at", "end_reason", "updated_at"
+    ).get()
+    assert after == before
+    assert after["ended_at"] is None
+    assert after["end_reason"] is None
+    _assert_no_catch()
+
+
 @pytest.mark.django_db(transaction=True)
 def test_confirm_catch_captures_time_only_after_its_authoritative_locks(
 ) -> None:

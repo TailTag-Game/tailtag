@@ -343,10 +343,21 @@ def test_named_duplicate_constraint_recovers_the_raw_competing_winner(
     """AC-14/15: reject string matching or broad IntegrityError duplicate recovery."""
     assert connection.vendor == "postgresql"
     scenario = create_catch_confirmation_scenario()
+    original_lookup = catch_services._find_existing_catch
+    pre_insert_lookups = 0
+
     def miss_existing_catch(
         *, catcher_user_id: int, fursuit_id: int, convention_id: int
-    ) -> None:
-        del catcher_user_id, fursuit_id, convention_id
+    ) -> Any:
+        nonlocal pre_insert_lookups
+        pre_insert_lookups += 1
+        if pre_insert_lookups <= 2:
+            return None
+        return original_lookup(
+            catcher_user_id=catcher_user_id,
+            fursuit_id=fursuit_id,
+            convention_id=convention_id,
+        )
 
     monkeypatch.setattr(catch_services, "_find_existing_catch", miss_existing_catch)
     pids: Queue[int] = Queue()
@@ -366,6 +377,7 @@ def test_named_duplicate_constraint_recovers_the_raw_competing_winner(
     assert result.status is CatchConfirmationStatus.ALREADY_CAUGHT
     assert result.catch.pk == winner.pk
     assert catch_model().objects.values().get(pk=winner.pk) == original
+    assert pre_insert_lookups == 3
 
 
 @pytest.mark.django_db(transaction=True)
