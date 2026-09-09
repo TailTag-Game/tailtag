@@ -90,7 +90,9 @@ def _wait_for_pid(queue: Queue[int], future: Future[object]) -> int:
             return queue.get_nowait()
         except Empty:
             if future.done():
-                pytest.fail(f"worker completed before lock evidence: {future.result()!r}")
+                pytest.fail(
+                    f"worker completed before lock evidence: {future.result()!r}"
+                )
             sleep(0.01)
     pytest.fail("worker did not publish a PostgreSQL backend PID")
 
@@ -194,7 +196,9 @@ def test_confirm_catch_authentication_precedes_malformed_payload_parsing() -> No
 
 
 @pytest.mark.django_db
-def test_confirm_catch_distinguishes_a_real_user_without_profile_from_authentication() -> None:
+def test_confirm_catch_distinguishes_a_real_user_without_profile_from_authentication() -> (
+    None
+):
     """AC-02/06: reject treating an existing TailTag user as an auth failure."""
     scenario = create_catch_confirmation_scenario()
     profileless = create_test_user(clerk_user_id="profileless_catch_confirmation_user")
@@ -246,9 +250,9 @@ def test_confirm_catch_requires_a_completed_catcher_profile() -> None:
     """AC-06: reject partial or pre-lock-only catcher eligibility checks."""
     scenario = create_catch_confirmation_scenario()
     # The profile model constrains onboarding fields to change as a unit.
-    scenario.catcher_profile.__class__.objects.filter(pk=scenario.catcher_profile.pk).update(
-        handle=None, display_name=None, onboarding_completed_at=None
-    )
+    scenario.catcher_profile.__class__.objects.filter(
+        pk=scenario.catcher_profile.pk
+    ).update(handle=None, display_name=None, onboarding_completed_at=None)
 
     with pytest.raises(CatchParticipationIneligibleError):
         confirm_catch(scenario.catcher_user, payload=scenario.payload)
@@ -315,9 +319,9 @@ def _invalidate_target(scenario: Any, state: str) -> None:
         revoke_current_for(scenario.activation)
         create_credential(activation=scenario.activation, token=TOKEN_B)
     elif state == "target_profile_incomplete":
-        scenario.target_profile.__class__.objects.filter(pk=scenario.target_profile.pk).update(
-            handle=None, display_name=None, onboarding_completed_at=None
-        )
+        scenario.target_profile.__class__.objects.filter(
+            pk=scenario.target_profile.pk
+        ).update(handle=None, display_name=None, onboarding_completed_at=None)
     elif state == "target_profile_disabled":
         scenario.target_profile.is_enabled = False
         scenario.target_profile.save(update_fields=["is_enabled"])
@@ -332,13 +336,17 @@ def _invalidate_target(scenario: Any, state: str) -> None:
     elif state == "activation_inactive":
         scenario.activation.is_active = False
         scenario.activation.deactivated_at = timezone.now()
-        scenario.activation.save(update_fields=["is_active", "deactivated_at", "updated_at"])
+        scenario.activation.save(
+            update_fields=["is_active", "deactivated_at", "updated_at"]
+        )
     elif state == "session_missing":
         scenario.catch_session.delete()
     elif state == "session_stopped":
         scenario.catch_session.ended_at = timezone.now()
         scenario.catch_session.end_reason = "owner"
-        scenario.catch_session.save(update_fields=["ended_at", "end_reason", "updated_at"])
+        scenario.catch_session.save(
+            update_fields=["ended_at", "end_reason", "updated_at"]
+        )
     elif state == "session_expired":
         observed_now = timezone.now()
         scenario.catch_session.__class__.objects.filter(
@@ -392,18 +400,24 @@ def test_confirm_catch_conceals_each_current_target_ineligibility(state: str) ->
         target_owner_clerk_user_id=f"target_state_target_{state}",
     )
     _invalidate_target(scenario, state)
-    before_session = catch_session_model().objects.filter(
-        pk=scenario.catch_session.pk
-    ).values("ended_at", "end_reason", "updated_at").first()
+    before_session = (
+        catch_session_model()
+        .objects.filter(pk=scenario.catch_session.pk)
+        .values("ended_at", "end_reason", "updated_at")
+        .first()
+    )
 
     with pytest.raises(CatchTargetInvalidError) as captured:
         confirm_catch(scenario.catcher_user, payload=scenario.payload)
     _assert_concealed(captured.value, scenario)
     _assert_no_catch()
     if state == "session_expired":
-        after_session = catch_session_model().objects.filter(
-            pk=scenario.catch_session.pk
-        ).values("ended_at", "end_reason", "updated_at").first()
+        after_session = (
+            catch_session_model()
+            .objects.filter(pk=scenario.catch_session.pk)
+            .values("ended_at", "end_reason", "updated_at")
+            .first()
+        )
         assert after_session == before_session
         assert after_session is not None
         assert after_session["ended_at"] is None
@@ -490,7 +504,9 @@ def test_confirm_catch_recovers_an_unchanged_durable_catch_after_target_stalenes
 
 
 @pytest.mark.django_db
-def test_confirm_catch_never_recovers_another_callers_or_another_activation_catch() -> None:
+def test_confirm_catch_never_recovers_another_callers_or_another_activation_catch() -> (
+    None
+):
     """AC-05: reject unbound historical recovery by token alone."""
     scenario = create_catch_confirmation_scenario()
     other_catcher = create_test_user(clerk_user_id="other_catch_recovery_catcher")
@@ -547,15 +563,20 @@ def test_confirm_catch_rejects_a_credential_rebound_after_historical_discovery(
 
 
 @pytest.mark.django_db
-def test_confirm_catch_rejects_session_expiring_at_serialized_now_without_mutation() -> None:
+def test_confirm_catch_rejects_session_expiring_at_serialized_now_without_mutation() -> (
+    None
+):
     """AC-10: reject equality expiry without lazily ending the unended session."""
     scenario = create_catch_confirmation_scenario()
     captured_now = timezone.now()
     scenario.catch_session.expires_at = captured_now
     scenario.catch_session.save(update_fields=["expires_at", "updated_at"])
-    before = catch_session_model().objects.filter(pk=scenario.catch_session.pk).values(
-        "ended_at", "end_reason", "updated_at"
-    ).get()
+    before = (
+        catch_session_model()
+        .objects.filter(pk=scenario.catch_session.pk)
+        .values("ended_at", "end_reason", "updated_at")
+        .get()
+    )
 
     with (
         patch("catches.services.timezone.now", return_value=captured_now),
@@ -563,9 +584,12 @@ def test_confirm_catch_rejects_session_expiring_at_serialized_now_without_mutati
     ):
         confirm_catch(scenario.catcher_user, payload=scenario.payload)
 
-    after = catch_session_model().objects.filter(pk=scenario.catch_session.pk).values(
-        "ended_at", "end_reason", "updated_at"
-    ).get()
+    after = (
+        catch_session_model()
+        .objects.filter(pk=scenario.catch_session.pk)
+        .values("ended_at", "end_reason", "updated_at")
+        .get()
+    )
     assert after == before
     assert after["ended_at"] is None
     assert after["end_reason"] is None
@@ -573,8 +597,7 @@ def test_confirm_catch_rejects_session_expiring_at_serialized_now_without_mutati
 
 
 @pytest.mark.django_db(transaction=True)
-def test_confirm_catch_captures_time_only_after_its_authoritative_locks(
-) -> None:
+def test_confirm_catch_captures_time_only_after_its_authoritative_locks() -> None:
     """AC-09/10: reject a clock read while the final locked session is unavailable."""
     assert connection.vendor == "postgresql"
     scenario = create_catch_confirmation_scenario()
@@ -609,7 +632,9 @@ def test_confirm_catch_accepts_a_session_strictly_after_serialized_now_with_exac
     """AC-10/12: reject <= boundary mistakes or substituting activation/session rows."""
     scenario = create_catch_confirmation_scenario()
     captured_now = timezone.now()
-    scenario.catch_session.expires_at = captured_now + datetime.timedelta(microseconds=1)
+    scenario.catch_session.expires_at = captured_now + datetime.timedelta(
+        microseconds=1
+    )
     scenario.catch_session.save(update_fields=["expires_at", "updated_at"])
 
     with patch("catches.services.timezone.now", return_value=captured_now):

@@ -83,7 +83,9 @@ def _pid(queue: Queue[int], future: Future[Any]) -> int:
             return queue.get_nowait()
         except Empty:
             if future.done():
-                pytest.fail(f"worker completed before lock evidence: {future.result()!r}")
+                pytest.fail(
+                    f"worker completed before lock evidence: {future.result()!r}"
+                )
             sleep(0.01)
     pytest.fail("worker did not publish a PostgreSQL backend PID")
 
@@ -159,7 +161,9 @@ def _assert_both_workers_blocked_directly_or_transitively(
         if first_in_chain and second_in_chain:
             return
         sleep(0.01)
-    pytest.fail("reciprocal workers did not join the lower-profile PostgreSQL lock chain")
+    pytest.fail(
+        "reciprocal workers did not join the lower-profile PostgreSQL lock chain"
+    )
 
 
 def _run_forced_order(
@@ -215,7 +219,9 @@ def _assert_serial_lifecycle_outcome(
                 CatchActiveConventionMismatchError,
             ),
         )
-    assert not any(isinstance(result, (IntegrityError, TimeoutError)) for result in results)
+    assert not any(
+        isinstance(result, (IntegrityError, TimeoutError)) for result in results
+    )
 
 
 def _confirmation_outcome(scenario: Any) -> Any:
@@ -229,7 +235,9 @@ def _confirmation_outcome(scenario: Any) -> Any:
         return error
 
 
-def _mutation_for(scenario: Any, operation: str) -> tuple[Callable[[], Any], Callable[[], Any]]:
+def _mutation_for(
+    scenario: Any, operation: str
+) -> tuple[Callable[[], Any], Callable[[], Any]]:
     """Return the real lifecycle write and its earliest shared-row lock."""
     if operation == "credential_rotation":
         return (
@@ -238,12 +246,16 @@ def _mutation_for(scenario: Any, operation: str) -> tuple[Callable[[], Any], Cal
                 convention_id=scenario.convention.pk,
                 fursuit_id=scenario.fursuit.pk,
             ),
-            lambda: PlayerProfile.objects.select_for_update().get(pk=scenario.target_profile.pk),
+            lambda: PlayerProfile.objects.select_for_update().get(
+                pk=scenario.target_profile.pk
+            ),
         )
     if operation == "credential_operator_revocation":
         return (
             lambda: revoke_catch_credential_as_operator(scenario.credential.pk),
-            lambda: FursuitActivation.objects.select_for_update().get(pk=scenario.activation.pk),
+            lambda: FursuitActivation.objects.select_for_update().get(
+                pk=scenario.activation.pk
+            ),
         )
     if operation == "session_stop":
         return (
@@ -267,33 +279,55 @@ def _mutation_for(scenario: Any, operation: str) -> tuple[Callable[[], Any], Cal
         )
     if operation == "target_profile_disablement":
         return (
-            lambda: set_profile_enabled(profile_id=scenario.target_profile.pk, is_enabled=False),
-            lambda: PlayerProfile.objects.select_for_update().get(pk=scenario.target_profile.pk),
+            lambda: set_profile_enabled(
+                profile_id=scenario.target_profile.pk, is_enabled=False
+            ),
+            lambda: PlayerProfile.objects.select_for_update().get(
+                pk=scenario.target_profile.pk
+            ),
         )
     if operation == "catcher_profile_disablement":
         return (
-            lambda: set_profile_enabled(profile_id=scenario.catcher_profile.pk, is_enabled=False),
-            lambda: PlayerProfile.objects.select_for_update().get(pk=scenario.catcher_profile.pk),
+            lambda: set_profile_enabled(
+                profile_id=scenario.catcher_profile.pk, is_enabled=False
+            ),
+            lambda: PlayerProfile.objects.select_for_update().get(
+                pk=scenario.catcher_profile.pk
+            ),
         )
     if operation == "fursuit_disablement":
         return (
-            lambda: set_fursuit_enabled(fursuit_id=scenario.fursuit.pk, is_enabled=False),
+            lambda: set_fursuit_enabled(
+                fursuit_id=scenario.fursuit.pk, is_enabled=False
+            ),
             lambda: Fursuit.objects.select_for_update().get(pk=scenario.fursuit.pk),
         )
     if operation == "target_enrollment_removal":
         return (
-            lambda: remove_convention_enrollment(enrollment_id=scenario.target_enrollment.pk),
-            lambda: PlayerProfile.objects.select_for_update().get(pk=scenario.target_profile.pk),
+            lambda: remove_convention_enrollment(
+                enrollment_id=scenario.target_enrollment.pk
+            ),
+            lambda: PlayerProfile.objects.select_for_update().get(
+                pk=scenario.target_profile.pk
+            ),
         )
     if operation == "catcher_enrollment_removal":
         return (
-            lambda: remove_convention_enrollment(enrollment_id=scenario.catcher_enrollment.pk),
-            lambda: PlayerProfile.objects.select_for_update().get(pk=scenario.catcher_profile.pk),
+            lambda: remove_convention_enrollment(
+                enrollment_id=scenario.catcher_enrollment.pk
+            ),
+            lambda: PlayerProfile.objects.select_for_update().get(
+                pk=scenario.catcher_profile.pk
+            ),
         )
     if operation == "catcher_active_convention_clear":
         return (
-            lambda: clear_active_convention(User.objects.get(pk=scenario.catcher_user.pk)),
-            lambda: PlayerProfile.objects.select_for_update().get(pk=scenario.catcher_profile.pk),
+            lambda: clear_active_convention(
+                User.objects.get(pk=scenario.catcher_user.pk)
+            ),
+            lambda: PlayerProfile.objects.select_for_update().get(
+                pk=scenario.catcher_profile.pk
+            ),
         )
     if operation == "convention_paused":
         return (
@@ -304,7 +338,9 @@ def _mutation_for(scenario: Any, operation: str) -> tuple[Callable[[], Any], Cal
                 start_date=scenario.convention.start_date,
                 end_date=scenario.convention.end_date,
             ),
-            lambda: Convention.objects.select_for_update().get(pk=scenario.convention.pk),
+            lambda: Convention.objects.select_for_update().get(
+                pk=scenario.convention.pk
+            ),
         )
     raise AssertionError(f"unknown lifecycle operation: {operation}")
 
@@ -364,7 +400,10 @@ def test_concurrent_canonical_confirmations_converge_on_one_unchanged_catch() ->
         results = [future.result(timeout=_FUTURE_TIMEOUT) for future in futures]
 
     assert {result.catch.pk for result in results} == {results[0].catch.pk}
-    assert sorted(result.status.value for result in results) == ["already_caught", "created"]
+    assert sorted(result.status.value for result in results) == [
+        "already_caught",
+        "created",
+    ]
     row = catch_model().objects.values().get(pk=results[0].catch.pk)
     assert catch_model().objects.count() == 1
     assert row["activation_id"] == scenario.activation.pk
@@ -402,13 +441,17 @@ def test_named_duplicate_constraint_recovers_the_raw_competing_winner(
     monkeypatch.setattr(catch_services, "_insert_catch", record_real_insert)
 
     def insert_raw_winner() -> int:
-        return catch_model().objects.create(
-            catcher_user_id=scenario.catcher_user.pk,
-            fursuit_id=scenario.fursuit.pk,
-            convention_id=scenario.convention.pk,
-            activation_id=scenario.activation.pk,
-            catch_session_id=scenario.catch_session.pk,
-        ).pk
+        return (
+            catch_model()
+            .objects.create(
+                catcher_user_id=scenario.catcher_user.pk,
+                fursuit_id=scenario.fursuit.pk,
+                convention_id=scenario.convention.pk,
+                activation_id=scenario.activation.pk,
+                catch_session_id=scenario.catch_session.pk,
+            )
+            .pk
+        )
 
     raw_pids: Queue[int] = Queue()
     with ThreadPoolExecutor(max_workers=1) as pool:
@@ -437,7 +480,9 @@ def test_reciprocal_confirmations_lock_the_lower_profile_first_without_deadlock(
     """AC-09/15: reject caller-target profile locking that deadlocks reciprocal catches."""
     assert connection.vendor == "postgresql"
     first = create_catch_confirmation_scenario()
-    ConventionEnrollment.objects.filter(pk=first.target_enrollment.pk).update(is_active=True)
+    ConventionEnrollment.objects.filter(pk=first.target_enrollment.pk).update(
+        is_active=True
+    )
     owner_fursuit = Fursuit.objects.create(
         owner=first.catcher_user,
         name="Reciprocal Catcher Fursuit",
@@ -485,7 +530,10 @@ def test_reciprocal_confirmations_lock_the_lower_profile_first_without_deadlock(
                 second_future=two,
             )
             assert observed_first_profile_ids == []
-        results = [one.result(timeout=_FUTURE_TIMEOUT), two.result(timeout=_FUTURE_TIMEOUT)]
+        results = [
+            one.result(timeout=_FUTURE_TIMEOUT),
+            two.result(timeout=_FUTURE_TIMEOUT),
+        ]
 
     assert [result.status for result in results] == [
         CatchConfirmationStatus.CREATED,
@@ -493,7 +541,12 @@ def test_reciprocal_confirmations_lock_the_lower_profile_first_without_deadlock(
     ]
     assert catch_model().objects.count() == 2
     assert observed_first_profile_ids == [lower_profile_id, lower_profile_id]
-    assert catch_model().objects.filter(
-        activation_id__in=(first.activation.pk, owner_activation.pk),
-        catch_session_id__in=(first.catch_session.pk, owner_session.pk),
-    ).count() == 2
+    assert (
+        catch_model()
+        .objects.filter(
+            activation_id__in=(first.activation.pk, owner_activation.pk),
+            catch_session_id__in=(first.catch_session.pk, owner_session.pk),
+        )
+        .count()
+        == 2
+    )
