@@ -126,6 +126,42 @@ def _assert_blocked_behind_chain(
     pytest.fail("second participant did not join the intended PostgreSQL lock chain")
 
 
+def _assert_both_workers_blocked_directly_or_transitively(
+    *,
+    first: int,
+    second: int,
+    holder: int,
+    first_future: Future[Any],
+    second_future: Future[Any],
+) -> None:
+    """Require both workers in the holder chain regardless of PostgreSQL queue order."""
+    deadline = monotonic() + _OBSERVE_TIMEOUT
+    while monotonic() < deadline:
+        for future in (first_future, second_future):
+            if future.done():
+                pytest.fail(
+                    "reciprocal participant completed before lower-profile lock evidence: "
+                    f"{future.result()!r}"
+                )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_blocking_pids(%s), pg_blocking_pids(%s)", [first, second]
+            )
+            row = cursor.fetchone()
+        assert row is not None
+        first_blockers, second_blockers = map(set, row)
+        first_in_chain = holder in first_blockers or (
+            second in first_blockers and holder in second_blockers
+        )
+        second_in_chain = holder in second_blockers or (
+            first in second_blockers and holder in first_blockers
+        )
+        if first_in_chain and second_in_chain:
+            return
+        sleep(0.01)
+    pytest.fail("reciprocal workers did not join the lower-profile PostgreSQL lock chain")
+
+
 def _run_forced_order(
     *,
     lock: Callable[[], Any],
@@ -441,8 +477,13 @@ def test_reciprocal_confirmations_lock_the_lower_profile_first_without_deadlock(
             two = pool.submit(_worker, b_to_a, second_pids)
             one_pid = _pid(first_pids, one)
             two_pid = _pid(second_pids, two)
-            _assert_blocked(waiter=one_pid, holder=holder_pid, future=one)
-            _assert_blocked(waiter=two_pid, holder=holder_pid, future=two)
+            _assert_both_workers_blocked_directly_or_transitively(
+                first=one_pid,
+                second=two_pid,
+                holder=holder_pid,
+                first_future=one,
+                second_future=two,
+            )
             assert observed_first_profile_ids == []
         results = [one.result(timeout=_FUTURE_TIMEOUT), two.result(timeout=_FUTURE_TIMEOUT)]
 

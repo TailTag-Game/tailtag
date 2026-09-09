@@ -340,8 +340,16 @@ def _invalidate_target(scenario: Any, state: str) -> None:
         scenario.catch_session.end_reason = "owner"
         scenario.catch_session.save(update_fields=["ended_at", "end_reason", "updated_at"])
     elif state == "session_expired":
-        scenario.catch_session.expires_at = timezone.now() - datetime.timedelta(seconds=1)
-        scenario.catch_session.save(update_fields=["expires_at", "updated_at"])
+        observed_now = timezone.now()
+        scenario.catch_session.__class__.objects.filter(
+            pk=scenario.catch_session.pk
+        ).update(
+            started_at=observed_now - datetime.timedelta(seconds=2),
+            expires_at=observed_now - datetime.timedelta(seconds=1),
+            ended_at=None,
+            end_reason=None,
+            updated_at=observed_now,
+        )
     else:
         raise AssertionError(f"unknown target state: {state}")
 
