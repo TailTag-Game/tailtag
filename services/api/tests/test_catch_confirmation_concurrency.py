@@ -418,8 +418,8 @@ def test_named_duplicate_constraint_recovers_the_raw_competing_winner(
     """AC-14/15: reject string matching or broad IntegrityError duplicate recovery."""
     assert connection.vendor == "postgresql"
     scenario = create_catch_confirmation_scenario()
-    original_lookup = catch_services._find_existing_catch
-    original_insert = catch_services._insert_catch
+    original_lookup = catch_services._find_existing_catch  # pyright: ignore[reportPrivateUsage]
+    original_insert = catch_services._insert_catch  # pyright: ignore[reportPrivateUsage]
     insert_attempted = Event()
 
     def miss_existing_catch(

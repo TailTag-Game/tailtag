@@ -157,7 +157,7 @@ def test_confirm_catch_exposes_only_the_frozen_public_call_shape_and_results() -
     assert signature.parameters["user"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
     assert signature.parameters["payload"].kind is inspect.Parameter.KEYWORD_ONLY
     assert is_dataclass(CatchConfirmationResult)
-    assert CatchConfirmationResult.__dataclass_params__.frozen is True
+    assert cast(Any, CatchConfirmationResult).__dataclass_params__.frozen is True
     assert issubclass(CatchConfirmationStatus, StrEnum)
     assert set(CatchConfirmationStatus) == {
         CatchConfirmationStatus.CREATED,
