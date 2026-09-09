@@ -79,13 +79,21 @@ def confirm_catch(user: User, *, payload: str) -> CatchConfirmationResult:
 
     with transaction.atomic():
         profile_ids = sorted({catcher_id, target_owner_id})
-        profile_rows = list(
-            PlayerProfile.objects.select_for_update()
-            .filter(user_id__in=profile_ids)
-            .order_by("pk")
-        )
-        profiles = {profile.user_id: profile for profile in profile_rows}
-        _after_first_profile_lock(profile_ids[0])
+        profiles: dict[int, PlayerProfile] = {}
+        first_profile_locked = False
+        for profile_id in profile_ids:
+            profile = (
+                PlayerProfile.objects.select_for_update()
+                .filter(pk=profile_id)
+                .order_by("pk")
+                .first()
+            )
+            if profile is None:
+                continue
+            if not first_profile_locked:
+                _after_first_profile_lock(profile.pk)
+                first_profile_locked = True
+            profiles[profile.user_id] = profile
 
         convention = (
             Convention.objects.select_for_update().filter(pk=convention_id).first()
