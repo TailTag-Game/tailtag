@@ -1,0 +1,797 @@
+"""Acceptance contract for the sole authoritative Catch confirmation service."""
+
+from __future__ import annotations
+
+import datetime
+import inspect
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import is_dataclass
+from enum import StrEnum
+from queue import Empty, Queue
+from threading import Event
+from time import monotonic, sleep
+from typing import Any, cast
+from unittest.mock import patch
+
+import pytest
+from django.contrib.auth.models import AnonymousUser
+from django.db import IntegrityError, close_old_connections, connection, transaction
+from django.utils import timezone
+
+from accounts.models import User
+from catches import services as catch_services
+from catches.services import (
+    CatchActiveConventionMismatchError,
+    CatchAuthenticationError,
+    CatchConfirmationResult,
+    CatchConfirmationStatus,
+    CatchParticipationIneligibleError,
+    CatchSelfCatchError,
+    CatchTargetInvalidError,
+    confirm_catch,
+)
+from conventions.catch_credential_protocol import CATCH_CREDENTIAL_PAYLOAD_PREFIX
+from conventions.catch_credentials import CatchCredentialPayloadInvalidError
+from conventions.models import Convention, ConventionEnrollment, ConventionStatus
+from tests.authentication_support import create_test_user
+from tests.catch_credential_test_support import (
+    TOKEN_A,
+    TOKEN_B,
+    create_credential,
+    revoke_current_for,
+)
+from tests.catch_test_support import (
+    catch_model,
+    create_catch_confirmation_scenario,
+)
+from tests.fursuit_catch_session_test_support import (
+    catch_session_model,
+    create_catch_session,
+)
+
+
+def _catch_count() -> int:
+    return catch_model().objects.count()
+
+
+def _assert_no_catch() -> None:
+    assert _catch_count() == 0
+
+
+def _configure_worker() -> int:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT set_config('lock_timeout', '18000ms', false)")
+        cursor.execute("SELECT set_config('statement_timeout', '20000ms', false)")
+        cursor.execute("SELECT pg_backend_pid()")
+        row = cursor.fetchone()
+    assert row is not None
+    return int(row[0])
+
+
+def _confirmation_worker(
+    scenario: Any, backend_pids: Queue[int], clock_called: Event
+) -> object:
+    close_old_connections()
+    try:
+        backend_pids.put(_configure_worker())
+        real_now = timezone.now
+        with patch(
+            "catches.services.timezone.now",
+            side_effect=lambda: (clock_called.set(), real_now())[1],
+        ):
+            return confirm_catch(
+                User.objects.get(pk=scenario.catcher_user.pk), payload=scenario.payload
+            )
+    finally:
+        connection.close()
+
+
+def _wait_for_pid(queue: Queue[int], future: Future[object]) -> int:
+    deadline = monotonic() + 5.0
+    while monotonic() < deadline:
+        try:
+            return queue.get_nowait()
+        except Empty:
+            if future.done():
+                pytest.fail(
+                    f"worker completed before lock evidence: {future.result()!r}"
+                )
+            sleep(0.01)
+    pytest.fail("worker did not publish a PostgreSQL backend PID")
+
+
+def _assert_worker_blocked_by_session(
+    *, waiter_pid: int, holder_pid: int, future: Future[object]
+) -> None:
+    deadline = monotonic() + 5.0
+    while monotonic() < deadline:
+        if future.done():
+            pytest.fail(f"worker completed before lock evidence: {future.result()!r}")
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT %s = ANY(pg_blocking_pids(%s))", [holder_pid, waiter_pid]
+            )
+            row = cursor.fetchone()
+        assert row is not None
+        if bool(row[0]):
+            return
+        sleep(0.01)
+    pytest.fail(f"backend {waiter_pid} was not blocked behind held catch session")
+
+
+def _assert_concealed(error: CatchTargetInvalidError, scenario: Any) -> None:
+    """Reject accidental target, credential, and lifecycle disclosure."""
+    rendered = f"{error!s} {error!r}"
+    for secret in (
+        scenario.payload,
+        scenario.credential.token,
+        scenario.target_user.clerk_user_id,
+        str(scenario.target_user.pk),
+        "revoked",
+        "disabled",
+        "session",
+    ):
+        assert secret not in rendered
+
+
+@pytest.mark.django_db
+def test_confirm_catch_creates_the_exact_server_owned_catch() -> None:
+    """AC-01/11/12: reject a service that returns a preview or caller-owned record."""
+    scenario = create_catch_confirmation_scenario()
+
+    result = confirm_catch(scenario.catcher_user, payload=scenario.payload)
+
+    assert type(result) is CatchConfirmationResult
+    assert result.status is CatchConfirmationStatus.CREATED
+    assert result.status.value == "created"
+    assert result.catch.catcher_user_id == scenario.catcher_user.pk
+    assert result.catch.fursuit_id == scenario.fursuit.pk
+    assert result.catch.convention_id == scenario.convention.pk
+    assert result.catch.activation_id == scenario.activation.pk
+    assert result.catch.catch_session_id == scenario.catch_session.pk
+    assert result.catch.caught_at is not None
+    assert _catch_count() == 1
+
+
+def test_confirm_catch_exposes_only_the_frozen_public_call_shape_and_results() -> None:
+    """AC-01/11: reject client-supplied identity parameters or mutable result shapes."""
+    signature = inspect.signature(confirm_catch)
+    assert list(signature.parameters) == ["user", "payload"]
+    assert signature.parameters["user"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+    assert signature.parameters["payload"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert is_dataclass(CatchConfirmationResult)
+    assert cast(Any, CatchConfirmationResult).__dataclass_params__.frozen is True
+    assert issubclass(CatchConfirmationStatus, StrEnum)
+    assert set(CatchConfirmationStatus) == {
+        CatchConfirmationStatus.CREATED,
+        CatchConfirmationStatus.ALREADY_CAUGHT,
+    }
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("caller_kind", ["anonymous", "unsaved", "deleted", "foreign"])
+def test_confirm_catch_rejects_nonconcrete_callers_before_credential_discovery(
+    caller_kind: str,
+) -> None:
+    """AC-02: reject authentication shortcuts that resolve a credential first."""
+    scenario = create_catch_confirmation_scenario()
+    if caller_kind == "anonymous":
+        caller: object = AnonymousUser()
+    elif caller_kind == "unsaved":
+        caller = User(clerk_user_id="unsaved_catch_confirmation_user")
+    elif caller_kind == "deleted":
+        caller = create_test_user(clerk_user_id="deleted_catch_confirmation_user")
+        caller.delete()
+    else:
+        caller = cast(Any, object())
+
+    with pytest.raises(CatchAuthenticationError):
+        confirm_catch(cast(User, caller), payload=scenario.payload)
+    _assert_no_catch()
+
+
+@pytest.mark.django_db
+def test_confirm_catch_authentication_precedes_malformed_payload_parsing() -> None:
+    """AC-02/03: reject parsing credentials before rejecting a foreign caller."""
+    with pytest.raises(CatchAuthenticationError):
+        confirm_catch(cast(User, object()), payload=TOKEN_A)
+    _assert_no_catch()
+
+
+@pytest.mark.django_db
+def test_confirm_catch_distinguishes_a_real_user_without_profile_from_authentication() -> (
+    None
+):
+    """AC-02/06: reject treating an existing TailTag user as an auth failure."""
+    scenario = create_catch_confirmation_scenario()
+    profileless = create_test_user(clerk_user_id="profileless_catch_confirmation_user")
+
+    with pytest.raises(CatchParticipationIneligibleError):
+        confirm_catch(profileless, payload=scenario.payload)
+    _assert_no_catch()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "payload",
+    [
+        TOKEN_A,
+        f" {CATCH_CREDENTIAL_PAYLOAD_PREFIX}{TOKEN_A}",
+        f"tailtag:catch:v0:{TOKEN_A}",
+        f"{CATCH_CREDENTIAL_PAYLOAD_PREFIX}{TOKEN_A[:-1]}",
+        f"{CATCH_CREDENTIAL_PAYLOAD_PREFIX}{TOKEN_A}=",
+        f"{CATCH_CREDENTIAL_PAYLOAD_PREFIX}{TOKEN_A[:-1]}é",
+        f"{CATCH_CREDENTIAL_PAYLOAD_PREFIX}{TOKEN_A[:-1]}!",
+    ],
+)
+def test_confirm_catch_rejects_each_malformed_credential_payload_before_writes(
+    payload: str,
+) -> None:
+    """AC-03: reject permissive payload normalization or token parsing."""
+    scenario = create_catch_confirmation_scenario()
+
+    with pytest.raises(CatchCredentialPayloadInvalidError):
+        confirm_catch(scenario.catcher_user, payload=payload)
+    _assert_no_catch()
+
+
+@pytest.mark.django_db
+def test_confirm_catch_conceals_a_well_formed_unknown_token() -> None:
+    """AC-03/07: reject credential enumeration through target error details."""
+    scenario = create_catch_confirmation_scenario()
+    unknown = f"{CATCH_CREDENTIAL_PAYLOAD_PREFIX}{TOKEN_B}"
+
+    with pytest.raises(CatchTargetInvalidError) as captured:
+        confirm_catch(scenario.catcher_user, payload=unknown)
+    _assert_concealed(captured.value, scenario)
+    assert TOKEN_B not in f"{captured.value!s} {captured.value!r}"
+    _assert_no_catch()
+
+
+@pytest.mark.django_db
+def test_confirm_catch_requires_a_completed_catcher_profile() -> None:
+    """AC-06: reject partial or pre-lock-only catcher eligibility checks."""
+    scenario = create_catch_confirmation_scenario()
+    # The profile model constrains onboarding fields to change as a unit.
+    scenario.catcher_profile.__class__.objects.filter(
+        pk=scenario.catcher_profile.pk
+    ).update(handle=None, display_name=None, onboarding_completed_at=None)
+
+    with pytest.raises(CatchParticipationIneligibleError):
+        confirm_catch(scenario.catcher_user, payload=scenario.payload)
+    _assert_no_catch()
+
+
+@pytest.mark.django_db
+def test_confirm_catch_rejects_a_disabled_catcher_profile() -> None:
+    """AC-06: reject creation by an operator-disabled catcher."""
+    scenario = create_catch_confirmation_scenario()
+    scenario.catcher_profile.is_enabled = False
+    scenario.catcher_profile.save(update_fields=["is_enabled"])
+
+    with pytest.raises(CatchParticipationIneligibleError):
+        confirm_catch(scenario.catcher_user, payload=scenario.payload)
+    _assert_no_catch()
+
+
+@pytest.mark.django_db
+def test_confirm_catch_rejects_a_catcher_without_target_convention_enrollment() -> None:
+    """AC-06: reject a catcher who is eligible but not enrolled in the target convention."""
+    scenario = create_catch_confirmation_scenario()
+    scenario.catcher_enrollment.delete()
+
+    with pytest.raises(CatchParticipationIneligibleError):
+        confirm_catch(scenario.catcher_user, payload=scenario.payload)
+    _assert_no_catch()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("state", ["inactive", "other_active"])
+def test_confirm_catch_requires_the_target_convention_to_be_catcher_active(
+    state: str,
+) -> None:
+    """AC-06: reject use of a merely enrolled or differently active convention."""
+    scenario = create_catch_confirmation_scenario()
+    if state == "inactive":
+        ConventionEnrollment.objects.filter(pk=scenario.catcher_enrollment.pk).update(
+            is_active=False
+        )
+    else:
+        other = Convention.objects.create(
+            name="Catch Confirmation Other Convention",
+            status=ConventionStatus.ACTIVE,
+            start_date=datetime.date(2026, 8, 1),
+            end_date=datetime.date(2026, 8, 3),
+        )
+        ConventionEnrollment.objects.filter(pk=scenario.catcher_enrollment.pk).update(
+            is_active=False
+        )
+        ConventionEnrollment.objects.create(
+            user=scenario.catcher_user, convention=other, is_active=True
+        )
+
+    with pytest.raises(CatchActiveConventionMismatchError):
+        confirm_catch(scenario.catcher_user, payload=scenario.payload)
+    _assert_no_catch()
+
+
+def _invalidate_target(scenario: Any, state: str) -> None:
+    if state == "revoked_credential":
+        revoke_current_for(scenario.activation)
+    elif state == "revoked_with_replacement":
+        revoke_current_for(scenario.activation)
+        create_credential(activation=scenario.activation, token=TOKEN_B)
+    elif state == "target_profile_incomplete":
+        scenario.target_profile.__class__.objects.filter(
+            pk=scenario.target_profile.pk
+        ).update(handle=None, display_name=None, onboarding_completed_at=None)
+    elif state == "target_profile_disabled":
+        scenario.target_profile.is_enabled = False
+        scenario.target_profile.save(update_fields=["is_enabled"])
+    elif state == "target_enrollment_missing":
+        scenario.target_enrollment.delete()
+    elif state == "fursuit_disabled":
+        scenario.fursuit.is_enabled = False
+        scenario.fursuit.save(update_fields=["is_enabled"])
+    elif state == "convention_nonplayable":
+        scenario.convention.status = ConventionStatus.PAUSED
+        scenario.convention.save(update_fields=["status", "updated_at"])
+    elif state == "activation_inactive":
+        scenario.activation.is_active = False
+        scenario.activation.deactivated_at = timezone.now()
+        scenario.activation.save(
+            update_fields=["is_active", "deactivated_at", "updated_at"]
+        )
+    elif state == "session_missing":
+        scenario.catch_session.delete()
+    elif state == "session_stopped":
+        scenario.catch_session.ended_at = timezone.now()
+        scenario.catch_session.end_reason = "owner"
+        scenario.catch_session.save(
+            update_fields=["ended_at", "end_reason", "updated_at"]
+        )
+    elif state == "session_expired":
+        observed_now = timezone.now()
+        scenario.catch_session.__class__.objects.filter(
+            pk=scenario.catch_session.pk
+        ).update(
+            started_at=observed_now - datetime.timedelta(seconds=2),
+            expires_at=observed_now - datetime.timedelta(seconds=1),
+            ended_at=None,
+            end_reason=None,
+            updated_at=observed_now,
+        )
+    else:
+        raise AssertionError(f"unknown target state: {state}")
+
+
+def _invalidate_catcher(scenario: Any, state: str) -> None:
+    if state == "catcher_profile_disablement":
+        scenario.catcher_profile.is_enabled = False
+        scenario.catcher_profile.save(update_fields=["is_enabled"])
+    elif state == "catcher_enrollment_removal":
+        scenario.catcher_enrollment.delete()
+    elif state == "catcher_active_convention_clear":
+        ConventionEnrollment.objects.filter(pk=scenario.catcher_enrollment.pk).update(
+            is_active=False
+        )
+    else:
+        raise AssertionError(f"unknown catcher state: {state}")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "state",
+    [
+        "revoked_credential",
+        "revoked_with_replacement",
+        "target_profile_incomplete",
+        "target_profile_disabled",
+        "target_enrollment_missing",
+        "fursuit_disabled",
+        "convention_nonplayable",
+        "activation_inactive",
+        "session_missing",
+        "session_stopped",
+        "session_expired",
+    ],
+)
+def test_confirm_catch_conceals_each_current_target_ineligibility(state: str) -> None:
+    """AC-07/10: reject every stale target state without leaking why it failed."""
+    scenario = create_catch_confirmation_scenario(
+        catcher_clerk_user_id=f"target_state_catcher_{state}",
+        target_owner_clerk_user_id=f"target_state_target_{state}",
+    )
+    _invalidate_target(scenario, state)
+    before_session = (
+        catch_session_model()
+        .objects.filter(pk=scenario.catch_session.pk)
+        .values("ended_at", "end_reason", "updated_at")
+        .first()
+    )
+
+    with pytest.raises(CatchTargetInvalidError) as captured:
+        confirm_catch(scenario.catcher_user, payload=scenario.payload)
+    _assert_concealed(captured.value, scenario)
+    _assert_no_catch()
+    if state == "session_expired":
+        after_session = (
+            catch_session_model()
+            .objects.filter(pk=scenario.catch_session.pk)
+            .values("ended_at", "end_reason", "updated_at")
+            .first()
+        )
+        assert after_session == before_session
+        assert after_session is not None
+        assert after_session["ended_at"] is None
+        assert after_session["end_reason"] is None
+
+
+@pytest.mark.django_db
+def test_confirm_catch_rejects_an_otherwise_valid_self_catch_without_writing() -> None:
+    """AC-08: reject omitted or client-derived self-catch validation."""
+    scenario = create_catch_confirmation_scenario(self_catch=True)
+
+    with pytest.raises(CatchSelfCatchError):
+        confirm_catch(scenario.catcher_user, payload=scenario.payload)
+    _assert_no_catch()
+
+
+@pytest.mark.django_db
+def test_confirm_catch_reraises_an_unrelated_insert_integrity_error_and_rolls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-14: reject treating every IntegrityError as duplicate success."""
+    scenario = create_catch_confirmation_scenario()
+    original = IntegrityError("unrelated database failure")
+
+    def fail_insert(**_: object) -> object:
+        raise original
+
+    monkeypatch.setattr(catch_services, "_insert_catch", fail_insert)
+    with pytest.raises(IntegrityError) as captured:
+        confirm_catch(scenario.catcher_user, payload=scenario.payload)
+    assert captured.value is original
+    _assert_no_catch()
+
+
+@pytest.mark.django_db
+def test_confirm_catch_uses_structured_constraint_name_not_integrity_error_prose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-14: reject recovery when only error prose impersonates the constraint."""
+    scenario = create_catch_confirmation_scenario()
+    winner = catch_model().objects.create(
+        catcher_user=scenario.catcher_user,
+        fursuit=scenario.fursuit,
+        convention=scenario.convention,
+        activation=scenario.activation,
+        catch_session=scenario.catch_session,
+    )
+    original = IntegrityError(
+        "catches_catcher_fursuit_convention_unique appeared in unrelated prose"
+    )
+    original_lookup = catch_services._find_existing_catch  # pyright: ignore[reportPrivateUsage]
+    lookup_count = 0
+
+    class DifferentConstraintCause(Exception):
+        class diag:
+            constraint_name = "catches_a_different_constraint"
+
+    original.__cause__ = DifferentConstraintCause()
+
+    def hide_winner_until_uniqueness_recovery(
+        *, catcher_user_id: int, fursuit_id: int, convention_id: int
+    ) -> object:
+        nonlocal lookup_count
+        lookup_count += 1
+        if lookup_count < 3:
+            return None
+        return original_lookup(
+            catcher_user_id=catcher_user_id,
+            fursuit_id=fursuit_id,
+            convention_id=convention_id,
+        )
+
+    def fail_insert(**_: object) -> object:
+        raise original
+
+    monkeypatch.setattr(
+        catch_services, "_find_existing_catch", hide_winner_until_uniqueness_recovery
+    )
+    monkeypatch.setattr(catch_services, "_insert_catch", fail_insert)
+
+    with pytest.raises(IntegrityError) as captured:
+        confirm_catch(scenario.catcher_user, payload=scenario.payload)
+
+    assert captured.value is original
+    assert lookup_count == 2
+    assert catch_model().objects.get(pk=winner.pk) == winner
+
+
+@pytest.mark.django_db
+def test_confirm_catch_observably_uses_the_frozen_authoritative_lock_hierarchy() -> (
+    None
+):
+    """AC-09: reject reordered locks or Catch inspection before the final session lock."""
+    scenario = create_catch_confirmation_scenario()
+    statements: list[tuple[str, Any]] = []
+
+    def observe(
+        execute: Any, sql: str, params: Any, many: object, context: object
+    ) -> object:
+        statements.append((sql, params))
+        return execute(sql, params, many, context)
+
+    with connection.execute_wrapper(observe):
+        result = confirm_catch(scenario.catcher_user, payload=scenario.payload)
+
+    assert result.status is CatchConfirmationStatus.CREATED
+    table_order = (
+        "profiles_playerprofile",
+        "conventions_convention",
+        "conventions_conventionenrollment",
+        "fursuits_fursuit",
+        "conventions_fursuitactivation",
+        "conventions_fursuitcatchcredential",
+        "conventions_fursuitcatchsession",
+    )
+    locked: list[tuple[int, str, str, Any]] = []
+    catch_operations: list[tuple[int, str]] = []
+    for position, (sql, params) in enumerate(statements):
+        normalized = sql.casefold()
+        if "catches_catch" in normalized and (
+            normalized.lstrip().startswith("select")
+            or normalized.lstrip().startswith("insert")
+        ):
+            catch_operations.append((position, normalized))
+        if "for update" not in normalized:
+            continue
+        table = next((name for name in table_order if f'"{name}"' in normalized), None)
+        if table is not None:
+            locked.append((position, table, normalized, params))
+
+    assert [table for _, table, _, _ in locked] == [
+        "profiles_playerprofile",
+        "profiles_playerprofile",
+        *table_order[1:],
+    ]
+    assert [
+        params[0] for _, table, _, params in locked if table == "profiles_playerprofile"
+    ] == sorted((scenario.catcher_profile.pk, scenario.target_profile.pk))
+    enrollment_sql = next(
+        sql
+        for _, table, sql, _ in locked
+        if table == "conventions_conventionenrollment"
+    )
+    assert 'order by "conventions_conventionenrollment"."id" asc' in enrollment_sql
+    assert all(position < catch_operations[-1][0] for position, _, _, _ in locked)
+    assert len(catch_operations) == 3
+    assert catch_operations[0][0] < locked[0][0]
+    assert catch_operations[1][0] > locked[-1][0]
+    assert catch_operations[-1][1].lstrip().startswith("insert")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "staleness",
+    [
+        "credential_rotation",
+        "credential_revocation",
+        "session_stop",
+        "session_expiration",
+        "activation_deactivation",
+        "target_profile_disablement",
+        "target_enrollment_removal",
+        "fursuit_disablement",
+        "convention_nonplayable",
+        "catcher_profile_disablement",
+        "catcher_enrollment_removal",
+        "catcher_active_convention_clear",
+    ],
+)
+def test_confirm_catch_recovers_an_unchanged_durable_catch_after_target_staleness(
+    staleness: str,
+) -> None:
+    """AC-04/13: reject revalidation or provenance rewrites before duplicate recovery."""
+    scenario = create_catch_confirmation_scenario(
+        catcher_clerk_user_id=f"recovery_catcher_{staleness}",
+        target_owner_clerk_user_id=f"recovery_target_{staleness}",
+    )
+    first = confirm_catch(scenario.catcher_user, payload=scenario.payload)
+    original_row = catch_model().objects.values().get(pk=first.catch.pk)
+    target_state = {
+        "credential_rotation": "revoked_with_replacement",
+        "credential_revocation": "revoked_credential",
+        "session_stop": "session_stopped",
+        "session_expiration": "session_expired",
+        "activation_deactivation": "activation_inactive",
+        "target_profile_disablement": "target_profile_disabled",
+        "target_enrollment_removal": "target_enrollment_missing",
+        "fursuit_disablement": "fursuit_disabled",
+        "convention_nonplayable": "convention_nonplayable",
+    }.get(staleness)
+    if target_state is not None:
+        _invalidate_target(scenario, target_state)
+    else:
+        _invalidate_catcher(scenario, staleness)
+
+    repeated = confirm_catch(scenario.catcher_user, payload=scenario.payload)
+
+    assert repeated.status is CatchConfirmationStatus.ALREADY_CAUGHT
+    assert repeated.catch.pk == first.catch.pk
+    assert catch_model().objects.values().get(pk=first.catch.pk) == original_row
+
+
+@pytest.mark.django_db
+def test_confirm_catch_recovers_original_provenance_after_session_and_credential_replacement() -> (
+    None
+):
+    """AC-04/13: reject re-provenancing a retry through the current replacement state."""
+    scenario = create_catch_confirmation_scenario()
+    first = confirm_catch(scenario.catcher_user, payload=scenario.payload)
+    original = catch_model().objects.values().get(pk=first.catch.pk)
+
+    scenario.catch_session.ended_at = timezone.now()
+    scenario.catch_session.end_reason = "owner"
+    scenario.catch_session.save(update_fields=["ended_at", "end_reason", "updated_at"])
+    revoke_current_for(scenario.activation)
+    replacement_credential = create_credential(
+        activation=scenario.activation, token=TOKEN_B
+    )
+    replacement_session = create_catch_session(activation=scenario.activation)
+
+    replacement_payload = (
+        f"{CATCH_CREDENTIAL_PAYLOAD_PREFIX}{replacement_credential.token}"
+    )
+    repeated = confirm_catch(scenario.catcher_user, payload=replacement_payload)
+
+    assert replacement_credential.pk != scenario.credential.pk
+    assert replacement_session.pk != scenario.catch_session.pk
+    assert replacement_payload != scenario.payload
+    assert repeated.status is CatchConfirmationStatus.ALREADY_CAUGHT
+    assert repeated.catch.pk == first.catch.pk
+    assert catch_model().objects.values().get(pk=first.catch.pk) == original
+
+
+@pytest.mark.django_db
+def test_confirm_catch_never_recovers_another_callers_or_another_activation_catch() -> (
+    None
+):
+    """AC-05: reject unbound historical recovery by token alone."""
+    scenario = create_catch_confirmation_scenario()
+    other_catcher = create_test_user(clerk_user_id="other_catch_recovery_catcher")
+    other_activation = create_catch_confirmation_scenario(
+        catcher_clerk_user_id="other_activation_catcher",
+        target_owner_clerk_user_id="other_activation_target",
+        token=TOKEN_B,
+    )
+    catch_model().objects.create(
+        catcher_user=other_catcher,
+        fursuit=scenario.fursuit,
+        convention=scenario.convention,
+        activation=scenario.activation,
+        catch_session=scenario.catch_session,
+    )
+    catch_model().objects.create(
+        catcher_user=scenario.catcher_user,
+        fursuit=other_activation.fursuit,
+        convention=other_activation.convention,
+        activation=other_activation.activation,
+        catch_session=other_activation.catch_session,
+    )
+    revoke_current_for(scenario.activation)
+
+    with pytest.raises(CatchTargetInvalidError):
+        confirm_catch(scenario.catcher_user, payload=scenario.payload)
+    assert _catch_count() == 2
+
+
+@pytest.mark.django_db
+def test_confirm_catch_rejects_a_credential_rebound_after_historical_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-07/09: reject trusting discovery data after the locked re-read begins."""
+    scenario = create_catch_confirmation_scenario()
+    other = create_catch_confirmation_scenario(
+        catcher_clerk_user_id="rebound_other_catcher",
+        target_owner_clerk_user_id="rebound_other_target",
+        token=TOKEN_B,
+    )
+    revoke_current_for(other.activation)
+
+    def rebind_credential() -> None:
+        scenario.credential.__class__.objects.filter(pk=scenario.credential.pk).update(
+            activation_id=other.activation.pk
+        )
+
+    monkeypatch.setattr(
+        catch_services, "_after_historical_credential_discovery", rebind_credential
+    )
+    with pytest.raises(CatchTargetInvalidError):
+        confirm_catch(scenario.catcher_user, payload=scenario.payload)
+    _assert_no_catch()
+
+
+@pytest.mark.django_db
+def test_confirm_catch_rejects_session_expiring_at_serialized_now_without_mutation() -> (
+    None
+):
+    """AC-10: reject equality expiry without lazily ending the unended session."""
+    scenario = create_catch_confirmation_scenario()
+    captured_now = timezone.now()
+    scenario.catch_session.expires_at = captured_now
+    scenario.catch_session.save(update_fields=["expires_at", "updated_at"])
+    before = (
+        catch_session_model()
+        .objects.filter(pk=scenario.catch_session.pk)
+        .values("ended_at", "end_reason", "updated_at")
+        .get()
+    )
+
+    with (
+        patch("catches.services.timezone.now", return_value=captured_now),
+        pytest.raises(CatchTargetInvalidError),
+    ):
+        confirm_catch(scenario.catcher_user, payload=scenario.payload)
+
+    after = (
+        catch_session_model()
+        .objects.filter(pk=scenario.catch_session.pk)
+        .values("ended_at", "end_reason", "updated_at")
+        .get()
+    )
+    assert after == before
+    assert after["ended_at"] is None
+    assert after["end_reason"] is None
+    _assert_no_catch()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_confirm_catch_captures_time_only_after_its_authoritative_locks() -> None:
+    """AC-09/10: reject a clock read while the final locked session is unavailable."""
+    assert connection.vendor == "postgresql"
+    scenario = create_catch_confirmation_scenario()
+    backend_pids: Queue[int] = Queue()
+    clock_called = Event()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with transaction.atomic():
+            catch_session_model().objects.select_for_update().get(
+                pk=scenario.catch_session.pk
+            )
+            holder_pid = _configure_worker()
+            future = pool.submit(
+                _confirmation_worker, scenario, backend_pids, clock_called
+            )
+            waiter_pid = _wait_for_pid(backend_pids, future)
+            _assert_worker_blocked_by_session(
+                waiter_pid=waiter_pid, holder_pid=holder_pid, future=future
+            )
+            assert not clock_called.is_set()
+        result = future.result(timeout=25)
+
+    assert type(result) is CatchConfirmationResult
+    assert result.status is CatchConfirmationStatus.CREATED
+    assert clock_called.is_set()
+    assert _catch_count() == 1
+
+
+@pytest.mark.django_db
+def test_confirm_catch_accepts_a_session_strictly_after_serialized_now_with_exact_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-10/12: reject <= boundary mistakes or substituting activation/session rows."""
+    scenario = create_catch_confirmation_scenario()
+    captured_now = timezone.now()
+    scenario.catch_session.expires_at = captured_now + datetime.timedelta(
+        microseconds=1
+    )
+    scenario.catch_session.save(update_fields=["expires_at", "updated_at"])
+
+    with patch("catches.services.timezone.now", return_value=captured_now):
+        result = confirm_catch(scenario.catcher_user, payload=scenario.payload)
+
+    assert result.status is CatchConfirmationStatus.CREATED
+    assert result.catch.caught_at >= captured_now
+    assert result.catch.activation_id == scenario.activation.pk
+    assert result.catch.catch_session_id == scenario.catch_session.pk
