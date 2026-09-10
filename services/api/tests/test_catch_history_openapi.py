@@ -225,7 +225,7 @@ def test_catch_history_openapi_documents_closed_query_parameter_uniqueness() -> 
     parameters = cast(list[Mapping[str, Any]], operation["parameters"])
     responses = cast(Mapping[str, Any], operation["responses"])
     descriptions = [
-        cast(str, value)
+        value
         for value in (
             operation.get("description"),
             *(parameter.get("description") for parameter in parameters),
@@ -234,9 +234,34 @@ def test_catch_history_openapi_documents_closed_query_parameter_uniqueness() -> 
         if isinstance(value, str)
     ]
     documented = " ".join(descriptions).lower()
+    statements = [
+        " ".join(statement.split())
+        for description in descriptions
+        for statement in re.split(r"[.;!?]+", description.lower())
+        if statement.strip()
+    ]
+    one_value = r"(?:at most|only|one|single).{0,60}(?:once|each|value|occurrence)"
+    explicit_all_parameters = any(
+        all(name in statement for name in ("convention_id", "page", "page_size"))
+        and re.search(one_value, statement)
+        for statement in statements
+    )
+    generic_operation_coverage = re.search(
+        r"each.{0,40}(?:supported )?query parameter.{0,60}" + one_value,
+        cast(str, operation.get("description", "")).lower(),
+    )
+    parameter_specific_coverage = all(
+        any(
+            name in statement and re.search(one_value, statement)
+            for statement in statements
+        )
+        for name in ("convention_id", "page", "page_size")
+    )
 
-    assert re.search(
-        r"(?:at most|only|one|single).{0,60}(?:once|each|value|occurrence)", documented
+    assert (
+        explicit_all_parameters
+        or generic_operation_coverage
+        or parameter_specific_coverage
     )
     assert re.search(r"unknown.{0,60}(?:reject|invalid|400)", documented)
 

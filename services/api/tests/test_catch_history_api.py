@@ -46,6 +46,16 @@ SERVER_ERROR = {
     "detail": "An unexpected error occurred.",
 }
 
+_CATCH_DURABLE_FIELDS = (
+    "id",
+    "catcher_user_id",
+    "fursuit_id",
+    "convention_id",
+    "activation_id",
+    "catch_session_id",
+    "caught_at",
+)
+
 
 def _utc(second: int) -> datetime.datetime:
     return datetime.datetime(2026, 9, 10, 12, 0, second, tzinfo=datetime.UTC)
@@ -81,6 +91,14 @@ def _assert_scoped_link(
         "page": [str(page)],
         "page_size": [str(page_size)],
     }
+
+
+def _durable_catch_snapshot() -> list[dict[str, object]]:
+    """Snapshot every durable Catch field in stable primary-key order."""
+    return [
+        dict(row)
+        for row in catch_model().objects.order_by("pk").values(*_CATCH_DURABLE_FIELDS)
+    ]
 
 
 @pytest.mark.django_db
@@ -156,12 +174,12 @@ def test_catch_history_is_read_only(method: str) -> None:
     """AC-01/14: history reads cannot create, change, or delete Catch rows."""
     player = create_test_user()
     create_history_catch(catcher_user=player, ordinal=20)
-    before = catch_model().objects.count()
+    before = _durable_catch_snapshot()
 
     response = getattr(force_authenticated_client(user=player), method)(PATH)
 
     assert response.status_code == 405
-    assert catch_model().objects.count() == before
+    assert _durable_catch_snapshot() == before
 
 
 @pytest.mark.django_db
@@ -170,12 +188,12 @@ def test_catch_history_rejects_non_get_implicit_http_methods(method: str) -> Non
     """Final review: APIView's automatic HEAD/OPTIONS handlers are not allowed."""
     player = create_test_user()
     create_history_catch(catcher_user=player, ordinal=21)
-    before = catch_model().objects.count()
+    before = _durable_catch_snapshot()
 
     response = getattr(force_authenticated_client(user=player), method)(PATH)
 
     assert response.status_code == 405
-    assert catch_model().objects.count() == before
+    assert _durable_catch_snapshot() == before
 
 
 @pytest.mark.django_db
@@ -647,20 +665,8 @@ def test_catch_history_projects_only_the_approved_closed_fields() -> None:
 def test_catch_history_successful_numbers_are_json_integers_and_do_not_write() -> None:
     """Final review: read responses retain integer types and never mutate Catch rows."""
     player = create_test_user()
-    history = create_history_catch(catcher_user=player, ordinal=605)
-    before = list(
-        catch_model()
-        .objects.filter(pk=history.catch.pk)
-        .values(
-            "id",
-            "catcher_user_id",
-            "fursuit_id",
-            "convention_id",
-            "activation_id",
-            "catch_session_id",
-            "caught_at",
-        )
-    )
+    create_history_catch(catcher_user=player, ordinal=605)
+    before = _durable_catch_snapshot()
 
     with patch(
         "catches.serializers.media_service.read_image_url",
@@ -682,22 +688,7 @@ def test_catch_history_successful_numbers_are_json_integers_and_do_not_write() -
             convention["id"],
         )
     )
-    assert (
-        list(
-            catch_model()
-            .objects.filter(pk=history.catch.pk)
-            .values(
-                "id",
-                "catcher_user_id",
-                "fursuit_id",
-                "convention_id",
-                "activation_id",
-                "catch_session_id",
-                "caught_at",
-            )
-        )
-        == before
-    )
+    assert _durable_catch_snapshot() == before
 
 
 @pytest.mark.django_db
