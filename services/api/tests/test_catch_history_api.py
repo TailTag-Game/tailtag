@@ -56,7 +56,8 @@ def _response_data(response: Any) -> dict[str, object]:
 def _result_ids(data: dict[str, object]) -> list[int]:
     results = data["results"]
     assert isinstance(results, list)
-    return [cast(int, cast(dict[str, object], row)["id"]) for row in results]
+    rows = cast(list[object], results)
+    return [cast(int, cast(dict[str, object], row)["id"]) for row in rows]
 
 
 def _relative_url(uri: object) -> str:
@@ -533,9 +534,13 @@ def test_catch_history_generates_one_fresh_photo_url_per_result() -> None:
     returned_urls = iter(
         ("/api/media/images/fake-first", "/api/media/images/fake-second")
     )
+
+    def fake_read_image_url(_photo_key: str) -> str:
+        return next(returned_urls)
+
     with patch(
         "catches.serializers.media_service.read_image_url",
-        side_effect=lambda _photo_key: next(returned_urls),
+        side_effect=fake_read_image_url,
     ) as read_image_url:
         response = force_authenticated_client(user=player).get(PATH)
 
