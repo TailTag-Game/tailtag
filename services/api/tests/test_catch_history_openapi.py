@@ -106,32 +106,17 @@ def _assert_closed_object(
     return result
 
 
-def _documented_domain_codes(
-    response: Mapping[str, Any], error: Mapping[str, Any]
-) -> set[str]:
-    """Accept status-specific code enums or status-specific JSON examples."""
+def _documented_domain_codes(error: Mapping[str, Any]) -> set[str]:
+    """Require each status to close its public domain-code vocabulary."""
     code = _without_generator_presentation_metadata(
         cast(Mapping[str, Any], error["properties"])["code"]
     )
     enum = code.pop("enum", None)
     assert code == {"type": "string"}
-    if enum is not None:
-        enum_values = cast(list[object], enum)
-        assert isinstance(enum, list) and all(
-            isinstance(item, str) for item in enum_values
-        )
-        return set(cast(list[str], enum_values))
-
-    media_type = cast(Mapping[str, object], response["content"])["application/json"]
-    examples = cast(Mapping[str, object], media_type).get("examples")
-    assert isinstance(examples, Mapping)
-    codes: set[str] = set()
-    for example in cast(Mapping[str, object], examples).values():
-        value = cast(Mapping[str, Any], example)["value"]
-        code_value = cast(Mapping[str, Any], value)["code"]
-        assert isinstance(code_value, str)
-        codes.add(code_value)
-    return codes
+    assert isinstance(enum, list)
+    enum_values = cast(list[object], enum)
+    assert all(isinstance(item, str) for item in enum_values)
+    return set(cast(list[str], enum_values))
 
 
 def _assert_domain_error(
@@ -144,7 +129,7 @@ def _assert_domain_error(
     assert _without_generator_presentation_metadata(properties["detail"]) == {
         "type": "string"
     }
-    assert _documented_domain_codes(response, error) == codes
+    assert _documented_domain_codes(error) == codes
 
 
 @pytest.mark.django_db
@@ -153,10 +138,14 @@ def test_catch_history_openapi_has_one_closed_bearer_get_contract() -> None:
     schema = _load_schema()
     paths = cast(Mapping[str, Any], schema["paths"])
 
-    assert _HISTORY_PATH in paths
-    assert set(cast(Mapping[str, Any], paths[_HISTORY_PATH])) == {"get"}
-    assert _CONFIRMATION_PATH in paths
-    assert set(cast(Mapping[str, Any], paths[_CONFIRMATION_PATH])) == {"post"}
+    catch_paths = {
+        path: cast(Mapping[str, Any], path_item)
+        for path, path_item in paths.items()
+        if path.startswith(_HISTORY_PATH)
+    }
+    assert set(catch_paths) == {_HISTORY_PATH, _CONFIRMATION_PATH}
+    assert set(catch_paths[_HISTORY_PATH]) == {"get"}
+    assert set(catch_paths[_CONFIRMATION_PATH]) == {"post"}
     assert all("collection" not in path.lower() for path in paths)
 
     operation = _history_operation(schema)
@@ -178,6 +167,12 @@ def test_catch_history_openapi_documents_only_the_frozen_query_parameters() -> N
     """AC-02/AC-06/AC-08/AC-13: reject selectors or permissive pagination input."""
     operation = _history_operation(_load_schema())
     parameters = cast(list[Mapping[str, Any]], operation["parameters"])
+    parameter_locations = {
+        (cast(str, parameter["name"]), cast(str, parameter["in"]))
+        for parameter in parameters
+    }
+    assert len(parameters) == 3
+    assert len(parameter_locations) == 3
     by_name = {cast(str, parameter["name"]): parameter for parameter in parameters}
 
     assert set(by_name) == {"convention_id", "page", "page_size"}
@@ -347,21 +342,21 @@ def test_catch_history_openapi_documents_every_closed_response() -> None:
         authentication["properties"]["detail"]
     ) == {"type": "string"}
 
-    description_material = _serialized_operation_material(schema, operation).lower()
-    for required_description in (
-        "convention",
-        "not found",
-        "existing",
-        "empty",
-        "catch_count",
-        "total",
-        "before pagination",
-    ):
-        assert required_description in description_material
-    assert "-caught_at" in description_material and "-id" in description_material
+    operation_description = cast(str, operation["description"]).lower()
+    success_description = cast(str, responses["200"]["description"]).lower()
+    not_found_description = cast(str, responses["404"]["description"]).lower()
+    server_error_description = cast(str, responses["500"]["description"]).lower()
+
+    assert "nonexistent convention returns http 404" in not_found_description
     assert (
-        "photo" in description_material
-        and "sign" in description_material
-        and "whole request" in description_material
-        and "fail" in description_material
+        "existing convention with no matching catch rows returns http 200"
+        in success_description
+    )
+    assert (
+        "catch_count is the total number of matching catch rows before pagination"
+        in success_description
+    )
+    assert "ordered by -caught_at, -id" in operation_description
+    assert (
+        "photo url signing failure fails the whole request" in server_error_description
     )
