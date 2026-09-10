@@ -277,6 +277,35 @@ def test_catch_history_rejects_every_noncanonical_query(query: str) -> None:
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("parameter", "encoded_value"),
+    (
+        ("convention_id", "%2B1"),
+        ("convention_id", "%201"),
+        ("convention_id", "%D9%A1"),
+        ("page", "%2B1"),
+        ("page", "%201"),
+        ("page", "%D9%A1"),
+        ("page_size", "%2B1"),
+        ("page_size", "%201"),
+        ("page_size", "%D9%A1"),
+    ),
+)
+def test_catch_history_rejects_non_ascii_or_permissively_parsed_numeric_query(
+    parameter: str, encoded_value: str
+) -> None:
+    """AC-06: numeric input accepts only positive ASCII decimal digits."""
+    query = f"{parameter}={encoded_value}"
+    response = force_authenticated_client(user=create_test_user()).get(
+        f"{PATH}?{query}"
+    )
+
+    assert response.status_code == 400
+    assert response.json() == INVALID_QUERY
+    assert query not in response.content.decode()
+
+
+@pytest.mark.django_db
 def test_catch_history_orders_newest_first_with_descending_id_tie_breaker() -> None:
     """AC-07: ordering is server-owned and stable for matching timestamps."""
     player = create_test_user()
