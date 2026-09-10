@@ -148,6 +148,7 @@ def test_catch_history_returns_only_the_authenticated_players_rows() -> None:
         response = force_authenticated_client(user=player).get(PATH)
 
     assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-store"
     data = _response_data(response)
     assert data["catch_count"] == 2
     assert _result_ids(data) == [second.catch.pk, first.catch.pk]

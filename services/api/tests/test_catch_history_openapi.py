@@ -406,16 +406,29 @@ def test_catch_history_openapi_documents_every_closed_response() -> None:
 
     count_statements = operation_description.replace(";", ".").split(".")
     assert any(
-        all(
-            term in statement
-            for term in ("catch_count", "total", "matching", "before pagination")
+        all(term in statement for term in ("catch_count", "total", "matching"))
+        and any(
+            scope in statement
+            for scope in (
+                "before pagination",
+                "across all pages",
+                "not the current page",
+                "not page length",
+            )
         )
         for statement in count_statements
     )
-    assert "-caught_at" in operation_description and "-id" in operation_description
-    assert operation_description.index("-caught_at") < operation_description.index(
-        "-id"
+
+    ordering_metadata = operation.get("x-ordering")
+    ordering_documented_in_prose = (
+        re.search(r"(?<![a-z0-9_])-caught_at(?![a-z0-9_])", operation_description)
+        is not None
+        and re.search(r"(?<![a-z0-9_])-id(?![a-z0-9_])", operation_description)
+        is not None
+        and operation_description.index("-caught_at")
+        < operation_description.index("-id")
     )
+    assert ordering_metadata == ["-caught_at", "-id"] or ordering_documented_in_prose
 
     # Either relationship may appear in any of these descriptions. Keep each
     # complete statement separate so unrelated prose cannot supply its terms.

@@ -366,6 +366,7 @@ class CatchHistoryView(APIView):
                 response.data["previous"] = replace_query_param(
                     response.data["previous"], paginator.page_query_param, 1
                 )
+            response["Cache-Control"] = "no-store"
             return response
         except Exception:  # noqa: BLE001 - projection failures are sanitized.
             return _unexpected_history_error()
