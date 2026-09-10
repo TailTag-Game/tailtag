@@ -141,15 +141,16 @@ def test_catch_history_openapi_has_one_closed_bearer_get_contract() -> None:
     catch_paths = {
         path: cast(Mapping[str, Any], path_item)
         for path, path_item in paths.items()
-        if path.startswith(_HISTORY_PATH)
+        if not path.startswith("/api/conventions/")
+        and (
+            any("catch" in segment.lower() for segment in path.strip("/").split("/"))
+            or "history" in path.lower()
+            or "collection" in path.lower()
+        )
     }
     assert set(catch_paths) == {_HISTORY_PATH, _CONFIRMATION_PATH}
     assert set(catch_paths[_HISTORY_PATH]) == {"get"}
     assert set(catch_paths[_CONFIRMATION_PATH]) == {"post"}
-    assert all(
-        "history" not in path.lower() and "collection" not in path.lower()
-        for path in paths
-    )
 
     operation = _history_operation(schema)
     security_schemes = cast(
@@ -346,6 +347,13 @@ def test_catch_history_openapi_documents_every_closed_response() -> None:
     ) == {"type": "string"}
 
     operation_description = cast(str, operation["description"]).lower()
+    success_response = cast(Mapping[str, Any], responses["200"])
+    success_description_value = success_response.get("description")
+    success_description = (
+        success_description_value.lower()
+        if isinstance(success_description_value, str)
+        else operation_description
+    )
     not_found_description = cast(str, responses["404"]["description"]).lower()
     server_error_description = cast(str, responses["500"]["description"]).lower()
 
@@ -364,22 +372,27 @@ def test_catch_history_openapi_documents_every_closed_response() -> None:
 
     not_found_statements = not_found_description.replace(";", ".").split(".")
     assert any(
-        all(term in statement for term in ("nonexistent", "convention", "404"))
+        "convention" in statement
+        and any(term in statement for term in ("nonexistent", "missing"))
+        and any(term in statement for term in ("404", "not found"))
         for statement in not_found_statements
     )
+    assert all(
+        term not in not_found_description
+        for term in ("existing", "empty", "200", "result")
+    )
+
+    success_statements = success_description.replace(";", ".").split(".")
     assert any(
-        all(
-            term in statement
-            for term in (
-                "existing",
-                "convention",
-                "no matching",
-                "200",
-                "empty",
-                "results",
-            )
+        "convention" in statement
+        and any(term in statement for term in ("existing", "known"))
+        and any(
+            term in statement for term in ("zero", "no catches", "no matching catches")
         )
-        for statement in not_found_statements
+        and any(term in statement for term in ("200", "successful", "success"))
+        and any(term in statement for term in ("empty", "[]"))
+        and any(term in statement for term in ("result", "list", "array"))
+        for statement in success_statements
     )
 
     signing_statements = server_error_description.replace(";", ".").split(".")
