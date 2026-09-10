@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from typing import Any, cast
 
@@ -350,9 +351,7 @@ def test_catch_history_openapi_documents_every_closed_response() -> None:
     success_response = cast(Mapping[str, Any], responses["200"])
     success_description_value = success_response.get("description")
     success_description = (
-        success_description_value.lower()
-        if isinstance(success_description_value, str)
-        else operation_description
+        success_description_value if isinstance(success_description_value, str) else ""
     )
     not_found_description = cast(str, responses["404"]["description"]).lower()
     server_error_description = cast(str, responses["500"]["description"]).lower()
@@ -370,29 +369,44 @@ def test_catch_history_openapi_documents_every_closed_response() -> None:
         "-id"
     )
 
-    not_found_statements = not_found_description.replace(";", ".").split(".")
-    assert any(
-        "convention" in statement
-        and any(term in statement for term in ("nonexistent", "missing"))
-        and any(term in statement for term in ("404", "not found"))
-        for statement in not_found_statements
+    # Match relationships within a statement, in either subject/outcome order.
+    # The operation may supplement either response's generated description, and
+    # either response may explain the distinction by contrasting both cases.
+    statement = r"[^.;!?]*"
+    missing_convention = (
+        r"\b(?:missing|non[ -]?existent)\b[^.;!?]*\bconvention\b"
+        r"|\bconvention\b[^.;!?]*\b(?:does\s+not|doesn't)\s+exist\b"
+        r"|\bconvention\b[^.;!?]*\b(?:missing|not[ _-]+found)\b"
     )
-    assert all(
-        term not in not_found_description
-        for term in ("existing", "empty", "200", "result")
+    assert any(
+        re.search(
+            rf"(?={statement}(?:{missing_convention}))"
+            rf"(?={statement}\b(?:404|not[ _-]+found)\b)",
+            description,
+            flags=re.IGNORECASE,
+        )
+        for description in (not_found_description, operation_description)
     )
 
-    success_statements = success_description.replace(";", ".").split(".")
+    existing_convention = (
+        r"\b(?:existing|known)\b[^.;!?]*\bconvention\b"
+        r"|\bconvention\b[^.;!?]*\bexists?\b"
+    )
+    no_catches = r"\b(?:no|zero|0)\b[^.;!?]*\bcatch(?:es)?\b"
+    empty_results = (
+        r"\bempty\b[^.;!?]*\b(?:results?|list|array)\b"
+        r"|\bresults?\b[^.;!?]*(?:\bempty\b|\[\s*\])"
+    )
     assert any(
-        "convention" in statement
-        and any(term in statement for term in ("existing", "known"))
-        and any(
-            term in statement for term in ("zero", "no catches", "no matching catches")
+        re.search(
+            rf"(?={statement}(?:{existing_convention}))"
+            rf"(?={statement}{no_catches})"
+            rf"(?={statement}\b(?:200|success\w*)\b)"
+            rf"(?={statement}(?:{empty_results}))",
+            description,
+            flags=re.IGNORECASE,
         )
-        and any(term in statement for term in ("200", "successful", "success"))
-        and any(term in statement for term in ("empty", "[]"))
-        and any(term in statement for term in ("result", "list", "array"))
-        for statement in success_statements
+        for description in (success_description, operation_description)
     )
 
     signing_statements = server_error_description.replace(";", ".").split(".")
