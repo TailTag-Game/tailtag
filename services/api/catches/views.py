@@ -319,13 +319,6 @@ class CatchHistoryView(APIView):
                 "The convention was not found.",
                 status.HTTP_404_NOT_FOUND,
             )
-        if query.page_is_out_of_range:
-            return _domain_error(
-                "invalid_page",
-                "The requested page does not exist.",
-                status.HTTP_404_NOT_FOUND,
-            )
-
         try:
             catches = (
                 Catch.objects.filter(catcher_user=_user(request))
@@ -342,6 +335,13 @@ class CatchHistoryView(APIView):
                 catches = catches.filter(convention_id=query.convention_id)
         except Exception:  # noqa: BLE001 - database failures are sanitized.
             return _unexpected_history_error()
+
+        if query.page_is_out_of_range:
+            return _domain_error(
+                "invalid_page",
+                "The requested page does not exist.",
+                status.HTTP_404_NOT_FOUND,
+            )
 
         try:
             paginator = CatchHistoryPagination(
