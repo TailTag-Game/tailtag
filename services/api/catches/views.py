@@ -1,8 +1,9 @@
-"""Authenticated HTTP boundary for the authoritative catch confirmation service."""
+"""Authenticated HTTP boundaries for catch confirmation and player catch history."""
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from typing import Any, Literal, cast
 
 from drf_spectacular.utils import (  # pyright: ignore[reportUnknownVariableType]
@@ -14,15 +15,23 @@ from rest_framework import status
 from rest_framework.exceptions import (
     APIException,
     ErrorDetail,
+    NotAcceptable,
     NotAuthenticated,
     NotFound,
     ParseError,
     UnsupportedMediaType,
 )
+from rest_framework.negotiation import DefaultContentNegotiation
 from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.utils.mediatypes import (
+    _MediaType,  # pyright: ignore[reportPrivateUsage]
+    media_type_matches,
+    order_by_precedence,
+)
 from rest_framework.utils.urls import replace_query_param
 from rest_framework.views import APIView
 
@@ -129,6 +138,45 @@ _CATCH_HISTORY_OPENAPI_RESPONSES: dict[int, OpenApiResponse] = {
 }
 
 
+class _CatchHistoryContentNegotiation(DefaultContentNegotiation):
+    """Keep DRF's normal negotiation while reserving every query key for history."""
+
+    def select_renderer(
+        self,
+        request: Request,
+        renderers: Iterable[BaseRenderer],
+        format_suffix: str | None = None,
+    ) -> tuple[BaseRenderer, str]:
+        """Do not let DRF's ``format`` query override bypass closed validation."""
+        available_renderers = list(renderers)
+        if format_suffix:
+            available_renderers = self.filter_renderers(
+                available_renderers, format_suffix
+            )
+
+        accepts = self.get_accept_list(request)
+        for media_type_set in order_by_precedence(accepts):
+            for renderer in available_renderers:
+                for media_type in media_type_set:
+                    if media_type_matches(renderer.media_type, media_type):
+                        media_type_wrapper = _MediaType(media_type)
+                        if (
+                            _MediaType(renderer.media_type).precedence
+                            > media_type_wrapper.precedence
+                        ):
+                            full_media_type = ";".join(
+                                (renderer.media_type,)
+                                + tuple(
+                                    f"{key}={value}"
+                                    for key, value in media_type_wrapper.params.items()
+                                )
+                            )
+                            return renderer, full_media_type
+                        return renderer, media_type
+
+        raise NotAcceptable(available_renderers=available_renderers)
+
+
 class CatchConfirmationView(APIView):
     """Delegate one opaque credential to the sole catch-write authority."""
 
@@ -204,6 +252,8 @@ class CatchHistoryView(APIView):
     """Return the authenticated player's closed, paginated Catch history."""
 
     permission_classes = (IsAuthenticated,)
+    http_method_names = ("get",)
+    content_negotiation_class = _CatchHistoryContentNegotiation
 
     @extend_schema(
         operation_id="catch_history_list",
@@ -247,7 +297,8 @@ class CatchHistoryView(APIView):
         description=(
             "Returns only the authenticated player's Catch history ordered by "
             "-caught_at then -id. catch_count is the total number of matching Catch "
-            "rows before pagination."
+            "rows before pagination. Each supported query parameter may appear at "
+            "most once; unknown query parameters are rejected."
         ),
     )
     def get(self, request: Request) -> Response:
@@ -261,6 +312,19 @@ class CatchHistoryView(APIView):
             )
         except Exception:  # noqa: BLE001 - parsing failures are sanitized.
             return _unexpected_history_error()
+
+        if query.convention_id_is_out_of_range:
+            return _domain_error(
+                "convention_not_found",
+                "The convention was not found.",
+                status.HTTP_404_NOT_FOUND,
+            )
+        if query.page_is_out_of_range:
+            return _domain_error(
+                "invalid_page",
+                "The requested page does not exist.",
+                status.HTTP_404_NOT_FOUND,
+            )
 
         try:
             catches = (
@@ -280,8 +344,9 @@ class CatchHistoryView(APIView):
             return _unexpected_history_error()
 
         try:
-            paginator = CatchHistoryPagination()
-            paginator.page_size = query.page_size
+            paginator = CatchHistoryPagination(
+                page_number=query.page, page_size=query.page_size
+            )
             page = paginator.paginate_queryset(catches, request, view=self)
             if page is None:
                 return _unexpected_history_error()

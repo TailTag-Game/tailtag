@@ -1,11 +1,11 @@
-"""Closed request and response serialization for catch confirmation."""
+"""Closed request and response serialization for catch confirmation and history."""
 
 from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC
-from typing import TypedDict, cast
+from typing import TypedDict
 
 from drf_spectacular.extensions import OpenApiSerializerExtension
 from rest_framework import serializers
@@ -236,7 +236,9 @@ class CatchHistoryQuery:
     """Canonical query values for player catch history."""
 
     convention_id: int | None
+    convention_id_is_out_of_range: bool
     page: int
+    page_is_out_of_range: bool
     page_size: int
 
 
@@ -269,24 +271,50 @@ def parse_catch_history_query(request: Request) -> CatchHistoryQuery:
     if set(values) - allowed or any(len(items) != 1 for items in values.values()):
         raise CatchHistoryQueryError
 
-    def positive(
-        name: str, *, default: int | None = None, maximum: int | None = None
-    ) -> int | None:
+    def positive_digits(name: str) -> str | None:
         items = values.get(name)
         if items is None:
-            return default
+            return None
         raw = items[0]
         if not raw.isascii() or not raw.isdigit():
             raise CatchHistoryQueryError
-        parsed = int(raw)
-        if parsed < 1 or (maximum is not None and parsed > maximum):
+        digits = raw.lstrip("0")
+        if not digits:
             raise CatchHistoryQueryError
-        return parsed
+        return digits
+
+    def bounded_integer(digits: str, maximum: int) -> int | None:
+        """Return a safe integer or None when decimal digits exceed its bound."""
+        maximum_digits = str(maximum)
+        if len(digits) > len(maximum_digits) or (
+            len(digits) == len(maximum_digits) and digits > maximum_digits
+        ):
+            return None
+        return int(digits)
+
+    convention_digits = positive_digits("convention_id")
+    convention_id = (
+        bounded_integer(convention_digits, (1 << 63) - 1)
+        if convention_digits is not None
+        else None
+    )
+    page_digits = positive_digits("page")
+    page = bounded_integer(page_digits, (1 << 63) - 1) if page_digits is not None else 1
+    page_size_digits = positive_digits("page_size")
+    page_size = (
+        bounded_integer(page_size_digits, 100) if page_size_digits is not None else 20
+    )
+    if page_size is None:
+        raise CatchHistoryQueryError
 
     return CatchHistoryQuery(
-        convention_id=positive("convention_id"),
-        page=cast(int, positive("page", default=1)),
-        page_size=cast(int, positive("page_size", default=20, maximum=100)),
+        convention_id=convention_id,
+        convention_id_is_out_of_range=(
+            convention_digits is not None and convention_id is None
+        ),
+        page=page if page is not None else 1,
+        page_is_out_of_range=page_digits is not None and page is None,
+        page_size=page_size,
     )
 
 
