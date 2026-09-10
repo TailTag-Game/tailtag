@@ -219,6 +219,29 @@ def test_catch_history_openapi_documents_only_the_frozen_query_parameters() -> N
 
 
 @pytest.mark.django_db
+def test_catch_history_openapi_documents_closed_query_parameter_uniqueness() -> None:
+    """Final review: prose commits to one value each and rejects unknown input."""
+    operation = _history_operation(_load_schema())
+    parameters = cast(list[Mapping[str, Any]], operation["parameters"])
+    responses = cast(Mapping[str, Any], operation["responses"])
+    descriptions = [
+        cast(str, value)
+        for value in (
+            operation.get("description"),
+            *(parameter.get("description") for parameter in parameters),
+            cast(Mapping[str, Any], responses["400"]).get("description"),
+        )
+        if isinstance(value, str)
+    ]
+    documented = " ".join(descriptions).lower()
+
+    assert re.search(
+        r"(?:at most|only|one|single).{0,60}(?:once|each|value|occurrence)", documented
+    )
+    assert re.search(r"unknown.{0,60}(?:reject|invalid|400)", documented)
+
+
+@pytest.mark.django_db
 def test_catch_history_openapi_has_the_exact_closed_success_projection() -> None:
     """AC-09/AC-10/AC-13: reject open, unsafe, mutable, or expanded projections."""
     schema = _load_schema()

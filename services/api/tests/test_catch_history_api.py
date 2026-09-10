@@ -15,7 +15,11 @@ from django.db import connection
 from django.test import Client
 from django.test.utils import CaptureQueriesContext
 
-from conventions.models import Convention, ConventionStatus
+from conventions.models import (
+    Convention,
+    ConventionStatus,
+    FursuitCatchSessionEndReason,
+)
 from tests.authentication_support import (
     create_test_user,
     fake_clerk_session_verification,
@@ -161,6 +165,20 @@ def test_catch_history_is_read_only(method: str) -> None:
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("method", ("head", "options"))
+def test_catch_history_rejects_non_get_implicit_http_methods(method: str) -> None:
+    """Final review: APIView's automatic HEAD/OPTIONS handlers are not allowed."""
+    player = create_test_user()
+    create_history_catch(catcher_user=player, ordinal=21)
+    before = catch_model().objects.count()
+
+    response = getattr(force_authenticated_client(user=player), method)(PATH)
+
+    assert response.status_code == 405
+    assert catch_model().objects.count() == before
+
+
+@pytest.mark.django_db
 def test_catch_history_reports_all_time_matching_count() -> None:
     """AC-03: all-time count is the owner-scoped total, not page length."""
     player = create_test_user()
@@ -279,6 +297,28 @@ def test_catch_history_rejects_every_noncanonical_query(query: str) -> None:
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
+    "query",
+    (
+        "format=csv",
+        "format=xml",
+        "format=csv&unknown=1",
+        "format=xml&page=0",
+    ),
+)
+def test_catch_history_does_not_allow_format_to_bypass_closed_query_validation(
+    query: str,
+) -> None:
+    """Final review: renderer-format input is still closed endpoint input."""
+    response = force_authenticated_client(user=create_test_user()).get(
+        f"{PATH}?{query}"
+    )
+
+    assert response.status_code == 400
+    assert response.json() == INVALID_QUERY
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
     ("parameter", "encoded_value"),
     (
         ("convention_id", "%2B1"),
@@ -304,6 +344,54 @@ def test_catch_history_rejects_non_ascii_or_permissively_parsed_numeric_query(
     assert response.status_code == 400
     assert response.json() == INVALID_QUERY
     assert query not in response.content.decode()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("parameter", ("convention_id", "page", "page_size"))
+def test_catch_history_accepts_arbitrarily_long_leading_zero_small_values(
+    parameter: str,
+) -> None:
+    """Final review: positive decimal grammar preserves leading-zero semantics."""
+    player = create_test_user()
+    history = create_history_catch(catcher_user=player, ordinal=48)
+    small_value = f"{'0' * 5000}1"
+    query = {parameter: small_value}
+    if parameter == "convention_id":
+        query[parameter] = f"{'0' * 5000}{history.convention.pk}"
+
+    with patch(
+        "catches.serializers.media_service.read_image_url",
+        return_value="/api/media/images/fake-read",
+    ):
+        response = force_authenticated_client(user=player).get(PATH, query)
+
+    assert response.status_code == 200
+    data = _response_data(response)
+    assert data["catch_count"] == 1
+    assert _result_ids(data) == [history.catch.pk]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("parameter", "expected_status", "expected_body"),
+    (
+        ("convention_id", 404, CONVENTION_NOT_FOUND),
+        ("page", 404, INVALID_PAGE),
+        ("page_size", 400, INVALID_QUERY),
+    ),
+)
+def test_catch_history_handles_arbitrarily_long_positive_decimal_values(
+    parameter: str, expected_status: int, expected_body: dict[str, str]
+) -> None:
+    """Final review: huge positive values use their frozen public outcomes."""
+    huge_value = "9" * 5000
+
+    response = force_authenticated_client(user=create_test_user()).get(
+        PATH, {parameter: huge_value}
+    )
+
+    assert response.status_code == expected_status
+    assert response.json() == expected_body
 
 
 @pytest.mark.django_db
@@ -470,6 +558,36 @@ def test_catch_history_accepts_the_first_page_of_an_empty_scope() -> None:
 
 
 @pytest.mark.django_db
+def test_catch_history_rejects_second_page_of_an_empty_scope() -> None:
+    """Final review: only page one is valid when the filtered scope is empty."""
+    player = create_test_user()
+    empty = Convention.objects.create(
+        name="Catch History Empty Second Page Convention",
+        status=ConventionStatus.ACTIVE,
+        start_date=datetime.date(2026, 7, 2),
+        end_date=datetime.date(2026, 7, 5),
+    )
+
+    response = force_authenticated_client(user=player).get(
+        PATH, {"convention_id": empty.pk, "page": 2}
+    )
+
+    assert response.status_code == 404
+    assert response.json() == INVALID_PAGE
+
+
+@pytest.mark.django_db
+def test_catch_history_rejects_client_selected_ordering() -> None:
+    """Final review: ordering remains wholly server-owned."""
+    response = force_authenticated_client(user=create_test_user()).get(
+        PATH, {"ordering": "caught_at"}
+    )
+
+    assert response.status_code == 400
+    assert response.json() == INVALID_QUERY
+
+
+@pytest.mark.django_db
 def test_catch_history_projects_only_the_approved_closed_fields() -> None:
     """AC-09/10: the response is an exact safe projection of durable Catch data."""
     player = create_test_user()
@@ -523,6 +641,95 @@ def test_catch_history_projects_only_the_approved_closed_fields() -> None:
         "denominator",
     ):
         assert forbidden not in serialized
+
+
+@pytest.mark.django_db
+def test_catch_history_successful_numbers_are_json_integers_and_do_not_write() -> None:
+    """Final review: read responses retain integer types and never mutate Catch rows."""
+    player = create_test_user()
+    history = create_history_catch(catcher_user=player, ordinal=605)
+    before = list(
+        catch_model()
+        .objects.filter(pk=history.catch.pk)
+        .values(
+            "id",
+            "catcher_user_id",
+            "fursuit_id",
+            "convention_id",
+            "activation_id",
+            "catch_session_id",
+            "caught_at",
+        )
+    )
+
+    with patch(
+        "catches.serializers.media_service.read_image_url",
+        return_value="/api/media/images/fake-read",
+    ):
+        response = force_authenticated_client(user=player).get(PATH)
+
+    assert response.status_code == 200
+    data = _response_data(response)
+    result = cast(dict[str, object], cast(list[object], data["results"])[0])
+    fursuit = cast(dict[str, object], result["fursuit"])
+    convention = cast(dict[str, object], result["convention"])
+    assert all(
+        isinstance(value, int) and not isinstance(value, bool)
+        for value in (
+            data["catch_count"],
+            result["id"],
+            fursuit["id"],
+            convention["id"],
+        )
+    )
+    assert (
+        list(
+            catch_model()
+            .objects.filter(pk=history.catch.pk)
+            .values(
+                "id",
+                "catcher_user_id",
+                "fursuit_id",
+                "convention_id",
+                "activation_id",
+                "catch_session_id",
+                "caught_at",
+            )
+        )
+        == before
+    )
+
+
+@pytest.mark.django_db
+def test_catch_history_reads_historical_rows_after_current_state_changes() -> None:
+    """Final review: reading durable history ignores present gameplay eligibility."""
+    player = create_test_user()
+    history = create_history_catch(catcher_user=player, ordinal=606)
+    history.convention.status = ConventionStatus.COMPLETED
+    history.convention.save(update_fields=["status"])
+    history.fursuit.is_enabled = False
+    history.fursuit.save(update_fields=["is_enabled"])
+    activation = history.catch.activation
+    activation.is_active = False
+    activation.deactivated_at = _utc(4)
+    activation.save(update_fields=["is_active", "deactivated_at"])
+    catch_session = history.catch.catch_session
+    catch_session.ended_at = catch_session.started_at + datetime.timedelta(seconds=1)
+    catch_session.end_reason = FursuitCatchSessionEndReason.OWNER
+    catch_session.save(update_fields=["ended_at", "end_reason"])
+
+    with patch(
+        "catches.serializers.media_service.read_image_url",
+        return_value="/api/media/images/fake-read",
+    ):
+        response = force_authenticated_client(user=player).get(
+            PATH, {"convention_id": history.convention.pk}
+        )
+
+    assert response.status_code == 200
+    data = _response_data(response)
+    assert data["catch_count"] == 1
+    assert _result_ids(data) == [history.catch.pk]
 
 
 @pytest.mark.django_db
@@ -611,6 +818,75 @@ def test_catch_history_sanitizes_photo_url_generation_failure(
 
 
 @pytest.mark.django_db
+def test_catch_history_second_signing_failure_is_sanitized_and_retries_next_request(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Final review: a later-row signing error cannot leak a partial page or extras."""
+    player = create_test_user()
+    older = create_history_catch(catcher_user=player, ordinal=630, caught_at=_utc(1))
+    newer = create_history_catch(catcher_user=player, ordinal=631, caught_at=_utc(2))
+    signed_url = "https://media.example.test/read?signature=second-row-secret"
+    diagnostic = (
+        f"photo_key={older.fursuit.photo_key}; url={signed_url}; "
+        f"user_id={player.pk}; catch_id={older.catch.pk}; "
+        f"fursuit_id={older.fursuit.pk}; convention_id={older.convention.pk}"
+    )
+    with (
+        caplog.at_level(logging.ERROR, logger="catches.views"),
+        patch(
+            "catches.serializers.media_service.read_image_url",
+            side_effect=(
+                "/api/media/images/first-request-first-row",
+                RuntimeError(diagnostic),
+                "/api/media/images/retry-first-row",
+                "/api/media/images/retry-second-row",
+            ),
+        ) as read_image_url,
+    ):
+        client = force_authenticated_client(user=player)
+        failed = client.get(PATH)
+        retried = client.get(PATH)
+
+    assert failed.status_code == 500
+    assert failed.json() == SERVER_ERROR
+    assert retried.status_code == 200
+    assert _result_ids(_response_data(retried)) == [newer.catch.pk, older.catch.pk]
+    assert read_image_url.call_args_list == [
+        call(newer.fursuit.photo_key),
+        call(older.fursuit.photo_key),
+        call(newer.fursuit.photo_key),
+        call(older.fursuit.photo_key),
+    ]
+    records = [record for record in caplog.records if record.name == "catches.views"]
+    assert len(records) == 1
+    record = records[0]
+    assert record.args == ()
+    assert record.exc_info is None
+    assert {
+        "user_id",
+        "catch_id",
+        "fursuit_id",
+        "convention_id",
+        "photo_key",
+        "url",
+        "query",
+        "exception",
+    }.isdisjoint(record.__dict__)
+    log_material = (caplog.text, repr(record.__dict__), record.getMessage())
+    for sensitive_value in (
+        diagnostic,
+        signed_url,
+        "second-row-secret",
+        older.fursuit.photo_key,
+        str(player.pk),
+        str(older.catch.pk),
+        str(older.fursuit.pk),
+        str(older.convention.pk),
+    ):
+        assert all(sensitive_value not in material for material in log_material)
+
+
+@pytest.mark.django_db
 def test_catch_history_database_queries_do_not_grow_with_page_occupancy() -> None:
     """AC-12: serialization eagerly loads fursuit and Convention for each page."""
     player = create_test_user()
@@ -647,3 +923,10 @@ def test_catch_history_database_queries_do_not_grow_with_page_occupancy() -> Non
         'join "fursuits_fursuit"' in query and 'join "conventions_convention"' in query
         for query in page_queries
     )
+    matching_count_queries = [
+        query["sql"].lower()
+        for query in many_queries.captured_queries
+        if 'from "catches_catch"' in query["sql"].lower()
+        and "count(" in query["sql"].lower()
+    ]
+    assert len(matching_count_queries) == 1
