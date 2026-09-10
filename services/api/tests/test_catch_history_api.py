@@ -413,6 +413,37 @@ def test_catch_history_handles_arbitrarily_long_positive_decimal_values(
 
 
 @pytest.mark.django_db
+def test_catch_history_resolves_convention_existence_before_huge_page_validation() -> (
+    None
+):
+    """Final review: a valid Convention selector takes precedence over page range."""
+    player = create_test_user()
+    existing = Convention.objects.create(
+        name="Catch History Precedence Convention",
+        status=ConventionStatus.ACTIVE,
+        start_date=datetime.date(2026, 7, 2),
+        end_date=datetime.date(2026, 7, 5),
+    )
+    missing_id = existing.pk + 1
+    while Convention.objects.filter(pk=missing_id).exists():
+        missing_id += 1
+    huge_page = "9" * 5000
+    client = force_authenticated_client(user=player)
+
+    missing_convention = client.get(
+        PATH, {"convention_id": missing_id, "page": huge_page}
+    )
+    existing_convention = client.get(
+        PATH, {"convention_id": existing.pk, "page": huge_page}
+    )
+
+    assert missing_convention.status_code == 404
+    assert missing_convention.json() == CONVENTION_NOT_FOUND
+    assert existing_convention.status_code == 404
+    assert existing_convention.json() == INVALID_PAGE
+
+
+@pytest.mark.django_db
 def test_catch_history_orders_newest_first_with_descending_id_tie_breaker() -> None:
     """AC-07: ordering is server-owned and stable for matching timestamps."""
     player = create_test_user()
@@ -853,6 +884,13 @@ def test_catch_history_second_signing_failure_is_sanitized_and_retries_next_requ
     record = records[0]
     assert record.args == ()
     assert record.exc_info is None
+    assert record.stack_info is None
+    standard_record_fields = logging.makeLogRecord({}).__dict__
+    custom_extras = {
+        key: value
+        for key, value in record.__dict__.items()
+        if key not in standard_record_fields
+    }
     assert {
         "user_id",
         "catch_id",
@@ -862,19 +900,42 @@ def test_catch_history_second_signing_failure_is_sanitized_and_retries_next_requ
         "url",
         "query",
         "exception",
-    }.isdisjoint(record.__dict__)
-    log_material = (caplog.text, repr(record.__dict__), record.getMessage())
+    }.isdisjoint(custom_extras)
+    assert all(
+        value not in custom_extras.values()
+        for value in (
+            player.pk,
+            older.catch.pk,
+            older.fursuit.pk,
+            older.convention.pk,
+            older.fursuit.photo_key,
+            signed_url,
+            diagnostic,
+        )
+    )
+    application_log_material = (
+        record.getMessage(),
+        repr(record.args),
+        repr(record.exc_info),
+        repr(record.stack_info),
+        repr(custom_extras),
+    )
     for sensitive_value in (
         diagnostic,
         signed_url,
         "second-row-secret",
         older.fursuit.photo_key,
+    ):
+        assert all(
+            sensitive_value not in material for material in application_log_material
+        )
+    for identifier in (
         str(player.pk),
         str(older.catch.pk),
         str(older.fursuit.pk),
         str(older.convention.pk),
     ):
-        assert all(sensitive_value not in material for material in log_material)
+        assert identifier not in record.getMessage()
 
 
 @pytest.mark.django_db
