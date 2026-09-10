@@ -1,8 +1,9 @@
-"""Closed request and response serialization for catch confirmation."""
+"""Closed request and response serialization for catch confirmation and history."""
 
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import UTC
 from typing import TypedDict
 
@@ -17,6 +18,7 @@ from conventions.serializers import (
 )
 from media import service as media_service
 
+from .models import Catch
 from .services import CatchConfirmationResult
 
 CATCH_CONFIRMATION_REQUEST_SCHEMA = FURSUIT_CATCH_CREDENTIAL_RESOLUTION_REQUEST_SCHEMA
@@ -120,6 +122,96 @@ CATCH_CONFIRMATION_RESPONSE_SCHEMA: dict[str, object] = {
     "required": ["outcome", "catch"],
 }
 
+CATCH_HISTORY_AUTHENTICATION_ERROR_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {"detail": {"type": "string"}},
+    "required": ["detail"],
+}
+
+CATCH_HISTORY_INVALID_QUERY_ERROR_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "code": {"type": "string", "enum": ["invalid_query"]},
+        "detail": {"type": "string"},
+    },
+    "required": ["code", "detail"],
+}
+
+CATCH_HISTORY_NOT_FOUND_ERROR_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "code": {
+            "type": "string",
+            "enum": ["convention_not_found", "invalid_page"],
+        },
+        "detail": {"type": "string"},
+    },
+    "required": ["code", "detail"],
+}
+
+CATCH_HISTORY_SERVER_ERROR_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "code": {"type": "string", "enum": ["server_error"]},
+        "detail": {"type": "string"},
+    },
+    "required": ["code", "detail"],
+}
+
+CATCH_HISTORY_RESPONSE_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "catch_count": {"type": "integer", "minimum": 0},
+        "next": {"type": "string", "format": "uri", "nullable": True},
+        "previous": {"type": "string", "format": "uri", "nullable": True},
+        "results": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "id": {"type": "integer", "readOnly": True},
+                    "fursuit": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "id": {"type": "integer", "readOnly": True},
+                            "name": {"type": "string", "readOnly": True},
+                            "photo_url": {
+                                "type": "string",
+                                "format": "uri",
+                                "readOnly": True,
+                            },
+                        },
+                        "required": ["id", "name", "photo_url"],
+                    },
+                    "convention": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "id": {"type": "integer", "readOnly": True},
+                            "name": {"type": "string", "readOnly": True},
+                        },
+                        "required": ["id", "name"],
+                    },
+                    "caught_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": True,
+                    },
+                },
+                "required": ["id", "fursuit", "convention", "caught_at"],
+            },
+        },
+    },
+    "required": ["catch_count", "next", "previous", "results"],
+}
+
 
 class CatchConfirmationFursuitResponseData(TypedDict):
     tailtag_id: str
@@ -139,6 +231,93 @@ class CatchConfirmationResponseData(TypedDict):
     catch: CatchConfirmationCatchResponseData
 
 
+@dataclass(frozen=True)
+class CatchHistoryQuery:
+    """Canonical query values for player catch history."""
+
+    convention_id: int | None
+    convention_id_is_out_of_range: bool
+    page: int
+    page_is_out_of_range: bool
+    page_size: int
+
+
+class CatchHistoryQueryError(ValueError):
+    """The public catch-history query is not canonical."""
+
+
+class CatchHistoryFursuitData(TypedDict):
+    id: int
+    name: str
+    photo_url: str
+
+
+class CatchHistoryConventionData(TypedDict):
+    id: int
+    name: str
+
+
+class CatchHistoryEntryData(TypedDict):
+    id: int
+    fursuit: CatchHistoryFursuitData
+    convention: CatchHistoryConventionData
+    caught_at: str
+
+
+def parse_catch_history_query(request: Request) -> CatchHistoryQuery:
+    """Parse the closed, positive-ASCII-decimal catch-history query grammar."""
+    allowed = {"convention_id", "page", "page_size"}
+    values: dict[str, list[str]] = dict(request.query_params.lists())
+    if set(values) - allowed or any(len(items) != 1 for items in values.values()):
+        raise CatchHistoryQueryError
+
+    def positive_digits(name: str) -> str | None:
+        items = values.get(name)
+        if items is None:
+            return None
+        raw = items[0]
+        if not raw.isascii() or not raw.isdigit():
+            raise CatchHistoryQueryError
+        digits = raw.lstrip("0")
+        if not digits:
+            raise CatchHistoryQueryError
+        return digits
+
+    def bounded_integer(digits: str, maximum: int) -> int | None:
+        """Return a safe integer or None when decimal digits exceed its bound."""
+        maximum_digits = str(maximum)
+        if len(digits) > len(maximum_digits) or (
+            len(digits) == len(maximum_digits) and digits > maximum_digits
+        ):
+            return None
+        return int(digits)
+
+    convention_digits = positive_digits("convention_id")
+    convention_id = (
+        bounded_integer(convention_digits, (1 << 63) - 1)
+        if convention_digits is not None
+        else None
+    )
+    page_digits = positive_digits("page")
+    page = bounded_integer(page_digits, (1 << 63) - 1) if page_digits is not None else 1
+    page_size_digits = positive_digits("page_size")
+    page_size = (
+        bounded_integer(page_size_digits, 100) if page_size_digits is not None else 20
+    )
+    if page_size is None:
+        raise CatchHistoryQueryError
+
+    return CatchHistoryQuery(
+        convention_id=convention_id,
+        convention_id_is_out_of_range=(
+            convention_digits is not None and convention_id is None
+        ),
+        page=page if page is not None else 1,
+        page_is_out_of_range=page_digits is not None and page is None,
+        page_size=page_size,
+    )
+
+
 class CatchConfirmationRequestSchemaSerializer(serializers.Serializer[dict[str, str]]):
     """OpenAPI carrier for the reused request contract."""
 
@@ -147,6 +326,10 @@ class CatchConfirmationResponseSchemaSerializer(
     serializers.Serializer[dict[str, object]]
 ):
     """OpenAPI carrier for the closed success projection."""
+
+
+class CatchHistoryResponseSchemaSerializer(serializers.Serializer[dict[str, object]]):
+    """OpenAPI carrier for the closed catch-history success projection."""
 
 
 class _CatchConfirmationRequestSchemaExtension(  # pyright: ignore[reportUnusedClass] - auto-discovered by drf-spectacular.
@@ -167,6 +350,16 @@ class _CatchConfirmationResponseSchemaExtension(  # pyright: ignore[reportUnused
     def map_serializer(self, auto_schema: object, direction: str) -> dict[str, object]:
         del auto_schema, direction
         return deepcopy(CATCH_CONFIRMATION_RESPONSE_SCHEMA)
+
+
+class _CatchHistoryResponseSchemaExtension(  # pyright: ignore[reportUnusedClass] - auto-discovered by drf-spectacular.
+    OpenApiSerializerExtension
+):
+    target_class = "catches.serializers.CatchHistoryResponseSchemaSerializer"
+
+    def map_serializer(self, auto_schema: object, direction: str) -> dict[str, object]:
+        del auto_schema, direction
+        return deepcopy(CATCH_HISTORY_RESPONSE_SCHEMA)
 
 
 def catch_confirmation_response_data(
@@ -190,4 +383,25 @@ def catch_confirmation_response_data(
                 ),
             },
         },
+    }
+
+
+def catch_history_entry_data(
+    catch: Catch, *, request: Request
+) -> CatchHistoryEntryData:
+    """Project one eager-loaded Catch into the closed player-safe history entry."""
+    return {
+        "id": catch.pk,
+        "fursuit": {
+            "id": catch.fursuit.pk,
+            "name": catch.fursuit.name,
+            "photo_url": request.build_absolute_uri(
+                media_service.read_image_url(catch.fursuit.photo_key)
+            ),
+        },
+        "convention": {
+            "id": catch.convention.pk,
+            "name": catch.convention.name,
+        },
+        "caught_at": catch.caught_at.astimezone(UTC).isoformat().replace("+00:00", "Z"),
     }

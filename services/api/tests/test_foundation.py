@@ -28,6 +28,7 @@ def test_foundation_exposes_profile_current_user_and_infrastructure_routes(
     schema = yaml.safe_load(schema_response.content)
     assert schema_response.status_code == 200
     assert set(schema["paths"]) == {
+        "/api/catches/",
         "/api/catches/confirm/",
         "/api/me/",
         "/api/profile/",

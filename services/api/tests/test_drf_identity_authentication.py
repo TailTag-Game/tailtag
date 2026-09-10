@@ -336,6 +336,7 @@ def test_identity_authentication_adds_only_current_user_identity_route_alongside
     assert client.get("/api/fursuits").status_code == 404
     assert schema_response.status_code == 200
     assert set(yaml.safe_load(schema_response.content)["paths"]) == {
+        "/api/catches/",
         "/api/catches/confirm/",
         "/api/me/",
         "/api/profile/",
