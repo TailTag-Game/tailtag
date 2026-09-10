@@ -146,7 +146,10 @@ def test_catch_history_openapi_has_one_closed_bearer_get_contract() -> None:
     assert set(catch_paths) == {_HISTORY_PATH, _CONFIRMATION_PATH}
     assert set(catch_paths[_HISTORY_PATH]) == {"get"}
     assert set(catch_paths[_CONFIRMATION_PATH]) == {"post"}
-    assert all("collection" not in path.lower() for path in paths)
+    assert all(
+        "history" not in path.lower() and "collection" not in path.lower()
+        for path in paths
+    )
 
     operation = _history_operation(schema)
     security_schemes = cast(
@@ -343,20 +346,48 @@ def test_catch_history_openapi_documents_every_closed_response() -> None:
     ) == {"type": "string"}
 
     operation_description = cast(str, operation["description"]).lower()
-    success_description = cast(str, responses["200"]["description"]).lower()
     not_found_description = cast(str, responses["404"]["description"]).lower()
     server_error_description = cast(str, responses["500"]["description"]).lower()
 
-    assert "nonexistent convention returns http 404" in not_found_description
-    assert (
-        "existing convention with no matching catch rows returns http 200"
-        in success_description
+    count_statements = operation_description.replace(";", ".").split(".")
+    assert any(
+        all(
+            term in statement
+            for term in ("catch_count", "total", "matching", "before pagination")
+        )
+        for statement in count_statements
     )
-    assert (
-        "catch_count is the total number of matching catch rows before pagination"
-        in success_description
+    assert "-caught_at" in operation_description and "-id" in operation_description
+    assert operation_description.index("-caught_at") < operation_description.index(
+        "-id"
     )
-    assert "ordered by -caught_at, -id" in operation_description
+
+    not_found_statements = not_found_description.replace(";", ".").split(".")
+    assert any(
+        all(term in statement for term in ("nonexistent", "convention", "404"))
+        for statement in not_found_statements
+    )
+    assert any(
+        all(
+            term in statement
+            for term in (
+                "existing",
+                "convention",
+                "no matching",
+                "200",
+                "empty",
+                "results",
+            )
+        )
+        for statement in not_found_statements
+    )
+
+    signing_statements = server_error_description.replace(";", ".").split(".")
     assert (
-        "photo url signing failure fails the whole request" in server_error_description
+        "whole request" in server_error_description
+        or "entire request" in server_error_description
+    )
+    assert any(
+        all(term in statement for term in ("photo", "sign", "fail", "500", "sanitized"))
+        for statement in signing_statements
     )
