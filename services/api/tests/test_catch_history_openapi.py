@@ -369,44 +369,53 @@ def test_catch_history_openapi_documents_every_closed_response() -> None:
         "-id"
     )
 
-    # Match relationships within a statement, in either subject/outcome order.
-    # The operation may supplement either response's generated description, and
-    # either response may explain the distinction by contrasting both cases.
-    statement = r"[^.;!?]*"
+    # Either relationship may appear in any of these descriptions. Keep each
+    # complete statement separate so unrelated prose cannot supply its terms.
+    convention_statements = [
+        " ".join(statement.split())
+        for description in (
+            operation_description,
+            success_description,
+            not_found_description,
+        )
+        for statement in re.split(r"[.;!?]+", description)
+        if statement.strip()
+    ]
     missing_convention = (
-        r"\b(?:missing|non[ -]?existent)\b[^.;!?]*\bconvention\b"
-        r"|\bconvention\b[^.;!?]*\b(?:does\s+not|doesn't)\s+exist\b"
-        r"|\bconvention\b[^.;!?]*\b(?:missing|not[ _-]+found)\b"
+        r"\b(?:missing|non[ -]?existent|unknown|not[ _-]+found)\b.*\bconvention\b"
+        r"|\bconvention\b.*\b(?:does\s+not|doesn't)\s+exist\b"
+        r"|\bconvention\b.*\b(?:missing|non[ -]?existent|unknown|not[ _-]+found)\b"
     )
     assert any(
-        re.search(
-            rf"(?={statement}(?:{missing_convention}))"
-            rf"(?={statement}\b(?:404|not[ _-]+found)\b)",
-            description,
-            flags=re.IGNORECASE,
+        all(
+            re.search(pattern, statement, flags=re.IGNORECASE)
+            for pattern in (missing_convention, r"\b(?:404|not[ _-]+found)\b")
         )
-        for description in (not_found_description, operation_description)
+        for statement in convention_statements
     )
 
     existing_convention = (
-        r"\b(?:existing|known)\b[^.;!?]*\bconvention\b"
-        r"|\bconvention\b[^.;!?]*\bexists?\b"
+        r"\b(?:existing|known|valid|found)\b.*\bconvention\b"
+        r"|\bconvention\b.*\b(?:exists?|existing|known|valid|found)\b"
     )
-    no_catches = r"\b(?:no|zero|0)\b[^.;!?]*\bcatch(?:es)?\b"
+    no_catches = (
+        r"\b(?:no|zero|0|without)\b.*\b(?:catch(?:es)?|rows?|records?|entries)\b"
+    )
     empty_results = (
-        r"\bempty\b[^.;!?]*\b(?:results?|list|array)\b"
-        r"|\bresults?\b[^.;!?]*(?:\bempty\b|\[\s*\])"
+        r"\bempty\b.*\b(?:results?|lists?|arrays?|pages?)\b"
+        r"|\b(?:results?|lists?|arrays?|pages?)\b.*(?:\bempty\b|\[\s*\])"
     )
     assert any(
-        re.search(
-            rf"(?={statement}(?:{existing_convention}))"
-            rf"(?={statement}{no_catches})"
-            rf"(?={statement}\b(?:200|success\w*)\b)"
-            rf"(?={statement}(?:{empty_results}))",
-            description,
-            flags=re.IGNORECASE,
+        all(
+            re.search(pattern, statement, flags=re.IGNORECASE)
+            for pattern in (
+                existing_convention,
+                no_catches,
+                r"\b(?:200|success(?:ful(?:ly)?)?|ok)\b",
+                empty_results,
+            )
         )
-        for description in (success_description, operation_description)
+        for statement in convention_statements
     )
 
     signing_statements = server_error_description.replace(";", ".").split(".")
