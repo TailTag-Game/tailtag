@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from drf_spectacular.utils import (  # pyright: ignore[reportUnknownVariableType]
+    OpenApiParameter,
     OpenApiResponse,
     extend_schema,  # pyright: ignore[reportUnknownVariableType]
 )
@@ -14,6 +15,7 @@ from rest_framework.exceptions import (
     APIException,
     ErrorDetail,
     NotAuthenticated,
+    NotFound,
     ParseError,
     UnsupportedMediaType,
 )
@@ -21,10 +23,14 @@ from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.utils.urls import replace_query_param
 from rest_framework.views import APIView
 
 from accounts.models import User
+from conventions.models import Convention
 
+from .models import Catch
+from .pagination import CatchHistoryPagination
 from .serializers import (
     AUTHENTICATION_ERROR_RESPONSE_SCHEMA,
     CATCH_CONFIRMATION_CONFLICT_ERROR_SCHEMA,
@@ -32,10 +38,18 @@ from .serializers import (
     CATCH_CONFIRMATION_NOT_FOUND_ERROR_SCHEMA,
     CATCH_CONFIRMATION_SERVER_ERROR_SCHEMA,
     CATCH_CONFIRMATION_VALIDATION_ERROR_SCHEMA,
+    CATCH_HISTORY_AUTHENTICATION_ERROR_SCHEMA,
+    CATCH_HISTORY_INVALID_QUERY_ERROR_SCHEMA,
+    CATCH_HISTORY_NOT_FOUND_ERROR_SCHEMA,
+    CATCH_HISTORY_SERVER_ERROR_SCHEMA,
     CatchConfirmationRequestSchemaSerializer,
     CatchConfirmationResponseSchemaSerializer,
+    CatchHistoryQueryError,
+    CatchHistoryResponseSchemaSerializer,
     FursuitCatchCredentialResolutionRequestSerializer,
     catch_confirmation_response_data,
+    catch_history_entry_data,
+    parse_catch_history_query,
 )
 from .services import (
     CatchActiveConventionMismatchError,
@@ -81,6 +95,36 @@ _OPENAPI_RESPONSES: dict[int, OpenApiResponse] = {
     500: OpenApiResponse(
         response=CATCH_CONFIRMATION_SERVER_ERROR_SCHEMA,
         description="An unexpected error occurred.",
+    ),
+}
+
+_CATCH_HISTORY_OPENAPI_RESPONSES: dict[int, OpenApiResponse] = {
+    200: OpenApiResponse(
+        response=CatchHistoryResponseSchemaSerializer,
+        description=(
+            "Returns the current player's matching Catch rows. An existing Convention "
+            "with no catches returns 200 with empty results."
+        ),
+    ),
+    400: OpenApiResponse(
+        response=CATCH_HISTORY_INVALID_QUERY_ERROR_SCHEMA,
+        description="The catch-history query is invalid.",
+    ),
+    401: OpenApiResponse(
+        response=CATCH_HISTORY_AUTHENTICATION_ERROR_SCHEMA,
+        description="Authentication is required.",
+    ),
+    404: OpenApiResponse(
+        response=CATCH_HISTORY_NOT_FOUND_ERROR_SCHEMA,
+        description=(
+            "A missing Convention returns 404; an out-of-range page also returns 404."
+        ),
+    ),
+    500: OpenApiResponse(
+        response=CATCH_HISTORY_SERVER_ERROR_SCHEMA,
+        description=(
+            "A photo signing failure returns a sanitized 500 for the whole request."
+        ),
     ),
 }
 
@@ -156,6 +200,137 @@ class CatchConfirmationView(APIView):
             return _unexpected_error(stage="projection")
 
 
+class CatchHistoryView(APIView):
+    """Return the authenticated player's closed, paginated Catch history."""
+
+    permission_classes = (IsAuthenticated,)
+
+    @extend_schema(
+        operation_id="catch_history_list",
+        tags=["catches"],
+        request=None,
+        parameters=[
+            OpenApiParameter(
+                name="convention_id",
+                type={"type": "integer", "minimum": 1},
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional positive ASCII decimal Convention identifier.",
+                style="form",
+                explode=True,
+            ),
+            OpenApiParameter(
+                name="page",
+                type={"type": "integer", "minimum": 1},
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional positive ASCII decimal page number; defaults to 1.",
+                default=1,
+                style="form",
+                explode=True,
+            ),
+            OpenApiParameter(
+                name="page_size",
+                type={"type": "integer", "minimum": 1, "maximum": 100},
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Optional positive ASCII decimal page size from 1 through 100; "
+                    "defaults to 20."
+                ),
+                default=20,
+                style="form",
+                explode=True,
+            ),
+        ],
+        responses=_CATCH_HISTORY_OPENAPI_RESPONSES,
+        description=(
+            "Returns only the authenticated player's Catch history ordered by "
+            "-caught_at then -id. catch_count is the total number of matching Catch "
+            "rows before pagination."
+        ),
+    )
+    def get(self, request: Request) -> Response:
+        try:
+            query = parse_catch_history_query(request)
+        except CatchHistoryQueryError:
+            return _domain_error(
+                "invalid_query",
+                "The catch-history query is invalid.",
+                status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception:  # noqa: BLE001 - parsing failures are sanitized.
+            return _unexpected_history_error()
+
+        try:
+            catches = (
+                Catch.objects.filter(catcher_user=_user(request))
+                .select_related("fursuit", "convention")
+                .order_by("-caught_at", "-id")
+            )
+            if query.convention_id is not None:
+                if not Convention.objects.filter(pk=query.convention_id).exists():
+                    return _domain_error(
+                        "convention_not_found",
+                        "The convention was not found.",
+                        status.HTTP_404_NOT_FOUND,
+                    )
+                catches = catches.filter(convention_id=query.convention_id)
+        except Exception:  # noqa: BLE001 - database failures are sanitized.
+            return _unexpected_history_error()
+
+        try:
+            paginator = CatchHistoryPagination()
+            paginator.page_size = query.page_size
+            page = paginator.paginate_queryset(catches, request, view=self)
+            if page is None:
+                return _unexpected_history_error()
+        except NotFound:
+            return _domain_error(
+                "invalid_page",
+                "The requested page does not exist.",
+                status.HTTP_404_NOT_FOUND,
+            )
+        except Exception:  # noqa: BLE001 - pagination failures are sanitized.
+            return _unexpected_history_error()
+
+        try:
+            data = [catch_history_entry_data(catch, request=request) for catch in page]
+            response = paginator.get_paginated_response(data)
+            if query.page == 2 and response.data["previous"] is not None:
+                response.data["previous"] = replace_query_param(
+                    response.data["previous"], paginator.page_query_param, 1
+                )
+            return response
+        except Exception:  # noqa: BLE001 - projection failures are sanitized.
+            return _unexpected_history_error()
+
+
+_catch_history_get_kwargs = cast(
+    dict[str, object],
+    CatchHistoryView.get.kwargs,  # pyright: ignore[reportFunctionMemberAccess]
+)
+_CatchHistorySchema = cast(type[Any], _catch_history_get_kwargs["schema"])
+
+
+class _CatchHistorySchemaWithExplicitOptionalParameters(_CatchHistorySchema):
+    """Emit explicit optionality required by the frozen API contract."""
+
+    def _process_override_parameters(
+        self, direction: str = "request"
+    ) -> dict[tuple[str, str], dict[str, object]]:
+        parameters = cast(
+            dict[tuple[str, str], dict[str, object]],
+            super()._process_override_parameters(direction),  # pyright: ignore[reportUnknownMemberType]
+        )
+        for name in ("convention_id", "page", "page_size"):
+            parameters[name, OpenApiParameter.QUERY]["required"] = False
+        return parameters
+
+
+_catch_history_get_kwargs["schema"] = _CatchHistorySchemaWithExplicitOptionalParameters
+
+
 def _user(request: Request) -> User:
     return cast(User, request.user)
 
@@ -168,6 +343,15 @@ def _unexpected_error(
     *, stage: Literal["boundary", "service", "projection"]
 ) -> Response:
     _LOGGER.error("Unexpected catch confirmation failure.", extra={"stage": stage})
+    return _domain_error(
+        "server_error",
+        "An unexpected error occurred.",
+        status.HTTP_500_INTERNAL_SERVER_ERROR,
+    )
+
+
+def _unexpected_history_error() -> Response:
+    _LOGGER.error("Unexpected catch history failure.")
     return _domain_error(
         "server_error",
         "An unexpected error occurred.",
