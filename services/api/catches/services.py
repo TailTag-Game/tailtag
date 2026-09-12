@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import cast
@@ -21,6 +22,8 @@ from conventions.models import (
 )
 from fursuits.models import Fursuit
 from profiles.models import PlayerProfile
+
+_LOGGER = logging.getLogger(__name__)
 
 _CATCH_UNIQUE_CONSTRAINT = "catches_catcher_fursuit_convention_unique"
 
@@ -191,6 +194,35 @@ def confirm_catch(user: User, *, payload: str) -> CatchConfirmationResult:
             )
 
         return CatchConfirmationResult(catch, CatchConfirmationStatus.CREATED)
+
+
+def remove_catch_as_operator(*, catch_id: int) -> None:
+    """Atomically remove an erroneous catch record and record an audit log."""
+    with transaction.atomic():
+        catch = Catch.objects.select_for_update().filter(pk=catch_id).first()
+        if catch is None:
+            raise Catch.DoesNotExist(f"Catch with ID {catch_id} does not exist.")
+
+        catch_pk = catch.pk
+        catcher_user_id = catch.catcher_user_id
+        fursuit_id = catch.fursuit_id
+        convention_id = catch.convention_id
+        activation_id = catch.activation_id
+        catch_session_id = catch.catch_session_id
+
+        catch.delete()
+
+        transaction.on_commit(
+            lambda: _LOGGER.info(
+                "Operator removed catch %s (catcher_user_id=%s, fursuit_id=%s, convention_id=%s, activation_id=%s, catch_session_id=%s).",
+                catch_pk,
+                catcher_user_id,
+                fursuit_id,
+                convention_id,
+                activation_id,
+                catch_session_id,
+            )
+        )
 
 
 def _require_persisted_user(user: User) -> int:
