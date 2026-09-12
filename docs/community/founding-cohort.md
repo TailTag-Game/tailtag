@@ -5,7 +5,7 @@ The founding cohort is helping establish the product, architecture, development 
 Contributors may optionally add themselves below through their onboarding pull request.
 
 | Contributor                                         | Primary areas |
-|-----------------------------------------------------|---|
+|-----------------------------------------------------|---------------|
 | [FinnThePanther](https://github.com/FinnThePanther) | Project leadership and product |
 | [diewolfswelpe](https://github.com/diewolfswelpe)   | Mobile and frontend dev |
 | [nikwalton](https://github.com/nikwalton)           | Mobile and frontend dev | 
@@ -19,3 +19,4 @@ Contributors may optionally add themselves below through their onboarding pull r
 | [Falcon-Darkshadow](https://github.com/Falcon-Darkshadow) | QA/Testing and Community Operations |
 | [Striper](https://github.com/derek-cheung) | Mobile and frontend dev | 
 | [hyfetch](https://github.com/hyfetch) | Backend and Security |
+| [pyxfluff](https://github.com/pyxfluff)             | Backend Developer |
