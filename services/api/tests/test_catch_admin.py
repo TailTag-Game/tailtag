@@ -748,3 +748,71 @@ def test_catch_admin_changelist_template_renders_client_search_guard() -> None:
     assert "event.preventDefault()" in content
     assert "Sensitive catch credential tokens cannot be searched" in content
     assert REDACTED_CREDENTIAL_SEARCH_QUERY in content
+
+
+@pytest.mark.django_db
+def test_catch_admin_multi_parameter_credential_sanitization_and_drop() -> None:
+    """Multi-parameter requests containing credentials drop non-q parameters and sanitize q."""
+    scenario = create_catch_scenario()
+    catch = create_catch(scenario=scenario)
+    operator = User.objects.create_superuser("catch_multi_param_op", password="pw")
+    client = Client()
+    client.force_login(operator)
+
+    urls = _admin_urls(catch)
+
+    # 1. Sensitive token in q and extra parameter foo: foo is dropped, q is redacted
+    resp = client.get(urls.changelist, {"q": TOKEN_A, "foo": TOKEN_A})
+    assert resp.status_code == 302
+    expected_location = f"{urls.changelist}?q={REDACTED_CREDENTIAL_SEARCH_QUERY}"
+    assert resp.headers["Location"] == expected_location
+    _assert_token_absent(TOKEN_A, resp.headers["Location"])
+    assert "foo=" not in resp.headers["Location"]
+
+    # Following redirect returns 200 with zero matches and no token leak
+    followed = client.get(urls.changelist, {"q": TOKEN_A, "foo": TOKEN_A}, follow=True)
+    assert followed.status_code == 200
+    assert followed.redirect_chain == [(expected_location, 302)]
+    _assert_token_absent(TOKEN_A, followed)
+    assert _listed_ids(followed) == set()
+
+    # 2. Sensitive token in q and foo, with a valid filter preserved
+    resp = client.get(
+        urls.changelist,
+        {"q": TOKEN_A, "foo": TOKEN_A, "convention": scenario.convention.pk},
+    )
+    assert resp.status_code == 302
+    expected_location_with_conv = f"{urls.changelist}?q={REDACTED_CREDENTIAL_SEARCH_QUERY}&convention={scenario.convention.pk}"
+    assert resp.headers["Location"] == expected_location_with_conv
+    _assert_token_absent(TOKEN_A, resp.headers["Location"])
+    assert "foo=" not in resp.headers["Location"]
+
+    # 3. Sensitive token only in non-q parameter (e.g. ?foo=<token>)
+    resp = client.get(urls.changelist, {"foo": TOKEN_A})
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == urls.changelist
+    _assert_token_absent(TOKEN_A, resp.headers["Location"])
+
+    # 4. Sensitive token in parameter along with a safe parameter
+    resp = client.get(
+        urls.changelist, {"safe_param": "valid", "sensitive_param": TOKEN_A}
+    )
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == f"{urls.changelist}?safe_param=valid"
+    _assert_token_absent(TOKEN_A, resp.headers["Location"])
+    assert "sensitive_param=" not in resp.headers["Location"]
+
+    # 5. Sensitive token in parameter key itself (e.g. ?<token>=bar)
+    resp = client.get(urls.changelist, {TOKEN_A: "bar"})
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == urls.changelist
+    _assert_token_absent(TOKEN_A, resp.headers["Location"])
+
+    # 6. Valid q with sensitive extra parameter: q preserved, extra dropped
+    scenario.fursuit.name = "MultiFox"
+    scenario.fursuit.save(update_fields=["name"])
+    resp = client.get(urls.changelist, {"q": "MultiFox", "leak": TOKEN_A})
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == f"{urls.changelist}?q=MultiFox"
+    _assert_token_absent(TOKEN_A, resp.headers["Location"])
+    assert "leak=" not in resp.headers["Location"]

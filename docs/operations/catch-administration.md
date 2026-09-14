@@ -34,15 +34,28 @@ Operators locate catch records using safe, non-sensitive search identifiers:
   - Fursuit TailTag ID (exact UUID string, e.g. `3fa85f64-5717-4562-b3fc-2c963f66afa6`)
   - Convention name (substring match)
 
-### Sensitive credential protection and query sanitization
+### Sensitive credential protection, query sanitization, and logging boundaries
 
-Raw QR catch credentials and payload strings (e.g., `tailtag:catch:v1:...`) represent short-lived secrets and must never be queried, stored in access logs, or retained in operational notes.
+Raw QR catch credentials and payload strings (e.g., `tailtag:catch:v1:...`) represent short-lived secrets. Operators must never query credential tokens, store them in operational notes, or enter them into browser address bars.
 
-To defend against inadvertent operator copy-paste of raw QR tokens or payload strings into the search bar, a multi-layer defense is enforced:
+The privacy and sanitization guarantees are divided into application-controlled technical controls and an operational perimeter boundary:
 
-1. **Client-side submission prevention:** The admin changelist template (`admin/catches/catch/change_list.html`) intercepts search form submissions (`#changelist-search`). If the query contains a pattern matching a sensitive QR catch credential token (`CATCH_CREDENTIAL_TOKEN_PATTERN`), client-side JavaScript cancels the form submission (`event.preventDefault()`), clears the input field, and warns the operator that credential tokens cannot be searched. This prevents the credential from ever being transmitted across the wire as a GET request URL.
-2. **Server-side detection and immediate redirect:** If a request bearing a credential token is received by Django (e.g. from an API client, scripted query, or if JavaScript is disabled), `CatchAdmin.changelist_view` detects the pattern and immediately returns an HTTP 302 redirect (`HttpResponseRedirect`) to a sanitized URL (`?q=__tailtag_admin_credential_query_redacted__`). This redirect forces the browser to discard the original credential-bearing URL, updating the address bar and browser history to the sanitized URL so that subsequent same-origin navigation does not leak the secret in `Referer` headers.
-3. **Railway and Gunicorn logging boundary:** In production, Gunicorn is invoked without `--access-logfile` (`CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]`). Gunicorn does not emit HTTP request-line access logs to container stdout, preventing query parameters from entering Railway application logs. Django's application logging logs structured events without dumping raw GET query strings. Upstream ingress or reverse proxies capture raw network request lines at the edge before application middleware executes; the client-side form interception is the active defense against exposing credentials in ingress request lines.
+#### Application-controlled guarantees
+
+1. **Client-side submission prevention:** The admin changelist template (`admin/catches/catch/change_list.html`) attaches an active guard to `#changelist-search`. If any input field contains a pattern matching a sensitive QR catch credential token (`CATCH_CREDENTIAL_TOKEN_PATTERN`), client-side JavaScript intercepts the submit event (`event.preventDefault()`), clears the input field, and alerts the operator. This ensures standard operator searches never transmit credential tokens across the wire as HTTP GET query strings.
+2. **Server-side multi-parameter sanitization and redirect:** If a credential-bearing GET request reaches Django (e.g. from direct URL navigation, automated scripts, or with JavaScript disabled), `CatchAdmin.changelist_view` scans all query parameters (keys and values). If any sensitive credential token is detected, Django immediately issues an HTTP 302 redirect (`HttpResponseRedirect`) to a sanitized URL:
+   - Sensitive search values under `q` are replaced with `__tailtag_admin_credential_query_redacted__`.
+   - Any additional or arbitrary query parameters containing sensitive tokens (such as `?foo=<token>` or `?<token>=value`) are stripped and dropped entirely.
+   - Non-sensitive parameters (such as convention or timestamp filters) are preserved.
+   This redirect replaces the browser's address bar and history, preventing downstream same-origin navigation from leaking credential tokens via `Referer` headers.
+3. **Application and container logging boundaries:**
+   - **Django structured logging:** Application audit logging (including operator deletion logs) logs only internal entity IDs and never dumps raw GET query strings.
+   - **Gunicorn container runtime:** In production, Gunicorn is invoked without `--access-logfile` (`CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]`). Gunicorn does not emit HTTP request-line access logs to container stdout or stderr, ensuring container runtime logs in Railway do not capture query parameters.
+
+#### Upstream ingress boundary and operational constraint
+
+- **Edge ingress limitation:** Upstream infrastructure—specifically Railway's edge reverse proxy—receives and logs inbound HTTP request lines at the network perimeter before traffic reaches the container runtime or application code. Application-level logic (such as Django's 302 redirect) cannot prevent an edge reverse proxy from logging a request line for a request that has already been dispatched over the network.
+- **Operational rule:** Because client-side JavaScript interception is the active barrier against transmitting credentials to edge ingress, **operators must never manually craft, bookmark, or navigate to direct GET URLs containing raw QR credential tokens or payload strings**. Catch inspection must always be conducted using the supported safe identifiers (Catch ID, Catcher user ID, Clerk ID, Fursuit name, Fursuit TailTag UUID, or Convention name) submitted through the admin changelist search form.
 
 ## Operator correction and deletion
 

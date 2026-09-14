@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
 from django.db.models import QuerySet
-from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, QueryDict
 
 from conventions.catch_credential_protocol import CATCH_CREDENTIAL_TOKEN_PATTERN
 
@@ -26,6 +26,32 @@ def _is_sensitive_credential_query(value: str) -> bool:
     return value != _REDACTED_CREDENTIAL_SEARCH_QUERY and bool(
         _SENSITIVE_CREDENTIAL_SEARCH_PATTERN.search(value)
     )
+
+
+def _has_sensitive_credential_in_query(request: HttpRequest) -> bool:
+    for key, values in request.GET.lists():
+        if _is_sensitive_credential_query(key):
+            return True
+        if any(_is_sensitive_credential_query(val) for val in values):
+            return True
+    return False
+
+
+def _build_sanitized_changelist_query(request: HttpRequest) -> QueryDict:
+    sanitized = request.GET.copy()
+    for key in list(sanitized.keys()):
+        if _is_sensitive_credential_query(key):
+            sanitized.pop(key, None)
+            continue
+        values = sanitized.getlist(key)
+        if any(_is_sensitive_credential_query(val) for val in values):
+            if key == "q":
+                sanitized.setlist(key, [_REDACTED_CREDENTIAL_SEARCH_QUERY])
+            else:
+                sanitized.pop(key, None)
+    if any(_is_sensitive_credential_query(val) for val in request.GET.getlist("q")):
+        sanitized.setlist("q", [_REDACTED_CREDENTIAL_SEARCH_QUERY])
+    return sanitized
 
 
 if TYPE_CHECKING:
@@ -115,13 +141,12 @@ class CatchAdmin(CatchAdminBase):
         extra_context: dict[str, object] | None = None,
     ) -> HttpResponse:
         """Sanitize credential-shaped queries via redirect before rendering."""
-        if any(
-            _is_sensitive_credential_query(value) for value in request.GET.getlist("q")
-        ):
-            query = request.GET.copy()
-            query.setlist("q", [_REDACTED_CREDENTIAL_SEARCH_QUERY])
+        if _has_sensitive_credential_in_query(request):
+            sanitized_query = _build_sanitized_changelist_query(request)
             redirect_url = (
-                f"{request.path}?{query.urlencode()}" if query else request.path
+                f"{request.path}?{sanitized_query.urlencode()}"
+                if sanitized_query
+                else request.path
             )
             return HttpResponseRedirect(redirect_url)
         return super().changelist_view(request, extra_context=extra_context)
