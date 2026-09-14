@@ -1,0 +1,22 @@
+{% extends "admin/change_list.html" %}
+
+{% block extrahead %}
+{{ block.super }}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var searchForm = document.getElementById("changelist-search");
+    if (!searchForm) return;
+    searchForm.addEventListener("submit", function (event) {
+        var input = searchForm.querySelector('input[name="q"]');
+        if (!input) return;
+        var val = input.value || "";
+        var tokenPattern = /[A-Za-z0-9_-]{43}/;
+        if (tokenPattern.test(val) && val !== "__tailtag_admin_credential_query_redacted__") {
+            event.preventDefault();
+            input.value = "";
+            window.alert("Sensitive catch credential tokens cannot be searched in the admin interface.");
+        }
+    });
+});
+</script>
+{% endblock %}

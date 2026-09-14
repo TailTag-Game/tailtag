@@ -711,11 +711,40 @@ def test_catch_admin_search_and_credential_sanitization() -> None:
     )
 
     for sensitive_query in sensitive_queries:
-        sensitive_resp = client.get(urls.changelist, {"q": sensitive_query})
-        assert sensitive_resp.status_code == 200
-        _assert_sensitive_search_request_is_sanitized(sensitive_resp)
-        _assert_token_absent(TOKEN_A, sensitive_resp)
-        _assert_token_absent(TOKEN_B, sensitive_resp)
-        _assert_token_absent(PAYLOAD_A, sensitive_resp)
-        _assert_token_absent(PAYLOAD_B, sensitive_resp)
-        assert _listed_ids(sensitive_resp) == set()
+        # 2a. Server detects sensitive query and immediately redirects (302) to sanitized URL
+        redirect_resp = client.get(urls.changelist, {"q": sensitive_query})
+        assert redirect_resp.status_code == 302
+        expected_location = f"{urls.changelist}?q={REDACTED_CREDENTIAL_SEARCH_QUERY}"
+        assert redirect_resp.headers["Location"] == expected_location
+        _assert_token_absent(TOKEN_A, redirect_resp.headers["Location"])
+        _assert_token_absent(TOKEN_B, redirect_resp.headers["Location"])
+        _assert_token_absent(PAYLOAD_A, redirect_resp.headers["Location"])
+        _assert_token_absent(PAYLOAD_B, redirect_resp.headers["Location"])
+
+        # 2b. Browser following redirect receives sanitized changelist with zero matches
+        followed_resp = client.get(urls.changelist, {"q": sensitive_query}, follow=True)
+        assert followed_resp.status_code == 200
+        assert followed_resp.redirect_chain == [(expected_location, 302)]
+        _assert_sensitive_search_request_is_sanitized(followed_resp)
+        _assert_token_absent(TOKEN_A, followed_resp)
+        _assert_token_absent(TOKEN_B, followed_resp)
+        _assert_token_absent(PAYLOAD_A, followed_resp)
+        _assert_token_absent(PAYLOAD_B, followed_resp)
+        assert _listed_ids(followed_resp) == set()
+
+
+@pytest.mark.django_db
+def test_catch_admin_changelist_template_renders_client_search_guard() -> None:
+    """Catch changelist template includes client-side interception script against credential search."""
+    operator = User.objects.create_superuser("catch_template_op", password="pw")
+    client = Client()
+    client.force_login(operator)
+
+    changelist_url = reverse("admin:catches_catch_changelist")
+    resp = client.get(changelist_url)
+    assert resp.status_code == 200
+    content = resp.content.decode("utf-8")
+    assert 'id="changelist-search"' in content
+    assert "event.preventDefault()" in content
+    assert "Sensitive catch credential tokens cannot be searched" in content
+    assert REDACTED_CREDENTIAL_SEARCH_QUERY in content

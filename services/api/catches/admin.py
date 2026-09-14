@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
 from django.db.models import QuerySet
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 
 from conventions.catch_credential_protocol import CATCH_CREDENTIAL_TOKEN_PATTERN
 
@@ -21,6 +21,13 @@ _SENSITIVE_CREDENTIAL_SEARCH_PATTERN = re.compile(
 REDACTED_CREDENTIAL_SEARCH_QUERY = "__tailtag_admin_credential_query_redacted__"
 _REDACTED_CREDENTIAL_SEARCH_QUERY = REDACTED_CREDENTIAL_SEARCH_QUERY
 
+
+def _is_sensitive_credential_query(value: str) -> bool:
+    return value != _REDACTED_CREDENTIAL_SEARCH_QUERY and bool(
+        _SENSITIVE_CREDENTIAL_SEARCH_PATTERN.search(value)
+    )
+
+
 if TYPE_CHECKING:
     CatchAdminBase = admin.ModelAdmin[Catch]
 else:
@@ -31,6 +38,7 @@ else:
 class CatchAdmin(CatchAdminBase):
     """Admin interface for operator inspection and safe removal of catches."""
 
+    change_list_template = "admin/catches/catch/change_list.html"
     fields = (
         "id",
         "catcher_user",
@@ -106,13 +114,14 @@ class CatchAdmin(CatchAdminBase):
         request: HttpRequest,
         extra_context: dict[str, object] | None = None,
     ) -> HttpResponse:
-        """Redact credential-shaped queries before Django renders preserved filters."""
+        """Sanitize credential-shaped queries via redirect before rendering."""
         if any(
-            _SENSITIVE_CREDENTIAL_SEARCH_PATTERN.search(value)
-            for value in request.GET.getlist("q")
+            _is_sensitive_credential_query(value) for value in request.GET.getlist("q")
         ):
             query = request.GET.copy()
             query.setlist("q", [_REDACTED_CREDENTIAL_SEARCH_QUERY])
-            object.__setattr__(request, "GET", query)
-            request.META["QUERY_STRING"] = query.urlencode()
+            redirect_url = (
+                f"{request.path}?{query.urlencode()}" if query else request.path
+            )
+            return HttpResponseRedirect(redirect_url)
         return super().changelist_view(request, extra_context=extra_context)
