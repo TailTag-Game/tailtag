@@ -52,10 +52,35 @@ The privacy and sanitization guarantees are divided into application-controlled 
    - **Django structured logging:** Application audit logging (including operator deletion logs) logs only internal entity IDs and never dumps raw GET query strings.
    - **Gunicorn container runtime:** In production, Gunicorn is invoked without `--access-logfile` (`CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]`). Gunicorn does not emit HTTP request-line access logs to container stdout or stderr, ensuring container runtime logs in Railway do not capture query parameters.
 
-#### Upstream ingress boundary and operational constraint
+#### Railway edge HTTP-log boundary and operational constraint
 
-- **Edge ingress limitation:** Upstream infrastructure—specifically Railway's edge reverse proxy—receives and logs inbound HTTP request lines at the network perimeter before traffic reaches the container runtime or application code. Application-level logic (such as Django's 302 redirect) cannot prevent an edge reverse proxy from logging a request line for a request that has already been dispatched over the network.
-- **Operational rule:** Because client-side JavaScript interception is the active barrier against transmitting credentials to edge ingress, **operators must never manually craft, bookmark, or navigate to direct GET URLs containing raw QR credential tokens or payload strings**. Catch inspection must always be conducted using the supported safe identifiers (Catch ID, Catcher user ID, Clerk ID, Fursuit name, Fursuit TailTag UUID, or Convention name) submitted through the admin changelist search form.
+- **Documented Railway HTTP-log shape:** Railway's maintained
+  [`railway logs` documentation](https://docs.railway.com/cli/logs#http-logs)
+  describes edge HTTP logs as separate structured fields, including `method`,
+  `path`, status, timing, and request ID. It documents no query-string, URL, or
+  request-target field. This is distinct from application and container logs.
+- **Verified Railway Development behavior:** On 2026-09-15, a direct GET to the
+  deployed Catch admin changelist used a unique non-secret user agent and a
+  synthetic 43-character value under `q` that matched
+  `CATCH_CREDENTIAL_TOKEN_PATTERN`. The request returned HTTP 302. The single
+  matching record retrieved with `railway logs --http --json` reported `GET
+  /admin/catches/catch/`, status 302, and the documented HTTP metadata fields;
+  it contained neither the synthetic value nor any query-related field. The
+  synthetic value was not copied into durable evidence.
+- **Supported guarantee:** On the verified Railway Development edge HTTP-log
+  surface, the query string is not included in or exposed by the documented
+  HTTP-log record: the `path` field contains only `/admin/catches/catch/`. This
+  evidence supports the no-raw-credential-log requirement for Railway's
+  documented, operator-visible edge HTTP logs. It does not claim visibility
+  into undocumented Railway-internal telemetry; any future schema or platform-
+  behavior change requires the check to be repeated before making a broader
+  guarantee.
+- **Operational rule:** Edge-log omission is defense in depth, not permission to
+  transmit credentials in URLs. Operators must never manually craft, bookmark,
+  or navigate to direct GET URLs containing raw QR credential tokens or payload
+  strings. Catch inspection must always use the supported safe identifiers
+  (Catch ID, Catcher user ID, Clerk ID, Fursuit name, Fursuit TailTag UUID, or
+  Convention name) submitted through the admin changelist search form.
 
 ## Operator correction and deletion
 
