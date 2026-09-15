@@ -28,7 +28,7 @@ from conventions.models import (
     FursuitCatchSession,
 )
 from fursuits.models import Fursuit
-from tests.authentication_support import create_test_user
+from tests.authentication_support import create_test_user, force_authenticated_client
 from tests.catch_credential_test_support import (
     PAYLOAD_A,
     PAYLOAD_B,
@@ -36,6 +36,7 @@ from tests.catch_credential_test_support import (
     TOKEN_B,
     create_credential,
 )
+from tests.catch_history_test_support import create_history_catch
 from tests.catch_test_support import (
     create_catch,
     create_catch_scenario,
@@ -47,6 +48,7 @@ class _PermissionManager(Protocol):
 
 
 class _UserWithPermissions(Protocol):
+    is_superuser: bool
     user_permissions: _PermissionManager
 
 
@@ -108,6 +110,13 @@ def _assert_sensitive_search_request_is_sanitized(response: Any) -> None:
     assert TOKEN_A not in query_string and PAYLOAD_A not in query_string
     assert TOKEN_B not in query_string and PAYLOAD_B not in query_string
     assert parse_qs(query_string) == {"q": [REDACTED_CREDENTIAL_SEARCH_QUERY]}
+
+
+def _catch_history_result_ids(data: dict[str, object]) -> set[int]:
+    results = data["results"]
+    assert isinstance(results, list)
+    rows = cast(list[object], results)
+    return {cast(int, cast(dict[str, object], row)["id"]) for row in rows}
 
 
 @pytest.mark.django_db(transaction=True)
@@ -630,6 +639,105 @@ def test_catch_admin_authorized_staff_deletion_lifecycle_and_log_entry() -> None
     assert str(catch_id) in entry_repr
     _assert_token_absent(TOKEN_A, entry_repr, entry_msg)
     _assert_token_absent(PAYLOAD_A, entry_repr, entry_msg)
+
+
+@pytest.mark.django_db
+def test_authorized_admin_correction_updates_authenticated_player_history() -> None:
+    """Issue #193: admin correction removes only the erroneous history entry."""
+    player = create_test_user(clerk_user_id="admin_correction_history_player")
+    erroneous = create_history_catch(catcher_user=player, ordinal=193)
+    unaffected = create_history_catch(catcher_user=player, ordinal=194)
+    erroneous_catch_id = erroneous.catch.pk
+    unaffected_catch_id = unaffected.catch.pk
+
+    activation = FursuitActivation.objects.get(pk=erroneous.catch.activation_id)
+    activation_state = {
+        "id": activation.pk,
+        "fursuit_id": activation.fursuit_id,
+        "convention_id": activation.convention_id,
+        "is_active": activation.is_active,
+        "activated_at": activation.activated_at,
+        "deactivated_at": activation.deactivated_at,
+    }
+    catch_session = FursuitCatchSession.objects.get(pk=erroneous.catch.catch_session_id)
+    catch_session_state = {
+        "id": catch_session.pk,
+        "activation_id": catch_session.activation_id,
+        "started_at": catch_session.started_at,
+        "expires_at": catch_session.expires_at,
+        "ended_at": catch_session.ended_at,
+        "end_reason": catch_session.end_reason,
+    }
+    assert activation_state["is_active"] is True
+    assert activation_state["deactivated_at"] is None
+    assert catch_session_state["ended_at"] is None
+    assert catch_session_state["end_reason"] is None
+
+    history_client = force_authenticated_client(user=player)
+    with patch(
+        "catches.serializers.media_service.read_image_url",
+        return_value="/api/media/images/fake-read",
+    ):
+        before_response = history_client.get("/api/catches/")
+
+    assert before_response.status_code == 200
+    before_data = cast(dict[str, object], before_response.json())
+    assert before_data["catch_count"] == 2
+    assert _catch_history_result_ids(before_data) == {
+        erroneous_catch_id,
+        unaffected_catch_id,
+    }
+
+    operator = create_test_user(clerk_user_id="admin_correction_history_operator")
+    operator.is_staff = True
+    operator.save(update_fields=["is_staff"])
+    assert not cast(_UserWithPermissions, operator).is_superuser
+    delete_permission = Permission.objects.get(
+        content_type__app_label="catches", codename="delete_catch"
+    )
+    cast(_UserWithPermissions, operator).user_permissions.add(delete_permission)
+
+    admin_client = Client()
+    admin_client.force_login(operator)
+    admin_urls = _admin_urls(erroneous.catch)
+    delete_confirmation = admin_client.get(admin_urls.delete)
+    assert delete_confirmation.status_code == 200
+    assert b"Are you sure you want to delete" in delete_confirmation.content
+    delete_response = admin_client.post(admin_urls.delete, {"post": "yes"}, follow=True)
+    assert delete_response.status_code == 200
+
+    assert not Catch.objects.filter(pk=erroneous_catch_id).exists()
+
+    activation.refresh_from_db()
+    assert {
+        "id": activation.pk,
+        "fursuit_id": activation.fursuit_id,
+        "convention_id": activation.convention_id,
+        "is_active": activation.is_active,
+        "activated_at": activation.activated_at,
+        "deactivated_at": activation.deactivated_at,
+    } == activation_state
+    catch_session.refresh_from_db()
+    assert {
+        "id": catch_session.pk,
+        "activation_id": catch_session.activation_id,
+        "started_at": catch_session.started_at,
+        "expires_at": catch_session.expires_at,
+        "ended_at": catch_session.ended_at,
+        "end_reason": catch_session.end_reason,
+    } == catch_session_state
+
+    with patch(
+        "catches.serializers.media_service.read_image_url",
+        return_value="/api/media/images/fake-read",
+    ):
+        after_response = history_client.get("/api/catches/")
+
+    assert after_response.status_code == 200
+    after_data = cast(dict[str, object], after_response.json())
+    assert after_data["catch_count"] == 1
+    assert erroneous_catch_id not in _catch_history_result_ids(after_data)
+    assert _catch_history_result_ids(after_data) == {unaffected_catch_id}
 
 
 @pytest.mark.django_db
