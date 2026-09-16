@@ -394,6 +394,19 @@ matrix, benign final state, and sanitized evidence format. It is a controlled
 one-off integration exercise, not a permanent smoke target, and it never
 records a catch.
 
+## Complete Wave 3 catching and collection validation
+
+Issue #179 owns the composed Railway Development proof from explicit catch
+confirmation through durable Catch persistence, private player
+collection/history, retry and PostgreSQL concurrency integrity, and restricted
+operator correction. The maintained
+[Wave 3 catching and collection validation procedure](../../docs/development/wave-3-catching-validation.md)
+defines its two-user fixture policy, temporary-probe security boundary,
+live-versus-automated evidence split, ordered Catch evidence/deletion lifecycle,
+benign final state, and sanitized evidence format. It is a controlled one-off
+integration exercise, not a permanent smoke target or alternate operator
+surface.
+
 ## Canonical backend commands
 
 Run these commands from the repository root. They are the supported interface

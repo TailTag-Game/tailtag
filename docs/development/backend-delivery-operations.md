@@ -8,9 +8,10 @@ an incident-management process, or a production data-recovery plan.
 
 Backend contributor setup and commands remain in the
 [API README](../../services/api/README.md). Durable design and ownership live
-in [architecture.md](../architecture.md). The maintained Wave 2 integration
-procedure and sanitized evidence record live in the
-[Wave 2 participation validation](wave-2-participation-validation.md).
+in [architecture.md](../architecture.md). The maintained composed integration
+procedures and sanitized evidence records live in the
+[Wave 2 participation validation](wave-2-participation-validation.md) and
+[Wave 3 catching and collection validation](wave-3-catching-validation.md).
 
 ## Environment boundary and access
 
@@ -445,6 +446,7 @@ credential before resuming normal work.
 ## Related validation and design
 
 - [Wave 2 participation validation](wave-2-participation-validation.md)
+- [Wave 3 catching and collection validation](wave-3-catching-validation.md)
 - [Main-to-Railway Development delivery specification](../specs/2026-08-16-main-to-railway-development-delivery.md)
 - [Post-deploy HTTP smoke verification specification](../specs/2026-08-15-post-deploy-http-smoke-verification.md)
 - [V0 media storage specification](../specs/2026-08-19-v0-media-storage.md)
