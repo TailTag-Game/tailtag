@@ -17,6 +17,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.test import Client, RequestFactory
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import User
 from catches.admin import REDACTED_CREDENTIAL_SEARCH_QUERY, CatchAdmin
@@ -25,6 +26,7 @@ from catches.services import remove_catch_as_operator
 from conventions.models import (
     Convention,
     FursuitActivation,
+    FursuitCatchCredential,
     FursuitCatchSession,
 )
 from fursuits.models import Fursuit
@@ -123,8 +125,17 @@ def _catch_history_result_ids(data: dict[str, object]) -> set[int]:
 def test_remove_catch_as_operator_atomically_deletes_catch_and_logs(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Operator catch removal deletes the catch, preserves related models, and logs safely."""
+    """Issue #179 ADMIN-04: removal preserves participation history and logs safely."""
     scenario = create_catch_scenario()
+    historical_credential = create_credential(
+        activation=scenario.activation,
+        token=TOKEN_A,
+        revoked_at=timezone.now(),
+        revocation_reason="owner_rotation",
+    )
+    current_credential = create_credential(
+        activation=scenario.activation, token=TOKEN_B
+    )
     catch = create_catch(scenario=scenario)
     catch_id = catch.pk
     catcher_user_id = catch.catcher_user_id
@@ -132,6 +143,23 @@ def test_remove_catch_as_operator_atomically_deletes_catch_and_logs(
     convention_id = catch.convention_id
     activation_id = catch.activation_id
     catch_session_id = catch.catch_session_id
+    credential_history_before = list(
+        FursuitCatchCredential.objects.filter(activation_id=activation_id)
+        .order_by("created_at", "pk")
+        .values(
+            "id",
+            "activation_id",
+            "token",
+            "revoked_at",
+            "revocation_reason",
+            "created_at",
+            "updated_at",
+        )
+    )
+    assert [row["id"] for row in credential_history_before] == [
+        historical_credential.pk,
+        current_credential.pk,
+    ]
 
     with caplog.at_level(logging.INFO):
         remove_catch_as_operator(catch_id=catch_id)
@@ -142,6 +170,22 @@ def test_remove_catch_as_operator_atomically_deletes_catch_and_logs(
     assert Convention.objects.filter(pk=convention_id).exists()
     assert FursuitActivation.objects.filter(pk=activation_id).exists()
     assert FursuitCatchSession.objects.filter(pk=catch_session_id).exists()
+    assert (
+        list(
+            FursuitCatchCredential.objects.filter(activation_id=activation_id)
+            .order_by("created_at", "pk")
+            .values(
+                "id",
+                "activation_id",
+                "token",
+                "revoked_at",
+                "revocation_reason",
+                "created_at",
+                "updated_at",
+            )
+        )
+        == credential_history_before
+    )
 
     expected_log = (
         f"Operator removed catch {catch_id} (catcher_user_id={catcher_user_id}, "
