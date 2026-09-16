@@ -34,6 +34,11 @@ VALID_ENVIRONMENT = {
     "RAILWAY_SERVICE_NAME": "api",
     "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": "run-r2-development-media-storage-smoke",
 }
+STAGING_ENVIRONMENT = {
+    "RAILWAY_ENVIRONMENT_NAME": "staging",
+    "RAILWAY_SERVICE_NAME": "api",
+    "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": "run-r2-staging-media-storage-smoke",
+}
 SENSITIVE_VALUES = (
     "r2-development-bucket-synthetic",
     "https://synthetic.r2.example/private?X-Amz-Signature=synthetic-signature",
@@ -236,6 +241,16 @@ def assert_sanitized(
             "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": "yes",
         },
         {
+            **STAGING_ENVIRONMENT,
+            "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": (
+                "run-r2-development-media-storage-smoke"
+            ),
+        },
+        {
+            **VALID_ENVIRONMENT,
+            "RAILWAY_ENVIRONMENT_NAME": "staging",
+        },
+        {
             **VALID_ENVIRONMENT,
             "RAILWAY_ENVIRONMENT_NAME": (
                 "development https://synthetic.r2.example/private?"
@@ -244,7 +259,7 @@ def assert_sanitized(
         },
     ),
 )
-def test_invalid_or_non_development_target_stops_before_every_runtime_boundary(
+def test_invalid_or_cross_matched_media_target_stops_before_every_runtime_boundary(
     environment: Mapping[str, str],
 ) -> None:
     """Identity and fixed confirmation are exact, case-sensitive fail-closed guards."""
@@ -256,11 +271,47 @@ def test_invalid_or_non_development_target_stops_before_every_runtime_boundary(
     assert runtime.events == []
 
 
-def test_successful_run_uses_only_the_required_order_and_exact_expiry() -> None:
-    """The live path verifies the private object before and after its fixed-lifetime read."""
+@pytest.mark.parametrize(
+    "environment",
+    (
+        {},
+        {
+            "RAILWAY_ENVIRONMENT_NAME": "development",
+            "RAILWAY_SERVICE_NAME": "api",
+        },
+        {
+            "RAILWAY_ENVIRONMENT_NAME": "development",
+            "RAILWAY_SERVICE_NAME": "worker",
+        },
+        {
+            "RAILWAY_ENVIRONMENT_NAME": "production",
+            "RAILWAY_SERVICE_NAME": "api",
+        },
+        {
+            "RAILWAY_ENVIRONMENT_NAME": "staging",
+            "RAILWAY_SERVICE_NAME": "api",
+        },
+    ),
+)
+def test_media_target_guard_rejects_missing_confirmation_without_none_equality_bypass(
+    environment: Mapping[str, str],
+) -> None:
+    """AC-5/SECURITY: absent confirmation never matches an absent target mapping value."""
+    assert not smoke.valid_target(environment)
+
+
+@pytest.mark.parametrize(
+    "environment",
+    (VALID_ENVIRONMENT, STAGING_ENVIRONMENT),
+    ids=("development", "staging"),
+)
+def test_each_permitted_target_uses_only_the_required_order_and_exact_expiry(
+    environment: Mapping[str, str],
+) -> None:
+    """Both bounded targets verify private bytes and mandatory cleanup identically."""
     runtime = RecordingRuntime()
 
-    outcome = smoke.run(VALID_ENVIRONMENT, runtime)
+    outcome = smoke.run(environment, runtime)
 
     assert outcome.succeeded
     assert runtime.events == [
@@ -569,6 +620,22 @@ def test_recording_runtime_models_storage_exists_after_delete(
             for key, value in VALID_ENVIRONMENT.items()
             if key != "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM"
         },
+        {
+            "RAILWAY_ENVIRONMENT_NAME": "development",
+            "RAILWAY_SERVICE_NAME": "api",
+        },
+        {
+            "RAILWAY_ENVIRONMENT_NAME": "development",
+            "RAILWAY_SERVICE_NAME": "worker",
+        },
+        {
+            "RAILWAY_ENVIRONMENT_NAME": "production",
+            "RAILWAY_SERVICE_NAME": "api",
+        },
+        {
+            "RAILWAY_ENVIRONMENT_NAME": "staging",
+            "RAILWAY_SERVICE_NAME": "api",
+        },
         {**VALID_ENVIRONMENT, "RAILWAY_ENVIRONMENT_NAME": "Development"},
         {**VALID_ENVIRONMENT, "RAILWAY_SERVICE_NAME": "API"},
         {**VALID_ENVIRONMENT, "RAILWAY_SERVICE_NAME": "worker"},
@@ -703,3 +770,18 @@ def test_main_success_reports_only_safe_pass_stages(
     assert caplog.text == ""
     for value in SENSITIVE_VALUES:
         assert value not in output
+
+
+def test_staging_main_success_identifies_only_the_staging_api_target(
+    monkeypatch: MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """AC-5: the new explicit confirmation selects Staging without changing the flow."""
+    runtime = RecordingRuntime()
+    monkeypatch.setattr(smoke, "DefaultSmokeRuntime", lambda: runtime)
+    monkeypatch.setattr(sys, "argv", ["api_media_storage_smoke.py"])
+    monkeypatch.setattr(smoke.os, "environ", STAGING_ENVIRONMENT)
+
+    assert smoke.main() == 0
+
+    assert capsys.readouterr().out.splitlines()[0] == "PASS target staging/api"

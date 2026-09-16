@@ -16,6 +16,18 @@ TailTag is a monorepo for the community-led rebuild of a social convention game.
 
 The historical Django POC has been promoted and reset at `services/api/`. Its POC-only authentication, session/CSRF behavior, fursuit fields, routes, deletion behavior, and other experimental choices were evaluation evidence, not V0 requirements.
 
+## Staging boundary
+
+TailTag has one persistent Railway `staging` environment in the existing
+`TailTag` project, with isolated `api`, PostgreSQL/volume, runtime
+configuration/secrets, Clerk Production application, private R2 ownership, and
+public API `https://staging.tailtag.app`. It is a synthetic-data
+production-rehearsal backend, while Railway `development` remains the mutable
+contributor/integration environment. TailTag has no Production environment.
+Staging autodeploy is disabled after its one-time bootstrap. The boundary does
+not define immutable builds (#201) or repeatable promotion behavior (#202); see
+the maintained [Staging runbook](development/staging.md).
+
 ## Backend phases
 
 Phase 0 established the clean `services/api` foundation and local contributor environment. Phase 1 now has authoritative backend CI and pre-merge GitHub validation through `make api-check`, its persistent Railway development environment, an explicit Railway pre-deploy migration step, post-deploy HTTP smoke verification, and an enforced normal-contributor delivery path from protected `main` to Railway development. This document does not define production deployment configuration or product application behavior.

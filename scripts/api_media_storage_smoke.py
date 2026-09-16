@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final, Protocol, Self
 from urllib.parse import urlsplit
 
@@ -28,9 +29,12 @@ from media.images import normalize_image
 from media.keys import create_image_key
 from media.storage import S3MediaStorage
 
-_EXPECTED_ENVIRONMENT: Final = "development"
-_EXPECTED_SERVICE: Final = "api"
-_CONFIRMATION_VALUE: Final = "run-r2-development-media-storage-smoke"
+_PERMITTED_TARGETS: Final = MappingProxyType(
+    {
+        ("development", "api"): "run-r2-development-media-storage-smoke",
+        ("staging", "api"): "run-r2-staging-media-storage-smoke",
+    }
+)
 _PRESIGN_EXPIRY_SECONDS: Final = 600
 _FETCH_TIMEOUT_SECONDS: Final = 10
 _DNS_HOST_PATTERN: Final = re.compile(
@@ -168,12 +172,15 @@ class DefaultSmokeRuntime:
 
 
 def valid_target(environment: Mapping[str, str]) -> bool:
-    """Require the exact, non-interactive Railway Development target."""
-    return (
-        environment.get("RAILWAY_ENVIRONMENT_NAME") == _EXPECTED_ENVIRONMENT
-        and environment.get("RAILWAY_SERVICE_NAME") == _EXPECTED_SERVICE
-        and environment.get("TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM")
-        == _CONFIRMATION_VALUE
+    """Require one exact, non-interactive Railway target and confirmation."""
+    environment_name = environment.get("RAILWAY_ENVIRONMENT_NAME")
+    service_name = environment.get("RAILWAY_SERVICE_NAME")
+    if not isinstance(environment_name, str) or not isinstance(service_name, str):
+        return False
+    target = (environment_name, service_name)
+    confirmation = _PERMITTED_TARGETS.get(target)
+    return confirmation is not None and (
+        environment.get("TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM") == confirmation
     )
 
 
@@ -265,7 +272,7 @@ def main() -> int:
         return 1
 
     for stage in (
-        "target development/api",
+        f"target {os.environ['RAILWAY_ENVIRONMENT_NAME']}/api",
         "upload",
         "object exists",
         "presigned GET bytes",
