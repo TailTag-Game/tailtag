@@ -15,14 +15,17 @@ Completed additionally: environment baseline (`make api-check`: 1,529 tests),
 Draft review findings have scoped regression coverage.
 Completed additionally: final `make api-check` (1,604 tests and all static/
 Django/schema/Gunicorn gates), documentation doctor and fresh Compact review.
-Current: normal reviewed publication/merge. Pending: one authorized live
-promotion, final verification and evidence accounting.
+Completed additionally: owner squash merge of PR #233, exact-SHA successful
+push validation and one normal Staging promotion with every gate passed.
+Implementation and normal live promotion acceptance are complete; the
+repository-owned record below is the final evidence handoff.
 
 Research/design is complete. The user subsequently authorized continuing until
 issue completion, including implementation, normal reviewed publication/merge
 and one Staging promotion. Infrastructure/configuration changes remain excluded.
 The [implementation plan](2026-09-16-controlled-staging-promotion-implementation-plan.md)
-is the execution handoff. No #202 live acceptance has been performed.
+is the execution handoff. The live acceptance record below completes the
+authorized promotion proof.
 
 ## Acceptance Contract
 
@@ -90,6 +93,35 @@ AND approved_readiness(D) succeeded
 AND existing_Staging_HTTP_smoke passed
 AND D remains active at declaration
 ```
+
+## Normal reviewed live proof (2026-09-16 local date)
+
+The owner manually squash-merged [PR #233](https://github.com/TailTag-Game/tailtag/pull/233).
+Its accepted source SHA was `c09c0b441b35d070ed04c73f3a22e34f7f0f2803`;
+the fetched tree matched the independently reviewed and checked implementation.
+The exact successful completed push run of `.github/workflows/api.yml` was
+[35185145714](https://github.com/TailTag-Game/tailtag/actions/runs/35185145714),
+attempt 1. The operator independently revalidated eligibility before submission.
+
+One invocation of the supported operator submitted that explicit SHA through
+`serviceInstanceDeployV2` and immediately checkpointed returned deployment ID
+`d7e69108-a6d8-4355-b1ec-8b83057ca11b`. Every subsequent deployment observation
+used that D. The operator exited zero after deployment, configured migration,
+startup, readiness, actual exact-instance identity readback and unchanged #201
+join, and existing HTTP smoke passed. Its final active-set query found D active
+with SUCCESS and a RUNNING instance immediately before declaration.
+
+The [allowlisted JSON record](../development/staging-deployments/d7e69108-a6d8-4355-b1ec-8b83057ca11b.json)
+retains source/deployment identities, Staging environment, exact deployment
+createdAt `2026-09-17T05:20:35.320Z`, validation run/attempt and fixed outcomes.
+No raw metadata, configuration, secrets, private URLs or logs were retained.
+Staging autodeploy was confirmed disabled by preflight; no configuration,
+Production, infrastructure, recovery or deliberate failure operation was added.
+
+This is a successful promotion at declaration, with historical evidence for D.
+It does not guarantee current state after later deployments or attest each shared
+HTTP response cryptographically. The required success predicate above was met;
+no fallback, second submission or recovery was used.
 
 ## Live interface research (2026-09-16 local date)
 

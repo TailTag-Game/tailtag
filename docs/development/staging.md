@@ -162,6 +162,26 @@ image per response. Exact-instance SSH plus the #201 join establishes D's image
 identity; final active membership bounds the current-serving claim. Detailed
 readiness semantics belong to OR-4 and migration/recovery semantics to OR-7.
 
+## Controlled promotion acceptance evidence (2026-09-16)
+
+The owner-squashed [PR #233](https://github.com/TailTag-Game/tailtag/pull/233)
+provided candidate `c09c0b441b35d070ed04c73f3a22e34f7f0f2803`.
+Its exact completed successful push API validation was
+[run 35185145714](https://github.com/TailTag-Game/tailtag/actions/runs/35185145714),
+attempt 1. One supported operator invocation submitted that SHA and captured
+returned D `d7e69108-a6d8-4355-b1ec-8b83057ca11b` before observation.
+
+The [sanitized repository record](staging-deployments/d7e69108-a6d8-4355-b1ec-8b83057ca11b.json)
+records deployment createdAt `2026-09-17T05:20:35.320Z`, every required gate
+SUCCEEDED, final active state ACTIVE and overall SUCCEEDED. Exact-instance image
+source matched the candidate through #201's unchanged join; canonical smoke
+passed. The final exact-D active check was the last remote gate before success.
+
+This validates #202's normal promotion path. It is a point-in-time declaration
+and durable historical evidence, not a promise about later serving state.
+Bootstrap and older #201 observations below remain separate historical evidence.
+Staging autodeploy stayed disabled; no recovery or deliberate failure test ran.
+
 ## Opt-in verification procedures
 
 These are maintainer-only live operations, separate from ordinary CI and

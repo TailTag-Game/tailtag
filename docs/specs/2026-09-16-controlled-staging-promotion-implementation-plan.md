@@ -122,15 +122,15 @@ D.json checkpoints and nonzero exit for every non-success overall result.
 - [x] Obtain publication/merge/live-operation authorization as required; verify
   approved author/committer before commit and Finn account immediately before
   each authenticated remote mutation. No push/deploy is authorized in research.
-- [ ] Select a reviewed main ancestor S containing the implemented operator;
+- [x] Select a reviewed main ancestor S containing the implemented operator;
   verify exact successful push API run. Run one normal Staging promotion through
   the supported operator, capture returned D and retain its sanitized record.
   Do not substitute historical #201 branch-deployment evidence or run destructive
   failure experiments. Stop and report any live interface contradiction.
-- [ ] Parent inspects all evidence fields, exact-SHA identity, required gate
+- [x] Parent inspects all evidence fields, exact-SHA identity, required gate
   outcomes and final active state. If superseded/failed/indeterminate, report that
   outcome honestly; do not close acceptance or automatically deploy again.
-- [ ] Run final authoritative relevant checks, `./scripts/doctor.sh` and
+- [x] Run final authoritative relevant checks, `./scripts/doctor.sh` and
   `git diff --check`. Clean only task-owned disposable test resources, preserve
   persistent volumes and verify cleanup. Report AC coverage, changed files,
   deterministic/review/live results and shared-URL/point-in-time limitations.
