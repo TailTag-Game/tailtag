@@ -8,7 +8,7 @@ Scope: STANDARD COMPACT. Assurance: SECURITY and TEST ADEQUACY.
 The user-approved identity contract and implementation design are frozen below.
 The focused Staging experiment passed. Independent acceptance tests are frozen
 and approved; production implementation and local verification are complete.
-Final deployed acceptance remains pending the implementation's live proof.
+Final deployed acceptance passed against the exact implementation deployment.
 
 Completed: repository reconnaissance, upstream documentation research, live
 Railway schema and target inspection, authorized probe publication, exact-SHA
@@ -19,9 +19,13 @@ Completed additionally: production implementation, parent deterministic gate
 permission checks, independent Compact review and scoped re-review. The MEDIUM
 hard-coded-fixture test gap was resolved with a second valid source/deployment
 pair and exact query-variable assertions (AC-1/2/6/7); no findings remain open.
-Current: implementation ready for local commit and authorized publication.
-Pending: authorization for implementation push/deployment,
-exact-deployment live proof, final verification.
+Completed additionally: authorized implementation publication, exact-SHA Staging
+deployment, actual-instance identity readback, repository-owned exact-D join,
+Finn-verified GitHub commit resolution, and existing HTTP smoke.
+Completed additionally: final evidence documentation, `./scripts/doctor.sh`
+and `git diff --check`. Required documentation checks passed; the optional
+Dev Container CLI remains unavailable.
+Current: final evidence handoff. No merge or Production action is authorized.
 
 ## Acceptance Contract
 
@@ -241,11 +245,11 @@ only by the Docker probe establishes build-time ARG availability and equality
 for this deployment mechanism, without relying on runtime SHA.
 
 The temporary probe is removed from the local implementation/design diff after
-the experiment. Staging retains the successful probe deployment until replaced
-through separately authorized work. This is feasibility evidence, not final
+the experiment. The separately authorized final implementation deployment
+recorded below replaced the probe. This is feasibility evidence, not final
 #201 acceptance: the reusable component, operator join script, deterministic
-tests, and final implementation proof remain pending. No fallback or #202 SHA
-injection dependency was needed for the tested mechanism.
+tests, and final implementation proof are established separately below. No
+fallback or #202 SHA injection dependency was needed for the tested mechanism.
 
 The existing credential-free HTTP smoke passed for `/health/live`,
 `/health/ready`, `/api/schema/`, and `/api/docs/` with HTTP 200. This confirms
@@ -282,10 +286,10 @@ no new dependencies or behavior outside the operator surface.
   ownership/mode and inability of the application user to alter the artifact.
 - [x] Fresh Compact reviewer checks contract, code, security, test adequacy and
   scope. Resolve acceptance and BLOCKER/HIGH findings.
-- [ ] Prepare reviewed commit for separately authorized implementation push and
+- [x] Prepare reviewed commit for separately authorized implementation push and
   final Staging deployment. Capture exact-instance output, join D, resolve S in
   GitHub, run existing HTTP smoke, and retain sanitized evidence.
-- [ ] Final authoritative verification and acceptance accounting. No merge or
+- [x] Final authoritative verification and acceptance accounting. No merge or
   Production action.
 
 ## Local implementation verification
@@ -323,3 +327,53 @@ addition is safe image metadata and its explicit operator reader. Any rollout
 or recovery procedure remains separately authorized and belongs to the existing
 deployment work, not new automation in this issue. Live acceptance cannot use
 the probe as a substitute for the final implemented identity surface.
+
+## Final Staging acceptance evidence
+
+The authorized manual deployment of the published implementation commit returned
+exact deployment `bd411e7e-cbc9-4c3e-b332-9f7e522b4b72`. Its control-plane status
+was `SUCCESS`. The exact-record instance lookup selected a `RUNNING` instance;
+SSH used that explicit instance selector to execute
+`uv run --locked --no-sync python -m config.build_identity`.
+The actual three-field stdout was retained and passed unchanged as stdin to
+`scripts/api_deployment_identity.py`. The repository-owned lookup queried the
+captured deployment ID and validated source, environment, project and service.
+Its successful allowlisted output was:
+
+```json
+{
+  "source_sha": "84237fd2e8db35ecf06c33a8eb09d104858195ff",
+  "deployment_id": "bd411e7e-cbc9-4c3e-b332-9f7e522b4b72",
+  "environment": "staging",
+  "deployment_timestamp": "2026-09-17T01:04:22.773Z"
+}
+```
+
+`deployment_timestamp` is this exact Railway record's `createdAt`, preserved
+without translating lifecycle or process timestamps. GitHub resolved the
+reported full SHA in `TailTag-Game/tailtag`, immediately after verifying the
+acting account as `FinnThePanther`. Staging autodeploy remained disabled and the
+source repository and Docker root were unchanged. No secrets or service
+configuration were modified.
+
+The existing `API_BASE_URL=https://staging.tailtag.app make api-smoke` passed
+all four endpoints with HTTP 200. This shared-URL smoke is separate from the
+exact-instance proof; neither asserts that the captured deployment remains
+currently serving after future deployments. No latest-active lookup is needed
+for this historical acceptance evidence.
+
+Acceptance accounting: AC-1/2 are established by artifact tests, non-root image
+readback and the actual deployed artifact; AC-3 by runtime tests and deployed
+readback; AC-4 by exact-record timestamp tests and the live join; AC-5 by the
+three/four-field allowlists and scoped review; AC-6 by the complete live tuple
+and GitHub resolution; AC-7 by exact-D queries and second-identity tests; AC-8
+by validation/allowlist/clock cases within the 58 focused tests and the
+1,529-test deterministic gate; AC-9 by the focused feasibility experiment and
+final explicit-SHA deployment, both supplying the correct build-time SHA. No
+contract item remains unverified. There is no new public API, database migration,
+dependency, or complete deployment
+workflow. #202 retains controlled deployment/rollback ownership.
+
+This evidence is a documentation-only follow-up to deployed source
+`84237fd2e8db35ecf06c33a8eb09d104858195ff`. The evidence commit's own SHA does
+not substitute for the source SHA of the captured deployment.

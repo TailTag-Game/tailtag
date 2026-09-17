@@ -130,6 +130,13 @@ cryptographic image attestation. Evidence for `D` remains valid historically
 after later deployments, but it does not claim that `D` is currently serving;
 make that claim only after a separate active-deployments comparison.
 
+Final #201 acceptance passed for source
+`84237fd2e8db35ecf06c33a8eb09d104858195ff`, deployment
+`bd411e7e-cbc9-4c3e-b332-9f7e522b4b72`, environment `staging`, and Railway
+`createdAt` `2026-09-17T01:04:22.773Z`. The specification retains the exact-instance
+readback, exact-record join, GitHub resolution, and smoke evidence. This is
+historical evidence for that deployment rather than an ongoing serving claim.
+
 ### HTTP, configuration, and media
 
 Run the existing credential-free HTTP smoke only against the canonical public
