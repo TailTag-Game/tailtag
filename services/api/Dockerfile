@@ -28,6 +28,10 @@ CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
 
 FROM python:3.13-slim-bookworm AS production
 
+# Temporary #201 experiment: verify Railway's explicit-SHA build injection.
+ARG RAILWAY_GIT_COMMIT_SHA
+RUN python -c 'import os,re; from pathlib import Path; s=os.environ.get("RAILWAY_GIT_COMMIT_SHA", ""); assert re.fullmatch("[0-9a-f]{40}", s), "missing or malformed Railway build SHA"; Path("/opt/tailtag-source-sha-probe").write_text(s + "\n")'
+
 LABEL org.opencontainers.image.source="https://github.com/TailTag-Game/tailtag" \
     org.opencontainers.image.title="TailTag API" \
     org.opencontainers.image.description="TailTag development API" \
