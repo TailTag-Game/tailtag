@@ -4,8 +4,8 @@ This is the maintainer runbook for TailTag's persistent Railway **Staging**
 backend: a controlled production-rehearsal target for maintainers with the
 needed Railway, Clerk, and Cloudflare access. It is separate from the mutable
 contributor/integration [Development runbook](backend-delivery-operations.md).
-It is not a production SRE guide, a deployment-promotion procedure, or a
-source of credentials.
+It covers the controlled promotion procedure below. It is not a production SRE
+guide or a source of credentials.
 
 ## Supported target and boundary
 
@@ -50,10 +50,10 @@ point once. The dated 2026-09-16 observation records bootstrap `main` commit
 `4293d271ce1ab262b688c5b723a119aa02c232b7`; it is an observation only, not an
 immutable-artifact guarantee or #201 build identity.
 
-Do not repeat or generalize that bootstrap into a routine. In particular, this
-runbook establishes neither #201 immutable build identity nor #202 repeatable
-promotion behavior. It adds no reset/reseed process, observability system,
-recovery drill, health behavior, or new deployment mechanism.
+Do not repeat or generalize that bootstrap into a routine. Bootstrap itself
+establishes neither #201 immutable build identity nor #202 repeatable promotion.
+Use the separate identity and controlled-promotion procedures below. No reset/
+reseed process, observability system, recovery drill or health behavior is added.
 
 The original CLI duplication unexpectedly deployed inherited configuration
 before review. Those deployments were stopped, configuration was replaced while
@@ -61,6 +61,106 @@ offline, and the Staging volume was wiped before the supported bootstrap. That
 initial interval is not proof of isolation and is not asserted to be free of
 prior exposure. The current reviewed isolated bootstrap and the evidence below
 are the usable proof.
+
+## Controlled Staging promotion (#202)
+
+The frozen [controlled promotion contract](../specs/2026-09-16-controlled-staging-promotion.md)
+is authoritative. This is the only routine Staging promotion path. It uses
+Railway `serviceInstanceDeployV2` with an explicit immutable candidate SHA and
+captures the returned deployment ID. Staging GitHub autodeploy stays disabled.
+Do not use `railway up`, Deploy Latest Commit, branch mutation or a deployment
+branch. Development retains its existing independent delivery path.
+
+### Before promotion
+
+Coordinate a maintainer operation window: no concurrent Staging configuration
+changes or unrelated pending staged changes. Review the canonical target and
+current configuration in Railway without exporting variables. Stop on a mismatch;
+do not repair configuration or authentication as part of promotion. Only an
+operator authorized for the canonical Staging/API target may run this command.
+
+Use a reviewed full commit SHA from accepted `TailTag-Game/tailtag` main history,
+containing the #201 identity implementation. It may be an older ancestor: main
+can advance after selection. It must resolve in the repository and have a
+completed successful push run of `.github/workflows/api.yml` with exactly the
+same head SHA. A successful PR run or workflow dispatch does not qualify.
+The operator checks remote ancestry and exact push validation; it does not use
+local branch state or duplicate backend relevance logic.
+
+Verify approved Finn GitHub/Railway identities; the command repeats the required
+checks. An identity mismatch, failed identity lookup, authentication/access
+failure or failed authenticated operation ends the task. Do not switch accounts,
+repair credentials, use another session or retry the failure.
+
+From the repository root, with existing locked dependencies installed:
+
+```bash
+SOURCE_SHA='replace-with-reviewed-full-40-character-main-ancestor-SHA'
+uv --directory services/api run --locked --no-sync python ../../scripts/api_staging_promote.py \
+  --source-sha "$SOURCE_SHA" --confirm promote-tailtag-staging
+```
+
+The confirmation authorizes this one exact-SHA Staging submission, not recovery
+or configuration changes. The command is opt-in and is never invoked by ordinary
+CI, `make api-check`, application startup or a health check.
+
+### Expected operation and evidence
+
+After eligibility and target/configuration checks, the command submits S once
+and immediately checkpoints returned D at
+`docs/development/staging-deployments/<D>.json`. Every subsequent lifecycle/event
+lookup is for D. It observes the existing pre-deploy migration, startup and
+readiness gates, reads image identity on an explicitly selected RUNNING instance
+of D, reuses #201's exact-deployment join, and checks image source equals S.
+Then it runs the existing canonical credential-free HTTP smoke and checks the
+Staging/API active-deployment set immediately before declaring success.
+
+A zero exit is current-promotion success only when all required outcomes
+succeeded and exact D was still active at declaration. The evidence includes
+source SHA, D, Staging environment, exact Railway createdAt timestamp, accepted
+main SHA, validation run/attempt, deployment/migration/startup/readiness/identity/
+smoke outcomes, final active state and overall result. Only fixed outcome codes
+and allowlisted public identities are retained; no raw CLI output, metadata,
+event errors, environment values, private URLs or logs.
+
+| Result | Operator action |
+| --- | --- |
+| Candidate/target/configuration rejected before submission | Stop; there is no returned D and no deployment was intentionally submitted. Correct the prerequisite through its normal owning process. |
+| PENDING record with progressing deployment | The command observes successful exact-D reads every five seconds, for up to 20 minutes. Do not start a second promotion. |
+| SUCCEEDED / ACTIVE | Review and retain the sanitized record. This is a point-in-time success claim; subsequent deployments may change current state. |
+| SUPERSEDED | Keep valid historical D evidence; do not report successful current promotion. No automatic resubmission. |
+| INACTIVE | D is not active and no replacement is observed. Ordinary promotion did not succeed. |
+| FAILED | Stop ordinary promotion at the first failed gate. Inspect the safe exact-D owning surface before any separately approved next operation. |
+| INDETERMINATE or interrupted PENDING | The command cannot establish complete evidence. Do not assume failure was clean, success occurred, or that submission did not happen. Preserve known S/D and inspect exact D. |
+| OR7_HANDOFF | Ambiguous migration/database state requires OR-7's reviewed recovery decision. This procedure performs no recovery. |
+
+A lost mutation response can mean Railway accepted a deployment although D was
+not received. Stop; do not resubmit or discover a substitute through "latest."
+If checkpoint persistence fails after D is returned, preserve only the emitted
+safe S/D identifiers in the repository evidence location and stop. Review any
+interrupted record before committing it; never convert it to success based on
+a later shared-URL response alone.
+
+### Safe first diagnostics and recovery boundary
+
+Start with the captured D's status, target fields, instances and paginated
+lifecycle events. PRE_DEPLOY_COMMAND is the Django migration gate;
+MIGRATE_VOLUMES is not. A completed event alone is insufficient to prove success.
+Error/skip/conflicting or missing evidence must not be treated as a passed gate.
+NOT_REACHED requires affirmative evidence that the attempt stopped before the
+step; absence alone is indeterminate.
+
+For a failed gate, inspect only D's relevant Railway build/pre-deploy/deployment
+surface. Do not export general metadata, variables, private URLs, screenshots
+or indiscriminate logs. Record only sanitized fixed outcomes. A migration error
+does not prove database state was unchanged; ambiguous/partial state hands off
+to OR-7. This flow never automatically retries, reverses migrations, rolls back
+application/database state, restores data or deliberately terminates services.
+
+The smoke checks the shared public endpoint and does not attest the serving
+image per response. Exact-instance SSH plus the #201 join establishes D's image
+identity; final active membership bounds the current-serving claim. Detailed
+readiness semantics belong to OR-4 and migration/recovery semantics to OR-7.
 
 ## Opt-in verification procedures
 
