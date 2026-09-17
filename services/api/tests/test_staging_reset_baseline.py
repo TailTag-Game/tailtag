@@ -560,9 +560,13 @@ def test_provision_denies_missing_identity_or_existing_sentinel_without_rebindin
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    "bulk_result", ("normal", "reversed", "missing-first", "missing-second")
+)
 def test_first_reset_binds_all_null_registry_roots_atomically(
     reset_modules: tuple[ModuleType, ModuleType, ModuleType],
     monkeypatch: pytest.MonkeyPatch,
+    bulk_result: str,
 ) -> None:
     """AC-1/2/7: first reset creates the fixed roots and registers all three together."""
     baseline, reset, safety = reset_modules
@@ -600,6 +604,27 @@ def test_first_reset_binds_all_null_registry_roots_atomically(
         Fursuit.objects.get(pk=identity.first_fursuit_id).tailtag_id,
         Fursuit.objects.get(pk=identity.second_fursuit_id).tailtag_id,
     } == {baseline.FIRST_FURSUIT_TAILTAG_ID, baseline.SECOND_FURSUIT_TAILTAG_ID}
+
+    # Final validation must use registry identity, independent of query ordering.
+    fursuits = Fursuit.objects.in_bulk(
+        (identity.first_fursuit_id, identity.second_fursuit_id)
+    )
+    if bulk_result == "reversed":
+        fursuits = dict(reversed(tuple(fursuits.items())))
+    elif bulk_result == "missing-first":
+        del fursuits[identity.first_fursuit_id]
+    elif bulk_result == "missing-second":
+        del fursuits[identity.second_fursuit_id]
+
+    def bulk_lookup(_: object) -> dict[int, Fursuit]:
+        return fursuits
+
+    monkeypatch.setattr(Fursuit.objects, "in_bulk", bulk_lookup)
+    if bulk_result.startswith("missing-"):
+        with pytest.raises(safety.ResetSafetyError):
+            reset.validate_baseline(identity)
+    else:
+        assert reset.validate_baseline(identity)["fursuits"] == 2
 
 
 @pytest.mark.django_db(transaction=True)

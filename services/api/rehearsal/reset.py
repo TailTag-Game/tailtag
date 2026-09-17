@@ -243,9 +243,13 @@ def validate_baseline(identity: StagingResetIdentity) -> dict[str, int]:
     ):
         raise ResetSafetyError
     convention = Convention.objects.get(pk=identity.convention_id)
-    first, second = Fursuit.objects.in_bulk(
+    fursuits = Fursuit.objects.in_bulk(
         (identity.first_fursuit_id, identity.second_fursuit_id)
-    ).values()
+    )
+    first = fursuits.get(identity.first_fursuit_id)
+    second = fursuits.get(identity.second_fursuit_id)
+    if first is None or second is None:
+        raise ResetSafetyError
     _assert_closure(identity, convention, (first, second))
     if (
         convention.name,
