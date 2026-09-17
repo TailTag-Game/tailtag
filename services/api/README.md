@@ -751,7 +751,8 @@ With `make api-run` running, local development surfaces are:
 | URL | Purpose |
 | --- | --- |
 | `http://127.0.0.1:8000/health/live` | Process/application liveness; does not query PostgreSQL. |
-| `http://127.0.0.1:8000/health/ready` | Readiness, including a lightweight PostgreSQL dependency check. |
+| `http://127.0.0.1:8000/health/ready` | Required local configuration and lightweight PostgreSQL readiness check. |
+| `http://127.0.0.1:8000/health/identity` | Safe #201 runtime identity: source SHA, deployment ID, and environment. |
 | `http://127.0.0.1:8000/api/me/` | Authenticated TailTag identity proof; not a profile endpoint. |
 | `http://127.0.0.1:8000/api/schema/` | Generated OpenAPI schema. |
 | `http://127.0.0.1:8000/api/docs/` | Interactive OpenAPI documentation. |
@@ -766,8 +767,15 @@ environment only when appropriate:
 API_BASE_URL=https://example.internal make api-smoke
 ```
 
-If `/health/ready` returns `503`, Django is reachable but PostgreSQL is not
-ready. Diagnose the database before treating it as an API-route problem.
+If `/health/ready` returns `503`, required configuration or PostgreSQL is not
+ready. The response is sanitized; use operator diagnostics to investigate.
+Readiness validates Clerk and media configuration locally without probing vendors.
+Liveness remains independent of configuration and database health.
+
+The [Staging preflight](../../docs/development/staging.md) requires the exact
+canonical Staging origin, valid public runtime identity, and successful readiness.
+It needs no Railway credentials or deployment timestamp; exact-deployment operator
+correlation remains optional #201 evidence.
 
 ### Post-deploy development verification
 
