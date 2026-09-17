@@ -69,6 +69,74 @@ These are maintainer-only live operations, separate from ordinary CI and
 workspace, project, environment, and service listed above. Use explicit
 selectors, not a guessed linked context.
 
+### Immutable build and deployment identity (#201)
+
+The 2026-09-16 bootstrap observation is historical only: it predates the #201
+implementation and is excluded from its final acceptance evidence. Do not use
+it to claim an immutable build identity, a current deployment, or a completed
+deployment workflow. The frozen [build and deployment identity
+specification](../specs/2026-09-16-backend-build-deployment-identity.md) defines
+the authoritative contract.
+
+`config.build_identity.get_identity()` is the shared application source for the
+root-owned, image-local build artifact and the explicit runtime deployment ID
+and environment. It has no Railway credentials or control-plane query. Its
+operator entry point emits only those three fields.
+
+Before any authorized #201 proof operation, confirm the repository author and
+committer are both `Finn the Panther <finn@finnthepanther.com>`, and confirm
+the authenticated Railway identity is Finn's approved name and email with
+`railway whoami`. Confirm the authenticated GitHub CLI account is
+`FinnThePanther` with `gh api user --jq '.login'`. Stop on any mismatch. Record
+only the full source SHA, Railway deployment ID, environment name, and deployment
+timestamp; do not record tokens, CLI diagnostics, deployment metadata, or
+configuration values.
+
+For a captured deployment ID `D`, query only that record and collect only its
+ID, target fields, and deployment-instance IDs/statuses. The query below must
+match the canonical project, Staging environment, and API service before an
+instance is selected:
+
+```bash
+railway api 'query Deployment($id: String!) { deployment(id: $id) { id projectId serviceId environment { name } instances { id status } } }' \
+  --raw-var "id=$DEPLOYMENT_ID"
+```
+
+Choose only a `RUNNING` instance returned for `D` and pass its actual
+deployment-instance ID explicitly to SSH. Never allow `railway ssh` to select
+its default active instance. From the repository root, use a pipefail pipeline:
+
+```bash
+set -o pipefail
+railway ssh --project 85324de4-be6a-49c3-a3f9-6cac13877849 \
+  --service api --environment staging --deployment-instance "$DEPLOYMENT_INSTANCE_ID" -- \
+  uv run --locked --no-sync python -m config.build_identity \
+  | uv --directory services/api run --locked --no-sync python ../../scripts/api_deployment_identity.py
+```
+
+The join command accepts only the three-field backend JSON and queries exactly
+`D`; it does not select the latest deployment. Its successful output preserves
+Railway's `createdAt` as `deployment_timestamp`, which is deployment-record
+creation time rather than a build, startup, restart, activation, or query time.
+Immediately before resolving the returned `source_sha`, repeat the Finn GitHub
+identity check, then resolve the exact commit with
+`gh api "repos/TailTag-Game/tailtag/commits/$SOURCE_SHA" --jq .sha`.
+
+The join command validates supplied stdin and Railway's target metadata, but
+cannot attest where stdin originated. Final evidence must therefore retain the
+actual backend command output from the selected exact instance, not a
+hand-constructed tuple. Railway metadata is trusted platform evidence, not
+cryptographic image attestation. Evidence for `D` remains valid historically
+after later deployments, but it does not claim that `D` is currently serving;
+make that claim only after a separate active-deployments comparison.
+
+Final #201 acceptance passed for source
+`84237fd2e8db35ecf06c33a8eb09d104858195ff`, deployment
+`bd411e7e-cbc9-4c3e-b332-9f7e522b4b72`, environment `staging`, and Railway
+`createdAt` `2026-09-17T01:04:22.773Z`. The specification retains the exact-instance
+readback, exact-record join, GitHub resolution, and smoke evidence. This is
+historical evidence for that deployment rather than an ongoing serving claim.
+
 ### HTTP, configuration, and media
 
 Run the existing credential-free HTTP smoke only against the canonical public
