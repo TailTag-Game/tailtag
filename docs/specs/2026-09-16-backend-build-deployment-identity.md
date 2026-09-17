@@ -247,7 +247,7 @@ for this deployment mechanism, without relying on runtime SHA.
 The temporary probe is removed from the local implementation/design diff after
 the experiment. The separately authorized final implementation deployment
 recorded below replaced the probe. This is feasibility evidence, not final
-#201 acceptance: the reusable component, operator join script, deterministic
+\#201 acceptance: the reusable component, operator join script, deterministic
 tests, and final implementation proof are established separately below. No
 fallback or #202 SHA injection dependency was needed for the tested mechanism.
 
