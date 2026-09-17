@@ -259,9 +259,59 @@ historical evidence for that deployment rather than an ongoing serving claim.
 
 ### HTTP, configuration, and media
 
+#### Health and public Staging preflight (#203)
+
+The [health and environment-safety contract](../specs/2026-09-16-backend-health-environment-safety.md)
+defines the three public signals:
+
+- `/health/live`: HTTP 200 with `{"status":"ok"}` means the process can answer.
+  It does not depend on database, vendor availability, or identity validity.
+- `/health/ready`: HTTP 200 with `{"status":"ok"}` means required effective local
+  configuration is valid and the configured PostgreSQL database answers a small
+  query. Invalid configuration or database failure returns sanitized HTTP 503
+  with `{"status":"unavailable"}`. Clerk and storage are checked locally, without
+  vendor requests. This is not proof of credential authorization or vendor uptime.
+- `/health/identity`: returns only #201's image/runtime `source_sha`,
+  `deployment_id`, and `environment`; invalid identity returns sanitized HTTP 503.
+  It contains no deployment timestamp, resource identifiers, or configuration dump.
+
+All health/identity responses use `Cache-Control: no-store`. Intended local
+settings can retain disabled Clerk authentication and filesystem storage, but
+cannot qualify as a Staging acceptance target. Deployed readiness requires valid
+authentication/storage and safe deployed configuration; Staging additionally
+requires its valid baked/runtime identity.
+
+Before acceptance or simulation traffic, future tooling must call the reusable,
+credential-free primitive `scripts.api_staging_preflight.validate_target()`.
+To run the same guard from the repository root:
+
+```bash
+uv --directory services/api run --locked --no-sync python ../../scripts/api_staging_preflight.py https://staging.tailtag.app
+```
+
+The command rejects every origin except that exact literal before networking.
+No trailing slash, explicit port, alternate host, path, credentials, HTTP,
+Development, Production, or localhost override is accepted. It disables redirects
+and ambient proxies, validates positive Staging identity, requires readiness, and
+requires unchanged identity across the preflight observations. Timeout, malformed
+or unexpected responses, missing identity, and any uncertainty deny traffic.
+Failure is a fixed sanitized error with nonzero exit status; success prints only
+the three-field observed identity JSON. The guard makes health/identity GETs only.
+
+Future #199 reports must capture the observed source SHA and deployment ID.
+This is protection against accidental/misconfigured targeting, not remote
+attestation or a promise that a deployment cannot change afterward. It needs no
+Railway credentials, deployment timestamp, or expected candidate SHA. Optional
+operator correlation of captured deployment ID through the #201 exact-deployment
+procedure above can add `deployment_timestamp` and stronger Railway evidence;
+that enrichment is separate from permission to send acceptance traffic.
+
+Deployed #203 proof is pending; do not treat this runbook's
+contract as evidence that the current Staging deployment implements it.
+
 Run the existing credential-free HTTP smoke only against the canonical public
 URL. It checks the existing health, schema, and docs contract; it does not
-deploy or change Staging.
+deploy or change Staging or establish the #203 identity/target-safety contract.
 
 ```bash
 API_BASE_URL=https://staging.tailtag.app make api-smoke

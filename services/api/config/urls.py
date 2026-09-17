@@ -31,4 +31,5 @@ urlpatterns: list[URLPattern | URLResolver] = [
     ),
     path("health/live", health_views.live),
     path("health/ready", health_views.ready),
+    path("health/identity", health_views.identity),
 ]

@@ -6,6 +6,7 @@ Small, reversible changes with clear acceptance criteria do not need a spec. Spe
 
 ## Current V0 specifications
 
+- [Backend liveness, readiness, and environment safety](2026-09-16-backend-health-environment-safety.md) — #203 frozen credential-free preflight contract
 - [V0 Railway Staging environment](2026-09-15-v0-railway-staging-environment.md) — frozen
 - [V0 persistent fursuit identity and Convention-scoped catch credentials](2026-09-01-v0-fursuit-catch-credentials.md)
 - [V0 fursuit catch sessions](2026-09-01-v0-fursuit-catch-sessions.md)
