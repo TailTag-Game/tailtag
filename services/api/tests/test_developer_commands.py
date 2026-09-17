@@ -580,6 +580,8 @@ def test_semgrep_check_is_local_locked_noninteractive_and_credential_free() -> N
         ("AUTH_SMOKE_SCRIPT", "/tmp/untrusted-api-auth-smoke.py"),
         ("STAGING_AUTH_SMOKE_SCRIPT", "/tmp/untrusted-api-staging-auth-smoke.py"),
         ("ENVIRONMENT_FINGERPRINT_SCRIPT", "/tmp/untrusted-environment-fingerprint.py"),
+        ("STAGING_RESET_SCRIPT", "/tmp/untrusted-api-staging-reset.py"),
+        ("STAGING_RESET_SSH_SCRIPT", "/tmp/untrusted-api-staging-reset-ssh.py"),
         (
             "CLERK_DEVELOPMENT_SESSION_SCRIPT",
             "/tmp/untrusted-clerk-development-session.py",
