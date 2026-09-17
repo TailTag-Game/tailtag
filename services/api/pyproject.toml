@@ -42,7 +42,7 @@ target-version = "py313"
 pythonVersion = "3.13"
 typeCheckingMode = "strict"
 extraPaths = ["../.."]
-include = ["accounts", "authentication", "catches", "config", "conventions", "fursuits", "health", "profiles", "tests", "../../scripts/api_auth_smoke.py", "../../scripts/api_deployment_identity.py", "../../scripts/api_staging_promote.py", "../../scripts/api_staging_preflight.py", "../../scripts/api_staging_auth_smoke.py", "../../scripts/api_environment_fingerprint.py", "../../scripts/api_media_storage_smoke.py", "../../scripts/api_smoke.py", "../../scripts/backend_ci_relevance.py", "../../scripts/clerk_development_session.py", "../../scripts/validate_semgrep_contract.py"]
+include = ["accounts", "authentication", "catches", "config", "conventions", "fursuits", "health", "profiles", "rehearsal", "tests", "../../scripts/api_auth_smoke.py", "../../scripts/api_deployment_identity.py", "../../scripts/api_staging_promote.py", "../../scripts/api_staging_preflight.py", "../../scripts/api_staging_reset.py", "../../scripts/api_staging_reset_ssh.py", "../../scripts/api_staging_auth_smoke.py", "../../scripts/api_environment_fingerprint.py", "../../scripts/api_media_storage_smoke.py", "../../scripts/api_smoke.py", "../../scripts/backend_ci_relevance.py", "../../scripts/clerk_development_session.py", "../../scripts/validate_semgrep_contract.py"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.local"

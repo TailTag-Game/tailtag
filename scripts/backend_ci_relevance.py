@@ -14,6 +14,8 @@ BACKEND_RELEVANT_FILES = {
     "scripts/api_deployment_identity.py",
     "scripts/api_staging_promote.py",
     "scripts/api_staging_preflight.py",
+    "scripts/api_staging_reset.py",
+    "scripts/api_staging_reset_ssh.py",
     "scripts/api_media_storage_smoke.py",
     "scripts/clerk_development_session.py",
     "scripts/backend_ci_relevance.py",

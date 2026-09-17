@@ -23,6 +23,7 @@ INSTALLED_APPS = [
     "health.apps.HealthConfig",
     "media.apps.MediaConfig",
     "profiles.apps.ProfilesConfig",
+    "rehearsal.apps.RehearsalConfig",
 ]
 
 MIDDLEWARE = [
