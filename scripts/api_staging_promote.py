@@ -99,6 +99,7 @@ def _run(
     *,
     input: str | None = None,
     env: Mapping[str, str] | None = None,
+    cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         arguments,
@@ -109,6 +110,7 @@ def _run(
         timeout=_TIMEOUT_SECONDS,
         input=input,
         env=env,
+        cwd=cwd,
     )
 
 
@@ -694,7 +696,7 @@ def main() -> int:
         _persist(record)
         smoke_environment = dict(os.environ)
         smoke_environment["API_BASE_URL"] = "https://staging.tailtag.app"
-        smoke = _run(["make", "api-smoke"], env=smoke_environment)
+        smoke = _run(["make", "api-smoke"], env=smoke_environment, cwd=_REPOSITORY_ROOT)
         if smoke.returncode != 0:
             record["smoke_outcome"] = "FAILED"
             record["overall_outcome"] = "FAILED"

@@ -171,6 +171,7 @@ class PromotionSubprocess:
         config: Mapping[str, object] | None = None,
         deployment_triggers: Mapping[str, object] | None = None,
         smoke_returncode: int = 0,
+        expected_smoke_cwd: Path | None = None,
         identity: str = "FinnThePanther",
         fail_mutation: bool = False,
         mutation_result: object = DEPLOYMENT_ID,
@@ -215,6 +216,7 @@ class PromotionSubprocess:
             "pageInfo": {"hasNextPage": False, "endCursor": None},
         }
         self.smoke_returncode = smoke_returncode
+        self.expected_smoke_cwd = expected_smoke_cwd
         self.identity = identity
         self.fail_mutation = fail_mutation
         self.mutation_result = mutation_result
@@ -420,6 +422,8 @@ class PromotionSubprocess:
         if command == ("make", "api-smoke"):
             environment = cast(Mapping[str, str], options.get("env", {}))
             assert environment.get("API_BASE_URL") == "https://staging.tailtag.app"
+            if self.expected_smoke_cwd is not None:
+                assert options.get("cwd") == self.expected_smoke_cwd
             return completed(
                 "", returncode=self.smoke_returncode, stderr=SENSITIVE_SENTINEL
             )
@@ -1047,6 +1051,21 @@ def test_main_stops_after_failed_smoke_without_declaring_the_deployment_active(
     )
     captured = capsys.readouterr()
     assert_sanitized(captured.out, captured.err, path.read_bytes())
+
+
+def test_main_runs_canonical_smoke_from_the_repository_root_when_started_in_api(
+    staging_promote: ModuleType,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """AC-8: documented uv --directory startup must not leave make in services/api."""
+    path = evidence_file(tmp_path)
+    runner = PromotionSubprocess(path, expected_smoke_cwd=tmp_path)
+    monkeypatch.chdir(REPOSITORY_ROOT / "services" / "api")
+
+    assert run_operator(staging_promote, monkeypatch, tmp_path, runner) == 0
+
+    assert read_evidence(path)["smoke_outcome"] == "SUCCEEDED"
 
 
 @pytest.mark.parametrize(

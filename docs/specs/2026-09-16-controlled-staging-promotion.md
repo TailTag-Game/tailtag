@@ -11,9 +11,9 @@ Assurance: SECURITY, RELIABILITY, TEST ADEQUACY, DATA INTEGRITY.
 Completed: alignment, repository inspection, authenticated read-only interface
 research, Acceptance Contract, Test Surface Contract, Scope Guard and plan.
 Completed additionally: environment baseline (`make api-check`: 1,529 tests),
-73 independently authored acceptance cases and parent test-adequacy approval.
+74 independently authored acceptance cases and parent test-adequacy approval.
 Draft review findings have scoped regression coverage.
-Completed additionally: final `make api-check` (1,603 tests and all static/
+Completed additionally: final `make api-check` (1,604 tests and all static/
 Django/schema/Gunicorn gates), documentation doctor and fresh Compact review.
 Current: normal reviewed publication/merge. Pending: one authorized live
 promotion, final verification and evidence accounting.
@@ -55,8 +55,8 @@ is the execution handoff. No #202 live acceptance has been performed.
    existing exact-deployment join; require joined deployment ID == D,
    environment == staging and image-local source SHA == S. No hand-constructed
    identity tuple, runtime SHA substitute, new endpoint or version mechanism.
-8. Run the existing credential-free canonical Staging HTTP smoke and require
-   success. It checks liveness, readiness, schema and docs; it does not redefine
+8. Run the existing credential-free canonical Staging HTTP smoke from the
+   repository root and require success. It checks liveness, readiness, schema and docs; it does not redefine
    readiness or cryptographically bind HTTP responses to D.
 9. Immediately before declaring success, query canonical Staging/API
    `activeDeployments`, validate the target and require membership of exact D,
@@ -282,7 +282,8 @@ After positive lifecycle evidence, execute the documented explicit-instance
 Capture its four-field joined output and compare S/D/staging; reuse its
 createdAt meaning and exact-D source join. Existing raw metadata consumed
 internally by that helper must never be retained in evidence.
-Run `API_BASE_URL=https://staging.tailtag.app make api-smoke`, recording fixed
+Run `API_BASE_URL=https://staging.tailtag.app make api-smoke` with the child
+working directory explicitly set to the repository root, recording fixed
 outcomes only. Then perform the final active query as the final remote gate
 before atomic success declaration. Active membership cannot resurrect an
 earlier failed identity, migration, readiness or smoke check.
