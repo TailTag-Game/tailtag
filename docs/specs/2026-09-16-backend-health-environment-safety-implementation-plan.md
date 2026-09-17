@@ -186,7 +186,7 @@ uv --directory services/api run --locked --no-sync python ../../scripts/api_stag
   credential-free preflight command and exact three-field capture, optional #201
   exact-D timestamp correlation, and observed-identity limitations. Keep existing
   generic smoke's local/Development policy intact.
-- [ ] After authorized publication/promotion through #202, validate canonical
+- [x] After authorized publication/promotion through #202, validate canonical
   Staging endpoints and preflight. Capture only safe observed identity/status
   evidence. Invalid URL rejection can be validated locally without live traffic;
   simulate unhealthy configuration/dependencies only in tests, not live chaos.
@@ -208,5 +208,5 @@ evidence distinction in Tasks 3/4; AC-9: exact safe responses and errors in Task
 Environment baseline and independent acceptance tests are complete and approved.
 Production implementation and authoritative local verification are complete;
 independent Compact review passed with no material findings. Live Staging
-validation remains pending authorized publication/promotion. The approved behavioral
+validation passed on 2026-09-17; the contract and runbook retain the evidence. The approved behavioral
 contract has no remaining timestamp delivery blocker.
