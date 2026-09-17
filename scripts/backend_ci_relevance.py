@@ -12,6 +12,7 @@ BACKEND_RELEVANT_FILES = {
     "scripts/api_smoke.py",
     "scripts/api_auth_smoke.py",
     "scripts/api_deployment_identity.py",
+    "scripts/api_staging_promote.py",
     "scripts/api_media_storage_smoke.py",
     "scripts/clerk_development_session.py",
     "scripts/backend_ci_relevance.py",

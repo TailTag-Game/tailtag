@@ -10,12 +10,17 @@ Scope: STANDARD COMPACT, one maintainer promotion review unit.
 Assurance: SECURITY, RELIABILITY, TEST ADEQUACY, DATA INTEGRITY.
 Completed: alignment, repository inspection, authenticated read-only interface
 research, Acceptance Contract, Test Surface Contract, Scope Guard and plan.
-Pending: environment baseline, independent tests and adequacy approval,
-implementation, deterministic verification, fresh Compact review, separately
-authorized reviewed live promotion, final verification and evidence accounting.
+Completed additionally: environment baseline (`make api-check`: 1,529 tests),
+73 independently authored acceptance cases and parent test-adequacy approval.
+Draft review findings have scoped regression coverage.
+Completed additionally: final `make api-check` (1,603 tests and all static/
+Django/schema/Gunicorn gates), documentation doctor and fresh Compact review.
+Current: normal reviewed publication/merge. Pending: one authorized live
+promotion, final verification and evidence accounting.
 
-This phase authorizes research and these documents only. It does not authorize
-coding, deployment, infrastructure/configuration changes, publication or merge.
+Research/design is complete. The user subsequently authorized continuing until
+issue completion, including implementation, normal reviewed publication/merge
+and one Staging promotion. Infrastructure/configuration changes remain excluded.
 The [implementation plan](2026-09-16-controlled-staging-promotion-implementation-plan.md)
 is the execution handoff. No #202 live acceptance has been performed.
 
@@ -318,7 +323,8 @@ No test fixture is claimed as real deployment evidence.
 ## Test Surface Contract
 
 Test the opt-in script's `main()` via existing subprocess mocking patterns and
-temporary evidence directories bound by tests at the internal filesystem seam.
+temporary evidence directories bound by tests at the internal `_REPOSITORY_ROOT`
+filesystem constant. This is not a CLI target/path override.
 Internal pure parsing/predicate helpers may be exercised directly; they accept
 decoded objects and return validated allowlisted data or sanitized failures.
 The production entry point fixes canonical targets and repository evidence path.
