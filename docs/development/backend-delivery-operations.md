@@ -6,6 +6,11 @@ sanitized diagnostics, and choose between redeploying, forward-fixing, and
 considering an application-code rollback. It is not a production SRE runbook,
 an incident-management process, or a production data-recovery plan.
 
+Its scope is the mutable contributor/integration **Development** environment.
+For the separate persistent production-rehearsal target, use the maintained
+[Staging runbook](staging.md); do not apply Development delivery or recovery
+procedures to Staging.
+
 Backend contributor setup and commands remain in the
 [API README](../../services/api/README.md). Durable design and ownership live
 in [architecture.md](../architecture.md). The maintained composed integration

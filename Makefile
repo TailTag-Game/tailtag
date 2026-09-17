@@ -6,6 +6,8 @@ override API_UV := $(UV) --directory $(API_DIRECTORY)
 override SEMGREP_UV := $(UV) --directory $(SEMGREP_DIRECTORY)
 override SMOKE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_smoke.py
 override AUTH_SMOKE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_auth_smoke.py
+override STAGING_AUTH_SMOKE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_auth_smoke.py
+override ENVIRONMENT_FINGERPRINT_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_environment_fingerprint.py
 override MEDIA_STORAGE_SMOKE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_media_storage_smoke.py
 override CLERK_DEVELOPMENT_SESSION_SCRIPT := $(REPOSITORY_ROOT)/scripts/clerk_development_session.py
 override CI_RELEVANCE_SCRIPT := $(REPOSITORY_ROOT)/scripts/backend_ci_relevance.py
@@ -15,6 +17,8 @@ override SEMGREP_TESTS := $(REPOSITORY_ROOT)/.semgrep/tests
 override SEMGREP_TARGETS := $(REPOSITORY_ROOT)/services/api \
 	$(SMOKE_SCRIPT) \
 	$(AUTH_SMOKE_SCRIPT) \
+	$(STAGING_AUTH_SMOKE_SCRIPT) \
+	$(ENVIRONMENT_FINGERPRINT_SCRIPT) \
 	$(MEDIA_STORAGE_SMOKE_SCRIPT) \
 	$(CLERK_DEVELOPMENT_SESSION_SCRIPT) \
 	$(CI_RELEVANCE_SCRIPT) \
@@ -36,7 +40,7 @@ endef
 
 .PHONY: help \
 	api-setup api-run api-semgrep-check api-test api-check api-migrate api-migrations \
-	api-migrations-check api-shell api-smoke api-auth-smoke api-media-storage-smoke \
+	api-migrations-check api-shell api-smoke api-auth-smoke api-staging-auth-smoke api-media-storage-smoke \
 	api-format-check api-lint-check api-type-check api-django-check \
 	api-schema-check api-gunicorn-check
 
@@ -99,7 +103,10 @@ api-smoke: ## HTTP-check a running API (API_BASE_URL defaults to 127.0.0.1:8000)
 api-auth-smoke: ## Authenticated smoke test with an interactive Clerk Development secret.
 	PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_auth_smoke
 
-api-media-storage-smoke: ## Run guarded live media storage verification against Railway Development.
+api-staging-auth-smoke: ## Run the explicit live Clerk Staging authenticated API smoke.
+	PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_staging_auth_smoke
+
+api-media-storage-smoke: ## Run guarded live media storage verification against Railway Development or Staging.
 	@DJANGO_SETTINGS_MODULE=config.settings.production \
 	PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" \
 	$(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_media_storage_smoke
@@ -109,11 +116,11 @@ api-check: api-format-check api-lint-check api-type-check api-semgrep-check api-
 
 api-format-check:
 	@printf '%s\n' 'Checking Ruff formatting...'
-	$(API_UV) run --locked --no-sync ruff format --check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
+	$(API_UV) run --locked --no-sync ruff format --check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(STAGING_AUTH_SMOKE_SCRIPT) $(ENVIRONMENT_FINGERPRINT_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
 
 api-lint-check:
 	@printf '%s\n' 'Running Ruff lint...'
-	$(API_UV) run --locked --no-sync ruff check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
+	$(API_UV) run --locked --no-sync ruff check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(STAGING_AUTH_SMOKE_SCRIPT) $(ENVIRONMENT_FINGERPRINT_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
 
 api-type-check:
 	@printf '%s\n' 'Running strict Pyright...'
