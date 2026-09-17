@@ -5,15 +5,23 @@ Issue: #201. Parent: #197. Deployment workflow: #202.
 ## Status and phase ledger
 
 Scope: STANDARD COMPACT. Assurance: SECURITY and TEST ADEQUACY.
-The user-approved identity contract is frozen below. The proposed implementation
-design is conditional on the focused Staging experiment; build-time SHA injection
-has not yet been validated live. No production implementation has begun.
+The user-approved identity contract and implementation design are frozen below.
+The focused Staging experiment passed. Independent acceptance tests are frozen
+and approved; production implementation and local verification are complete.
+Final deployed acceptance remains pending the implementation's live proof.
 
 Completed: repository reconnaissance, upstream documentation research, live
-Railway schema and target inspection. Current: experiment preparation.
-Pending: authorized probe publication, Staging experiment, final design freeze,
-environment baseline, independent test authorship, implementation, deterministic
-checks, independent review, exact-deployment live proof, final verification.
+Railway schema and target inspection, authorized probe publication, exact-SHA
+Staging experiment, design freeze, environment baseline (`make api-check`:
+1,500 tests passed), independent test authorship and test-adequacy approval.
+Completed additionally: production implementation, parent deterministic gate
+(`make api-check`: 1,529 tests passed), final image artifact readback and
+permission checks, independent Compact review and scoped re-review. The MEDIUM
+hard-coded-fixture test gap was resolved with a second valid source/deployment
+pair and exact query-variable assertions (AC-1/2/6/7); no findings remain open.
+Current: implementation ready for local commit and authorized publication.
+Pending: authorization for implementation push/deployment,
+exact-deployment live proof, final verification.
 
 ## Acceptance Contract
 
@@ -50,7 +58,8 @@ Installed Railway CLI: 5.57.2. The live schema inspected on 2026-09-16 exposes
 a deployment ID; `Deployment.createdAt: DateTime!`; and
 `ServiceInstance.activeDeployments`, explicitly describing running deployments.
 The approved `TailTag` project has `staging` and `development` environments and
-`api` and `Postgres` services. No configuration values were queried.
+`api` and `Postgres` services. Only allowlisted operational fields were rendered;
+no secret values were retained or reported.
 
 Upstream references:
 
@@ -68,7 +77,7 @@ Upstream references:
 
 The existing Dockerfile declares no Git SHA argument. An unchanged deployment
 cannot prove build-time injection. Publish one temporary probe commit containing
-only the following production-stage addition after `WORKDIR /app`:
+only the following production-stage addition after its `FROM` instruction:
 
 ```dockerfile
 ARG RAILWAY_GIT_COMMIT_SHA
@@ -97,22 +106,36 @@ smoke. Record only allowlisted evidence. Do not claim #201 completion from this
 probe. Remove probe code from the implementation diff; retaining the probe
 deployment until replaced avoids adding a rollback experiment or #202 flow.
 
-## Proposed implementation design
+## Frozen implementation design
 
-Use a root-owned metadata file outside writable application paths for baked SHA.
-Generate it in the production Docker stage from the declared argument. One small
-Python identity module reads this fixed artifact path and explicitly reads the
-two runtime Railway values. No runtime SHA fallback or selectable production
-metadata path. Local development may report absent identity explicitly; it must
-not fabricate a full Staging identity. Final build/local behavior must preserve
-existing contributor image builds and will be specified after the experiment.
+Use root-owned `/opt/tailtag/build-identity.json`, generated before switching to
+the application user in the production Docker stage. The only stored field is
+`source_sha`. Accept exactly 40 lowercase hexadecimal characters. An empty build
+argument creates explicit null identity for existing local production-image
+builds; a nonempty malformed argument fails the build. It never invents a SHA.
+Development-stage image builds remain unchanged.
 
-A backend operator command renders source SHA, deployment ID, and environment.
-A maintainer-side lookup script consumes this safe output and queries exact D
-through authenticated Railway CLI/API. The backend has no Railway credentials,
+`services/api/config/build_identity.py` is the sole application identity source.
+It reads the fixed artifact path and the two explicit runtime Railway values.
+There is no runtime SHA fallback or production path override. Execute
+`python -m config.build_identity` inside the selected running deployment instance
+to emit JSON with exactly `source_sha`, `deployment_id`, and `environment`.
+Missing local identity remains explicit null. In `staging`, missing/malformed
+source SHA or deployment ID causes the operator command to fail with a sanitized
+message and no successful tuple. Validate deployment IDs as UUIDs and environments
+as bounded safe names. This does not introduce new startup or readiness gates.
+
+A maintainer-side `scripts/api_deployment_identity.py` consumes the exact
+three-field JSON through stdin and queries exact D through authenticated Railway
+CLI/API. It targets the canonical Staging project and API service, validates the
+input as Staging identity, and rejects extra input keys. The backend has no Railway credentials,
 control-plane network dependency, or generated deployment timestamp. The joined
 operator result adds `deployment_timestamp` from `createdAt` only after validating
-record ID, target environment/service, and source equality. Control-plane failure
+record ID, target project/environment/service, and source equality using Railway
+deployment metadata field `commitHash`. Its successful JSON output contains
+exactly `source_sha`, `deployment_id`, `environment`, and `deployment_timestamp`.
+Validate `createdAt` as a timezone-aware timestamp and preserve its original
+value. Control-plane failure
 produces a clear failure rather than a fabricated complete tuple. Omit the
 optional release label initially; it adds no required evidence.
 
@@ -121,6 +144,15 @@ contract. Embedding the full deployment tuple in the image is rejected because
 deployment instances differ from source artifacts.
 
 ## Test Surface Contract
+
+Approved parsing interfaces: backend `_load_identity(metadata_path: Path,
+environment: Mapping[str, str])` returns a three-field dictionary of string/null
+values; `get_identity()` binds the fixed artifact path and actual runtime
+environment; `main()` renders safe JSON or a sanitized error and returns an
+exit code. The operator script's `join_deployment(identity, record)` validates
+and returns the four-field tuple; `main()` consumes stdin, invokes Railway once
+for exact D, renders the tuple or sanitized failure, and returns an exit code.
+Use existing subprocess mocking patterns; do not add test-only APIs.
 
 Tests exercise the identity module through its intended package interface, using
 temporary artifact files and controlled runtime mappings at the internal parsing
@@ -138,10 +170,36 @@ queries exact D and rejects mismatches; timestamp equals record `createdAt`.
 
 ## Scope Guard and proof boundary
 
-Expected implementation surface: existing production Dockerfile, one backend
-identity module and operator entry point, one maintainer lookup script, relevant
-existing test locations, and identity/Staging documentation. Final paths and
-baseline checks will be frozen after the probe passes. No dependencies, database
+Security assumptions: immutable identity means image-local, root-owned metadata
+that the ordinary application user cannot replace; it is not protection against
+host/platform administrators or compromised build infrastructure. Source SHA is
+public metadata, but arbitrary deployment `meta`, CLI stderr, configuration and
+environment values are not approved output. Treat control-plane responses and
+stdin as untrusted: validate structure, source, exact deployment, target and
+timestamp before rendering allowlisted fields. Never invoke a shell with input
+values. The backend performs no control-plane queries and receives no Railway
+credentials. Operator credentials retain their existing Railway scope; no new
+secret, credential storage, public route, or authentication mechanism is added.
+
+Expected implementation surface: `services/api/Dockerfile`,
+`services/api/config/build_identity.py`, `scripts/api_deployment_identity.py`,
+`services/api/tests/test_build_identity.py`,
+`services/api/tests/test_api_deployment_identity.py`, this specification,
+`docs/development/staging.md`, and existing Makefile verification lists so the
+new maintainer script participates in formatting/linting/type checking.
+`services/api/pyproject.toml` owns the Pyright include list. Register the new
+script in `scripts/backend_ci_relevance.py` and add its row to the existing
+`services/api/tests/test_backend_ci_relevance.py` path matrix so script-only
+changes receive the same authoritative CI gate. These are existing verification
+registries for the approved script, not a new deployment workflow.
+The shared exact-scan helper registry in `services/api/tests/semgrep_support.py`
+must also include the new script; preserve its exact-scope assertions. The full
+suite exposed this required registry update after initial implementation.
+
+Use
+`make api-check` (including existing Semgrep), focused pytest, existing Docker
+production build checks, `./scripts/doctor.sh`, and `git diff --check`.
+No dependencies, database
 schema, public API, readiness behavior, logging implementation, Production,
 promotion automation, or unrelated cleanup.
 
@@ -150,3 +208,118 @@ The final live Staging proof must exercise the implemented baked artifact and
 operator command, exact Railway deployment lookup, and GitHub commit resolution.
 Railway's metadata is trusted platform evidence, not cryptographic image
 attestation. A historical proof does not establish which deployment serves now.
+The maintainer join script validates supplied identity against Railway; it does
+not attest where stdin originated. Live acceptance must capture stdin from the
+selected running instance's backend command, not manually invent the tuple.
+
+## 2026-09-16 focused Staging experiment evidence
+
+Authorized probe commit:
+`c070f413eec1518459f1fef21b471642765a54e9`, resolved by GitHub in
+`TailTag-Game/tailtag`. It was pushed to `docs/201-build-identity-design`; no
+change was pushed to `main`. The exact-SHA manual API operation returned
+deployment `93de11d6-714f-405a-b931-a9b567d5ec1e` with Staging autodeploy disabled
+(no deployment triggers). Existing source/root remained the connected repository
+and `/services/api`; no service configuration or secrets were changed.
+
+The deployment reached `SUCCESS`. Remote execution against its explicitly
+selected running instance read the image-local probe artifact and reported:
+
+```json
+{
+  "source_sha": "c070f413eec1518459f1fef21b471642765a54e9",
+  "deployment_id": "93de11d6-714f-405a-b931-a9b567d5ec1e",
+  "environment": "staging"
+}
+```
+
+Exact control-plane deployment lookup independently reported matching source
+`commitHash`, deployment ID, and Staging/API/project ownership, and supplied
+`createdAt = 2026-09-17T00:16:10.526Z`. That is deployment-record creation time,
+not a lifecycle activation timestamp. Successful reading of the file created
+only by the Docker probe establishes build-time ARG availability and equality
+for this deployment mechanism, without relying on runtime SHA.
+
+The temporary probe is removed from the local implementation/design diff after
+the experiment. Staging retains the successful probe deployment until replaced
+through separately authorized work. This is feasibility evidence, not final
+#201 acceptance: the reusable component, operator join script, deterministic
+tests, and final implementation proof remain pending. No fallback or #202 SHA
+injection dependency was needed for the tested mechanism.
+
+The existing credential-free HTTP smoke passed for `/health/live`,
+`/health/ready`, `/api/schema/`, and `/api/docs/` with HTTP 200. This confirms
+the shared endpoint's smoke contract after the probe deployment; it does not
+bind individual HTTP responses to the deployment or assert ongoing serving
+identity. Artifact identity evidence came from the explicitly selected instance.
+
+## Implementation plan
+
+Goal: implement the frozen identity primitive and exact-deployment lookup with
+no new dependencies or behavior outside the operator surface.
+
+- [x] Establish `make api-check` baseline with locked existing dependencies and
+  existing local PostgreSQL. Preserve lockfiles and unrelated work.
+- [x] Independent test author adds scoped tests against the parsing/CLI seams,
+  maps cases to acceptance items, and proves expected preimplementation failure.
+  Parent reviews adequacy including override, allowlist, exact-D and timestamp
+  mutants before dispatching implementation.
+- [x] Independent implementer adds the backend module and maintainer script.
+  `get_identity()` fixes the artifact path; `main()` renders using `json.dumps`.
+  Do not import Django. Query `deployment(id: $id)` via `railway api` with typed
+  variables and `subprocess.run` without a shell. Capture both output streams,
+  never emit raw CLI errors, validate input before invoking Railway, and fail
+  on GraphQL errors or identity/target mismatch.
+- [x] Add Docker `ARG`, validate nonempty SHA, and write root-owned one-field
+  JSON (mode 0444) before `USER tailtag`. Missing local build SHA remains null.
+  Add the script to existing Makefile and Pyright verification lists, including
+  Semgrep targets. No dependency changes.
+- [x] Document exact-instance lookup, stdin join, Finn-verified GitHub commit
+  resolution, timestamp meaning, historical vs current-serving evidence, and
+  limitations in the existing Staging runbook.
+- [x] Run focused tests, `make api-check`, production Docker build and command
+  readback with a valid SHA, and absent-SHA local build compatibility. Check
+  ownership/mode and inability of the application user to alter the artifact.
+- [x] Fresh Compact reviewer checks contract, code, security, test adequacy and
+  scope. Resolve acceptance and BLOCKER/HIGH findings.
+- [ ] Prepare reviewed commit for separately authorized implementation push and
+  final Staging deployment. Capture exact-instance output, join D, resolve S in
+  GitHub, run existing HTTP smoke, and retain sanitized evidence.
+- [ ] Final authoritative verification and acceptance accounting. No merge or
+  Production action.
+
+## Local implementation verification
+
+Fresh parent `make api-check` completed with 1,529 tests passed, Ruff format/lint,
+strict Pyright, nine Semgrep rule fixtures, zero Semgrep findings, Django checks,
+no migration drift, schema validation, and Gunicorn configuration validation.
+Local checks used temporary host configuration against the existing contributor
+PostgreSQL container; no repository environment file or lockfile was changed.
+Existing missing-collected-staticfiles warnings remain unchanged from baseline.
+
+Focused identity and CI classification tests passed 58 cases. Adding the new
+operator script to the exact Semgrep test registry resolved the full-suite
+registry failures while preserving all exact-scope assertions; all 144 affected
+developer-command/Semgrep tests passed.
+
+Production image builds passed with a valid fixture SHA and with no SHA for
+local use; malformed nonempty SHA failed at artifact generation. Final-image
+readback confirmed the baked SHA despite a conflicting runtime SHA. The image
+ran as a non-root user, with root-owned directory 0755 and file 0444; attempted
+write and unlink both raised permission errors. Local absent identity rendered
+explicit null fields and the same absent-SHA image failed Staging lookup.
+These are local component/image checks, not deployed revision evidence.
+
+Independent review found no correctness/security blockers. Its one MEDIUM
+test-adequacy gap was resolved by independently authored second-identity cases
+and parsed query-variable assertions, then scoped re-review confirmed addressed
+with no new findings. Plausible-mutant analysis covered SHA fallback/validation,
+allowlists, target/source mismatches, exact-D propagation, timestamp substitution,
+and sanitized errors. No mutation framework was introduced.
+
+Application API, database schema/data behavior, authentication, readiness,
+deployment/migration flow, and dependencies are unchanged. The only runtime
+addition is safe image metadata and its explicit operator reader. Any rollout
+or recovery procedure remains separately authorized and belongs to the existing
+deployment work, not new automation in this issue. Live acceptance cannot use
+the probe as a substitute for the final implemented identity surface.

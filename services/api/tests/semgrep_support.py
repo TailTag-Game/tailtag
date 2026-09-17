@@ -12,6 +12,7 @@ FROZEN_ROOT_HELPERS = frozenset(
         "scripts/api_media_storage_smoke.py",
         "scripts/api_environment_fingerprint.py",
         "scripts/clerk_development_session.py",
+        "scripts/api_deployment_identity.py",
         "scripts/backend_ci_relevance.py",
         "scripts/validate_semgrep_contract.py",
     }
