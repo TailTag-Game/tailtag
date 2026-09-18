@@ -477,8 +477,26 @@ operator correlation of captured deployment ID through the #201 exact-deployment
 procedure above can add `deployment_timestamp` and stronger Railway evidence;
 that enrichment is separate from permission to send acceptance traffic.
 
-Deployed #203 proof is pending; do not treat this runbook's
-contract as evidence that the current Staging deployment implements it.
+Live #203 validation passed on 2026-09-17 after controlled promotion of merged
+revision `04f8383fe750bec712ced27a1932b82b1eabb292`, validated by exact push
+[run 35189808670](https://github.com/TailTag-Game/tailtag/actions/runs/35189808670).
+The [sanitized promotion record](staging-deployments/57f17ef7-7b34-4c2f-9272-b8091b1eafad.json)
+records every required #202 gate SUCCEEDED and final state ACTIVE for deployment
+`57f17ef7-7b34-4c2f-9272-b8091b1eafad`.
+
+Separate credential-free public checks confirmed `/health/live`, `/health/ready`,
+and `/health/identity` each returned HTTP 200, exactly their approved JSON bodies,
+`application/json`, and `Cache-Control: no-store`, with no redirects. The CLI and
+reusable primitive both passed, capturing the SHA/deployment above and
+`environment == "staging"`. Nine unsafe origin variants (including slash, HTTP,
+localhost, Production/Development/unknown hosts, IP, explicit port, and malformed
+input) were denied locally before transport. Unhealthy dependency/configuration
+and malformed-response cases remain deterministic test evidence; no live chaos
+was performed.
+
+The promotion record's timestamp is optional operator correlation evidence;
+public preflight neither obtains nor requires it. These are point-in-time
+observations, not a promise about subsequent serving state.
 
 Run the existing credential-free HTTP smoke only against the canonical public
 URL. It checks the existing health, schema, and docs contract; it does not

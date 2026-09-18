@@ -1,0 +1,17 @@
+{
+  "accepted_main_sha": "04f8383fe750bec712ced27a1932b82b1eabb292",
+  "deployment_id": "57f17ef7-7b34-4c2f-9272-b8091b1eafad",
+  "deployment_outcome": "SUCCEEDED",
+  "deployment_timestamp": "2026-09-17T06:29:37.949Z",
+  "environment": "staging",
+  "final_active_state": "ACTIVE",
+  "identity_outcome": "SUCCEEDED",
+  "migration_outcome": "SUCCEEDED",
+  "overall_outcome": "SUCCEEDED",
+  "readiness_outcome": "SUCCEEDED",
+  "smoke_outcome": "SUCCEEDED",
+  "source_sha": "04f8383fe750bec712ced27a1932b82b1eabb292",
+  "startup_outcome": "SUCCEEDED",
+  "validation_run_attempt": 1,
+  "validation_run_id": 35189808670
+}
