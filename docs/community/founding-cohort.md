@@ -20,3 +20,4 @@ Contributors may optionally add themselves below through their onboarding pull r
 | [Striper](https://github.com/derek-cheung) | Mobile and frontend dev | 
 | [hyfetch](https://github.com/hyfetch) | Backend and Security |
 | [pyxfluff](https://github.com/pyxfluff)             | Backend Developer |
+| [tarper24](https://github.com/tarper24)             | Backend and Platform |
