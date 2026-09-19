@@ -4,20 +4,20 @@ The founding cohort is helping establish the product, architecture, development 
 
 Contributors may optionally add themselves below through their onboarding pull request.
 
-| Contributor                                         | Primary areas |
-|-----------------------------------------------------|---------------|
-| [FinnThePanther](https://github.com/FinnThePanther) | Project leadership and product |
-| [diewolfswelpe](https://github.com/diewolfswelpe)   | Mobile and frontend dev |
-| [nikwalton](https://github.com/nikwalton)           | Mobile and frontend dev | 
-| [signalno11](https://github.com/signalno11)         | Mobile and frontend dev |
-| [bdalleva](https://github.com/bdalleva)             | Backend and Database |
-| [Sc0pz](https://github.com/sc0pz)                   | Backend and Security |
-| [Derwin](https://github.com/grsmhiker)              | Community Operations and Convention Outreach | 
-| [gtrotsuka](https://github.com/gtrotsuka)           | Product Designer and Frontend Dev |
-| [RadiantCyrus](https://github.com/radiantcyrus)     | UI/UX and Graphic Design | 
-| [KaitoDarksnow](https://github.com/kaitodarksnow)   | Backend and Database |
-| [Falcon-Darkshadow](https://github.com/Falcon-Darkshadow) | QA/Testing and Community Operations |
-| [Striper](https://github.com/derek-cheung) | Mobile and frontend dev | 
-| [hyfetch](https://github.com/hyfetch) | Backend and Security |
-| [pyxfluff](https://github.com/pyxfluff)             | Backend Developer |
-| [tarper24](https://github.com/tarper24)             | Backend and Platform |
+| Contributor                                               | Primary areas                                |
+| --------------------------------------------------------- | -------------------------------------------- |
+| [FinnThePanther](https://github.com/FinnThePanther)       | Project leadership and product               |
+| [diewolfswelpe](https://github.com/diewolfswelpe)         | Mobile and frontend dev                      |
+| [nikwalton](https://github.com/nikwalton)                 | Mobile and frontend dev                      |
+| [signalno11](https://github.com/signalno11)               | Mobile and frontend dev                      |
+| [bdalleva](https://github.com/bdalleva)                   | Backend and Database                         |
+| [Sc0pz](https://github.com/sc0pz)                         | Backend and Security                         |
+| [Derwin](https://github.com/grsmhiker)                    | Community Operations and Convention Outreach |
+| [gtrotsuka](https://github.com/gtrotsuka)                 | Product Designer and Frontend Dev            |
+| [RadiantCyrus](https://github.com/radiantcyrus)           | UI/UX and Graphic Design                     |
+| [KaitoDarksnow](https://github.com/kaitodarksnow)         | Backend and Database                         |
+| [Falcon-Darkshadow](https://github.com/Falcon-Darkshadow) | QA/Testing and Community Operations          |
+| [Striper](https://github.com/derek-cheung)                | Mobile and frontend dev                      |
+| [hyfetch](https://github.com/hyfetch)                     | Backend and Security                         |
+| [pyxfluff](https://github.com/pyxfluff)                   | Backend Developer                            |
+| [tarper24](https://github.com/tarper24)                   | Backend and Platform                         |
