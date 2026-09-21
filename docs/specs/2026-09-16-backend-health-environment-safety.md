@@ -7,7 +7,7 @@ Consumer: future #199 tooling.
 ## Status and phase ledger
 
 The user-approved behavioral boundaries below are frozen. Local implementation, verification,
-and independent review are complete; deployed Staging proof is pending.
+and independent review are complete; live Staging proof passed on 2026-09-17.
 Execution: STANDARD COMPACT. Assurance: SECURITY, RELIABILITY, TEST ADEQUACY.
 Completed: alignment, focused repository reconnaissance.
 Completed additionally: timestamp boundary correction and implementation planning.
@@ -26,16 +26,16 @@ Completed additionally: fresh Compact review passed with no material findings.
 Plausible-mutant analysis confirmed tests reject origin/environment/status-only
 guards, redirects, skipped config, null/malformed identity, failed readiness,
 identity changes, timestamp expansion, and raw diagnostics.
-Current: review-ready local handoff.
+Current: completed acceptance; live evidence publication.
 Completed additionally: Gunicorn black-box checks with healthy and unavailable
 PostgreSQL; liveness stays 200, readiness fails safely with 503, and all health
 responses are allowlisted and no-store. Both task Gunicorn processes were stopped.
-Pending: authorized publication/promotion and positive canonical Staging proof.
-AC-1 through AC-9 have local acceptance and assurance evidence; AC-10 local
-deterministic/review/documentation gates pass, but its deployed proof remains open.
+AC-1 through AC-9 have local acceptance and assurance evidence; AC-10
+deterministic/review/documentation and live canonical Staging proof now pass.
 Public preflight is credential-free; timestamp correlation is optional operator
-enrichment. No deployment, publication, or #199 implementation
-has been performed.
+enrichment. Implementation PR #235 is merged; the approved controlled Staging
+promotion and credential-free public proof succeeded. No #199 implementation
+was performed.
 
 Implementation was authorized after plan approval. The first baseline attempt
 passed static gates but lacked local Django settings; the documented local-only
@@ -262,3 +262,25 @@ On 2026-09-16, `./scripts/doctor.sh` passed required checks on
 `git diff --check` and the new-spec whitespace check passed. Read-only independent
 exploration confirmed the existing target guards and the #201 timestamp gap.
 No application changes, live Staging requests, or task-created test containers.
+
+## Live Staging acceptance evidence (2026-09-17)
+
+Merged PR #235 provided source `04f8383fe750bec712ced27a1932b82b1eabb292`;
+exact successful push API validation was run 35189808670, attempt 1. The approved
+#202 command submitted it once and returned deployment
+`57f17ef7-7b34-4c2f-9272-b8091b1eafad`. Its
+[sanitized promotion record](../development/staging-deployments/57f17ef7-7b34-4c2f-9272-b8091b1eafad.json)
+records all required gates SUCCEEDED, final state ACTIVE, and overall SUCCEEDED.
+
+Independent public GETs at exactly `https://staging.tailtag.app` observed live,
+ready, and identity HTTP 200, exact approved small JSON, `application/json`, and
+`no-store`, with no redirect. Both the credential-free CLI and reusable primitive
+passed, capturing the source/deployment above and environment `staging`. Nine
+unsafe-origin variants failed before transport. The
+[Staging runbook](../development/staging.md#health-and-public-staging-preflight-203)
+retains the meanings, invocation, limitations, and operator-evidence distinction.
+
+The optional operator record includes deployment timestamp; it was not supplied
+to or required by the public preflight. No live failure chaos, configuration
+changes, vendor probes, synthetic users, or acceptance/load traffic were added.
+All acceptance items now have evidence. Observations are point-in-time.
