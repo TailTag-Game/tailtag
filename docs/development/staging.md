@@ -189,6 +189,177 @@ These are maintainer-only live operations, separate from ordinary CI and
 workspace, project, environment, and service listed above. Use explicit
 selectors, not a guessed linked context.
 
+### Synthetic baseline reset and reseed (#204)
+
+The [frozen reset contract](../specs/2026-09-17-staging-synthetic-reset-reseed.md)
+and [implementation handoff](../specs/2026-09-17-staging-synthetic-reset-reseed-implementation-plan.md)
+define a small canonical baseline. Local implementation, independent review and
+authorized two-run live Staging acceptance are complete. The contract records
+sanitized local and live verification evidence, including the initially missing
+fixtures and their separately authorized preparation.
+
+Reset preserves all Users/admin permissions, reusable Clerk identities,
+designated media, migration history/schema, and the reset sentinel. It restores
+two registered profiles, one Convention, two registered Fursuits, two active
+enrollments and two activations. Owned catches, sessions and credentials are zero.
+An owner starts a fresh catch session through normal API behavior for catching
+rehearsals. Fixtures are resolved through preserved explicit registry bindings,
+never by name/prefix or because all Staging state is synthetic. Conflicting
+unowned dependencies deny reset instead of enlarging its deletion scope.
+
+#### One-time preparation
+
+Use the approved Railway/operator identity checks and verify the exact Staging
+Postgres resource independently before establishing the pinned database endpoint,
+port, name and PostgreSQL cluster system identifier. Select exactly two existing,
+distinct non-admin synthetic Clerk identities with existing TailTag User bindings,
+and one stable pre-provisioned synthetic image. Do not create/recreate Clerk
+users or upload media through reset. The image must use the existing opaque-key
+contract and be readable using configured Staging S3 storage.
+
+Store Staging-only operator configuration privately; never commit rendered
+values, database URLs, media keys or a sentinel identifier. Required configuration
+is enumerated in the implementation handoff. Set explicit reset capability and
+independently generate/configure a random v4 environment UUID. Ordinary migrations
+create the empty registry schema, never an enabled sentinel. Provisioning requires
+its separate exact confirmation and refuses to overwrite an existing sentinel.
+Do not make Development/Production reset-capable or copy this configuration when
+cloning a database.
+
+After privately configuring the verified Staging values and deploying the empty
+sentinel schema, invoke the separate provisioning operation from repository root:
+
+```sh
+make api-staging-reset-provision
+```
+
+For subsequent maintenance resets inside a verified native Staging environment, use:
+
+```sh
+make api-staging-reset
+```
+
+For the approved private-network Staging API, the maintained operator command is:
+
+```sh
+make api-staging-reset-ssh
+```
+
+Its native equivalent is `python -m scripts.api_staging_reset_ssh --confirm reset-tailtag-staging`,
+with optional `--config PATH`. The default is the private file
+`~/.config/tailtag/staging-reset.env`; the file must be owned by the current
+operator with mode `0600`, in an owned non-symlink directory with mode `0700`.
+It accepts exactly the nine reset assignments, with no shell evaluation or
+credential/target overrides. This command resets an already-provisioned baseline;
+it does not prepare schema, identities, the sentinel, or external assets.
+
+These targets supply their distinct exact CLI confirmations. Native equivalents
+are `python -m scripts.api_staging_reset --provision --confirm provision-tailtag-staging-reset`
+and `python -m scripts.api_staging_reset --confirm reset-tailtag-staging`, using the
+locked API environment, production settings and repository/API Python paths as
+defined in the Makefile. Do not pass credentials or private identity values as
+arguments. Invocation is a deliberate maintenance action, not a scheduled task
+installed by this work item.
+
+The executor is a repository-owned native Python process using production Django
+settings and positively verified Staging database/storage configuration. It needs
+superuser database privileges and access to a separate `postgres` control database
+on the same pinned cluster. Target database `postgres` is unsupported. A native
+operator process cannot assume it can resolve Railway private DNS; use the
+independently verified reachable Staging endpoint and compatible effective Django
+configuration. No credential or private identity value should appear in command
+arguments/output. `railway run` runs locally with selected variables; it does not
+create an executor inside the private Railway network.
+
+The approved Staging Postgres resource currently has no public TCP proxy.
+`api-staging-reset-ssh` positively verifies the approved Railway account, captures
+the canonical #203 public tuple, and joins that deployment to the exact approved
+Staging resources and sole running instance. It compares selected API/Postgres
+database configuration and independently verifies runtime selectors, immutable
+build identity and the database URL fingerprint before invoking the native reset.
+Its bounded code-only archive and complete per-file manifest are validated before
+execution by the existing production interpreter in an exclusive private
+`/tmp/tailtag-staging-reset-*` directory. Private reset configuration is transferred
+through SSH stdin; database/storage credentials remain in the verified runtime.
+The real #203 helper must match the pinned tuple at every internal preflight,
+including after resume, preserving the native command's failure/re-gate behavior.
+The served `/app` files are never replaced, and no deployment is submitted.
+Successful output includes exact baseline counts, the public tuple, a bundle
+fingerprint and confirmed removal of temporary source.
+
+A timeout, disconnect or untrusted response after SSH starts reports maintenance
+unknown. Do not retry or assume service resumed. Use the retained-gate recovery
+procedure below. Handled failures and interruptions remove temporary source; a cleanup error or
+process/container loss may prevent that cleanup and makes the command fail. After verifying the same approved
+account and exact resource/instance join, inspect only directories matching
+`/tmp/tailtag-staging-reset-*` on that instance. Confirm a directory is no longer
+used by an active reset before removing that specific directory. Never delete
+`/app`, unrelated temporary files, persistent fixture objects or a service/volume,
+and never resume a retained database gate as an implicit cleanup step.
+
+For the completed proof, Staging-only expected configuration is retained privately
+at `~/.config/tailtag/staging-reset.env` (`0600`, parent directory `0700`). It
+contains the capability, random expected sentinel identifier, approved database
+pins and fixture references; database/storage credentials remain owned by the
+verified Staging runtime. Keep that file private and preserve it independently
+of the database; do not copy it to other environments. The sentinel, two reusable
+Clerk/User identities and single designated media object survive every reset.
+The maintained SSH command has passed two controlled resets with matching semantic
+and protected-state observations, final readiness and no retained remote source
+directories. Private command/snapshot receipts use the `staging-reset-ssh-proof-*`
+filenames in that directory. This proves the controlled normal path; failure and
+interruption cases are exercised offline, and ordinary resumed gameplay can
+subsequently change the baseline.
+
+#### Maintenance and expected result
+
+The guarded entry point performs #203 preflight only at
+`https://staging.tailtag.app`, verifies runtime/capability, actual connected
+database/sentinel, registered identity bindings and read-only media availability.
+It opens and retains the target executor and a separate control connection.
+The control connection temporarily disables all new target-database connections,
+terminates other target sessions and positively proves sole-executor quiescence
+before destructive cleanup. PostgreSQL connection gating covers ordinary API,
+admin and replacement-instance writes without application writers joining a lock.
+Any prepared transaction, subscription, unresolved writer or identity uncertainty
+denies reset. Plan for a Staging maintenance outage; coordinate rehearsal users
+and privileged operators and do not run other database administration concurrently.
+
+Scoped cleanup, baseline reconstruction and semantic validation occur in one
+transaction. Root fursuit public UUIDs remain stable; database PKs/timestamps are
+not semantic equivalence keys. Reset neither calls Django flush/truncate nor
+mutates Clerk/R2. It reuses designated objects, and does not remove old uploaded
+objects or unowned simulation data. Simulation media cleanup belongs to #199/#220.
+
+On successful commit and validation, the procedure restores database connections
+and proves canonical readiness and unchanged application identity. Only then is
+success reported with allowlisted counts and source/deployment identity. The
+baseline becomes authoritative after reset and normal service resumption; later
+gameplay can change it. A second reset restores the same semantic baseline.
+
+#### Failure and recovery
+
+A transaction failure restores prior domain state. Failure after connection
+gating retains maintenance rather than silently reopening writes. A committed
+reset with failed resumption is reported separately; it is not a rollback or
+successful rehearsal. Failure to prove re-gating is maintenance-unknown and needs
+operator inspection. Never run an unguarded retry to bypass denial.
+
+For interruption/executor loss or retained maintenance, an approved operator must
+first reverify the exact Staging endpoint/resource, connected control-cluster
+identity and target database name using privately stored expected configuration.
+Inspect the reset phase and whether domain commit happened; stop if uncertain.
+Use that verified separate control database to restore the target's originally
+enabled `ALLOW_CONNECTIONS` flag, then run canonical #203 preflight and inspect
+semantic baseline or prior-state evidence before resuming rehearsals. Recovery
+does not delete any domain/external state, create a sentinel, or bypass identity
+checks. Do not restart Postgres or delete a service/volume as cleanup.
+
+The temporary database connection flag is restored on success; a retained gate
+is an intentional outage requiring this recovery procedure. No test container or
+network is retained by the live operator procedure. Reset is neither a Django
+migration nor a backup/recovery substitute; OR-8 owns backup/restore.
+
 ### Immutable build and deployment identity (#201)
 
 The 2026-09-16 bootstrap observation is historical only: it predates the #201
