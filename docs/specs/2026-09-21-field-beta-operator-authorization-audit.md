@@ -15,6 +15,9 @@ Pending: environment readiness, independent test authorship and adequacy review,
 implementation, deterministic and assurance gates, independent review, and
 bounded Staging validation.
 
+The approved implementation and test handoff is maintained in
+[`2026-09-21-field-beta-operator-authorization-audit-implementation-plan.md`](2026-09-21-field-beta-operator-authorization-audit-implementation-plan.md).
+
 No production implementation or live Staging mutation is authorized by this
 specification phase. The frozen portions of this contract must not be weakened to
 resolve a discovery.
