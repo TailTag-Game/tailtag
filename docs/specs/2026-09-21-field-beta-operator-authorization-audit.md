@@ -9,12 +9,11 @@ The user-approved authorization, audit, persistence, provisioning, and Staging
 acceptance decisions are frozen by this contract. Execution is STANDARD EXPANDED
 with SECURITY, DATA INTEGRITY, and TEST ADEQUACY assurance.
 
-Completed: alignment and focused repository reconnaissance. Current: specification
-review. Pending: resolution of the repository discoveries in
-[Pre-implementation decisions](#pre-implementation-decisions), environment
-readiness, implementation planning, independent test authorship and adequacy
-review, implementation, deterministic and assurance gates, independent review,
-and bounded Staging validation.
+Completed: alignment, focused repository reconnaissance, and user approval of the
+five reconnaissance resolutions on 2026-09-21. Current: implementation planning.
+Pending: environment readiness, independent test authorship and adequacy review,
+implementation, deterministic and assurance gates, independent review, and
+bounded Staging validation.
 
 No production implementation or live Staging mutation is authorized by this
 specification phase. The frozen portions of this contract must not be weakened to
@@ -50,9 +49,10 @@ that does not cross an authority or eligibility boundary continues to use normal
 Django model permissions.
 
 Repository inspection found additional current admin mutations that meet the
-sensitive-action definition but are not in the approved set. They are recorded
-as explicit decisions rather than silently added; see
-[Pre-implementation decisions](#pre-implementation-decisions).
+sensitive-action definition but are not in the approved set. The approved
+resolution closes those paths rather than adding sensitive actions: admin cannot
+create enrollments or change active-Convention selection, new Conventions cannot
+start playable, and playable Conventions cannot be deleted.
 
 ## Non-goals
 
@@ -162,7 +162,7 @@ The authoritative record contains exactly:
 | `id` | Server-generated UUID primary key; stable event identity |
 | `action` | Closed choice from the approved sensitive-action names |
 | `actor` | `PROTECT` foreign key to the TailTag/Django `User`; evidence exposes only its application primary key |
-| `actor_class` | Closed actor classification; the approved values and the denied-event conflict are described below |
+| `actor_class` | Closed actor classification: `operator`, `emergency_superuser`, or denial-only `unauthorized_actor` |
 | `affected_record_type` | Closed, stable app/model label from the action matrix |
 | `affected_record_id` | Positive database record identifier supplied by the action boundary |
 | `outcome` | `succeeded`, `denied`, `rejected`, or `failed` |
@@ -185,21 +185,24 @@ audit contract.
 
 ## Actor classification and emergency superusers
 
-The frozen successful-action classifications are:
+The frozen classifications are:
 
 - `operator`: authenticated non-superuser staff authorized by the action's
-  explicit sensitive permission; and
+  explicit sensitive permission;
 - `emergency_superuser`: authenticated superuser exercising Django's normal
-  permission bypass.
+  permission bypass; and
+- `unauthorized_actor`: an authenticated player or staff user who submitted the
+  sensitive mutation but lacked its permission; valid only with
+  `outcome=denied`.
 
 Every superuser sensitive mutation records `emergency_superuser`. Superuser
 credentials are emergency-only, not the normal operator model. #205 adds no
 interactive justification, approval flow, or separate break-glass account
 system.
 
-The frozen list does not provide a truthful actor class for denied attempts by a
-player or staff user lacking the target permission. This must be resolved before
-the audit schema is implemented; see D4 below.
+Database constraints reject `unauthorized_actor` for any non-denied outcome and
+reject `operator` or `emergency_superuser` for a denied outcome. The audit record
+therefore never mislabels an unauthorized attempt as operator activity.
 
 ## Outcome and transaction semantics
 
@@ -285,11 +288,16 @@ state. It is provisioning documentation/tooling around Django's native machinery
 not a new operator-management product. The Development superuser bootstrap
 remains development convenience and is not the normal Staging operator role.
 
-Current `accounts.User` code and its database constraint prohibit usable local
-passwords unless both `is_staff` and `is_superuser` are true. Django admin has no
-Clerk authentication path. Therefore the approved non-superuser Staging operator
-cannot currently authenticate. D5 must select the narrow authentication change
-before this procedure can be frozen.
+The local-password contract expands only from superusers to dedicated staff
+administrators: a usable local password requires `is_staff=True`, while ordinary
+non-staff application users continue to require an unusable password. The normal
+`create_user` path still rejects staff flags and passwords. A dedicated Staging
+operator provisioning command may create or reconcile only an unused identifier
+or an existing exact staff/non-superuser operator state; it refuses an ordinary
+player, a superuser, or any ambiguous account without changing it. Inputs remain
+hidden and must not enter arguments, environment variables, logs, issues, or
+committed evidence. This narrow Django-admin credential adjustment is not Clerk
+authentication or provider redesign.
 
 ## Staging acceptance matrix
 
@@ -376,8 +384,8 @@ implementation.
 **Expected change surface after approval:** owning domain model metadata and
 migrations for permissions; the existing admin classes and closest admin tests;
 one narrow audit model/writer and migration with focused tests; the existing
-operator/catch/Staging documentation; and only the minimum account/provisioning
-surface approved under D5. Domain services change only where their current return
+operator/catch/Staging documentation; and only the approved dedicated-staff
+account/provisioning surface. Domain services change only where their current return
 or exception contract cannot distinguish committed transition, expected
 rejection, and no-op without duplicating domain rules in admin.
 
@@ -386,59 +394,50 @@ and concurrency regressions, migration-drift checks, repository `make api-check`
 including Semgrep, plausible-mutant analysis, fresh specification and code review,
 and separately authorized bounded Staging proof.
 
-## Pre-implementation decisions
+## Approved reconnaissance resolutions
 
-Repository inspection produced the following material decisions. Implementation
-must not start until they are resolved and incorporated into this contract.
+The user approved all five minimum-scope resolutions on 2026-09-21. They are
+part of the frozen contract and must not be reopened during implementation.
 
 ### D1 — Admin enrollment creation
 
 `ConventionEnrollmentAdmin` currently permits `add_conventionenrollment`.
 Creating a row directly establishes Convention participation and therefore meets
 the frozen sensitive-action definition, but it is not in the approved mutation
-set. The recommended minimum-scope resolution is to disable admin enrollment
-creation; players already own enrollment creation through the authoritative API.
-The alternative is to add a ninth sensitive action and permission.
+set. Admin enrollment creation is disabled. Players retain enrollment creation
+through the authoritative API. No ninth sensitive action or permission is added.
 
 ### D2 — Admin active-Convention selection
 
 The same admin currently allows generic `change_conventionenrollment` to mutate
-`is_active`, which changes the player's selected gameplay Convention. The
-recommended resolution is to make enrollment identity and `is_active` read-only
-and retain only the explicitly approved removal action. The alternative is to add
-separate sensitive set/clear-selection actions and permissions.
+`is_active`, which changes the player's selected gameplay Convention. Enrollment
+identity and `is_active` become read-only in admin. The explicitly approved
+removal operation is the only enrollment mutation there; no set/clear-selection
+permission is added.
 
 ### D3 — Playable Convention creation and deletion
 
 `ConventionAdmin` currently accepts `status=ACTIVE` during creation and exposes
 normal deletion. Creating an already-playable Convention or deleting an ACTIVE
 Convention crosses the gameplay-authority boundary without changing an existing
-record between lifecycle states. The recommended resolution is to require new
-Conventions to start non-playable and to reject deletion while playable; the
-approved `set_convention_playability` transition then remains the sole path across
-the boundary. The alternative is to add separately audited create-playable and
-delete-playable actions.
+record between lifecycle states. New Conventions must start non-playable, and
+deletion is rejected while a Convention is playable.
+`set_convention_playability` remains the sole admin path across the playable
+boundary. No create-playable or delete-playable action is added.
 
 ### D4 — Actor class for denied attempts
 
-The approved actor classes describe authorized operators and superusers, but a
-player or staff user denied for lacking the target permission satisfies neither
-definition. The recommended resolution is to add one bounded
-`unauthorized_actor` class used only with `outcome=denied`; retain `operator` and
-`emergency_superuser` exactly as frozen for authorized attempts. Alternatives are
-to make actor class nullable on denial or redefine `operator` to include
-unauthorized staff, both of which weaken interpretation.
+Add the bounded `unauthorized_actor` class only for `outcome=denied`. Retain
+`operator` and `emergency_superuser` exactly as frozen for authorized attempts.
+Actor class is neither nullable nor broadened.
 
 ### D5 — Non-superuser Django-admin authentication
 
 The User model, manager, and database constraint currently reserve usable local
 passwords for superusers, while Django admin has no Clerk sign-in mechanism. The
-approved Staging non-superuser operator therefore cannot log in. The recommended
-minimum change is a narrowly guarded dedicated-staff local credential contract and
-provisioning path that cannot elevate or repurpose an ordinary player account.
-Adding Clerk-backed admin authentication would be a provider/identity redesign and
-is outside #205; retaining superuser-only login cannot satisfy the frozen Staging
-matrix.
+approved resolution is the narrowly guarded dedicated-staff local credential
+contract and provisioning path described above. It cannot elevate or repurpose an
+ordinary player account. Clerk-backed admin authentication remains outside #205.
 
 ## Design alternatives considered
 
