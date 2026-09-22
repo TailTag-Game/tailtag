@@ -459,6 +459,78 @@ def test_build_bundle_has_only_hashed_first_party_code_members(
             assert hashlib.sha256(source.read()).hexdigest() == manifest[member.name]
 
 
+def test_generated_bundle_initializes_all_installed_django_apps(
+    staging_ssh: ModuleType, tmp_path: Path
+) -> None:
+    """SSH-4: an installed first-party app cannot be omitted from reset source."""
+    bundle, _ = staging_ssh._build_bundle(REPOSITORY_ROOT)
+    bundle_root = tmp_path / "bundle"
+    bundle_root.mkdir()
+
+    with tarfile.open(
+        fileobj=io.BytesIO(base64.b64decode(bundle)), mode="r:"
+    ) as archive:
+        for member in archive.getmembers():
+            source = archive.extractfile(member)
+            assert source is not None
+            destination = bundle_root / member.name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(source.read())
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            (
+                "import os, sys; "
+                "from pathlib import Path; "
+                "root = Path(sys.argv[1]); "
+                "sys.path[:0] = [str(root), str(root / 'services' / 'api')]; "
+                "os.environ['DJANGO_SETTINGS_MODULE'] = 'config.settings.base'; "
+                "import django; django.setup()"
+            ),
+            str(bundle_root),
+        ],
+        cwd=tmp_path,
+        env={"PATH": os.environ["PATH"]},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=5,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_remote_bootstrap_accepts_operator_audit_package_member(
+    staging_ssh: ModuleType, tmp_path: Path
+) -> None:
+    """SSH-4/5: bootstrap policy accepts the generated first-party package set."""
+    bundle, _ = staging_ssh._build_bundle(REPOSITORY_ROOT)
+    with tarfile.open(
+        fileobj=io.BytesIO(base64.b64decode(bundle)), mode="r:"
+    ) as archive:
+        members: dict[str, bytes] = {}
+        for member in archive.getmembers():
+            source = archive.extractfile(member)
+            assert source is not None
+            members[member.name] = source.read()
+    members["services/api/operator_audit/apps.py"] = (
+        REPOSITORY_ROOT / "services" / "api" / "operator_audit" / "apps.py"
+    ).read_bytes()
+    members["scripts/api_staging_reset_ssh.py"] = synthetic_remote_executor_source()
+    bootstrap_bundle, bootstrap_manifest = archive_bytes(members)
+
+    result = isolated_bootstrap(
+        staging_ssh,
+        bootstrap_payload(bootstrap_bundle, bootstrap_manifest),
+        tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_build_bundle_rejects_a_symlink_or_unsafe_member_source(
     staging_ssh: ModuleType, tmp_path: Path
 ) -> None:

@@ -60,6 +60,7 @@ _PACKAGES: Final = (
     "fursuits",
     "health",
     "media",
+    "operator_audit",
     "profiles",
     "rehearsal",
 )
@@ -511,7 +512,7 @@ def fail():
     print("FAIL staging reset maintenance unknown", file=sys.stderr)
     return 1
 def safe(name):
-    packages=("accounts","authentication","catches","config","conventions","fursuits","health","media","profiles","rehearsal")
+    packages=("accounts","authentication","catches","config","conventions","fursuits","health","media","operator_audit","profiles","rehearsal")
     return (isinstance(name,str) and PurePosixPath(name).as_posix()==name and name in {"scripts/api_staging_reset.py","scripts/api_staging_preflight.py","scripts/api_staging_reset_ssh.py"} or isinstance(name,str) and PurePosixPath(name).as_posix()==name and name.endswith(".py") and not name.startswith(".") and "/." not in name and "\\" not in name and any(name.startswith("services/api/"+package+"/") for package in packages) and "/tests/" not in name and ".." not in name and "//" not in name)
 def duplicate(pairs):
     result={}
