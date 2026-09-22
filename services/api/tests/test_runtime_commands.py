@@ -547,30 +547,49 @@ SENSITIVE_INSPECTION_ALTERNATIVE_ACTIONS = frozenset(
     }
 )
 
-GENERIC_PERMISSION_CODENAMES = (
-    "catches.change_catch",
-    "catches.view_catch",
-    "conventions.change_fursuitcatchcredential",
-    "conventions.delete_fursuitcatchcredential",
-    "conventions.view_fursuitcatchcredential",
-    "conventions.change_fursuitcatchsession",
-    "conventions.delete_fursuitcatchsession",
-    "conventions.view_fursuitcatchsession",
-    "conventions.change_fursuitactivation",
-    "conventions.delete_fursuitactivation",
-    "conventions.view_fursuitactivation",
-    "conventions.change_conventionenrollment",
-    "conventions.delete_conventionenrollment",
-    "conventions.view_conventionenrollment",
-    "profiles.change_playerprofile",
-    "profiles.delete_playerprofile",
-    "profiles.view_playerprofile",
-    "fursuits.change_fursuit",
-    "fursuits.delete_fursuit",
-    "fursuits.view_fursuit",
-    "conventions.change_convention",
-    "conventions.delete_convention",
-    "conventions.view_convention",
+GENERIC_PERMISSION_CODENAMES_BY_ACTION = {
+    "remove_catch": ("catches.change_catch", "catches.view_catch"),
+    "revoke_catch_credential": (
+        "conventions.change_fursuitcatchcredential",
+        "conventions.delete_fursuitcatchcredential",
+        "conventions.view_fursuitcatchcredential",
+    ),
+    "terminate_catch_session": (
+        "conventions.change_fursuitcatchsession",
+        "conventions.delete_fursuitcatchsession",
+        "conventions.view_fursuitcatchsession",
+    ),
+    "deactivate_fursuit_activation": (
+        "conventions.change_fursuitactivation",
+        "conventions.delete_fursuitactivation",
+        "conventions.view_fursuitactivation",
+    ),
+    "remove_convention_enrollment": (
+        "conventions.change_conventionenrollment",
+        "conventions.delete_conventionenrollment",
+        "conventions.view_conventionenrollment",
+    ),
+    "set_profile_enabled": (
+        "profiles.change_playerprofile",
+        "profiles.delete_playerprofile",
+        "profiles.view_playerprofile",
+    ),
+    "set_fursuit_enabled": (
+        "fursuits.change_fursuit",
+        "fursuits.delete_fursuit",
+        "fursuits.view_fursuit",
+    ),
+    "set_convention_playability": (
+        "conventions.change_convention",
+        "conventions.delete_convention",
+        "conventions.view_convention",
+    ),
+}
+
+GENERIC_PERMISSION_CODENAMES = tuple(
+    generic_permission
+    for generic_permissions in GENERIC_PERMISSION_CODENAMES_BY_ACTION.values()
+    for generic_permission in generic_permissions
 )
 
 AUDIT_PRIVACY_EXCLUSIONS = (
@@ -591,7 +610,7 @@ AUDIT_PRIVACY_EXCLUSIONS = (
 
 
 def assert_no_concrete_generic_permission_prerequisites(runbook: str) -> None:
-    """Reject generic-permission prerequisite prose in a sensitive-operation sentence."""
+    """Reject generic-permission prerequisites for each sensitive action."""
     sentences = re.split(r"(?<=[.!?])\s+", " ".join(runbook.split()))
     explicit_negation = (
         r"\b(?:not required|never required|does not require|doesn't require|"
@@ -604,15 +623,44 @@ def assert_no_concrete_generic_permission_prerequisites(runbook: str) -> None:
         r"before (?:invoking|executing))\b"
     )
 
-    for generic_permission in GENERIC_PERMISSION_CODENAMES:
+    for action, _, operation_permission, _ in SENSITIVE_OPERATOR_ACTION_MATRIX:
+        generic_permissions = GENERIC_PERMISSION_CODENAMES_BY_ACTION[action]
         for sentence in sentences:
-            if generic_permission not in sentence:
-                continue
-            if not re.search(r"(?i)sensitive (?:action|operation)", sentence):
+            if operation_permission not in sentence and not re.search(
+                r"(?i)sensitive (?:action|operation)", sentence
+            ):
                 continue
             if re.search(rf"(?i){explicit_negation}", sentence):
                 continue
-            assert not re.search(rf"(?i){prerequisite_language}", sentence)
+            for generic_permission in generic_permissions:
+                if generic_permission in sentence:
+                    assert not re.search(rf"(?i){prerequisite_language}", sentence)
+
+
+def assert_no_ordinary_sensitive_inspection_grants(runbook: str) -> None:
+    """Keep ordinary-record inspection on its explicit Django view permission."""
+    sentences = re.split(r"(?<=[.!?])\s+", " ".join(runbook.split()))
+    inspection_grant = (
+        r"\b(?:grant|allow|permit|authorize)s?.{0,160}"
+        r"\b(?:inspect(?:ion)?|brows(?:e|ing)|read|view)"
+    )
+    negation = r"\b(?:does not|do not|never|not)\b"
+
+    for (
+        action,
+        _,
+        operation_permission,
+        read_permission,
+    ) in SENSITIVE_OPERATOR_ACTION_MATRIX:
+        if action in SENSITIVE_INSPECTION_ALTERNATIVE_ACTIONS:
+            continue
+        for sentence in sentences:
+            if operation_permission not in sentence:
+                continue
+            if re.search(rf"(?i){negation}", sentence):
+                continue
+            if re.search(rf"(?i){inspection_grant}", sentence):
+                assert read_permission in sentence
 
 
 def assert_staging_operator_authority_boundary(runbook: str) -> None:
@@ -756,6 +804,7 @@ def assert_documented_operator_action_matrix(runbook: str) -> None:
     """Require one readable action/target/operation/read-permission matrix."""
     assert "| Audit action |" in runbook
     normalized_runbook = " ".join(runbook.split())
+    assert_no_ordinary_sensitive_inspection_grants(runbook)
     for (
         action,
         target,
@@ -943,11 +992,58 @@ def test_audit_privacy_helper_accepts_scoped_allowed_and_excluded_fields() -> No
 def test_concrete_permission_helper_allows_explicit_non_prerequisites() -> None:
     """Concrete view/change/delete guidance may explicitly reject prerequisites."""
     compliant = "\n".join(
-        f"`{generic_permission}` is not required before executing a sensitive operation."
-        for generic_permission in GENERIC_PERMISSION_CODENAMES
+        f"`{generic_permission}` is not required before executing "
+        f"`{operation_permission}`."
+        for action, _, operation_permission, _ in SENSITIVE_OPERATOR_ACTION_MATRIX
+        for generic_permission in GENERIC_PERMISSION_CODENAMES_BY_ACTION[action]
     )
 
     assert_no_concrete_generic_permission_prerequisites(compliant)
+
+
+def test_concrete_permission_helper_rejects_action_bound_prerequisites() -> None:
+    """Each real sensitive action rejects its relevant model-permission gates."""
+    prerequisite_mutants = (
+        "`{generic_permission}` is required before `{operation_permission}`.",
+        "`{generic_permission}` must hold before `{operation_permission}`.",
+        (
+            "A user must have `{generic_permission}` before executing "
+            "`{operation_permission}`."
+        ),
+        (
+            "A user has to have `{generic_permission}` before invoking "
+            "`{operation_permission}`."
+        ),
+        (
+            "`{operation_permission}` is only available after "
+            "`{generic_permission}` is granted."
+        ),
+        "`{operation_permission}` requires `{generic_permission}`.",
+    )
+
+    for action, _, operation_permission, _ in SENSITIVE_OPERATOR_ACTION_MATRIX:
+        for generic_permission in GENERIC_PERMISSION_CODENAMES_BY_ACTION[action]:
+            for prerequisite_mutant in prerequisite_mutants:
+                with pytest.raises(AssertionError):
+                    assert_no_concrete_generic_permission_prerequisites(
+                        prerequisite_mutant.format(
+                            generic_permission=generic_permission,
+                            operation_permission=operation_permission,
+                        )
+                    )
+
+
+def test_ordinary_inspection_helper_rejects_sensitive_permission_grants() -> None:
+    """Ordinary records cannot turn mutation permission into read authority."""
+    for action, target, operation_permission, _ in SENSITIVE_OPERATOR_ACTION_MATRIX:
+        if action in SENSITIVE_INSPECTION_ALTERNATIVE_ACTIONS:
+            continue
+        for inspection_grant in (
+            f"`{operation_permission}` grants inspection of `{target}`.",
+            f"`{operation_permission}` allows browsing `{target}`.",
+        ):
+            with pytest.raises(AssertionError):
+                assert_no_ordinary_sensitive_inspection_grants(inspection_grant)
 
 
 def markdown_section(document: str, heading_pattern: str) -> str:
@@ -1144,6 +1240,12 @@ def test_staging_operator_runbook_rejects_unsafe_documentation_mutants() -> None
             f"{runbook}\n`{generic_permission}` must be granted before executing the sensitive operation.\n",
         )
     )
+    unsafe_action_bound_concrete_prerequisite_mutants = tuple(
+        f"{runbook}\n`{generic_permission}` must be granted before executing "
+        f"`{operation_permission}`.\n"
+        for action, _, operation_permission, _ in SENSITIVE_OPERATOR_ACTION_MATRIX
+        for generic_permission in GENERIC_PERMISSION_CODENAMES_BY_ACTION[action]
+    )
     unsafe_mutants = (
         runbook.replace("--environment staging", "--environment development", 1),
         runbook.replace(
@@ -1170,6 +1272,7 @@ def test_staging_operator_runbook_rejects_unsafe_documentation_mutants() -> None
         *unsafe_concrete_prerequisite_mutants,
         *unsafe_reversed_concrete_prerequisite_mutants,
         *unsafe_modal_concrete_prerequisite_mutants,
+        *unsafe_action_bound_concrete_prerequisite_mutants,
     )
 
     for mutant in unsafe_mutants:
