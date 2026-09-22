@@ -538,6 +538,15 @@ SENSITIVE_OPERATOR_ACTION_MATRIX = (
     ),
 )
 
+SENSITIVE_INSPECTION_ALTERNATIVE_ACTIONS = frozenset(
+    {
+        "remove_catch",
+        "revoke_catch_credential",
+        "terminate_catch_session",
+        "deactivate_fursuit_activation",
+    }
+)
+
 GENERIC_PERMISSION_CODENAMES = (
     "catches.change_catch",
     "catches.view_catch",
@@ -762,20 +771,29 @@ def assert_documented_operator_action_matrix(runbook: str) -> None:
         matrix_row = matrix_rows[0].replace("`", "").replace("*", "")
         assert read_permission in matrix_row
         assert operation_permission in matrix_row
+        assert re.search(
+            rf"{re.escape(operation_permission)}.{{0,180}}"
+            r"(?:independently|on its own).{0,80}sufficient.{0,120}"
+            r"(?:action|operation)",
+            matrix_row,
+        )
         read_alternative_patterns = (
             rf"{re.escape(read_permission)}\s+(?:or|OR)\s+{re.escape(operation_permission)}",
             rf"{re.escape(operation_permission)}\s+(?:or|OR)\s+{re.escape(read_permission)}",
         )
-        assert any(
-            re.search(pattern, matrix_row) for pattern in read_alternative_patterns
-        )
-        assert re.search(
-            rf"{re.escape(operation_permission)}.{{0,180}}"
-            r"(?:independently|on its own).{0,80}sufficient.{0,120}"
-            r"(?:(?:action|operation).{0,120}(?:read|inspect)|"
-            r"(?:read|inspect).{0,120}(?:action|operation))",
-            matrix_row,
-        )
+        if action in SENSITIVE_INSPECTION_ALTERNATIVE_ACTIONS:
+            assert any(
+                re.search(pattern, matrix_row) for pattern in read_alternative_patterns
+            )
+        else:
+            assert re.search(
+                rf"{re.escape(read_permission)}.{{0,120}}"
+                r"(?:normal|explicit|required)",
+                matrix_row,
+            )
+            assert not any(
+                re.search(pattern, matrix_row) for pattern in read_alternative_patterns
+            )
         assert not re.search(
             rf"{re.escape(operation_permission)}"
             r"(?:(?!\b(?:does not|never|not)\b).){0,180}"
@@ -946,8 +964,8 @@ STAGING_OPERATOR_PROOF_CASES = (
         1,
         (
             r"(?i)ordinary player",
-            r"(?i)(?:cannot|denied).{0,120}(?:browse|inspect)",
-            r"(?i)(?:cannot|denied).{0,120}(?:execute|sensitive admin mutation)",
+            r"(?i)(?:cannot|denied).{0,120}(?:browse|inspect).{0,120}sensitive admin",
+            r"(?i)(?:cannot|denied).{0,120}(?:execute|mutation).{0,120}sensitive admin",
         ),
     ),
     (
