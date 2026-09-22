@@ -538,6 +538,48 @@ SENSITIVE_OPERATOR_ACTION_MATRIX = (
     ),
 )
 
+GENERIC_PERMISSION_CODENAMES = (
+    "catches.change_catch",
+    "catches.view_catch",
+    "conventions.change_fursuitcatchcredential",
+    "conventions.delete_fursuitcatchcredential",
+    "conventions.view_fursuitcatchcredential",
+    "conventions.change_fursuitcatchsession",
+    "conventions.delete_fursuitcatchsession",
+    "conventions.view_fursuitcatchsession",
+    "conventions.change_fursuitactivation",
+    "conventions.delete_fursuitactivation",
+    "conventions.view_fursuitactivation",
+    "conventions.change_conventionenrollment",
+    "conventions.delete_conventionenrollment",
+    "conventions.view_conventionenrollment",
+    "profiles.change_playerprofile",
+    "profiles.delete_playerprofile",
+    "profiles.view_playerprofile",
+    "fursuits.change_fursuit",
+    "fursuits.delete_fursuit",
+    "fursuits.view_fursuit",
+    "conventions.change_convention",
+    "conventions.delete_convention",
+    "conventions.view_convention",
+)
+
+AUDIT_PRIVACY_EXCLUSIONS = (
+    ("secrets", r"secrets"),
+    ("credentials", r"credentials"),
+    ("tokens", r"tokens"),
+    ("Clerk identifiers", r"Clerk.{0,40}identif"),
+    ("provider identifiers", r"provider identifiers"),
+    ("emails", r"emails"),
+    ("QR payloads", r"QR.{0,40}payload"),
+    ("private URLs", r"private URLs"),
+    ("raw request bodies", r"raw request bodies"),
+    ("broad object snapshots", r"broad.{0,80}object.{0,80}snapshot"),
+    ("broad permission snapshots", r"broad.{0,80}permission.{0,80}snapshot"),
+    ("broad group snapshots", r"broad.{0,80}group.{0,80}snapshot"),
+    ("exception detail", r"exception detail"),
+)
+
 
 def assert_staging_operator_authority_boundary(runbook: str) -> None:
     """Require operation authority, rather than staff/group/model-permission authority."""
@@ -576,6 +618,15 @@ def assert_staging_operator_authority_boundary(runbook: str) -> None:
         r"(?:additional )?prerequisite.{0,120}sensitive",
         normalized_runbook,
     )
+    for generic_permission in GENERIC_PERMISSION_CODENAMES:
+        assert generic_permission in runbook
+        assert not re.search(
+            rf"{re.escape(generic_permission)}"
+            r"(?:(?!\b(?:neither|never|does not|not)\b).){0,180}"
+            r"(?:authorize|grant|substitute|(?:additional )?prerequisite)"
+            r".{0,120}sensitive",
+            normalized_runbook,
+        )
     assert re.search(
         r"catches\.delete_catch.{0,180}(?i:explicit).{0,120}"
         r"(?i:correction|action) authority",
@@ -741,6 +792,26 @@ def test_staging_operator_documentation_defines_the_guarded_provisioning_path() 
     )
 
 
+def assert_negated_audit_privacy_exclusions(runbook: str) -> None:
+    """Require every privacy exclusion to be negative in an audit-record context."""
+    normalized_runbook = " ".join(runbook.split())
+    audit_context = r"(?:audit (?:record|row|event|evidence)s?|OperatorAuditEvent)"
+    negation = r"(?:must not|do not|never|exclude)"
+
+    for excluded_value, excluded_pattern in AUDIT_PRIVACY_EXCLUSIONS:
+        assert re.search(
+            rf"(?i){audit_context}.{{0,240}}{negation}.{{0,480}}"
+            rf"{excluded_pattern}",
+            normalized_runbook,
+        ), excluded_value
+        assert not re.search(
+            rf"(?i){audit_context}"
+            r"(?:(?!\b(?:must not|do not|never|exclude)\b).){0,180}"
+            rf"(?:include|store|contain|record).{{0,360}}{excluded_pattern}",
+            normalized_runbook,
+        ), excluded_value
+
+
 def test_operator_audit_documentation_defines_safe_durable_evidence() -> None:
     """AC-11: evidence uses the durable audit record, not framework/log history."""
     runbook = OPERATOR_AUDIT_RUNBOOK.read_text()
@@ -776,21 +847,7 @@ def test_operator_audit_documentation_defines_safe_durable_evidence() -> None:
     for outcome, definition in outcome_definitions.items():
         assert f"`{outcome}`" in runbook
         assert re.search(definition, normalized_runbook)
-    for prohibited_pattern in (
-        r"(?i)secrets",
-        r"(?i)provider identifiers",
-        r"(?i)emails",
-        r"(?i)credentials",
-        r"(?i)tokens",
-        r"(?i)QR.{0,40}payload",
-        r"(?i)private URLs",
-        r"(?i)raw request bodies",
-        r"(?i)broad.{0,80}object.{0,80}snapshot",
-        r"(?i)broad.{0,80}permission.{0,80}snapshot",
-        r"(?i)broad.{0,80}group.{0,80}snapshot",
-        r"(?i)exception detail",
-    ):
-        assert re.search(prohibited_pattern, normalized_runbook)
+    assert_negated_audit_privacy_exclusions(runbook)
     assert "#204" in runbook
     assert re.search(
         r"(?i)(?:retain|retention).{0,180}(?:no automatic|not automatically)",
@@ -802,6 +859,16 @@ def test_operator_audit_documentation_defines_safe_durable_evidence() -> None:
         normalized_runbook,
     )
     assert "catastrophic database failure" in normalized_runbook
+
+
+def test_operator_audit_documentation_rejects_contradictory_privacy_mutants() -> None:
+    """AC-11: a positive inclusion claim cannot coexist with an exclusion list."""
+    runbook = OPERATOR_AUDIT_RUNBOOK.read_text()
+
+    for excluded_value, _ in AUDIT_PRIVACY_EXCLUSIONS:
+        mutant = f"{runbook}\nAudit evidence includes {excluded_value}.\n"
+        with pytest.raises(AssertionError):
+            assert_negated_audit_privacy_exclusions(mutant)
 
 
 def markdown_section(document: str, heading_pattern: str) -> str:
@@ -972,6 +1039,11 @@ def test_staging_operator_runbook_rejects_unsafe_documentation_mutants() -> None
         "additional prerequisite for its sensitive operation.\n"
         for _, _, operation_permission, _ in SENSITIVE_OPERATOR_ACTION_MATRIX
     )
+    unsafe_concrete_prerequisite_mutants = tuple(
+        f"{runbook}\n`{generic_permission}` is an additional prerequisite for "
+        "sensitive operations.\n"
+        for generic_permission in GENERIC_PERMISSION_CODENAMES
+    )
     unsafe_mutants = (
         runbook.replace("--environment staging", "--environment development", 1),
         runbook.replace(
@@ -995,6 +1067,7 @@ def test_staging_operator_runbook_rejects_unsafe_documentation_mutants() -> None
         f"{runbook}\n`catches.delete_catch` is a generic substitution.\n",
         f"{runbook}\nThe normal Staging operator is_superuser=True.\n",
         *unsafe_prerequisite_mutants,
+        *unsafe_concrete_prerequisite_mutants,
     )
 
     for mutant in unsafe_mutants:
