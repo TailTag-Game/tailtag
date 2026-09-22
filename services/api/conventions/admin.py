@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, cast
 from django import forms
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.db.models import Exists, OuterRef, QuerySet
 from django.forms import ModelForm
 from django.http import HttpRequest, HttpResponse
@@ -158,7 +159,20 @@ class ConventionAdmin(ConventionAdminBase):
             return super().changeform_view(request, object_id, form_url, extra_context)
         convention = Convention.objects.filter(pk=int(object_id)).first()
         submitted_status = request.POST.get("status")
-        if convention is None or submitted_status not in ConventionStatus.values:
+        if convention is None:
+            if submitted_status == ConventionStatus.ACTIVE.value:
+                return run_sensitive_admin_attempt(
+                    request,
+                    permission="conventions.set_convention_playability",
+                    action=OperatorAction.SET_CONVENTION_PLAYABILITY,
+                    target_type=OperatorTargetType.CONVENTION,
+                    target_id=int(object_id),
+                    handler=lambda: super(ConventionAdmin, self).changeform_view(
+                        request, object_id, form_url, extra_context
+                    ),
+                )
+            return super().changeform_view(request, object_id, form_url, extra_context)
+        if submitted_status not in ConventionStatus.values:
             return super().changeform_view(request, object_id, form_url, extra_context)
         crosses = convention.is_playable != (
             submitted_status == ConventionStatus.ACTIVE.value
@@ -245,9 +259,11 @@ class ConventionAdmin(ConventionAdminBase):
         obj.updated_at = updated.updated_at
 
     def delete_model(self, request: HttpRequest, obj: Convention) -> None:
-        if obj.is_playable:
-            raise PermissionDenied
-        super().delete_model(request, obj)
+        with transaction.atomic():
+            locked = Convention.objects.select_for_update().get(pk=obj.pk)
+            if locked.is_playable:
+                raise PermissionDenied
+            super().delete_model(request, locked)
 
     def delete_queryset(
         self, request: HttpRequest, queryset: QuerySet[Convention]

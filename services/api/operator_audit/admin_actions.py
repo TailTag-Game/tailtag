@@ -7,9 +7,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import NoReturn, TypeVar, cast
 
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.db import transaction
-from django.http import HttpRequest, HttpResponse
+from django.http import Http404, HttpRequest, HttpResponse
 
 from accounts.models import User
 
@@ -144,7 +144,12 @@ def run_sensitive_admin_attempt(
                 if not attempt.transition_executed:
                     raise _RejectedOperatorAttempt
                 return response
-        except (_RejectedOperatorAttempt, *rejected_exceptions):
+        except (
+            _RejectedOperatorAttempt,
+            Http404,
+            ObjectDoesNotExist,
+            *rejected_exceptions,
+        ):
             _persist_outcome(attempt, OperatorAuditOutcome.REJECTED)
             _raise_rejected()
         except Exception:
