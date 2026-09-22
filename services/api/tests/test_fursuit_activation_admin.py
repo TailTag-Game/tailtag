@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 from collections.abc import Iterable, Mapping
 from typing import cast
+from unittest.mock import patch
 
 import pytest
 from django.contrib import admin
@@ -223,12 +224,6 @@ def test_activation_deactivation_role_matrix_requires_exact_permission() -> None
     unrelated = _activation_staff(("conventions", "terminate_catch_session"))
     cases = (
         (
-            create_test_user(),
-            False,
-            OperatorActorClass.UNAUTHORIZED_ACTOR,
-            OperatorAuditOutcome.DENIED,
-        ),
-        (
             _activation_staff(),
             False,
             OperatorActorClass.UNAUTHORIZED_ACTOR,
@@ -259,6 +254,28 @@ def test_activation_deactivation_role_matrix_requires_exact_permission() -> None
             OperatorAuditOutcome.SUCCEEDED,
         ),
     )
+    player = create_test_user()
+    player_scenario = create_activation_scenario()
+    player_target = FursuitActivation.objects.create(
+        fursuit=player_scenario.fursuit,
+        convention=player_scenario.convention,
+        is_active=True,
+        activated_at=timezone.now(),
+    )
+    player_url = reverse(
+        "admin:conventions_fursuitactivation_change", args=(player_target.pk,)
+    )
+    player_client = Client()
+    player_client.force_login(player)
+    response = player_client.post(player_url, {"is_active": ""})
+    assert response.status_code == 302
+    assert response["Location"] == f"/admin/login/?next={player_url}"
+    player_target.refresh_from_db()
+    assert player_target.is_active is True
+    assert not OperatorAuditEvent.objects.filter(
+        affected_record_id=player_target.pk
+    ).exists()
+
     for user, permitted, actor_class, outcome in cases:
         scenario = create_activation_scenario()
         activation = FursuitActivation.objects.create(
@@ -316,3 +333,43 @@ def test_activation_view_is_read_only_and_reactivation_has_no_alternate_authorit
         ).count()
         == 1
     )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("after_service", [False, True])
+def test_activation_deactivation_failure_rolls_back_and_records_only_failed(
+    after_service: bool,
+) -> None:
+    """AC-4/5: the active row and success event cannot survive an exception."""
+    scenario = create_activation_scenario()
+    activation = FursuitActivation.objects.create(
+        fursuit=scenario.fursuit,
+        convention=scenario.convention,
+        is_active=True,
+        activated_at=timezone.now(),
+    )
+    operator = _activation_staff(("conventions", "deactivate_fursuit_activation"))
+    client = Client()
+    client.force_login(operator)
+    url = reverse("admin:conventions_fursuitactivation_change", args=(activation.pk,))
+    target = (
+        "conventions.admin.FursuitActivationAdmin.log_change"
+        if after_service
+        else "conventions.admin.deactivate_fursuit_activation_as_operator"
+    )
+    with (
+        patch(target, side_effect=RuntimeError("forced activation failure")),
+        pytest.raises(RuntimeError, match="forced activation failure"),
+    ):
+        client.post(url, {"is_active": ""})
+    activation.refresh_from_db()
+    assert activation.is_active is True
+    _assert_activation_event(
+        operator,
+        activation.pk,
+        OperatorActorClass.OPERATOR,
+        OperatorAuditOutcome.FAILED,
+    )
+    assert not OperatorAuditEvent.objects.filter(
+        affected_record_id=activation.pk, outcome=OperatorAuditOutcome.SUCCEEDED
+    ).exists()

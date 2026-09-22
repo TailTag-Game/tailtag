@@ -1022,12 +1022,6 @@ def test_catch_removal_role_matrix_preserves_delete_catch_as_the_exact_correctio
     unrelated = _catch_staff(("conventions", "revoke_catch_credential"))
     cases = (
         (
-            create_test_user(),
-            False,
-            OperatorActorClass.UNAUTHORIZED_ACTOR,
-            OperatorAuditOutcome.DENIED,
-        ),
-        (
             _catch_staff(),
             False,
             OperatorActorClass.UNAUTHORIZED_ACTOR,
@@ -1058,6 +1052,19 @@ def test_catch_removal_role_matrix_preserves_delete_catch_as_the_exact_correctio
             OperatorAuditOutcome.SUCCEEDED,
         ),
     )
+    player = create_test_user()
+    player_target = create_catch(scenario=create_catch_scenario())
+    player_url = _admin_urls(player_target).delete
+    player_client = Client()
+    player_client.force_login(player)
+    player_response = player_client.post(player_url, {"post": "yes"})
+    assert player_response.status_code == 302
+    assert player_response["Location"] == f"/admin/login/?next={player_url}"
+    assert Catch.objects.filter(pk=player_target.pk).exists()
+    assert not OperatorAuditEvent.objects.filter(
+        affected_record_id=player_target.pk
+    ).exists()
+
     for user, permitted, actor_class, outcome in cases:
         catch = create_catch(scenario=create_catch_scenario())
         client = Client()
@@ -1096,3 +1103,41 @@ def test_catch_view_permission_is_read_only_and_catch_add_edit_bulk_paths_remain
         OperatorActorClass.UNAUTHORIZED_ACTOR,
         OperatorAuditOutcome.DENIED,
     )
+
+    operator = _catch_staff(("catches", "delete_catch"))
+    client.force_login(operator)
+    assert client.get(urls.changelist).status_code == 200
+    assert client.get(urls.change).status_code == 200
+    assert OperatorAuditEvent.objects.filter(affected_record_id=catch.pk).count() == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("after_service", [False, True])
+def test_catch_removal_failure_rolls_back_and_records_only_failed(
+    after_service: bool,
+) -> None:
+    """AC-4/5: failures before or after the removal service cannot commit success."""
+    catch = create_catch(scenario=create_catch_scenario())
+    operator = _catch_staff(("catches", "delete_catch"))
+    client = Client()
+    client.force_login(operator)
+    failure_target = (
+        "catches.admin.CatchAdmin.log_deletions"
+        if after_service
+        else "catches.admin.remove_catch_as_operator"
+    )
+    with (
+        patch(failure_target, side_effect=RuntimeError("forced catch failure")),
+        pytest.raises(RuntimeError, match="forced catch failure"),
+    ):
+        client.post(_admin_urls(catch).delete, {"post": "yes"})
+    assert Catch.objects.filter(pk=catch.pk).exists()
+    _assert_catch_event(
+        operator,
+        catch.pk,
+        OperatorActorClass.OPERATOR,
+        OperatorAuditOutcome.FAILED,
+    )
+    assert not OperatorAuditEvent.objects.filter(
+        affected_record_id=catch.pk, outcome=OperatorAuditOutcome.SUCCEEDED
+    ).exists()

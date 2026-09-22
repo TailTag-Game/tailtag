@@ -639,12 +639,7 @@ def test_enrollment_removal_role_matrix_requires_exact_permission() -> None:
     """AC-1/2/4: generic deletion and another sensitive permission cannot remove participation."""
     unrelated = _enrollment_staff(("conventions", "deactivate_fursuit_activation"))
     cases = (
-        (
-            create_test_user(),
-            False,
-            OperatorActorClass.UNAUTHORIZED_ACTOR,
-            OperatorAuditOutcome.DENIED,
-        ),
+        (create_test_user(), False, None, None),
         (
             _enrollment_staff(),
             False,
@@ -686,10 +681,19 @@ def test_enrollment_removal_role_matrix_requires_exact_permission() -> None:
             "admin:conventions_conventionenrollment_delete", args=(enrollment.pk,)
         )
         response = client.post(url, {"post": "yes"})
+        if not user.is_staff:
+            assert response.status_code == 302
+            assert response["Location"] == f"/admin/login/?next={url}"
+            assert ConventionEnrollment.objects.filter(pk=enrollment.pk).exists()
+            assert not OperatorAuditEvent.objects.filter(
+                affected_record_id=enrollment.pk
+            ).exists()
+            continue
         assert response.status_code == (302 if permitted else 403)
         assert ConventionEnrollment.objects.filter(pk=enrollment.pk).exists() is (
             not permitted
         )
+        assert actor_class is not None and outcome is not None
         _assert_enrollment_event(user, enrollment.pk, actor_class, outcome)
 
 

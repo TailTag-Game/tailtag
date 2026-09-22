@@ -241,12 +241,6 @@ def test_profile_enablement_requires_its_exact_permission_and_audits_every_post_
     unrelated_operator = User.objects.get(pk=unrelated_operator.pk)
     cases = (
         (
-            create_test_user(),
-            False,
-            OperatorActorClass.UNAUTHORIZED_ACTOR,
-            OperatorAuditOutcome.DENIED,
-        ),
-        (
             _staff_with(),
             False,
             OperatorActorClass.UNAUTHORIZED_ACTOR,
@@ -277,6 +271,21 @@ def test_profile_enablement_requires_its_exact_permission_and_audits_every_post_
             OperatorAuditOutcome.SUCCEEDED,
         ),
     )
+    player = create_test_user()
+    player_target = PlayerProfile.objects.create(user=create_test_user())
+    player_url = reverse(
+        "admin:profiles_playerprofile_change", args=(player_target.pk,)
+    )
+    player_client = Client()
+    player_client.force_login(player)
+    response = player_client.post(player_url, {"is_enabled": ""})
+    assert response.status_code == 302
+    assert response["Location"] == f"/admin/login/?next={player_url}"
+    player_target.refresh_from_db()
+    assert player_target.is_enabled is True
+    assert not OperatorAuditEvent.objects.filter(
+        affected_record_id=player_target.pk
+    ).exists()
     for user, permitted, actor_class, outcome in cases:
         profile = PlayerProfile.objects.create(user=create_test_user())
         client = Client()

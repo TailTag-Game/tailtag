@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import datetime
 import uuid
 from typing import Any, Protocol, cast
+from unittest.mock import patch
 
 import pytest
 from django.contrib import admin
@@ -21,6 +23,9 @@ from operator_audit.models import (
     OperatorAuditOutcome,
     OperatorTargetType,
 )
+from tests.catch_credential_test_support import create_credential
+from tests.fursuit_activation_test_support import create_activation_row
+from tests.fursuit_catch_session_test_support import create_catch_session
 from tests.fursuit_test_support import create_eligible_user, create_fursuit_record
 from tests.profile_test_support import RECORDING_STORAGES
 
@@ -236,12 +241,6 @@ def test_fursuit_enablement_role_matrix_uses_only_the_explicit_operation_permiss
     unrelated = _operator_staff(("profiles", "set_profile_enabled"))
     cases = (
         (
-            create_eligible_user(),
-            False,
-            OperatorActorClass.UNAUTHORIZED_ACTOR,
-            OperatorAuditOutcome.DENIED,
-        ),
-        (
             _operator_staff(),
             False,
             OperatorActorClass.UNAUTHORIZED_ACTOR,
@@ -272,6 +271,20 @@ def test_fursuit_enablement_role_matrix_uses_only_the_explicit_operation_permiss
             OperatorAuditOutcome.SUCCEEDED,
         ),
     )
+    player = create_eligible_user()
+    player_target = create_fursuit_record(owner=create_eligible_user())
+    player_url = reverse("admin:fursuits_fursuit_change", args=(player_target.pk,))
+    player_client = Client()
+    player_client.force_login(player)
+    player_response = player_client.post(player_url, {"is_enabled": ""})
+    assert player_response.status_code == 302
+    assert player_response["Location"] == f"/admin/login/?next={player_url}"
+    player_target.refresh_from_db()
+    assert player_target.is_enabled is True
+    assert not OperatorAuditEvent.objects.filter(
+        affected_record_id=player_target.pk
+    ).exists()
+
     for user, permitted, actor_class, outcome in cases:
         fursuit = create_fursuit_record(owner=create_eligible_user())
         client = Client()
@@ -315,3 +328,76 @@ def test_fursuit_view_permission_is_read_only_and_same_state_is_rejected() -> No
         ).count()
         == 1
     )
+
+
+@pytest.mark.django_db
+def test_fursuit_disablement_cascades_credential_and_session_once() -> None:
+    """AC-7/8: lifecycle consequences occur without turning into audit intentions."""
+    from conventions.models import Convention, ConventionEnrollment, ConventionStatus
+
+    owner = create_eligible_user()
+    fursuit = create_fursuit_record(owner=owner)
+    convention = Convention.objects.create(
+        name="Fursuit disable audit cascade",
+        status=ConventionStatus.ACTIVE,
+        start_date=datetime.date(2026, 7, 1),
+        end_date=datetime.date(2026, 7, 2),
+    )
+    ConventionEnrollment.objects.create(user=owner, convention=convention)
+    activation = create_activation_row(
+        fursuit=fursuit, convention=convention, active=True
+    )
+    credential = create_credential(activation=activation)
+    session = create_catch_session(activation=activation)
+    operator = _operator_staff(("fursuits", "set_fursuit_enabled"))
+    client = Client()
+    client.force_login(operator)
+    url = reverse("admin:fursuits_fursuit_change", args=(fursuit.pk,))
+    assert client.post(url, {"is_enabled": ""}).status_code == 302
+    fursuit.refresh_from_db()
+    credential.refresh_from_db()
+    session.refresh_from_db()
+    assert fursuit.is_enabled is False
+    assert (
+        credential.revoked_at is not None
+        and credential.revocation_reason == "eligibility_lost"
+    )
+    assert session.ended_at is not None and session.end_reason == "eligibility_lost"
+    _assert_fursuit_event(
+        operator,
+        fursuit.pk,
+        OperatorActorClass.OPERATOR,
+        OperatorAuditOutcome.SUCCEEDED,
+    )
+    assert OperatorAuditEvent.objects.count() == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("after_service", [False, True])
+def test_fursuit_enablement_failure_rolls_back_and_records_only_failed(
+    after_service: bool,
+) -> None:
+    """AC-4/5: an error cannot retain enabled-state mutation or success evidence."""
+    fursuit = create_fursuit_record(owner=create_eligible_user())
+    operator = _operator_staff(("fursuits", "set_fursuit_enabled"))
+    client = Client()
+    client.force_login(operator)
+    url = reverse("admin:fursuits_fursuit_change", args=(fursuit.pk,))
+    target = (
+        "fursuits.admin.FursuitAdmin.log_change"
+        if after_service
+        else "fursuits.admin.set_fursuit_enabled"
+    )
+    with (
+        patch(target, side_effect=RuntimeError("forced fursuit failure")),
+        pytest.raises(RuntimeError, match="forced fursuit failure"),
+    ):
+        client.post(url, {"is_enabled": ""})
+    fursuit.refresh_from_db()
+    assert fursuit.is_enabled is True
+    _assert_fursuit_event(
+        operator, fursuit.pk, OperatorActorClass.OPERATOR, OperatorAuditOutcome.FAILED
+    )
+    assert not OperatorAuditEvent.objects.filter(
+        affected_record_id=fursuit.pk, outcome=OperatorAuditOutcome.SUCCEEDED
+    ).exists()

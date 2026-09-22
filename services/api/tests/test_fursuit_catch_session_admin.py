@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 from typing import Any, cast
+from unittest.mock import patch
 
 import pytest
 from django.contrib import admin
@@ -199,12 +200,6 @@ def test_session_termination_role_matrix_requires_exact_permission() -> None:
     unrelated = _session_staff(("conventions", "revoke_catch_credential"))
     cases = (
         (
-            create_test_user(),
-            False,
-            OperatorActorClass.UNAUTHORIZED_ACTOR,
-            OperatorAuditOutcome.DENIED,
-        ),
-        (
             _session_staff(),
             False,
             OperatorActorClass.UNAUTHORIZED_ACTOR,
@@ -235,6 +230,28 @@ def test_session_termination_role_matrix_requires_exact_permission() -> None:
             OperatorAuditOutcome.SUCCEEDED,
         ),
     )
+    player = create_test_user()
+    player_scenario = create_activation_scenario()
+    player_activation = create_activation_row(
+        fursuit=player_scenario.fursuit,
+        convention=player_scenario.convention,
+        active=True,
+    )
+    player_session = create_catch_session(activation=player_activation)
+    player_url = reverse(
+        "admin:conventions_fursuitcatchsession_change", args=(player_session.pk,)
+    )
+    player_client = Client()
+    player_client.force_login(player)
+    player_response = player_client.post(player_url, {"terminate": "1"})
+    assert player_response.status_code == 302
+    assert player_response["Location"] == f"/admin/login/?next={player_url}"
+    player_session.refresh_from_db()
+    assert player_session.ended_at is None
+    assert not OperatorAuditEvent.objects.filter(
+        affected_record_id=player_session.pk
+    ).exists()
+
     for user, permitted, actor_class, outcome in cases:
         scenario = create_activation_scenario()
         activation = create_activation_row(
@@ -279,6 +296,8 @@ def test_session_view_permission_is_read_only_and_terminal_session_rejects_repea
     )
     operator = _session_staff(("conventions", "terminate_catch_session"))
     client.force_login(operator)
+    assert client.get(url).status_code == 200
+    assert OperatorAuditEvent.objects.filter(affected_record_id=session.pk).count() == 1
     assert client.post(url, {"terminate": "1"}).status_code == 302
     assert client.post(url, {"terminate": "1"}).status_code == 403
     assert (
@@ -287,3 +306,41 @@ def test_session_view_permission_is_read_only_and_terminal_session_rejects_repea
         ).count()
         == 1
     )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("after_service", [False, True])
+def test_session_termination_failure_rolls_back_and_records_only_failed(
+    after_service: bool,
+) -> None:
+    """AC-4/5: session terminal state and success evidence roll back together."""
+    scenario = create_activation_scenario()
+    activation = create_activation_row(
+        fursuit=scenario.fursuit, convention=scenario.convention, active=True
+    )
+    session = create_catch_session(activation=activation)
+    operator = _session_staff(("conventions", "terminate_catch_session"))
+    client = Client()
+    client.force_login(operator)
+    url = reverse("admin:conventions_fursuitcatchsession_change", args=(session.pk,))
+    failure_target = (
+        "conventions.admin.FursuitCatchSessionAdmin.log_change"
+        if after_service
+        else "conventions.admin.terminate_session_as_operator"
+    )
+    with (
+        patch(failure_target, side_effect=RuntimeError("forced session failure")),
+        pytest.raises(RuntimeError, match="forced session failure"),
+    ):
+        client.post(url, {"terminate": "1"})
+    session.refresh_from_db()
+    assert session.ended_at is None
+    _assert_session_event(
+        operator,
+        session.pk,
+        OperatorActorClass.OPERATOR,
+        OperatorAuditOutcome.FAILED,
+    )
+    assert not OperatorAuditEvent.objects.filter(
+        affected_record_id=session.pk, outcome=OperatorAuditOutcome.SUCCEEDED
+    ).exists()

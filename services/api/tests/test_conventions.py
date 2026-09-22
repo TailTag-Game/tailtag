@@ -368,12 +368,6 @@ def test_convention_playability_role_matrix_requires_its_exact_permission() -> N
     unrelated = _convention_staff(("conventions", "remove_convention_enrollment"))
     cases = (
         (
-            create_test_user(),
-            False,
-            OperatorActorClass.UNAUTHORIZED_ACTOR,
-            OperatorAuditOutcome.DENIED,
-        ),
-        (
             _convention_staff(),
             False,
             OperatorActorClass.UNAUTHORIZED_ACTOR,
@@ -404,6 +398,23 @@ def test_convention_playability_role_matrix_requires_its_exact_permission() -> N
             OperatorAuditOutcome.SUCCEEDED,
         ),
     )
+    player = create_test_user()
+    player_target = _new_non_playable_convention()
+    player_url = reverse(
+        "admin:conventions_convention_change", args=(player_target.pk,)
+    )
+    player_client = Client()
+    player_client.force_login(player)
+    response = player_client.post(
+        player_url, _convention_post_data(player_target, status=ConventionStatus.ACTIVE)
+    )
+    assert response.status_code == 302
+    assert response["Location"] == f"/admin/login/?next={player_url}"
+    player_target.refresh_from_db()
+    assert player_target.is_playable is False
+    assert not OperatorAuditEvent.objects.filter(
+        affected_record_id=player_target.pk
+    ).exists()
     for user, permitted, actor_class, outcome in cases:
         convention = _new_non_playable_convention()
         client = Client()
@@ -462,8 +473,8 @@ def test_convention_admin_keeps_non_playable_edits_ordinary_and_playability_oper
     _assert_convention_event(
         playability_operator,
         convention.pk,
-        OperatorActorClass.UNAUTHORIZED_ACTOR,
-        OperatorAuditOutcome.DENIED,
+        OperatorActorClass.OPERATOR,
+        OperatorAuditOutcome.REJECTED,
     )
 
 
