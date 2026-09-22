@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Protocol, cast
 
 import pytest
 from django.contrib.auth.models import Permission
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, models, transaction
 from django.http import HttpResponse
 from django.test import RequestFactory
+
+from accounts.models import User
 from operator_audit.admin_actions import (
     execute_bound_operator_transition,
     run_sensitive_admin_attempt,
@@ -24,8 +27,6 @@ from operator_audit.models import (
     OperatorTargetType,
 )
 from operator_audit.services import OperatorTransition
-
-from accounts.models import User
 from profiles.models import PlayerProfile
 from profiles.services import set_profile_enabled
 from tests.authentication_support import create_test_user
@@ -42,6 +43,12 @@ class ExpectedDomainRejection(Exception):
     """Model a known domain rejection that must leave no partial transition."""
 
 
+class _PermissionRelation(Protocol):
+    """The only dynamic M2M manager capability this test module requires."""
+
+    def add(self, *permissions: Permission) -> None: ...
+
+
 def _request(user: User, method: str = "post") -> Any:
     """Build one authenticated request at the public coordinator boundary."""
     factory = RequestFactory()
@@ -55,7 +62,10 @@ def _operator() -> User:
     user = create_test_user()
     user.is_staff = True
     user.save(update_fields={"is_staff"})
-    user.user_permissions.add(
+    cast(
+        _PermissionRelation,
+        user.user_permissions,  # pyright: ignore[reportUnknownMemberType]
+    ).add(
         Permission.objects.get(
             content_type__app_label="profiles", codename="set_profile_enabled"
         )
@@ -98,6 +108,19 @@ def _event_values() -> list[dict[str, object]]:
     )
 
 
+def _permission_details(permission: Permission) -> tuple[str, str, str]:
+    """Project Django's dynamically typed Permission relation to its public values."""
+    content_type = cast(
+        ContentType,
+        permission.content_type,  # pyright: ignore[reportUnknownMemberType]
+    )
+    return (
+        cast(str, content_type.app_label),  # pyright: ignore[reportUnknownMemberType]
+        cast(str, permission.codename),  # pyright: ignore[reportUnknownMemberType]
+        cast(str, permission.name),  # pyright: ignore[reportUnknownMemberType]
+    )
+
+
 @pytest.mark.django_db
 def test_audit_schema_is_closed_and_uses_server_generated_identity_and_time() -> None:
     """AC-6/10: audit evidence is a minimal durable record, not a request dump."""
@@ -126,7 +149,12 @@ def test_audit_schema_is_closed_and_uses_server_generated_identity_and_time() ->
         "occurred_at",
     }
     id_field = OperatorAuditEvent._meta.get_field("id")
-    assert id_field.default is uuid.uuid4 and id_field.editable is False
+    assert isinstance(id_field, models.UUIDField)
+    assert (
+        cast(Callable[[], uuid.UUID], id_field.default)  # pyright: ignore[reportUnknownMemberType]
+        is uuid.uuid4
+        and id_field.editable is False
+    )
     action_field = OperatorAuditEvent._meta.get_field("action")
     actor_class_field = OperatorAuditEvent._meta.get_field("actor_class")
     target_type_field = OperatorAuditEvent._meta.get_field("affected_record_type")
@@ -138,16 +166,18 @@ def test_audit_schema_is_closed_and_uses_server_generated_identity_and_time() ->
         (outcome_field, OperatorAuditOutcome.choices),
     ):
         assert isinstance(field, models.CharField)
+        assert field.choices is not None
         assert tuple(field.choices) == tuple(choices)
     assert isinstance(
         OperatorAuditEvent._meta.get_field("affected_record_id"),
         models.PositiveBigIntegerField,
     )
-    assert OperatorAuditEvent._meta.get_field("occurred_at").auto_now_add is True
-    assert (
-        OperatorAuditEvent._meta.get_field("actor").remote_field.on_delete
-        is models.PROTECT
-    )
+    occurred_at_field = OperatorAuditEvent._meta.get_field("occurred_at")
+    assert isinstance(occurred_at_field, models.DateTimeField)
+    assert occurred_at_field.auto_now_add is True  # pyright: ignore[reportUnknownMemberType]
+    actor_field = OperatorAuditEvent._meta.get_field("actor")
+    assert isinstance(actor_field, models.ForeignKey)
+    assert actor_field.remote_field.on_delete is models.PROTECT  # pyright: ignore[reportUnknownMemberType, reportOptionalMemberAccess, reportAttributeAccessIssue]
 
 
 @pytest.mark.django_db
@@ -268,10 +298,7 @@ def test_only_the_seven_sensitive_permissions_and_catch_delete_permission_exist(
         "content_type"
     )
 
-    assert {
-        (permission.content_type.app_label, permission.codename, permission.name)
-        for permission in permissions
-    } == expected
+    assert {_permission_details(permission) for permission in permissions} == expected
 
 
 @pytest.mark.django_db
@@ -294,7 +321,7 @@ def test_audit_evidence_survives_deletion_of_its_domain_target() -> None:
     persisted = OperatorAuditEvent.objects.get(pk=event.pk)
     assert persisted.affected_record_type == OperatorTargetType.PLAYER_PROFILE
     assert persisted.affected_record_id == profile_id
-    assert persisted.actor_id == operator.pk
+    assert persisted.actor.pk == operator.pk
 
 
 @pytest.mark.django_db(transaction=True)
@@ -372,6 +399,127 @@ def test_missing_permission_records_denied_before_calling_the_domain_handler() -
             "affected_record_id": profile.pk,
             "outcome": OperatorAuditOutcome.DENIED,
         }
+    ]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_forged_request_user_flags_cannot_escalate_a_persisted_ordinary_actor() -> None:
+    """AC-1/4: coordinator authority comes from the persisted actor, not request flags."""
+    ordinary_user = create_test_user()
+    profile = _profile()
+    forged_user = User(
+        pk=ordinary_user.pk,
+        clerk_user_id=ordinary_user.clerk_user_id,
+        is_staff=True,
+        is_superuser=True,
+    )
+
+    def handler() -> HttpResponse:
+        pytest.fail("a forged request user must not reach the sensitive handler")
+
+    with pytest.raises(PermissionDenied):
+        _run(_request(forged_user), profile, handler)
+
+    assert _event_values() == [
+        {
+            "action": OperatorAction.SET_PROFILE_ENABLED,
+            "actor_id": ordinary_user.pk,
+            "actor_class": OperatorActorClass.UNAUTHORIZED_ACTOR,
+            "affected_record_type": OperatorTargetType.PLAYER_PROFILE,
+            "affected_record_id": profile.pk,
+            "outcome": OperatorAuditOutcome.DENIED,
+        }
+    ]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_generic_profile_change_permission_cannot_substitute_for_sensitive_authority() -> (
+    None
+):
+    """AC-1: generic change permission must not grant profile enablement control."""
+    staff_with_generic_change = create_test_user()
+    staff_with_generic_change.is_staff = True
+    staff_with_generic_change.save(update_fields={"is_staff"})
+    cast(
+        _PermissionRelation,
+        staff_with_generic_change.user_permissions,  # pyright: ignore[reportUnknownMemberType]
+    ).add(
+        Permission.objects.get(
+            content_type__app_label="profiles", codename="change_playerprofile"
+        )
+    )
+    profile = _profile()
+
+    def handler() -> HttpResponse:
+        pytest.fail("generic profile change permission must not reach the handler")
+
+    with pytest.raises(PermissionDenied):
+        _run(_request(staff_with_generic_change), profile, handler)
+
+    assert _event_values() == [
+        {
+            "action": OperatorAction.SET_PROFILE_ENABLED,
+            "actor_id": staff_with_generic_change.pk,
+            "actor_class": OperatorActorClass.UNAUTHORIZED_ACTOR,
+            "affected_record_type": OperatorTargetType.PLAYER_PROFILE,
+            "affected_record_id": profile.pk,
+            "outcome": OperatorAuditOutcome.DENIED,
+        }
+    ]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_nested_attempt_is_rejected_atomically_and_request_binding_is_reusable() -> (
+    None
+):
+    """AC-4/5: nested coordinators cannot corrupt the outer request's audit unit."""
+    operator = _operator()
+    profile = _profile()
+    request = _request(operator)
+
+    def outer_operation() -> OperatorTransition[None]:
+        profile.is_enabled = False
+        profile.save(update_fields={"is_enabled"})
+        return OperatorTransition(value=None, changed=True)
+
+    def inner_handler() -> HttpResponse:
+        pytest.fail("a nested coordinator must reject before invoking its handler")
+
+    def outer_handler() -> HttpResponse:
+        execute_bound_operator_transition(request, outer_operation)
+        return _run(request, profile, inner_handler)
+
+    with pytest.raises(PermissionDenied):
+        _run(request, profile, outer_handler)
+
+    profile.refresh_from_db()
+    assert profile.is_enabled is True
+    assert _event_values() == [
+        {
+            "action": OperatorAction.SET_PROFILE_ENABLED,
+            "actor_id": operator.pk,
+            "actor_class": OperatorActorClass.OPERATOR,
+            "affected_record_type": OperatorTargetType.PLAYER_PROFILE,
+            "affected_record_id": profile.pk,
+            "outcome": OperatorAuditOutcome.REJECTED,
+        }
+    ]
+
+    def fresh_operation() -> OperatorTransition[None]:
+        profile.is_enabled = False
+        profile.save(update_fields={"is_enabled"})
+        return OperatorTransition(value=None, changed=True)
+
+    def fresh_handler() -> HttpResponse:
+        execute_bound_operator_transition(request, fresh_operation)
+        return HttpResponse(status=204)
+
+    assert _run(request, profile, fresh_handler).status_code == 204
+    profile.refresh_from_db()
+    assert profile.is_enabled is False
+    assert [event["outcome"] for event in _event_values()] == [
+        OperatorAuditOutcome.REJECTED,
+        OperatorAuditOutcome.SUCCEEDED,
     ]
 
 
