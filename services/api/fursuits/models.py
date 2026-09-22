@@ -40,6 +40,9 @@ class Fursuit(models.Model):
 
     class Meta:
         ordering: ClassVar[list[str]] = ["id"]
+        permissions: ClassVar[list[tuple[str, str]]] = [
+            ("set_fursuit_enabled", "Can set fursuit enabled state"),
+        ]
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(
                 condition=~models.Q(name=""),

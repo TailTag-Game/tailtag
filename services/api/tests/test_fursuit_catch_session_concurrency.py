@@ -24,6 +24,11 @@ from conventions.models import (
     FursuitActivation,
 )
 from fursuits.models import Fursuit
+from operator_audit.models import (
+    OperatorActorClass,
+    OperatorAuditEvent,
+    OperatorAuditOutcome,
+)
 from profiles.models import PlayerProfile
 from tests.authentication_support import force_authenticated_client
 from tests.fursuit_activation_test_support import (
@@ -475,10 +480,26 @@ def test_race_5_owner_stop_vs_admin_termination_preserves_the_winning_reason() -
         _stop(s),
         lambda: _operator(user_id=operator.pk, session_id=session.pk),
     )
-    assert owner.status_code == 200 and admin.status_code == 302
+    assert owner.status_code == 200 and admin.status_code in {302, 403}
     session.refresh_from_db()
-    assert session.ended_at is not None and session.end_reason in {"owner", "operator"}
+    expected_reason = "operator" if admin.status_code == 302 else "owner"
+    expected_outcome = (
+        OperatorAuditOutcome.SUCCEEDED
+        if admin.status_code == 302
+        else OperatorAuditOutcome.REJECTED
+    )
+    assert session.ended_at is not None and session.end_reason == expected_reason
     assert len(_rows(activation)) == 1
+    assert (
+        OperatorAuditEvent.objects.filter(
+            action="terminate_catch_session",
+            actor=operator,
+            actor_class=OperatorActorClass.EMERGENCY_SUPERUSER,
+            affected_record_id=session.pk,
+            outcome=expected_outcome,
+        ).count()
+        == 1
+    )
 
 
 @pytest.mark.django_db(transaction=True)

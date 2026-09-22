@@ -21,6 +21,7 @@ from conventions.models import (
     FursuitCatchCredentialRevocationReason,
 )
 from fursuits.models import Fursuit
+from operator_audit.services import OperatorTransition
 from profiles.eligibility import is_participation_eligible
 from profiles.models import PlayerProfile
 
@@ -330,7 +331,7 @@ def rotate_owner_catch_credential(
 
 def revoke_catch_credential_as_operator(
     credential_id: int,
-) -> FursuitCatchCredential:
+) -> OperatorTransition[FursuitCatchCredential]:
     """Terminally revoke one selected current credential for an operator.
 
     The preliminary identifiers keep the lock order stable while the final
@@ -355,7 +356,8 @@ def revoke_catch_credential_as_operator(
         )
         if credential is None:
             raise FursuitCatchCredential.DoesNotExist()
-        if credential.revoked_at is None:
+        changed = credential.revoked_at is None
+        if changed:
             _terminally_revoke_locked_credential(
                 credential,
                 now=timezone.now(),
@@ -363,7 +365,7 @@ def revoke_catch_credential_as_operator(
             )
         # Keep the activation lock until the terminal outcome commits.
         del activation
-        return credential
+        return OperatorTransition(value=credential, changed=changed)
 
 
 def _lock_owner_operational_activation(

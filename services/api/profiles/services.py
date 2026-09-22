@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from accounts.models import User
 from media import service as media_service
+from operator_audit.services import OperatorTransition
 from profiles.models import PlayerProfile
 from profiles.normalization import (
     ProfileValueError,
@@ -54,12 +55,14 @@ def get_or_create_profile(user: User) -> PlayerProfile:
     return profile
 
 
-def set_profile_enabled(*, profile_id: int, is_enabled: bool) -> PlayerProfile:
+def set_profile_enabled(
+    *, profile_id: int, is_enabled: bool
+) -> OperatorTransition[PlayerProfile]:
     """Set operator-controlled eligibility and end live sessions on disable."""
     with transaction.atomic():
         profile = PlayerProfile.objects.select_for_update().get(pk=profile_id)
         if profile.is_enabled == is_enabled:
-            return profile
+            return OperatorTransition(value=profile, changed=False)
         now = timezone.now()
         if not is_enabled:
             # The profile lock is the first member of the shared lifecycle order.
@@ -70,7 +73,7 @@ def set_profile_enabled(*, profile_id: int, is_enabled: bool) -> PlayerProfile:
             terminate_for_locked_activations(activations, now=now)
         profile.is_enabled = is_enabled
         profile.save(update_fields=["is_enabled"])
-        return profile
+        return OperatorTransition(value=profile, changed=True)
 
 
 def put_text_profile(user: User, *, handle: str, display_name: str) -> PlayerProfile:

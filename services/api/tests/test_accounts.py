@@ -8,6 +8,7 @@ import pytest
 from django.conf import settings
 from django.contrib.admin.models import CHANGE, LogEntry
 from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import Group, Permission
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.contenttypes.models import ContentType
@@ -63,7 +64,7 @@ def test_application_user_cannot_set_a_local_django_password() -> None:
     """The model API preserves Clerk as the ordinary-user auth authority."""
     user = User.objects.create_user(clerk_user_id="user_password_mutation")
 
-    with pytest.raises(ValueError, match="Only Django superusers"):
+    with pytest.raises(ValueError):
         user.set_password("must-not-become-a-credential")
 
     user.refresh_from_db()
@@ -71,9 +72,26 @@ def test_application_user_cannot_set_a_local_django_password() -> None:
 
 
 @pytest.mark.django_db
-def test_internal_user_creation_rejects_a_malformed_local_admin() -> None:
-    """The shared manager helper cannot bypass the complete admin contract."""
-    with pytest.raises(ValueError, match="staff and superuser flags"):
+def test_saving_a_nonstaff_user_with_a_precomputed_usable_hash_clears_it() -> None:
+    """Saving cannot preserve a usable local credential outside Django staff."""
+    user = User(
+        clerk_user_id="user_precomputed_local_password",
+        password=make_password("precomputed-local-password"),
+        is_staff=False,
+        is_superuser=False,
+    )
+
+    assert user.has_usable_password()
+    user.save()
+    user.refresh_from_db()
+
+    assert not user.has_usable_password()
+
+
+@pytest.mark.django_db
+def test_internal_user_creation_rejects_a_nonstaff_local_password() -> None:
+    """The shared manager helper cannot bypass the staff credential boundary."""
+    with pytest.raises(ValueError):
         User.objects._create_user(  # pyright: ignore[reportPrivateUsage]
             clerk_user_id="user_malformed_local_admin",
             password="must-not-become-a-credential",
@@ -99,7 +117,7 @@ def test_application_user_rejects_privileged_flags() -> None:
 
 @pytest.mark.django_db
 def test_superuser_requires_admin_flags_and_uses_its_local_password() -> None:
-    """Only the Django superuser bootstrap path accepts a local password."""
+    """Emergency superusers remain valid local Django administrators."""
     password = "local-admin-password"
     superuser = User.objects.create_superuser(
         clerk_user_id="user_superuser_contract",
@@ -128,8 +146,29 @@ def test_superuser_requires_admin_flags_and_uses_its_local_password() -> None:
 
 
 @pytest.mark.django_db
-def test_demoted_superuser_loses_its_local_password() -> None:
-    """A non-superuser cannot retain a usable local credential after saving."""
+def test_dedicated_staff_user_can_set_and_check_a_local_password() -> None:
+    """A non-superuser Django operator can use a local admin credential."""
+    password = "dedicated-staff-password"
+    operator = User(
+        clerk_user_id="user_dedicated_staff_operator",
+        is_staff=True,
+        is_superuser=False,
+    )
+
+    operator.set_password(password)
+    operator.save()
+
+    assert operator.is_staff
+    assert not cast(
+        bool,
+        operator.is_superuser,  # pyright: ignore[reportUnknownMemberType]
+    )
+    assert operator.check_password(password)
+
+
+@pytest.mark.django_db
+def test_demoted_staff_loses_its_local_password() -> None:
+    """Only a transition away from staff clears a usable local credential."""
     superuser = User.objects.create_superuser(
         clerk_user_id="user_demoted_admin",
         password="local-admin-password",
@@ -143,30 +182,33 @@ def test_demoted_superuser_loses_its_local_password() -> None:
         bool,
         superuser.is_superuser,  # pyright: ignore[reportUnknownMemberType]
     )
+    assert superuser.has_usable_password()
+
+    superuser.is_staff = False
+    superuser.save(update_fields={"is_staff"})
+    superuser.refresh_from_db()
+
+    assert not superuser.is_staff
     assert not superuser.has_usable_password()
-
-    staff_admin = User.objects.create_superuser(
-        clerk_user_id="user_demoted_staff_admin",
-        password="another-local-admin-password",
-    )
-    staff_admin.is_staff = False
-    staff_admin.save(update_fields={"is_staff"})
-    staff_admin.refresh_from_db()
-
-    assert not staff_admin.is_staff
-    assert not staff_admin.has_usable_password()
 
 
 @pytest.mark.django_db
-def test_database_rejects_bulk_demotion_with_a_usable_password() -> None:
+def test_database_rejects_bulk_staff_demotion_with_a_usable_password() -> None:
     """Bulk writes cannot bypass the local-password persistence contract."""
-    superuser = User.objects.create_superuser(
-        clerk_user_id="user_bulk_demoted_admin",
-        password="local-admin-password",
+    operator = User(
+        clerk_user_id="user_bulk_demoted_staff_operator",
+        is_staff=True,
+        is_superuser=False,
     )
+    operator.set_password("local-staff-password")
+    operator.save()
+
+    constraint_names = {constraint.name for constraint in User._meta.constraints}
+    assert "accounts_user_local_password_requires_staff" in constraint_names
+    assert "accounts_user_local_password_requires_admin" not in constraint_names
 
     with pytest.raises(IntegrityError), transaction.atomic():
-        User.objects.filter(pk=superuser.pk).update(is_superuser=False)
+        User.objects.filter(pk=operator.pk).update(is_staff=False)
 
 
 def test_superuser_password_cannot_match_the_clerk_identity() -> None:

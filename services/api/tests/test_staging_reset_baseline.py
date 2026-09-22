@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING, ClassVar, NoReturn, Protocol, cast
+from typing import TYPE_CHECKING, Any, ClassVar, NoReturn, Protocol, cast
 
 import pytest
 from django.conf import settings
@@ -30,6 +30,13 @@ from conventions.models import (
     FursuitCatchSession,
 )
 from fursuits.models import Fursuit
+from operator_audit.models import (
+    OperatorAction,
+    OperatorActorClass,
+    OperatorAuditEvent,
+    OperatorAuditOutcome,
+    OperatorTargetType,
+)
 from profiles.models import PlayerProfile
 
 if TYPE_CHECKING:
@@ -752,6 +759,26 @@ def test_reset_rebuilds_only_registered_closure_and_preserves_identity_admin_and
         first_fursuit=first,
         second_fursuit=second,
     )
+    audit = OperatorAuditEvent.objects.create(
+        action=OperatorAction.SET_PROFILE_ENABLED,
+        actor=operator,
+        actor_class=OperatorActorClass.EMERGENCY_SUPERUSER,
+        affected_record_type=OperatorTargetType.PLAYER_PROFILE,
+        affected_record_id=owner.pk,
+        outcome=OperatorAuditOutcome.SUCCEEDED,
+    )
+    audit_snapshot: tuple[
+        uuid.UUID, str, int, str, str, int, str, datetime.datetime
+    ] = (
+        cast(uuid.UUID, audit.pk),  # pyright: ignore[reportUnknownMemberType]
+        audit.action,
+        cast(int, cast(Any, audit).actor_id),
+        audit.actor_class,
+        audit.affected_record_type,
+        audit.affected_record_id,
+        audit.outcome,
+        audit.occurred_at,
+    )
     monkeypatch.setattr(reset, "validate_identity", returning(identity))
     monkeypatch.setattr(reset, "assert_quiescent", quiescent)
     configuration = safety.ResetConfiguration(
@@ -820,6 +847,18 @@ def test_reset_rebuilds_only_registered_closure_and_preserves_identity_admin_and
     assert Catch.objects.filter(pk=unowned_catch.pk).exists()
     assert FursuitCatchSession.objects.filter(pk=unowned_session.pk).exists()
     assert FursuitCatchCredential.objects.filter(pk=unowned_credential.pk).exists()
+    retained_audit = OperatorAuditEvent.objects.get(pk=audit.pk)
+    assert (
+        cast(uuid.UUID, retained_audit.pk),  # pyright: ignore[reportUnknownMemberType]
+        retained_audit.action,
+        cast(int, cast(Any, retained_audit).actor_id),
+        retained_audit.actor_class,
+        retained_audit.affected_record_type,
+        retained_audit.affected_record_id,
+        retained_audit.outcome,
+        retained_audit.occurred_at,
+    ) == audit_snapshot
+    assert OperatorAuditEvent.objects.count() == 1
 
 
 @pytest.mark.django_db(transaction=True)

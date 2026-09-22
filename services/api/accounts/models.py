@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import ClassVar, cast
+from typing import ClassVar
 
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.contrib.auth.hashers import UNUSABLE_PASSWORD_PREFIX
@@ -104,19 +104,19 @@ class User(  # pyright: ignore[reportIncompatibleVariableOverride]
             ),
             models.CheckConstraint(
                 condition=(
-                    models.Q(is_staff=True, is_superuser=True)
+                    models.Q(is_staff=True)
                     | models.Q(
                         password__startswith=UNUSABLE_PASSWORD_PREFIX,
                     )
                 ),
-                name="accounts_user_local_password_requires_admin",
+                name="accounts_user_local_password_requires_staff",
             ),
         ]
 
     def set_password(self, raw_password: str | None) -> None:
-        """Reserve usable Django passwords for the superuser bootstrap path."""
+        """Reserve usable Django passwords for staff-only administration."""
         if raw_password is not None and not self._can_use_local_password():
-            message = "Only Django superusers may use local passwords."
+            message = "Only Django staff may use local passwords."
             raise ValueError(message)
         super().set_password(raw_password)
 
@@ -128,7 +128,7 @@ class User(  # pyright: ignore[reportIncompatibleVariableOverride]
         using: str | None = None,
         update_fields: Iterable[str] | None = None,
     ) -> None:
-        """Ensure every saved non-admin has an unusable password."""
+        """Ensure every saved non-staff user has an unusable password."""
         if not self._can_use_local_password() and self.has_usable_password():
             self.set_unusable_password()
             if update_fields is not None:
@@ -142,11 +142,8 @@ class User(  # pyright: ignore[reportIncompatibleVariableOverride]
         )
 
     def _can_use_local_password(self) -> bool:
-        """Return whether this instance satisfies the local-admin contract."""
-        return self.is_staff and cast(
-            bool,
-            self.is_superuser,  # pyright: ignore[reportUnknownMemberType]
-        )
+        """Return whether this instance satisfies the local-password contract."""
+        return self.is_staff
 
     def __str__(self) -> str:
         """Represent this user by its TailTag-owned identity."""

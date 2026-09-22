@@ -18,8 +18,8 @@ Catches cannot be manually created or edited through the Django administration i
 
 Access to the Catch administration interface is restricted to authorized deletion operators:
 
-- **Staff and superuser authorization:** Access requires an authenticated staff user (`is_staff=True`) with explicit `catches.delete_catch` model permission or superuser status.
-- **Inspection tied to deletion authority:** Catch inspection (`has_view_permission`) strictly requires `has_delete_permission`. Staff users with only `catches.view_catch` permission are denied access to prevent unauthorized inspection of gameplay catches.
+- **Staff and superuser authorization:** Access requires an authenticated staff user (`is_staff=True`) with Django's built-in `catches.delete_catch` model permission, preserved solely as the explicit Catch correction authority, or superuser status.
+- **Proportional inspection:** Catch inspection requires `catches.view_catch` or `catches.delete_catch`. The latter is not a generic substitution for another sensitive action; a read-only viewer cannot remove a Catch.
 - **Player access barred:** Non-staff player accounts and unauthenticated requests are denied access and redirected to login.
 
 ## Safe search and inspection workflows
@@ -92,8 +92,9 @@ Catch removal is executed by `remove_catch_as_operator` in `catches.services`:
 
 1. **Transaction isolation and row locking:** Execution occurs within an atomic transaction (`transaction.atomic()`). The target `Catch` row is locked with `select_for_update()`.
 2. **Referential integrity:** The `Catch` model references foreign keys (`catcher_user`, `fursuit`, `convention`, `activation`, `catch_session`) with `on_delete=models.PROTECT`. Deleting the `Catch` removes only the catch event itself; upstream accounts, fursuits, activations, and convention records remain untouched and intact.
-3. **Committed audit logging:** Following deletion, a structured audit log entry is registered with `transaction.on_commit()`:
-   ```text
-   Operator removed catch <catch_id> (catcher_user_id=<user_id>, fursuit_id=<fursuit_id>, convention_id=<convention_id>, activation_id=<activation_id>, catch_session_id=<session_id>).
-   ```
-   Because it is registered with `transaction.on_commit()`, the log is emitted only after the transaction commits successfully. The audit log contains only internal database identifiers and never includes secrets, tokens, or credential payloads.
+3. **Durable audit evidence:** The admin boundary commits the deletion with one
+   privacy-safe `OperatorAuditEvent` record. Structured application logs and
+   `transaction.on_commit()` callbacks may aid operations, but are not
+   authoritative audit evidence. The durable record contains no credential
+   payloads, tokens, or other secrets; see the
+   [operator authorization and audit runbook](operator-authorization-audit.md).

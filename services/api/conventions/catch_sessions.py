@@ -18,6 +18,7 @@ from conventions.models import (
     FursuitCatchSessionEndReason,
 )
 from fursuits.models import Fursuit
+from operator_audit.services import OperatorTransition
 from profiles.models import PlayerProfile
 
 FURSUIT_CATCH_SESSION_LIFETIME: Final = datetime.timedelta(hours=12)
@@ -160,7 +161,9 @@ def terminate_for_convention_nonplayable(
     return _terminate_sessions_for_activations(activations, now=now)
 
 
-def terminate_session_as_operator(session_id: int) -> FursuitCatchSession:
+def terminate_session_as_operator(
+    session_id: int,
+) -> OperatorTransition[FursuitCatchSession]:
     """Terminally end one session from the restricted operator entry point."""
     now = timezone.now()
     with transaction.atomic():
@@ -177,7 +180,8 @@ def terminate_session_as_operator(session_id: int) -> FursuitCatchSession:
         )
         if session is None:
             raise FursuitCatchSession.DoesNotExist()
-        if session.ended_at is None:
+        changed = session.ended_at is None
+        if changed:
             _terminate_locked_session(
                 session,
                 now=now,
@@ -185,7 +189,7 @@ def terminate_session_as_operator(session_id: int) -> FursuitCatchSession:
             )
         # Keep the activation lock until the transaction commits.
         del activation
-        return session
+        return OperatorTransition(value=session, changed=changed)
 
 
 def _start_fursuit_catch_session(

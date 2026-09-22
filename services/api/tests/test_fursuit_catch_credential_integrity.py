@@ -421,7 +421,7 @@ def test_operator_revocation_is_one_terminal_current_to_historical_transition(
     now = updated_before + datetime.timedelta(seconds=1)
     monkeypatch.setattr(catch_credentials.timezone, "now", lambda: now)
     result = catch_credentials.revoke_catch_credential_as_operator(credential.pk)
-    assert result is not None
+    assert result.changed is True and result.value.pk == credential.pk
     credential.refresh_from_db()
     assert credential.revoked_at == now
     assert credential.revocation_reason == "operator"
@@ -433,8 +433,11 @@ def test_operator_revocation_is_one_terminal_current_to_historical_transition(
     )
     later = now + datetime.timedelta(seconds=1)
     monkeypatch.setattr(catch_credentials.timezone, "now", lambda: later)
-    assert catch_credentials.revoke_catch_credential_as_operator(credential.pk).pk == (
+    terminal_result = catch_credentials.revoke_catch_credential_as_operator(
         credential.pk
+    )
+    assert (
+        terminal_result.changed is False and terminal_result.value.pk == credential.pk
     )
     credential.refresh_from_db()
     assert (

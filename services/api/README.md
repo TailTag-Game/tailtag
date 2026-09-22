@@ -43,11 +43,11 @@ different responsibilities:
   superuser, group, and permission fields support Django administration. They do
   not define TailTag product roles or account lifecycle behavior.
 - Ordinary application-user creation rejects Django privilege flags and local
-  Django passwords. The model rejects usable passwords for non-superusers and
-  clears the local password when a superuser is demoted. Only the Django
-  superuser bootstrap path accepts a local password for administration, and
-  configured password validation compares that password with the administrative
-  user's Clerk ID.
+  Django passwords. A normal `is_staff=True` operator can use a usable local
+  Django password for Django administration; ordinary non-staff application
+  users cannot. Configured password validation compares that password with the
+  administrative user's Clerk ID. The dedicated Staging provisioning procedure
+  is in the [operator authorization and audit runbook](../../docs/operations/operator-authorization-audit.md).
 - No email address, username, display name, avatar, biography, profile state, or
   gameplay data is stored on the application-user model.
 

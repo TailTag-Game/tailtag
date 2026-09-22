@@ -21,6 +21,7 @@ from conventions.models import (
     FursuitCatchSession,
 )
 from fursuits.models import Fursuit
+from operator_audit.services import OperatorTransition
 from profiles.models import PlayerProfile
 
 _LOGGER = logging.getLogger(__name__)
@@ -196,7 +197,7 @@ def confirm_catch(user: User, *, payload: str) -> CatchConfirmationResult:
         return CatchConfirmationResult(catch, CatchConfirmationStatus.CREATED)
 
 
-def remove_catch_as_operator(*, catch_id: int) -> None:
+def remove_catch_as_operator(*, catch_id: int) -> OperatorTransition[None]:
     """Atomically remove an erroneous catch record and record an audit log."""
     with transaction.atomic():
         catch = Catch.objects.select_for_update().filter(pk=catch_id).first()
@@ -223,6 +224,7 @@ def remove_catch_as_operator(*, catch_id: int) -> None:
                 catch_session_id,
             )
         )
+        return OperatorTransition(value=None, changed=True)
 
 
 def _require_persisted_user(user: User) -> int:

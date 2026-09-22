@@ -581,6 +581,41 @@ takes priority and requires manual remediation. A revoked session's already
 issued token can remain acceptable until its short expiry, so do not claim
 instant invalidation.
 
+## Operator audit acceptance matrix (#205)
+
+Run this matrix only with separate explicit authorization, in isolated Staging,
+using disposable synthetic records. It is a bounded field-beta proof, not a
+general admin test suite. Follow the [operator authorization and audit
+runbook](../operations/operator-authorization-audit.md) for the exact
+provisioning and permission boundary.
+
+| Case | Required proof |
+| --- | --- |
+| 1 | An ordinary player cannot browse or inspect sensitive admin records and cannot execute a sensitive admin mutation. |
+| 2 | An `is_staff=True` user without the target sensitive permission is denied; exactly one sanitized `denied` audit row is retained and no mutation occurs. |
+| 3 | An explicitly permitted non-superuser operator succeeds on one representative sensitive operation. |
+| 4 | An operator permitted for one action cannot cross a different sensitive permission boundary. |
+| 5 | An emergency superuser succeeds and the durable record has `actor_class=emergency_superuser`. |
+| 6 | A successful action creates exactly one sanitized durable audit row containing action, actor class, target type/ID, `succeeded`, and time. |
+| 7 | An unauthorized or denied mutation creates exactly one sanitized `denied` audit row. |
+| 8 | A profile or fursuit disable cascade preserves transactional data-integrity behavior and creates exactly one top-level audit row. |
+| 9 | Catch create/add, edit, bulk, and every alternate gameplay authority or award path remain unavailable. |
+
+Use #204 to restore/reset disposable synthetic domain state where appropriate;
+it does not delete retained audit evidence. Do not reset an audit row away as
+part of this proof.
+
+The protected durable database audit record contains the actor application/Django
+user ID required by the audit contract. It is not a shareable evidence artifact.
+
+### Sanitized evidence template
+
+Record only: matrix case, action, actor class, target type/ID, outcome (for
+example, `succeeded`), time, and a fixed pass/fail result. Sanitized evidence
+must not record actor application/Django user ID. Do not record credentials,
+provider identifiers, emails, tokens, QR payloads, private URLs, raw request
+bodies, or raw logs.
+
 ## Safety and evidence handling
 
 Keep `sk_live_` credentials, session IDs, and JWTs strictly hiddenTTY. Do not

@@ -35,6 +35,9 @@ class PlayerProfile(models.Model):
     is_enabled: models.BooleanField[bool, bool] = models.BooleanField(default=True)
 
     class Meta:
+        permissions: ClassVar[list[tuple[str, str]]] = [
+            ("set_profile_enabled", "Can set player profile enabled state"),
+        ]
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
                 fields=("handle",),
