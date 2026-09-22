@@ -24,15 +24,23 @@ from .services import OperatorTransition
 
 T = TypeVar("T")
 _ATTEMPT_ATTRIBUTE = "_operator_audit_attempt"
+_MAX_SIGNED_BIGINT = 9_223_372_036_854_775_807
 logger = logging.getLogger(__name__)
 
 
 def parse_admin_object_id(object_id: str | None) -> int | None:
-    """Return a numeric Django-admin object ID without raising on malformed URLs."""
-    try:
-        return int(object_id) if object_id is not None else None
-    except (TypeError, ValueError):
+    """Return a canonical positive signed-BIGINT admin object ID, if valid."""
+    if (
+        object_id is None
+        or not object_id
+        or not object_id.isascii()
+        or not object_id.isdecimal()
+        or object_id[0] == "0"
+        or len(object_id) > len(str(_MAX_SIGNED_BIGINT))
+    ):
         return None
+    target_id = int(object_id)
+    return target_id if target_id <= _MAX_SIGNED_BIGINT else None
 
 
 class _RejectedOperatorAttempt(Exception):

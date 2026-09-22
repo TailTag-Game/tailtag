@@ -162,7 +162,6 @@ class CatchAdmin(CatchAdminBase):
             return super().delete_view(request, object_id, extra_context)
         target_id = parse_admin_object_id(object_id)
         if target_id is None:
-            super().delete_view(request, object_id, extra_context)
             raise Http404
         return run_sensitive_admin_attempt(
             request,

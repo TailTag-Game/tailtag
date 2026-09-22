@@ -160,7 +160,6 @@ class ConventionAdmin(ConventionAdminBase):
             return super().changeform_view(request, object_id, form_url, extra_context)
         target_id = parse_admin_object_id(object_id)
         if target_id is None:
-            super().changeform_view(request, object_id, form_url, extra_context)
             raise Http404
         convention = Convention.objects.filter(pk=target_id).first()
         submitted_status = request.POST.get("status")
@@ -354,7 +353,6 @@ class ConventionEnrollmentAdmin(ConventionEnrollmentAdminBase):
             return super().delete_view(request, object_id, extra_context)
         target_id = parse_admin_object_id(object_id)
         if target_id is None:
-            super().delete_view(request, object_id, extra_context)
             raise Http404
         return run_sensitive_admin_attempt(
             request,
@@ -437,7 +435,6 @@ class FursuitActivationAdmin(FursuitActivationAdminBase):
             return super().changeform_view(request, object_id, form_url, extra_context)
         target_id = parse_admin_object_id(object_id)
         if target_id is None:
-            super().changeform_view(request, object_id, form_url, extra_context)
             raise Http404
         return run_sensitive_admin_attempt(
             request,
@@ -571,7 +568,6 @@ class FursuitCatchCredentialAdmin(FursuitCatchCredentialAdminBase):
             return super().changeform_view(request, object_id, form_url, extra_context)
         target_id = parse_admin_object_id(object_id)
         if target_id is None:
-            super().changeform_view(request, object_id, form_url, extra_context)
             raise Http404
         return run_sensitive_admin_attempt(
             request,
@@ -748,7 +744,6 @@ class FursuitCatchSessionAdmin(FursuitCatchSessionAdminBase):
             return super().changeform_view(request, object_id, form_url, extra_context)
         target_id = parse_admin_object_id(object_id)
         if target_id is None:
-            super().changeform_view(request, object_id, form_url, extra_context)
             raise Http404
         return run_sensitive_admin_attempt(
             request,
