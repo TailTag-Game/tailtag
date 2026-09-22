@@ -920,6 +920,25 @@ def test_operator_audit_documentation_defines_safe_durable_evidence() -> None:
 
     assert "OperatorAuditEvent" in runbook
     assert re.search(r"(?i)durable.{0,100}database", normalized_runbook)
+    minimum_schema = re.search(
+        r"(?i)(?:minimum|closed).{0,100}"
+        r"(?:audit (?:record|event)|OperatorAuditEvent).{0,120}"
+        r"(?:schema|fields?)"
+        r"(?P<fields>.{0,1800})",
+        normalized_runbook,
+    )
+    assert minimum_schema
+    for field_pattern in (
+        r"stable.{0,80}event ID",
+        r"\baction\b",
+        r"actor.{0,80}(?:application|Django).{0,80}user ID",
+        r"actor class",
+        r"affected record type",
+        r"affected record ID",
+        r"\boutcome\b",
+        r"\btimestamp\b",
+    ):
+        assert re.search(field_pattern, minimum_schema.group("fields"), re.IGNORECASE)
     assert re.search(
         r"(?i)LogEntry.{0,180}(?:not|neither).{0,80}authoritative",
         normalized_runbook,
@@ -962,6 +981,60 @@ def test_operator_audit_documentation_defines_safe_durable_evidence() -> None:
     assert "catastrophic database failure" in normalized_runbook
 
 
+def assert_current_catch_operator_documentation(catch_documentation: str) -> None:
+    """Keep Catch inspection and durable audit evidence on their frozen boundaries."""
+    normalized_documentation = " ".join(catch_documentation.split())
+    inspection_alternatives = (
+        (
+            r"catches\.view_catch.{0,120}\b(?:or|OR)\b.{0,120}"
+            r"catches\.delete_catch"
+        ),
+        (
+            r"catches\.delete_catch.{0,120}\b(?:or|OR)\b.{0,120}"
+            r"catches\.view_catch"
+        ),
+    )
+    assert any(
+        re.search(pattern, normalized_documentation)
+        for pattern in inspection_alternatives
+    )
+    assert "OperatorAuditEvent" in catch_documentation
+
+    sentences = re.split(r"(?<=[.!?])\s+", normalized_documentation)
+    for sentence in sentences:
+        if (
+            "catches.view_catch" in sentence
+            and re.search(r"(?i)\b(?:only|alone)\b", sentence)
+            and re.search(r"(?i)\b(?:den(?:y|ied)|bar|block|refuse)", sentence)
+        ):
+            assert re.search(
+                r"(?i)\b(?:not|never)\s+(?:deny|denied|bar|block|refuse)", sentence
+            )
+        if re.search(
+            r"(?i)(?:transaction\.on_commit\(\)|(?:structured )?application logs?)",
+            sentence,
+        ) and re.search(r"(?i)\bauthoritative\b", sentence):
+            assert re.search(
+                r"(?i)\b(?:not|never|neither)\b.{0,80}\bauthoritative\b", sentence
+            )
+
+
+def assert_api_readme_allows_normal_operator_password(readme: str) -> None:
+    """Do not leave usable local passwords exclusive to a superuser bootstrap path."""
+    normalized_readme = " ".join(readme.split())
+    assert re.search(
+        r"(?i)(?:is_staff(?:=True)?|staff|operator).{0,160}"
+        r"(?:usable )?(?:local|Django) password",
+        normalized_readme,
+    )
+    assert not re.search(
+        r"(?i)\bonly\b.{0,160}(?:superuser.{0,80}bootstrap|"
+        r"bootstrap.{0,80}superuser).{0,160}(?:accept|allow).{0,160}"
+        r"(?:usable )?(?:local|Django) password",
+        normalized_readme,
+    )
+
+
 def test_operator_audit_documentation_rejects_contradictory_privacy_mutants() -> None:
     """AC-11: a positive inclusion claim cannot coexist with an exclusion list."""
     runbook = OPERATOR_AUDIT_RUNBOOK.read_text()
@@ -987,6 +1060,40 @@ def test_audit_privacy_helper_accepts_scoped_allowed_and_excluded_fields() -> No
     contradictory = f"{compliant} Audit evidence includes Clerk identifiers."
     with pytest.raises(AssertionError):
         assert_negated_audit_privacy_exclusions(contradictory)
+
+
+def test_stale_operator_documentation_helpers_reject_retained_claims() -> None:
+    """Frozen inspection, audit, and password boundaries reject stale guidance."""
+    compliant_catch_documentation = (
+        "Catch inspection requires `catches.view_catch` or "
+        "`catches.delete_catch`. "
+        "`OperatorAuditEvent` is the durable audit record. "
+        "Structured application logs are not authoritative."
+    )
+    assert_current_catch_operator_documentation(compliant_catch_documentation)
+
+    for stale_catch_claim in (
+        "Users with only `catches.view_catch` are denied Catch inspection.",
+        (
+            "Structured application logs emitted with transaction.on_commit() are "
+            "authoritative audit evidence."
+        ),
+    ):
+        with pytest.raises(AssertionError):
+            assert_current_catch_operator_documentation(
+                f"{compliant_catch_documentation} {stale_catch_claim}"
+            )
+
+    compliant_readme = (
+        "A normal `is_staff=True` operator can use a usable local password for "
+        "Django administration."
+    )
+    assert_api_readme_allows_normal_operator_password(compliant_readme)
+    with pytest.raises(AssertionError):
+        assert_api_readme_allows_normal_operator_password(
+            f"{compliant_readme} Only the superuser bootstrap path accepts a "
+            "usable local password."
+        )
 
 
 def test_concrete_permission_helper_allows_explicit_non_prerequisites() -> None:
@@ -1197,10 +1304,8 @@ def test_existing_operator_docs_link_the_staging_procedure_and_matrix() -> None:
     readme = (SERVICE_ROOT / "README.md").read_text()
     staging = (REPOSITORY_ROOT / "docs/development/staging.md").read_text()
 
-    assert "catches.delete_catch" in catch_administration
-    assert "OperatorAuditEvent" in catch_administration
-    assert "catches.view_catch" in catch_administration
-    assert re.search(r"(?i)usable local password.{0,100}is_staff", readme)
+    assert_current_catch_operator_documentation(catch_administration)
+    assert_api_readme_allows_normal_operator_password(readme)
     assert "operator-authorization-audit.md" in readme
     assert "operator-authorization-audit.md" in staging
     assert_staging_operator_acceptance_matrix(staging)
