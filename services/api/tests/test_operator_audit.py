@@ -11,7 +11,7 @@ from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, models, transaction
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.test import RequestFactory
 
 from accounts.models import User
@@ -630,6 +630,31 @@ def test_known_domain_rejection_rolls_back_state_and_records_rejected() -> None:
     assert "untrusted domain detail" not in str(captured.value)
     assert _event_values()[0]["outcome"] == OperatorAuditOutcome.REJECTED
     assert OperatorAuditEvent.objects.count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_missing_target_http404_is_a_rejected_authorized_attempt() -> None:
+    """AC-4: an authorized POST for a gone target is rejection, never a failure."""
+    operator = _operator()
+    profile = _profile()
+
+    def missing_target() -> HttpResponse:
+        raise Http404("target no longer exists")
+
+    with pytest.raises(PermissionDenied) as captured:
+        _run(_request(operator), profile, missing_target)
+
+    assert "target no longer exists" not in str(captured.value)
+    assert _event_values() == [
+        {
+            "action": OperatorAction.SET_PROFILE_ENABLED,
+            "actor_id": operator.pk,
+            "actor_class": OperatorActorClass.OPERATOR,
+            "affected_record_type": OperatorTargetType.PLAYER_PROFILE,
+            "affected_record_id": profile.pk,
+            "outcome": OperatorAuditOutcome.REJECTED,
+        }
+    ]
 
 
 @pytest.mark.django_db(transaction=True)

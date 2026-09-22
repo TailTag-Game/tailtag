@@ -495,6 +495,38 @@ def test_catch_admin_staff_without_delete_permission_is_forbidden() -> None:
 
 
 @pytest.mark.django_db
+def test_catch_admin_stale_missing_target_is_rejected_with_one_operator_event() -> None:
+    """AC-4/5: a Catch removed after admin lookup is a rejected correction attempt."""
+    catch = create_catch(scenario=create_catch_scenario())
+    operator = _catch_staff(("catches", "delete_catch"))
+    client = Client()
+    client.force_login(operator)
+
+    def delete_before_operator_removal(*, catch_id: int) -> object:
+        Catch.objects.filter(pk=catch_id).delete()
+        return remove_catch_as_operator(catch_id=catch_id)
+
+    with patch(
+        "catches.admin.remove_catch_as_operator",
+        side_effect=delete_before_operator_removal,
+    ):
+        response = client.post(_admin_urls(catch).delete, {"post": "yes"})
+
+    assert response.status_code == 403
+    assert Catch.objects.filter(pk=catch.pk).exists()
+    _assert_catch_event(
+        operator,
+        catch.pk,
+        OperatorActorClass.OPERATOR,
+        OperatorAuditOutcome.REJECTED,
+    )
+    assert not OperatorAuditEvent.objects.filter(
+        affected_record_id=catch.pk,
+        outcome=OperatorAuditOutcome.FAILED,
+    ).exists()
+
+
+@pytest.mark.django_db
 def test_catch_admin_renders_safe_fields_and_conceals_secrets() -> None:
     """Change and changelist views render safe fields as read-only with zero secret leaks."""
     scenario = create_catch_scenario()

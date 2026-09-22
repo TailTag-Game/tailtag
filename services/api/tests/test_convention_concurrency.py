@@ -738,6 +738,100 @@ def test_generic_convention_admin_edit_cannot_downgrade_concurrent_active_winner
     ).exists()
 
 
+@pytest.mark.django_db(transaction=True)
+def test_convention_admin_delete_revalidates_the_locked_active_state() -> None:
+    """A draft delete request must not remove a Convention made ACTIVE while blocked."""
+    convention = _create_convention(
+        name="Convention delete TOCTOU target", status=ConventionStatus.DRAFT
+    )
+    deleter = create_test_user(clerk_user_id="convention_admin_delete_toctou")
+    deleter.is_staff = True
+    deleter.save(update_fields=["is_staff"])
+    deleter.user_permissions.add(  # pyright: ignore[reportUnknownMemberType]
+        Permission.objects.get(
+            content_type__app_label="conventions", codename="change_convention"
+        ),
+        Permission.objects.get(
+            content_type__app_label="conventions", codename="delete_convention"
+        ),
+    )
+
+    holder_updated = Event()
+    release_holder = Event()
+    holder_pids: Queue[int] = Queue()
+    delete_pids: Queue[int] = Queue()
+    delete_url = reverse("admin:conventions_convention_delete", args=(convention.pk,))
+
+    def make_convention_active() -> None:
+        close_old_connections()
+        try:
+            with transaction.atomic():
+                holder_pids.put(_configure_worker_session_and_get_pid())
+                locked = Convention.objects.select_for_update().get(pk=convention.pk)
+                locked.status = ConventionStatus.ACTIVE
+                locked.save(update_fields=["status", "updated_at"])
+                holder_updated.set()
+                if not release_holder.wait(_HOLDER_GATE_TIMEOUT_SECONDS):
+                    raise TimeoutError("ACTIVE holder transaction was never released")
+        finally:
+            connection.close()
+
+    def submit_delete() -> Any:
+        return _admin_request_in_bounded_worker(
+            user_id=deleter.pk,
+            backend_pids=delete_pids,
+            request=lambda client: client.post(delete_url, {"post": "yes"}),
+        )
+
+    holder: Future[Any] | None = None
+    delete_request: Future[Any] | None = None
+    holder_pid: int | None = None
+    delete_pid: int | None = None
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        try:
+            holder = executor.submit(make_convention_active)
+            holder_pid = _wait_for_pid_or_worker_finish(
+                backend_pids=holder_pids,
+                future=holder,
+                expected="the concurrent ACTIVE holder setup",
+            )
+            _wait_for_event_or_worker_finish(
+                event=holder_updated,
+                future=holder,
+                expected="the uncommitted ACTIVE Convention update",
+            )
+            delete_request = executor.submit(submit_delete)
+            delete_pid = _wait_for_pid_or_worker_finish(
+                backend_pids=delete_pids,
+                future=delete_request,
+                expected="the Convention delete request setup",
+            )
+            _assert_backend_blocked_by(
+                waiter_pid=delete_pid,
+                holder_pid=holder_pid,
+                worker=delete_request,
+                expected="the Convention row lock before individual deletion",
+            )
+            release_holder.set()
+            assert holder.result(timeout=_FUTURE_RESULT_TIMEOUT_SECONDS) is None
+            assert (
+                delete_request.result(
+                    timeout=_FUTURE_RESULT_TIMEOUT_SECONDS
+                ).status_code
+                == 403
+            )
+        finally:
+            release_holder.set()
+            _cancel_if_unfinished(future=holder, backend_pid=holder_pid)
+            _cancel_if_unfinished(future=delete_request, backend_pid=delete_pid)
+
+    convention.refresh_from_db()
+    assert convention.status == ConventionStatus.ACTIVE and convention.is_playable
+    assert not OperatorAuditEvent.objects.filter(
+        affected_record_id=convention.pk
+    ).exists()
+
+
 @pytest.mark.django_db
 def test_enrollment_transactions_lock_profile_before_convention(
     monkeypatch: pytest.MonkeyPatch,

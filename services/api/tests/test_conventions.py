@@ -576,6 +576,34 @@ def test_playability_only_operator_cannot_make_nonplayable_status_edits() -> Non
 
 
 @pytest.mark.django_db
+def test_missing_convention_playability_post_is_rejected_and_audited() -> None:
+    """AC-4: missing targets do not bypass the Convention sensitive POST boundary."""
+    operator = _convention_staff(("conventions", "set_convention_playability"))
+    missing_id = 999_999
+    client = Client()
+    client.force_login(operator)
+
+    response = client.post(
+        reverse("admin:conventions_convention_change", args=(missing_id,)),
+        {
+            "name": "Missing Convention",
+            "status": ConventionStatus.ACTIVE,
+            "start_date": "2026-06-01",
+            "end_date": "2026-06-02",
+        },
+    )
+
+    assert response.status_code == 403
+    assert not Convention.objects.filter(pk=missing_id).exists()
+    _assert_convention_event(
+        operator,
+        missing_id,
+        OperatorActorClass.OPERATOR,
+        OperatorAuditOutcome.REJECTED,
+    )
+
+
+@pytest.mark.django_db
 def test_convention_bulk_delete_cannot_bypass_playable_delete_boundary() -> None:
     """AC-4/9: confirmed bulk deletion cannot bypass the per-object playable denial."""
     convention = Convention.objects.create(
