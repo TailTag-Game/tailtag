@@ -4,30 +4,60 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('conventions', '0005_fursuitcatchcredential'),
+        ("conventions", "0005_fursuitcatchcredential"),
     ]
 
     operations = [
         migrations.AlterModelOptions(
-            name='convention',
-            options={'ordering': ['-start_date', 'name'], 'permissions': [('set_convention_playability', 'Can change Convention playability')]},
+            name="convention",
+            options={
+                "ordering": ["-start_date", "name"],
+                "permissions": [
+                    ("set_convention_playability", "Can change Convention playability")
+                ],
+            },
         ),
         migrations.AlterModelOptions(
-            name='conventionenrollment',
-            options={'ordering': ['-created_at', 'id'], 'permissions': [('remove_convention_enrollment', 'Can remove a convention enrollment')]},
+            name="conventionenrollment",
+            options={
+                "ordering": ["-created_at", "id"],
+                "permissions": [
+                    (
+                        "remove_convention_enrollment",
+                        "Can remove a convention enrollment",
+                    )
+                ],
+            },
         ),
         migrations.AlterModelOptions(
-            name='fursuitactivation',
-            options={'ordering': ['fursuit_id', 'id'], 'permissions': [('deactivate_fursuit_activation', 'Can deactivate a fursuit activation')]},
+            name="fursuitactivation",
+            options={
+                "ordering": ["fursuit_id", "id"],
+                "permissions": [
+                    (
+                        "deactivate_fursuit_activation",
+                        "Can deactivate a fursuit activation",
+                    )
+                ],
+            },
         ),
         migrations.AlterModelOptions(
-            name='fursuitcatchcredential',
-            options={'ordering': ['-created_at', '-id'], 'permissions': [('revoke_catch_credential', 'Can revoke a current catch credential')]},
+            name="fursuitcatchcredential",
+            options={
+                "ordering": ["-created_at", "-id"],
+                "permissions": [
+                    ("revoke_catch_credential", "Can revoke a current catch credential")
+                ],
+            },
         ),
         migrations.AlterModelOptions(
-            name='fursuitcatchsession',
-            options={'ordering': ['-started_at', '-id'], 'permissions': [('terminate_catch_session', 'Can terminate an active catch session')]},
+            name="fursuitcatchsession",
+            options={
+                "ordering": ["-started_at", "-id"],
+                "permissions": [
+                    ("terminate_catch_session", "Can terminate an active catch session")
+                ],
+            },
         ),
     ]

@@ -4,14 +4,18 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('fursuits', '0002_fursuit_tailtag_id'),
+        ("fursuits", "0002_fursuit_tailtag_id"),
     ]
 
     operations = [
         migrations.AlterModelOptions(
-            name='fursuit',
-            options={'ordering': ['id'], 'permissions': [('set_fursuit_enabled', 'Can set fursuit enabled state')]},
+            name="fursuit",
+            options={
+                "ordering": ["id"],
+                "permissions": [
+                    ("set_fursuit_enabled", "Can set fursuit enabled state")
+                ],
+            },
         ),
     ]

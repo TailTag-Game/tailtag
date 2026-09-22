@@ -4,14 +4,17 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('profiles', '0001_initial'),
+        ("profiles", "0001_initial"),
     ]
 
     operations = [
         migrations.AlterModelOptions(
-            name='playerprofile',
-            options={'permissions': [('set_profile_enabled', 'Can set player profile enabled state')]},
+            name="playerprofile",
+            options={
+                "permissions": [
+                    ("set_profile_enabled", "Can set player profile enabled state")
+                ]
+            },
         ),
     ]
