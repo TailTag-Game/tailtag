@@ -492,15 +492,50 @@ STAGING_OPERATOR_CONFIRMATION = "bootstrap Railway Staging operator"
 OPERATOR_AUDIT_RUNBOOK = (
     REPOSITORY_ROOT / "docs/operations/operator-authorization-audit.md"
 )
-SENSITIVE_OPERATOR_PERMISSIONS = (
-    "catches.delete_catch",
-    "conventions.revoke_catch_credential",
-    "conventions.terminate_catch_session",
-    "conventions.deactivate_fursuit_activation",
-    "conventions.remove_convention_enrollment",
-    "profiles.set_profile_enabled",
-    "fursuits.set_fursuit_enabled",
-    "conventions.set_convention_playability",
+SENSITIVE_OPERATOR_ACTION_MATRIX = (
+    ("remove_catch", "catches.catch", "catches.delete_catch", "view_catch"),
+    (
+        "revoke_catch_credential",
+        "conventions.fursuitcatchcredential",
+        "conventions.revoke_catch_credential",
+        "view_fursuitcatchcredential",
+    ),
+    (
+        "terminate_catch_session",
+        "conventions.fursuitcatchsession",
+        "conventions.terminate_catch_session",
+        "view_fursuitcatchsession",
+    ),
+    (
+        "deactivate_fursuit_activation",
+        "conventions.fursuitactivation",
+        "conventions.deactivate_fursuit_activation",
+        "view_fursuitactivation",
+    ),
+    (
+        "remove_convention_enrollment",
+        "conventions.conventionenrollment",
+        "conventions.remove_convention_enrollment",
+        "view_conventionenrollment",
+    ),
+    (
+        "set_profile_enabled",
+        "profiles.playerprofile",
+        "profiles.set_profile_enabled",
+        "view_playerprofile",
+    ),
+    (
+        "set_fursuit_enabled",
+        "fursuits.fursuit",
+        "fursuits.set_fursuit_enabled",
+        "view_fursuit",
+    ),
+    (
+        "set_convention_playability",
+        "conventions.convention",
+        "conventions.set_convention_playability",
+        "view_convention",
+    ),
 )
 
 
@@ -525,11 +560,20 @@ def assert_safe_staging_operator_runbook(runbook: str) -> None:
 
     assert "RAILWAY_ENVIRONMENT_NAME=staging" in runbook
     assert "RAILWAY_SERVICE_NAME=api" in runbook
-    assert "hidden interactive" in normalized_runbook
+    assert re.search(
+        r"(?i)(?:hidden|not echoed).{0,100}(?:input|prompt)", normalized_runbook
+    )
+    assert "identifier" in normalized_runbook
+    assert "password" in normalized_runbook
     assert STAGING_OPERATOR_CONFIRMATION in runbook
     assert re.search(
-        r"(?i)never.{0,120}(?:credential|identifier|password).{0,120}"
+        r"(?i)(?:never|do not).{0,120}(?:credential|identifier|password).{0,120}"
         r"(?:command argument|environment variable)",
+        normalized_runbook,
+    )
+    assert re.search(
+        r"(?i)(?:reject|fail).{0,160}(?:wrong|different|non-staging|outside|not)"
+        r".{0,160}(?:target|environment|service|staging|api)",
         normalized_runbook,
     )
     assert re.search(
@@ -539,6 +583,24 @@ def assert_safe_staging_operator_runbook(runbook: str) -> None:
     )
 
 
+def assert_documented_operator_action_matrix(runbook: str) -> None:
+    """Require one readable action/target/operation/read-permission matrix."""
+    assert "| Audit action |" in runbook
+    for (
+        action,
+        target,
+        operation_permission,
+        read_permission,
+    ) in SENSITIVE_OPERATOR_ACTION_MATRIX:
+        matrix_rows = [
+            line
+            for line in runbook.splitlines()
+            if action in line and target in line and operation_permission in line
+        ]
+        assert len(matrix_rows) == 1
+        assert read_permission in matrix_rows[0]
+
+
 def test_staging_operator_documentation_defines_the_guarded_provisioning_path() -> None:
     """AC-11: Staging provisioning is exact, interactive, and target-bound."""
     runbook = OPERATOR_AUDIT_RUNBOOK.read_text()
@@ -546,8 +608,15 @@ def test_staging_operator_documentation_defines_the_guarded_provisioning_path() 
     assert_safe_staging_operator_runbook(runbook)
     normalized_runbook = " ".join(runbook.split())
     assert "TailTag Field Beta Operators" in runbook
-    for permission in SENSITIVE_OPERATOR_PERMISSIONS:
-        assert permission in runbook
+    assert_documented_operator_action_matrix(runbook)
+    assert re.search(
+        r"(?i)TailTag Field Beta Operators.{0,180}convenience",
+        normalized_runbook,
+    )
+    assert re.search(
+        r"(?i)(?:authorization|admin checks).{0,180}explicit.{0,80}permission",
+        normalized_runbook,
+    )
     assert re.search(
         r"(?i)normal operator.{0,180}explicit.{0,80}permission",
         normalized_runbook,
@@ -586,6 +655,69 @@ def test_operator_audit_documentation_defines_safe_durable_evidence() -> None:
     assert "catastrophic database failure" in normalized_runbook
 
 
+def assert_staging_operator_acceptance_matrix(staging: str) -> None:
+    """Require all frozen, separately authorized synthetic Staging proof cases."""
+    normalized_staging = " ".join(staging.split())
+    assert re.search(
+        r"(?i)ordinary player.{0,180}(?:cannot|denied).{0,180}sensitive admin mutation",
+        normalized_staging,
+    )
+    assert re.search(
+        r"is_staff=True.{0,180}(?:without|lacking).{0,100}"
+        r"sensitive permission.{0,180}denied",
+        normalized_staging,
+    )
+    assert re.search(
+        r"(?i)explicitly permitted.{0,100}non-superuser operator.{0,180}succeeds",
+        normalized_staging,
+    )
+    assert re.search(
+        r"(?i)operator.{0,100}one action.{0,180}(?:different|another)"
+        r".{0,100}sensitive permission boundary",
+        normalized_staging,
+    )
+    assert re.search(
+        r"(?i)superuser.{0,180}actor_class=emergency_superuser",
+        normalized_staging,
+    )
+    assert re.search(
+        r"(?i)(?:unauthorized|denied).{0,180}(?:audit row|audit evidence)"
+        r".{0,100}`denied`",
+        normalized_staging,
+    )
+    assert re.search(
+        r"(?i)(?:profile|fursuit).{0,120}disable.{0,180}cascade.{0,180}"
+        r"one top-level audit row",
+        normalized_staging,
+    )
+    assert re.search(
+        r"Catch add/edit/bulk.{0,180}(?:unavailable|remain unavailable)",
+        staging,
+    )
+    template_heading = re.search(r"(?mi)^#+\s+sanitized evidence template\s*$", staging)
+    assert template_heading
+    next_heading = re.search(r"(?m)^#+\s+", staging[template_heading.end() :])
+    template_end = (
+        template_heading.end() + next_heading.start() if next_heading else len(staging)
+    )
+    evidence_template = staging[template_heading.start() : template_end]
+    for evidence_field in (
+        "action",
+        "actor application ID",
+        "actor class",
+        "target type/ID",
+        "`succeeded`",
+        "time",
+    ):
+        assert evidence_field in evidence_template
+    assert "#204" in staging
+    assert re.search(
+        r"(?i)#204.{0,220}(?:restore|reset).{0,120}disposable.{0,160}"
+        r"(?:do not|does not).{0,80}delete.{0,80}audit",
+        normalized_staging,
+    )
+
+
 def test_existing_operator_docs_link_the_staging_procedure_and_matrix() -> None:
     """AC-11: Catch, API, and Staging docs retain the shared operational boundary."""
     catch_administration = (
@@ -600,19 +732,7 @@ def test_existing_operator_docs_link_the_staging_procedure_and_matrix() -> None:
     assert re.search(r"(?i)usable local password.{0,100}is_staff", readme)
     assert "operator-authorization-audit.md" in readme
     assert "operator-authorization-audit.md" in staging
-    normalized_staging = " ".join(staging.split())
-    assert "disposable synthetic records" in normalized_staging
-    assert "separate explicit authorization" in normalized_staging
-    for acceptance_case in (
-        "ordinary player",
-        "is_staff=True",
-        "non-superuser operator",
-        "emergency_superuser",
-        "denied",
-        "cascade",
-        "Catch add/edit/bulk",
-    ):
-        assert acceptance_case in staging
+    assert_staging_operator_acceptance_matrix(staging)
 
 
 def test_staging_operator_runbook_rejects_unsafe_documentation_mutants() -> None:
