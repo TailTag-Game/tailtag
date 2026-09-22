@@ -22,6 +22,7 @@ INSTALLED_APPS = [
     "fursuits.apps.FursuitsConfig",
     "health.apps.HealthConfig",
     "media.apps.MediaConfig",
+    "operator_audit.apps.OperatorAuditConfig",
     "profiles.apps.ProfilesConfig",
     "rehearsal.apps.RehearsalConfig",
 ]

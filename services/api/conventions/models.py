@@ -60,6 +60,9 @@ class Convention(models.Model):
 
     class Meta:
         ordering: ClassVar[list[str]] = ["-start_date", "name"]
+        permissions: ClassVar[list[tuple[str, str]]] = [
+            ("set_convention_playability", "Can change Convention playability"),
+        ]
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(
                 condition=~models.Q(name=""),
@@ -135,6 +138,9 @@ class ConventionEnrollment(models.Model):
 
     class Meta:
         ordering: ClassVar[list[str]] = ["-created_at", "id"]
+        permissions: ClassVar[list[tuple[str, str]]] = [
+            ("remove_convention_enrollment", "Can remove a convention enrollment"),
+        ]
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
                 fields=["user", "convention"],
@@ -185,6 +191,12 @@ class FursuitActivation(models.Model):
 
     class Meta:
         ordering: ClassVar[list[str]] = ["fursuit_id", "id"]
+        permissions: ClassVar[list[tuple[str, str]]] = [
+            (
+                "deactivate_fursuit_activation",
+                "Can deactivate a fursuit activation",
+            ),
+        ]
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
                 fields=["fursuit", "convention"],
@@ -246,6 +258,9 @@ class FursuitCatchSession(models.Model):
 
     class Meta:
         ordering: ClassVar[list[str]] = ["-started_at", "-id"]
+        permissions: ClassVar[list[tuple[str, str]]] = [
+            ("terminate_catch_session", "Can terminate an active catch session"),
+        ]
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(
                 condition=models.Q(expires_at__gt=models.F("started_at")),
@@ -322,6 +337,9 @@ class FursuitCatchCredential(models.Model):
 
     class Meta:
         ordering: ClassVar[list[str]] = ["-created_at", "-id"]
+        permissions: ClassVar[list[tuple[str, str]]] = [
+            ("revoke_catch_credential", "Can revoke a current catch credential"),
+        ]
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(
                 condition=(
