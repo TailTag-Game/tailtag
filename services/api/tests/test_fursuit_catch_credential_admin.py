@@ -289,8 +289,8 @@ def test_admin_stale_revoke_after_eligibility_loss_preserves_terminal_history_an
     assert credential.revocation_reason == "eligibility_lost"
     assert session.end_reason == "eligibility_lost"
 
-    stale = admin_client.post(change, {"revoke": "1"}, follow=True)
-    assert stale.status_code == 200
+    stale = admin_client.post(change, {"revoke": "1"})
+    assert stale.status_code == 403
     credential.refresh_from_db()
     session.refresh_from_db()
     assert (
@@ -308,6 +308,15 @@ def test_admin_stale_revoke_after_eligibility_loss_preserves_terminal_history_an
         not catch_credential_model()
         .objects.filter(activation=activation, revoked_at__isnull=True)
         .exists()
+    )
+    assert (
+        OperatorAuditEvent.objects.filter(affected_record_id=credential.pk).count() == 1
+    )
+    _assert_credential_event(
+        operator,
+        credential.pk,
+        OperatorActorClass.EMERGENCY_SUPERUSER,
+        OperatorAuditOutcome.REJECTED,
     )
     _assert_token_absent(TOKEN_A, stale)
 

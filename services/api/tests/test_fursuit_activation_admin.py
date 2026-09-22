@@ -168,13 +168,22 @@ def test_activation_admin_only_allows_active_to_inactive_and_preserves_timestamp
         activation.deactivated_at,
         activation.updated_at,
     )
-    assert client.post(change, {"is_active": ""}).status_code == 302
+    assert client.post(change, {"is_active": ""}).status_code == 403
     activation.refresh_from_db()
     assert (
         activation.activated_at,
         activation.deactivated_at,
         activation.updated_at,
     ) == deactivated
+    assert (
+        OperatorAuditEvent.objects.filter(affected_record_id=activation.pk).count() == 2
+    )
+    _assert_activation_event(
+        operator,
+        activation.pk,
+        OperatorActorClass.EMERGENCY_SUPERUSER,
+        OperatorAuditOutcome.REJECTED,
+    )
     rejected = client.post(change, {"is_active": "on"})
     assert rejected.status_code in {200, 403}
     activation.refresh_from_db()

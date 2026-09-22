@@ -606,7 +606,7 @@ def test_convention_bulk_delete_cannot_bypass_playable_delete_boundary() -> None
 
 @pytest.mark.django_db
 def test_convention_admin_closes_playable_create_delete_and_same_state_paths() -> None:
-    """AC-4/9: there is no unaudited way to create/delete playable authority or add actions."""
+    """AC-4/9: playable creation/deletion stays closed while ACTIVE no-ops stay ordinary."""
     superuser = User.objects.create_superuser("convention_closed_paths", password="pw")
     client = Client()
     client.force_login(superuser)
@@ -638,18 +638,21 @@ def test_convention_admin_closes_playable_create_delete_and_same_state_paths() -
         == 403
     )
     assert Convention.objects.filter(pk=playable.pk).exists()
+    audit_count = OperatorAuditEvent.objects.filter(
+        affected_record_id=playable.pk
+    ).count()
     assert (
         client.post(
             reverse("admin:conventions_convention_change", args=(playable.pk,)),
             _convention_post_data(playable, status=ConventionStatus.ACTIVE),
         ).status_code
-        == 403
+        == 302
     )
-    _assert_convention_event(
-        superuser,
-        playable.pk,
-        OperatorActorClass.EMERGENCY_SUPERUSER,
-        OperatorAuditOutcome.REJECTED,
+    playable.refresh_from_db()
+    assert playable.status == ConventionStatus.ACTIVE and playable.is_playable
+    assert (
+        OperatorAuditEvent.objects.filter(affected_record_id=playable.pk).count()
+        == audit_count
     )
 
 

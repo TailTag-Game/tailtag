@@ -85,16 +85,35 @@ def test_admin_allows_only_enabled_toggle_and_never_exposes_key_or_clerk_identit
     after_toggle = record.updated_at
     repeated = client.post(change, {"is_enabled": ""})
     record.refresh_from_db()
-    assert repeated.status_code == 302
+    assert repeated.status_code == 403
     assert record.is_enabled is False and record.updated_at == after_toggle
     assert record.tailtag_id == tailtag_id_before
+    assert OperatorAuditEvent.objects.filter(affected_record_id=record.pk).count() == 2
+    _assert_fursuit_event(
+        operator,
+        record.pk,
+        OperatorActorClass.EMERGENCY_SUPERUSER,
+        OperatorAuditOutcome.REJECTED,
+    )
     forged = client.post(
         change,
         {"is_enabled": "", "tailtag_id": str(uuid.uuid4())},
     )
     record.refresh_from_db()
-    assert forged.status_code == 302
+    assert forged.status_code == 403
     assert record.tailtag_id == tailtag_id_before
+    assert OperatorAuditEvent.objects.filter(affected_record_id=record.pk).count() == 3
+    assert (
+        OperatorAuditEvent.objects.filter(
+            affected_record_id=record.pk,
+            actor=operator,
+            action=OperatorAction.SET_FURSUIT_ENABLED,
+            actor_class=OperatorActorClass.EMERGENCY_SUPERUSER,
+            affected_record_type=OperatorTargetType.FURSUIT,
+            outcome=OperatorAuditOutcome.REJECTED,
+        ).count()
+        == 2
+    )
     rendered = list_response.content + detail.content
     assert (
         b"0123456789abcdef0123456789abcdef" not in rendered
