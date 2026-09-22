@@ -1053,7 +1053,12 @@ def test_catch_removal_role_matrix_preserves_delete_catch_as_the_exact_correctio
         ),
     )
     player = create_test_user()
-    player_target = create_catch(scenario=create_catch_scenario())
+    player_target = create_catch(
+        scenario=create_catch_scenario(
+            catcher_clerk_user_id="catch_matrix_player",
+            target_owner_clerk_user_id="catch_matrix_player_target",
+        )
+    )
     player_url = _admin_urls(player_target).delete
     player_client = Client()
     player_client.force_login(player)
@@ -1065,8 +1070,13 @@ def test_catch_removal_role_matrix_preserves_delete_catch_as_the_exact_correctio
         affected_record_id=player_target.pk
     ).exists()
 
-    for user, permitted, actor_class, outcome in cases:
-        catch = create_catch(scenario=create_catch_scenario())
+    for index, (user, permitted, actor_class, outcome) in enumerate(cases):
+        catch = create_catch(
+            scenario=create_catch_scenario(
+                catcher_clerk_user_id=f"catch_matrix_catcher_{index}",
+                target_owner_clerk_user_id=f"catch_matrix_target_{index}",
+            )
+        )
         client = Client()
         client.force_login(user)
         response = client.post(_admin_urls(catch).delete, {"post": "yes"})
