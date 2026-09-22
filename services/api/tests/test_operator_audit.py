@@ -27,9 +27,19 @@ from operator_audit.services import OperatorTransition
 
 from accounts.models import User
 from profiles.models import PlayerProfile
+from profiles.services import set_profile_enabled
 from tests.authentication_support import create_test_user
+from tests.fursuit_activation_test_support import (
+    create_activation_row,
+    create_activation_scenario,
+)
+from tests.fursuit_catch_session_test_support import create_catch_session
 
 PROFILE_PERMISSION = "profiles.set_profile_enabled"
+
+
+class ExpectedDomainRejection(Exception):
+    """Model a known domain rejection that must leave no partial transition."""
 
 
 def _request(user: User, method: str = "post") -> Any:
@@ -117,11 +127,42 @@ def test_audit_schema_is_closed_and_uses_server_generated_identity_and_time() ->
     }
     id_field = OperatorAuditEvent._meta.get_field("id")
     assert id_field.default is uuid.uuid4 and id_field.editable is False
+    action_field = OperatorAuditEvent._meta.get_field("action")
+    actor_class_field = OperatorAuditEvent._meta.get_field("actor_class")
+    target_type_field = OperatorAuditEvent._meta.get_field("affected_record_type")
+    outcome_field = OperatorAuditEvent._meta.get_field("outcome")
+    for field, choices in (
+        (action_field, OperatorAction.choices),
+        (actor_class_field, OperatorActorClass.choices),
+        (target_type_field, OperatorTargetType.choices),
+        (outcome_field, OperatorAuditOutcome.choices),
+    ):
+        assert isinstance(field, models.CharField)
+        assert tuple(field.choices) == tuple(choices)
+    assert isinstance(
+        OperatorAuditEvent._meta.get_field("affected_record_id"),
+        models.PositiveBigIntegerField,
+    )
     assert OperatorAuditEvent._meta.get_field("occurred_at").auto_now_add is True
     assert (
         OperatorAuditEvent._meta.get_field("actor").remote_field.on_delete
         is models.PROTECT
     )
+
+
+@pytest.mark.django_db
+def test_database_rejects_a_negative_affected_record_id() -> None:
+    """AC-6: the planned positive database identifier field rejects negative IDs."""
+    with pytest.raises(IntegrityError), transaction.atomic():
+        OperatorAuditEvent.objects.create(
+            action=OperatorAction.SET_PROFILE_ENABLED,
+            actor=create_test_user(),
+            actor_class=OperatorActorClass.OPERATOR,
+            affected_record_type=OperatorTargetType.PLAYER_PROFILE,
+            affected_record_id=-1,
+            outcome=OperatorAuditOutcome.SUCCEEDED,
+        )
+    assert OperatorAuditEvent.objects.count() == 0
 
 
 @pytest.mark.django_db
@@ -165,6 +206,8 @@ def test_audit_enums_are_the_closed_sensitive_action_and_target_vocabulary() -> 
     ("actor_class", "outcome"),
     (
         (OperatorActorClass.UNAUTHORIZED_ACTOR, OperatorAuditOutcome.SUCCEEDED),
+        (OperatorActorClass.UNAUTHORIZED_ACTOR, OperatorAuditOutcome.REJECTED),
+        (OperatorActorClass.UNAUTHORIZED_ACTOR, OperatorAuditOutcome.FAILED),
         (OperatorActorClass.OPERATOR, OperatorAuditOutcome.DENIED),
         (OperatorActorClass.EMERGENCY_SUPERUSER, OperatorAuditOutcome.DENIED),
     ),
@@ -375,7 +418,7 @@ def test_form_response_without_a_bound_transition_records_rejected() -> None:
 def test_unexpected_exception_after_state_write_rolls_back_and_records_only_failed() -> (
     None
 ):
-    """AC-4/5: failure after a write cannot commit state, callbacks, or success evidence."""
+    """AC-4/5: a post-success handler failure rolls back its state and success row."""
     operator = _operator()
     profile = _profile()
     committed: list[str] = []
@@ -385,13 +428,19 @@ def test_unexpected_exception_after_state_write_rolls_back_and_records_only_fail
         profile.is_enabled = False
         profile.save(update_fields={"is_enabled"})
         transaction.on_commit(lambda: committed.append("must-not-commit"))
-        raise RuntimeError("simulated unexpected failure")
+        return OperatorTransition(value=None, changed=True)
 
     def handler() -> HttpResponse:
         execute_bound_operator_transition(request, operation)
-        return HttpResponse(status=204)
+        assert (
+            OperatorAuditEvent.objects.filter(
+                outcome=OperatorAuditOutcome.SUCCEEDED
+            ).count()
+            == 1
+        )
+        raise RuntimeError("simulated post-success handler failure")
 
-    with pytest.raises(RuntimeError, match="simulated unexpected failure"):
+    with pytest.raises(RuntimeError, match="simulated post-success handler failure"):
         _run(request, profile, handler)
 
     profile.refresh_from_db()
@@ -399,6 +448,79 @@ def test_unexpected_exception_after_state_write_rolls_back_and_records_only_fail
     assert committed == []
     assert _event_values()[0]["outcome"] == OperatorAuditOutcome.FAILED
     assert OperatorAuditEvent.objects.count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_known_domain_rejection_rolls_back_state_and_records_rejected() -> None:
+    """AC-4/5: the frozen rejected_exceptions seam is sanitized and atomic."""
+    operator = _operator()
+    profile = _profile()
+    committed: list[str] = []
+    request = _request(operator)
+
+    def operation() -> OperatorTransition[None]:
+        profile.is_enabled = False
+        profile.save(update_fields={"is_enabled"})
+        transaction.on_commit(lambda: committed.append("must-not-commit"))
+        raise ExpectedDomainRejection("untrusted domain detail")
+
+    def handler() -> HttpResponse:
+        execute_bound_operator_transition(request, operation)
+        return HttpResponse(status=204)
+
+    with pytest.raises(PermissionDenied) as captured:
+        _run(
+            request,
+            profile,
+            handler,
+            rejected_exceptions=(ExpectedDomainRejection,),
+        )
+
+    profile.refresh_from_db()
+    assert profile.is_enabled is True
+    assert committed == []
+    assert "untrusted domain detail" not in str(captured.value)
+    assert _event_values()[0]["outcome"] == OperatorAuditOutcome.REJECTED
+    assert OperatorAuditEvent.objects.count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_profile_disable_cascade_writes_one_top_level_operator_event() -> None:
+    """AC-7: one profile-disable intent retains its session cascade without child events."""
+    operator = _operator()
+    scenario = create_activation_scenario(clerk_user_id="audit-cascade-owner")
+    activation = create_activation_row(
+        fursuit=scenario.fursuit,
+        convention=scenario.convention,
+        active=True,
+    )
+    session = create_catch_session(activation=activation)
+    request = _request(operator)
+
+    def operation() -> OperatorTransition[None]:
+        set_profile_enabled(profile_id=scenario.profile.pk, is_enabled=False)
+        return OperatorTransition(value=None, changed=True)
+
+    def handler() -> HttpResponse:
+        execute_bound_operator_transition(request, operation)
+        return HttpResponse(status=204)
+
+    assert _run(request, scenario.profile, handler).status_code == 204
+    scenario.profile.refresh_from_db()
+    session.refresh_from_db()
+
+    assert scenario.profile.is_enabled is False
+    assert session.ended_at is not None and session.end_reason == "eligibility_lost"
+    assert _event_values() == [
+        {
+            "action": OperatorAction.SET_PROFILE_ENABLED,
+            "actor_id": operator.pk,
+            "actor_class": OperatorActorClass.OPERATOR,
+            "affected_record_type": OperatorTargetType.PLAYER_PROFILE,
+            "affected_record_id": scenario.profile.pk,
+            "outcome": OperatorAuditOutcome.SUCCEEDED,
+        }
+    ]
 
 
 @pytest.mark.django_db(transaction=True)
