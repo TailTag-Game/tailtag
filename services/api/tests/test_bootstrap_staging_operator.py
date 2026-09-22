@@ -609,6 +609,8 @@ def test_concurrent_first_bootstraps_yield_one_exact_staging_operator(
     executor: ThreadPoolExecutor | None = None
     try:
         with connection.cursor() as cursor:
+            # Fixed test-only DDL uses local constants with psycopg.sql.Identifier/Literal.
+            # nosemgrep: tailtag.django.dynamic-raw-sql
             cursor.execute(
                 sql.SQL(
                     "CREATE FUNCTION {}() RETURNS trigger LANGUAGE plpgsql AS {}"
@@ -623,6 +625,8 @@ def test_concurrent_first_bootstraps_yield_one_exact_staging_operator(
                     ),
                 )
             )
+            # Fixed test-only DDL uses local constants with psycopg.sql.Identifier/Literal.
+            # nosemgrep: tailtag.django.dynamic-raw-sql
             cursor.execute(
                 sql.SQL(
                     "CREATE TRIGGER {} BEFORE INSERT ON {} "
@@ -662,12 +666,16 @@ def test_concurrent_first_bootstraps_yield_one_exact_staging_operator(
             executor.shutdown(wait=False, cancel_futures=True)
         with connection.cursor() as cursor:
             cursor.execute("SET lock_timeout = '10s'")
+            # Fixed test-only DDL uses local constants with psycopg.sql.Identifier/Literal.
+            # nosemgrep: tailtag.django.dynamic-raw-sql
             cursor.execute(
                 sql.SQL("DROP TRIGGER IF EXISTS {} ON {}").format(
                     sql.Identifier(barrier_trigger),
                     sql.Identifier(table_name),
                 )
             )
+            # Fixed test-only DDL uses local constants with psycopg.sql.Identifier/Literal.
+            # nosemgrep: tailtag.django.dynamic-raw-sql
             cursor.execute(
                 sql.SQL("DROP FUNCTION IF EXISTS {}()").format(
                     sql.Identifier(barrier_function)
@@ -731,6 +739,8 @@ def test_bootstrap_database_failure_rolls_back_identity_and_group_state(
 
     try:
         with connection.cursor() as cursor:
+            # Fixed test-only DDL uses local constants with psycopg.sql.Identifier/Literal.
+            # nosemgrep: tailtag.django.dynamic-raw-sql
             cursor.execute(
                 sql.SQL(
                     "CREATE FUNCTION {}() RETURNS trigger LANGUAGE plpgsql AS {}"
@@ -744,6 +754,8 @@ def test_bootstrap_database_failure_rolls_back_identity_and_group_state(
                     ),
                 )
             )
+            # Fixed test-only DDL uses local constants with psycopg.sql.Identifier/Literal.
+            # nosemgrep: tailtag.django.dynamic-raw-sql
             cursor.execute(
                 sql.SQL(
                     "CREATE TRIGGER {} BEFORE INSERT OR UPDATE ON {} "
@@ -768,12 +780,16 @@ def test_bootstrap_database_failure_rolls_back_identity_and_group_state(
             )
     finally:
         with connection.cursor() as cursor:
+            # Fixed test-only DDL uses local constants with psycopg.sql.Identifier/Literal.
+            # nosemgrep: tailtag.django.dynamic-raw-sql
             cursor.execute(
                 sql.SQL("DROP TRIGGER IF EXISTS {} ON {}").format(
                     sql.Identifier(failure_trigger),
                     sql.Identifier(table_name),
                 )
             )
+            # Fixed test-only DDL uses local constants with psycopg.sql.Identifier/Literal.
+            # nosemgrep: tailtag.django.dynamic-raw-sql
             cursor.execute(
                 sql.SQL("DROP FUNCTION IF EXISTS {}()").format(
                     sql.Identifier(failure_function)
