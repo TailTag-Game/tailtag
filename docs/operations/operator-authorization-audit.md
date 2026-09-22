@@ -51,7 +51,7 @@ From a real interactive Railway SSH terminal attached to the Staging `api`
 service, use this one command sequence:
 
 ```text
-railway ssh --service api --environment staging
+railway ssh --project 85324de4-be6a-49c3-a3f9-6cac13877849 --service api --environment staging
 python manage.py bootstrap_staging_operator --settings=config.settings.production
 ```
 

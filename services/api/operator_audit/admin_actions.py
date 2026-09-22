@@ -27,6 +27,14 @@ _ATTEMPT_ATTRIBUTE = "_operator_audit_attempt"
 logger = logging.getLogger(__name__)
 
 
+def parse_admin_object_id(object_id: str | None) -> int | None:
+    """Return a numeric Django-admin object ID without raising on malformed URLs."""
+    try:
+        return int(object_id) if object_id is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 class _RejectedOperatorAttempt(Exception):
     """Signal a known, sanitized rejection after rolling back the outer unit."""
 

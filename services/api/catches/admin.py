@@ -8,12 +8,19 @@ from typing import TYPE_CHECKING, cast
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
 from django.db.models import QuerySet
-from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, QueryDict
+from django.http import (
+    Http404,
+    HttpRequest,
+    HttpResponse,
+    HttpResponseRedirect,
+    QueryDict,
+)
 
 from accounts.models import User
 from conventions.catch_credential_protocol import CATCH_CREDENTIAL_TOKEN_PATTERN
 from operator_audit.admin_actions import (
     execute_bound_operator_transition,
+    parse_admin_object_id,
     run_sensitive_admin_attempt,
 )
 from operator_audit.models import OperatorAction, OperatorTargetType
@@ -153,12 +160,16 @@ class CatchAdmin(CatchAdminBase):
     ) -> HttpResponse:
         if request.method != "POST":
             return super().delete_view(request, object_id, extra_context)
+        target_id = parse_admin_object_id(object_id)
+        if target_id is None:
+            super().delete_view(request, object_id, extra_context)
+            raise Http404
         return run_sensitive_admin_attempt(
             request,
             permission="catches.delete_catch",
             action=OperatorAction.REMOVE_CATCH,
             target_type=OperatorTargetType.CATCH,
-            target_id=int(object_id),
+            target_id=target_id,
             handler=lambda: super(CatchAdmin, self).delete_view(
                 request, object_id, extra_context
             ),

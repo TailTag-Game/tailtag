@@ -7,11 +7,12 @@ from typing import TYPE_CHECKING, cast
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
 from django.forms import ModelForm
-from django.http import HttpRequest, HttpResponse
+from django.http import Http404, HttpRequest, HttpResponse
 
 from accounts.models import User
 from operator_audit.admin_actions import (
     execute_bound_operator_transition,
+    parse_admin_object_id,
     run_sensitive_admin_attempt,
 )
 from operator_audit.models import OperatorAction, OperatorTargetType
@@ -107,12 +108,16 @@ class PlayerProfileAdmin(PlayerProfileAdminBase):
     ) -> HttpResponse:
         if request.method != "POST" or object_id is None:
             return super().changeform_view(request, object_id, form_url, extra_context)
+        target_id = parse_admin_object_id(object_id)
+        if target_id is None:
+            super().changeform_view(request, object_id, form_url, extra_context)
+            raise Http404
         return run_sensitive_admin_attempt(
             request,
             permission="profiles.set_profile_enabled",
             action=OperatorAction.SET_PROFILE_ENABLED,
             target_type=OperatorTargetType.PLAYER_PROFILE,
-            target_id=int(object_id),
+            target_id=target_id,
             handler=lambda: super(PlayerProfileAdmin, self).changeform_view(
                 request, object_id, form_url, extra_context
             ),

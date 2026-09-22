@@ -11,12 +11,13 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Exists, OuterRef, QuerySet
 from django.forms import ModelForm
-from django.http import HttpRequest, HttpResponse
+from django.http import Http404, HttpRequest, HttpResponse
 from django.utils import timezone
 
 from accounts.models import User
 from operator_audit.admin_actions import (
     execute_bound_operator_transition,
+    parse_admin_object_id,
     run_sensitive_admin_attempt,
 )
 from operator_audit.models import OperatorAction, OperatorTargetType
@@ -157,7 +158,11 @@ class ConventionAdmin(ConventionAdminBase):
     ) -> HttpResponse:
         if request.method != "POST" or object_id is None:
             return super().changeform_view(request, object_id, form_url, extra_context)
-        convention = Convention.objects.filter(pk=int(object_id)).first()
+        target_id = parse_admin_object_id(object_id)
+        if target_id is None:
+            super().changeform_view(request, object_id, form_url, extra_context)
+            raise Http404
+        convention = Convention.objects.filter(pk=target_id).first()
         submitted_status = request.POST.get("status")
         if convention is None:
             if submitted_status == ConventionStatus.ACTIVE.value:
@@ -166,7 +171,7 @@ class ConventionAdmin(ConventionAdminBase):
                     permission="conventions.set_convention_playability",
                     action=OperatorAction.SET_CONVENTION_PLAYABILITY,
                     target_type=OperatorTargetType.CONVENTION,
-                    target_id=int(object_id),
+                    target_id=target_id,
                     handler=lambda: super(ConventionAdmin, self).changeform_view(
                         request, object_id, form_url, extra_context
                     ),
@@ -187,7 +192,8 @@ class ConventionAdmin(ConventionAdminBase):
                 control
                 and not generic
                 and any(
-                    request.POST.get(field) != str(getattr(convention, field))
+                    field in request.POST
+                    and request.POST[field] != str(getattr(convention, field))
                     for field in ("name", "start_date", "end_date")
                 )
             ):
@@ -210,7 +216,7 @@ class ConventionAdmin(ConventionAdminBase):
                 permission="conventions.set_convention_playability",
                 action=OperatorAction.SET_CONVENTION_PLAYABILITY,
                 target_type=OperatorTargetType.CONVENTION,
-                target_id=int(object_id),
+                target_id=target_id,
                 handler=render,
                 rejected_exceptions=(
                     PermissionDenied,
@@ -346,12 +352,16 @@ class ConventionEnrollmentAdmin(ConventionEnrollmentAdminBase):
     ) -> HttpResponse:
         if request.method != "POST":
             return super().delete_view(request, object_id, extra_context)
+        target_id = parse_admin_object_id(object_id)
+        if target_id is None:
+            super().delete_view(request, object_id, extra_context)
+            raise Http404
         return run_sensitive_admin_attempt(
             request,
             permission="conventions.remove_convention_enrollment",
             action=OperatorAction.REMOVE_CONVENTION_ENROLLMENT,
             target_type=OperatorTargetType.CONVENTION_ENROLLMENT,
-            target_id=int(object_id),
+            target_id=target_id,
             handler=lambda: super(ConventionEnrollmentAdmin, self).delete_view(
                 request, object_id, extra_context
             ),
@@ -425,12 +435,16 @@ class FursuitActivationAdmin(FursuitActivationAdminBase):
     ) -> HttpResponse:
         if request.method != "POST" or object_id is None:
             return super().changeform_view(request, object_id, form_url, extra_context)
+        target_id = parse_admin_object_id(object_id)
+        if target_id is None:
+            super().changeform_view(request, object_id, form_url, extra_context)
+            raise Http404
         return run_sensitive_admin_attempt(
             request,
             permission="conventions.deactivate_fursuit_activation",
             action=OperatorAction.DEACTIVATE_FURSUIT_ACTIVATION,
             target_type=OperatorTargetType.FURSUIT_ACTIVATION,
-            target_id=int(object_id),
+            target_id=target_id,
             handler=lambda: super(FursuitActivationAdmin, self).changeform_view(
                 request, object_id, form_url, extra_context
             ),
@@ -555,12 +569,16 @@ class FursuitCatchCredentialAdmin(FursuitCatchCredentialAdminBase):
     ) -> HttpResponse:
         if request.method != "POST" or object_id is None:
             return super().changeform_view(request, object_id, form_url, extra_context)
+        target_id = parse_admin_object_id(object_id)
+        if target_id is None:
+            super().changeform_view(request, object_id, form_url, extra_context)
+            raise Http404
         return run_sensitive_admin_attempt(
             request,
             permission="conventions.revoke_catch_credential",
             action=OperatorAction.REVOKE_CATCH_CREDENTIAL,
             target_type=OperatorTargetType.FURSUIT_CATCH_CREDENTIAL,
-            target_id=int(object_id),
+            target_id=target_id,
             handler=lambda: super(FursuitCatchCredentialAdmin, self).changeform_view(
                 request, object_id, form_url, extra_context
             ),
@@ -728,12 +746,16 @@ class FursuitCatchSessionAdmin(FursuitCatchSessionAdminBase):
     ) -> HttpResponse:
         if request.method != "POST" or object_id is None:
             return super().changeform_view(request, object_id, form_url, extra_context)
+        target_id = parse_admin_object_id(object_id)
+        if target_id is None:
+            super().changeform_view(request, object_id, form_url, extra_context)
+            raise Http404
         return run_sensitive_admin_attempt(
             request,
             permission="conventions.terminate_catch_session",
             action=OperatorAction.TERMINATE_CATCH_SESSION,
             target_type=OperatorTargetType.FURSUIT_CATCH_SESSION,
-            target_id=int(object_id),
+            target_id=target_id,
             handler=lambda: super(FursuitCatchSessionAdmin, self).changeform_view(
                 request, object_id, form_url, extra_context
             ),
