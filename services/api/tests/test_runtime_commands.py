@@ -620,12 +620,41 @@ def assert_staging_operator_authority_boundary(runbook: str) -> None:
     )
     for generic_permission in GENERIC_PERMISSION_CODENAMES:
         assert generic_permission in runbook
-        assert not re.search(
-            rf"{re.escape(generic_permission)}"
-            r"(?:(?!\b(?:neither|never|does not|not)\b).){0,180}"
-            r"(?:authorize|grant|substitute|(?:additional )?prerequisite)"
-            r".{0,120}sensitive",
-            normalized_runbook,
+        no_negation = r"(?:(?!\b(?:neither|never|does not|not)\b).){0,180}"
+        unsafe_permission_claims = (
+            "".join(
+                (
+                    rf"{re.escape(generic_permission)}{no_negation}",
+                    r"(?:authorize|grant|substitute|(?:additional )?prerequisite|",
+                    r"(?:is )?required|needs).{0,160}(?:sensitive (?:action|operation)|action)",
+                )
+            ),
+            "".join(
+                (
+                    r"(?:sensitive (?:action|operation)|action)",
+                    rf"{no_negation}(?:requires|needs).{{0,160}}",
+                    rf"{re.escape(generic_permission)}",
+                )
+            ),
+            "".join(
+                (
+                    r"(?:sensitive (?:action|operation)|action)",
+                    rf"{no_negation}(?:user|operator){no_negation}(?:needs|requires)",
+                    rf".{{0,120}}{re.escape(generic_permission)}",
+                )
+            ),
+            "".join(
+                (
+                    r"(?:user|operator)",
+                    rf"{no_negation}(?:needs|requires).{{0,120}}",
+                    rf"{re.escape(generic_permission)}{no_negation}",
+                    r"(?:sensitive (?:action|operation)|action)",
+                )
+            ),
+        )
+        assert not any(
+            re.search(rf"(?i){unsafe_claim}", normalized_runbook)
+            for unsafe_claim in unsafe_permission_claims
         )
     assert re.search(
         r"catches\.delete_catch.{0,180}(?i:explicit).{0,120}"
@@ -794,21 +823,36 @@ def test_staging_operator_documentation_defines_the_guarded_provisioning_path() 
 
 def assert_negated_audit_privacy_exclusions(runbook: str) -> None:
     """Require every privacy exclusion to be negative in an audit-record context."""
-    normalized_runbook = " ".join(runbook.split())
+    paragraphs = tuple(
+        " ".join(paragraph.split())
+        for paragraph in re.split(r"\n\s*\n", runbook)
+        if paragraph.strip()
+    )
     audit_context = r"(?:audit (?:record|row|event|evidence)s?|OperatorAuditEvent)"
     negation = r"(?:must not|do not|never|exclude)"
 
     for excluded_value, excluded_pattern in AUDIT_PRIVACY_EXCLUSIONS:
-        assert re.search(
-            rf"(?i){audit_context}.{{0,240}}{negation}.{{0,480}}"
-            rf"{excluded_pattern}",
-            normalized_runbook,
-        ), excluded_value
-        assert not re.search(
-            rf"(?i){audit_context}"
-            r"(?:(?!\b(?:must not|do not|never|exclude)\b).){0,180}"
-            rf"(?:include|store|contain|record).{{0,360}}{excluded_pattern}",
-            normalized_runbook,
+        matching_paragraphs = [
+            paragraph
+            for paragraph in paragraphs
+            if re.search(rf"(?i){audit_context}", paragraph)
+            and any(
+                re.search(rf"(?i){negation}.{{0,480}}{excluded_pattern}", sentence)
+                for sentence in re.split(r"(?<=[.!?])\s+", paragraph)
+            )
+        ]
+        assert matching_paragraphs, excluded_value
+        assert not any(
+            re.search(rf"(?i){audit_context}", paragraph)
+            and any(
+                re.search(
+                    rf"(?i)^(?:(?!\b(?:must not|do not|never|exclude)\b).)*"
+                    rf"(?:include|store|contain|record).{{0,360}}{excluded_pattern}",
+                    sentence,
+                )
+                for sentence in re.split(r"(?<=[.!?])\s+", paragraph)
+            )
+            for paragraph in paragraphs
         ), excluded_value
 
 
@@ -869,6 +913,23 @@ def test_operator_audit_documentation_rejects_contradictory_privacy_mutants() ->
         mutant = f"{runbook}\nAudit evidence includes {excluded_value}.\n"
         with pytest.raises(AssertionError):
             assert_negated_audit_privacy_exclusions(mutant)
+
+
+def test_audit_privacy_helper_accepts_scoped_allowed_and_excluded_fields() -> None:
+    """An allowed-field sentence may precede explicit exclusions in one paragraph."""
+    excluded_values = ", ".join(
+        excluded_value for excluded_value, _ in AUDIT_PRIVACY_EXCLUSIONS
+    )
+    compliant = (
+        "OperatorAuditEvent audit records contain only the closed allowed fields. "
+        f"They never include {excluded_values}."
+    )
+
+    assert_negated_audit_privacy_exclusions(compliant)
+
+    contradictory = f"{compliant} Audit evidence includes Clerk identifiers."
+    with pytest.raises(AssertionError):
+        assert_negated_audit_privacy_exclusions(contradictory)
 
 
 def markdown_section(document: str, heading_pattern: str) -> str:
@@ -1044,6 +1105,15 @@ def test_staging_operator_runbook_rejects_unsafe_documentation_mutants() -> None
         "sensitive operations.\n"
         for generic_permission in GENERIC_PERMISSION_CODENAMES
     )
+    unsafe_reversed_concrete_prerequisite_mutants = tuple(
+        mutant
+        for generic_permission in GENERIC_PERMISSION_CODENAMES
+        for mutant in (
+            f"{runbook}\nThe sensitive operation requires `{generic_permission}`.\n",
+            f"{runbook}\n`{generic_permission}` is required before the sensitive operation.\n",
+            f"{runbook}\nA user needs `{generic_permission}` for the sensitive operation.\n",
+        )
+    )
     unsafe_mutants = (
         runbook.replace("--environment staging", "--environment development", 1),
         runbook.replace(
@@ -1068,6 +1138,7 @@ def test_staging_operator_runbook_rejects_unsafe_documentation_mutants() -> None
         f"{runbook}\nThe normal Staging operator is_superuser=True.\n",
         *unsafe_prerequisite_mutants,
         *unsafe_concrete_prerequisite_mutants,
+        *unsafe_reversed_concrete_prerequisite_mutants,
     )
 
     for mutant in unsafe_mutants:
