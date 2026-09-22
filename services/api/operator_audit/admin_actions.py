@@ -73,9 +73,7 @@ def _persisted_tailtag_user(request: HttpRequest) -> User | None:
     user = getattr(request, "user", None)
     if not isinstance(user, User):
         return None
-    if not User.objects.filter(pk=user.pk).exists():
-        return None
-    return user
+    return User.objects.filter(pk=user.pk).first()
 
 
 def execute_bound_operator_transition[T](
@@ -107,6 +105,8 @@ def run_sensitive_admin_attempt(
     rejected_exceptions: tuple[type[Exception], ...] = (),
 ) -> HttpResponse:
     """Authorize, execute, and durably classify one sensitive admin POST."""
+    if hasattr(request, _ATTEMPT_ATTRIBUTE):
+        raise _RejectedOperatorAttempt
     if request.method != "POST":
         raise PermissionDenied
 
@@ -154,4 +154,5 @@ def run_sensitive_admin_attempt(
                 _log_failed_attempt(attempt)
             raise
     finally:
-        delattr(request, _ATTEMPT_ATTRIBUTE)
+        if getattr(request, _ATTEMPT_ATTRIBUTE, None) is attempt:
+            delattr(request, _ATTEMPT_ATTRIBUTE)
