@@ -18,6 +18,7 @@ from accounts.models import User
 from fursuits.models import Fursuit
 from fursuits.normalization import normalize_fursuit_name
 from media import service as media_service
+from operator_audit.services import OperatorTransition
 from profiles.eligibility import is_participation_eligible
 from profiles.models import PlayerProfile
 
@@ -48,12 +49,14 @@ def get_owned_fursuit(user: User, fursuit_id: int) -> Fursuit:
     return Fursuit.objects.get(pk=fursuit_id, owner=user)
 
 
-def set_fursuit_enabled(*, fursuit_id: int, is_enabled: bool) -> Fursuit:
+def set_fursuit_enabled(
+    *, fursuit_id: int, is_enabled: bool
+) -> OperatorTransition[Fursuit]:
     """Set operator-controlled fursuit enablement transactionally."""
     with transaction.atomic():
         fursuit = Fursuit.objects.select_for_update().get(pk=fursuit_id)
         if fursuit.is_enabled == is_enabled:
-            return fursuit
+            return OperatorTransition(value=fursuit, changed=False)
         now = timezone.now()
         if not is_enabled:
             # The fursuit lock precedes activations, credentials, and sessions.
@@ -64,7 +67,7 @@ def set_fursuit_enabled(*, fursuit_id: int, is_enabled: bool) -> Fursuit:
             terminate_for_locked_activations(activations, now=now)
         fursuit.is_enabled = is_enabled
         fursuit.save(update_fields=["is_enabled", "updated_at"])
-        return fursuit
+        return OperatorTransition(value=fursuit, changed=True)
 
 
 def create_fursuit(user: User, *, name: str, photo: File[bytes]) -> Fursuit:

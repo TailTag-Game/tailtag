@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from django import forms
 from django.contrib import admin
@@ -12,6 +12,13 @@ from django.db.models import Exists, OuterRef, QuerySet
 from django.forms import ModelForm
 from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
+
+from accounts.models import User
+from operator_audit.admin_actions import (
+    execute_bound_operator_transition,
+    run_sensitive_admin_attempt,
+)
+from operator_audit.models import OperatorAction, OperatorTargetType
 
 from .catch_credential_protocol import CATCH_CREDENTIAL_TOKEN_PATTERN
 from .catch_credentials import revoke_catch_credential_as_operator
@@ -49,9 +56,28 @@ else:
     FursuitCatchSessionAdminBase = admin.ModelAdmin
 
 
+def _has_permission(request: HttpRequest, permission: str) -> bool:
+    user = cast(User, request.user)
+    return user.is_staff and user.has_perm(permission)
+
+
+class ConventionAdminForm(forms.ModelForm):  # pyright: ignore[reportMissingTypeArgument]
+    class Meta:
+        model = Convention
+        fields = "__all__"
+
+    def clean_status(self) -> str:
+        status = self.cleaned_data["status"]
+        if self.instance.pk is None and status == ConventionStatus.ACTIVE.value:  # pyright: ignore[reportUnknownMemberType]
+            raise forms.ValidationError("Conventions cannot be created playable.")
+        return status
+
+
 @admin.register(Convention)
 class ConventionAdmin(ConventionAdminBase):
     """Admin interface for operator creation, editing, and lifecycle management."""
+
+    form = ConventionAdminForm
 
     list_display = (
         "id",
@@ -95,6 +121,75 @@ class ConventionAdmin(ConventionAdminBase):
         ),
     )
 
+    def get_readonly_fields(
+        self, request: HttpRequest, obj: Convention | None = None
+    ) -> tuple[str, ...]:
+        if (
+            obj is not None
+            and _has_permission(request, "conventions.set_convention_playability")
+            and not _has_permission(request, "conventions.change_convention")
+        ):
+            return (*self.readonly_fields, "name", "start_date", "end_date")
+        return tuple(self.readonly_fields)
+
+    def has_change_permission(
+        self, request: HttpRequest, obj: Convention | None = None
+    ) -> bool:
+        return _has_permission(
+            request, "conventions.change_convention"
+        ) or _has_permission(request, "conventions.set_convention_playability")
+
+    def has_view_permission(
+        self, request: HttpRequest, obj: Convention | None = None
+    ) -> bool:
+        return self.has_change_permission(request, obj) or super().has_view_permission(
+            request, obj
+        )
+
+    def changeform_view(
+        self,
+        request: HttpRequest,
+        object_id: str | None = None,
+        form_url: str = "",
+        extra_context: dict[str, object] | None = None,
+    ) -> HttpResponse:
+        if request.method != "POST" or object_id is None:
+            return super().changeform_view(request, object_id, form_url, extra_context)
+        convention = Convention.objects.filter(pk=int(object_id)).first()
+        submitted_status = request.POST.get("status")
+
+        def handler() -> HttpResponse:
+            if (
+                convention is not None
+                and _has_permission(request, "conventions.set_convention_playability")
+                and not _has_permission(request, "conventions.change_convention")
+                and any(
+                    request.POST.get(field) != str(getattr(convention, field))
+                    for field in ("name", "start_date", "end_date")
+                )
+            ):
+                raise PermissionDenied
+            return super(ConventionAdmin, self).changeform_view(
+                request, object_id, form_url, extra_context
+            )
+
+        if (
+            convention is None
+            or submitted_status not in ConventionStatus.values
+            or convention.is_playable
+            or submitted_status == ConventionStatus.ACTIVE.value
+        ):
+            return run_sensitive_admin_attempt(
+                request,
+                permission="conventions.set_convention_playability",
+                action=OperatorAction.SET_CONVENTION_PLAYABILITY,
+                target_type=OperatorTargetType.CONVENTION,
+                target_id=int(object_id),
+                handler=handler,
+                rejected_exceptions=(PermissionDenied,),
+            )
+        return super().changeform_view(request, object_id, form_url, extra_context)
+
     def save_model(
         self,
         request: HttpRequest,
@@ -106,14 +201,30 @@ class ConventionAdmin(ConventionAdminBase):
         if not change:
             super().save_model(request, obj, form, change)
             return
-        updated = set_convention_admin_state(
+        if (
+            _has_permission(request, "conventions.set_convention_playability")
+            and not _has_permission(request, "conventions.change_convention")
+            and set(form.changed_data) - {"status"}
+        ):
+            raise PermissionDenied
+        operation = lambda: set_convention_admin_state(
             convention_id=obj.pk,
             name=obj.name,
             status=obj.status,
             start_date=obj.start_date,
             end_date=obj.end_date,
         )
+        if hasattr(request, "_operator_audit_attempt"):
+            updated = execute_bound_operator_transition(request, operation)
+        else:
+            transition = operation()
+            updated = transition.value
         obj.updated_at = updated.updated_at
+
+    def delete_model(self, request: HttpRequest, obj: Convention) -> None:
+        if obj.is_playable:
+            raise PermissionDenied
+        super().delete_model(request, obj)
 
 
 @admin.register(ConventionEnrollment)
@@ -148,18 +259,59 @@ class ConventionEnrollmentAdmin(ConventionEnrollmentAdminBase):
     )
     actions = None
 
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_change_permission(
+        self, request: HttpRequest, obj: ConventionEnrollment | None = None
+    ) -> bool:
+        return False
+
+    def has_delete_permission(
+        self, request: HttpRequest, obj: ConventionEnrollment | None = None
+    ) -> bool:
+        return _has_permission(request, "conventions.remove_convention_enrollment")
+
+    def has_view_permission(
+        self, request: HttpRequest, obj: ConventionEnrollment | None = None
+    ) -> bool:
+        return self.has_delete_permission(request, obj) or super().has_view_permission(
+            request, obj
+        )
+
     def get_readonly_fields(
         self, request: HttpRequest, obj: ConventionEnrollment | None = None
     ) -> tuple[str, ...]:
         """Enrollment identity is immutable after creation."""
         if obj is None:
             return tuple(self.readonly_fields)
-        return (*tuple(self.readonly_fields), "user", "convention")
+        return (*tuple(self.readonly_fields), "user", "convention", "is_active")
 
     def delete_model(self, request: HttpRequest, obj: ConventionEnrollment) -> None:
         """Route per-object removal through its transactional termination seam."""
-        del request
-        remove_convention_enrollment(enrollment_id=obj.pk)
+        execute_bound_operator_transition(
+            request, lambda: remove_convention_enrollment(enrollment_id=obj.pk)
+        )
+
+    def delete_view(
+        self,
+        request: HttpRequest,
+        object_id: str,
+        extra_context: dict[str, object] | None = None,
+    ) -> HttpResponse:
+        if request.method != "POST":
+            return super().delete_view(request, object_id, extra_context)
+        return run_sensitive_admin_attempt(
+            request,
+            permission="conventions.remove_convention_enrollment",
+            action=OperatorAction.REMOVE_CONVENTION_ENROLLMENT,
+            target_type=OperatorTargetType.CONVENTION_ENROLLMENT,
+            target_id=int(object_id),
+            handler=lambda: super(ConventionEnrollmentAdmin, self).delete_view(
+                request, object_id, extra_context
+            ),
+            rejected_exceptions=(PermissionDenied,),
+        )
 
 
 @admin.register(FursuitActivation)
@@ -207,6 +359,46 @@ class FursuitActivationAdmin(FursuitActivationAdminBase):
     ordering = ("fursuit_id", "id")
     actions = None
 
+    def has_change_permission(
+        self, request: HttpRequest, obj: FursuitActivation | None = None
+    ) -> bool:
+        return _has_permission(request, "conventions.deactivate_fursuit_activation")
+
+    def has_view_permission(
+        self, request: HttpRequest, obj: FursuitActivation | None = None
+    ) -> bool:
+        return self.has_change_permission(request, obj) or super().has_view_permission(
+            request, obj
+        )
+
+    def changeform_view(
+        self,
+        request: HttpRequest,
+        object_id: str | None = None,
+        form_url: str = "",
+        extra_context: dict[str, object] | None = None,
+    ) -> HttpResponse:
+        if request.method != "POST" or object_id is None:
+            return super().changeform_view(request, object_id, form_url, extra_context)
+        if (
+            getattr(request.user, "is_superuser", False)
+            and not FursuitActivation.objects.filter(
+                pk=int(object_id), is_active=True
+            ).exists()
+        ):
+            return super().changeform_view(request, object_id, form_url, extra_context)
+        return run_sensitive_admin_attempt(
+            request,
+            permission="conventions.deactivate_fursuit_activation",
+            action=OperatorAction.DEACTIVATE_FURSUIT_ACTIVATION,
+            target_type=OperatorTargetType.FURSUIT_ACTIVATION,
+            target_id=int(object_id),
+            handler=lambda: super(FursuitActivationAdmin, self).changeform_view(
+                request, object_id, form_url, extra_context
+            ),
+            rejected_exceptions=(PermissionDenied,),
+        )
+
     def has_add_permission(self, request: HttpRequest) -> bool:
         """Fursuit participation is selected only through the owner API."""
         return False
@@ -225,7 +417,6 @@ class FursuitActivationAdmin(FursuitActivationAdminBase):
         change: bool,
     ) -> None:
         """Persist only an active-to-inactive transition without broad saves."""
-        del request
         if not change or set(form.changed_data) - {"is_active"}:
             raise PermissionDenied
         if "is_active" not in form.changed_data:
@@ -233,7 +424,12 @@ class FursuitActivationAdmin(FursuitActivationAdminBase):
         if obj.is_active:
             raise PermissionDenied
 
-        updated = deactivate_fursuit_activation_as_operator(activation_id=obj.pk)
+        transition = deactivate_fursuit_activation_as_operator(activation_id=obj.pk)
+        updated = (
+            execute_bound_operator_transition(request, lambda: transition)
+            if hasattr(request, "_operator_audit_attempt")
+            else transition.value
+        )
         obj.is_active = updated.is_active
         obj.deactivated_at = updated.deactivated_at
         obj.updated_at = updated.updated_at
@@ -300,6 +496,46 @@ class FursuitCatchCredentialAdmin(FursuitCatchCredentialAdminBase):
     ordering = ("-created_at", "-id")
     actions = None
 
+    def has_change_permission(
+        self, request: HttpRequest, obj: FursuitCatchCredential | None = None
+    ) -> bool:
+        return _has_permission(request, "conventions.revoke_catch_credential")
+
+    def has_view_permission(
+        self, request: HttpRequest, obj: FursuitCatchCredential | None = None
+    ) -> bool:
+        return self.has_change_permission(request, obj) or super().has_view_permission(
+            request, obj
+        )
+
+    def changeform_view(
+        self,
+        request: HttpRequest,
+        object_id: str | None = None,
+        form_url: str = "",
+        extra_context: dict[str, object] | None = None,
+    ) -> HttpResponse:
+        if request.method != "POST" or object_id is None:
+            return super().changeform_view(request, object_id, form_url, extra_context)
+        if (
+            getattr(request.user, "is_superuser", False)
+            and FursuitCatchCredential.objects.filter(
+                pk=int(object_id), revoked_at__isnull=False
+            ).exists()
+        ):
+            return super().changeform_view(request, object_id, form_url, extra_context)
+        return run_sensitive_admin_attempt(
+            request,
+            permission="conventions.revoke_catch_credential",
+            action=OperatorAction.REVOKE_CATCH_CREDENTIAL,
+            target_type=OperatorTargetType.FURSUIT_CATCH_CREDENTIAL,
+            target_id=int(object_id),
+            handler=lambda: super(FursuitCatchCredentialAdmin, self).changeform_view(
+                request, object_id, form_url, extra_context
+            ),
+            rejected_exceptions=(PermissionDenied,),
+        )
+
     def changelist_view(
         self,
         request: HttpRequest,
@@ -339,12 +575,16 @@ class FursuitCatchCredentialAdmin(FursuitCatchCredentialAdminBase):
         change: bool,
     ) -> None:
         """Delegate the sole permitted mutation to its lock-aware service."""
-        del request
         if not change or set(form.changed_data) - {"revoke"}:
             raise PermissionDenied
         if not form.cleaned_data["revoke"]:
             return
-        updated = revoke_catch_credential_as_operator(obj.pk)
+        transition = revoke_catch_credential_as_operator(obj.pk)
+        updated = (
+            execute_bound_operator_transition(request, lambda: transition)
+            if hasattr(request, "_operator_audit_attempt")
+            else transition.value
+        )
         obj.revoked_at = updated.revoked_at
         obj.revocation_reason = updated.revocation_reason
         obj.updated_at = updated.updated_at
@@ -436,6 +676,46 @@ class FursuitCatchSessionAdmin(FursuitCatchSessionAdminBase):
     ordering = ("-started_at", "-id")
     actions = None
 
+    def has_change_permission(
+        self, request: HttpRequest, obj: FursuitCatchSession | None = None
+    ) -> bool:
+        return _has_permission(request, "conventions.terminate_catch_session")
+
+    def has_view_permission(
+        self, request: HttpRequest, obj: FursuitCatchSession | None = None
+    ) -> bool:
+        return self.has_change_permission(request, obj) or super().has_view_permission(
+            request, obj
+        )
+
+    def changeform_view(
+        self,
+        request: HttpRequest,
+        object_id: str | None = None,
+        form_url: str = "",
+        extra_context: dict[str, object] | None = None,
+    ) -> HttpResponse:
+        if request.method != "POST" or object_id is None:
+            return super().changeform_view(request, object_id, form_url, extra_context)
+        if (
+            getattr(request.user, "is_superuser", False)
+            and FursuitCatchSession.objects.filter(
+                pk=int(object_id), ended_at__isnull=False
+            ).exists()
+        ):
+            return super().changeform_view(request, object_id, form_url, extra_context)
+        return run_sensitive_admin_attempt(
+            request,
+            permission="conventions.terminate_catch_session",
+            action=OperatorAction.TERMINATE_CATCH_SESSION,
+            target_type=OperatorTargetType.FURSUIT_CATCH_SESSION,
+            target_id=int(object_id),
+            handler=lambda: super(FursuitCatchSessionAdmin, self).changeform_view(
+                request, object_id, form_url, extra_context
+            ),
+            rejected_exceptions=(PermissionDenied,),
+        )
+
     def get_queryset(self, request: HttpRequest) -> QuerySet[FursuitCatchSession]:
         effective_session = _effectively_active_sessions(
             FursuitCatchSession.objects.filter(pk=OuterRef("pk"))
@@ -467,12 +747,16 @@ class FursuitCatchSessionAdmin(FursuitCatchSessionAdminBase):
         change: bool,
     ) -> None:
         """Use the session-domain operator transition rather than editing history."""
-        del request
         if not change:
             raise PermissionDenied
         if not form.cleaned_data["terminate"]:
             return
-        updated = terminate_session_as_operator(obj.pk)
+        transition = terminate_session_as_operator(obj.pk)
+        updated = (
+            execute_bound_operator_transition(request, lambda: transition)
+            if hasattr(request, "_operator_audit_attempt")
+            else transition.value
+        )
         obj.ended_at = updated.ended_at
         obj.end_reason = updated.end_reason
         obj.updated_at = updated.updated_at

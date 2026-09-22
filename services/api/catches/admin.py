@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, QueryDict
 
+from accounts.models import User
 from conventions.catch_credential_protocol import CATCH_CREDENTIAL_TOKEN_PATTERN
+from operator_audit.admin_actions import (
+    execute_bound_operator_transition,
+    run_sensitive_admin_attempt,
+)
+from operator_audit.models import OperatorAction, OperatorTargetType
 
 from .models import Catch
 from .services import remove_catch_as_operator
@@ -20,6 +26,11 @@ _SENSITIVE_CREDENTIAL_SEARCH_PATTERN = re.compile(
 )
 REDACTED_CREDENTIAL_SEARCH_QUERY = "__tailtag_admin_credential_query_redacted__"
 _REDACTED_CREDENTIAL_SEARCH_QUERY = REDACTED_CREDENTIAL_SEARCH_QUERY
+
+
+def _has_permission(request: HttpRequest, permission: str) -> bool:
+    user = cast(User, request.user)
+    return user.is_staff and user.has_perm(permission)
 
 
 def _is_sensitive_credential_query(value: str) -> bool:
@@ -125,11 +136,34 @@ class CatchAdmin(CatchAdminBase):
     def has_view_permission(
         self, request: HttpRequest, obj: Catch | None = None
     ) -> bool:
-        return self.has_delete_permission(request, obj)
+        return self.has_delete_permission(request, obj) or _has_permission(
+            request, "catches.view_catch"
+        )
 
     def delete_model(self, request: HttpRequest, obj: Catch) -> None:
-        del request
-        remove_catch_as_operator(catch_id=obj.pk)
+        execute_bound_operator_transition(
+            request, lambda: remove_catch_as_operator(catch_id=obj.pk)
+        )
+
+    def delete_view(
+        self,
+        request: HttpRequest,
+        object_id: str,
+        extra_context: dict[str, object] | None = None,
+    ) -> HttpResponse:
+        if request.method != "POST":
+            return super().delete_view(request, object_id, extra_context)
+        return run_sensitive_admin_attempt(
+            request,
+            permission="catches.delete_catch",
+            action=OperatorAction.REMOVE_CATCH,
+            target_type=OperatorTargetType.CATCH,
+            target_id=int(object_id),
+            handler=lambda: super(CatchAdmin, self).delete_view(
+                request, object_id, extra_context
+            ),
+            rejected_exceptions=(PermissionDenied,),
+        )
 
     def delete_queryset(self, request: HttpRequest, queryset: QuerySet[Catch]) -> None:
         del request, queryset
@@ -141,6 +175,8 @@ class CatchAdmin(CatchAdminBase):
         extra_context: dict[str, object] | None = None,
     ) -> HttpResponse:
         """Sanitize credential-shaped queries via redirect before rendering."""
+        if request.method == "POST":
+            raise PermissionDenied("Bulk catch deletion is not permitted.")
         if _has_sensitive_credential_in_query(request):
             sanitized_query = _build_sanitized_changelist_query(request)
             redirect_url = (

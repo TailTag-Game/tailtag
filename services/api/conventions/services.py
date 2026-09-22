@@ -16,6 +16,7 @@ from conventions.models import (
     FursuitActivation,
 )
 from fursuits.models import Fursuit
+from operator_audit.services import OperatorTransition
 from profiles.eligibility import is_participation_eligible
 from profiles.models import PlayerProfile
 
@@ -208,7 +209,7 @@ def _deactivate_fursuit(
 
 def deactivate_fursuit_activation_as_operator(
     *, activation_id: int
-) -> FursuitActivation:
+) -> OperatorTransition[FursuitActivation]:
     """Deactivate one durable activation through the operator lifecycle seam."""
     with transaction.atomic():
         candidate = FursuitActivation.objects.filter(pk=activation_id).first()
@@ -217,7 +218,7 @@ def deactivate_fursuit_activation_as_operator(
         fursuit = Fursuit.objects.select_for_update().get(pk=candidate.fursuit_id)
         activation = FursuitActivation.objects.select_for_update().get(pk=candidate.pk)
         if not activation.is_active:
-            return activation
+            return OperatorTransition(value=activation, changed=False)
         now = timezone.now()
         from conventions.catch_credentials import revoke_for_activation_deactivation
         from conventions.catch_sessions import terminate_for_activation_deactivation
@@ -229,10 +230,10 @@ def deactivate_fursuit_activation_as_operator(
         activation.save(update_fields=["is_active", "deactivated_at", "updated_at"])
         # Keep the fursuit lock until the state transition commits.
         del fursuit
-        return activation
+        return OperatorTransition(value=activation, changed=True)
 
 
-def remove_convention_enrollment(*, enrollment_id: int) -> None:
+def remove_convention_enrollment(*, enrollment_id: int) -> OperatorTransition[None]:
     """Delete an enrollment and terminally end its affected catch sessions."""
     candidate = (
         ConventionEnrollment.objects.filter(pk=enrollment_id)
@@ -240,7 +241,7 @@ def remove_convention_enrollment(*, enrollment_id: int) -> None:
         .first()
     )
     if candidate is None:
-        return
+        return OperatorTransition(value=None, changed=False)
     with transaction.atomic():
         # Profile is optional for legacy/incomplete users but, when present, is first.
         profile = (
@@ -259,7 +260,7 @@ def remove_convention_enrollment(*, enrollment_id: int) -> None:
             .first()
         )
         if enrollment is None:
-            return
+            return OperatorTransition(value=None, changed=False)
         now = timezone.now()
         from conventions.catch_credentials import revoke_for_enrollment_removal
         from conventions.catch_sessions import terminate_for_locked_activations
@@ -269,6 +270,7 @@ def remove_convention_enrollment(*, enrollment_id: int) -> None:
         enrollment.delete()
         # Keep optional upstream locks until commit.
         del profile
+        return OperatorTransition(value=None, changed=True)
 
 
 def set_convention_admin_state(
@@ -278,10 +280,18 @@ def set_convention_admin_state(
     status: str,
     start_date: datetime.date,
     end_date: datetime.date,
-) -> Convention:
+) -> OperatorTransition[Convention]:
     """Persist an admin Convention edit and end sessions on loss of playability."""
     with transaction.atomic():
         convention = Convention.objects.select_for_update().get(pk=convention_id)
+        changed = (
+            convention.name != name
+            or convention.status != status
+            or convention.start_date != start_date
+            or convention.end_date != end_date
+        )
+        if not changed:
+            return OperatorTransition(value=convention, changed=False)
         became_nonplayable = (
             convention.is_playable and status != ConventionStatus.ACTIVE.value
         )
@@ -299,7 +309,7 @@ def set_convention_admin_state(
         convention.save(
             update_fields=["name", "status", "start_date", "end_date", "updated_at"]
         )
-        return convention
+        return OperatorTransition(value=convention, changed=True)
 
 
 def _is_fursuit_activation_unique_violation(error: IntegrityError) -> bool:

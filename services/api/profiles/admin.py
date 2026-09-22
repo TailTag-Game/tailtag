@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
 from django.forms import ModelForm
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponse
 
+from accounts.models import User
+from operator_audit.admin_actions import (
+    execute_bound_operator_transition,
+    run_sensitive_admin_attempt,
+)
+from operator_audit.models import OperatorAction, OperatorTargetType
 from profiles.models import PlayerProfile
 from profiles.services import set_profile_enabled
 
@@ -16,6 +22,11 @@ if TYPE_CHECKING:
     PlayerProfileAdminBase = admin.ModelAdmin[PlayerProfile]
 else:
     PlayerProfileAdminBase = admin.ModelAdmin
+
+
+def _has_permission(request: HttpRequest, permission: str) -> bool:
+    user = cast(User, request.user)
+    return user.is_staff and user.has_perm(permission)
 
 
 @admin.register(PlayerProfile)
@@ -75,6 +86,39 @@ class PlayerProfileAdmin(PlayerProfileAdminBase):
         """Profile deletion is outside the V0 administrative contract."""
         return False
 
+    def has_change_permission(
+        self, request: HttpRequest, obj: PlayerProfile | None = None
+    ) -> bool:
+        return _has_permission(request, "profiles.set_profile_enabled")
+
+    def has_view_permission(
+        self, request: HttpRequest, obj: PlayerProfile | None = None
+    ) -> bool:
+        return self.has_change_permission(request, obj) or super().has_view_permission(
+            request, obj
+        )
+
+    def changeform_view(
+        self,
+        request: HttpRequest,
+        object_id: str | None = None,
+        form_url: str = "",
+        extra_context: dict[str, object] | None = None,
+    ) -> HttpResponse:
+        if request.method != "POST" or object_id is None:
+            return super().changeform_view(request, object_id, form_url, extra_context)
+        return run_sensitive_admin_attempt(
+            request,
+            permission="profiles.set_profile_enabled",
+            action=OperatorAction.SET_PROFILE_ENABLED,
+            target_type=OperatorTargetType.PLAYER_PROFILE,
+            target_id=int(object_id),
+            handler=lambda: super(PlayerProfileAdmin, self).changeform_view(
+                request, object_id, form_url, extra_context
+            ),
+            rejected_exceptions=(PermissionDenied,),
+        )
+
     def save_model(
         self,
         request: HttpRequest,
@@ -83,10 +127,12 @@ class PlayerProfileAdmin(PlayerProfileAdminBase):
         change: bool,
     ) -> None:
         """Route the sole editable field through its transactional lifecycle seam."""
-        del request
         if not change or set(form.changed_data) - {"is_enabled"}:
             raise PermissionDenied
         if "is_enabled" not in form.changed_data:
             return
-        updated = set_profile_enabled(profile_id=obj.pk, is_enabled=obj.is_enabled)
+        updated = execute_bound_operator_transition(
+            request,
+            lambda: set_profile_enabled(profile_id=obj.pk, is_enabled=obj.is_enabled),
+        )
         obj.is_enabled = updated.is_enabled
