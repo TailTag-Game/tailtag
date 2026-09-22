@@ -126,12 +126,6 @@ class FursuitAdmin(FursuitAdminBase):
     ) -> HttpResponse:
         if request.method != "POST" or object_id is None:
             return super().changeform_view(request, object_id, form_url, extra_context)
-        if (
-            getattr(request.user, "is_superuser", False)
-            and Fursuit.objects.filter(pk=int(object_id), is_enabled=False).exists()
-            and not request.POST.get("is_enabled")
-        ):
-            return super().changeform_view(request, object_id, form_url, extra_context)
         return run_sensitive_admin_attempt(
             request,
             permission="fursuits.set_fursuit_enabled",

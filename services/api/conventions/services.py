@@ -41,6 +41,10 @@ class FursuitActivationNotEligibleError(Exception):
     """The requested fursuit activation is blocked by current upstream state."""
 
 
+class ConventionPlayabilityBoundaryError(Exception):
+    """The locked Convention no longer matches the approved admin boundary."""
+
+
 def require_convention_participation_eligible(user: User) -> None:
     """Verify the user has completed onboarding and has an enabled profile."""
     if not is_participation_eligible(user):
@@ -280,10 +284,21 @@ def set_convention_admin_state(
     status: str,
     start_date: datetime.date,
     end_date: datetime.date,
+    expected_is_playable: bool | None = None,
+    allow_playability_transition: bool = True,
 ) -> OperatorTransition[Convention]:
     """Persist an admin Convention edit and end sessions on loss of playability."""
     with transaction.atomic():
         convention = Convention.objects.select_for_update().get(pk=convention_id)
+        submitted_is_playable = status == ConventionStatus.ACTIVE.value
+        if (
+            expected_is_playable is not None
+            and convention.is_playable != expected_is_playable
+        ) or (
+            not allow_playability_transition
+            and convention.is_playable != submitted_is_playable
+        ):
+            raise ConventionPlayabilityBoundaryError()
         changed = (
             convention.name != name
             or convention.status != status
@@ -292,9 +307,7 @@ def set_convention_admin_state(
         )
         if not changed:
             return OperatorTransition(value=convention, changed=False)
-        became_nonplayable = (
-            convention.is_playable and status != ConventionStatus.ACTIVE.value
-        )
+        became_nonplayable = convention.is_playable and not submitted_is_playable
         now = timezone.now()
         if became_nonplayable:
             from conventions.catch_credentials import revoke_for_convention_nonplayable

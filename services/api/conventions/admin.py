@@ -32,6 +32,7 @@ from .models import (
     FursuitCatchSession,
 )
 from .services import (
+    ConventionPlayabilityBoundaryError,
     deactivate_fursuit_activation_as_operator,
     remove_convention_enrollment,
     set_convention_admin_state,
@@ -157,38 +158,52 @@ class ConventionAdmin(ConventionAdminBase):
             return super().changeform_view(request, object_id, form_url, extra_context)
         convention = Convention.objects.filter(pk=int(object_id)).first()
         submitted_status = request.POST.get("status")
+        if convention is None or submitted_status not in ConventionStatus.values:
+            return super().changeform_view(request, object_id, form_url, extra_context)
+        crosses = convention.is_playable != (
+            submitted_status == ConventionStatus.ACTIVE.value
+        )
+        generic = _has_permission(request, "conventions.change_convention")
+        control = _has_permission(request, "conventions.set_convention_playability")
+        if not generic and control and not crosses:
+            raise PermissionDenied
 
-        def handler() -> HttpResponse:
+        def render() -> HttpResponse:
             if (
-                convention is not None
-                and _has_permission(request, "conventions.set_convention_playability")
-                and not _has_permission(request, "conventions.change_convention")
+                control
+                and not generic
                 and any(
                     request.POST.get(field) != str(getattr(convention, field))
                     for field in ("name", "start_date", "end_date")
                 )
             ):
                 raise PermissionDenied
-            return super(ConventionAdmin, self).changeform_view(
-                request, object_id, form_url, extra_context
+            request.__dict__["_convention_expected_is_playable"] = (
+                convention.is_playable
             )
+            request.__dict__["_convention_allow_playability_transition"] = crosses
+            try:
+                return super(ConventionAdmin, self).changeform_view(
+                    request, object_id, form_url, extra_context
+                )
+            finally:
+                delattr(request, "_convention_expected_is_playable")
+                delattr(request, "_convention_allow_playability_transition")
 
-        if (
-            convention is None
-            or submitted_status not in ConventionStatus.values
-            or convention.is_playable
-            or submitted_status == ConventionStatus.ACTIVE.value
-        ):
+        if crosses:
             return run_sensitive_admin_attempt(
                 request,
                 permission="conventions.set_convention_playability",
                 action=OperatorAction.SET_CONVENTION_PLAYABILITY,
                 target_type=OperatorTargetType.CONVENTION,
                 target_id=int(object_id),
-                handler=handler,
-                rejected_exceptions=(PermissionDenied,),
+                handler=render,
+                rejected_exceptions=(
+                    PermissionDenied,
+                    ConventionPlayabilityBoundaryError,
+                ),
             )
-        return super().changeform_view(request, object_id, form_url, extra_context)
+        return render()
 
     def save_model(
         self,
@@ -213,18 +228,32 @@ class ConventionAdmin(ConventionAdminBase):
             status=obj.status,
             start_date=obj.start_date,
             end_date=obj.end_date,
+            expected_is_playable=cast(
+                bool, request.__dict__["_convention_expected_is_playable"]
+            ),
+            allow_playability_transition=cast(
+                bool, request.__dict__["_convention_allow_playability_transition"]
+            ),
         )
-        if hasattr(request, "_operator_audit_attempt"):
-            updated = execute_bound_operator_transition(request, operation)
-        else:
-            transition = operation()
-            updated = transition.value
+        try:
+            if hasattr(request, "_operator_audit_attempt"):
+                updated = execute_bound_operator_transition(request, operation)
+            else:
+                updated = operation().value
+        except ConventionPlayabilityBoundaryError as error:
+            raise PermissionDenied from error
         obj.updated_at = updated.updated_at
 
     def delete_model(self, request: HttpRequest, obj: Convention) -> None:
         if obj.is_playable:
             raise PermissionDenied
         super().delete_model(request, obj)
+
+    def delete_queryset(
+        self, request: HttpRequest, queryset: QuerySet[Convention]
+    ) -> None:
+        del request, queryset
+        raise PermissionDenied("Bulk Convention deletion is not permitted.")
 
 
 @admin.register(ConventionEnrollment)
@@ -380,13 +409,6 @@ class FursuitActivationAdmin(FursuitActivationAdminBase):
     ) -> HttpResponse:
         if request.method != "POST" or object_id is None:
             return super().changeform_view(request, object_id, form_url, extra_context)
-        if (
-            getattr(request.user, "is_superuser", False)
-            and not FursuitActivation.objects.filter(
-                pk=int(object_id), is_active=True
-            ).exists()
-        ):
-            return super().changeform_view(request, object_id, form_url, extra_context)
         return run_sensitive_admin_attempt(
             request,
             permission="conventions.deactivate_fursuit_activation",
@@ -516,13 +538,6 @@ class FursuitCatchCredentialAdmin(FursuitCatchCredentialAdminBase):
         extra_context: dict[str, object] | None = None,
     ) -> HttpResponse:
         if request.method != "POST" or object_id is None:
-            return super().changeform_view(request, object_id, form_url, extra_context)
-        if (
-            getattr(request.user, "is_superuser", False)
-            and FursuitCatchCredential.objects.filter(
-                pk=int(object_id), revoked_at__isnull=False
-            ).exists()
-        ):
             return super().changeform_view(request, object_id, form_url, extra_context)
         return run_sensitive_admin_attempt(
             request,
@@ -696,13 +711,6 @@ class FursuitCatchSessionAdmin(FursuitCatchSessionAdminBase):
         extra_context: dict[str, object] | None = None,
     ) -> HttpResponse:
         if request.method != "POST" or object_id is None:
-            return super().changeform_view(request, object_id, form_url, extra_context)
-        if (
-            getattr(request.user, "is_superuser", False)
-            and FursuitCatchSession.objects.filter(
-                pk=int(object_id), ended_at__isnull=False
-            ).exists()
-        ):
             return super().changeform_view(request, object_id, form_url, extra_context)
         return run_sensitive_admin_attempt(
             request,
