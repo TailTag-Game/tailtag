@@ -596,7 +596,7 @@ provisioning and permission boundary.
 | 3 | An explicitly permitted non-superuser operator succeeds on one representative sensitive operation. |
 | 4 | An operator permitted for one action cannot cross a different sensitive permission boundary. |
 | 5 | An emergency superuser succeeds and the durable record has `actor_class=emergency_superuser`. |
-| 6 | A successful action creates exactly one sanitized durable audit row containing action, actor application ID, actor class, target type/ID, `succeeded`, and time. |
+| 6 | A successful action creates exactly one sanitized durable audit row containing action, actor class, target type/ID, `succeeded`, and time. |
 | 7 | An unauthorized or denied mutation creates exactly one sanitized `denied` audit row. |
 | 8 | A profile or fursuit disable cascade preserves transactional data-integrity behavior and creates exactly one top-level audit row. |
 | 9 | Catch create/add, edit, bulk, and every alternate gameplay authority or award path remain unavailable. |
@@ -605,12 +605,16 @@ Use #204 to restore/reset disposable synthetic domain state where appropriate;
 it does not delete retained audit evidence. Do not reset an audit row away as
 part of this proof.
 
+The protected durable database audit record contains the actor application/Django
+user ID required by the audit contract. It is not a shareable evidence artifact.
+
 ### Sanitized evidence template
 
-Record only: matrix case, action, actor application ID, actor class, target type/ID,
-outcome (for example, `succeeded`), time, and a fixed pass/fail result.
-Do not record credentials, provider identifiers, emails, tokens, QR payloads,
-private URLs, raw request bodies, or raw logs.
+Record only: matrix case, action, actor class, target type/ID, outcome (for
+example, `succeeded`), time, and a fixed pass/fail result. Sanitized evidence
+must not record actor application/Django user ID. Do not record credentials,
+provider identifiers, emails, tokens, QR payloads, private URLs, raw request
+bodies, or raw logs.
 
 ## Safety and evidence handling
 

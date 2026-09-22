@@ -18,8 +18,8 @@ Catches cannot be manually created or edited through the Django administration i
 
 Access to the Catch administration interface is restricted to authorized deletion operators:
 
-- **Staff and superuser authorization:** Access requires an authenticated staff user (`is_staff=True`) with explicit `catches.delete_catch` model permission or superuser status.
-- **Proportional inspection:** Catch inspection requires `catches.view_catch` or `catches.delete_catch`. The latter is the explicit individual correction authority, not a generic model-permission substitution; a read-only viewer cannot remove a Catch.
+- **Staff and superuser authorization:** Access requires an authenticated staff user (`is_staff=True`) with Django's built-in `catches.delete_catch` model permission, preserved solely as the explicit Catch correction authority, or superuser status.
+- **Proportional inspection:** Catch inspection requires `catches.view_catch` or `catches.delete_catch`. The latter is not a generic substitution for another sensitive action; a read-only viewer cannot remove a Catch.
 - **Player access barred:** Non-staff player accounts and unauthenticated requests are denied access and redirected to login.
 
 ## Safe search and inspection workflows

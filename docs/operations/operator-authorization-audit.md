@@ -15,8 +15,9 @@ prerequisite for a sensitive operation. Generic model permissions never
 substitute for or authorize sensitive operations. The listed operation
 permission is independently sufficient for its action; it does not require
 generic model permission. The Catch exception is intentional:
-`catches.delete_catch` is not a generic model permission; it is the explicit
-correction action authority.
+`catches.delete_catch` is Django's built-in model permission, preserved solely
+as the explicit Catch correction authority. It is not a generic substitution
+for other sensitive actions.
 
 | Audit action | Target | Operation and inspection boundary |
 | --- | --- | --- |
