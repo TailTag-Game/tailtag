@@ -115,6 +115,8 @@ class Command(BaseCommand):
         """Create the dedicated operator, recovering safely from an insert race."""
         try:
             with transaction.atomic():
+                if Group.objects.filter(name=OPERATOR_GROUP_NAME).exists():
+                    raise CommandError("Existing group cannot be used as an operator.")
                 operator = User(
                     clerk_user_id=operator_id,
                     is_staff=True,
@@ -122,7 +124,7 @@ class Command(BaseCommand):
                 )
                 operator.set_password(password)
                 operator.save()
-                self._set_operator_group(operator, permissions)
+                self._create_operator_group(operator, permissions)
         except IntegrityError:
             operator = (
                 User.objects.select_for_update()
@@ -169,13 +171,13 @@ class Command(BaseCommand):
         """Return Django's stable app-label permission name."""
         return f"{permission.content_type.app_label}.{permission.codename}"  # pyright: ignore[reportUnknownMemberType]
 
-    def _set_operator_group(
+    def _create_operator_group(
         self, operator: User, permissions: Iterable[Permission]
     ) -> None:
-        """Attach the created operator to its sole exact-permission group."""
-        group, _ = Group.objects.get_or_create(name=OPERATOR_GROUP_NAME)
+        """Create and attach the dedicated group for a newly created operator."""
+        group = Group.objects.create(name=OPERATOR_GROUP_NAME)
         group.permissions.set(permissions)  # pyright: ignore[reportUnknownMemberType]
-        operator.groups.set((group,))  # pyright: ignore[reportUnknownMemberType]
+        operator.groups.add(group)  # pyright: ignore[reportUnknownMemberType]
 
     def _is_exact_managed_operator(
         self, operator: User, permission_ids: set[int]
@@ -198,12 +200,16 @@ class Command(BaseCommand):
             != OPERATOR_GROUP_NAME
         ):
             return False
-        return (
+        if (
             set(
                 groups[0].permissions.values_list("pk", flat=True)  # pyright: ignore[reportUnknownMemberType]
             )
-            == permission_ids
-        )
+            != permission_ids
+        ):
+            return False
+        return set(
+            User.objects.filter(groups=groups[0]).values_list("pk", flat=True)
+        ) == {operator.pk}
 
     @staticmethod
     def _validate_password(password: str, user: User) -> None:
