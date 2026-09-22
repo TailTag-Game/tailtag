@@ -482,6 +482,163 @@ def test_railway_operator_runbook_rejects_plausible_unsafe_mutants() -> None:
             assert_safe_operator_runbook(mutant)
 
 
+STAGING_OPERATOR_COMMAND = (
+    "python manage.py bootstrap_staging_operator --settings=config.settings.production"
+)
+STAGING_OPERATOR_PROCEDURE = (
+    f"railway ssh --service api --environment staging\n{STAGING_OPERATOR_COMMAND}"
+)
+STAGING_OPERATOR_CONFIRMATION = "bootstrap Railway Staging operator"
+OPERATOR_AUDIT_RUNBOOK = (
+    REPOSITORY_ROOT / "docs/operations/operator-authorization-audit.md"
+)
+SENSITIVE_OPERATOR_PERMISSIONS = (
+    "catches.delete_catch",
+    "conventions.revoke_catch_credential",
+    "conventions.terminate_catch_session",
+    "conventions.deactivate_fursuit_activation",
+    "conventions.remove_convention_enrollment",
+    "profiles.set_profile_enabled",
+    "fursuits.set_fursuit_enabled",
+    "conventions.set_convention_playability",
+)
+
+
+def assert_safe_staging_operator_runbook(runbook: str) -> None:
+    """Require the one guarded, interactive Staging provisioning procedure."""
+    normalized_runbook = " ".join(runbook.split())
+    command_lines = [
+        line for line in runbook.splitlines() if "bootstrap_staging_operator" in line
+    ]
+    assert command_lines == [STAGING_OPERATOR_COMMAND]
+    command_blocks = re.findall(
+        r"(?ms)^(?P<delimiter>`{3}|~{3})[^\n]*\n"
+        r"(?P<body>.*?)^(?P=delimiter)[ \t]*$",
+        runbook,
+    )
+    operator_command_blocks = [
+        body.strip()
+        for _, body in command_blocks
+        if "bootstrap_staging_operator" in body
+    ]
+    assert operator_command_blocks == [STAGING_OPERATOR_PROCEDURE]
+
+    assert "RAILWAY_ENVIRONMENT_NAME=staging" in runbook
+    assert "RAILWAY_SERVICE_NAME=api" in runbook
+    assert "hidden interactive" in normalized_runbook
+    assert STAGING_OPERATOR_CONFIRMATION in runbook
+    assert re.search(
+        r"(?i)never.{0,120}(?:credential|identifier|password).{0,120}"
+        r"(?:command argument|environment variable)",
+        normalized_runbook,
+    )
+    assert re.search(
+        r"(?i)(?:do not|never).{0,120}automatically.{0,120}"
+        r"(?:build|pre-deploy|startup|health check|gunicorn)",
+        normalized_runbook,
+    )
+
+
+def test_staging_operator_documentation_defines_the_guarded_provisioning_path() -> None:
+    """AC-11: Staging provisioning is exact, interactive, and target-bound."""
+    runbook = OPERATOR_AUDIT_RUNBOOK.read_text()
+
+    assert_safe_staging_operator_runbook(runbook)
+    normalized_runbook = " ".join(runbook.split())
+    assert "TailTag Field Beta Operators" in runbook
+    for permission in SENSITIVE_OPERATOR_PERMISSIONS:
+        assert permission in runbook
+    assert re.search(
+        r"(?i)normal operator.{0,180}explicit.{0,80}permission",
+        normalized_runbook,
+    )
+    assert re.search(
+        r"(?i)superuser.{0,180}emergency-only",
+        normalized_runbook,
+    )
+
+
+def test_operator_audit_documentation_defines_safe_durable_evidence() -> None:
+    """AC-11: evidence uses the durable audit record, not framework/log history."""
+    runbook = OPERATOR_AUDIT_RUNBOOK.read_text()
+    normalized_runbook = " ".join(runbook.split())
+
+    assert "OperatorAuditEvent" in runbook
+    assert re.search(r"(?i)durable.{0,100}database", normalized_runbook)
+    assert re.search(r"(?i)LogEntry.{0,180}not.{0,80}authoritative", normalized_runbook)
+    assert re.search(r"(?i)no.{0,80}audit.{0,80}viewer", normalized_runbook)
+    for outcome in ("succeeded", "denied", "rejected", "failed"):
+        assert f"`{outcome}`" in runbook
+    for prohibited_value in (
+        "provider identifiers",
+        "emails",
+        "credentials",
+        "tokens",
+        "raw request bodies",
+        "broad object snapshots",
+    ):
+        assert prohibited_value in normalized_runbook
+    assert "#204" in runbook
+    assert re.search(
+        r"(?i)(?:retain|retention).{0,180}(?:no automatic|not automatically)",
+        normalized_runbook,
+    )
+    assert "catastrophic database failure" in normalized_runbook
+
+
+def test_existing_operator_docs_link_the_staging_procedure_and_matrix() -> None:
+    """AC-11: Catch, API, and Staging docs retain the shared operational boundary."""
+    catch_administration = (
+        REPOSITORY_ROOT / "docs/operations/catch-administration.md"
+    ).read_text()
+    readme = (SERVICE_ROOT / "README.md").read_text()
+    staging = (REPOSITORY_ROOT / "docs/development/staging.md").read_text()
+
+    assert "catches.delete_catch" in catch_administration
+    assert "OperatorAuditEvent" in catch_administration
+    assert "catches.view_catch" in catch_administration
+    assert re.search(r"(?i)usable local password.{0,100}is_staff", readme)
+    assert "operator-authorization-audit.md" in readme
+    assert "operator-authorization-audit.md" in staging
+    normalized_staging = " ".join(staging.split())
+    assert "disposable synthetic records" in normalized_staging
+    assert "separate explicit authorization" in normalized_staging
+    for acceptance_case in (
+        "ordinary player",
+        "is_staff=True",
+        "non-superuser operator",
+        "emergency_superuser",
+        "denied",
+        "cascade",
+        "Catch add/edit/bulk",
+    ):
+        assert acceptance_case in staging
+
+
+def test_staging_operator_runbook_rejects_unsafe_documentation_mutants() -> None:
+    """AC-11: docs must reject wrong target, noninteractive, and unsafe procedures."""
+    runbook = OPERATOR_AUDIT_RUNBOOK.read_text()
+    unsafe_mutants = (
+        runbook.replace("--environment staging", "--environment development", 1),
+        runbook.replace(
+            "RAILWAY_ENVIRONMENT_NAME=staging",
+            "RAILWAY_ENVIRONMENT_NAME=development",
+            1,
+        ),
+        runbook.replace(STAGING_OPERATOR_CONFIRMATION, "confirm operator", 1),
+        runbook.replace(
+            STAGING_OPERATOR_COMMAND,
+            f"{STAGING_OPERATOR_COMMAND} --password=not-allowed",
+            1,
+        ),
+    )
+
+    for mutant in unsafe_mutants:
+        assert mutant != runbook
+        with pytest.raises(AssertionError):
+            assert_safe_staging_operator_runbook(mutant)
+
+
 def test_api_workflow_permissions_reject_effective_escalation() -> None:
     """A write-capable top-level or API-job permission is never a valid contract."""
     workflow = (REPOSITORY_ROOT / ".github/workflows/api.yml").read_text()
