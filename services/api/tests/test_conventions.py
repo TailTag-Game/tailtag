@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 from collections.abc import Mapping
 from typing import Any, cast
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -671,3 +672,97 @@ def test_conventions_openapi_schema_contract(client: Client) -> None:
         "end_date",
     }
     assert "404" in detail_op["responses"]
+
+
+@pytest.mark.django_db
+def test_convention_active_to_non_playable_requires_sensitive_permission() -> None:
+    convention = _new_non_playable_convention()
+    client = Client()
+    client.force_login(
+        User.objects.create_superuser("convention_reverse_seed", password="pw")
+    )
+    url = reverse("admin:conventions_convention_change", args=(convention.pk,))
+    assert (
+        client.post(
+            url, _convention_post_data(convention, status=ConventionStatus.ACTIVE)
+        ).status_code
+        == 302
+    )
+    ordinary = _convention_staff(("conventions", "change_convention"))
+    client.force_login(ordinary)
+    assert (
+        client.post(
+            url, _convention_post_data(convention, status=ConventionStatus.PAUSED)
+        ).status_code
+        == 403
+    )
+    convention.refresh_from_db()
+    assert convention.status == ConventionStatus.ACTIVE
+    _assert_convention_event(
+        ordinary,
+        convention.pk,
+        OperatorActorClass.UNAUTHORIZED_ACTOR,
+        OperatorAuditOutcome.DENIED,
+    )
+    operator = _convention_staff(("conventions", "set_convention_playability"))
+    client.force_login(operator)
+    assert (
+        client.post(
+            url, _convention_post_data(convention, status=ConventionStatus.PAUSED)
+        ).status_code
+        == 302
+    )
+    convention.refresh_from_db()
+    assert convention.status == ConventionStatus.PAUSED
+    _assert_convention_event(
+        operator,
+        convention.pk,
+        OperatorActorClass.OPERATOR,
+        OperatorAuditOutcome.SUCCEEDED,
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("after_service", [False, True])
+def test_convention_playability_failure_rolls_back_and_records_only_failed(
+    after_service: bool,
+) -> None:
+    convention = _new_non_playable_convention()
+    original = (
+        convention.name,
+        convention.status,
+        convention.start_date,
+        convention.end_date,
+    )
+    operator = _convention_staff(("conventions", "set_convention_playability"))
+    client = Client()
+    client.force_login(operator)
+    url = reverse("admin:conventions_convention_change", args=(convention.pk,))
+    target = (
+        "conventions.admin.ConventionAdmin.log_change"
+        if after_service
+        else "conventions.admin.set_convention_admin_state"
+    )
+    with (
+        patch(target, side_effect=RuntimeError("forced convention failure")),
+        pytest.raises(RuntimeError, match="forced convention failure"),
+    ):
+        client.post(
+            url, _convention_post_data(convention, status=ConventionStatus.ACTIVE)
+        )
+    convention.refresh_from_db()
+    assert (
+        convention.name,
+        convention.status,
+        convention.start_date,
+        convention.end_date,
+    ) == original
+    _assert_convention_event(
+        operator,
+        convention.pk,
+        OperatorActorClass.OPERATOR,
+        OperatorAuditOutcome.FAILED,
+    )
+    assert not OperatorAuditEvent.objects.filter(
+        affected_record_id=convention.pk, outcome=OperatorAuditOutcome.SUCCEEDED
+    ).exists()

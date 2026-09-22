@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 from collections.abc import Mapping
 from typing import Any, cast
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -837,3 +838,40 @@ def test_enrollment_openapi_schema_contract(client: Client) -> None:
         "active convention request": active_request_schema.get("additionalProperties"),
     }
     assert closure == {name: False for name in closure}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("after_service", [False, True])
+def test_enrollment_removal_failure_rolls_back_and_records_only_failed(
+    after_service: bool,
+) -> None:
+    """AC-4/5: no removal or success event survives service/after-service failure."""
+    enrollment = ConventionEnrollment.objects.create(
+        user=create_test_user(), convention=_create_convention()
+    )
+    operator = _enrollment_staff(("conventions", "remove_convention_enrollment"))
+    client = Client()
+    client.force_login(operator)
+    url = reverse(
+        "admin:conventions_conventionenrollment_delete", args=(enrollment.pk,)
+    )
+    failure_target = (
+        "conventions.admin.ConventionEnrollmentAdmin.log_deletions"
+        if after_service
+        else "conventions.admin.remove_convention_enrollment"
+    )
+    with (
+        patch(failure_target, side_effect=RuntimeError("forced enrollment failure")),
+        pytest.raises(RuntimeError, match="forced enrollment failure"),
+    ):
+        client.post(url, {"post": "yes"})
+    assert ConventionEnrollment.objects.filter(pk=enrollment.pk).exists()
+    _assert_enrollment_event(
+        operator,
+        enrollment.pk,
+        OperatorActorClass.OPERATOR,
+        OperatorAuditOutcome.FAILED,
+    )
+    assert not OperatorAuditEvent.objects.filter(
+        affected_record_id=enrollment.pk, outcome=OperatorAuditOutcome.SUCCEEDED
+    ).exists()
