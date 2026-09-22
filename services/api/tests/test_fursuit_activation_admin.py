@@ -256,8 +256,10 @@ def test_activation_deactivation_role_matrix_requires_exact_permission() -> None
             OperatorAuditOutcome.SUCCEEDED,
         ),
     )
-    player = create_test_user()
-    player_scenario = create_activation_scenario()
+    player = create_test_user(clerk_user_id="activation_matrix_player")
+    player_scenario = create_activation_scenario(
+        clerk_user_id="activation_matrix_player_target"
+    )
     player_target = FursuitActivation.objects.create(
         fursuit=player_scenario.fursuit,
         convention=player_scenario.convention,
@@ -278,8 +280,10 @@ def test_activation_deactivation_role_matrix_requires_exact_permission() -> None
         affected_record_id=player_target.pk
     ).exists()
 
-    for user, permitted, actor_class, outcome in cases:
-        scenario = create_activation_scenario()
+    for index, (user, permitted, actor_class, outcome) in enumerate(cases):
+        scenario = create_activation_scenario(
+            clerk_user_id=f"activation_matrix_case_{index}"
+        )
         activation = FursuitActivation.objects.create(
             fursuit=scenario.fursuit,
             convention=scenario.convention,

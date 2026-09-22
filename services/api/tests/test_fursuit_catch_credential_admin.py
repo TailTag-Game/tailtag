@@ -388,8 +388,10 @@ def test_credential_revoke_role_matrix_requires_exact_permission_and_preserves_s
             OperatorAuditOutcome.SUCCEEDED,
         ),
     )
-    player = create_test_user()
-    player_scenario = create_credential_scenario()
+    player = create_test_user(clerk_user_id="credential_matrix_player")
+    player_scenario = create_credential_scenario(
+        clerk_user_id="credential_matrix_player_target"
+    )
     player_activation = create_activation_row(
         fursuit=player_scenario.fursuit,
         convention=player_scenario.convention,
@@ -408,12 +410,17 @@ def test_credential_revoke_role_matrix_requires_exact_permission_and_preserves_s
         affected_record_id=player_credential.pk
     ).exists()
 
-    for user, permitted, actor_class, outcome in cases:
-        scenario = create_credential_scenario()
+    for index, (user, permitted, actor_class, outcome) in enumerate(cases):
+        scenario = create_credential_scenario(
+            clerk_user_id=f"credential_matrix_case_{index}"
+        )
         activation = create_activation_row(
             fursuit=scenario.fursuit, convention=scenario.convention, active=True
         )
-        credential = create_credential(activation=activation)
+        credential = create_credential(
+            activation=activation,
+            token=f"credential_matrix_case_{index}".ljust(len(TOKEN_A), "x"),
+        )
         client = Client()
         client.force_login(user)
         _, change, _, _ = _admin_urls(credential)

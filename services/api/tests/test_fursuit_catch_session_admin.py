@@ -232,8 +232,10 @@ def test_session_termination_role_matrix_requires_exact_permission() -> None:
             OperatorAuditOutcome.SUCCEEDED,
         ),
     )
-    player = create_test_user()
-    player_scenario = create_activation_scenario()
+    player = create_test_user(clerk_user_id="session_matrix_player")
+    player_scenario = create_activation_scenario(
+        clerk_user_id="session_matrix_player_target"
+    )
     player_activation = create_activation_row(
         fursuit=player_scenario.fursuit,
         convention=player_scenario.convention,
@@ -254,8 +256,10 @@ def test_session_termination_role_matrix_requires_exact_permission() -> None:
         affected_record_id=player_session.pk
     ).exists()
 
-    for user, permitted, actor_class, outcome in cases:
-        scenario = create_activation_scenario()
+    for index, (user, permitted, actor_class, outcome) in enumerate(cases):
+        scenario = create_activation_scenario(
+            clerk_user_id=f"session_matrix_case_{index}"
+        )
         activation = create_activation_row(
             fursuit=scenario.fursuit, convention=scenario.convention, active=True
         )
