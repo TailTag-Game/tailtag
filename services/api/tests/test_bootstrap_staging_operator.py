@@ -8,6 +8,7 @@ import logging
 import os
 import subprocess
 import sys
+import time
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
@@ -88,15 +89,21 @@ def stored_account_state(user: User) -> dict[str, Any]:
     """Capture account and authorization state to prove a refusal made no mutation."""
     user_values = (
         User.objects.filter(pk=user.pk)
-        .values("id", "clerk_user_id", "last_login", "is_staff", "is_superuser")
+        .values(
+            "id",
+            "clerk_user_id",
+            "last_login",
+            "is_staff",
+            "is_superuser",
+            "password",
+        )
         .get()
     )
     assert isinstance(user_values, dict)
+    password_hash = cast(str, user_values.pop("password"))
     return {
         "user": user_values,
-        "password_fingerprint": hashlib.sha256(
-            stored_password_hash(user).encode()
-        ).hexdigest(),
+        "password_fingerprint": hashlib.sha256(password_hash.encode()).hexdigest(),
         "group_ids": set(
             user.groups.values_list("pk", flat=True)  # pyright: ignore[reportUnknownMemberType]
         ),
@@ -226,6 +233,24 @@ def assert_sensitive_values_are_not_emitted(
         assert all(value not in record for record in log_material)
 
 
+def assert_private_values_absent_from_environment(
+    environment_before: dict[str, str],
+    *private_values: str,
+) -> None:
+    """Permit target selection only; never permit hidden command input in env."""
+    environment_after = dict(os.environ)
+    target_keys = {"RAILWAY_ENVIRONMENT_NAME", "RAILWAY_SERVICE_NAME"}
+    changed_keys = {
+        key
+        for key in environment_before.keys() | environment_after.keys()
+        if environment_before.get(key) != environment_after.get(key)
+    }
+    assert changed_keys <= target_keys
+    for value in private_values:
+        assert all(value not in key for key in environment_after)
+        assert all(value not in item for item in environment_after.values())
+
+
 def invoke_command(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -238,7 +263,8 @@ def invoke_command(
     stderr: StringIO | None = None,
 ) -> tuple[StringIO, StringIO]:
     """Invoke the public Django command through controlled terminal seams."""
-    command_module = importlib.import_module(COMMAND_MODULE)
+    private_inputs = tuple(private_inputs)
+    environment_before = dict(os.environ)
     stdin = stdin or TtyStream()
     stdout = stdout or TtyStream()
     stderr = stderr or TtyStream()
@@ -253,21 +279,27 @@ def invoke_command(
     def confirmation_input(_: str = "") -> str:
         return confirmation
 
-    monkeypatch.setattr(sys, "stdin", stdin)
-    monkeypatch.setattr(sys, "stdout", stdout)
-    monkeypatch.setattr(sys, "stderr", stderr)
-    monkeypatch.setattr("builtins.input", confirmation_input)
-    monkeypatch.setattr(command_module.getpass, "getpass", private_input)
-    if environment is None:
-        monkeypatch.delenv("RAILWAY_ENVIRONMENT_NAME", raising=False)
-    else:
-        monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", environment)
-    if service is None:
-        monkeypatch.delenv("RAILWAY_SERVICE_NAME", raising=False)
-    else:
-        monkeypatch.setenv("RAILWAY_SERVICE_NAME", service)
+    try:
+        command_module = importlib.import_module(COMMAND_MODULE)
+        monkeypatch.setattr(sys, "stdin", stdin)
+        monkeypatch.setattr(sys, "stdout", stdout)
+        monkeypatch.setattr(sys, "stderr", stderr)
+        monkeypatch.setattr("builtins.input", confirmation_input)
+        monkeypatch.setattr(command_module.getpass, "getpass", private_input)
+        if environment is None:
+            monkeypatch.delenv("RAILWAY_ENVIRONMENT_NAME", raising=False)
+        else:
+            monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", environment)
+        if service is None:
+            monkeypatch.delenv("RAILWAY_SERVICE_NAME", raising=False)
+        else:
+            monkeypatch.setenv("RAILWAY_SERVICE_NAME", service)
 
-    call_command(COMMAND_NAME, stdout=stdout, stderr=stderr)
+        call_command(COMMAND_NAME, stdout=stdout, stderr=stderr)
+    finally:
+        assert_private_values_absent_from_environment(
+            environment_before, *private_inputs
+        )
     return stdout, stderr
 
 
@@ -349,6 +381,7 @@ def test_bootstrap_creates_a_dedicated_staging_operator_without_sensitive_output
 @pytest.mark.django_db
 def test_bootstrap_reconciles_only_an_existing_exact_managed_operator(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """AC-2/6/11: rerunning rotates only the exact operator identity in place."""
     operator = create_exact_managed_operator()
@@ -356,6 +389,7 @@ def test_bootstrap_reconciles_only_an_existing_exact_managed_operator(
     old_password_hash = stored_password_hash(operator)
     unrelated = User.objects.create_user("unrelated_staging_reconciliation_user")
     unrelated_before = stored_account_state(unrelated)
+    caplog.set_level(logging.DEBUG)
 
     stdout, stderr = invoke_command(
         monkeypatch,
@@ -378,6 +412,7 @@ def test_bootstrap_reconciles_only_an_existing_exact_managed_operator(
         ROTATED_PASSWORD,
         old_password_hash,
         stored_password_hash(operator),
+        caplog=caplog,
     )
 
 
@@ -430,6 +465,12 @@ def test_concurrent_first_bootstraps_yield_one_exact_staging_operator(
     command_module = importlib.import_module(COMMAND_MODULE)
     start = Barrier(2, timeout=10)
     shared_terminal = TtyStream()
+    table_name = User._meta.db_table
+    barrier_function = "accounts_staging_operator_insert_barrier"
+    barrier_trigger = "accounts_staging_operator_insert_barrier_trigger"
+    lock_class_id = 205
+    lock_object_id = 4
+    environment_before = dict(os.environ)
 
     def private_input(prompt: str, **__: object) -> str:
         if prompt == "Operator identifier: ":
@@ -446,6 +487,8 @@ def test_concurrent_first_bootstraps_yield_one_exact_staging_operator(
         stderr = TtyStream()
         close_old_connections()
         try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET statement_timeout = '10s'")
             start.wait()
             call_command(COMMAND_NAME, stdout=stdout, stderr=stderr)
         except (CommandError, IntegrityError) as error:
@@ -454,6 +497,18 @@ def test_concurrent_first_bootstraps_yield_one_exact_staging_operator(
             close_old_connections()
         return None, stdout, stderr
 
+    def waiting_worker_count() -> int:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM pg_locks "
+                "WHERE locktype = 'advisory' "
+                "AND classid = %s AND objid = %s AND NOT granted",
+                [lock_class_id, lock_object_id],
+            )
+            row = cursor.fetchone()
+        assert row is not None
+        return cast(int, row[0])
+
     monkeypatch.setattr(sys, "stdin", shared_terminal)
     monkeypatch.setattr(sys, "stdout", shared_terminal)
     monkeypatch.setattr("builtins.input", confirmation_input)
@@ -461,19 +516,86 @@ def test_concurrent_first_bootstraps_yield_one_exact_staging_operator(
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "staging")
     monkeypatch.setenv("RAILWAY_SERVICE_NAME", "api")
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    executor: ThreadPoolExecutor | None = None
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                sql.SQL(
+                    "CREATE FUNCTION {}() RETURNS trigger LANGUAGE plpgsql AS {}"
+                ).format(
+                    sql.Identifier(barrier_function),
+                    sql.Literal(
+                        "BEGIN "
+                        f"PERFORM pg_advisory_lock_shared({lock_class_id}, {lock_object_id}); "
+                        f"PERFORM pg_advisory_unlock_shared({lock_class_id}, {lock_object_id}); "
+                        "RETURN NEW; "
+                        "END; "
+                    ),
+                )
+            )
+            cursor.execute(
+                sql.SQL(
+                    "CREATE TRIGGER {} BEFORE INSERT ON {} "
+                    "FOR EACH ROW EXECUTE FUNCTION {}()"
+                ).format(
+                    sql.Identifier(barrier_trigger),
+                    sql.Identifier(table_name),
+                    sql.Identifier(barrier_function),
+                )
+            )
+            cursor.execute(
+                "SELECT pg_advisory_lock(%s, %s)", [lock_class_id, lock_object_id]
+            )
+
+        executor = ThreadPoolExecutor(max_workers=2)
         first = executor.submit(run_bootstrap)
         second = executor.submit(run_bootstrap)
+        deadline = time.monotonic() + 10
+        while waiting_worker_count() < 2 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        blocked_workers = waiting_worker_count()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_unlock(%s, %s)",
+                [lock_class_id, lock_object_id],
+            )
+        assert blocked_workers == 2, "both first-use creates must overlap"
         first_result = first.result(timeout=10)
         second_result = second.result(timeout=10)
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_unlock(%s, %s)",
+                [lock_class_id, lock_object_id],
+            )
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
+        with connection.cursor() as cursor:
+            cursor.execute("SET lock_timeout = '10s'")
+            cursor.execute(
+                sql.SQL("DROP TRIGGER IF EXISTS {} ON {}").format(
+                    sql.Identifier(barrier_trigger),
+                    sql.Identifier(table_name),
+                )
+            )
+            cursor.execute(
+                sql.SQL("DROP FUNCTION IF EXISTS {}()").format(
+                    sql.Identifier(barrier_function)
+                )
+            )
 
     results = (first_result, second_result)
-    assert all(error is None for error, _, _ in results)
-    assert {stdout.getvalue() for _, stdout, _ in results} == {
-        CREATED_OUTPUT,
-        RECONCILED_OUTPUT,
+    errors = tuple(error for error, _, _ in results if error is not None)
+    assert all(
+        isinstance(error, CommandError) and str(error) == "Operator bootstrap failed."
+        for error in errors
+    )
+    successful_outputs = {
+        stdout.getvalue() for error, stdout, _ in results if error is None
     }
-    assert all(stderr.getvalue() == "" for _, _, stderr in results)
+    assert CREATED_OUTPUT in successful_outputs
+    assert successful_outputs <= {CREATED_OUTPUT, RECONCILED_OUTPUT}
+    assert all(stderr.getvalue() == "" for error, _, stderr in results if error is None)
     operator = User.objects.get(clerk_user_id=OPERATOR_IDENTIFIER)
     assert_exact_managed_operator(operator, INITIAL_PASSWORD)
     assert User.objects.filter(clerk_user_id=OPERATOR_IDENTIFIER).count() == 1
@@ -485,6 +607,9 @@ def test_concurrent_first_bootstraps_yield_one_exact_staging_operator(
         exception_text="".join(
             str(error) for error, _, _ in results if error is not None
         ),
+    )
+    assert_private_values_absent_from_environment(
+        environment_before, OPERATOR_IDENTIFIER, INITIAL_PASSWORD
     )
 
 
@@ -749,7 +874,9 @@ def test_bootstrap_refuses_when_an_expected_permission_is_unavailable(
     ),
 )
 def test_bootstrap_refuses_to_elevate_or_repurpose_an_ambiguous_existing_account(
-    monkeypatch: pytest.MonkeyPatch, account_state: str
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    account_state: str,
 ) -> None:
     """AC-2/11: only the exact dedicated operator may be reconciled in place."""
     if account_state == "player":
@@ -813,6 +940,7 @@ def test_bootstrap_refuses_to_elevate_or_repurpose_an_ambiguous_existing_account
     refusal_before = stored_provisioning_state(protected, unrelated)
     stdout = TtyStream()
     stderr = TtyStream()
+    caplog.set_level(logging.DEBUG)
 
     with pytest.raises(CommandError) as error:
         invoke_command(
@@ -830,4 +958,5 @@ def test_bootstrap_refuses_to_elevate_or_repurpose_an_ambiguous_existing_account
         ROTATED_PASSWORD,
         stored_password_hash(protected),
         exception_text=str(error.value),
+        caplog=caplog,
     )
