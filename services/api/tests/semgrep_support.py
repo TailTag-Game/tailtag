@@ -18,6 +18,8 @@ FROZEN_ROOT_HELPERS = frozenset(
         "scripts/backend_ci_relevance.py",
         "scripts/api_staging_reset.py",
         "scripts/api_staging_reset_ssh.py",
+        "scripts/api_staging_restore_drill.py",
+        "scripts/staging_restore_integrity.py",
         "scripts/validate_semgrep_contract.py",
     }
 )

@@ -14,6 +14,8 @@ override STAGING_PROMOTION_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_prom
 override STAGING_PREFLIGHT_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_preflight.py
 override STAGING_RESET_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_reset.py
 override STAGING_RESET_SSH_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_reset_ssh.py
+override STAGING_RESTORE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_restore_drill.py
+override STAGING_RESTORE_INTEGRITY_SCRIPT := $(REPOSITORY_ROOT)/scripts/staging_restore_integrity.py
 override CLERK_DEVELOPMENT_SESSION_SCRIPT := $(REPOSITORY_ROOT)/scripts/clerk_development_session.py
 override CI_RELEVANCE_SCRIPT := $(REPOSITORY_ROOT)/scripts/backend_ci_relevance.py
 override SEMGREP_VALIDATOR := $(REPOSITORY_ROOT)/scripts/validate_semgrep_contract.py
@@ -30,6 +32,8 @@ override SEMGREP_TARGETS := $(REPOSITORY_ROOT)/services/api \
 	$(STAGING_PREFLIGHT_SCRIPT) \
 	$(STAGING_RESET_SCRIPT) \
 	$(STAGING_RESET_SSH_SCRIPT) \
+	$(STAGING_RESTORE_SCRIPT) \
+	$(STAGING_RESTORE_INTEGRITY_SCRIPT) \
 	$(CLERK_DEVELOPMENT_SESSION_SCRIPT) \
 	$(CI_RELEVANCE_SCRIPT) \
 	$(SEMGREP_VALIDATOR)
@@ -51,6 +55,7 @@ endef
 .PHONY: help \
 	api-setup api-run api-semgrep-check api-test api-check api-migrate api-migrations \
 	api-migrations-check api-shell api-smoke api-auth-smoke api-staging-auth-smoke api-media-storage-smoke api-staging-reset api-staging-reset-ssh api-staging-reset-provision \
+	api-staging-restore-drill \
 	api-format-check api-lint-check api-type-check api-django-check \
 	api-schema-check api-gunicorn-check
 
@@ -125,6 +130,9 @@ api-staging-reset-ssh: ## Run the confirmed guarded Staging reset through its pi
 api-staging-reset-provision: ## Provision the Staging reset sentinel after explicit confirmation.
 	DJANGO_SETTINGS_MODULE=config.settings.production PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_staging_reset --provision --confirm provision-tailtag-staging-reset
 
+api-staging-restore-drill: ## Run the confirmed isolated Staging PostgreSQL backup restore drill.
+	PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_staging_restore_drill --confirm restore-tailtag-staging-backup
+
 api-media-storage-smoke: ## Run guarded live media storage verification against Railway Development or Staging.
 	@DJANGO_SETTINGS_MODULE=config.settings.production \
 	PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" \
@@ -135,11 +143,11 @@ api-check: api-format-check api-lint-check api-type-check api-semgrep-check api-
 
 api-format-check:
 	@printf '%s\n' 'Checking Ruff formatting...'
-	$(API_UV) run --locked --no-sync ruff format --check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(STAGING_AUTH_SMOKE_SCRIPT) $(ENVIRONMENT_FINGERPRINT_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(DEPLOYMENT_IDENTITY_SCRIPT) $(STAGING_PROMOTION_SCRIPT) $(STAGING_PREFLIGHT_SCRIPT) $(STAGING_RESET_SCRIPT) $(STAGING_RESET_SSH_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
+	$(API_UV) run --locked --no-sync ruff format --check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(STAGING_AUTH_SMOKE_SCRIPT) $(ENVIRONMENT_FINGERPRINT_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(DEPLOYMENT_IDENTITY_SCRIPT) $(STAGING_PROMOTION_SCRIPT) $(STAGING_PREFLIGHT_SCRIPT) $(STAGING_RESET_SCRIPT) $(STAGING_RESET_SSH_SCRIPT) $(STAGING_RESTORE_SCRIPT) $(STAGING_RESTORE_INTEGRITY_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
 
 api-lint-check:
 	@printf '%s\n' 'Running Ruff lint...'
-	$(API_UV) run --locked --no-sync ruff check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(STAGING_AUTH_SMOKE_SCRIPT) $(ENVIRONMENT_FINGERPRINT_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(DEPLOYMENT_IDENTITY_SCRIPT) $(STAGING_PROMOTION_SCRIPT) $(STAGING_PREFLIGHT_SCRIPT) $(STAGING_RESET_SCRIPT) $(STAGING_RESET_SSH_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
+	$(API_UV) run --locked --no-sync ruff check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(STAGING_AUTH_SMOKE_SCRIPT) $(ENVIRONMENT_FINGERPRINT_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(DEPLOYMENT_IDENTITY_SCRIPT) $(STAGING_PROMOTION_SCRIPT) $(STAGING_PREFLIGHT_SCRIPT) $(STAGING_RESET_SCRIPT) $(STAGING_RESET_SSH_SCRIPT) $(STAGING_RESTORE_SCRIPT) $(STAGING_RESTORE_INTEGRITY_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
 
 api-type-check:
 	@printf '%s\n' 'Running strict Pyright...'
