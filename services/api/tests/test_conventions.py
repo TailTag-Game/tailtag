@@ -500,6 +500,32 @@ def test_convention_admin_keeps_non_playable_edits_ordinary_and_playability_oper
 
 
 @pytest.mark.django_db
+def test_playability_only_operator_can_submit_the_rendered_status_only_form() -> (
+    None
+):
+    """AC-1/4: the read-only metadata fields are not required in the narrow form POST."""
+    convention = _new_non_playable_convention()
+    operator = _convention_staff(("conventions", "set_convention_playability"))
+    client = Client()
+    client.force_login(operator)
+
+    response = client.post(
+        reverse("admin:conventions_convention_change", args=(convention.pk,)),
+        {"status": ConventionStatus.ACTIVE, "_save": "Save"},
+    )
+
+    assert response.status_code == 302
+    convention.refresh_from_db()
+    assert convention.status == ConventionStatus.ACTIVE
+    _assert_convention_event(
+        operator,
+        convention.pk,
+        OperatorActorClass.OPERATOR,
+        OperatorAuditOutcome.SUCCEEDED,
+    )
+
+
+@pytest.mark.django_db
 def test_change_convention_can_correct_active_metadata_without_sensitive_audit() -> (
     None
 ):

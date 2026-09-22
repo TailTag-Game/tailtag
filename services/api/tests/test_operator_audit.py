@@ -12,7 +12,8 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, models, transaction
 from django.http import Http404, HttpResponse
-from django.test import RequestFactory
+from django.test import Client, RequestFactory
+from django.urls import reverse
 
 from accounts.models import User
 from operator_audit.admin_actions import (
@@ -119,6 +120,59 @@ def _permission_details(permission: Permission) -> tuple[str, str, str]:
         cast(str, permission.codename),  # pyright: ignore[reportUnknownMemberType]
         cast(str, permission.name),  # pyright: ignore[reportUnknownMemberType]
     )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("view_name", "post_data"),
+    (
+        ("admin:catches_catch_delete", {"post": "yes"}),
+        (
+            "admin:conventions_convention_change",
+            {"status": "active", "_save": "Save"},
+        ),
+        ("admin:conventions_conventionenrollment_delete", {"post": "yes"}),
+        (
+            "admin:conventions_fursuitactivation_change",
+            {"is_active": ""},
+        ),
+        (
+            "admin:conventions_fursuitcatchcredential_change",
+            {"revoke": "on"},
+        ),
+        (
+            "admin:conventions_fursuitcatchsession_change",
+            {"terminate": "on"},
+        ),
+        ("admin:profiles_playerprofile_change", {"is_enabled": "on"}),
+        ("admin:fursuits_fursuit_change", {"is_enabled": "on"}),
+    ),
+    ids=(
+        "catch-delete",
+        "convention-change",
+        "enrollment-delete",
+        "activation-change",
+        "credential-change",
+        "session-change",
+        "profile-change",
+        "fursuit-change",
+    ),
+)
+def test_malformed_sensitive_admin_object_id_is_not_an_audited_attempt(
+    view_name: str, post_data: dict[str, str]
+) -> None:
+    """AC-4/6: malformed routing identifiers are 404s before an audit boundary."""
+    superuser = User.objects.create_superuser("malformed_operator_id", password="pw")
+    client = Client(raise_request_exception=False)
+    client.force_login(superuser)
+
+    response = client.post(
+        reverse(view_name, args=("not-a-record-id",)),
+        post_data,
+    )
+
+    assert response.status_code == 404
+    assert OperatorAuditEvent.objects.count() == 0
 
 
 @pytest.mark.django_db

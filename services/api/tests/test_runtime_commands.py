@@ -486,7 +486,8 @@ STAGING_OPERATOR_COMMAND = (
     "python manage.py bootstrap_staging_operator --settings=config.settings.production"
 )
 STAGING_OPERATOR_PROCEDURE = (
-    f"railway ssh --service api --environment staging\n{STAGING_OPERATOR_COMMAND}"
+    "railway ssh --project 85324de4-be6a-49c3-a3f9-6cac13877849 "
+    f"--service api --environment staging\n{STAGING_OPERATOR_COMMAND}"
 )
 STAGING_OPERATOR_CONFIRMATION = "bootstrap Railway Staging operator"
 OPERATOR_AUDIT_RUNBOOK = (
