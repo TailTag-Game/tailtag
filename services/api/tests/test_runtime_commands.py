@@ -708,9 +708,19 @@ def assert_staging_operator_authority_boundary(runbook: str) -> None:
         r"(?i:correction|action) authority",
         normalized_runbook,
     )
+    assert re.search(
+        r"(?i)catches\.delete_catch.{0,160}"
+        r"(?:built-in|Django).{0,80}model permission",
+        normalized_runbook,
+    )
+    assert re.search(
+        r"(?i)catches\.delete_catch.{0,180}(?:only|solely|limited).{0,120}"
+        r"Catch correction",
+        normalized_runbook,
+    )
     assert not re.search(
-        r"(?i)catches\.delete_catch.{0,80}\bis\s+(?!not\b).{0,80}"
-        r"generic (?:substitution|model permission)",
+        r"(?i)catches\.delete_catch(?:(?!\b(?:does not|never|not)\b).){0,180}"
+        r"generic substitution",
         normalized_runbook,
     )
 
@@ -1203,7 +1213,6 @@ STAGING_OPERATOR_PROOF_CASES = (
         (
             r"(?i)exactly one.{0,80}sanitized.{0,80}durable.{0,80}audit row",
             r"(?i)action",
-            r"(?i)actor application ID",
             r"(?i)actor class",
             r"(?i)target type/ID",
             r"`succeeded`",
@@ -1281,13 +1290,22 @@ def assert_staging_operator_acceptance_matrix(staging: str) -> None:
     evidence_template = staging[template_heading.start() : template_end]
     for evidence_field in (
         "action",
-        "actor application ID",
         "actor class",
         "target type/ID",
         "`succeeded`",
         "time",
     ):
         assert evidence_field in evidence_template
+    assert re.search(
+        r"(?i)(?:must not|does not|never|exclude).{0,120}actor.{0,80}"
+        r"(?:application|Django|user).{0,80}ID",
+        evidence_template,
+    )
+    assert re.search(
+        r"(?i)(?:protected|durable).{0,120}(?:database|audit)"
+        r".{0,160}actor.{0,80}(?:application|Django).{0,80}user ID",
+        normalized_staging,
+    )
     assert "#204" in staging
     assert re.search(
         r"(?i)#204.{0,220}(?:restore|reset).{0,120}disposable.{0,160}"
