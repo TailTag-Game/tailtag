@@ -539,6 +539,71 @@ SENSITIVE_OPERATOR_ACTION_MATRIX = (
 )
 
 
+def assert_staging_operator_authority_boundary(runbook: str) -> None:
+    """Require operation authority, rather than staff/group/model-permission authority."""
+    normalized_runbook = " ".join(runbook.split())
+
+    assert re.search(
+        r"(?i)is_staff(?:=True)?.{0,180}(?:never|does not|not).{0,120}"
+        r"(?:authorize|grant).{0,120}sensitive operations",
+        normalized_runbook,
+    )
+    assert not re.search(
+        r"(?i)is_staff(?:=True)?(?:(?!\b(?:never|does not|not)\b).){0,180}"
+        r"(?:authorize|grant).{0,120}sensitive operations",
+        normalized_runbook,
+    )
+    for generic_permission in ("change_*", "delete_*", "view_*"):
+        assert generic_permission in runbook
+    assert re.search(
+        r"(?i)generic.{0,160}(?:never|does not|not).{0,120}"
+        r"(?:substitute|authorize).{0,120}sensitive",
+        normalized_runbook,
+    )
+    assert not re.search(
+        r"(?i)generic.{0,160}(?:change_\*|delete_\*|view_\*).{0,120}"
+        r"(?:authorize|grant).{0,120}sensitive",
+        normalized_runbook,
+    )
+    assert re.search(
+        r"catches\.delete_catch.{0,180}(?i:explicit).{0,120}"
+        r"(?i:correction|action) authority",
+        normalized_runbook,
+    )
+    assert not re.search(
+        r"(?i)catches\.delete_catch.{0,80}\bis\s+(?!not\b).{0,80}"
+        r"generic (?:substitution|model permission)",
+        normalized_runbook,
+    )
+
+    assert re.search(
+        r"(?i)normal Staging operator.{0,180}is_staff=True",
+        normalized_runbook,
+    )
+    assert re.search(
+        r"(?i)normal Staging operator.{0,180}is_superuser=False",
+        normalized_runbook,
+    )
+    assert re.search(
+        r"(?i)normal Staging operator.{0,180}exact explicit permissions",
+        normalized_runbook,
+    )
+    assert re.search(
+        r"(?i)group.{0,160}assignment convenience.{0,160}"
+        r"(?:exact )?explicit permissions",
+        normalized_runbook,
+    )
+    assert re.search(
+        r"(?i)provision(?:ing|ed)?.{0,180}(?:does not|never).{0,120}"
+        r"(?:create|make).{0,120}(?:normal )?operator.{0,120}superuser",
+        normalized_runbook,
+    )
+    assert not re.search(
+        r"(?i)(?:normal )?Staging operator.{0,120}is_superuser=True",
+        normalized_runbook,
+    )
+
+
 def assert_safe_staging_operator_runbook(runbook: str) -> None:
     """Require the one guarded, interactive Staging provisioning procedure."""
     normalized_runbook = " ".join(runbook.split())
@@ -594,6 +659,7 @@ def assert_safe_staging_operator_runbook(runbook: str) -> None:
         r"(?:build|pre-deploy|startup|health check|gunicorn)",
         normalized_runbook,
     )
+    assert_staging_operator_authority_boundary(runbook)
 
 
 def assert_documented_operator_action_matrix(runbook: str) -> None:
@@ -886,6 +952,10 @@ def test_staging_operator_runbook_rejects_unsafe_documentation_mutants() -> None
         f"{runbook}\n```shell\nRAILWAY_API_TOKEN=not-allowed\n```\n",
         f"{runbook}\n```shell\nDJANGO_SUPERUSER_PASSWORD=not-allowed\n```\n",
         f"{runbook}\n```shell\nOPERATOR_CREDENTIAL=not-allowed\n```\n",
+        f"{runbook}\n`is_staff=True` authorizes sensitive operations.\n",
+        f"{runbook}\nGeneric `change_*` permissions authorize sensitive operations.\n",
+        f"{runbook}\n`catches.delete_catch` is a generic substitution.\n",
+        f"{runbook}\nThe normal Staging operator is_superuser=True.\n",
     )
 
     for mutant in unsafe_mutants:
