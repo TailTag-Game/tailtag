@@ -598,7 +598,16 @@ def assert_documented_operator_action_matrix(runbook: str) -> None:
             if action in line and target in line and operation_permission in line
         ]
         assert len(matrix_rows) == 1
-        assert read_permission in matrix_rows[0]
+        matrix_row = matrix_rows[0].replace("`", "").replace("*", "")
+        assert read_permission in matrix_row
+        assert operation_permission in matrix_row
+        read_alternative_patterns = (
+            rf"{re.escape(read_permission)}\s+(?:or|OR)\s+{re.escape(operation_permission)}",
+            rf"{re.escape(operation_permission)}\s+(?:or|OR)\s+{re.escape(read_permission)}",
+        )
+        assert any(
+            re.search(pattern, matrix_row) for pattern in read_alternative_patterns
+        )
 
 
 def test_staging_operator_documentation_defines_the_guarded_provisioning_path() -> None:
@@ -655,45 +664,117 @@ def test_operator_audit_documentation_defines_safe_durable_evidence() -> None:
     assert "catastrophic database failure" in normalized_runbook
 
 
+def markdown_section(document: str, heading_pattern: str) -> str:
+    """Return a level-two documentation section identified by its semantic heading."""
+    heading = re.search(heading_pattern, document)
+    assert heading
+    next_heading = re.search(r"(?m)^##\s+", document[heading.end() :])
+    end = heading.end() + next_heading.start() if next_heading else len(document)
+    return document[heading.start() : end]
+
+
+STAGING_OPERATOR_PROOF_CASES = (
+    (
+        1,
+        (
+            r"(?i)ordinary player",
+            r"(?i)(?:cannot|denied)",
+            r"(?i)(?:browse|inspect)",
+            r"(?i)(?:execute|sensitive admin mutation)",
+        ),
+    ),
+    (
+        2,
+        (
+            r"is_staff=True",
+            r"(?i)(?:without|lacking).{0,80}target sensitive permission",
+            r"(?i)denied",
+            r"(?i)exactly one.{0,80}sanitized.{0,80}`denied`.{0,80}audit row",
+            r"(?i)no mutation",
+        ),
+    ),
+    (3, (r"(?i)explicitly permitted", r"(?i)non-superuser operator", r"(?i)succeeds")),
+    (
+        4,
+        (
+            r"(?i)permitted.{0,80}one action",
+            r"(?i)(?:cannot|denied)",
+            r"(?i)(?:different|another).{0,80}sensitive permission boundary",
+        ),
+    ),
+    (
+        5,
+        (
+            r"(?i)superuser",
+            r"(?i)succeeds",
+            r"actor_class=emergency_superuser",
+        ),
+    ),
+    (
+        6,
+        (
+            r"(?i)exactly one.{0,80}sanitized.{0,80}durable.{0,80}audit row",
+            r"(?i)action",
+            r"(?i)actor application ID",
+            r"(?i)actor class",
+            r"(?i)target type/ID",
+            r"`succeeded`",
+            r"(?i)time",
+        ),
+    ),
+    (
+        7,
+        (
+            r"(?i)(?:unauthorized|denied) mutation",
+            r"(?i)exactly one.{0,80}sanitized.{0,80}`denied`.{0,80}audit row",
+        ),
+    ),
+    (
+        8,
+        (
+            r"(?i)(?:profile|fursuit).{0,80}disable",
+            r"(?i)cascade",
+            r"(?i)(?:transactional|data-integrity|integrity)",
+            r"(?i)exactly one.{0,80}top-level (?:audit row|event)",
+        ),
+    ),
+    (
+        9,
+        (
+            r"(?i)Catch",
+            r"(?i)(?:create|add)",
+            r"(?i)edit",
+            r"(?i)bulk",
+            r"(?i)alternate.{0,80}(?:authority|award)",
+            r"(?i)(?:unavailable|remain unavailable)",
+        ),
+    ),
+)
+
+
 def assert_staging_operator_acceptance_matrix(staging: str) -> None:
-    """Require all frozen, separately authorized synthetic Staging proof cases."""
+    """Require all nine proof cases as individual semantic matrix rows."""
     normalized_staging = " ".join(staging.split())
-    assert re.search(
-        r"(?i)ordinary player.{0,180}(?:cannot|denied).{0,180}sensitive admin mutation",
-        normalized_staging,
-    )
-    assert re.search(
-        r"is_staff=True.{0,180}(?:without|lacking).{0,100}"
-        r"sensitive permission.{0,180}denied",
-        normalized_staging,
-    )
-    assert re.search(
-        r"(?i)explicitly permitted.{0,100}non-superuser operator.{0,180}succeeds",
-        normalized_staging,
-    )
-    assert re.search(
-        r"(?i)operator.{0,100}one action.{0,180}(?:different|another)"
-        r".{0,100}sensitive permission boundary",
-        normalized_staging,
-    )
-    assert re.search(
-        r"(?i)superuser.{0,180}actor_class=emergency_superuser",
-        normalized_staging,
-    )
-    assert re.search(
-        r"(?i)(?:unauthorized|denied).{0,180}(?:audit row|audit evidence)"
-        r".{0,100}`denied`",
-        normalized_staging,
-    )
-    assert re.search(
-        r"(?i)(?:profile|fursuit).{0,120}disable.{0,180}cascade.{0,180}"
-        r"one top-level audit row",
-        normalized_staging,
-    )
-    assert re.search(
-        r"Catch add/edit/bulk.{0,180}(?:unavailable|remain unavailable)",
+    proof_matrix = markdown_section(
         staging,
+        r"(?mi)^## (?=[^\n]*operator)(?=[^\n]*audit)(?=[^\n]*acceptance).*\n",
     )
+    matrix_rows = [
+        line
+        for line in proof_matrix.splitlines()
+        if re.fullmatch(r"\|\s*\d+\s*\|.*\|", line)
+    ]
+    assert len(matrix_rows) == len(STAGING_OPERATOR_PROOF_CASES)
+    for case_number, required_patterns in STAGING_OPERATOR_PROOF_CASES:
+        case_rows = [
+            row
+            for row in matrix_rows
+            if re.fullmatch(rf"\|\s*{case_number}\s*\|.*\|", row)
+        ]
+        assert len(case_rows) == 1
+        for required_pattern in required_patterns:
+            assert re.search(required_pattern, case_rows[0])
+
     template_heading = re.search(r"(?mi)^#+\s+sanitized evidence template\s*$", staging)
     assert template_heading
     next_heading = re.search(r"(?m)^#+\s+", staging[template_heading.end() :])
