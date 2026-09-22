@@ -500,6 +500,111 @@ def test_convention_admin_keeps_non_playable_edits_ordinary_and_playability_oper
 
 
 @pytest.mark.django_db
+def test_change_convention_can_correct_active_metadata_without_sensitive_audit() -> (
+    None
+):
+    """AC-1/4: ordinary metadata correction stays ordinary while a convention is playable."""
+    convention = Convention.objects.create(
+        name="Active metadata source",
+        status=ConventionStatus.ACTIVE,
+        start_date=datetime.date(2026, 6, 1),
+        end_date=datetime.date(2026, 6, 2),
+    )
+    editor = _convention_staff(("conventions", "change_convention"))
+    client = Client()
+    client.force_login(editor)
+    response = client.post(
+        reverse("admin:conventions_convention_change", args=(convention.pk,)),
+        _convention_post_data(
+            convention,
+            status=ConventionStatus.ACTIVE,
+            name="Active metadata correction",
+            start_date=datetime.date(2026, 6, 3),
+            end_date=datetime.date(2026, 6, 6),
+        ),
+    )
+    assert response.status_code == 302
+    convention.refresh_from_db()
+    assert (
+        convention.name,
+        convention.start_date,
+        convention.end_date,
+        convention.status,
+        convention.is_playable,
+    ) == (
+        "Active metadata correction",
+        datetime.date(2026, 6, 3),
+        datetime.date(2026, 6, 6),
+        ConventionStatus.ACTIVE,
+        True,
+    )
+    assert not OperatorAuditEvent.objects.filter(
+        affected_record_id=convention.pk
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_playability_only_operator_cannot_make_nonplayable_status_edits() -> None:
+    """AC-1/4/9: narrow playability authority cannot repurpose ordinary status edits."""
+    convention = _new_non_playable_convention()
+    original = (
+        convention.name,
+        convention.start_date,
+        convention.end_date,
+        convention.status,
+        convention.is_playable,
+    )
+    operator = _convention_staff(("conventions", "set_convention_playability"))
+    client = Client()
+    client.force_login(operator)
+    response = client.post(
+        reverse("admin:conventions_convention_change", args=(convention.pk,)),
+        _convention_post_data(convention, status=ConventionStatus.PAUSED),
+    )
+    assert response.status_code == 403
+    convention.refresh_from_db()
+    assert (
+        convention.name,
+        convention.start_date,
+        convention.end_date,
+        convention.status,
+        convention.is_playable,
+    ) == original
+    assert not OperatorAuditEvent.objects.filter(
+        affected_record_id=convention.pk
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_convention_bulk_delete_cannot_bypass_playable_delete_boundary() -> None:
+    """AC-4/9: confirmed bulk deletion cannot bypass the per-object playable denial."""
+    convention = Convention.objects.create(
+        name="Bulk delete protected active convention",
+        status=ConventionStatus.ACTIVE,
+        start_date=datetime.date(2026, 6, 1),
+        end_date=datetime.date(2026, 6, 2),
+    )
+    deleter = _convention_staff(
+        ("conventions", "view_convention"), ("conventions", "delete_convention")
+    )
+    client = Client()
+    client.force_login(deleter)
+    response = client.post(
+        reverse("admin:conventions_convention_changelist"),
+        {
+            "action": "delete_selected",
+            "_selected_action": str(convention.pk),
+            "post": "yes",
+        },
+    )
+    assert response.status_code == 403
+    assert Convention.objects.filter(pk=convention.pk).exists()
+    assert not OperatorAuditEvent.objects.filter(
+        affected_record_id=convention.pk
+    ).exists()
+
+
+@pytest.mark.django_db
 def test_convention_admin_closes_playable_create_delete_and_same_state_paths() -> None:
     """AC-4/9: there is no unaudited way to create/delete playable authority or add actions."""
     superuser = User.objects.create_superuser("convention_closed_paths", password="pw")

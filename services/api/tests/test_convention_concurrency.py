@@ -11,14 +11,26 @@ from time import monotonic, sleep
 from typing import Any, cast
 
 import pytest
+from django.contrib.auth.models import Permission
 from django.db import close_old_connections, connection, transaction
 from django.db.models import QuerySet
+from django.test import Client
+from django.urls import reverse
 
 from accounts.models import User
 from conventions import services
 from conventions.models import Convention, ConventionEnrollment, ConventionStatus
+from operator_audit.models import (
+    OperatorAction,
+    OperatorAuditEvent,
+    OperatorAuditOutcome,
+)
 from profiles.models import PlayerProfile
 from tests.authentication_support import create_test_user, force_authenticated_client
+from tests.catch_credential_test_support import create_credential
+from tests.fursuit_activation_test_support import create_activation_row
+from tests.fursuit_catch_session_test_support import create_catch_session
+from tests.fursuit_test_support import create_fursuit_record
 
 
 def _record_call[**P, R](
@@ -68,6 +80,24 @@ def _request_in_bounded_worker(
         backend_pids.put(_configure_worker_session_and_get_pid())
         db_user = User.objects.get(pk=user_id)
         return request(force_authenticated_client(user=db_user))
+    finally:
+        connection.close()
+
+
+def _admin_request_in_bounded_worker(
+    *,
+    user_id: int,
+    request: Callable[[Client], Any],
+    backend_pids: Queue[int],
+) -> Any:
+    """Run an authenticated Django-admin request on a bounded fresh connection."""
+    close_old_connections()
+    try:
+        backend_pids.put(_configure_worker_session_and_get_pid())
+        db_user = User.objects.get(pk=user_id)
+        client = Client()
+        client.force_login(db_user)
+        return request(client)
     finally:
         connection.close()
 
@@ -594,6 +624,118 @@ def test_convention_paused_during_enrollment_is_rejected(
     con.refresh_from_db()
     assert con.status == ConventionStatus.PAUSED
     assert not ConventionEnrollment.objects.filter(user=user).exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_generic_convention_admin_edit_cannot_downgrade_concurrent_active_winner() -> (
+    None
+):
+    """A generic editor blocked on the row lock must revalidate before an ACTIVE downgrade."""
+    owner = _setup_eligible_player("convention_admin_toctou_owner")
+    convention = _create_convention(
+        name="Convention admin TOCTOU target", status=ConventionStatus.DRAFT
+    )
+    ConventionEnrollment.objects.create(user=owner, convention=convention)
+    fursuit = create_fursuit_record(owner=owner)
+    activation = create_activation_row(
+        fursuit=fursuit, convention=convention, active=True
+    )
+    credential = create_credential(activation=activation)
+    session = create_catch_session(activation=activation)
+
+    editor = create_test_user(clerk_user_id="convention_admin_toctou_editor")
+    editor.is_staff = True
+    editor.save(update_fields=["is_staff"])
+    editor.user_permissions.add(  # pyright: ignore[reportUnknownMemberType]
+        Permission.objects.get(
+            content_type__app_label="conventions", codename="change_convention"
+        )
+    )
+
+    holder_updated = Event()
+    release_holder = Event()
+    holder_pids: Queue[int] = Queue()
+    admin_pids: Queue[int] = Queue()
+    url = reverse("admin:conventions_convention_change", args=(convention.pk,))
+    data = {
+        "name": "Generic non-playable correction",
+        "status": ConventionStatus.PAUSED,
+        "start_date": convention.start_date.isoformat(),
+        "end_date": convention.end_date.isoformat(),
+    }
+
+    def make_convention_active() -> None:
+        close_old_connections()
+        try:
+            with transaction.atomic():
+                holder_pids.put(_configure_worker_session_and_get_pid())
+                locked = Convention.objects.select_for_update().get(pk=convention.pk)
+                locked.status = ConventionStatus.ACTIVE
+                locked.save(update_fields=["status", "updated_at"])
+                holder_updated.set()
+                if not release_holder.wait(_HOLDER_GATE_TIMEOUT_SECONDS):
+                    raise TimeoutError("ACTIVE winner transaction was never released")
+        finally:
+            connection.close()
+
+    def submit_generic_edit() -> Any:
+        return _admin_request_in_bounded_worker(
+            user_id=editor.pk,
+            backend_pids=admin_pids,
+            request=lambda client: client.post(url, data),
+        )
+
+    holder: Future[Any] | None = None
+    admin_request: Future[Any] | None = None
+    holder_pid: int | None = None
+    admin_pid: int | None = None
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        try:
+            holder = executor.submit(make_convention_active)
+            holder_pid = _wait_for_pid_or_worker_finish(
+                backend_pids=holder_pids,
+                future=holder,
+                expected="the concurrent ACTIVE winner transaction setup",
+            )
+            _wait_for_event_or_worker_finish(
+                event=holder_updated,
+                future=holder,
+                expected="the uncommitted ACTIVE Convention update",
+            )
+            admin_request = executor.submit(submit_generic_edit)
+            admin_pid = _wait_for_pid_or_worker_finish(
+                backend_pids=admin_pids,
+                future=admin_request,
+                expected="the generic admin request setup",
+            )
+            _assert_backend_blocked_by(
+                waiter_pid=admin_pid,
+                holder_pid=holder_pid,
+                worker=admin_request,
+                expected="the Convention row lock before generic admin mutation",
+            )
+            release_holder.set()
+            assert holder.result(timeout=_FUTURE_RESULT_TIMEOUT_SECONDS) is None
+            assert (
+                admin_request.result(timeout=_FUTURE_RESULT_TIMEOUT_SECONDS).status_code
+                == 403
+            )
+        finally:
+            release_holder.set()
+            _cancel_if_unfinished(future=holder, backend_pid=holder_pid)
+            _cancel_if_unfinished(future=admin_request, backend_pid=admin_pid)
+
+    convention.refresh_from_db()
+    credential.refresh_from_db()
+    session.refresh_from_db()
+    assert convention.status == ConventionStatus.ACTIVE and convention.is_playable
+    assert credential.revoked_at is None
+    assert session.ended_at is None
+    assert not OperatorAuditEvent.objects.filter(
+        affected_record_id=convention.pk,
+        action=OperatorAction.SET_CONVENTION_PLAYABILITY,
+        outcome=OperatorAuditOutcome.SUCCEEDED,
+    ).exists()
 
 
 @pytest.mark.django_db

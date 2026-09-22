@@ -342,6 +342,45 @@ def test_activation_view_is_read_only_and_reactivation_has_no_alternate_authorit
 
 
 @pytest.mark.django_db
+def test_emergency_superuser_terminal_deactivation_is_rejected_and_audited() -> None:
+    """AC-4/8: emergency authority still records an inactive activation retry."""
+    scenario = create_activation_scenario()
+    activation = FursuitActivation.objects.create(
+        fursuit=scenario.fursuit,
+        convention=scenario.convention,
+        is_active=False,
+        activated_at=timezone.now(),
+        deactivated_at=timezone.now(),
+    )
+    terminal = (activation.is_active, activation.deactivated_at, activation.updated_at)
+    superuser = User.objects.create_superuser(
+        "activation_terminal_emergency", password="pw"
+    )
+    client = Client()
+    client.force_login(superuser)
+    response = client.post(
+        reverse("admin:conventions_fursuitactivation_change", args=(activation.pk,)),
+        {"is_active": ""},
+    )
+    assert response.status_code == 403
+    activation.refresh_from_db()
+    assert (
+        activation.is_active,
+        activation.deactivated_at,
+        activation.updated_at,
+    ) == terminal
+    assert (
+        OperatorAuditEvent.objects.filter(affected_record_id=activation.pk).count() == 1
+    )
+    _assert_activation_event(
+        superuser,
+        activation.pk,
+        OperatorActorClass.EMERGENCY_SUPERUSER,
+        OperatorAuditOutcome.REJECTED,
+    )
+
+
+@pytest.mark.django_db
 def test_activation_sensitive_permission_grants_only_required_read_inspection() -> None:
     """AC-3: the activation operator can inspect its control without view authority."""
     scenario = create_activation_scenario()

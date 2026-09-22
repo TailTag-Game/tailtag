@@ -333,6 +333,34 @@ def test_fursuit_view_permission_is_read_only_and_same_state_is_rejected() -> No
 
 
 @pytest.mark.django_db
+def test_emergency_superuser_terminal_disablement_is_rejected_and_audited() -> None:
+    """AC-4/8: emergency authority still records an already-disabled fursuit retry."""
+    fursuit = create_fursuit_record(owner=create_eligible_user())
+    fursuit.is_enabled = False
+    fursuit.save(update_fields=["is_enabled"])
+    terminal = (fursuit.is_enabled, fursuit.updated_at)
+    superuser = User.objects.create_superuser(
+        "fursuit_terminal_emergency", password="pw"
+    )
+    client = Client()
+    client.force_login(superuser)
+    response = client.post(
+        reverse("admin:fursuits_fursuit_change", args=(fursuit.pk,)),
+        {"is_enabled": ""},
+    )
+    assert response.status_code == 403
+    fursuit.refresh_from_db()
+    assert (fursuit.is_enabled, fursuit.updated_at) == terminal
+    assert OperatorAuditEvent.objects.filter(affected_record_id=fursuit.pk).count() == 1
+    _assert_fursuit_event(
+        superuser,
+        fursuit.pk,
+        OperatorActorClass.EMERGENCY_SUPERUSER,
+        OperatorAuditOutcome.REJECTED,
+    )
+
+
+@pytest.mark.django_db
 def test_fursuit_disablement_cascades_credential_and_session_once() -> None:
     """AC-7/8: lifecycle consequences occur without turning into audit intentions."""
     from conventions.models import Convention, ConventionEnrollment, ConventionStatus

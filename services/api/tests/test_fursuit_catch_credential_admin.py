@@ -13,6 +13,7 @@ from django.contrib.admin.views.main import ChangeList
 from django.contrib.auth.models import Permission
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import User
 from operator_audit.models import (
@@ -471,6 +472,49 @@ def test_credential_view_permission_is_read_only_and_terminal_revoke_is_rejected
         operator,
         credential.pk,
         OperatorActorClass.OPERATOR,
+        OperatorAuditOutcome.REJECTED,
+    )
+
+
+@pytest.mark.django_db
+def test_emergency_superuser_terminal_revoke_is_rejected_and_audited() -> None:
+    """AC-4/8: emergency authority still records a revoked-credential retry."""
+    scenario = create_credential_scenario()
+    activation = create_activation_row(
+        fursuit=scenario.fursuit, convention=scenario.convention, active=True
+    )
+    revoked_at = timezone.now()
+    credential = create_credential(
+        activation=activation,
+        revoked_at=revoked_at,
+        revocation_reason="operator",
+    )
+    terminal = (
+        credential.revoked_at,
+        credential.revocation_reason,
+        credential.updated_at,
+    )
+    superuser = User.objects.create_superuser(
+        "credential_terminal_emergency", password="pw"
+    )
+    client = Client()
+    client.force_login(superuser)
+    _, url, _, _ = _admin_urls(credential)
+    response = client.post(url, {"revoke": "1"})
+    assert response.status_code == 403
+    credential.refresh_from_db()
+    assert (
+        credential.revoked_at,
+        credential.revocation_reason,
+        credential.updated_at,
+    ) == terminal
+    assert (
+        OperatorAuditEvent.objects.filter(affected_record_id=credential.pk).count() == 1
+    )
+    _assert_credential_event(
+        superuser,
+        credential.pk,
+        OperatorActorClass.EMERGENCY_SUPERUSER,
         OperatorAuditOutcome.REJECTED,
     )
 

@@ -315,6 +315,42 @@ def test_session_view_permission_is_read_only_and_terminal_session_rejects_repea
 
 
 @pytest.mark.django_db
+def test_emergency_superuser_terminal_termination_is_rejected_and_audited() -> None:
+    """AC-4/8: emergency authority still records a terminal-session retry."""
+    scenario = create_activation_scenario()
+    activation = create_activation_row(
+        fursuit=scenario.fursuit, convention=scenario.convention, active=True
+    )
+    ended_at = timezone.now()
+    session = create_catch_session(
+        activation=activation,
+        started_at=ended_at - datetime.timedelta(seconds=1),
+        ended_at=ended_at,
+        end_reason="operator",
+    )
+    terminal = (session.ended_at, session.end_reason, session.updated_at)
+    superuser = User.objects.create_superuser(
+        "session_terminal_emergency", password="pw"
+    )
+    client = Client()
+    client.force_login(superuser)
+    response = client.post(
+        reverse("admin:conventions_fursuitcatchsession_change", args=(session.pk,)),
+        {"terminate": "1"},
+    )
+    assert response.status_code == 403
+    session.refresh_from_db()
+    assert (session.ended_at, session.end_reason, session.updated_at) == terminal
+    assert OperatorAuditEvent.objects.filter(affected_record_id=session.pk).count() == 1
+    _assert_session_event(
+        superuser,
+        session.pk,
+        OperatorActorClass.EMERGENCY_SUPERUSER,
+        OperatorAuditOutcome.REJECTED,
+    )
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("after_service", [False, True])
 def test_session_termination_failure_rolls_back_and_records_only_failed(
     after_service: bool,
