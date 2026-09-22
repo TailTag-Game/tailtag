@@ -683,17 +683,11 @@ def test_concurrent_first_bootstraps_yield_one_exact_staging_operator(
             )
 
     results = (first_result, second_result)
-    errors = tuple(error for error, _, _ in results if error is not None)
-    assert all(
-        isinstance(error, CommandError) and str(error) == "Operator bootstrap failed."
-        for error in errors
-    )
-    successful_outputs = {
-        stdout.getvalue() for error, stdout, _ in results if error is None
-    }
-    assert CREATED_OUTPUT in successful_outputs
-    assert successful_outputs <= {CREATED_OUTPUT, RECONCILED_OUTPUT}
-    assert all(stderr.getvalue() == "" for error, _, stderr in results if error is None)
+    assert all(error is None for error, _, _ in results)
+    outputs = tuple(stdout.getvalue() for _, stdout, _ in results)
+    assert outputs.count(CREATED_OUTPUT) == 1
+    assert outputs.count(RECONCILED_OUTPUT) == 1
+    assert all(stderr.getvalue() == "" for _, _, stderr in results)
     operator = User.objects.get(clerk_user_id=OPERATOR_IDENTIFIER)
     assert_exact_managed_operator(operator, INITIAL_PASSWORD)
     assert User.objects.filter(clerk_user_id=OPERATOR_IDENTIFIER).count() == 1
@@ -702,9 +696,6 @@ def test_concurrent_first_bootstraps_yield_one_exact_staging_operator(
         OPERATOR_IDENTIFIER,
         INITIAL_PASSWORD,
         stored_password_hash(operator),
-        exception_text="".join(
-            str(error) for error, _, _ in results if error is not None
-        ),
     )
     assert_private_values_absent_from_environment(
         environment_before, OPERATOR_IDENTIFIER, INITIAL_PASSWORD
