@@ -122,30 +122,64 @@ def _permission_details(permission: Permission) -> tuple[str, str, str]:
     )
 
 
+def _operator_with_sensitive_permission(permission: str) -> User:
+    """Create the normal non-superuser path for one sensitive admin operation."""
+    app_label, codename = permission.split(".", maxsplit=1)
+    operator = create_test_user()
+    operator.is_staff = True
+    operator.save(update_fields={"is_staff"})
+    cast(
+        _PermissionRelation,
+        operator.user_permissions,  # pyright: ignore[reportUnknownMemberType]
+    ).add(
+        Permission.objects.get(
+            content_type__app_label=app_label,
+            codename=codename,
+        )
+    )
+    return operator
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("view_name", "post_data"),
+    ("view_name", "permission", "post_data"),
     (
-        ("admin:catches_catch_delete", {"post": "yes"}),
+        ("admin:catches_catch_delete", "catches.delete_catch", {"post": "yes"}),
         (
             "admin:conventions_convention_change",
+            "conventions.set_convention_playability",
             {"status": "active", "_save": "Save"},
         ),
-        ("admin:conventions_conventionenrollment_delete", {"post": "yes"}),
+        (
+            "admin:conventions_conventionenrollment_delete",
+            "conventions.remove_convention_enrollment",
+            {"post": "yes"},
+        ),
         (
             "admin:conventions_fursuitactivation_change",
+            "conventions.deactivate_fursuit_activation",
             {"is_active": ""},
         ),
         (
             "admin:conventions_fursuitcatchcredential_change",
+            "conventions.revoke_catch_credential",
             {"revoke": "on"},
         ),
         (
             "admin:conventions_fursuitcatchsession_change",
+            "conventions.terminate_catch_session",
             {"terminate": "on"},
         ),
-        ("admin:profiles_playerprofile_change", {"is_enabled": "on"}),
-        ("admin:fursuits_fursuit_change", {"is_enabled": "on"}),
+        (
+            "admin:profiles_playerprofile_change",
+            "profiles.set_profile_enabled",
+            {"is_enabled": "on"},
+        ),
+        (
+            "admin:fursuits_fursuit_change",
+            "fursuits.set_fursuit_enabled",
+            {"is_enabled": "on"},
+        ),
     ),
     ids=(
         "catch-delete",
@@ -158,21 +192,38 @@ def _permission_details(permission: Permission) -> tuple[str, str, str]:
         "fursuit-change",
     ),
 )
+@pytest.mark.parametrize(
+    "object_id",
+    (
+        "not-a-record-id",
+        "-1",
+        "+1",
+        "١",
+        "9223372036854775808",
+    ),
+    ids=("nonnumeric", "negative", "plus-signed", "non-ascii", "int64-overflow"),
+)
 def test_malformed_sensitive_admin_object_id_is_not_an_audited_attempt(
-    view_name: str, post_data: dict[str, str]
+    view_name: str,
+    permission: str,
+    post_data: dict[str, str],
+    object_id: str,
 ) -> None:
-    """AC-4/6: malformed routing identifiers are 404s before an audit boundary."""
-    superuser = User.objects.create_superuser("malformed_operator_id", password="pw")
+    """AC-4/6: malformed IDs never reach the sensitive boundary or mutate a session."""
+    operator = _operator_with_sensitive_permission(permission)
+    assert cast(bool, operator.is_superuser) is False  # pyright: ignore[reportUnknownMemberType]
     client = Client(raise_request_exception=False)
-    client.force_login(superuser)
+    client.force_login(operator)
+    session_before = dict(client.session.items())
 
     response = client.post(
-        reverse(view_name, args=("not-a-record-id",)),
+        reverse(view_name, args=(object_id,)),
         post_data,
     )
 
     assert response.status_code == 404
     assert OperatorAuditEvent.objects.count() == 0
+    assert dict(client.session.items()) == session_before
 
 
 @pytest.mark.django_db
