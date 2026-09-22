@@ -581,6 +581,31 @@ AUDIT_PRIVACY_EXCLUSIONS = (
 )
 
 
+def assert_no_concrete_generic_permission_prerequisites(runbook: str) -> None:
+    """Reject generic-permission prerequisite prose in a sensitive-operation sentence."""
+    sentences = re.split(r"(?<=[.!?])\s+", " ".join(runbook.split()))
+    explicit_negation = (
+        r"\b(?:not required|never required|does not require|doesn't require|"
+        r"need not|not needed|never needed)\b"
+    )
+    prerequisite_language = (
+        r"\b(?:authorize|grant|substitute|requires?|needs?|(?:is )?required|"
+        r"(?:additional )?prerequisite|"
+        r"must hold|must have|has to have|only available after|"
+        r"before (?:invoking|executing))\b"
+    )
+
+    for generic_permission in GENERIC_PERMISSION_CODENAMES:
+        for sentence in sentences:
+            if generic_permission not in sentence:
+                continue
+            if not re.search(r"(?i)sensitive (?:action|operation)", sentence):
+                continue
+            if re.search(rf"(?i){explicit_negation}", sentence):
+                continue
+            assert not re.search(rf"(?i){prerequisite_language}", sentence)
+
+
 def assert_staging_operator_authority_boundary(runbook: str) -> None:
     """Require operation authority, rather than staff/group/model-permission authority."""
     normalized_runbook = " ".join(runbook.split())
@@ -620,42 +645,7 @@ def assert_staging_operator_authority_boundary(runbook: str) -> None:
     )
     for generic_permission in GENERIC_PERMISSION_CODENAMES:
         assert generic_permission in runbook
-        no_negation = r"(?:(?!\b(?:neither|never|does not|not)\b).){0,180}"
-        unsafe_permission_claims = (
-            "".join(
-                (
-                    rf"{re.escape(generic_permission)}{no_negation}",
-                    r"(?:authorize|grant|substitute|(?:additional )?prerequisite|",
-                    r"(?:is )?required|needs).{0,160}(?:sensitive (?:action|operation)|action)",
-                )
-            ),
-            "".join(
-                (
-                    r"(?:sensitive (?:action|operation)|action)",
-                    rf"{no_negation}(?:requires|needs).{{0,160}}",
-                    rf"{re.escape(generic_permission)}",
-                )
-            ),
-            "".join(
-                (
-                    r"(?:sensitive (?:action|operation)|action)",
-                    rf"{no_negation}(?:user|operator){no_negation}(?:needs|requires)",
-                    rf".{{0,120}}{re.escape(generic_permission)}",
-                )
-            ),
-            "".join(
-                (
-                    r"(?:user|operator)",
-                    rf"{no_negation}(?:needs|requires).{{0,120}}",
-                    rf"{re.escape(generic_permission)}{no_negation}",
-                    r"(?:sensitive (?:action|operation)|action)",
-                )
-            ),
-        )
-        assert not any(
-            re.search(rf"(?i){unsafe_claim}", normalized_runbook)
-            for unsafe_claim in unsafe_permission_claims
-        )
+    assert_no_concrete_generic_permission_prerequisites(runbook)
     assert re.search(
         r"catches\.delete_catch.{0,180}(?i:explicit).{0,120}"
         r"(?i:correction|action) authority",
@@ -932,6 +922,16 @@ def test_audit_privacy_helper_accepts_scoped_allowed_and_excluded_fields() -> No
         assert_negated_audit_privacy_exclusions(contradictory)
 
 
+def test_concrete_permission_helper_allows_explicit_non_prerequisites() -> None:
+    """Concrete view/change/delete guidance may explicitly reject prerequisites."""
+    compliant = "\n".join(
+        f"`{generic_permission}` is not required before executing a sensitive operation."
+        for generic_permission in GENERIC_PERMISSION_CODENAMES
+    )
+
+    assert_no_concrete_generic_permission_prerequisites(compliant)
+
+
 def markdown_section(document: str, heading_pattern: str) -> str:
     """Return a level-two documentation section identified by its semantic heading."""
     heading = re.search(heading_pattern, document)
@@ -1114,6 +1114,18 @@ def test_staging_operator_runbook_rejects_unsafe_documentation_mutants() -> None
             f"{runbook}\nA user needs `{generic_permission}` for the sensitive operation.\n",
         )
     )
+    unsafe_modal_concrete_prerequisite_mutants = tuple(
+        mutant
+        for generic_permission in GENERIC_PERMISSION_CODENAMES
+        for mutant in (
+            f"{runbook}\n`{generic_permission}` must hold for the sensitive operation.\n",
+            f"{runbook}\nA user must have `{generic_permission}` for the sensitive operation.\n",
+            f"{runbook}\nA user has to have `{generic_permission}` for the sensitive operation.\n",
+            f"{runbook}\nThe sensitive action is only available after `{generic_permission}` is granted.\n",
+            f"{runbook}\n`{generic_permission}` must be granted before invoking the sensitive operation.\n",
+            f"{runbook}\n`{generic_permission}` must be granted before executing the sensitive operation.\n",
+        )
+    )
     unsafe_mutants = (
         runbook.replace("--environment staging", "--environment development", 1),
         runbook.replace(
@@ -1139,6 +1151,7 @@ def test_staging_operator_runbook_rejects_unsafe_documentation_mutants() -> None
         *unsafe_prerequisite_mutants,
         *unsafe_concrete_prerequisite_mutants,
         *unsafe_reversed_concrete_prerequisite_mutants,
+        *unsafe_modal_concrete_prerequisite_mutants,
     )
 
     for mutant in unsafe_mutants:
