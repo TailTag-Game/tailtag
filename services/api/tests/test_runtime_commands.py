@@ -558,6 +558,19 @@ def assert_safe_staging_operator_runbook(runbook: str) -> None:
     ]
     assert operator_command_blocks == [STAGING_OPERATOR_PROCEDURE]
 
+    for credential_name in (
+        "RAILWAY_TOKEN",
+        "RAILWAY_API_TOKEN",
+        "DJANGO_SUPERUSER_PASSWORD",
+    ):
+        assert credential_name not in runbook
+    assert not re.search(
+        r"(?mi)(?:^|\s)(?:export\s+)?[A-Z][A-Z0-9_]*"
+        r"(?:TOKEN|PASSWORD|SECRET|CREDENTIAL)[A-Z0-9_]*=",
+        runbook,
+    )
+    assert not re.search(r"(?i)--(?:password|credential|token)(?:=|\s)", runbook)
+
     assert "RAILWAY_ENVIRONMENT_NAME=staging" in runbook
     assert "RAILWAY_SERVICE_NAME=api" in runbook
     assert re.search(
@@ -643,10 +656,34 @@ def test_operator_audit_documentation_defines_safe_durable_evidence() -> None:
 
     assert "OperatorAuditEvent" in runbook
     assert re.search(r"(?i)durable.{0,100}database", normalized_runbook)
-    assert re.search(r"(?i)LogEntry.{0,180}not.{0,80}authoritative", normalized_runbook)
+    assert re.search(
+        r"(?i)LogEntry.{0,180}(?:not|neither).{0,80}authoritative",
+        normalized_runbook,
+    )
+    assert re.search(
+        r"(?i)(?:structured|application|Railway).{0,80}logs?.{0,180}"
+        r"(?:not|neither).{0,80}authoritative",
+        normalized_runbook,
+    )
     assert re.search(r"(?i)no.{0,80}audit.{0,80}viewer", normalized_runbook)
-    for outcome in ("succeeded", "denied", "rejected", "failed"):
+    assert re.search(
+        r"(?i)audit rows?.{0,180}only.{0,120}approved.{0,120}"
+        r"(?:database|operator) procedures?",
+        normalized_runbook,
+    )
+    outcome_definitions = {
+        "succeeded": r"`succeeded`.{0,180}(?:requested )?(?:state )?transition"
+        r".{0,120}commit",
+        "denied": r"`denied`.{0,180}(?:authenticated|staff).{0,180}"
+        r"(?:lack|without).{0,80}(?:permission|authority)",
+        "rejected": r"`rejected`.{0,180}(?:authorized|permission).{0,180}"
+        r"(?:invalid|current state|domain contract)",
+        "failed": r"`failed`.{0,180}(?:unexpected|failure).{0,180}"
+        r"(?:did not|does not).{0,120}commit",
+    }
+    for outcome, definition in outcome_definitions.items():
         assert f"`{outcome}`" in runbook
+        assert re.search(definition, normalized_runbook)
     for prohibited_value in (
         "provider identifiers",
         "emails",
@@ -659,6 +696,11 @@ def test_operator_audit_documentation_defines_safe_durable_evidence() -> None:
     assert "#204" in runbook
     assert re.search(
         r"(?i)(?:retain|retention).{0,180}(?:no automatic|not automatically)",
+        normalized_runbook,
+    )
+    assert re.search(
+        r"(?i)(?:retain|retention).{0,180}until.{0,180}"
+        r"future documented.{0,80}policy",
         normalized_runbook,
     )
     assert "catastrophic database failure" in normalized_runbook
@@ -678,9 +720,8 @@ STAGING_OPERATOR_PROOF_CASES = (
         1,
         (
             r"(?i)ordinary player",
-            r"(?i)(?:cannot|denied)",
-            r"(?i)(?:browse|inspect)",
-            r"(?i)(?:execute|sensitive admin mutation)",
+            r"(?i)(?:cannot|denied).{0,120}(?:browse|inspect)",
+            r"(?i)(?:cannot|denied).{0,120}(?:execute|sensitive admin mutation)",
         ),
     ),
     (
@@ -759,6 +800,15 @@ def assert_staging_operator_acceptance_matrix(staging: str) -> None:
         staging,
         r"(?mi)^## (?=[^\n]*operator)(?=[^\n]*audit)(?=[^\n]*acceptance).*\n",
     )
+    normalized_proof_matrix = " ".join(proof_matrix.split())
+    assert re.search(
+        r"(?i)(?:execute|execution|run).{0,160}separate explicit authorization",
+        normalized_proof_matrix,
+    )
+    assert re.search(
+        r"(?i)(?:isolated.{0,80}Staging|Staging.{0,80}isolated)", proof_matrix
+    )
+    assert re.search(r"(?i)disposable.{0,80}synthetic records", proof_matrix)
     matrix_rows = [
         line
         for line in proof_matrix.splitlines()
@@ -832,6 +882,10 @@ def test_staging_operator_runbook_rejects_unsafe_documentation_mutants() -> None
             f"{STAGING_OPERATOR_COMMAND} --password=not-allowed",
             1,
         ),
+        f"{runbook}\n```shell\nRAILWAY_TOKEN=not-allowed\n```\n",
+        f"{runbook}\n```shell\nRAILWAY_API_TOKEN=not-allowed\n```\n",
+        f"{runbook}\n```shell\nDJANGO_SUPERUSER_PASSWORD=not-allowed\n```\n",
+        f"{runbook}\n```shell\nOPERATOR_CREDENTIAL=not-allowed\n```\n",
     )
 
     for mutant in unsafe_mutants:
