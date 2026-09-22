@@ -14,6 +14,13 @@ from django.test import Client, RequestFactory, override_settings
 from django.urls import reverse
 
 from accounts.models import User
+from operator_audit.models import (
+    OperatorAction,
+    OperatorActorClass,
+    OperatorAuditEvent,
+    OperatorAuditOutcome,
+    OperatorTargetType,
+)
 from tests.fursuit_test_support import create_eligible_user, create_fursuit_record
 from tests.profile_test_support import RECORDING_STORAGES
 
@@ -152,7 +159,8 @@ def test_view_only_staff_cannot_toggle_and_change_staff_cannot_forge_hidden_fiel
     created_before = record.created_at
     for codes, expected in (
         (["view_fursuit"], 403),
-        (["view_fursuit", "change_fursuit"], 302),
+        (["view_fursuit", "change_fursuit"], 403),
+        (["view_fursuit", "set_fursuit_enabled"], 302),
     ):
         staff = create_eligible_user()
         staff.is_staff = True
@@ -181,3 +189,129 @@ def test_view_only_staff_cannot_toggle_and_change_staff_cannot_forge_hidden_fiel
         assert record.name == name_before and record.photo_key == photo_before
         assert record.owner_id == owner_before and record.created_at == created_before
         assert record.updated_at.year != 2000
+
+
+def _operator_staff(*permissions: tuple[str, str]) -> User:
+    user = create_eligible_user()
+    user.is_staff = True
+    user.save(update_fields=["is_staff"])
+    cast(_UserWithPermissions, user).user_permissions.add(
+        *[
+            Permission.objects.get(content_type__app_label=app_label, codename=codename)
+            for app_label, codename in permissions
+        ]
+    )
+    return User.objects.get(pk=user.pk)
+
+
+def _assert_fursuit_event(
+    user: User,
+    fursuit_id: int,
+    actor_class: OperatorActorClass,
+    outcome: OperatorAuditOutcome,
+) -> None:
+    events = list(
+        OperatorAuditEvent.objects.filter(affected_record_id=fursuit_id, actor=user)
+    )
+    assert len(events) == 1
+    event = events[0]
+    assert (
+        event.action,
+        event.actor_class,
+        event.affected_record_type,
+        event.outcome,
+    ) == (
+        OperatorAction.SET_FURSUIT_ENABLED,
+        actor_class,
+        OperatorTargetType.FURSUIT,
+        outcome,
+    )
+
+
+@pytest.mark.django_db
+def test_fursuit_enablement_role_matrix_uses_only_the_explicit_operation_permission() -> (
+    None
+):
+    """AC-1/2/4: all denied direct posts are evidence, and only exact authority mutates."""
+    unrelated = _operator_staff(("profiles", "set_profile_enabled"))
+    cases = (
+        (
+            create_eligible_user(),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _operator_staff(),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            unrelated,
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _operator_staff(("fursuits", "change_fursuit")),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _operator_staff(("fursuits", "set_fursuit_enabled")),
+            True,
+            OperatorActorClass.OPERATOR,
+            OperatorAuditOutcome.SUCCEEDED,
+        ),
+        (
+            User.objects.create_superuser("fursuit_emergency", password="pw"),
+            True,
+            OperatorActorClass.EMERGENCY_SUPERUSER,
+            OperatorAuditOutcome.SUCCEEDED,
+        ),
+    )
+    for user, permitted, actor_class, outcome in cases:
+        fursuit = create_fursuit_record(owner=create_eligible_user())
+        client = Client()
+        client.force_login(user)
+        response = client.post(
+            reverse("admin:fursuits_fursuit_change", args=(fursuit.pk,)),
+            {"is_enabled": ""},
+        )
+        assert response.status_code == (302 if permitted else 403)
+        fursuit.refresh_from_db()
+        assert fursuit.is_enabled is (not permitted)
+        _assert_fursuit_event(user, fursuit.pk, actor_class, outcome)
+
+
+@pytest.mark.django_db
+def test_fursuit_view_permission_is_read_only_and_same_state_is_rejected() -> None:
+    """AC-3/4: inspection does not accidentally expose the enablement control."""
+    fursuit = create_fursuit_record(owner=create_eligible_user())
+    viewer = _operator_staff(("fursuits", "view_fursuit"))
+    client = Client()
+    client.force_login(viewer)
+    url = reverse("admin:fursuits_fursuit_change", args=(fursuit.pk,))
+    assert client.get(url).status_code == 200
+    assert OperatorAuditEvent.objects.count() == 0
+    assert client.post(url, {"is_enabled": ""}).status_code == 403
+    fursuit.refresh_from_db()
+    assert fursuit.is_enabled is True
+    _assert_fursuit_event(
+        viewer,
+        fursuit.pk,
+        OperatorActorClass.UNAUTHORIZED_ACTOR,
+        OperatorAuditOutcome.DENIED,
+    )
+
+    operator = _operator_staff(("fursuits", "set_fursuit_enabled"))
+    client.force_login(operator)
+    assert client.post(url, {"is_enabled": "on"}).status_code == 403
+    assert (
+        OperatorAuditEvent.objects.filter(
+            affected_record_id=fursuit.pk, outcome=OperatorAuditOutcome.REJECTED
+        ).count()
+        == 1
+    )

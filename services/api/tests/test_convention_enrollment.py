@@ -9,6 +9,7 @@ from typing import Any, cast
 import pytest
 import yaml
 from django.contrib import admin
+from django.contrib.auth.models import Permission
 from django.db import IntegrityError
 from django.test import Client, override_settings
 from django.urls import reverse
@@ -17,6 +18,13 @@ from django.utils import timezone
 from accounts.models import User
 from conventions.admin import ConventionEnrollmentAdmin
 from conventions.models import Convention, ConventionEnrollment, ConventionStatus
+from operator_audit.models import (
+    OperatorAction,
+    OperatorActorClass,
+    OperatorAuditEvent,
+    OperatorAuditOutcome,
+    OperatorTargetType,
+)
 from profiles.models import PlayerProfile
 from tests.authentication_support import (
     TEST_CLERK_CONFIGURATION,
@@ -587,6 +595,142 @@ def test_convention_enrollment_admin_operator_inspection(client: Client) -> None
     )
     change_response = client.get(change_url)
     assert change_response.status_code == 200
+
+
+def _enrollment_staff(*permissions: tuple[str, str]) -> User:
+    user = create_test_user()
+    user.is_staff = True
+    user.save(update_fields=["is_staff"])
+    user.user_permissions.add(  # pyright: ignore[reportUnknownMemberType]
+        *[
+            Permission.objects.get(content_type__app_label=app_label, codename=codename)
+            for app_label, codename in permissions
+        ]
+    )
+    return User.objects.get(pk=user.pk)
+
+
+def _assert_enrollment_event(
+    user: User,
+    enrollment_id: int,
+    actor_class: OperatorActorClass,
+    outcome: OperatorAuditOutcome,
+) -> None:
+    events = list(
+        OperatorAuditEvent.objects.filter(affected_record_id=enrollment_id, actor=user)
+    )
+    assert len(events) == 1
+    event = events[0]
+    assert (
+        event.action,
+        event.actor_class,
+        event.affected_record_type,
+        event.outcome,
+    ) == (
+        OperatorAction.REMOVE_CONVENTION_ENROLLMENT,
+        actor_class,
+        OperatorTargetType.CONVENTION_ENROLLMENT,
+        outcome,
+    )
+
+
+@pytest.mark.django_db
+def test_enrollment_removal_role_matrix_requires_exact_permission() -> None:
+    """AC-1/2/4: generic deletion and another sensitive permission cannot remove participation."""
+    unrelated = _enrollment_staff(("conventions", "deactivate_fursuit_activation"))
+    cases = (
+        (
+            create_test_user(),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _enrollment_staff(),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            unrelated,
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _enrollment_staff(("conventions", "delete_conventionenrollment")),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _enrollment_staff(("conventions", "remove_convention_enrollment")),
+            True,
+            OperatorActorClass.OPERATOR,
+            OperatorAuditOutcome.SUCCEEDED,
+        ),
+        (
+            User.objects.create_superuser("enrollment_emergency", password="pw"),
+            True,
+            OperatorActorClass.EMERGENCY_SUPERUSER,
+            OperatorAuditOutcome.SUCCEEDED,
+        ),
+    )
+    for user, permitted, actor_class, outcome in cases:
+        enrollment = ConventionEnrollment.objects.create(
+            user=create_test_user(), convention=_create_convention()
+        )
+        client = Client()
+        client.force_login(user)
+        url = reverse(
+            "admin:conventions_conventionenrollment_delete", args=(enrollment.pk,)
+        )
+        response = client.post(url, {"post": "yes"})
+        assert response.status_code == (302 if permitted else 403)
+        assert ConventionEnrollment.objects.filter(pk=enrollment.pk).exists() is (
+            not permitted
+        )
+        _assert_enrollment_event(user, enrollment.pk, actor_class, outcome)
+
+
+@pytest.mark.django_db
+def test_enrollment_admin_closes_add_and_active_selection_without_creating_new_audit_actions() -> (
+    None
+):
+    """AC-4/9: direct admin cannot establish participation or select an active Convention."""
+    enrollment = ConventionEnrollment.objects.create(
+        user=create_test_user(), convention=_create_convention(), is_active=True
+    )
+    operator = _enrollment_staff(("conventions", "remove_convention_enrollment"))
+    client = Client()
+    client.force_login(operator)
+    add_url = reverse("admin:conventions_conventionenrollment_add")
+    change_url = reverse(
+        "admin:conventions_conventionenrollment_change", args=(enrollment.pk,)
+    )
+    assert client.get(add_url).status_code == 403
+    assert (
+        client.post(
+            add_url,
+            {"user": enrollment.user_id, "convention": enrollment.convention_id},
+        ).status_code
+        == 403
+    )
+    assert client.get(change_url).status_code == 200
+    assert (
+        client.post(
+            change_url,
+            {
+                "user": enrollment.user_id,
+                "convention": enrollment.convention_id,
+                "is_active": "",
+            },
+        ).status_code
+        == 403
+    )
+    enrollment.refresh_from_db()
+    assert enrollment.is_active is True
+    assert OperatorAuditEvent.objects.count() == 0
 
 
 # --- OpenAPI Contract Test ---

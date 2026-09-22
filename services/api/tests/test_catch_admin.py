@@ -30,6 +30,13 @@ from conventions.models import (
     FursuitCatchSession,
 )
 from fursuits.models import Fursuit
+from operator_audit.models import (
+    OperatorAction,
+    OperatorActorClass,
+    OperatorAuditEvent,
+    OperatorAuditOutcome,
+    OperatorTargetType,
+)
 from tests.authentication_support import create_test_user, force_authenticated_client
 from tests.catch_credential_test_support import (
     PAYLOAD_A,
@@ -343,7 +350,7 @@ def test_catch_admin_permissions_and_bulk_delete_denial() -> None:
     request_staff.user = staff_user
     assert model_admin.has_delete_permission(request_staff) is False
 
-    # Staff with only view_catch permission is denied both delete and view
+    # Explicit view_catch permits inspection but never the correction control.
     view_perm = Permission.objects.get(
         content_type__app_label="catches", codename="view_catch"
     )
@@ -355,7 +362,7 @@ def test_catch_admin_permissions_and_bulk_delete_denial() -> None:
     request_staff_view_only = factory.get("/")
     request_staff_view_only.user = staff_with_view_only
     assert model_admin.has_delete_permission(request_staff_view_only) is False
-    assert model_admin.has_view_permission(request_staff_view_only) is False
+    assert model_admin.has_view_permission(request_staff_view_only) is True
 
     # Staff with delete permission has both delete and view
     cast(_UserWithPermissions, staff_user).user_permissions.add(delete_perm)
@@ -475,15 +482,15 @@ def test_catch_admin_staff_without_delete_permission_is_forbidden() -> None:
         content_type__app_label="catches", object_id=str(catch.pk)
     ).exists()
 
-    # Staff user with only catches.view_catch is also forbidden from changelist, change, and delete
+    # Staff user with only catches.view_catch may inspect but cannot delete.
     view_perm = Permission.objects.get(
         content_type__app_label="catches", codename="view_catch"
     )
     cast(_UserWithPermissions, staff_user).user_permissions.add(view_perm)
     staff_user = User.objects.get(pk=staff_user.pk)
     client.force_login(staff_user)
-    assert client.get(urls.changelist).status_code == 403
-    assert client.get(urls.change).status_code == 403
+    assert client.get(urls.changelist).status_code == 200
+    assert client.get(urls.change).status_code == 200
     assert client.get(urls.delete).status_code == 403
 
 
@@ -968,3 +975,124 @@ def test_catch_admin_multi_parameter_credential_sanitization_and_drop() -> None:
     assert resp.headers["Location"] == f"{urls.changelist}?q=MultiFox"
     _assert_token_absent(TOKEN_A, resp.headers["Location"])
     assert "leak=" not in resp.headers["Location"]
+
+
+def _catch_staff(*permissions: tuple[str, str]) -> User:
+    user = create_test_user()
+    user.is_staff = True
+    user.save(update_fields=["is_staff"])
+    cast(_UserWithPermissions, user).user_permissions.add(
+        *[
+            Permission.objects.get(content_type__app_label=app_label, codename=codename)
+            for app_label, codename in permissions
+        ]
+    )
+    return User.objects.get(pk=user.pk)
+
+
+def _assert_catch_event(
+    user: User,
+    catch_id: int,
+    actor_class: OperatorActorClass,
+    outcome: OperatorAuditOutcome,
+) -> None:
+    events = list(
+        OperatorAuditEvent.objects.filter(affected_record_id=catch_id, actor=user)
+    )
+    assert len(events) == 1
+    event = events[0]
+    assert (
+        event.action,
+        event.actor_class,
+        event.affected_record_type,
+        event.outcome,
+    ) == (
+        OperatorAction.REMOVE_CATCH,
+        actor_class,
+        OperatorTargetType.CATCH,
+        outcome,
+    )
+
+
+@pytest.mark.django_db
+def test_catch_removal_role_matrix_preserves_delete_catch_as_the_exact_correction_authority() -> (
+    None
+):
+    """AC-1/2/4/9: only the documented Catch deletion authority removes one record."""
+    unrelated = _catch_staff(("conventions", "revoke_catch_credential"))
+    cases = (
+        (
+            create_test_user(),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _catch_staff(),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            unrelated,
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _catch_staff(("catches", "change_catch")),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _catch_staff(("catches", "delete_catch")),
+            True,
+            OperatorActorClass.OPERATOR,
+            OperatorAuditOutcome.SUCCEEDED,
+        ),
+        (
+            User.objects.create_superuser("catch_emergency", password="pw"),
+            True,
+            OperatorActorClass.EMERGENCY_SUPERUSER,
+            OperatorAuditOutcome.SUCCEEDED,
+        ),
+    )
+    for user, permitted, actor_class, outcome in cases:
+        catch = create_catch(scenario=create_catch_scenario())
+        client = Client()
+        client.force_login(user)
+        response = client.post(_admin_urls(catch).delete, {"post": "yes"})
+        assert response.status_code == (302 if permitted else 403)
+        assert Catch.objects.filter(pk=catch.pk).exists() is (not permitted)
+        _assert_catch_event(user, catch.pk, actor_class, outcome)
+
+
+@pytest.mark.django_db
+def test_catch_view_permission_is_read_only_and_catch_add_edit_bulk_paths_remain_closed() -> (
+    None
+):
+    """AC-3/4/9: a viewer can inspect but cannot create, edit, bulk-award, or delete."""
+    catch = create_catch(scenario=create_catch_scenario())
+    viewer = _catch_staff(("catches", "view_catch"))
+    client = Client()
+    client.force_login(viewer)
+    urls = _admin_urls(catch)
+    assert client.get(urls.changelist).status_code == 200
+    assert client.get(urls.change).status_code == 200
+    assert OperatorAuditEvent.objects.count() == 0
+    assert client.post(urls.delete, {"post": "yes"}).status_code == 403
+    assert client.post(urls.add, {}).status_code == 403
+    assert (
+        client.post(
+            urls.changelist, {"action": "delete_selected", "_selected_action": catch.pk}
+        ).status_code
+        == 403
+    )
+    assert Catch.objects.filter(pk=catch.pk).exists()
+    _assert_catch_event(
+        viewer,
+        catch.pk,
+        OperatorActorClass.UNAUTHORIZED_ACTOR,
+        OperatorAuditOutcome.DENIED,
+    )

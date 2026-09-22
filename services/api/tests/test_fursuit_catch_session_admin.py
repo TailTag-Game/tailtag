@@ -8,11 +8,20 @@ from typing import Any, cast
 import pytest
 from django.contrib import admin
 from django.contrib.admin.views.main import ChangeList
+from django.contrib.auth.models import Permission
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import User
+from operator_audit.models import (
+    OperatorAction,
+    OperatorActorClass,
+    OperatorAuditEvent,
+    OperatorAuditOutcome,
+    OperatorTargetType,
+)
+from tests.authentication_support import create_test_user
 from tests.fursuit_activation_test_support import (
     create_activation_row,
     create_activation_scenario,
@@ -145,3 +154,136 @@ def test_admin_per_object_operator_termination_ends_only_live_row_and_never_rela
     assert client.post(expired_change, {"terminate": "1"}).status_code == 302
     expired.refresh_from_db()
     assert expired.ended_at == now and expired.end_reason == "expired"
+
+
+def _session_staff(*permissions: tuple[str, str]) -> User:
+    user = create_test_user()
+    user.is_staff = True
+    user.save(update_fields=["is_staff"])
+    user.user_permissions.add(  # pyright: ignore[reportUnknownMemberType]
+        *[
+            Permission.objects.get(content_type__app_label=app_label, codename=codename)
+            for app_label, codename in permissions
+        ]
+    )
+    return User.objects.get(pk=user.pk)
+
+
+def _assert_session_event(
+    user: User,
+    session_id: int,
+    actor_class: OperatorActorClass,
+    outcome: OperatorAuditOutcome,
+) -> None:
+    events = list(
+        OperatorAuditEvent.objects.filter(affected_record_id=session_id, actor=user)
+    )
+    assert len(events) == 1
+    event = events[0]
+    assert (
+        event.action,
+        event.actor_class,
+        event.affected_record_type,
+        event.outcome,
+    ) == (
+        OperatorAction.TERMINATE_CATCH_SESSION,
+        actor_class,
+        OperatorTargetType.FURSUIT_CATCH_SESSION,
+        outcome,
+    )
+
+
+@pytest.mark.django_db
+def test_session_termination_role_matrix_requires_exact_permission() -> None:
+    """AC-1/2/4: terminal-session authority has no generic or cross-action bypass."""
+    unrelated = _session_staff(("conventions", "revoke_catch_credential"))
+    cases = (
+        (
+            create_test_user(),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _session_staff(),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            unrelated,
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _session_staff(("conventions", "change_fursuitcatchsession")),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _session_staff(("conventions", "terminate_catch_session")),
+            True,
+            OperatorActorClass.OPERATOR,
+            OperatorAuditOutcome.SUCCEEDED,
+        ),
+        (
+            User.objects.create_superuser("session_emergency", password="pw"),
+            True,
+            OperatorActorClass.EMERGENCY_SUPERUSER,
+            OperatorAuditOutcome.SUCCEEDED,
+        ),
+    )
+    for user, permitted, actor_class, outcome in cases:
+        scenario = create_activation_scenario()
+        activation = create_activation_row(
+            fursuit=scenario.fursuit, convention=scenario.convention, active=True
+        )
+        session = create_catch_session(activation=activation)
+        client = Client()
+        client.force_login(user)
+        url = reverse(
+            "admin:conventions_fursuitcatchsession_change", args=(session.pk,)
+        )
+        response = client.post(url, {"terminate": "1"})
+        assert response.status_code == (302 if permitted else 403)
+        session.refresh_from_db()
+        assert (session.ended_at is not None) is permitted
+        _assert_session_event(user, session.pk, actor_class, outcome)
+
+
+@pytest.mark.django_db
+def test_session_view_permission_is_read_only_and_terminal_session_rejects_repeat() -> (
+    None
+):
+    """AC-3/4/8: GET is not an audit attempt and cannot grant a terminate control."""
+    scenario = create_activation_scenario()
+    activation = create_activation_row(
+        fursuit=scenario.fursuit, convention=scenario.convention, active=True
+    )
+    session = create_catch_session(activation=activation)
+    viewer = _session_staff(("conventions", "view_fursuitcatchsession"))
+    client = Client()
+    client.force_login(viewer)
+    url = reverse("admin:conventions_fursuitcatchsession_change", args=(session.pk,))
+    detail = client.get(url)
+    assert detail.status_code == 200 and b'name="terminate"' not in detail.content
+    assert OperatorAuditEvent.objects.count() == 0
+    assert client.post(url, {"terminate": "1"}).status_code == 403
+    _assert_session_event(
+        viewer,
+        session.pk,
+        OperatorActorClass.UNAUTHORIZED_ACTOR,
+        OperatorAuditOutcome.DENIED,
+    )
+    operator = _session_staff(("conventions", "terminate_catch_session"))
+    client.force_login(operator)
+    assert client.post(url, {"terminate": "1"}).status_code == 302
+    assert client.post(url, {"terminate": "1"}).status_code == 403
+    assert (
+        OperatorAuditEvent.objects.filter(
+            affected_record_id=session.pk, outcome=OperatorAuditOutcome.REJECTED
+        ).count()
+        == 1
+    )

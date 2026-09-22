@@ -9,6 +9,7 @@ from typing import cast
 import pytest
 from django.contrib import admin
 from django.contrib.admin.views.main import ChangeList
+from django.contrib.auth.models import Permission
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
@@ -16,6 +17,14 @@ from django.utils import timezone
 from accounts.models import User
 from conventions.admin import FursuitActivationAdmin
 from conventions.models import Convention, ConventionStatus, FursuitActivation
+from operator_audit.models import (
+    OperatorAction,
+    OperatorActorClass,
+    OperatorAuditEvent,
+    OperatorAuditOutcome,
+    OperatorTargetType,
+)
+from tests.authentication_support import create_test_user
 from tests.fursuit_activation_test_support import create_activation_scenario
 from tests.fursuit_test_support import create_fursuit_record
 
@@ -169,3 +178,141 @@ def test_activation_admin_only_allows_active_to_inactive_and_preserves_timestamp
     assert rejected.status_code in {200, 403}
     activation.refresh_from_db()
     assert not activation.is_active and activation.deactivated_at == deactivated[1]
+
+
+def _activation_staff(*permissions: tuple[str, str]) -> User:
+    user = create_test_user()
+    user.is_staff = True
+    user.save(update_fields=["is_staff"])
+    user.user_permissions.add(  # pyright: ignore[reportUnknownMemberType]
+        *[
+            Permission.objects.get(content_type__app_label=app_label, codename=codename)
+            for app_label, codename in permissions
+        ]
+    )
+    return User.objects.get(pk=user.pk)
+
+
+def _assert_activation_event(
+    user: User,
+    activation_id: int,
+    actor_class: OperatorActorClass,
+    outcome: OperatorAuditOutcome,
+) -> None:
+    events = list(
+        OperatorAuditEvent.objects.filter(affected_record_id=activation_id, actor=user)
+    )
+    assert len(events) == 1
+    event = events[0]
+    assert (
+        event.action,
+        event.actor_class,
+        event.affected_record_type,
+        event.outcome,
+    ) == (
+        OperatorAction.DEACTIVATE_FURSUIT_ACTIVATION,
+        actor_class,
+        OperatorTargetType.FURSUIT_ACTIVATION,
+        outcome,
+    )
+
+
+@pytest.mark.django_db
+def test_activation_deactivation_role_matrix_requires_exact_permission() -> None:
+    """AC-1/2/4: activation cannot be deactivated through staff or generic change."""
+    unrelated = _activation_staff(("conventions", "terminate_catch_session"))
+    cases = (
+        (
+            create_test_user(),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _activation_staff(),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            unrelated,
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _activation_staff(("conventions", "change_fursuitactivation")),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _activation_staff(("conventions", "deactivate_fursuit_activation")),
+            True,
+            OperatorActorClass.OPERATOR,
+            OperatorAuditOutcome.SUCCEEDED,
+        ),
+        (
+            User.objects.create_superuser("activation_emergency", password="pw"),
+            True,
+            OperatorActorClass.EMERGENCY_SUPERUSER,
+            OperatorAuditOutcome.SUCCEEDED,
+        ),
+    )
+    for user, permitted, actor_class, outcome in cases:
+        scenario = create_activation_scenario()
+        activation = FursuitActivation.objects.create(
+            fursuit=scenario.fursuit,
+            convention=scenario.convention,
+            is_active=True,
+            activated_at=timezone.now(),
+        )
+        client = Client()
+        client.force_login(user)
+        url = reverse(
+            "admin:conventions_fursuitactivation_change", args=(activation.pk,)
+        )
+        response = client.post(url, {"is_active": ""})
+        assert response.status_code == (302 if permitted else 403)
+        activation.refresh_from_db()
+        assert activation.is_active is (not permitted)
+        _assert_activation_event(user, activation.pk, actor_class, outcome)
+
+
+@pytest.mark.django_db
+def test_activation_view_is_read_only_and_reactivation_has_no_alternate_authority_path() -> (
+    None
+):
+    """AC-3/4/9: reads create no event, and an inactive record cannot be reactivated."""
+    scenario = create_activation_scenario()
+    activation = FursuitActivation.objects.create(
+        fursuit=scenario.fursuit,
+        convention=scenario.convention,
+        is_active=True,
+        activated_at=timezone.now(),
+    )
+    viewer = _activation_staff(("conventions", "view_fursuitactivation"))
+    client = Client()
+    client.force_login(viewer)
+    url = reverse("admin:conventions_fursuitactivation_change", args=(activation.pk,))
+    assert client.get(url).status_code == 200
+    assert OperatorAuditEvent.objects.count() == 0
+    assert client.post(url, {"is_active": ""}).status_code == 403
+    _assert_activation_event(
+        viewer,
+        activation.pk,
+        OperatorActorClass.UNAUTHORIZED_ACTOR,
+        OperatorAuditOutcome.DENIED,
+    )
+    operator = _activation_staff(("conventions", "deactivate_fursuit_activation"))
+    client.force_login(operator)
+    assert client.post(url, {"is_active": ""}).status_code == 302
+    assert client.post(url, {"is_active": "on"}).status_code == 403
+    activation.refresh_from_db()
+    assert activation.is_active is False
+    assert (
+        OperatorAuditEvent.objects.filter(
+            affected_record_id=activation.pk, outcome=OperatorAuditOutcome.REJECTED
+        ).count()
+        == 1
+    )

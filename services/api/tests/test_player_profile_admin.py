@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Protocol, cast
+from unittest.mock import patch
 
 import pytest
 from django.contrib.admin.models import LogEntry
@@ -12,7 +13,18 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import User
+from operator_audit.models import (
+    OperatorAction,
+    OperatorActorClass,
+    OperatorAuditEvent,
+    OperatorAuditOutcome,
+    OperatorTargetType,
+)
+from profiles.models import PlayerProfile
 from tests.authentication_support import create_test_user
+from tests.fursuit_activation_test_support import create_activation_row
+from tests.fursuit_catch_session_test_support import create_catch_session
+from tests.fursuit_test_support import create_fursuit_record
 
 
 class _PermissionRelation(Protocol):
@@ -75,7 +87,7 @@ def test_profile_admin_limits_staff_operators_to_safe_inspection_and_enabled_edi
 
 
 @pytest.mark.django_db
-def test_normal_staff_permissions_are_sufficient_but_accounts_admin_stays_read_only() -> (
+def test_explicit_profile_operator_permission_is_sufficient_but_accounts_admin_stays_read_only() -> (
     None
 ):
     """Rejects superuser-only profile administration or collateral accounts-admin changes."""
@@ -88,7 +100,7 @@ def test_normal_staff_permissions_are_sufficient_but_accounts_admin_stays_read_o
         _PermissionRelation,
         staff.user_permissions,  # pyright: ignore[reportUnknownMemberType]
     )
-    for code in ("view_playerprofile", "change_playerprofile"):
+    for code in ("view_playerprofile", "set_profile_enabled"):
         staff_permissions.add(
             Permission.objects.get(content_type__app_label="profiles", codename=code)
         )
@@ -167,3 +179,222 @@ def test_view_only_staff_can_inspect_but_cannot_change_profiles() -> None:
     assert client.post(change_url, {"is_enabled": ""}).status_code == 403
     profile.refresh_from_db()
     assert profile.is_enabled is True
+
+
+def _staff_with(*codenames: str) -> User:
+    user = create_test_user()
+    user.is_staff = True
+    user.save(update_fields=["is_staff"])
+    permissions = cast(
+        _PermissionRelation,
+        user.user_permissions,  # pyright: ignore[reportUnknownMemberType]
+    )
+    permissions.add(
+        *Permission.objects.filter(
+            content_type__app_label="profiles", codename__in=codenames
+        )
+    )
+    # The request backend must see post-assignment permissions, not a stale cache.
+    return User.objects.get(pk=user.pk)
+
+
+def _assert_profile_event(
+    *,
+    user: User,
+    profile_id: int,
+    actor_class: OperatorActorClass,
+    outcome: OperatorAuditOutcome,
+) -> None:
+    events = list(
+        OperatorAuditEvent.objects.filter(affected_record_id=profile_id, actor=user)
+    )
+    assert len(events) == 1
+    event = events[0]
+    assert (
+        event.action,
+        event.actor_class,
+        event.affected_record_type,
+        event.outcome,
+    ) == (
+        OperatorAction.SET_PROFILE_ENABLED,
+        actor_class,
+        OperatorTargetType.PLAYER_PROFILE,
+        outcome,
+    )
+
+
+@pytest.mark.django_db
+def test_profile_enablement_requires_its_exact_permission_and_audits_every_post_attempt() -> (
+    None
+):
+    """AC-1/2/4: neither staff, generic change, nor another operation authorizes disablement."""
+    unrelated_operator = _staff_with()
+    unrelated_permissions = cast(
+        _PermissionRelation,
+        unrelated_operator.user_permissions,  # pyright: ignore[reportUnknownMemberType]
+    )
+    unrelated_permissions.add(
+        Permission.objects.get(
+            content_type__app_label="fursuits", codename="set_fursuit_enabled"
+        )
+    )
+    unrelated_operator = User.objects.get(pk=unrelated_operator.pk)
+    cases = (
+        (
+            create_test_user(),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _staff_with(),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            unrelated_operator,
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _staff_with("change_playerprofile"),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _staff_with("set_profile_enabled"),
+            True,
+            OperatorActorClass.OPERATOR,
+            OperatorAuditOutcome.SUCCEEDED,
+        ),
+        (
+            User.objects.create_superuser("profile_emergency", password="pw"),
+            True,
+            OperatorActorClass.EMERGENCY_SUPERUSER,
+            OperatorAuditOutcome.SUCCEEDED,
+        ),
+    )
+    for user, permitted, actor_class, outcome in cases:
+        profile = PlayerProfile.objects.create(user=create_test_user())
+        client = Client()
+        client.force_login(user)
+        response = client.post(
+            reverse("admin:profiles_playerprofile_change", args=(profile.pk,)),
+            {"is_enabled": ""},
+        )
+        assert response.status_code == (302 if permitted else 403)
+        profile.refresh_from_db()
+        assert profile.is_enabled is (not permitted)
+        _assert_profile_event(
+            user=user, profile_id=profile.pk, actor_class=actor_class, outcome=outcome
+        )
+
+
+@pytest.mark.django_db
+def test_profile_read_permission_is_read_only_and_get_has_no_audit_event() -> None:
+    """AC-3/4: browse authority is distinct from the sensitive operator control."""
+    profile = PlayerProfile.objects.create(user=create_test_user())
+    viewer = _staff_with("view_playerprofile")
+    client = Client()
+    client.force_login(viewer)
+    change_url = reverse("admin:profiles_playerprofile_change", args=(profile.pk,))
+    assert client.get(change_url).status_code == 200
+    assert OperatorAuditEvent.objects.count() == 0
+    assert client.post(change_url, {"is_enabled": ""}).status_code == 403
+    profile.refresh_from_db()
+    assert profile.is_enabled is True
+    _assert_profile_event(
+        user=viewer,
+        profile_id=profile.pk,
+        actor_class=OperatorActorClass.UNAUTHORIZED_ACTOR,
+        outcome=OperatorAuditOutcome.DENIED,
+    )
+
+
+@pytest.mark.django_db
+def test_profile_same_state_is_rejected_and_disable_cascade_is_one_top_level_event() -> (
+    None
+):
+    """AC-4/7: no-op posts reject; lifecycle consequences never fan out audit intents."""
+    owner = create_test_user()
+    profile = PlayerProfile.objects.create(
+        user=owner,
+        handle="cascade_profile",
+        display_name="Cascade Profile",
+        onboarding_completed_at=timezone.now(),
+    )
+    fursuit = create_fursuit_record(owner=owner)
+    from conventions.models import Convention, ConventionStatus
+
+    convention = Convention.objects.create(
+        name="Profile audit cascade",
+        status=ConventionStatus.ACTIVE,
+        start_date=timezone.now().date(),
+        end_date=timezone.now().date(),
+    )
+    from conventions.models import ConventionEnrollment
+
+    ConventionEnrollment.objects.create(user=owner, convention=convention)
+    activation = create_activation_row(
+        fursuit=fursuit, convention=convention, active=True
+    )
+    session = create_catch_session(activation=activation)
+    operator = _staff_with("set_profile_enabled")
+    client = Client()
+    client.force_login(operator)
+    url = reverse("admin:profiles_playerprofile_change", args=(profile.pk,))
+    assert client.post(url, {"is_enabled": ""}).status_code == 302
+    session.refresh_from_db()
+    assert session.ended_at is not None
+    _assert_profile_event(
+        user=operator,
+        profile_id=profile.pk,
+        actor_class=OperatorActorClass.OPERATOR,
+        outcome=OperatorAuditOutcome.SUCCEEDED,
+    )
+    assert OperatorAuditEvent.objects.count() == 1
+
+    assert client.post(url, {"is_enabled": ""}).status_code == 403
+    assert (
+        OperatorAuditEvent.objects.filter(
+            affected_record_id=profile.pk, outcome=OperatorAuditOutcome.REJECTED
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("post_service_failure", [False, True])
+def test_profile_failure_rolls_back_domain_state_and_never_leaves_a_success_event(
+    post_service_failure: bool,
+) -> None:
+    """AC-4/5: a service error or later admin failure leaves only failed evidence."""
+    profile = PlayerProfile.objects.create(user=create_test_user())
+    operator = _staff_with("set_profile_enabled")
+    client = Client()
+    client.force_login(operator)
+    url = reverse("admin:profiles_playerprofile_change", args=(profile.pk,))
+    failure_target = (
+        "profiles.admin.PlayerProfileAdmin.log_change"
+        if post_service_failure
+        else "profiles.admin.set_profile_enabled"
+    )
+    with (
+        patch(failure_target, side_effect=RuntimeError("forced admin failure")),
+        pytest.raises(RuntimeError, match="forced admin failure"),
+    ):
+        client.post(url, {"is_enabled": ""})
+    profile.refresh_from_db()
+    assert profile.is_enabled is True
+    _assert_profile_event(
+        user=operator,
+        profile_id=profile.pk,
+        actor_class=OperatorActorClass.OPERATOR,
+        outcome=OperatorAuditOutcome.FAILED,
+    )
+    assert not OperatorAuditEvent.objects.filter(
+        affected_record_id=profile.pk, outcome=OperatorAuditOutcome.SUCCEEDED
+    ).exists()

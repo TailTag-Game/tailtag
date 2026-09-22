@@ -9,6 +9,7 @@ from typing import Any, cast
 import pytest
 import yaml
 from django.contrib import admin
+from django.contrib.auth.models import Permission
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import Client, override_settings
@@ -17,6 +18,13 @@ from django.urls import reverse
 from accounts.models import User
 from conventions.admin import ConventionAdmin
 from conventions.models import Convention, ConventionStatus
+from operator_audit.models import (
+    OperatorAction,
+    OperatorActorClass,
+    OperatorAuditEvent,
+    OperatorAuditOutcome,
+    OperatorTargetType,
+)
 from tests.authentication_support import (
     TEST_CLERK_CONFIGURATION,
     create_test_user,
@@ -295,6 +303,217 @@ def test_convention_admin_rejects_missing_and_malformed_dates(client: Client) ->
     )
     assert malformed_date_response.status_code == 200
     assert b"Enter a valid date." in malformed_date_response.content
+
+
+def _convention_staff(*permissions: tuple[str, str]) -> User:
+    user = create_test_user()
+    user.is_staff = True
+    user.save(update_fields=["is_staff"])
+    user.user_permissions.add(  # pyright: ignore[reportUnknownMemberType]
+        *[
+            Permission.objects.get(content_type__app_label=app_label, codename=codename)
+            for app_label, codename in permissions
+        ]
+    )
+    return User.objects.get(pk=user.pk)
+
+
+def _convention_post_data(
+    convention: Convention, *, status: ConventionStatus, name: str | None = None
+) -> dict[str, str]:
+    return {
+        "name": name or convention.name,
+        "status": status,
+        "start_date": convention.start_date.isoformat(),
+        "end_date": convention.end_date.isoformat(),
+    }
+
+
+def _new_non_playable_convention() -> Convention:
+    return Convention.objects.create(
+        name="Convention admin permission target",
+        status=ConventionStatus.DRAFT,
+        start_date=datetime.date(2026, 6, 1),
+        end_date=datetime.date(2026, 6, 2),
+    )
+
+
+def _assert_convention_event(
+    user: User,
+    convention_id: int,
+    actor_class: OperatorActorClass,
+    outcome: OperatorAuditOutcome,
+) -> None:
+    events = list(
+        OperatorAuditEvent.objects.filter(affected_record_id=convention_id, actor=user)
+    )
+    assert len(events) == 1
+    event = events[0]
+    assert (
+        event.action,
+        event.actor_class,
+        event.affected_record_type,
+        event.outcome,
+    ) == (
+        OperatorAction.SET_CONVENTION_PLAYABILITY,
+        actor_class,
+        OperatorTargetType.CONVENTION,
+        outcome,
+    )
+
+
+@pytest.mark.django_db
+def test_convention_playability_role_matrix_requires_its_exact_permission() -> None:
+    """AC-1/2/4: staff, generic change, and other sensitive authority cannot make playability live."""
+    unrelated = _convention_staff(("conventions", "remove_convention_enrollment"))
+    cases = (
+        (
+            create_test_user(),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _convention_staff(),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            unrelated,
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _convention_staff(("conventions", "change_convention")),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _convention_staff(("conventions", "set_convention_playability")),
+            True,
+            OperatorActorClass.OPERATOR,
+            OperatorAuditOutcome.SUCCEEDED,
+        ),
+        (
+            User.objects.create_superuser("convention_emergency", password="pw"),
+            True,
+            OperatorActorClass.EMERGENCY_SUPERUSER,
+            OperatorAuditOutcome.SUCCEEDED,
+        ),
+    )
+    for user, permitted, actor_class, outcome in cases:
+        convention = _new_non_playable_convention()
+        client = Client()
+        client.force_login(user)
+        response = client.post(
+            reverse("admin:conventions_convention_change", args=(convention.pk,)),
+            _convention_post_data(convention, status=ConventionStatus.ACTIVE),
+        )
+        assert response.status_code == (302 if permitted else 403)
+        convention.refresh_from_db()
+        assert convention.is_playable is permitted
+        _assert_convention_event(user, convention.pk, actor_class, outcome)
+
+
+@pytest.mark.django_db
+def test_convention_admin_keeps_non_playable_edits_ordinary_and_playability_operator_metadata_read_only() -> (
+    None
+):
+    """AC-1/4/9: ordinary corrections need no audit; narrow playability authority cannot edit metadata."""
+    convention = _new_non_playable_convention()
+    editor = _convention_staff(("conventions", "change_convention"))
+    client = Client()
+    client.force_login(editor)
+    url = reverse("admin:conventions_convention_change", args=(convention.pk,))
+    assert (
+        client.post(
+            url,
+            _convention_post_data(
+                convention, status=ConventionStatus.PAUSED, name="Ordinary correction"
+            ),
+        ).status_code
+        == 302
+    )
+    convention.refresh_from_db()
+    assert (convention.name, convention.status, OperatorAuditEvent.objects.count()) == (
+        "Ordinary correction",
+        ConventionStatus.PAUSED,
+        0,
+    )
+    playability_operator = _convention_staff(
+        ("conventions", "set_convention_playability")
+    )
+    client.force_login(playability_operator)
+    forged = client.post(
+        url,
+        _convention_post_data(
+            convention, status=ConventionStatus.ACTIVE, name="Forged metadata"
+        ),
+    )
+    assert forged.status_code == 403
+    convention.refresh_from_db()
+    assert (
+        convention.name == "Ordinary correction"
+        and convention.status == ConventionStatus.PAUSED
+    )
+    _assert_convention_event(
+        playability_operator,
+        convention.pk,
+        OperatorActorClass.UNAUTHORIZED_ACTOR,
+        OperatorAuditOutcome.DENIED,
+    )
+
+
+@pytest.mark.django_db
+def test_convention_admin_closes_playable_create_delete_and_same_state_paths() -> None:
+    """AC-4/9: there is no unaudited way to create/delete playable authority or add actions."""
+    superuser = User.objects.create_superuser("convention_closed_paths", password="pw")
+    client = Client()
+    client.force_login(superuser)
+    add_url = reverse("admin:conventions_convention_add")
+    active_add = client.post(
+        add_url,
+        {
+            "name": "Must not start playable",
+            "status": ConventionStatus.ACTIVE,
+            "start_date": "2026-07-01",
+            "end_date": "2026-07-02",
+        },
+    )
+    assert active_add.status_code == 200
+    assert not Convention.objects.filter(name="Must not start playable").exists()
+    assert OperatorAuditEvent.objects.count() == 0
+    playable = _new_non_playable_convention()
+    client.post(
+        reverse("admin:conventions_convention_change", args=(playable.pk,)),
+        _convention_post_data(playable, status=ConventionStatus.ACTIVE),
+    )
+    playable.refresh_from_db()
+    assert playable.is_playable
+    assert (
+        client.post(
+            reverse("admin:conventions_convention_delete", args=(playable.pk,)),
+            {"post": "yes"},
+        ).status_code
+        == 403
+    )
+    assert Convention.objects.filter(pk=playable.pk).exists()
+    assert (
+        client.post(
+            reverse("admin:conventions_convention_change", args=(playable.pk,)),
+            _convention_post_data(playable, status=ConventionStatus.ACTIVE),
+        ).status_code
+        == 403
+    )
+    assert (
+        OperatorAuditEvent.objects.filter(
+            affected_record_id=playable.pk, outcome=OperatorAuditOutcome.REJECTED
+        ).count()
+        == 1
+    )
 
 
 @override_settings(CLERK_AUTHENTICATION=TEST_CLERK_CONFIGURATION)

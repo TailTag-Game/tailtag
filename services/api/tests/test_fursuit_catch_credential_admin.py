@@ -10,10 +10,19 @@ import pytest
 from django.contrib import admin
 from django.contrib.admin.models import LogEntry
 from django.contrib.admin.views.main import ChangeList
+from django.contrib.auth.models import Permission
 from django.test import Client
 from django.urls import reverse
 
 from accounts.models import User
+from operator_audit.models import (
+    OperatorAction,
+    OperatorActorClass,
+    OperatorAuditEvent,
+    OperatorAuditOutcome,
+    OperatorTargetType,
+)
+from tests.authentication_support import create_test_user
 from tests.catch_credential_test_support import (
     PAYLOAD_A,
     PAYLOAD_B,
@@ -300,3 +309,140 @@ def test_admin_stale_revoke_after_eligibility_loss_preserves_terminal_history_an
         .exists()
     )
     _assert_token_absent(TOKEN_A, stale)
+
+
+def _credential_staff(*permissions: tuple[str, str]) -> User:
+    user = create_test_user()
+    user.is_staff = True
+    user.save(update_fields=["is_staff"])
+    user.user_permissions.add(  # pyright: ignore[reportUnknownMemberType]
+        *[
+            Permission.objects.get(content_type__app_label=app_label, codename=codename)
+            for app_label, codename in permissions
+        ]
+    )
+    return User.objects.get(pk=user.pk)
+
+
+def _assert_credential_event(
+    user: User,
+    credential_id: int,
+    actor_class: OperatorActorClass,
+    outcome: OperatorAuditOutcome,
+) -> None:
+    events = list(
+        OperatorAuditEvent.objects.filter(affected_record_id=credential_id, actor=user)
+    )
+    assert len(events) == 1
+    event = events[0]
+    assert (
+        event.action,
+        event.actor_class,
+        event.affected_record_type,
+        event.outcome,
+    ) == (
+        OperatorAction.REVOKE_CATCH_CREDENTIAL,
+        actor_class,
+        OperatorTargetType.FURSUIT_CATCH_CREDENTIAL,
+        outcome,
+    )
+
+
+@pytest.mark.django_db
+def test_credential_revoke_role_matrix_requires_exact_permission_and_preserves_secret_boundary() -> (
+    None
+):
+    """AC-1/2/3/4/6: credential authority is neither staff nor generic-change authority."""
+    unrelated = _credential_staff(("conventions", "terminate_catch_session"))
+    cases = (
+        (
+            create_test_user(),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _credential_staff(),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            unrelated,
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _credential_staff(("conventions", "change_fursuitcatchcredential")),
+            False,
+            OperatorActorClass.UNAUTHORIZED_ACTOR,
+            OperatorAuditOutcome.DENIED,
+        ),
+        (
+            _credential_staff(("conventions", "revoke_catch_credential")),
+            True,
+            OperatorActorClass.OPERATOR,
+            OperatorAuditOutcome.SUCCEEDED,
+        ),
+        (
+            User.objects.create_superuser("credential_emergency", password="pw"),
+            True,
+            OperatorActorClass.EMERGENCY_SUPERUSER,
+            OperatorAuditOutcome.SUCCEEDED,
+        ),
+    )
+    for user, permitted, actor_class, outcome in cases:
+        scenario = create_credential_scenario()
+        activation = create_activation_row(
+            fursuit=scenario.fursuit, convention=scenario.convention, active=True
+        )
+        credential = create_credential(activation=activation)
+        client = Client()
+        client.force_login(user)
+        _, change, _, _ = _admin_urls(credential)
+        response = client.post(change, {"revoke": "1"})
+        assert response.status_code == (302 if permitted else 403)
+        credential.refresh_from_db()
+        assert (credential.revoked_at is not None) is permitted
+        _assert_credential_event(user, credential.pk, actor_class, outcome)
+        _assert_token_absent(credential.token, response)
+
+
+@pytest.mark.django_db
+def test_credential_view_permission_is_read_only_and_terminal_revoke_is_rejected() -> (
+    None
+):
+    """AC-3/4/8: read access has no revoke button; terminal history stays terminal."""
+    scenario = create_credential_scenario()
+    activation = create_activation_row(
+        fursuit=scenario.fursuit, convention=scenario.convention, active=True
+    )
+    credential = create_credential(activation=activation)
+    viewer = _credential_staff(("conventions", "view_fursuitcatchcredential"))
+    client = Client()
+    client.force_login(viewer)
+    _, change, _, _ = _admin_urls(credential)
+    detail = client.get(change)
+    assert detail.status_code == 200 and b'name="revoke"' not in detail.content
+    assert OperatorAuditEvent.objects.count() == 0
+    assert client.post(change, {"revoke": "1"}).status_code == 403
+    credential.refresh_from_db()
+    assert credential.revoked_at is None
+    _assert_credential_event(
+        viewer,
+        credential.pk,
+        OperatorActorClass.UNAUTHORIZED_ACTOR,
+        OperatorAuditOutcome.DENIED,
+    )
+
+    operator = _credential_staff(("conventions", "revoke_catch_credential"))
+    client.force_login(operator)
+    assert client.post(change, {"revoke": "1"}).status_code == 302
+    assert client.post(change, {"revoke": "1"}).status_code == 403
+    assert (
+        OperatorAuditEvent.objects.filter(
+            affected_record_id=credential.pk, outcome=OperatorAuditOutcome.REJECTED
+        ).count()
+        == 1
+    )
