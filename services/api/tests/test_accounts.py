@@ -8,6 +8,7 @@ import pytest
 from django.conf import settings
 from django.contrib.admin.models import CHANGE, LogEntry
 from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import Group, Permission
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.contenttypes.models import ContentType
@@ -67,6 +68,23 @@ def test_application_user_cannot_set_a_local_django_password() -> None:
         user.set_password("must-not-become-a-credential")
 
     user.refresh_from_db()
+    assert not user.has_usable_password()
+
+
+@pytest.mark.django_db
+def test_saving_a_nonstaff_user_with_a_precomputed_usable_hash_clears_it() -> None:
+    """Saving cannot preserve a usable local credential outside Django staff."""
+    user = User(
+        clerk_user_id="user_precomputed_local_password",
+        password=make_password("precomputed-local-password"),
+        is_staff=False,
+        is_superuser=False,
+    )
+
+    assert user.has_usable_password()
+    user.save()
+    user.refresh_from_db()
+
     assert not user.has_usable_password()
 
 
