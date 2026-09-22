@@ -201,7 +201,9 @@ def _assert_activation_event(
     outcome: OperatorAuditOutcome,
 ) -> None:
     events = list(
-        OperatorAuditEvent.objects.filter(affected_record_id=activation_id, actor=user)
+        OperatorAuditEvent.objects.filter(
+            affected_record_id=activation_id, actor=user, outcome=outcome
+        )
     )
     assert len(events) == 1
     event = events[0]
@@ -327,12 +329,45 @@ def test_activation_view_is_read_only_and_reactivation_has_no_alternate_authorit
     assert client.post(url, {"is_active": "on"}).status_code == 403
     activation.refresh_from_db()
     assert activation.is_active is False
-    assert (
-        OperatorAuditEvent.objects.filter(
-            affected_record_id=activation.pk, outcome=OperatorAuditOutcome.REJECTED
-        ).count()
-        == 1
+    _assert_activation_event(
+        operator,
+        activation.pk,
+        OperatorActorClass.OPERATOR,
+        OperatorAuditOutcome.REJECTED,
     )
+
+
+@pytest.mark.django_db
+def test_activation_sensitive_permission_grants_only_required_read_inspection() -> None:
+    """AC-3: the activation operator can inspect its control without view authority."""
+    scenario = create_activation_scenario()
+    activation = FursuitActivation.objects.create(
+        fursuit=scenario.fursuit,
+        convention=scenario.convention,
+        is_active=True,
+        activated_at=timezone.now(),
+    )
+    operator = _activation_staff(("conventions", "deactivate_fursuit_activation"))
+    assert not operator.has_perm("conventions.view_fursuitactivation")
+    client = Client()
+    client.force_login(operator)
+    changelist = client.get(reverse("admin:conventions_fursuitactivation_changelist"))
+    detail = client.get(
+        reverse("admin:conventions_fursuitactivation_change", args=(activation.pk,))
+    )
+    assert changelist.status_code == 200
+    assert detail.status_code == 200
+    assert b'name="is_active"' in detail.content
+    for forbidden in (
+        "fursuit",
+        "convention",
+        "activated_at",
+        "deactivated_at",
+        "created_at",
+        "updated_at",
+    ):
+        assert f'name="{forbidden}"'.encode() not in detail.content
+    assert OperatorAuditEvent.objects.count() == 0
 
 
 @pytest.mark.django_db

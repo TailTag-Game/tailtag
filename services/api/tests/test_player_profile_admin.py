@@ -22,6 +22,7 @@ from operator_audit.models import (
 )
 from profiles.models import PlayerProfile
 from tests.authentication_support import create_test_user
+from tests.catch_credential_test_support import create_credential
 from tests.fursuit_activation_test_support import create_activation_row
 from tests.fursuit_catch_session_test_support import create_catch_session
 from tests.fursuit_test_support import create_fursuit_record
@@ -206,7 +207,9 @@ def _assert_profile_event(
     outcome: OperatorAuditOutcome,
 ) -> None:
     events = list(
-        OperatorAuditEvent.objects.filter(affected_record_id=profile_id, actor=user)
+        OperatorAuditEvent.objects.filter(
+            affected_record_id=profile_id, actor=user, outcome=outcome
+        )
     )
     assert len(events) == 1
     event = events[0]
@@ -350,14 +353,22 @@ def test_profile_same_state_is_rejected_and_disable_cascade_is_one_top_level_eve
     activation = create_activation_row(
         fursuit=fursuit, convention=convention, active=True
     )
+    credential = create_credential(activation=activation)
     session = create_catch_session(activation=activation)
     operator = _staff_with("set_profile_enabled")
     client = Client()
     client.force_login(operator)
     url = reverse("admin:profiles_playerprofile_change", args=(profile.pk,))
     assert client.post(url, {"is_enabled": ""}).status_code == 302
+    profile.refresh_from_db()
+    credential.refresh_from_db()
     session.refresh_from_db()
-    assert session.ended_at is not None
+    assert profile.is_enabled is False
+    assert (
+        credential.revoked_at is not None
+        and credential.revocation_reason == "eligibility_lost"
+    )
+    assert session.ended_at is not None and session.end_reason == "eligibility_lost"
     _assert_profile_event(
         user=operator,
         profile_id=profile.pk,
@@ -367,11 +378,11 @@ def test_profile_same_state_is_rejected_and_disable_cascade_is_one_top_level_eve
     assert OperatorAuditEvent.objects.count() == 1
 
     assert client.post(url, {"is_enabled": ""}).status_code == 403
-    assert (
-        OperatorAuditEvent.objects.filter(
-            affected_record_id=profile.pk, outcome=OperatorAuditOutcome.REJECTED
-        ).count()
-        == 1
+    _assert_profile_event(
+        user=operator,
+        profile_id=profile.pk,
+        actor_class=OperatorActorClass.OPERATOR,
+        outcome=OperatorAuditOutcome.REJECTED,
     )
 
 

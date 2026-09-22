@@ -320,13 +320,18 @@ def _convention_staff(*permissions: tuple[str, str]) -> User:
 
 
 def _convention_post_data(
-    convention: Convention, *, status: ConventionStatus, name: str | None = None
+    convention: Convention,
+    *,
+    status: ConventionStatus,
+    name: str | None = None,
+    start_date: datetime.date | None = None,
+    end_date: datetime.date | None = None,
 ) -> dict[str, str]:
     return {
         "name": name or convention.name,
         "status": status,
-        "start_date": convention.start_date.isoformat(),
-        "end_date": convention.end_date.isoformat(),
+        "start_date": (start_date or convention.start_date).isoformat(),
+        "end_date": (end_date or convention.end_date).isoformat(),
     }
 
 
@@ -346,7 +351,9 @@ def _assert_convention_event(
     outcome: OperatorAuditOutcome,
 ) -> None:
     events = list(
-        OperatorAuditEvent.objects.filter(affected_record_id=convention_id, actor=user)
+        OperatorAuditEvent.objects.filter(
+            affected_record_id=convention_id, actor=user, outcome=outcome
+        )
     )
     assert len(events) == 1
     event = events[0]
@@ -462,14 +469,27 @@ def test_convention_admin_keeps_non_playable_edits_ordinary_and_playability_oper
     forged = client.post(
         url,
         _convention_post_data(
-            convention, status=ConventionStatus.ACTIVE, name="Forged metadata"
+            convention,
+            status=ConventionStatus.ACTIVE,
+            name="Forged metadata",
+            start_date=datetime.date(2026, 6, 10),
+            end_date=datetime.date(2026, 6, 12),
         ),
     )
     assert forged.status_code == 403
     convention.refresh_from_db()
     assert (
-        convention.name == "Ordinary correction"
-        and convention.status == ConventionStatus.PAUSED
+        convention.name,
+        convention.start_date,
+        convention.end_date,
+        convention.status,
+        convention.is_playable,
+    ) == (
+        "Ordinary correction",
+        datetime.date(2026, 6, 1),
+        datetime.date(2026, 6, 2),
+        ConventionStatus.PAUSED,
+        False,
     )
     _assert_convention_event(
         playability_operator,
@@ -520,11 +540,11 @@ def test_convention_admin_closes_playable_create_delete_and_same_state_paths() -
         ).status_code
         == 403
     )
-    assert (
-        OperatorAuditEvent.objects.filter(
-            affected_record_id=playable.pk, outcome=OperatorAuditOutcome.REJECTED
-        ).count()
-        == 1
+    _assert_convention_event(
+        superuser,
+        playable.pk,
+        OperatorActorClass.EMERGENCY_SUPERUSER,
+        OperatorAuditOutcome.REJECTED,
     )
 
 

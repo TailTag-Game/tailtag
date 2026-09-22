@@ -331,7 +331,9 @@ def _assert_credential_event(
     outcome: OperatorAuditOutcome,
 ) -> None:
     events = list(
-        OperatorAuditEvent.objects.filter(affected_record_id=credential_id, actor=user)
+        OperatorAuditEvent.objects.filter(
+            affected_record_id=credential_id, actor=user, outcome=outcome
+        )
     )
     assert len(events) == 1
     event = events[0]
@@ -458,11 +460,11 @@ def test_credential_view_permission_is_read_only_and_terminal_revoke_is_rejected
     )
     assert client.post(change, {"revoke": "1"}).status_code == 302
     assert client.post(change, {"revoke": "1"}).status_code == 403
-    assert (
-        OperatorAuditEvent.objects.filter(
-            affected_record_id=credential.pk, outcome=OperatorAuditOutcome.REJECTED
-        ).count()
-        == 1
+    _assert_credential_event(
+        operator,
+        credential.pk,
+        OperatorActorClass.OPERATOR,
+        OperatorAuditOutcome.REJECTED,
     )
 
 

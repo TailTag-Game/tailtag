@@ -177,7 +177,9 @@ def _assert_session_event(
     outcome: OperatorAuditOutcome,
 ) -> None:
     events = list(
-        OperatorAuditEvent.objects.filter(affected_record_id=session_id, actor=user)
+        OperatorAuditEvent.objects.filter(
+            affected_record_id=session_id, actor=user, outcome=outcome
+        )
     )
     assert len(events) == 1
     event = events[0]
@@ -300,11 +302,11 @@ def test_session_view_permission_is_read_only_and_terminal_session_rejects_repea
     assert OperatorAuditEvent.objects.filter(affected_record_id=session.pk).count() == 1
     assert client.post(url, {"terminate": "1"}).status_code == 302
     assert client.post(url, {"terminate": "1"}).status_code == 403
-    assert (
-        OperatorAuditEvent.objects.filter(
-            affected_record_id=session.pk, outcome=OperatorAuditOutcome.REJECTED
-        ).count()
-        == 1
+    _assert_session_event(
+        operator,
+        session.pk,
+        OperatorActorClass.OPERATOR,
+        OperatorAuditOutcome.REJECTED,
     )
 
 

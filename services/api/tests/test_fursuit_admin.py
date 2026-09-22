@@ -216,7 +216,9 @@ def _assert_fursuit_event(
     outcome: OperatorAuditOutcome,
 ) -> None:
     events = list(
-        OperatorAuditEvent.objects.filter(affected_record_id=fursuit_id, actor=user)
+        OperatorAuditEvent.objects.filter(
+            affected_record_id=fursuit_id, actor=user, outcome=outcome
+        )
     )
     assert len(events) == 1
     event = events[0]
@@ -322,11 +324,11 @@ def test_fursuit_view_permission_is_read_only_and_same_state_is_rejected() -> No
     operator = _operator_staff(("fursuits", "set_fursuit_enabled"))
     client.force_login(operator)
     assert client.post(url, {"is_enabled": "on"}).status_code == 403
-    assert (
-        OperatorAuditEvent.objects.filter(
-            affected_record_id=fursuit.pk, outcome=OperatorAuditOutcome.REJECTED
-        ).count()
-        == 1
+    _assert_fursuit_event(
+        operator,
+        fursuit.pk,
+        OperatorActorClass.OPERATOR,
+        OperatorAuditOutcome.REJECTED,
     )
 
 
