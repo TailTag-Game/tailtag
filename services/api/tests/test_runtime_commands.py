@@ -560,9 +560,20 @@ def assert_staging_operator_authority_boundary(runbook: str) -> None:
         r"(?:substitute|authorize).{0,120}sensitive",
         normalized_runbook,
     )
+    assert re.search(
+        r"(?i)generic.{0,160}neither.{0,100}(?:substitute|authorize).{0,100}"
+        r"nor.{0,100}(?:additional )?prerequisite.{0,120}sensitive",
+        normalized_runbook,
+    )
     assert not re.search(
         r"(?i)generic.{0,160}(?:change_\*|delete_\*|view_\*).{0,120}"
         r"(?:authorize|grant).{0,120}sensitive",
+        normalized_runbook,
+    )
+    assert not re.search(
+        r"(?i)generic.{0,160}(?:change_\*|delete_\*|view_\*)"
+        r"(?:(?!\b(?:neither|never|does not|not)\b).){0,120}"
+        r"(?:additional )?prerequisite.{0,120}sensitive",
         normalized_runbook,
     )
     assert re.search(
@@ -665,6 +676,7 @@ def assert_safe_staging_operator_runbook(runbook: str) -> None:
 def assert_documented_operator_action_matrix(runbook: str) -> None:
     """Require one readable action/target/operation/read-permission matrix."""
     assert "| Audit action |" in runbook
+    normalized_runbook = " ".join(runbook.split())
     for (
         action,
         target,
@@ -686,6 +698,20 @@ def assert_documented_operator_action_matrix(runbook: str) -> None:
         )
         assert any(
             re.search(pattern, matrix_row) for pattern in read_alternative_patterns
+        )
+        assert re.search(
+            rf"{re.escape(operation_permission)}.{{0,180}}"
+            r"(?:independently|on its own).{0,80}sufficient.{0,120}"
+            r"(?:(?:action|operation).{0,120}(?:read|inspect)|"
+            r"(?:read|inspect).{0,120}(?:action|operation))",
+            matrix_row,
+        )
+        assert not re.search(
+            rf"{re.escape(operation_permission)}"
+            r"(?:(?!\b(?:does not|never|not)\b).){0,180}"
+            r"(?:requires|prerequisite).{0,120}generic.{0,80}"
+            r"(?:change_\*|delete_\*|view_\*)",
+            normalized_runbook,
         )
 
 
@@ -750,15 +776,21 @@ def test_operator_audit_documentation_defines_safe_durable_evidence() -> None:
     for outcome, definition in outcome_definitions.items():
         assert f"`{outcome}`" in runbook
         assert re.search(definition, normalized_runbook)
-    for prohibited_value in (
-        "provider identifiers",
-        "emails",
-        "credentials",
-        "tokens",
-        "raw request bodies",
-        "broad object snapshots",
+    for prohibited_pattern in (
+        r"(?i)secrets",
+        r"(?i)provider identifiers",
+        r"(?i)emails",
+        r"(?i)credentials",
+        r"(?i)tokens",
+        r"(?i)QR.{0,40}payload",
+        r"(?i)private URLs",
+        r"(?i)raw request bodies",
+        r"(?i)broad.{0,80}object.{0,80}snapshot",
+        r"(?i)broad.{0,80}permission.{0,80}snapshot",
+        r"(?i)broad.{0,80}group.{0,80}snapshot",
+        r"(?i)exception detail",
     ):
-        assert prohibited_value in normalized_runbook
+        assert re.search(prohibited_pattern, normalized_runbook)
     assert "#204" in runbook
     assert re.search(
         r"(?i)(?:retain|retention).{0,180}(?:no automatic|not automatically)",
@@ -935,6 +967,11 @@ def test_existing_operator_docs_link_the_staging_procedure_and_matrix() -> None:
 def test_staging_operator_runbook_rejects_unsafe_documentation_mutants() -> None:
     """AC-11: docs must reject wrong target, noninteractive, and unsafe procedures."""
     runbook = OPERATOR_AUDIT_RUNBOOK.read_text()
+    unsafe_prerequisite_mutants = tuple(
+        f"{runbook}\n`{operation_permission}` requires generic `change_*` as an "
+        "additional prerequisite for its sensitive operation.\n"
+        for _, _, operation_permission, _ in SENSITIVE_OPERATOR_ACTION_MATRIX
+    )
     unsafe_mutants = (
         runbook.replace("--environment staging", "--environment development", 1),
         runbook.replace(
@@ -954,8 +991,10 @@ def test_staging_operator_runbook_rejects_unsafe_documentation_mutants() -> None
         f"{runbook}\n```shell\nOPERATOR_CREDENTIAL=not-allowed\n```\n",
         f"{runbook}\n`is_staff=True` authorizes sensitive operations.\n",
         f"{runbook}\nGeneric `change_*` permissions authorize sensitive operations.\n",
+        f"{runbook}\nGeneric `view_*` is an additional prerequisite for sensitive operations.\n",
         f"{runbook}\n`catches.delete_catch` is a generic substitution.\n",
         f"{runbook}\nThe normal Staging operator is_superuser=True.\n",
+        *unsafe_prerequisite_mutants,
     )
 
     for mutant in unsafe_mutants:
