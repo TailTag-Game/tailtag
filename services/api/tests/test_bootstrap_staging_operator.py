@@ -379,6 +379,57 @@ def test_bootstrap_creates_a_dedicated_staging_operator_without_sensitive_output
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "collision",
+    ("empty", "drifted_permissions", "unrelated_member"),
+)
+def test_bootstrap_refuses_an_unused_identifier_when_the_named_group_exists(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    collision: str,
+) -> None:
+    """AC-2/6/11: a pre-existing dedicated group cannot be repurposed or widened."""
+    group = Group.objects.create(name=OPERATOR_GROUP_NAME)
+    unrelated = User.objects.create_user(f"unrelated_{collision}_group_collision")
+    if collision == "drifted_permissions":
+        group.permissions.add(  # pyright: ignore[reportUnknownMemberType]
+            Permission.objects.get(
+                content_type__app_label="accounts",
+                codename="view_user",
+            )
+        )
+    elif collision == "unrelated_member":
+        group.permissions.set(  # pyright: ignore[reportUnknownMemberType]
+            required_permissions().values()
+        )
+        unrelated.groups.add(group)  # pyright: ignore[reportUnknownMemberType]
+
+    refusal_before = stored_provisioning_state(unrelated)
+    stdout = TtyStream()
+    stderr = TtyStream()
+    caplog.set_level(logging.DEBUG)
+
+    with pytest.raises(CommandError) as error:
+        invoke_command(
+            monkeypatch,
+            private_inputs=(OPERATOR_IDENTIFIER, INITIAL_PASSWORD, INITIAL_PASSWORD),
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    assert User.objects.filter(clerk_user_id=OPERATOR_IDENTIFIER).count() == 0
+    assert stored_provisioning_state(unrelated) == refusal_before
+    assert_sensitive_values_are_not_emitted(
+        (stdout, stderr),
+        OPERATOR_IDENTIFIER,
+        INITIAL_PASSWORD,
+        stored_password_hash(unrelated),
+        exception_text=str(error.value),
+        caplog=caplog,
+    )
+
+
+@pytest.mark.django_db
 def test_bootstrap_reconciles_only_an_existing_exact_managed_operator(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -412,6 +463,45 @@ def test_bootstrap_reconciles_only_an_existing_exact_managed_operator(
         ROTATED_PASSWORD,
         old_password_hash,
         stored_password_hash(operator),
+        caplog=caplog,
+    )
+
+
+@pytest.mark.django_db
+def test_bootstrap_refuses_to_reconcile_a_named_group_shared_with_another_member(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """AC-2/6/11: the managed Group is dedicated to its one exact operator."""
+    operator = create_exact_managed_operator()
+    unrelated = User.objects.create_user("unrelated_shared_named_group_member")
+    group = operator.groups.get()  # pyright: ignore[reportUnknownMemberType]
+    unrelated.groups.add(group)  # pyright: ignore[reportUnknownMemberType]
+    refusal_before = stored_provisioning_state(operator, unrelated)
+    old_password_hash = stored_password_hash(operator)
+    stdout = TtyStream()
+    stderr = TtyStream()
+    caplog.set_level(logging.DEBUG)
+
+    with pytest.raises(CommandError) as error:
+        invoke_command(
+            monkeypatch,
+            private_inputs=(OPERATOR_IDENTIFIER, ROTATED_PASSWORD, ROTATED_PASSWORD),
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    assert stored_provisioning_state(operator, unrelated) == refusal_before
+    assert operator.check_password(INITIAL_PASSWORD)
+    assert stored_password_hash(operator) == old_password_hash
+    assert_sensitive_values_are_not_emitted(
+        (stdout, stderr),
+        OPERATOR_IDENTIFIER,
+        INITIAL_PASSWORD,
+        ROTATED_PASSWORD,
+        old_password_hash,
+        stored_password_hash(unrelated),
+        exception_text=str(error.value),
         caplog=caplog,
     )
 
