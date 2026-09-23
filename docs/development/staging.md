@@ -6,6 +6,9 @@ needed Railway, Clerk, and Cloudflare access. It is separate from the mutable
 contributor/integration [Development runbook](backend-delivery-operations.md).
 It covers the controlled promotion procedure below. It is not a production SRE
 guide or a source of credentials.
+For common backend incidents, follow the
+[Staging first-response procedures](../operations/staging-first-response.md)
+and their [#208 evidence matrix](v0-backend-operational-readiness-matrix.md).
 
 ## Supported target and boundary
 
