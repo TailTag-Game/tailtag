@@ -189,6 +189,55 @@ These are maintainer-only live operations, separate from ordinary CI and
 workspace, project, environment, and service listed above. Use explicit
 selectors, not a guessed linked context.
 
+### PostgreSQL backup restoration drill (#207)
+
+The frozen [backup restoration contract](../specs/2026-09-22-v0-postgresql-backup-restore.md)
+and [implementation plan](../specs/2026-09-22-v0-postgresql-backup-restore-implementation-plan.md)
+govern this operation. Read-only discovery found no usable PITR recovery point,
+so #207 uses a real custom-format `pg_dump` from canonical `TailTag/staging`
+Postgres and `pg_restore` into a disposable local PostgreSQL 18 target. It does
+not restore a Railway volume or change backup settings.
+
+Before the drill, verify the approved Finn identities, exact Railway project,
+Staging environment, Postgres service/volume, active API deployment/revision,
+and healthy fixed Staging origin. Use the local Docker daemon, the cached
+`postgres:18` image, and PostgreSQL 18 client tools. Coordinate an exclusive
+observation window with no concurrent Staging deployment or configuration
+change. The operator command accepts no source URL or restore destination:
+
+```bash
+PYTHONPATH="$PWD:$PWD/services/api" \
+uv run --project services/api --locked --no-sync \
+  python -m scripts.api_staging_restore_drill \
+  --confirm restore-tailtag-staging-backup
+```
+
+The command must hold one read-only exported source snapshot while capturing
+sanitized expectations and streaming the dump through a Railway SSH tunnel.
+Before restore it verifies the exact task-owned Docker container ID, image,
+`--network none`, absence of published ports, tmpfs mounts, PostgreSQL major
+version, and empty `tailtag_recovery` database. The artifact and restored data
+remain on tmpfs; `pg_restore` has no configurable remote destination. A
+command-only backend container may share only that isolated loopback for
+read-only ORM proof, without a public port, Clerk/R2 credentials, or app server.
+
+Successful evidence requires the dump and archive validation, completed
+restore, matching migrations/schema/constraints, each named domain integrity
+check, representative backend reads, unchanged active Staging deployment and
+database relationship plus health, and verified cleanup. On any failure, the
+command stops source reads and tunnel, removes only captured task-owned
+containers, and records a sanitized NO-GO boundary. Never invoke #204 reset on
+the recovered clone or point the active API at it. If automatic cleanup cannot
+be verified, retain the opaque task resource handle for a focused manual
+cleanup; do not declare #207 complete. The durable result belongs under
+`docs/development/staging-recovery/` and contains no connection details or row
+contents.
+
+If matching-revision backend reads cannot be performed safely, preserve the
+exact limitation and strongest safe database/schema evidence under AC-6. That
+substitute explains the gap; it does not meet #207's GO requirement for backend
+readability or authorize closing the issue.
+
 ### Synthetic baseline reset and reseed (#204)
 
 The [frozen reset contract](../specs/2026-09-17-staging-synthetic-reset-reseed.md)

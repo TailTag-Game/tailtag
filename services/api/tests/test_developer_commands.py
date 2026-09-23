@@ -582,6 +582,11 @@ def test_semgrep_check_is_local_locked_noninteractive_and_credential_free() -> N
         ("ENVIRONMENT_FINGERPRINT_SCRIPT", "/tmp/untrusted-environment-fingerprint.py"),
         ("STAGING_RESET_SCRIPT", "/tmp/untrusted-api-staging-reset.py"),
         ("STAGING_RESET_SSH_SCRIPT", "/tmp/untrusted-api-staging-reset-ssh.py"),
+        ("STAGING_RESTORE_SCRIPT", "/tmp/untrusted-api-staging-restore-drill.py"),
+        (
+            "STAGING_RESTORE_INTEGRITY_SCRIPT",
+            "/tmp/untrusted-staging-restore-integrity.py",
+        ),
         (
             "CLERK_DEVELOPMENT_SESSION_SCRIPT",
             "/tmp/untrusted-clerk-development-session.py",

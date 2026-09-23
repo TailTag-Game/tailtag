@@ -6,6 +6,8 @@ Small, reversible changes with clear acceptance criteria do not need a spec. Spe
 
 ## Current V0 specifications
 
+- [V0 PostgreSQL backup restoration and integrity proof](2026-09-22-v0-postgresql-backup-restore.md) — #207 frozen logical-dump recovery contract
+  ([implementation and live-drill plan](2026-09-22-v0-postgresql-backup-restore-implementation-plan.md))
 - [Field-beta operator authorization and auditability](2026-09-21-field-beta-operator-authorization-audit.md) — #205 frozen authorization, audit, provisioning, and acceptance contract
   ([implementation and test handoff](2026-09-21-field-beta-operator-authorization-audit-implementation-plan.md))
 - [Staging synthetic-state reset and reseed](2026-09-17-staging-synthetic-reset-reseed.md) — #204 frozen preservation, safety, atomicity and rehearsal-baseline boundaries
