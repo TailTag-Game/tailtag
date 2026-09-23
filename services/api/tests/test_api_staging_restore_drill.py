@@ -519,6 +519,60 @@ def test_recovery_readiness_uses_tcp_loopback_not_the_entrypoint_unix_socket(
     ]
 
 
+def test_recovery_readiness_retries_a_slow_probe_within_the_deadline(
+    drill: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-4: one timed-out Docker probe cannot reject a target that becomes ready."""
+    calls = 0
+
+    def command(command: tuple[str, ...], **kwargs: object) -> SimpleNamespace:
+        nonlocal calls
+        calls += 1
+        assert 0 < cast(float, kwargs["timeout"]) <= 5
+        if calls == 1:
+            raise drill.subprocess.TimeoutExpired(command, kwargs["timeout"])
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(drill.subprocess, "run", command)
+    monkeypatch.setattr(
+        drill,
+        "_run",
+        lambda *_command, **_kwargs: (
+            SimpleNamespace(stdout="180000\n")
+            if _command[-1] == "SHOW server_version_num"
+            else SimpleNamespace(stdout="0\n")
+        ),
+    )
+
+    drill._wait_for_empty_postgres("a" * 64)
+
+    assert calls == 2
+
+
+def test_recovery_readiness_probe_cannot_outlast_its_remaining_budget(
+    drill: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-4: repeated slow probes fail only when the overall readiness budget expires."""
+    clock = [0.0]
+    timeouts: list[float] = []
+
+    def command(command: tuple[str, ...], **kwargs: object) -> NoReturn:
+        timeout = cast(float, kwargs["timeout"])
+        timeouts.append(timeout)
+        clock[0] = 58.75 if len(timeouts) == 1 else 60.0
+        raise drill.subprocess.TimeoutExpired(command, timeout)
+
+    monkeypatch.setattr(drill.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(drill.subprocess, "run", command)
+
+    with pytest.raises(
+        drill.DrillDenied, match="recovery database did not become ready"
+    ):
+        drill._wait_for_empty_postgres("a" * 64)
+
+    assert timeouts == [5.0, 1.25]
+
+
 @dataclass
 class DumpProcess:
     """Subprocess double for an archive producer or Docker receiver."""

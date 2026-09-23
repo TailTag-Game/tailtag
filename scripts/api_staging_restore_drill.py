@@ -834,28 +834,31 @@ def _start_recovery_target(data_bytes: int, backup_bytes: int) -> str:
 
 def _wait_for_empty_postgres(container_id: str) -> None:
     deadline = time.monotonic() + 60
-    while time.monotonic() < deadline:
-        ready = subprocess.run(
-            (
-                "docker",
-                "exec",
-                container_id,
-                "pg_isready",
-                "--host",
-                "127.0.0.1",
-                "--username",
-                "postgres",
-                "--dbname",
-                TARGET_DATABASE,
-            ),
-            check=False,
-            text=True,
-            capture_output=True,
-            timeout=5,
-        )
+    while (remaining := deadline - time.monotonic()) > 0:
+        try:
+            ready = subprocess.run(
+                (
+                    "docker",
+                    "exec",
+                    container_id,
+                    "pg_isready",
+                    "--host",
+                    "127.0.0.1",
+                    "--username",
+                    "postgres",
+                    "--dbname",
+                    TARGET_DATABASE,
+                ),
+                check=False,
+                text=True,
+                capture_output=True,
+                timeout=min(5, remaining),
+            )
+        except subprocess.TimeoutExpired:
+            continue
         if ready.returncode == 0:
             break
-        time.sleep(1)
+        time.sleep(min(1, max(0, deadline - time.monotonic())))
     else:
         raise DrillDenied("recovery database did not become ready")
     version = _run(
