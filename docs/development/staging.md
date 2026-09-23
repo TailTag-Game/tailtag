@@ -246,7 +246,7 @@ The retained old-to-current boundary instead reaches active deployment
 `856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a`, and crosses the additional
 account/operator/audit migrations recorded in the #206 evidence. The old image
 is technically Railway rollback-capable, but it is not application-safe against
-current Staging state. The [#239](https://github.com/TailTag-Game/tailtag/issues/239)
+current Staging state. [PR #239](https://github.com/TailTag-Game/tailtag/pull/239)
 change permits a staff/non-superuser to hold a usable local password and
 authentication state, and that state is valid and current. When loaded and
 saved by O, its usable password becomes unusable. O
@@ -741,6 +741,10 @@ issued token can remain acceptable until its short expiry, so do not claim
 instant invalidation.
 
 ## Operator audit acceptance matrix (#205)
+
+The [#208 evidence handoff](staging-operator-validation-205.md) records which
+bounded live outcomes can currently be substantiated; the matrix below is the
+approved test definition, not a result record.
 
 Run this matrix only with separate explicit authorization, in isolated Staging,
 using disposable synthetic records. It is a bounded field-beta proof, not a

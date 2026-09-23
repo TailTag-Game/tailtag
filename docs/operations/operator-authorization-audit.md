@@ -4,6 +4,8 @@ This runbook covers the eight existing sensitive Django-admin actions for
 field-beta operations. It is not an operator-management UI, an audit viewer, or
 a product API. Do not run the Staging procedure or mutate Staging without
 separate explicit authorization.
+The [#205 live-evidence handoff](../development/staging-operator-validation-205.md)
+records the current limits of the retained bounded Staging validation result.
 
 ## Authority and inspection matrix
 
