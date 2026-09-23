@@ -1,0 +1,92 @@
+{
+  "issue": "#206",
+  "decision": "NO_GO",
+  "live_mutation": false,
+  "safe_recovery": "FORWARD_FIX",
+  "retained_deployments": {
+    "old": {
+      "deployment_id": "57f17ef7-7b34-4c2f-9272-b8091b1eafad",
+      "source_sha": "04f8383fe750bec712ced27a1932b82b1eabb292",
+      "can_rollback": true
+    },
+    "current": {
+      "deployment_id": "cbe83780-0256-49c2-b026-34709ddb69b0",
+      "source_sha": "856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a",
+      "active": true
+    },
+    "non_representative": {
+      "deployment_id": "3acf7fee-260b-472d-9b20-d1dd76efcb25",
+      "source_sha": "756f48e2d90bbb803060cd015e8bcf2d47ad4fbc"
+    }
+  },
+  "migration_analysis": {
+    "preferred_boundary": {
+      "old_source_sha": "04f8383fe750bec712ced27a1932b82b1eabb292",
+      "new_source_sha": "77b6c55130f1b69304a8fd748590b4bbad3bf721",
+      "migrations": ["rehearsal.0001_initial"],
+      "staging_deployed": false
+    },
+    "retained_to_current": {
+      "migrations": [
+        "accounts.0002_staff_local_password",
+        "conventions.0006_operator_permissions",
+        "fursuits.0003_fursuit_operator_permission",
+        "profiles.0002_playerprofile_operator_permission",
+        "operator_audit.0001_initial",
+        "rehearsal.0001_initial"
+      ]
+    },
+    "non_representative": {
+      "old_source_sha": "756f48e2d90bbb803060cd015e8bcf2d47ad4fbc",
+      "new_source_sha": "856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a",
+      "migrations": []
+    }
+  },
+  "schema_reconciliation": {
+    "applied_migrations_reconciled": true,
+    "schema_matches_reviewed_graph": true,
+    "partial_migration_evidence": false,
+    "manual_database_changes_suspected": false
+  },
+  "compatibility_proof": {
+    "disposable_postgresql": true,
+    "old_migration_plan_empty": true,
+    "django_checks_passed": true,
+    "focused_domain_read_write_passed": true,
+    "reverse_migrations_run": false,
+    "rehearsal_table_and_record_preserved": true,
+    "rehearsal_fk_rejects_unaware_deletion": true
+  },
+  "operator_state_incompatibility": {
+    "current_limited_operator_has_usable_local_auth": true,
+    "old_save_invalidates_local_auth": true,
+    "rollback_application_safe": false
+  },
+  "railway_rollback_api": {
+    "can_rollback_signature": "Deployment.canRollback: Boolean!",
+    "rollback_mutation_signature": "deploymentRollback(id: String!): Boolean!",
+    "result_deployment_id_returned": false,
+    "stored_image_reused_without_rebuild": true,
+    "historical_variable_snapshot_restored": true
+  },
+  "pre_deploy_command": {
+    "status": "UNVERIFIED"
+  },
+  "future_rehearsal": {
+    "rollback_target_symbol": "R",
+    "active_deployment_symbol": "A",
+    "result_deployment_symbol": "D",
+    "exact_target_api_call": "deploymentRollback(id: R)",
+    "new_deployment_derivation": "EXACTLY_ONE_POST_OPERATION_DEPLOYMENT",
+    "ambiguous_outcome": "INDETERMINATE_NO_RETRY",
+    "exact_instance_attribution": "#201",
+    "restoration": "#202_EXACT_SHA_PROMOTION"
+  },
+  "cleanup": {
+    "task_owned_postgresql_containers_removed": true,
+    "temporary_source_trees_removed": true
+  },
+  "limitations": {
+    "status": "LIVE_ROLLBACK_UNVERIFIED"
+  }
+}

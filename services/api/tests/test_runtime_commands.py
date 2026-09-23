@@ -6,6 +6,7 @@ import json
 import re
 import shlex
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -1466,3 +1467,471 @@ def test_api_workflow_permissions_ignore_comments_and_reject_every_job_override(
         assert_api_workflow_least_privilege(second_job_escalation)
     with pytest.raises(AssertionError):
         assert_api_workflow_least_privilege(quoted_job_escalation)
+
+
+ISSUE_206_SPEC = (
+    REPOSITORY_ROOT / "docs/specs/2026-09-22-v0-migration-application-rollback.md"
+)
+ISSUE_206_PLAN = (
+    REPOSITORY_ROOT
+    / "docs/specs/2026-09-22-v0-migration-application-rollback-implementation-plan.md"
+)
+ISSUE_206_SPEC_INDEX = REPOSITORY_ROOT / "docs/specs/README.md"
+ISSUE_206_DELIVERY_RUNBOOK = (
+    REPOSITORY_ROOT / "docs/development/backend-delivery-operations.md"
+)
+ISSUE_206_STAGING_RUNBOOK = REPOSITORY_ROOT / "docs/development/staging.md"
+ISSUE_206_EVIDENCE = (
+    REPOSITORY_ROOT
+    / "docs/development/staging-recovery/2026-09-22-issue-206-no-go.json"
+)
+
+ISSUE_206_EVIDENCE_TOP_LEVEL_KEYS = frozenset(
+    {
+        "issue",
+        "decision",
+        "live_mutation",
+        "safe_recovery",
+        "retained_deployments",
+        "migration_analysis",
+        "schema_reconciliation",
+        "compatibility_proof",
+        "operator_state_incompatibility",
+        "railway_rollback_api",
+        "pre_deploy_command",
+        "future_rehearsal",
+        "cleanup",
+        "limitations",
+    }
+)
+ISSUE_206_EVIDENCE_ALLOWED_NESTED_KEYS = frozenset(
+    {
+        "old",
+        "current",
+        "non_representative",
+        "deployment_id",
+        "source_sha",
+        "can_rollback",
+        "active",
+        "preferred_boundary",
+        "retained_to_current",
+        "old_source_sha",
+        "new_source_sha",
+        "migrations",
+        "staging_deployed",
+        "applied_migrations_reconciled",
+        "schema_matches_reviewed_graph",
+        "partial_migration_evidence",
+        "manual_database_changes_suspected",
+        "disposable_postgresql",
+        "old_migration_plan_empty",
+        "django_checks_passed",
+        "focused_domain_read_write_passed",
+        "reverse_migrations_run",
+        "rehearsal_table_and_record_preserved",
+        "rehearsal_fk_rejects_unaware_deletion",
+        "current_limited_operator_has_usable_local_auth",
+        "old_save_invalidates_local_auth",
+        "rollback_application_safe",
+        "can_rollback_signature",
+        "rollback_mutation_signature",
+        "result_deployment_id_returned",
+        "stored_image_reused_without_rebuild",
+        "historical_variable_snapshot_restored",
+        "status",
+        "rollback_target_symbol",
+        "active_deployment_symbol",
+        "result_deployment_symbol",
+        "exact_target_api_call",
+        "new_deployment_derivation",
+        "ambiguous_outcome",
+        "exact_instance_attribution",
+        "restoration",
+        "task_owned_postgresql_containers_removed",
+        "temporary_source_trees_removed",
+    }
+)
+ISSUE_206_SENSITIVE_EVIDENCE_KEY = re.compile(
+    r"(?i)(?:password|credential|token|secret|variable[_-]?values?|"
+    r"private[_-]?(?:url|resource|identifier)|database[_-]?(?:contents?|rows?|dump)|"
+    r"(?:user|account|clerk|person|actor)[_-]?id)"
+)
+
+
+def read_required_issue_206_document(path: Path) -> str:
+    """Read one approved #206 document, reporting a missing implementation clearly."""
+    assert path.is_file(), (
+        f"#206 required document is missing: {path.relative_to(REPOSITORY_ROOT)}"
+    )
+    return path.read_text()
+
+
+def assert_issue_206_policy_and_compatibility(
+    delivery_runbook: str, staging_runbook: str
+) -> None:
+    """Require both runbooks to retain the fail-closed application/schema policy."""
+    for runbook in (delivery_runbook, staging_runbook):
+        normalized = " ".join(runbook.split())
+        assert "2026-09-22-v0-migration-application-rollback.md" in runbook
+        for policy_term in ("Expand", "Compatible", "Contract", "forward fix"):
+            assert re.search(rf"(?i)\b{re.escape(policy_term)}\b", normalized)
+        assert re.search(
+            r"(?i)(?:not|never).{0,100}routine.{0,80}reverse migration", normalized
+        )
+        assert re.search(
+            r"(?i)old application.{0,120}actual schema.{0,120}persisted state",
+            normalized,
+        )
+        assert re.search(
+            r"(?i)(?:missing|ambiguous|uncertain).{0,120}(?:NO-GO|forward fix)",
+            normalized,
+        )
+
+    normalized_staging = " ".join(staging_runbook.split())
+    for migration_review_term in (
+        "RunPython",
+        "RunSQL",
+        "state/database split",
+        "non-atomic",
+        "foreign key",
+        "nullability",
+        "database default",
+        "renamed",
+        "removed",
+    ):
+        assert migration_review_term in staging_runbook
+    assert re.search(
+        r"(?i)disposable PostgreSQL.{0,160}old.{0,80}application", normalized_staging
+    )
+    assert re.search(
+        r"(?i)(?:do not|without).{0,80}reverse migration", normalized_staging
+    )
+    assert re.search(r"(?i)focused.{0,80}read.{0,80}write", normalized_staging)
+
+
+def assert_issue_206_no_go_boundaries(staging_runbook: str) -> None:
+    """Require the investigated boundaries and affirmative unsafe-state finding."""
+    normalized = " ".join(staging_runbook.split())
+    recovery_section = issue_206_staging_recovery_section(staging_runbook)
+    for identifier in (
+        "04f8383fe750bec712ced27a1932b82b1eabb292",
+        "57f17ef7-7b34-4c2f-9272-b8091b1eafad",
+        "77b6c55130f1b69304a8fd748590b4bbad3bf721",
+        "856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a",
+        "cbe83780-0256-49c2-b026-34709ddb69b0",
+        "756f48e2d90bbb803060cd015e8bcf2d47ad4fbc",
+        "3acf7fee-260b-472d-9b20-d1dd76efcb25",
+    ):
+        assert identifier in staging_runbook
+    assert re.search(r"(?i)77b6c55.{0,180}never deployed.{0,80}Staging", normalized)
+    assert re.search(r"(?i)no migration delta.{0,160}mechanics only", normalized)
+    assert re.search(
+        r"(?i)NO-GO.{0,160}live Staging.{0,160}(?:rollback|application)", normalized
+    )
+    assert re.search(
+        r"(?i)no live mutation.{0,160}(?:performed|authorized|required)", normalized
+    )
+    assert re.search(
+        r"(?i)staff/non-superuser.{0,160}usable local password", normalized
+    )
+    assert re.search(
+        r"(?is)(?:#239.{0,400}staff/non-superuser.{0,200}usable local password|"
+        r"staff/non-superuser.{0,400}usable local password.{0,400}#239)",
+        recovery_section,
+    )
+    assert re.search(
+        r"(?i)(?:old|O).{0,100}save.{0,160}usable password.{0,100}unusable", normalized
+    )
+    assert re.search(
+        r"(?i)(?:schema shape|schema compatibility).{0,120}insufficient", normalized
+    )
+
+
+def issue_206_staging_recovery_section(staging_runbook: str) -> str:
+    """Return the #206 recovery section without constraining adjacent runbooks."""
+    return markdown_section(
+        staging_runbook,
+        r"(?mi)^## Migration and application-image recovery \(#206\)\s*$",
+    )
+
+
+def assert_issue_206_railway_rehearsal_procedure(staging_runbook: str) -> None:
+    """Require exact-ID rollback evidence, rather than a latest-deployment claim."""
+    normalized = " ".join(staging_runbook.split())
+    assert "Deployment.canRollback: Boolean!" in staging_runbook
+    assert "deploymentRollback(id: String!): Boolean!" in staging_runbook
+    assert re.search(
+        r"(?i)does not return.{0,80}(?:resulting )?deployment ID", normalized
+    )
+    assert re.search(r"(?i)PRE_DEPLOY_COMMAND.{0,100}unverified", normalized)
+    assert not re.search(
+        r"(?i)PRE_DEPLOY_COMMAND.{0,80}(?:runs|reruns|is skipped)", normalized
+    )
+    for required_step in (
+        "exclusive Staging operation window",
+        "rollback target **R**",
+        "current active deployment **A**",
+        "new deployment **D**",
+        "deploymentRollback(id: R)",
+        "exactly one new deployment **D**",
+        "do not retry blindly",
+        "#201 image-local identity",
+        "canonical Staging HTTP smoke",
+        "affected-domain read/write proof",
+        "#202 exact-SHA promotion",
+        "never a second rollback",
+    ):
+        assert required_step in staging_runbook
+    assert re.search(
+        r"(?i)(?:zero|multiple).{0,100}(?:INDETERMINATE|indeterminate)", normalized
+    )
+    recovery_section = issue_206_staging_recovery_section(staging_runbook)
+    assert re.search(r"(?i)(?:never|not).{0,80}`?latest`?", recovery_section)
+
+
+def assert_issue_206_evidence_keys(value: object) -> None:
+    """Reject unallowlisted or secret-bearing keys at every evidence nesting level."""
+    if isinstance(value, dict):
+        mapping = cast(dict[object, object], value)
+        for key, nested_value in mapping.items():
+            assert isinstance(key, str)
+            assert key in (
+                ISSUE_206_EVIDENCE_TOP_LEVEL_KEYS
+                | ISSUE_206_EVIDENCE_ALLOWED_NESTED_KEYS
+            )
+            assert not ISSUE_206_SENSITIVE_EVIDENCE_KEY.search(key)
+            assert_issue_206_evidence_keys(nested_value)
+    elif isinstance(value, list):
+        sequence = cast(list[object], value)
+        for item in sequence:
+            assert_issue_206_evidence_keys(item)
+
+
+def assert_exact_json_value(actual: object, expected: object) -> None:
+    """Require JSON-compatible values to match in both type and structure."""
+    assert type(actual) is type(expected)
+    if isinstance(expected, dict):
+        assert isinstance(actual, dict)
+        actual_mapping = cast(dict[object, object], actual)
+        expected_mapping = cast(dict[object, object], expected)
+        assert set(actual_mapping) == set(expected_mapping)
+        for key, expected_value in expected_mapping.items():
+            assert_exact_json_value(actual_mapping[key], expected_value)
+    elif isinstance(expected, list):
+        assert isinstance(actual, list)
+        actual_sequence = cast(list[object], actual)
+        expected_sequence = cast(list[object], expected)
+        assert len(actual_sequence) == len(expected_sequence)
+        for actual_value, expected_value in zip(actual_sequence, expected_sequence):
+            assert_exact_json_value(actual_value, expected_value)
+    else:
+        assert actual == expected
+
+
+def test_issue_206_documentation_is_discoverable_and_defines_policy() -> None:
+    """AC-1/2/3: runbooks link #206 and retain the reviewed compatibility gate."""
+    spec_index = read_required_issue_206_document(ISSUE_206_SPEC_INDEX)
+    delivery_runbook = read_required_issue_206_document(ISSUE_206_DELIVERY_RUNBOOK)
+    staging_runbook = read_required_issue_206_document(ISSUE_206_STAGING_RUNBOOK)
+
+    assert ISSUE_206_SPEC.name in spec_index
+    assert ISSUE_206_PLAN.name in spec_index
+    assert_issue_206_policy_and_compatibility(delivery_runbook, staging_runbook)
+
+
+def test_issue_206_staging_runbook_records_the_final_no_go() -> None:
+    """AC-4/5/8: Staging records the unsafe retained pair and no mutation path."""
+    staging_runbook = read_required_issue_206_document(ISSUE_206_STAGING_RUNBOOK)
+
+    assert_issue_206_no_go_boundaries(staging_runbook)
+
+
+def test_issue_206_staging_runbook_preserves_exact_rollback_evidence_rules() -> None:
+    """AC-6/7: future rehearsal is exact-ID, exact-D, and never blind retry."""
+    staging_runbook = read_required_issue_206_document(ISSUE_206_STAGING_RUNBOOK)
+
+    assert_issue_206_railway_rehearsal_procedure(staging_runbook)
+
+
+def test_issue_206_spec_keeps_pre_deploy_as_an_observation() -> None:
+    """AC-6: a skipped pre-deploy hook is observed, not predeclared a failure."""
+    spec = read_required_issue_206_document(ISSUE_206_SPEC)
+    future_procedure = markdown_section(
+        spec, r"(?mi)^## Future exact evidence procedure\s*$"
+    )
+    normalized_future_procedure = " ".join(future_procedure.split())
+
+    assert re.search(r"(?i)PRE_DEPLOY_COMMAND.{0,100}unverified", spec)
+    assert re.search(
+        r"(?i)record whether `PRE_DEPLOY_COMMAND`.{0,100}occurred",
+        normalized_future_procedure,
+    )
+    assert not re.search(
+        r"(?i)(?:skipped|not executed|non-execution).{0,160}"
+        r"(?:fails? closed|NO-GO|failure)",
+        normalized_future_procedure,
+    )
+
+
+def test_issue_206_staging_runbook_rejects_unsafe_rehearsal_mutants() -> None:
+    """AC-6/7: misleading pre-deploy, latest, or second-rollback claims fail."""
+    staging_runbook = read_required_issue_206_document(ISSUE_206_STAGING_RUNBOOK)
+    recovery_section = issue_206_staging_recovery_section(staging_runbook)
+    unsafe_mutants = (
+        recovery_section.replace(
+            "PRE_DEPLOY_COMMAND remains **unverified**",
+            "PRE_DEPLOY_COMMAND runs during rollback",
+            1,
+        ),
+        recovery_section.replace("do not retry blindly", "retry until it succeeds", 1),
+        recovery_section.replace("never `latest`", "use `latest`", 1),
+        recovery_section.replace(
+            "never a second rollback", "use a second rollback for restoration", 1
+        ),
+    )
+
+    for mutant in unsafe_mutants:
+        assert mutant != recovery_section
+        with pytest.raises(AssertionError):
+            assert_issue_206_railway_rehearsal_procedure(
+                staging_runbook.replace(recovery_section, mutant, 1)
+            )
+
+    unrelated_latest = (
+        f"{staging_runbook}\n## Unrelated historical promotion note\n"
+        "A separate historical procedure may use `latest`.\n"
+    )
+    assert_issue_206_railway_rehearsal_procedure(unrelated_latest)
+
+
+def test_issue_206_evidence_has_the_sanitized_no_go_shape() -> None:
+    """AC-5/9: durable evidence is fixed, complete, and free of sensitive keys."""
+    evidence_text = read_required_issue_206_document(ISSUE_206_EVIDENCE)
+    loaded_evidence: object = json.loads(evidence_text)
+
+    assert isinstance(loaded_evidence, dict)
+    evidence = cast(dict[str, object], loaded_evidence)
+    assert set(evidence) == ISSUE_206_EVIDENCE_TOP_LEVEL_KEYS
+    assert_exact_json_value(evidence["issue"], "#206")
+    assert_exact_json_value(evidence["decision"], "NO_GO")
+    assert_exact_json_value(evidence["live_mutation"], False)
+    assert_exact_json_value(evidence["safe_recovery"], "FORWARD_FIX")
+
+    retained_deployments = evidence["retained_deployments"]
+    assert_exact_json_value(
+        retained_deployments,
+        {
+            "old": {
+                "deployment_id": "57f17ef7-7b34-4c2f-9272-b8091b1eafad",
+                "source_sha": "04f8383fe750bec712ced27a1932b82b1eabb292",
+                "can_rollback": True,
+            },
+            "current": {
+                "deployment_id": "cbe83780-0256-49c2-b026-34709ddb69b0",
+                "source_sha": "856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a",
+                "active": True,
+            },
+            "non_representative": {
+                "deployment_id": "3acf7fee-260b-472d-9b20-d1dd76efcb25",
+                "source_sha": "756f48e2d90bbb803060cd015e8bcf2d47ad4fbc",
+            },
+        },
+    )
+    assert_exact_json_value(
+        evidence["migration_analysis"],
+        {
+            "preferred_boundary": {
+                "old_source_sha": "04f8383fe750bec712ced27a1932b82b1eabb292",
+                "new_source_sha": "77b6c55130f1b69304a8fd748590b4bbad3bf721",
+                "migrations": ["rehearsal.0001_initial"],
+                "staging_deployed": False,
+            },
+            "retained_to_current": {
+                "migrations": [
+                    "accounts.0002_staff_local_password",
+                    "conventions.0006_operator_permissions",
+                    "fursuits.0003_fursuit_operator_permission",
+                    "profiles.0002_playerprofile_operator_permission",
+                    "operator_audit.0001_initial",
+                    "rehearsal.0001_initial",
+                ]
+            },
+            "non_representative": {
+                "old_source_sha": "756f48e2d90bbb803060cd015e8bcf2d47ad4fbc",
+                "new_source_sha": "856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a",
+                "migrations": [],
+            },
+        },
+    )
+    assert_exact_json_value(
+        evidence["schema_reconciliation"],
+        {
+            "applied_migrations_reconciled": True,
+            "schema_matches_reviewed_graph": True,
+            "partial_migration_evidence": False,
+            "manual_database_changes_suspected": False,
+        },
+    )
+    assert_exact_json_value(
+        evidence["compatibility_proof"],
+        {
+            "disposable_postgresql": True,
+            "old_migration_plan_empty": True,
+            "django_checks_passed": True,
+            "focused_domain_read_write_passed": True,
+            "reverse_migrations_run": False,
+            "rehearsal_table_and_record_preserved": True,
+            "rehearsal_fk_rejects_unaware_deletion": True,
+        },
+    )
+    assert_exact_json_value(
+        evidence["operator_state_incompatibility"],
+        {
+            "current_limited_operator_has_usable_local_auth": True,
+            "old_save_invalidates_local_auth": True,
+            "rollback_application_safe": False,
+        },
+    )
+    assert_exact_json_value(
+        evidence["railway_rollback_api"],
+        {
+            "can_rollback_signature": "Deployment.canRollback: Boolean!",
+            "rollback_mutation_signature": "deploymentRollback(id: String!): Boolean!",
+            "result_deployment_id_returned": False,
+            "stored_image_reused_without_rebuild": True,
+            "historical_variable_snapshot_restored": True,
+        },
+    )
+    assert_exact_json_value(evidence["pre_deploy_command"], {"status": "UNVERIFIED"})
+    assert_exact_json_value(
+        evidence["future_rehearsal"],
+        {
+            "rollback_target_symbol": "R",
+            "active_deployment_symbol": "A",
+            "result_deployment_symbol": "D",
+            "exact_target_api_call": "deploymentRollback(id: R)",
+            "new_deployment_derivation": "EXACTLY_ONE_POST_OPERATION_DEPLOYMENT",
+            "ambiguous_outcome": "INDETERMINATE_NO_RETRY",
+            "exact_instance_attribution": "#201",
+            "restoration": "#202_EXACT_SHA_PROMOTION",
+        },
+    )
+    assert_exact_json_value(
+        evidence["cleanup"],
+        {
+            "task_owned_postgresql_containers_removed": True,
+            "temporary_source_trees_removed": True,
+        },
+    )
+    assert_exact_json_value(
+        evidence["limitations"], {"status": "LIVE_ROLLBACK_UNVERIFIED"}
+    )
+
+    assert_issue_206_evidence_keys(evidence)
+
+    for numeric_mutant, expected_value in (
+        ({"disposable_postgresql": 1}, {"disposable_postgresql": True}),
+        ({"reverse_migrations_run": 0}, {"reverse_migrations_run": False}),
+    ):
+        with pytest.raises(AssertionError):
+            assert_exact_json_value(numeric_mutant, expected_value)
