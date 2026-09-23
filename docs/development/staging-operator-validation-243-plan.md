@@ -1,7 +1,11 @@
 # #243 operator evidence recovery and bounded validation proposal
 
-Status: **evidence insufficient; proposal only**. No Staging mutation is
-authorized by this document. Parent evidence gap:
+Status: **blocked before mutation: separate limited operator unavailable**.
+The [latest bounded read-only result](staging-operator-validation-243-execution-attempts.md)
+substantiates the managed role but found no limited-role candidate. Cases 1–9
+remain `NOT_EXERCISED`. A separately reviewed limited-role fixture/provisioning
+plan is required before resuming. No Staging mutation is authorized by this
+document. Parent evidence gap:
 [#205 handoff](staging-operator-validation-205.md); readiness owner:
 [#208](https://github.com/TailTag-Game/tailtag/issues/208).
 The [first approved attempt](staging-operator-validation-243-attempt-2026-09-23.md)

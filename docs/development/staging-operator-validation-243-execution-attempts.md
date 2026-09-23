@@ -53,7 +53,7 @@ non-`PASS` receipts now exit nonzero, with a regression proving the behavior.
 The final review found no material issue and approved bounded read-only use.
 These are local verification facts, not live #205 acceptance evidence.
 
-## Read-only attempt: 2026-09-23 23:41:54–23:42:01 UTC
+## Read-only attempt: 2026-09-23 23:41:54.260518–23:42:00.810085 UTC
 
 The reviewed launcher at `3d87bad` made one newly preflighted attempt:
 
@@ -96,3 +96,85 @@ The notice correction passed 58 focused inspector tests and the full
 Semgrep checks, doctor, local documentation links and diff checks passed.
 Independent review approved the narrow exception with no material finding.
 It authorizes no inference about the discarded prior remote result.
+
+## Substantiated precondition result: 2026-09-23 23:46:56.246313–23:47:02.191628 UTC
+
+**Overall: `LIMITED_OPERATOR_REMEDIATION_REQUIRED`; #243 remains blocked
+before mutation.** The reviewed launcher at `9d4e420` executed once under
+the bounded autonomous authorization. Its sanitized receipt established:
+
+| Fact | Result |
+| --- | --- |
+| Environment | `staging` |
+| Source SHA | `856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a` |
+| Deployment ID | `cbe83780-0256-49c2-b026-34709ddb69b0` |
+| Approved identities, fresh/repeated public preflight, receipt and sole running-instance selection | `PASS` |
+| Exact-instance build/runtime identity agreement | `PASS` (`target_verified=true`) |
+| Phase | `exact_instance_inspector` |
+| Inspector result | `FAIL_LIMITED_OPERATOR_MISSING` |
+| Bounded fixture prerequisite | `PASS` (the inspector reached both role checks) |
+| Managed operator | `PASS` for the exact frozen managed group, staff/non-superuser, credential shape, direct-permission and group-permission contract |
+| Limited operator | `MISSING` through the approved independent candidate lookup |
+
+The inspector returns at the first failed guard. Reaching the limited-role
+lookup therefore supports the preceding fixture and managed-role results.
+`MISSING` means no candidate was found outside the managed group with either
+of the two approved profile permissions. It does **not** distinguish a
+nonexistent underlying User from an existing identity without those
+permissions, and does not justify guessing an identity or granting access.
+No identity values, role memberships or permission snapshots were retained.
+
+This fixture result covers only the inspector's maintained baseline/structure
+checks. It does not replace the earlier 17-invariant fixture observations or
+refresh the separate private-config/registry/database reconciliation.
+
+### Nine-case disposition
+
+| #205 case | Result | Supported limitation |
+| --- | --- | --- |
+| 1. Ordinary-player denial | `NOT_EXERCISED` | Live matrix stopped at missing limited-role prerequisite |
+| 2. Staff-without-target-permission denial | `NOT_EXERCISED` | Required distinct limited role unavailable |
+| 3. Permitted non-superuser success | `NOT_EXERCISED` | Required distinct limited role unavailable |
+| 4. Cross-permission denial | `NOT_EXERCISED` | Required distinct limited role unavailable |
+| 5. Emergency-superuser success/classification | `NOT_EXERCISED` | Matrix not started; emergency identity not inspected in this attempt |
+| 6. Exactly one successful top-level audit event | `NOT_EXERCISED` | No successful action submitted |
+| 7. Exactly one denied-submission audit event | `NOT_EXERCISED` | No denied action submitted |
+| 8. Representative cascade/top-level intent | `NOT_EXERCISED` | No cascade action or session preparation performed |
+| 9. Forbidden alternate authority paths | `NOT_EXERCISED` | Finite matrix checks not started |
+
+Success/denial audit outcomes, emergency-superuser classification, cascade
+behavior, forbidden paths, and #204 reset/audit-retention interaction are
+unsubstantiated by this attempt. No reset, operator provisioning, credential
+change, fixture preparation, audit-row creation or Staging mutation occurred.
+The read-only process exited; no remote source files were written and no
+restoration was required. No additional live call followed this result.
+
+### Required decision and repair boundary
+
+The approved plan explicitly stops when the separate limited role is
+unavailable and requires a separately reviewed fixture plan. The existing
+`bootstrap_staging_operator` establishes the full managed permission set;
+it cannot supply this one-action role unchanged. Reusing that managed actor,
+stripping its authority, elevating a player or manually granting permissions
+would cross the approved boundary.
+
+The smallest next task is to approve a guarded provisioning/fixture plan for
+a **separate** staff, non-superuser identity with only
+`profiles.set_profile_enabled` and `profiles.view_playerprofile`, including
+its credential-handling and cleanup boundary. Provisioning would mutate
+Staging and needs explicit authorization after that plan is reviewable.
+No such provisioning was implemented or executed in this task.
+
+[#243](https://github.com/TailTag-Game/tailtag/issues/243) remains the owner of
+this missing live evidence and its precondition handoff. #208 OR-6 remains
+`BLOCKING` and #208 remains open at NO-GO. #205's historical closure, #207's
+restore evidence and #241's non-blocking limitation are unchanged.
+
+Local test cleanup: the task's disposable PostgreSQL container was stopped
+and removed, with no task container or custom network left running. The
+initial anonymous test volume was preserved under the repository's data
+preservation policy; the final test container used temporary memory storage.
+
+Final independent evidence review passed with no material finding. The
+record preserves both failed attempts, the supported role result and the
+unexercised matrix boundary. Local documentation links and diff checks passed.
