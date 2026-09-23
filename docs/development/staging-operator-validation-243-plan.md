@@ -54,30 +54,32 @@ narrowly required `profiles.view_playerprofile` inspection permission; it
 must lack `fursuits.set_fursuit_enabled` and all other sensitive permissions.
 No live result follows from a local inspector test or from this contract.
 
-For a **future separately authorized read-only inspection**, first redo the
-canonical preflight, approved identity checks and exact running-instance join.
-From the repository root, with the returned public tuple and exact selected
-instance captured in shell variables, the command form is:
+For an **authorized read-only inspection**, run the repository-owned launcher
+from this reviewed checkout:
 
 ```sh
-railway ssh --project 85324de4-be6a-49c3-a3f9-6cac13877849 \
-  --service 2247da27-97df-4d5d-b1dc-d21eeb7901d9 \
-  --environment 5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e \
-  --deployment-instance "$JOINED_RUNNING_INSTANCE_ID" -- \
-  env DJANGO_SETTINGS_MODULE=config.settings.production \
-  /app/.venv/bin/python - \
-  --expected-source-sha "$PREFLIGHT_SOURCE_SHA" \
-  --expected-deployment-id "$PREFLIGHT_DEPLOYMENT_ID" \
-  < scripts/api_staging_operator_inspect.py
+PYTHONPATH="$PWD" uv run --project services/api --locked --no-sync \
+  python -m scripts.api_staging_operator_inspect_ssh
 ```
 
-The command streams repository-owned code to the selected instance's Python
-process; it does not deploy or write source there. The inspector itself emits
-only `PASS` or one fixed `FAIL_*` classification. A failed SSH/authenticated
-transport or missing/ambiguous output is **not** an inspector result: stop and
-record a sanitized authenticated/execution failure without interpreting
-fixture or role state. Do not execute this command as part of the local tooling
-remediation.
+The launcher verifies approved GitHub/Railway identity, fresh canonical
+preflight, the matching approved deployment receipt, and the sole running
+instance. It repeats public preflight before the one SSH execution. An
+isolated Python bootstrap explicitly selects `/app`, verifies the exact
+instance's build/runtime identity before ORM access, and runs the fixture
+and role inspector inside a PostgreSQL read-only transaction. It streams
+reviewed source without deploying or writing it remotely.
+
+The result contains only a fixed classification/phase, any established public
+environment/source/deployment tuple, exact-instance verification boolean and
+UTC window. Transport, timeout, bootstrap, output-contract and target failures
+are distinct from the existing fixture/operator classifications. Unexpected
+output is rejected; raw transport output and exceptions are never retained.
+The launcher has no retry path. A failed read-only attempt requires diagnosis
+and any necessary reviewed tooling correction before a newly preflighted
+attempt under the applicable authorization. None of these inspections
+establishes a #205 matrix result. Historical failures and the local startup
+regression are preserved in the [execution-attempt record](staging-operator-validation-243-execution-attempts.md).
 
 ## Retained-evidence search
 

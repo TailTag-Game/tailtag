@@ -11,7 +11,11 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, NoReturn, cast
 
-_API_ROOT = Path(__file__).resolve().parents[1] / "services" / "api"
+# ``__file__`` is deliberately a stable in-image name when this source is
+# executed by the SSH bootstrap.  A direct ``python -`` invocation has no
+# repository parent, however, so derive a possible local root without indexed
+# ``parents`` access before deciding whether it is usable.
+_API_ROOT = Path(__file__).resolve().parent.parent / "services" / "api"
 if _API_ROOT.is_dir() and str(_API_ROOT) not in sys.path:
     sys.path.insert(0, str(_API_ROOT))
 

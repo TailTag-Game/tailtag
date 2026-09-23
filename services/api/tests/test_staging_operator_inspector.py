@@ -5,6 +5,7 @@ from __future__ import annotations
 import builtins
 import datetime
 import importlib
+import subprocess
 import sys
 import uuid
 from pathlib import Path
@@ -662,6 +663,23 @@ def test_main_prints_one_allowlisted_code_for_malformed_arguments(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err.strip() == FAIL_INVALID_INPUT
+
+
+def test_stdin_inspector_from_root_cwd_fails_closed_without_traceback() -> None:
+    """A streamed inspector must not depend on its checkout path being its cwd."""
+    result = subprocess.run(
+        [sys.executable, "-", "--bad"],
+        cwd=Path("/"),
+        input=SCRIPT.read_text(encoding="utf-8"),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.strip() == FAIL_INVALID_INPUT
+    assert "Traceback" not in result.stderr
 
 
 def test_main_never_reflects_an_execution_exception(
