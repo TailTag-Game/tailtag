@@ -4,6 +4,8 @@ Status: **evidence insufficient; proposal only**. No Staging mutation is
 authorized by this document. Parent evidence gap:
 [#205 handoff](staging-operator-validation-205.md); readiness owner:
 [#208](https://github.com/TailTag-Game/tailtag/issues/208).
+The [first approved attempt](staging-operator-validation-243-attempt-2026-09-23.md)
+stopped at read-only inspection before any matrix action or reset.
 
 ## Retained-evidence search
 
