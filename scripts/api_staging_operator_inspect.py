@@ -25,9 +25,11 @@ FAIL_FIXTURE_STATE_MISMATCH: Final = "FAIL_FIXTURE_STATE_MISMATCH"
 FAIL_MANAGED_OPERATOR_MISSING: Final = "FAIL_MANAGED_OPERATOR_MISSING"
 FAIL_MANAGED_OPERATOR_AMBIGUOUS: Final = "FAIL_MANAGED_OPERATOR_AMBIGUOUS"
 FAIL_MANAGED_OPERATOR_STATE: Final = "FAIL_MANAGED_OPERATOR_STATE"
+FAIL_MANAGED_OPERATOR_PERMISSION: Final = "FAIL_MANAGED_OPERATOR_PERMISSION"
 FAIL_LIMITED_OPERATOR_MISSING: Final = "FAIL_LIMITED_OPERATOR_MISSING"
 FAIL_LIMITED_OPERATOR_AMBIGUOUS: Final = "FAIL_LIMITED_OPERATOR_AMBIGUOUS"
 FAIL_LIMITED_OPERATOR_STATE: Final = "FAIL_LIMITED_OPERATOR_STATE"
+FAIL_LIMITED_OPERATOR_PERMISSION: Final = "FAIL_LIMITED_OPERATOR_PERMISSION"
 FAIL_UNEXPECTED_PRIVILEGE: Final = "FAIL_UNEXPECTED_PRIVILEGE"
 FAIL_EXECUTION: Final = "FAIL_EXECUTION"
 FAIL_INVALID_INPUT: Final = "FAIL_INVALID_INPUT"
@@ -41,9 +43,11 @@ STATUS_CODES: Final = frozenset(
         FAIL_MANAGED_OPERATOR_MISSING,
         FAIL_MANAGED_OPERATOR_AMBIGUOUS,
         FAIL_MANAGED_OPERATOR_STATE,
+        FAIL_MANAGED_OPERATOR_PERMISSION,
         FAIL_LIMITED_OPERATOR_MISSING,
         FAIL_LIMITED_OPERATOR_AMBIGUOUS,
         FAIL_LIMITED_OPERATOR_STATE,
+        FAIL_LIMITED_OPERATOR_PERMISSION,
         FAIL_UNEXPECTED_PRIVILEGE,
         FAIL_EXECUTION,
         FAIL_INVALID_INPUT,
@@ -131,10 +135,9 @@ def _validate_fixture() -> str | None:
     except StagingResetIdentity.MultipleObjectsReturned:
         return FAIL_FIXTURE_AMBIGUOUS
 
-    expected_environment_id = uuid.UUID(_RUNTIME_SELECTORS["RAILWAY_ENVIRONMENT_ID"])
     if (
         identity.pk != 1
-        or identity.environment_id != expected_environment_id
+        or identity.environment_id.version != 4
         or identity.owner_id == identity.catcher_id
         or identity.owner.is_staff
         or identity.catcher.is_staff
@@ -177,11 +180,14 @@ def _validate_managed_operator() -> str | None:
     if (
         not operator.is_staff
         or not operator.has_usable_password()
-        or operator.user_permissions.exists()  # pyright: ignore[reportUnknownMemberType]
         or list(operator.groups.values_list("pk", flat=True)) != [group.pk]  # pyright: ignore[reportUnknownMemberType]
-        or _permission_names(group.permissions) != EXPECTED_PERMISSION_NAMES  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
     ):
         return FAIL_MANAGED_OPERATOR_STATE
+    if (
+        operator.user_permissions.exists()  # pyright: ignore[reportUnknownMemberType]
+        or _permission_names(group.permissions) != EXPECTED_PERMISSION_NAMES  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+    ):
+        return FAIL_MANAGED_OPERATOR_PERMISSION
     return None
 
 
@@ -201,8 +207,7 @@ def _limited_candidates() -> list[User]:
         ),
     )
     return list(
-        User.objects.filter(is_staff=True)
-        .exclude(groups__name=_OPERATOR_GROUP_NAME)
+        User.objects.exclude(groups__name=_OPERATOR_GROUP_NAME)
         .filter(explicit_profile_permission)
         .distinct()
     )
@@ -224,12 +229,10 @@ def _validate_limited_operator() -> str | None:
             "permissions__content_type__app_label", "permissions__codename"
         )
     )
-    if (
-        not operator.is_staff
-        or not operator.has_usable_password()
-        or effective_permissions != _LIMITED_PERMISSION_NAMES
-    ):
+    if not operator.is_staff or not operator.has_usable_password():
         return FAIL_LIMITED_OPERATOR_STATE
+    if effective_permissions != _LIMITED_PERMISSION_NAMES:
+        return FAIL_LIMITED_OPERATOR_PERMISSION
     return None
 
 

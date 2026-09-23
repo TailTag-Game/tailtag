@@ -23,6 +23,15 @@ The later [bounded read-only registry reconciliation](staging-operator-validatio
 found structural registry validity and equality across the private, persisted,
 and connected-database authorities at its observation. It did not inspect
 operators or start the nine-case matrix.
+The repository-only operator-inspector correction removed the same invalid
+Railway/reset UUID comparison from its fixture guard. The inspector checks the
+persisted reset UUID's v4 structure, singleton key, synthetic owner/catcher
+shape, the existing read-only `validate_baseline` helper, and audit-model
+availability before role inspection. It does not compare private #204
+configuration to the registry or claim current fixture state from earlier
+point-in-time evidence. Railway environment UUID remains a runtime target
+selector only. A focused audit of #204/#243 diagnostic and inspection tooling
+found no other cross-namespace identifier comparison.
 
 ### Corrected read-only inspection contract
 
@@ -33,9 +42,10 @@ expected source SHA and deployment ID, verifies them against that instance's
 build/runtime identity and fixed Railway Staging selectors, and emits one
 allowlisted status. Malformed input/target identity, fixture missing,
 fixture ambiguous, fixture state mismatch, managed operator missing,
-managed operator ambiguous, managed operator state/permission mismatch,
-limited operator missing, limited operator ambiguous, limited operator
-state/permission mismatch, unexpected privilege, and execution/query failure
+managed operator ambiguous, distinct managed role-state and permission-set
+mismatches, limited operator missing, limited operator ambiguous, distinct
+limited role-state and permission-set mismatches, unexpected privilege, and
+execution/query failure
 are distinct fail-closed results. It never prints identifiers, credentials,
 raw records or permission sets. The managed operator must satisfy the exact
 #205 bootstrap-managed group and permission contract. The separate one-action

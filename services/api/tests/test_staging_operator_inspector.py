@@ -45,6 +45,9 @@ RUNTIME_SELECTORS = {
     "RAILWAY_ENVIRONMENT_ID": "5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e",
     "RAILWAY_SERVICE_ID": "2247da27-97df-4d5d-b1dc-d21eeb7901d9",
 }
+# #204's reset sentinel is an independently generated identity. It deliberately
+# differs from the Railway environment selector above.
+RESET_ENVIRONMENT_ID = "a5f9e443-b520-437d-84cd-cf984f6eb3ba"
 
 PASS = "PASS"
 FAIL_FIXTURE_MISSING = "FAIL_FIXTURE_MISSING"
@@ -53,9 +56,11 @@ FAIL_FIXTURE_STATE_MISMATCH = "FAIL_FIXTURE_STATE_MISMATCH"
 FAIL_MANAGED_OPERATOR_MISSING = "FAIL_MANAGED_OPERATOR_MISSING"
 FAIL_MANAGED_OPERATOR_AMBIGUOUS = "FAIL_MANAGED_OPERATOR_AMBIGUOUS"
 FAIL_MANAGED_OPERATOR_STATE = "FAIL_MANAGED_OPERATOR_STATE"
+FAIL_MANAGED_OPERATOR_PERMISSION = "FAIL_MANAGED_OPERATOR_PERMISSION"
 FAIL_LIMITED_OPERATOR_MISSING = "FAIL_LIMITED_OPERATOR_MISSING"
 FAIL_LIMITED_OPERATOR_AMBIGUOUS = "FAIL_LIMITED_OPERATOR_AMBIGUOUS"
 FAIL_LIMITED_OPERATOR_STATE = "FAIL_LIMITED_OPERATOR_STATE"
+FAIL_LIMITED_OPERATOR_PERMISSION = "FAIL_LIMITED_OPERATOR_PERMISSION"
 FAIL_UNEXPECTED_PRIVILEGE = "FAIL_UNEXPECTED_PRIVILEGE"
 FAIL_EXECUTION = "FAIL_EXECUTION"
 FAIL_INVALID_INPUT = "FAIL_INVALID_INPUT"
@@ -68,9 +73,11 @@ ALL_CODES = frozenset(
         FAIL_MANAGED_OPERATOR_MISSING,
         FAIL_MANAGED_OPERATOR_AMBIGUOUS,
         FAIL_MANAGED_OPERATOR_STATE,
+        FAIL_MANAGED_OPERATOR_PERMISSION,
         FAIL_LIMITED_OPERATOR_MISSING,
         FAIL_LIMITED_OPERATOR_AMBIGUOUS,
         FAIL_LIMITED_OPERATOR_STATE,
+        FAIL_LIMITED_OPERATOR_PERMISSION,
         FAIL_UNEXPECTED_PRIVILEGE,
         FAIL_EXECUTION,
         FAIL_INVALID_INPUT,
@@ -211,7 +218,7 @@ def create_owned_baseline() -> StagingResetIdentity:
         )
     return StagingResetIdentity.objects.create(
         id=1,
-        environment_id=uuid.UUID(RUNTIME_SELECTORS["RAILWAY_ENVIRONMENT_ID"]),
+        environment_id=uuid.UUID(RESET_ENVIRONMENT_ID),
         cluster_identifier="123",
         database_name="test_tailtag",
         media_key=MEDIA_KEY,
@@ -274,6 +281,40 @@ def test_exact_owned_baseline_and_distinct_exact_roles_pass(
 
 
 @pytest.mark.django_db
+def test_distinct_railway_and_reset_environment_uuids_reach_both_role_checks(
+    configured_inspector: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Railway selector and #204 sentinel are separate UUID namespaces."""
+    assert RESET_ENVIRONMENT_ID != RUNTIME_SELECTORS["RAILWAY_ENVIRONMENT_ID"]
+    create_owned_baseline()
+    create_managed_operator()
+    create_limited_operator()
+
+    managed_check = configured_inspector._validate_managed_operator
+    limited_check = configured_inspector._validate_limited_operator
+    reached: list[str] = []
+
+    def validate_managed() -> str | None:
+        reached.append("managed")
+        return cast(str | None, managed_check())
+
+    def validate_limited() -> str | None:
+        reached.append("limited")
+        return cast(str | None, limited_check())
+
+    monkeypatch.setattr(
+        configured_inspector, "_validate_managed_operator", validate_managed
+    )
+    monkeypatch.setattr(
+        configured_inspector, "_validate_limited_operator", validate_limited
+    )
+
+    assert inspect(configured_inspector) == PASS
+    assert reached == ["managed", "limited"]
+
+
+@pytest.mark.django_db
 def test_previous_unmapped_is_active_lookup_cannot_hide_a_valid_preflight(
     configured_inspector: ModuleType,
 ) -> None:
@@ -328,6 +369,20 @@ def test_malformed_registry_baseline_has_distinct_failure(
 
 
 @pytest.mark.django_db
+def test_non_v4_reset_sentinel_remains_a_fixture_state_failure(
+    configured_inspector: ModuleType,
+) -> None:
+    """The #204 reset UUID is validated by its own sentinel contract, not Railway."""
+    identity = create_owned_baseline()
+    create_managed_operator()
+    create_limited_operator()
+    identity.environment_id = uuid.uuid1()
+    identity.save(update_fields={"environment_id"})
+
+    assert inspect(configured_inspector) == FAIL_FIXTURE_STATE_MISMATCH
+
+
+@pytest.mark.django_db
 def test_missing_managed_operator_has_distinct_failure(
     configured_inspector: ModuleType,
 ) -> None:
@@ -365,7 +420,7 @@ def test_managed_operator_permission_drift_has_distinct_failure(
         permission_map()["fursuits.set_fursuit_enabled"]
     )
 
-    assert inspect(configured_inspector) == FAIL_MANAGED_OPERATOR_STATE
+    assert inspect(configured_inspector) == FAIL_MANAGED_OPERATOR_PERMISSION
 
 
 @pytest.mark.django_db
@@ -393,6 +448,20 @@ def test_managed_operator_direct_permission_drift_fails_distinctly(
     cast(UserWithRoles, managed).user_permissions.add(
         permission_map()["profiles.set_profile_enabled"]
     )
+
+    assert inspect(configured_inspector) == FAIL_MANAGED_OPERATOR_PERMISSION
+
+
+@pytest.mark.django_db
+def test_managed_operator_role_state_drift_is_not_permission_drift(
+    configured_inspector: ModuleType,
+) -> None:
+    """Managed staff shape remains distinct from its exact permission contract."""
+    create_owned_baseline()
+    managed = create_managed_operator()
+    create_limited_operator()
+    managed.is_staff = False
+    managed.save(update_fields={"is_staff"})
 
     assert inspect(configured_inspector) == FAIL_MANAGED_OPERATOR_STATE
 
@@ -432,7 +501,7 @@ def test_limited_operator_excess_sensitive_permission_fails_distinctly(
         permission_map()["fursuits.set_fursuit_enabled"]
     )
 
-    assert inspect(configured_inspector) == FAIL_LIMITED_OPERATOR_STATE
+    assert inspect(configured_inspector) == FAIL_LIMITED_OPERATOR_PERMISSION
 
 
 @pytest.mark.django_db
@@ -457,6 +526,37 @@ def test_limited_operator_missing_profile_action_fails_distinctly(
     create_owned_baseline()
     create_managed_operator()
     create_limited_operator(frozenset({"profiles.view_playerprofile"}))
+
+    assert inspect(configured_inspector) == FAIL_LIMITED_OPERATOR_PERMISSION
+
+
+@pytest.mark.django_db
+def test_limited_operator_role_state_drift_is_not_permission_drift(
+    configured_inspector: ModuleType,
+) -> None:
+    """The limited actor's staff credential shape is distinct from its authority."""
+    create_owned_baseline()
+    create_managed_operator()
+    limited = create_limited_operator()
+    limited.set_unusable_password()
+    limited.save(update_fields={"password"})
+
+    assert inspect(configured_inspector) == FAIL_LIMITED_OPERATOR_STATE
+
+
+@pytest.mark.django_db
+def test_nonstaff_limited_shape_is_role_state_mismatch_not_missing(
+    configured_inspector: ModuleType,
+) -> None:
+    """A discoverable limited fixture with invalid staff state must not be relabelled absent."""
+    create_owned_baseline()
+    create_managed_operator()
+    limited = User(clerk_user_id="nonstaff-limited-operator", is_staff=False)
+    limited.save()
+    permissions = permission_map()
+    cast(UserWithRoles, limited).user_permissions.add(
+        *(permissions[name] for name in LIMITED_PERMISSION_NAMES)
+    )
 
     assert inspect(configured_inspector) == FAIL_LIMITED_OPERATOR_STATE
 
@@ -525,6 +625,29 @@ def test_mismatched_running_build_identity_fails_before_fixture_inspection(
     )
 
     assert inspect(configured_inspector) == FAIL_INVALID_INPUT
+
+
+@pytest.mark.django_db
+def test_mismatched_railway_environment_selector_fails_before_orm_inspection(
+    configured_inspector: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Railway selector drift remains a target failure despite an independent reset UUID."""
+    create_owned_baseline()
+    create_managed_operator()
+    create_limited_operator()
+    reached_fixture_guard = False
+
+    def fixture_guard() -> str | None:
+        nonlocal reached_fixture_guard
+        reached_fixture_guard = True
+        return None
+
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_ID", "00000000-0000-4000-8000-000000000000")
+    monkeypatch.setattr(configured_inspector, "_validate_fixture", fixture_guard)
+
+    assert inspect(configured_inspector) == FAIL_INVALID_INPUT
+    assert not reached_fixture_guard
 
 
 def test_main_prints_one_allowlisted_code_for_malformed_arguments(
