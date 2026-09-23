@@ -11,6 +11,10 @@ The later fixture-only diagnostic and its #204 ownership map are recorded in
 Its [single live read-only result](staging-operator-validation-243-fixture-result-2026-09-23.md)
 classified a preserved registry prerequisite mismatch; it did not start the
 nine-case validation or reset.
+The subsequent [local registry contract review](staging-operator-validation-243-registry-tooling-review-2026-09-23.md)
+found that the fixture diagnostic compared the random #204 reset UUID to the
+Railway environment UUID. The emitted registry classification therefore does
+not establish actual sentinel drift; no further live call was made in that review.
 
 ### Corrected read-only inspection contract
 
