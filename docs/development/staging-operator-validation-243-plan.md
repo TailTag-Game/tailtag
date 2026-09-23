@@ -7,6 +7,51 @@ authorized by this document. Parent evidence gap:
 The [first approved attempt](staging-operator-validation-243-attempt-2026-09-23.md)
 stopped at read-only inspection before any matrix action or reset.
 
+### Corrected read-only inspection contract
+
+The repository-owned #243 inspector is a read-only Python entry point streamed
+to an explicitly selected running Staging `api` instance after the separate
+canonical preflight and exact-deployment join. It accepts only the public
+expected source SHA and deployment ID, verifies them against that instance's
+build/runtime identity and fixed Railway Staging selectors, and emits one
+allowlisted status. Malformed input/target identity, fixture missing,
+fixture ambiguous, fixture state mismatch, managed operator missing,
+managed operator ambiguous, managed operator state/permission mismatch,
+limited operator missing, limited operator ambiguous, limited operator
+state/permission mismatch, unexpected privilege, and execution/query failure
+are distinct fail-closed results. It never prints identifiers, credentials,
+raw records or permission sets. The managed operator must satisfy the exact
+#205 bootstrap-managed group and permission contract. The separate one-action
+limited operator must have only `profiles.set_profile_enabled` and the
+narrowly required `profiles.view_playerprofile` inspection permission; it
+must lack `fursuits.set_fursuit_enabled` and all other sensitive permissions.
+No live result follows from a local inspector test or from this contract.
+
+For a **future separately authorized read-only inspection**, first redo the
+canonical preflight, approved identity checks and exact running-instance join.
+From the repository root, with the returned public tuple and exact selected
+instance captured in shell variables, the command form is:
+
+```sh
+railway ssh --project 85324de4-be6a-49c3-a3f9-6cac13877849 \
+  --service 2247da27-97df-4d5d-b1dc-d21eeb7901d9 \
+  --environment 5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e \
+  --deployment-instance "$JOINED_RUNNING_INSTANCE_ID" -- \
+  env DJANGO_SETTINGS_MODULE=config.settings.production \
+  /app/.venv/bin/python - \
+  --expected-source-sha "$PREFLIGHT_SOURCE_SHA" \
+  --expected-deployment-id "$PREFLIGHT_DEPLOYMENT_ID" \
+  < scripts/api_staging_operator_inspect.py
+```
+
+The command streams repository-owned code to the selected instance's Python
+process; it does not deploy or write source there. The inspector itself emits
+only `PASS` or one fixed `FAIL_*` classification. A failed SSH/authenticated
+transport or missing/ambiguous output is **not** an inspector result: stop and
+record a sanitized authenticated/execution failure without interpreting
+fixture or role state. Do not execute this command as part of the local tooling
+remediation.
+
 ## Retained-evidence search
 
 On 2026-09-23, read-only inspection covered current and historical repository
