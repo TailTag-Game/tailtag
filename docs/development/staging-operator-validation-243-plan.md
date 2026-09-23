@@ -18,7 +18,11 @@ not establish actual sentinel drift; no further live call was made in that revie
 The [repository-only correction](staging-operator-validation-243-registry-reconciliation.md)
 removes that comparison and defines a separate value-free three-way check for
 a future authorized read-only task. The historical fixture result is unchanged;
-current registry/configuration/database agreement remains unverified.
+registry/configuration/database agreement was unverified at that review.
+The later [bounded read-only registry reconciliation](staging-operator-validation-243-registry-reconciliation-result-2026-09-23.md)
+found structural registry validity and equality across the private, persisted,
+and connected-database authorities at its observation. It did not inspect
+operators or start the nine-case matrix.
 
 ### Corrected read-only inspection contract
 

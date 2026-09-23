@@ -71,3 +71,6 @@ This command must not be run as part of the repository-only correction. The
 private file, exact instance, and live database have not been inspected here.
 No registry/configuration/fixture repair, reset, provisioning, operator
 inspection or #205 matrix execution is authorized by this documentation.
+
+The separately approved single read-only execution and its sanitized result
+are recorded in the [September 23 reconciliation receipt](staging-operator-validation-243-registry-reconciliation-result-2026-09-23.md).
