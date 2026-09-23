@@ -48,6 +48,8 @@ OWNERSHIP: Final = {
 }
 
 _SHA = re.compile(r"[0-9a-f]{40}\Z")
+_CLUSTER_IDENTIFIER = re.compile(r"[1-9][0-9]*\Z")
+_DATABASE_NAME = re.compile(r"[a-z][a-z0-9_]{0,62}\Z")
 _ENVIRONMENT_ID = uuid.UUID("5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e")
 _SELECTORS = {
     "RAILWAY_ENVIRONMENT_NAME": "staging",
@@ -116,7 +118,11 @@ def diagnose_fixture() -> dict[str, str]:
     identity = identities[0]
     result["registry"] = (
         PASS
-        if identity.pk == 1 and identity.environment_id == _ENVIRONMENT_ID
+        if identity.pk == 1
+        and identity.environment_id.version == 4
+        and _CLUSTER_IDENTIFIER.fullmatch(identity.cluster_identifier) is not None
+        and _DATABASE_NAME.fullmatch(identity.database_name) is not None
+        and identity.database_name != "postgres"
         else UNEXPECTED_STATE
     )
     result["identities"] = (
@@ -364,7 +370,11 @@ def safe_diagnose_fixture() -> dict[str, object]:
     except Exception:  # noqa: BLE001
         invariants = dict.fromkeys(OWNERSHIP, INDETERMINATE)
         result = FAIL_EXECUTION
-    return {"result": result, "invariants": invariants}
+    return {
+        "result": result,
+        "invariants": invariants,
+        "binding_equality": "NOT_CHECKED",
+    }
 
 
 def main() -> int:
@@ -383,7 +393,15 @@ def main() -> int:
         ):
             raise ValueError
     except Exception:  # noqa: BLE001
-        print(json.dumps({"result": FAIL_INVALID_INPUT, "invariants": {}}))
+        print(
+            json.dumps(
+                {
+                    "result": FAIL_INVALID_INPUT,
+                    "invariants": {},
+                    "binding_equality": "NOT_CHECKED",
+                }
+            )
+        )
         return 1
     try:
         import django
@@ -394,6 +412,7 @@ def main() -> int:
         payload = {
             "result": FAIL_EXECUTION,
             "invariants": dict.fromkeys(OWNERSHIP, INDETERMINATE),
+            "binding_equality": "NOT_CHECKED",
         }
     result = payload["result"]
     print(json.dumps(payload, sort_keys=True))

@@ -15,6 +15,10 @@ The subsequent [local registry contract review](staging-operator-validation-243-
 found that the fixture diagnostic compared the random #204 reset UUID to the
 Railway environment UUID. The emitted registry classification therefore does
 not establish actual sentinel drift; no further live call was made in that review.
+The [repository-only correction](staging-operator-validation-243-registry-reconciliation.md)
+removes that comparison and defines a separate value-free three-way check for
+a future authorized read-only task. The historical fixture result is unchanged;
+current registry/configuration/database agreement remains unverified.
 
 ### Corrected read-only inspection contract
 

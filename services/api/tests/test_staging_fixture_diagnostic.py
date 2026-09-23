@@ -6,6 +6,7 @@ import datetime
 import importlib
 import json
 import sys
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
@@ -272,6 +273,48 @@ def test_exact_baseline_reports_each_required_fixture_invariant_and_ownership(
 
 
 @pytest.mark.django_db
+def test_registry_structure_does_not_compare_the_reset_uuid_to_railway_identity(
+    diagnostic: ModuleType,
+) -> None:
+    """Regression: #204's reset UUID is a separate namespace from Railway's UUID."""
+    identity = _create_baseline()
+    reset_uuid = uuid.UUID("d2719be4-13dd-4cd5-b55c-ed79742c52ea")
+    assert reset_uuid != uuid.UUID(diagnostic._SELECTORS["RAILWAY_ENVIRONMENT_ID"])
+    identity.environment_id = reset_uuid
+    identity.save(update_fields={"environment_id"})
+
+    payload = cast(dict[str, object], diagnostic.safe_diagnose_fixture())
+    observed = cast(dict[str, str], payload["invariants"])
+
+    assert observed["registry"] == PASS
+    assert payload["binding_equality"] == "NOT_CHECKED"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("environment_id", uuid.UUID("12345678-1234-11ee-be56-0242ac120002")),
+        ("cluster_identifier", "0"),
+        ("database_name", "postgres"),
+    ),
+)
+def test_registry_structural_contract_rejects_only_invalid_registry_fields(
+    diagnostic: ModuleType,
+    field: str,
+    value: object,
+) -> None:
+    """Fixture-level registry health is limited to persisted #204 structure."""
+    identity = _create_baseline()
+    setattr(identity, field, value)
+    identity.save(update_fields={field})
+
+    observed = _diagnose(diagnostic)
+
+    assert observed["registry"] == UNEXPECTED_STATE
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     ("mutate", "invariant", "expected"),
     (
@@ -349,6 +392,7 @@ def test_partial_or_dangling_root_bindings_fail_closed_without_guessing(
 ) -> None:
     """The DB protects roots, so exercise impossible corruption as an in-memory row."""
     identity = _create_baseline()
+    identity.refresh_from_db()
     assert identity.convention_id is not None
     original_convention_id = identity.convention_id
 
@@ -615,5 +659,6 @@ def test_main_emits_only_the_fixed_sanitized_payload(
 
     assert payload == {
         "result": PASS,
+        "binding_equality": "NOT_CHECKED",
         "invariants": {key: PASS for key in sorted(EXPECTED_KEYS)},
     }
