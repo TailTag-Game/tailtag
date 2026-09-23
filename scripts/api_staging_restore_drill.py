@@ -23,7 +23,7 @@ import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from io import StringIO
+from io import StringIO, UnsupportedOperation
 from pathlib import Path
 from shutil import rmtree
 from typing import Any, cast
@@ -324,6 +324,15 @@ def open_source_snapshot(details: TunnelDetails) -> SourceSnapshot:
         active_connection = cast(Any, connection)
         with active_connection.cursor() as cursor:
             cursor.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            cursor.execute("SHOW transaction_isolation")
+            isolation_row = cursor.fetchone()
+            if (
+                not isinstance(isolation_row, tuple)
+                or len(isolation_row) != 1
+                or not isinstance(isolation_row[0], str)
+                or isolation_row[0].strip().lower() != "repeatable read"
+            ):
+                raise DrillDenied("source snapshot isolation unavailable")
             cursor.execute("SELECT pg_export_snapshot()")
             row = cursor.fetchone()
         typed_row = cast(tuple[object, ...], row)
@@ -394,13 +403,59 @@ def dump_snapshot_to_target(
         )
         if dump.stdout is None or receiver.stdin is None:
             raise DrillDenied("dump stream unavailable")
-        while chunk := dump.stdout.read(1024 * 1024):
-            receiver.stdin.write(chunk)
-            transferred += len(chunk)
+        deadline = time.monotonic() + 1800
+        try:
+            dump_fd = dump.stdout.fileno()
+            receiver_fd = receiver.stdin.fileno()
+            os.set_blocking(dump_fd, False)
+            os.set_blocking(receiver_fd, False)
+        except (AttributeError, OSError, UnsupportedOperation):
+            raise DrillDenied("dump stream does not expose OS pipes") from None
+        pending = bytearray()
+        end_of_dump = False
+        try:
+            while not end_of_dump or pending:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise DrillDenied("custom dump timed out")
+                # Do not read another chunk until the receiver consumes the
+                # current one; the host buffer is bounded to one chunk.
+                readable = [dump_fd] if not end_of_dump and not pending else []
+                writable = [receiver_fd] if pending else []
+                readable, writable, _ = select.select(
+                    readable, writable, [], min(1, remaining)
+                )
+                if dump_fd in readable:
+                    try:
+                        chunk = os.read(dump_fd, 1024 * 1024)
+                    except BlockingIOError:
+                        chunk = None
+                    if chunk is None:
+                        pass
+                    elif chunk:
+                        pending.extend(chunk)
+                    else:
+                        end_of_dump = True
+                if receiver_fd in writable:
+                    try:
+                        written = os.write(receiver_fd, pending)
+                    except BlockingIOError:
+                        written = 0
+                    if written < 0:
+                        raise DrillDenied("custom dump stream failed")
+                    if written:
+                        del pending[:written]
+                        transferred += written
+        finally:
+            os.set_blocking(dump_fd, True)
+            os.set_blocking(receiver_fd, True)
         receiver.stdin.close()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise DrillDenied("custom dump timed out")
         if (
-            dump.wait(timeout=600) != 0
-            or receiver.wait(timeout=600) != 0
+            dump.wait(timeout=remaining) != 0
+            or receiver.wait(timeout=max(1, deadline - time.monotonic())) != 0
             or transferred == 0
         ):
             raise DrillDenied("custom dump failed")
@@ -434,6 +489,7 @@ def restore_archive(container_id: str) -> None:
         "--dbname",
         TARGET_DATABASE,
         "/backup/recovery.dump",
+        timeout=900,
     )
 
 
@@ -443,8 +499,8 @@ def recovery_query_executor(container_id: str) -> Callable[[str], object]:
         raise DrillDenied("invalid recovery target identity")
 
     def execute(sql: str) -> object:
-        result = subprocess.run(
-            (
+        try:
+            result = _run(
                 "docker",
                 "exec",
                 "-i",
@@ -459,14 +515,11 @@ def recovery_query_executor(container_id: str) -> Callable[[str], object]:
                 "postgres",
                 "--dbname",
                 TARGET_DATABASE,
-            ),
-            input=f"BEGIN READ ONLY; {sql}; ROLLBACK;",
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            raise DrillDenied("recovery integrity query failed")
+                input=f"BEGIN READ ONLY; {sql}; ROLLBACK;",
+                timeout=60,
+            )
+        except subprocess.SubprocessError:
+            raise DrillDenied("recovery integrity query failed") from None
         rows: list[dict[str, object]] = []
         for row in csv.DictReader(StringIO(result.stdout)):
             rows.append(
@@ -653,6 +706,7 @@ def cleanup_task_resources(
 
 
 def _run(*command: str, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+    kwargs.setdefault("timeout", 300)
     return subprocess.run(
         command,
         check=True,
@@ -782,10 +836,22 @@ def _wait_for_empty_postgres(container_id: str) -> None:
     deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
         ready = subprocess.run(
-            ("docker", "exec", container_id, "pg_isready", "--dbname", TARGET_DATABASE),
+            (
+                "docker",
+                "exec",
+                container_id,
+                "pg_isready",
+                "--host",
+                "127.0.0.1",
+                "--username",
+                "postgres",
+                "--dbname",
+                TARGET_DATABASE,
+            ),
             check=False,
             text=True,
             capture_output=True,
+            timeout=5,
         )
         if ready.returncode == 0:
             break
@@ -1119,6 +1185,7 @@ def _build_exact_backend_image(source_sha: str) -> str:
         "--build-arg",
         f"RAILWAY_GIT_COMMIT_SHA={source_sha}",
         str(source_root / "services" / "api"),
+        timeout=900,
     ).stdout.strip()
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", image):
         raise DrillDenied("exact backend image build unavailable")
@@ -1176,6 +1243,7 @@ def run_drill() -> int:
     stage = "PREFLIGHT"
     failure: BaseException | None = None
     global _active_exact_source_root, _active_exact_source_sha
+    evidence_path = _evidence_attempt_path()
     try:
         context = _run(
             "docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"
@@ -1350,14 +1418,7 @@ def run_drill() -> int:
             if not cleanup_ok
             else None
         )
-    write_sanitized_evidence(
-        _REPOSITORY_ROOT
-        / "docs"
-        / "development"
-        / "staging-recovery"
-        / "2026-09-22-issue-207-restore.json",
-        evidence,
-    )
+    write_sanitized_evidence(evidence_path, evidence)
     if not passed:
         raise DrillDenied(f"restore drill failed at {stage}") from None
     return 0
@@ -1371,6 +1432,18 @@ def sanitized_fingerprint(value: str) -> str:
 def utc_now() -> str:
     """Provide a fixed-format timestamp for a sanitized evidence writer."""
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _evidence_attempt_path() -> Path:
+    """Return a non-reusable durable evidence name for this drill attempt."""
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    return (
+        _REPOSITORY_ROOT
+        / "docs"
+        / "development"
+        / "staging-recovery"
+        / f"{timestamp}-issue-207-restore-{uuid.uuid4().hex}.json"
+    )
 
 
 def write_sanitized_evidence(path: Path, evidence: Mapping[str, object]) -> None:
@@ -1554,6 +1627,7 @@ def write_sanitized_evidence(path: Path, evidence: Mapping[str, object]) -> None
         json.dumps(dict(evidence), sort_keys=True, separators=(",", ":")) + "\n"
     ).encode()
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    linked = False
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -1561,8 +1635,22 @@ def write_sanitized_evidence(path: Path, evidence: Mapping[str, object]) -> None
             output.write(encoded)
             output.flush()
             os.fsync(output.fileno())
-        os.replace(temporary, path)
+        # link(2) is an atomic create: unlike replace(2), it refuses to
+        # overwrite an existing durable result for another attempt.
+        os.link(temporary, path)
+        linked = True
+        temporary.unlink()
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
     except (OSError, TypeError, ValueError):
+        if linked:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
         try:
             temporary.unlink(missing_ok=True)
         except OSError:

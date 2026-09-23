@@ -63,6 +63,10 @@ Use the deployed V0 model and migration graph, plus #204's domain closure analys
 | AC-8 | The backend validation container, recovery Postgres container, and in-memory dump are removed after success or failure; absence is verified and only sanitized evidence remains. |
 | AC-9 | A durable record contains the mechanism, source time and revision, tool versions, target classification, dump/restore timing and outcomes, every named check, usability, non-impact, cleanup, limitations, and follow-up. The issue closes only after a real restore and verification. |
 
+An AC-6 limitation and safe substitute must be recorded when backend execution
+is unsafe, but they do not turn that incomplete proof into a #207 GO. A GO still
+requires the matching-revision read-only backend proof stated above.
+
 ## Test Surface Contract and Scope Guard
 
 The operational entry point may use local Docker, the Railway CLI's read-only Staging connection, PostgreSQL client tools, and existing Django models. Its package-internal `parse_tunnel_details`, `validate_recovery_target`, and `cleanup_task_resources` functions are intentional seams for parsing, guarding and failure cleanup; `collect_integrity` and `compare_integrity` are the read-only integrity seams. Unit tests may inject a command runner and source/target query executors to reject a wrong service, a non-isolated target, a source/target mix-up, partial dump/restore, sensitive evidence, or failed cleanup. At least one disposable local PostgreSQL integration rehearsal must exercise real custom-format dump/restore and integrity queries before the live drill. No public production API or database schema is added solely for testing. The live drill is the black-box acceptance test.

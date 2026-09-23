@@ -196,6 +196,7 @@ def pg17_catalog_executor(
             "referenced_table": None,
             "source_column": None,
             "referenced_column": None,
+            "key_count": 0,
         }
         for name in EXPECTED_NAMED_CONSTRAINTS
     ]
@@ -208,6 +209,7 @@ def pg17_catalog_executor(
             "referenced_table": None,
             "source_column": column,
             "referenced_column": None,
+            "key_count": 1,
         }
         for table, column in integrity.REQUIRED_SINGLE_COLUMN_UNIQUES
     )
@@ -226,6 +228,7 @@ def pg17_catalog_executor(
                 else "id"
             ),
             "referenced_column": None,
+            "key_count": 1,
         }
         for table in EXPECTED_SCHEMA_TABLES
     )
@@ -238,6 +241,7 @@ def pg17_catalog_executor(
             "referenced_table": referenced_table,
             "source_column": source_column,
             "referenced_column": referenced_column,
+            "key_count": 1,
         }
         for source_table, source_column, referenced_table, referenced_column in integrity.REQUIRED_FOREIGN_KEYS
     )
@@ -419,6 +423,102 @@ def test_missing_implicit_identity_constraints_fail_closed(
     with pytest.raises(ValueError, match="expected (unique|primary-key) constraints"):
         integrity.collect_integrity(
             missing_constraint,
+            frozenset({("conventions", "0005_fursuitcatchcredential")}),
+        )
+
+
+@pytest.mark.parametrize(
+    "kind,table,column",
+    (
+        ("u", "accounts_user", "clerk_user_id"),
+        ("u", "fursuits_fursuit", "tailtag_id"),
+        ("p", "profiles_playerprofile", "user_id"),
+    ),
+)
+def test_required_single_column_identity_constraint_rejects_a_composite_lookalike(
+    integrity: ModuleType, kind: str, table: str, column: str
+) -> None:
+    """AC-5: an identity column appearing in a composite key is not its required one-column key."""
+    normal = pg17_catalog_executor(integrity, omitted_not_null=None)
+
+    def composite_lookalike(query: str) -> object:
+        rows = normal(query)
+        if "FROM pg_constraint" not in query:
+            return rows
+        matching_index = next(
+            index
+            for index, row in enumerate(rows)
+            if row["kind"] == kind
+            and row["table_name"] == table
+            and row["source_column"] == column
+        )
+        matching = rows[matching_index]
+        rows[matching_index] = {
+            **matching,
+            "definition": f"{matching['definition']} WITH id",
+            "key_count": 2,
+        }
+        composite_part = {
+            **matching,
+            "source_column": "id",
+            "definition": f"{matching['definition']} WITH id",
+            "key_count": 2,
+        }
+        return [*rows, composite_part]
+
+    with pytest.raises(ValueError, match="expected (unique|primary-key) constraints"):
+        integrity.collect_integrity(
+            composite_lookalike,
+            frozenset({("conventions", "0005_fursuitcatchcredential")}),
+        )
+
+
+def test_required_scalar_foreign_key_rejects_a_composite_lookalike(
+    integrity: ModuleType,
+) -> None:
+    """AC-5: the first pair in a composite FK cannot prove the required scalar relation."""
+    normal = pg17_catalog_executor(integrity, omitted_not_null=None)
+    expected = (
+        "profiles_playerprofile",
+        "user_id",
+        "accounts_user",
+        "id",
+    )
+
+    def composite_lookalike(query: str) -> object:
+        rows = normal(query)
+        if "FROM pg_constraint" not in query:
+            return rows
+        matching_index = next(
+            index
+            for index, row in enumerate(rows)
+            if row["kind"] == "f"
+            and (
+                row["table_name"],
+                row["source_column"],
+                row["referenced_table"],
+                row["referenced_column"],
+            )
+            == expected
+        )
+        matching = rows[matching_index]
+        rows[matching_index] = {
+            **matching,
+            "definition": f"{matching['definition']} WITH id",
+            "key_count": 2,
+        }
+        composite_part = {
+            **matching,
+            "source_column": "id",
+            "referenced_column": "id",
+            "definition": f"{matching['definition']} WITH id",
+            "key_count": 2,
+        }
+        return [*rows, composite_part]
+
+    with pytest.raises(ValueError, match="expected foreign-key constraints"):
+        integrity.collect_integrity(
+            composite_lookalike,
             frozenset({("conventions", "0005_fursuitcatchcredential")}),
         )
 

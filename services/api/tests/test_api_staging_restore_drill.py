@@ -5,8 +5,9 @@
 from __future__ import annotations
 
 import importlib
-import io
 import json
+import os
+import re
 import socket
 import sys
 import urllib.request
@@ -368,6 +369,9 @@ class SnapshotCursor:
     """A read-only source cursor that exposes only the exported snapshot value."""
 
     statements: list[str] = field(default_factory=list)
+    rows: list[tuple[str, ...]] = field(
+        default_factory=lambda: [("private-snapshot-token",)]
+    )
 
     def __enter__(self) -> Self:
         return self
@@ -379,7 +383,7 @@ class SnapshotCursor:
         self.statements.append(statement)
 
     def fetchone(self) -> tuple[str]:
-        return ("private-snapshot-token",)
+        return cast(tuple[str], self.rows.pop(0))
 
 
 @dataclass
@@ -415,7 +419,7 @@ def test_source_snapshot_is_repeatable_read_only_and_remains_open_until_explicit
     drill: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """AC-2/3: facts and pg_dump can share one exported read-only snapshot."""
-    cursor = SnapshotCursor()
+    cursor = SnapshotCursor(rows=[("repeatable read",), ("private-snapshot-token",)])
     connection = SnapshotConnection(cursor)
     connect_calls: list[dict[str, object]] = []
 
@@ -440,6 +444,7 @@ def test_source_snapshot_is_repeatable_read_only_and_remains_open_until_explicit
     ]
     assert cursor.statements == [
         "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY",
+        "SHOW transaction_isolation",
         "SELECT pg_export_snapshot()",
     ]
     assert connection.events == ["cursor"]
@@ -450,19 +455,68 @@ def test_source_snapshot_is_repeatable_read_only_and_remains_open_until_explicit
     assert connection.events == ["cursor", "rollback", "close"]
 
 
-@dataclass
-class StreamReceiver:
-    """Capture a tmpfs-bound dump stream without retaining an artifact."""
+def test_source_snapshot_refuses_to_export_when_postgresql_reports_weaker_isolation(
+    drill: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-2/3: a snapshot must never be exported unless its active transaction is repeatable read."""
+    cursor = SnapshotCursor(rows=[("read committed",)])
+    connection = SnapshotConnection(cursor)
+    monkeypatch.setitem(
+        sys.modules, "psycopg", SimpleNamespace(connect=lambda **_kwargs: connection)
+    )
 
-    chunks: list[bytes] = field(default_factory=list)
-    closed: bool = False
+    with pytest.raises(
+        drill.DrillDenied, match="source snapshot isolation unavailable"
+    ):
+        drill.open_source_snapshot(tunnel_details(drill))
 
-    def write(self, chunk: bytes) -> int:
-        self.chunks.append(chunk)
-        return len(chunk)
+    assert cursor.statements == [
+        "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY",
+        "SHOW transaction_isolation",
+    ]
+    assert connection.events == ["cursor", "close"]
 
-    def close(self) -> None:
-        self.closed = True
+
+def test_recovery_readiness_uses_tcp_loopback_not_the_entrypoint_unix_socket(
+    drill: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-4: readiness waits for the networked server that will serve pg_restore."""
+    readiness_commands: list[tuple[str, ...]] = []
+
+    def command(command: tuple[str, ...], **kwargs: object) -> SimpleNamespace:
+        readiness_commands.append(command)
+        assert kwargs["check"] is False
+        assert isinstance(kwargs["timeout"], int)
+        assert kwargs["timeout"] <= 60
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(drill.subprocess, "run", command)
+    monkeypatch.setattr(
+        drill,
+        "_run",
+        lambda *_command, **_kwargs: (
+            SimpleNamespace(stdout="180000\n")
+            if _command[-1] == "SHOW server_version_num"
+            else SimpleNamespace(stdout="0\n")
+        ),
+    )
+
+    drill._wait_for_empty_postgres("a" * 64)
+
+    assert readiness_commands == [
+        (
+            "docker",
+            "exec",
+            "a" * 64,
+            "pg_isready",
+            "--host",
+            "127.0.0.1",
+            "--username",
+            "postgres",
+            "--dbname",
+            drill.TARGET_DATABASE,
+        )
+    ]
 
 
 @dataclass
@@ -493,10 +547,15 @@ def test_pg_dump_uses_the_exported_snapshot_and_streams_only_to_the_fixed_target
     drill: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """AC-3/4: no host archive or alternate restore destination is available."""
-    archive = io.BytesIO(b"custom-format-archive")
-    receiver_stdin = StreamReceiver()
-    dump = DumpProcess(stdout=archive)
-    receiver = DumpProcess(stdin=receiver_stdin)
+    archive = b"custom-format-archive"
+    dump_read, dump_write = os.pipe()
+    receiver_read, receiver_write = os.pipe()
+    os.write(dump_write, archive)
+    os.close(dump_write)
+    dump_output = os.fdopen(dump_read, "rb", buffering=0)
+    receiver_input = os.fdopen(receiver_write, "wb", buffering=0)
+    dump = DumpProcess(stdout=dump_output)
+    receiver = DumpProcess(stdin=receiver_input)
     calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
     def popen(*args: object, **kwargs: object) -> DumpProcess:
@@ -507,9 +566,16 @@ def test_pg_dump_uses_the_exported_snapshot_and_streams_only_to_the_fixed_target
     container_id = "e" * 64
     snapshot = SimpleNamespace(snapshot="private-snapshot-token")
 
-    transferred = drill.dump_snapshot_to_target(
-        tunnel_details(drill), snapshot, container_id
-    )
+    try:
+        transferred = drill.dump_snapshot_to_target(
+            tunnel_details(drill), snapshot, container_id
+        )
+        received = os.read(receiver_read, len(archive) + 1)
+    finally:
+        dump_output.close()
+        if not receiver_input.closed:
+            receiver_input.close()
+        os.close(receiver_read)
 
     dump_command = cast(tuple[str, ...], calls[0][0][0])
     receiver_command = cast(tuple[str, ...], calls[1][0][0])
@@ -521,34 +587,190 @@ def test_pg_dump_uses_the_exported_snapshot_and_streams_only_to_the_fixed_target
     assert SENSITIVE not in " ".join(map(str, dump_command))
     assert receiver_command[:4] == ("docker", "exec", "-i", container_id)
     assert receiver_command[-1] == "cat > /backup/recovery.dump"
-    assert receiver_stdin.chunks == [b"custom-format-archive"]
-    assert receiver_stdin.closed is True
-    assert transferred == len(b"custom-format-archive")
+    assert received == archive
+    assert receiver_input.closed is True
+    assert transferred == len(archive)
 
 
 def test_dump_stream_error_terminates_both_processes_without_creating_a_recovery_target(
     drill: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """AC-3/8: a partial archive cannot continue to restore and both streams stop."""
-
-    class BrokenStream:
-        def read(self, _: int) -> bytes:
-            raise OSError("private stream failure")
-
-    dump = DumpProcess(stdout=BrokenStream())
-    receiver = DumpProcess(stdin=StreamReceiver())
+    dump_read, dump_write = os.pipe()
+    receiver_read, receiver_write = os.pipe()
+    dump_output = os.fdopen(dump_read, "rb", buffering=0)
+    receiver_input = os.fdopen(receiver_write, "wb", buffering=0)
+    dump = DumpProcess(stdout=dump_output)
+    receiver = DumpProcess(stdin=receiver_input)
     processes = iter((dump, receiver))
     monkeypatch.setattr(
         drill.subprocess, "Popen", lambda *_args, **_kwargs: next(processes)
     )
+    monkeypatch.setattr(
+        drill.select,
+        "select",
+        lambda readable, writable, errors, _timeout: (list(readable), [], list(errors)),
+    )
 
-    with pytest.raises(OSError):
-        drill.dump_snapshot_to_target(
-            tunnel_details(drill), SimpleNamespace(snapshot="snapshot"), "f" * 64
-        )
+    def broken_read(descriptor: int, _size: int) -> bytes:
+        assert descriptor == dump_output.fileno()
+        raise OSError("private stream failure")
+
+    monkeypatch.setattr(drill.os, "read", broken_read)
+
+    try:
+        with pytest.raises(OSError):
+            drill.dump_snapshot_to_target(
+                tunnel_details(drill), SimpleNamespace(snapshot="snapshot"), "f" * 64
+            )
+    finally:
+        dump_output.close()
+        if not receiver_input.closed:
+            receiver_input.close()
+        os.close(dump_write)
+        os.close(receiver_read)
 
     assert "terminate" in dump.events and "wait" in dump.events
     assert "terminate" in receiver.events and "wait" in receiver.events
+
+
+def test_blocked_receiver_does_not_allow_the_pending_dump_buffer_to_grow(
+    drill: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-3/8 RELIABILITY: while a receiver is blocked, the pump reads at most one chunk."""
+    dump_read, dump_write = os.pipe()
+    receiver_read, receiver_write = os.pipe()
+    dump_output = os.fdopen(dump_read, "rb", buffering=0)
+    receiver_input = os.fdopen(receiver_write, "wb", buffering=0)
+    dump_fd = dump_output.fileno()
+    receiver_fd = receiver_input.fileno()
+    dump = DumpProcess(stdout=dump_output)
+    receiver = DumpProcess(stdin=receiver_input)
+    processes = iter((dump, receiver))
+    select_calls: list[tuple[list[int], list[int], float]] = []
+    reads: list[int] = []
+    clock = iter((0.0, 0.0, 0.0, 1801.0))
+
+    def select_receiver_blocked(
+        readable: list[int], writable: list[int], _errors: list[int], timeout: float
+    ) -> tuple[list[int], list[int], list[int]]:
+        select_calls.append((readable, writable, timeout))
+        if readable:
+            return ([dump_fd], [], [])
+        return ([], [], [])
+
+    def one_chunk(descriptor: int, size: int) -> bytes:
+        assert descriptor == dump_fd
+        reads.append(size)
+        return b"x" * size
+
+    monkeypatch.setattr(
+        drill.subprocess, "Popen", lambda *_args, **_kwargs: next(processes)
+    )
+    monkeypatch.setattr(drill.select, "select", select_receiver_blocked)
+    monkeypatch.setattr(drill.os, "read", one_chunk)
+    monkeypatch.setattr(drill.time, "monotonic", lambda: next(clock))
+    try:
+        with pytest.raises(drill.DrillDenied, match="custom dump timed out"):
+            drill.dump_snapshot_to_target(
+                tunnel_details(drill),
+                SimpleNamespace(snapshot="snapshot"),
+                "f" * 64,
+            )
+    finally:
+        dump_output.close()
+        if not receiver_input.closed:
+            receiver_input.close()
+        os.close(dump_write)
+        os.close(receiver_read)
+
+    assert reads == [1024 * 1024]
+    assert select_calls == [([dump_fd], [], 1), ([], [receiver_fd], 1)]
+    assert "terminate" in dump.events and "wait" in dump.events
+    assert "terminate" in receiver.events and "wait" in receiver.events
+
+
+def test_dump_stream_stall_observes_the_total_deadline_and_cleans_both_processes(
+    drill: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-3/8 RELIABILITY: an open but silent pipe times out without retaining either child."""
+    dump_read, dump_write = os.pipe()
+    receiver_read, receiver_write = os.pipe()
+    dump_output = os.fdopen(dump_read, "rb", buffering=0)
+    receiver_input = os.fdopen(receiver_write, "wb", buffering=0)
+    dump_fd = dump_output.fileno()
+    dump = DumpProcess(stdout=dump_output)
+    receiver = DumpProcess(stdin=receiver_input)
+    processes = iter((dump, receiver))
+    select_calls: list[tuple[object, object, object, object]] = []
+    clock = iter((0.0, 1799.0, 1801.0))
+
+    def select_never_ready(
+        readable: object, writable: object, errors: object, timeout: object
+    ) -> tuple[list[object], list[object], list[object]]:
+        select_calls.append((readable, writable, errors, timeout))
+        return ([], [], [])
+
+    monkeypatch.setattr(
+        drill.subprocess, "Popen", lambda *_args, **_kwargs: next(processes)
+    )
+    monkeypatch.setattr(drill.select, "select", select_never_ready)
+    monkeypatch.setattr(drill.time, "monotonic", lambda: next(clock))
+    try:
+        with pytest.raises(drill.DrillDenied, match="custom dump timed out"):
+            drill.dump_snapshot_to_target(
+                tunnel_details(drill),
+                SimpleNamespace(snapshot="snapshot"),
+                "f" * 64,
+            )
+    finally:
+        dump_output.close()
+        receiver_input.close()
+        os.close(dump_write)
+        os.close(receiver_read)
+
+    assert select_calls == [([dump_fd], [], [], 1)]
+    assert "terminate" in dump.events and "wait" in dump.events
+    assert "terminate" in receiver.events and "wait" in receiver.events
+
+
+def test_command_runner_sets_a_bounded_default_subprocess_deadline(
+    drill: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-8 RELIABILITY: a command invoked without an explicit budget cannot run forever."""
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        drill.subprocess,
+        "run",
+        lambda _command, **kwargs: (
+            calls.append(kwargs) or SimpleNamespace(stdout="", returncode=0)
+        ),
+    )
+
+    drill._run("fixed", "command")
+
+    assert len(calls) == 1
+    assert isinstance(calls[0].get("timeout"), int)
+    assert 0 < cast(int, calls[0]["timeout"]) <= 1_800
+
+
+def test_recovery_queries_use_a_bounded_read_only_subprocess_deadline(
+    drill: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-5/8 RELIABILITY: catalog validation cannot wait forever on a restored target."""
+    calls: list[tuple[tuple[str, ...], dict[str, object]]] = []
+
+    def command(*args: str, **kwargs: object) -> SimpleNamespace:
+        calls.append((args, kwargs))
+        return SimpleNamespace(stdout="count\n0\n")
+
+    monkeypatch.setattr(drill, "_run", command)
+
+    assert drill.recovery_query_executor("e" * 64)("SELECT 0 AS count") == [
+        {"count": 0}
+    ]
+    assert calls[0][1]["timeout"] == 60
+    assert calls[0][1]["input"] == "BEGIN READ ONLY; SELECT 0 AS count; ROLLBACK;"
 
 
 def sanitized_evidence() -> dict[str, object]:
@@ -608,6 +830,57 @@ def test_evidence_writer_persists_only_the_fixed_sanitized_allowlist(
     drill.write_sanitized_evidence(destination, evidence)
 
     assert json.loads(destination.read_text()) == evidence
+
+
+def test_evidence_writer_refuses_to_overwrite_an_existing_durable_record(
+    drill: ModuleType, tmp_path: Path
+) -> None:
+    """AC-9: a second attempt cannot replace evidence captured for an earlier drill."""
+    destination = tmp_path / "2026-09-22-issue-207-restore.json"
+    original = sanitized_evidence()
+    drill.write_sanitized_evidence(destination, original)
+
+    with pytest.raises(drill.DrillDenied, match="sanitized evidence write failed"):
+        drill.write_sanitized_evidence(destination, sanitized_evidence())
+
+    assert json.loads(destination.read_text()) == original
+
+
+def test_runner_uses_a_distinct_timestamped_evidence_path_for_each_attempt(
+    drill: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-9: independent attempts retain separate durable outcomes rather than replacing one file."""
+    paths: list[Path] = []
+    monkeypatch.setattr(
+        drill,
+        "_run",
+        lambda *_args, **_kwargs: SimpleNamespace(stdout="unix:///private/docker.sock"),
+    )
+    monkeypatch.setattr(
+        drill,
+        "_tool_versions",
+        lambda: (_ for _ in ()).throw(drill.DrillDenied("unavailable")),
+    )
+    monkeypatch.setattr(
+        drill, "write_sanitized_evidence", lambda path, _evidence: paths.append(path)
+    )
+
+    for _ in range(2):
+        with pytest.raises(
+            drill.DrillDenied, match="restore drill failed at PREFLIGHT"
+        ):
+            drill.run_drill()
+
+    assert len(paths) == 2
+    assert paths[0].parent == paths[1].parent
+    assert paths[0] != paths[1]
+    assert all(
+        re.fullmatch(
+            r"[0-9]{8}T[0-9]{6}Z-issue-207-restore-[0-9a-f]{32}\.json",
+            path.name,
+        )
+        for path in paths
+    )
 
 
 def test_failure_evidence_preserves_boundary_after_verified_cleanup(

@@ -314,7 +314,8 @@ def collect_integrity(
             "pg_get_constraintdef(con.oid, true) AS definition, "
             "con.contype AS kind, rel.relname AS table_name, "
             "ref.relname AS referenced_table, src_att.attname AS source_column, "
-            "ref_att.attname AS referenced_column "
+            "ref_att.attname AS referenced_column, "
+            "cardinality(con.conkey) AS key_count "
             "FROM pg_constraint con "
             "JOIN pg_namespace n ON n.oid=con.connamespace "
             "JOIN pg_class rel ON rel.oid=con.conrelid "
@@ -349,28 +350,38 @@ def collect_integrity(
             referenced_column = (
                 row["referenced_column"] if isinstance(row, Mapping) else row[6]
             )
+            key_count = row["key_count"] if isinstance(row, Mapping) else row[7]
         except (IndexError, KeyError):
+            structural_catalog_complete = False
+            continue
+        if not isinstance(key_count, int) or key_count < 0:
             structural_catalog_complete = False
             continue
         if (
             kind == "p"
             and isinstance(table_name, str)
             and isinstance(source_column, str)
+            and key_count == 1
         ):
             primary_keys.add((table_name, source_column))
         if (
             kind == "u"
             and isinstance(table_name, str)
             and isinstance(source_column, str)
+            and key_count == 1
         ):
             single_column_uniques.add((table_name, source_column))
-        if kind == "f" and all(
-            isinstance(value, str)
-            for value in (
-                table_name,
-                source_column,
-                referenced_table,
-                referenced_column,
+        if (
+            kind == "f"
+            and key_count == 1
+            and all(
+                isinstance(value, str)
+                for value in (
+                    table_name,
+                    source_column,
+                    referenced_table,
+                    referenced_column,
+                )
             )
         ):
             foreign_keys.add(

@@ -233,6 +233,11 @@ cleanup; do not declare #207 complete. The durable result belongs under
 `docs/development/staging-recovery/` and contains no connection details or row
 contents.
 
+If matching-revision backend reads cannot be performed safely, preserve the
+exact limitation and strongest safe database/schema evidence under AC-6. That
+substitute explains the gap; it does not meet #207's GO requirement for backend
+readability or authorize closing the issue.
+
 ### Synthetic baseline reset and reseed (#204)
 
 The [frozen reset contract](../specs/2026-09-17-staging-synthetic-reset-reseed.md)
