@@ -185,6 +185,113 @@ and durable historical evidence, not a promise about later serving state.
 Bootstrap and older #201 observations below remain separate historical evidence.
 Staging autodeploy stayed disabled; no recovery or deliberate failure test ran.
 
+## Migration and application-image recovery (#206)
+
+The authoritative [#206 migration and application rollback
+contract](../specs/2026-09-22-v0-migration-application-rollback.md) and its
+[sanitized NO-GO record](staging-recovery/2026-09-22-issue-206-no-go.json)
+govern this procedure. Application-image rollback restores application code,
+not PostgreSQL schema or data. It is exceptional recovery, not a routine reverse
+migration, database rollback, restore, or a substitute for a reviewed forward
+fix.
+
+### Expand, Compatible, Contract policy
+
+Prefer **Expand**, **Compatible**, **Contract** schema evolution. Expand with
+backward-compatible additions; keep application revisions compatible while old
+and new schema/data states coexist; then contract only after a separately
+reviewed destructive step proves safe. Destructive or contract migrations cross
+the application rollback boundary by default.
+
+Rollback is allowed only when the exact old application has been positively
+shown compatible with the actual schema and persisted state that will remain.
+The forward fix is the default when proof is missing, ambiguous, or uncertain:
+the result is NO-GO. Schema shape or schema compatibility alone is insufficient;
+newer persisted state and old application invariants can still be unsafe.
+
+### Fail-closed compatibility gate
+
+Before authorizing rollback from N to O while retaining schema/data S, record
+the full old/current source SHAs and exact deployment identities, then review
+the complete migration delta and reconcile actual migration history and schema
+with that graph. Review O reads, inserts, updates, and deletes for every
+affected domain, plus persisted state introduced or made valid by N.
+
+Review added, renamed, and removed objects; nullability; Python defaults and a
+database default; types; `NOT NULL`, `UNIQUE`, `CHECK`, foreign key, exclusion, index,
+trigger, and generated-value behavior. Explicitly inspect every data migration,
+`RunPython`, `RunSQL`, state/database split, non-atomic operation, and suspected
+manual operation. Reject partial migration evidence, unreconciled actual state,
+or suspected manual database changes.
+
+Where practical, use disposable PostgreSQL proof: apply S with N first, then
+run the immutable old application against that unchanged database without reverse
+migration.
+Require an empty O migration plan, Django checks, focused affected-domain
+read/write coverage, retained new migration records/objects, negative constraint
+coverage, and proof that O does not reinterpret or mutate newer valid state
+unsafely. This is pair-specific maintainer review, not a generic analyzer.
+
+### Current Staging conclusion: NO-GO
+
+The preferred representative boundary was old
+`04f8383fe750bec712ced27a1932b82b1eabb292`, retained as deployment
+`57f17ef7-7b34-4c2f-9272-b8091b1eafad`, to new
+`77b6c55130f1b69304a8fd748590b4bbad3bf721`. It contains only additive
+`rehearsal.0001_initial`, but `77b6c55` was never deployed to Staging, so no
+exact retained new image exists for that rehearsal.
+
+The retained old-to-current boundary instead reaches active deployment
+`cbe83780-0256-49c2-b026-34709ddb69b0`, source
+`856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a`, and crosses the additional
+account/operator/audit migrations recorded in the #206 evidence. The old image
+is technically Railway rollback-capable, but it is not application-safe against
+current Staging state. The [#239](https://github.com/TailTag-Game/tailtag/issues/239)
+change permits a staff/non-superuser to hold a usable local password and
+authentication state, and that state is valid and current. When loaded and
+saved by O, its usable password becomes unusable. O
+also lacks the newer authorization/audit semantics. This affirmative result
+means schema compatibility is insufficient and establishes final **NO-GO for
+live Staging application rollback**.
+
+Deployment `3acf7fee-260b-472d-9b20-d1dd76efcb25`, source
+`756f48e2d90bbb803060cd015e8bcf2d47ad4fbc`, to current has no migration delta.
+It would validate Railway mechanics only, not representative schema/application
+recovery. No live mutation was performed, authorized, or required; no artificial
+migration pair will be created. The safe recovery is a reviewed forward fix.
+
+### Verified Railway interface and future exact evidence
+
+Read-only GraphQL inspection verified `Deployment.canRollback: Boolean!` and
+`deploymentRollback(id: String!): Boolean!`. The mutation selects an exact
+historical deployment and does not return the resulting deployment ID. Railway
+documents stored-image reuse and historical variable-snapshot restoration without
+a rebuild. PRE_DEPLOY_COMMAND remains **unverified** during rollback; observe
+its lifecycle only for an exact future result deployment.
+
+For a future qualifying pair:
+
+1. Establish an exclusive Staging operation window and reverify approved
+   identities and the canonical target.
+2. Capture rollback target **R**, current active deployment **A**, their source
+   SHAs, image digests, snapshot IDs, `canRollback`, canonical configuration,
+   and the complete scoped pre-operation deployment set without variable values.
+3. Invoke `deploymentRollback(id: R)` exactly once.
+4. Derive exactly one new deployment **D** from scoped pre/post sets, after the
+   invocation, and require D source/image identity to match R. Zero or multiple
+   candidates, concurrency, or a lost response is **INDETERMINATE**: stop and
+   do not retry blindly. Record the exact result deployment identity,
+   source/image match, and lifecycle evidence before proceeding. The
+   attribution target is exact D, never `latest`.
+5. Inspect lifecycle events for exact D, including whether
+   `PRE_DEPLOY_COMMAND` occurred; compare D/R variable snapshots without values;
+   use #201 image-local identity and the exact-deployment join; and require D
+   active.
+6. Run canonical Staging HTTP smoke and focused affected-domain read/write proof.
+   Shared-endpoint smoke is never image attribution.
+7. Restore A's source through #202 exact-SHA promotion, never a second rollback,
+   and verify that restoration as its own exact deployment.
+
 ## Opt-in verification procedures
 
 These are maintainer-only live operations, separate from ordinary CI and

@@ -229,45 +229,40 @@ successful submission as proof that delivery completed.
 
 ## Decide whether application-code rollback is a candidate
 
-Railway rollback redeploys a previous successful application's image and its
-custom variables. It does **not** restore PostgreSQL schema or data. The
-existence of a **Rollback** control is not evidence that using it is safe.
+The authoritative V0 policy and Staging findings are the [#206 migration and
+application rollback contract](../specs/2026-09-22-v0-migration-application-rollback.md).
+This Development summary does not authorize a live action by itself.
 
-Prefer a reviewed forward fix when any of these conditions apply:
+Use an **Expand**, **Compatible**, **Contract** evolution: expand with
+backward-compatible additions, operate through a compatible transition, then
+contract only after the obsolete shape is no longer needed by a supported
+application rollback. Prefer a reviewed forward fix. An application-image
+rollback is exceptional, never a routine reverse migration or PostgreSQL
+rollback.
 
-- the failed or current release ran a migration that may not be compatible
-  with the older application revision;
-- old-code/current-schema compatibility is uncertain;
-- the failure involves data transformation or a destructive migration;
-- recovery would require reversing database state; or
-- maintainers cannot confidently establish the compatibility boundary.
+Authorize an old application only after positive proof that the exact old
+application works with the actual schema and persisted state left by the newer
+application. Bind the old/current full source SHAs and exact deployment
+identities; review the complete migration delta, actual schema and migration
+history, new persisted state, and old reads/writes. Where practical, prove the
+specific pair on disposable PostgreSQL: migrate current schema first, then run
+the immutable old application against it without reverse migration. Missing,
+ambiguous, or uncertain evidence is a NO-GO and requires a forward fix.
 
-Application-code rollback may be considered only when all of these conditions
-hold:
+Do not assume an additive object is harmless, or that a Django default lets an
+old write omit a new database requirement. Review constraints, nullability,
+defaults, types, foreign keys, renames/removals, data migrations, `RunPython`,
+`RunSQL`, state/database splits, and non-atomic or manual operations. Review
+application invariants and persisted values as well as schema shape.
 
-- the target previous application revision is known to work with the database
-  schema as it exists now;
-- no unsafe schema reversal is required;
-- the problem is clearly in application code or runtime rather than database
-  state;
-- the relevant previous successful Railway deployment remains available; and
-- maintainers are prepared to inspect the new attempt's pre-deploy lifecycle.
-
-Railway exposes rollback from `api` **→ Deployments** through the three-dot
-menu on an eligible previous deployment. Confirm the target revision and its
-custom-variable snapshot before approving the action. The currently verified
-Railway CLI has a latest-deployment `redeploy` command but no corresponding
-rollback subcommand, so this guide does not prescribe a CLI rollback path.
-
-Treat rollback as a new deployment attempt and inspect its pre-deploy logs.
-TailTag has not intentionally exercised an application rollback solely for
-this guide, so do not assume from documentation alone whether a particular
-historical image's migration hook will be a no-op. Railway's
-[deployment actions](https://docs.railway.com/deployments/deployment-actions)
-describe image/custom-variable restoration, while its
-[pre-deploy documentation](https://docs.railway.com/deployments/pre-deploy-command)
-defines that hook as part of the deployment lifecycle before application
-startup.
+Railway's verified Public API supports exact target selection with
+`deploymentRollback(id: String!): Boolean!` when the historical
+`Deployment.canRollback: Boolean!` is true. Railway documents reuse of the
+stored image and historical custom-variable snapshot without rebuilding, but
+the resulting deployment ID is not returned. `PRE_DEPLOY_COMMAND` behavior
+during rollback remains unverified. A future qualified rehearsal must follow
+the exact-deployment evidence procedure in the #206 contract; it must not use
+a dashboard/latest-deployment assumption.
 
 ## Handle migration failures
 
