@@ -27,6 +27,9 @@ _railway_identity = _reset_ssh._railway_identity  # pyright: ignore[reportPrivat
 _ROOT: Final = Path(__file__).resolve().parents[1]
 _INSPECTOR: Final = _ROOT / "scripts" / "api_staging_operator_inspect.py"
 _SHA = re.compile(r"[0-9a-f]{40}\Z")
+_SSH_KEY_NOTICE = re.compile(
+    r"\AUsing SSH key from (?:file [^\x00-\x1f\x7f]+: [^\x00-\x1f\x7f]+|agent: [^\x00-\x1f\x7f]+)\n\Z"
+)
 _TIMEOUT_SECONDS: Final = 120
 
 PASS: Final = "PASS"
@@ -239,6 +242,11 @@ def _bootstrap_output(raw: str, returncode: int) -> tuple[str, bool] | None:
     return result, verified
 
 
+def _allowed_ssh_stderr(stderr: str) -> bool:
+    """Accept only Railway CLI's documented one-line key-selection notice."""
+    return not stderr or _SSH_KEY_NOTICE.fullmatch(stderr) is not None
+
+
 def run() -> dict[str, object]:
     """Run one preflighted read-only inspection and retain only public evidence."""
     started = _now()
@@ -321,9 +329,17 @@ def run() -> dict[str, object]:
         return _result(
             FAIL_TRANSPORT, "exact_instance_inspector", identity, False, started
         )
-    if execution.stderr or execution.returncode != 0:
+    if execution.returncode != 0:
         return _result(
             FAIL_TRANSPORT, "exact_instance_inspector", identity, False, started
+        )
+    if not _allowed_ssh_stderr(execution.stderr):
+        return _result(
+            FAIL_OUTPUT_CONTRACT,
+            "exact_instance_inspector",
+            identity,
+            False,
+            started,
         )
     output = _bootstrap_output(execution.stdout, execution.returncode)
     if output is None:

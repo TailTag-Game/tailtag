@@ -74,7 +74,10 @@ The result contains only a fixed classification/phase, any established public
 environment/source/deployment tuple, exact-instance verification boolean and
 UTC window. Transport, timeout, bootstrap, output-contract and target failures
 are distinct from the existing fixture/operator classifications. Unexpected
-output is rejected; raw transport output and exceptions are never retained.
+output is rejected. The documented single-line Railway SSH key-selection
+notice may accompany an otherwise valid receipt; its private payload is
+discarded. Any other stderr and every nonzero transport exit fail closed.
+Raw transport output and exceptions are never retained.
 The launcher has no retry path. A failed read-only attempt requires diagnosis
 and any necessary reviewed tooling correction before a newly preflighted
 attempt under the applicable authorization. None of these inspections

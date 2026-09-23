@@ -234,7 +234,7 @@ def test_run_stops_before_ssh_when_an_upstream_guard_fails(
             completed(
                 {"result": "PASS", "target_verified": True}, stderr="private stderr"
             ),
-            "FAIL_TRANSPORT",
+            "FAIL_OUTPUT_CONTRACT",
         ),
         (
             completed({"result": "FAIL_TARGET_IDENTITY", "target_verified": False}),
@@ -293,6 +293,115 @@ def test_run_relays_a_sanitized_denied_inspector_status(
         phase="exact_instance_inspector",
         verified=True,
     )
+
+
+@pytest.mark.parametrize(
+    "notice",
+    (
+        "Using SSH key from file /synthetic/key-path: synthetic-key-name\n",
+        "Using SSH key from agent: synthetic-key-name\n",
+    ),
+)
+def test_run_accepts_exactly_one_documented_railway_key_notice(
+    runner: ModuleType, monkeypatch: pytest.MonkeyPatch, notice: str
+) -> None:
+    """A4: a known Railway CLI key-selection announcement is not remote evidence."""
+    install_healthy_preflight(runner, monkeypatch)
+
+    def observed(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return completed({"result": "PASS", "target_verified": True}, stderr=notice)
+
+    monkeypatch.setattr(runner, "_run", observed)
+
+    result = cast(dict[str, object], runner.run())
+
+    assert_public_result(
+        result, code="PASS", phase="exact_instance_inspector", verified=True
+    )
+    assert notice not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    "stderr",
+    (
+        "unknown SSH diagnostic\n",
+        "Using SSH key from file /synthetic/key-path: synthetic-key-name\nextra\n",
+        "Using SSH key from file /synthetic/key-path: synthetic-key-name\n\n",
+    ),
+)
+def test_run_rejects_unknown_or_extended_stderr_even_when_output_is_valid(
+    runner: ModuleType, monkeypatch: pytest.MonkeyPatch, stderr: str
+) -> None:
+    """A4: the compatibility exception cannot become an arbitrary stderr channel."""
+    install_healthy_preflight(runner, monkeypatch)
+
+    def observed(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return completed({"result": "PASS", "target_verified": True}, stderr=stderr)
+
+    monkeypatch.setattr(runner, "_run", observed)
+
+    result = cast(dict[str, object], runner.run())
+
+    assert_public_result(
+        result,
+        code="FAIL_OUTPUT_CONTRACT",
+        phase="exact_instance_inspector",
+        verified=False,
+    )
+    assert stderr not in json.dumps(result)
+
+
+def test_run_rejects_nonzero_ssh_even_with_documented_key_notice(
+    runner: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A4: a normal setup notice never converts a failed SSH command into success."""
+    install_healthy_preflight(runner, monkeypatch)
+    notice = "Using SSH key from file /synthetic/key-path: synthetic-key-name\n"
+
+    def failed(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return completed(
+            {"result": "PASS", "target_verified": True},
+            returncode=1,
+            stderr=notice,
+        )
+
+    monkeypatch.setattr(runner, "_run", failed)
+
+    result = cast(dict[str, object], runner.run())
+
+    assert_public_result(
+        result,
+        code="FAIL_TRANSPORT",
+        phase="exact_instance_inspector",
+        verified=False,
+    )
+    assert notice not in json.dumps(result)
+
+
+def test_run_relays_valid_role_failure_with_documented_key_notice(
+    runner: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A4/A5: the known client notice cannot erase a valid role evidence result."""
+    install_healthy_preflight(runner, monkeypatch)
+    notice = "Using SSH key from agent: synthetic-key-name\n"
+
+    def denied(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return completed(
+            {"result": "FAIL_LIMITED_OPERATOR_PERMISSION", "target_verified": True},
+            stderr=notice,
+        )
+
+    monkeypatch.setattr(runner, "_run", denied)
+
+    result = cast(dict[str, object], runner.run())
+
+    assert_public_result(
+        result,
+        code="FAIL_LIMITED_OPERATOR_PERMISSION",
+        phase="exact_instance_inspector",
+        verified=True,
+    )
+    assert notice not in json.dumps(result)
 
 
 def test_run_converts_ssh_timeout_without_retrying(

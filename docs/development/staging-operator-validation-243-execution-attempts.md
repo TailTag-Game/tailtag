@@ -52,3 +52,47 @@ Independent review found and resolved a fail-closed CLI exit-status defect:
 non-`PASS` receipts now exit nonzero, with a regression proving the behavior.
 The final review found no material issue and approved bounded read-only use.
 These are local verification facts, not live #205 acceptance evidence.
+
+## Read-only attempt: 2026-09-23 23:41:54–23:42:01 UTC
+
+The reviewed launcher at `3d87bad` made one newly preflighted attempt:
+
+| Fact | Observed result |
+| --- | --- |
+| Public environment | `staging` |
+| Public source SHA | `856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a` |
+| Public deployment ID | `cbe83780-0256-49c2-b026-34709ddb69b0` |
+| Identity, public preflight, approved receipt, running-instance selection | Passed before SSH |
+| Launcher result / phase | `FAIL_TRANSPORT` / `exact_instance_inspector` |
+| Accepted exact-instance verification | Not established by the retained result |
+| Managed / limited roles | Unknown / unknown |
+| Cases 1–9 | `NOT_EXERCISED` |
+| Reset / provisioning / Staging mutation | None |
+
+The raw transport streams were discarded. This classification alone cannot
+establish whether the remote inspector ran or which role state it observed.
+The submitted program contained only target checks and read-only inspection;
+no mutation sequence started and no restoration was needed. No final live
+operator-state assertion is supported.
+
+### Subsequent transport-contract diagnosis
+
+Railway CLI version `5.57.2` writes a key-selection announcement to stderr
+even when an already registered key is selected successfully. This is
+explicit in the [version-pinned upstream implementation](https://github.com/railwayapp/cli/blob/v5.57.2/src/commands/ssh/native.rs#L128-L139).
+The launcher incorrectly required completely empty stderr. Local tests can
+therefore reproduce rejection of a valid, target-verified inspector receipt
+accompanied by this normal notice. The retained attempt does not prove that
+this was its sole failure, and no historical role result can be recovered
+from discarded output.
+
+The bounded correction recognizes only that documented one-line notice and
+never retains its identity/path payload. A nonzero transport exit, any other
+stderr, extra stdout or invalid inspector receipt still fails closed. This
+does not change identity selection, credentials, target guards or role rules.
+
+The notice correction passed 58 focused inspector tests and the full
+`make api-check` gate (2,220 tests). Explicit launcher Ruff/Pyright and
+Semgrep checks, doctor, local documentation links and diff checks passed.
+Independent review approved the narrow exception with no material finding.
+It authorizes no inference about the discarded prior remote result.
