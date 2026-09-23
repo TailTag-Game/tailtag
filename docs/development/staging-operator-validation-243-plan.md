@@ -6,6 +6,8 @@ authorized by this document. Parent evidence gap:
 [#208](https://github.com/TailTag-Game/tailtag/issues/208).
 The [first approved attempt](staging-operator-validation-243-attempt-2026-09-23.md)
 stopped at read-only inspection before any matrix action or reset.
+The later fixture-only diagnostic and its #204 ownership map are recorded in
+[the focused diagnosis](staging-operator-validation-243-fixture-diagnosis.md).
 
 ### Corrected read-only inspection contract
 
