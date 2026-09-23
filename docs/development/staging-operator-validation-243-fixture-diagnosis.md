@@ -5,6 +5,8 @@ earlier attempt remains `BLOCKED_BEFORE_MUTATION`; it did not reach operator
 checks, matrix cases, or reset. The diagnostic reads only the registered #204
 synthetic closure and designated asset. Its fixed classifications do not
 authorize a reset or fixture preparation.
+The [one bounded live fixture result](staging-operator-validation-243-fixture-result-2026-09-23.md)
+found a preserved registry prerequisite mismatch; no remediation followed.
 
 The approved [#243 plan](staging-operator-validation-243-plan.md) uses the
 frozen [#204 manifest](../specs/2026-09-17-staging-synthetic-reset-reseed.md).

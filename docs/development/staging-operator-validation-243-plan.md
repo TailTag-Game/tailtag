@@ -8,6 +8,9 @@ The [first approved attempt](staging-operator-validation-243-attempt-2026-09-23.
 stopped at read-only inspection before any matrix action or reset.
 The later fixture-only diagnostic and its #204 ownership map are recorded in
 [the focused diagnosis](staging-operator-validation-243-fixture-diagnosis.md).
+Its [single live read-only result](staging-operator-validation-243-fixture-result-2026-09-23.md)
+classified a preserved registry prerequisite mismatch; it did not start the
+nine-case validation or reset.
 
 ### Corrected read-only inspection contract
 
