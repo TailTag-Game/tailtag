@@ -613,3 +613,37 @@ Diagnose the pre-input stop and use a new fully guarded attempt only after its
 interactive path is reviewed. The exclusive Staging window remains held. The
 new managed credentials cannot be used for the matrix until a future completed
 replacement postcondition and fresh authentication check establish them.
+
+## Managed-login replacement input stop — 2026-09-24 04:20–04:22 UTC
+
+A new, fully guarded interactive recovery attempt used the unchanged reviewed
+launcher after the preceding attempt's no-write boundary was established. This
+second attempt remains a separate historical launcher result.
+
+- Launcher window: `2026-09-24T04:20:48.886399Z`–
+  `2026-09-24T04:22:03.326722Z`; phase `interactive_ssh`;
+  `FAIL_TRANSPORT_UNCERTAIN`.
+- Public target: `environment=staging`, source
+  `856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a`, deployment
+  `cbe83780-0256-49c2-b026-34709ddb69b0`.
+- The public confirmation and hidden new-identifier prompt appeared. The
+  retained output includes `FAIL_MANAGED_REPLACEMENT_UNCERTAIN`. Neither
+  `PREPARED`, `POSTCONDITION_PASS`, nor the completion marker was witnessed.
+  The maintainer confirmed that only an identifier was entered, no password
+  was entered, and the identifier did not satisfy the reviewed
+  `staging_managed_`-prefixed format. The actual identifier was not retained.
+- The command requires both hidden identifier and password inputs before its
+  write transaction. Thus this attempt did **not** transfer the managed role.
+  The nonconforming identifier is a demonstrated input-contract mismatch; the
+  generic launcher result alone does not prove which remote/transport failure
+  path ended the process. No fresh post-attempt role inspection was performed.
+- No #205 matrix case, #204 reset, or limited-operator decommission ran;
+  cases 1–9 remain `NOT_EXERCISED`. The limited-operator decommission and final
+  readiness checks remain pending. The exclusive Staging window remains held.
+
+Before any new attempt, the maintainer must choose an unused local username
+that meets the existing exact prefix and 1–64 lowercase letter, digit, or
+underscore suffix rule. No Clerk identity is created or required for this
+synthetic managed-login replacement. A future attempt must independently
+repeat every target and operator guard; this
+record does not authorize inferring current role state or bypassing them.
