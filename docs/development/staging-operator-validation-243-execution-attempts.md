@@ -475,3 +475,51 @@ run. The exact limited operator is now active; the approved post-validation
 decommission and audit-preserving final checks remain cleanup obligations.
 The exclusive Staging window remains held through the bounded matrix, reset,
 decommission and final state verification.
+
+## Matrix authentication stop — 2026-09-24 02:27–02:29 UTC
+
+The matrix launcher used fresh approved provider identity, credential-free
+canonical preflight, approved deployment receipt, exact running-instance,
+value-free #204 registry reconciliation and read-only exact operator inspection
+before starting the remote matrix program. The maintainer entered the dedicated
+limited and managed credentials only through their separate hidden Terminal
+prompts. The public exclusive-window confirmation was entered under its
+existing authorization. No credential or identifier is retained.
+
+- Remote matrix window: `2026-09-24T02:27:42.880194Z`–
+  `2026-09-24T02:29:39.627353Z`.
+- Environment: `staging`.
+- Source: `856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a`.
+- Deployment: `cbe83780-0256-49c2-b026-34709ddb69b0`.
+- Remote fixed classification: `FAIL_AUTHENTICATION`.
+- Launcher: `FAIL_TRANSPORT_UNCERTAIN`, phase `interactive_ssh`, window
+  `2026-09-24T02:27:23.306629Z`–`2026-09-24T02:29:39.978689Z`. This
+  transport result is expected for a nonzero remote failure, but the retained
+  receipt does not prove its specific exit/stderr details.
+- The limited admin identifier/password prompts and the managed admin
+  identifier/password prompts were reached. The emergency-superuser and owner
+  Clerk prompts were not reached. Reaching the managed prompt implies the
+  limited-role authentication step returned, but does not prove why the
+  managed step failed.
+- Remote `mutation_may_have_begun=false`; cases 1–9 all `NOT_EXERCISED`;
+  audit event summary empty; reset and decommission `NOT_EXERCISED`.
+  No approved case submission, domain transition or #204 reset ran. The
+  completed limited admin login may have created an ordinary session; the
+  sanitized result makes no claim that all application writes were absent.
+
+The managed role had passed exact read-only state inspection immediately before
+the matrix, but that does not establish credential correctness or HTTP login
+success. The remote result does not distinguish an invalid managed identifier
+or password, a local password check, an HTTP/CSRF/login failure, or a later
+authentication guard. No cause is inferred and no alternate identity, account,
+secret transport or authenticated retry was used. This is a hard stop under
+the approved authentication boundary; no matrix result may be inferred.
+
+The dedicated limited operator remains active according to the immediately
+preceding read-only PASS, with no later lifecycle action. Its current state has
+not been re-inspected after the failed authentication. The approved
+audit-preserving decommission and final fixture/readiness checks remain pending.
+The exclusive Staging window remains held and has not been released by this
+record. #243 remains incomplete and #208 remains NO-GO. A new separately
+authorized access/credential diagnosis and an explicit decision about cleanup
+or a newly guarded matrix attempt are required before further live work.
