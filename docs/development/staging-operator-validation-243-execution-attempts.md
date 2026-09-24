@@ -722,3 +722,93 @@ replace/delete identities based only on this result. The exclusive Staging
 window remains held while a bounded private recovery is designed and
 reviewed. The prior witnessed replacement postcondition remains historical
 evidence; this failed credential check does not undo it.
+
+## Managed-password rotation postcondition — 2026-09-24 05:10–05:11 UTC
+
+The repository-only password recovery at `7aa5cbb` passed the full local
+backend gate and independent specification, code, and security review before
+this new guarded attempt. The exact managed and limited roles and the #204
+registry reconciliation passed a fresh read-only check before rotation. The
+maintainer entered the new password and confirmation through hidden TTY
+prompts; no credential or operator identifier was retained.
+
+- Launcher window: `2026-09-24T05:10:03.335971Z`–
+  `2026-09-24T05:10:56.331296Z`; phase `interactive_ssh`;
+  `FAIL_TRANSPORT_UNCERTAIN`. Preserve this launcher result as issued; do not
+  relabel the SSH transport as successful.
+- Public target: `environment=staging`, source
+  `856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a`, deployment
+  `cbe83780-0256-49c2-b026-34709ddb69b0`.
+- The maintainer witnessed fixed `PREPARED`, `POSTCONDITION_PASS`, and
+  `TAILTAG_MANAGED_PASSWORD_ROTATION_COMPLETED` markers. The reviewed remote
+  command emits `POSTCONDITION_PASS` after a separate read-only postcommit
+  check verifies the same managed User, identifier, group and permissions,
+  unchanged limited-role state, unchanged audit snapshot, and the committed
+  password hash against the entered password without a setter.
+- A fresh independent exact-instance operator inspection at
+  `2026-09-24T05:11:12.341275Z`–`2026-09-24T05:11:19.027210Z` returned
+  `PASS`, `target_verified=true` at that same public target. This independently
+  establishes exact current managed and limited role state; it does not test
+  the entered password. A separate read-only authentication check remains
+  required before any matrix attempt.
+- No #205 matrix case, #204 reset, or limited-operator decommission ran in
+  this rotation attempt. Cases 1–9 remain `NOT_EXERCISED`; final cleanup and
+  readiness checks remain pending. The exclusive Staging window remains held.
+
+Do not repeat the rotation. Preserve the launcher uncertainty separately from
+the witnessed remote postcondition and the independent role inspection.
+
+## Managed-password authentication proof — 2026-09-24 05:12 UTC
+
+The reviewed read-only authentication diagnostic ran once with the newly
+saved password entered through a hidden TTY prompt. It privately selected the
+sole exact managed operator, rechecked the target and pinned role after input,
+and verified the stored password hash without a setter. No identifier or
+credential value was retained.
+
+- Remote window: `2026-09-24T05:12:33.256844Z`–
+  `2026-09-24T05:12:43.709520Z`; fixed classification
+  `CREDENTIAL_ACCEPTED` at `environment=staging`, source
+  `856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a`, deployment
+  `cbe83780-0256-49c2-b026-34709ddb69b0`. The remote completion marker
+  `TAILTAG_MANAGED_AUTH_DIAGNOSIS_COMPLETED` was witnessed.
+- Launcher window: `2026-09-24T05:12:19.654862Z`–
+  `2026-09-24T05:12:44.066355Z`; phase `exact_instance_auth_diagnosis`;
+  `FAIL_TRANSPORT_STDERR`, `target_verified=false` in its conservative
+  transport receipt. The captured stderr was not retained or classified;
+  do not relabel the launcher receipt as PASS. The fixed remote classification
+  and completion marker separately establish that the exact-instance
+  read-only password check completed and accepted the credential.
+- No #205 matrix case, #204 reset, decommission, or Staging mutation occurred
+  in this authentication check. Cases 1–9 remain `NOT_EXERCISED`; the limited
+  operator remains active, final cleanup remains pending, and the exclusive
+  Staging window remains held.
+
+The next bounded matrix attempt must independently rerun every target and
+role guard and prove real Django-admin HTTP login before case submission.
+
+## Matrix attempt stopped at limited-operator prompt — after 2026-09-24 05:12 UTC
+
+The maintainer confirmed that the subsequent matrix Terminal stopped while
+waiting for the limited admin identifier. The exact attempt window and a final
+launcher receipt were not retained, so no fresh target tuple or completed
+target/role guard result is attributed to this attempt. Earlier successful
+inspections remain point-in-time evidence only.
+
+- Fixed outcome for this attempt: `STOPPED_BEFORE_CASE_SUBMISSION`.
+- The limited identifier/password, managed password, emergency credentials and
+  synthetic Clerk token were not established as accepted by this attempt.
+- Cases 1–9: `NOT_EXERCISED`; no case submission or domain transition occurred.
+- #204 reset and limited-operator decommission: not invoked.
+- No Staging mutation occurred in this matrix attempt. Prior operator
+  provisioning/replacement/rotation remain separate historical operations.
+- The limited operator was last independently verified active before this
+  attempt. Its decommission and final cleanup/readiness checks remain pending;
+  current live operator state has not been reinspected after the stop.
+- The exclusive #243 operator window remains held until its owner explicitly
+  hands it off or a reviewed cleanup/retirement procedure establishes final
+  state. This stopped prompt does not prove #243 cleanup or release.
+
+The decision to plan a clean-slate replacement preserves this attempt as
+historical Staging evidence. It does not turn any #205 case into a PASS or
+erase the outstanding limited-role cleanup obligation on the old stack.
