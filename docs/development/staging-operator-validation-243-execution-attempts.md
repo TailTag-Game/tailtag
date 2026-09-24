@@ -647,3 +647,78 @@ underscore suffix rule. No Clerk identity is created or required for this
 synthetic managed-login replacement. A future attempt must independently
 repeat every target and operator guard; this
 record does not authorize inferring current role state or bypassing them.
+
+## Managed-login replacement postcondition — 2026-09-24 04:24–04:25 UTC
+
+A subsequent, freshly guarded managed-only replacement attempt used a new
+unused local identifier satisfying the reviewed reserved format. The
+maintainer entered the identifier and password through separate hidden TTY
+prompts. No value was retained. The launcher passed its read-only managed and
+limited role guard, #204 registry reconciliation, public target/approved
+receipt/unique-instance guards, and remote exact-instance guard before the
+interactive mutation. The preceding stopped attempts remain unchanged.
+
+- Launcher window: `2026-09-24T04:24:03.852642Z`–
+  `2026-09-24T04:24:41.210309Z`; phase `interactive_ssh`;
+  `FAIL_TRANSPORT_UNCERTAIN`. This is the historical SSH/launcher result and
+  is **not** rewritten as transport success.
+- Public target: `environment=staging`, source
+  `856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a`, deployment
+  `cbe83780-0256-49c2-b026-34709ddb69b0`.
+- The maintainer witnessed fixed `PREPARED`, `POSTCONDITION_PASS`, and
+  `TAILTAG_MANAGED_REPLACEMENT_COMMAND_COMPLETED` markers. The reviewed remote
+  command emits `POSTCONDITION_PASS` only after its committed transfer passes
+  a separate read-only check of old-login retirement, exact new managed role,
+  unchanged limited role, unchanged managed Group permissions, and unchanged
+  historical operator-audit rows. The final completion marker follows the
+  command's successful return.
+- A fresh independent exact-instance operator inspection at
+  `2026-09-24T04:24:56.844660Z`–`2026-09-24T04:25:02.886489Z` returned
+  `PASS`, `target_verified=true` at the same approved public target. Both the
+  current managed and limited roles were exact at this observation. This
+  inspection alone does not identify the predecessor; the remote witnessed
+  postcondition supplies the retirement proof.
+- No #205 matrix case, #204 reset, or limited-operator decommission ran in
+  this replacement attempt. Cases 1–9 remain `NOT_EXERCISED`. The limited
+  operator remains active; final cleanup and readiness checks remain pending.
+
+Do not repeat replacement. The next required guard is a separate hidden-TTY
+read-only authentication check of the **new** managed credentials, followed by
+the bounded matrix's real Django-admin login before any case submission. The
+exclusive Staging window remains held.
+
+## New managed-login authentication mismatch — 2026-09-24 04:25–04:27 UTC
+
+The separate reviewed authentication diagnostic ran once after the witnessed
+replacement postcondition and fresh independent managed+limited role PASS.
+Its launcher repeated the approved identity, public target, receipt,
+exact-instance and read-only operator guards before hidden credential input.
+The maintainer entered an identifier and password only through the hidden
+Terminal prompts; neither value was retained.
+
+- Launcher window: `2026-09-24T04:25:54.835353Z`–
+  `2026-09-24T04:27:30.922781Z`; phase `exact_instance_auth_diagnosis`;
+  `FAIL_TRANSPORT_EXIT_STATUS`, `target_verified=false` in the launcher
+  receipt. A nonzero remote exit is expected for the remote fixed failure;
+  the launcher does not parse the inherited remote output.
+- Remote window: `2026-09-24T04:26:05.185479Z`–
+  `2026-09-24T04:27:30.612044Z`; `IDENTITY_MISMATCH`.
+- Both receipts identify `environment=staging`, source
+  `856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a`, deployment
+  `cbe83780-0256-49c2-b026-34709ddb69b0`. The remote target and role
+  preconditions passed before prompting. The entered identifier did not
+  select the sole exact current managed operator. The password was not
+  classified as accepted or rejected. The maintainer could not confirm from
+  private notes whether the identifier matched the one entered during the
+  successful replacement.
+- This diagnostic performed read-only database queries only. No #205 case,
+  #204 reset, managed credential change, limited-operator decommission, or
+  other Staging mutation occurred in this attempt. Cases 1–9 remain
+  `NOT_EXERCISED`; final cleanup/readiness checks remain pending.
+
+This is an unresolved managed-login access boundary, not evidence of a
+password or application-authorization defect. Do not start the matrix or
+replace/delete identities based only on this result. The exclusive Staging
+window remains held while a bounded private recovery is designed and
+reviewed. The prior witnessed replacement postcondition remains historical
+evidence; this failed credential check does not undo it.

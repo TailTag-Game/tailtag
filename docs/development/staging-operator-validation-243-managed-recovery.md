@@ -133,3 +133,85 @@ but they cannot identify the retired predecessor if `POSTCONDITION_PASS` was
 not witnessed. In that case stop with the exclusive window held and report
 the remaining uncertainty and cleanup obligation. Never infer rollback from
 an SSH exit status.
+
+## Current managed-login access recovery amendment — 2026-09-24
+
+The later replacement attempt witnessed `PREPARED`, `POSTCONDITION_PASS`, and
+the remote completion marker; a separate exact-instance inspector returned
+managed and limited `PASS`. Its launcher retained `FAIL_TRANSPORT_UNCERTAIN`.
+The subsequent read-only credential check returned `IDENTITY_MISMATCH` before
+testing the password, and the maintainer cannot recover the exact entered
+identifier or password. These remain distinct chronological observations in
+the [execution record](staging-operator-validation-243-execution-attempts.md).
+
+The normal managed operator is not the disposable #243 limited operator.
+Preserve its current User row, identifier, group/permissions, and audit actor
+relationship. Do not delete, rename, replace, or decommission it to solve a
+manual credential handoff. The maintainer will generate and retain one final
+password in a password manager and enter it only through real hidden TTY
+prompts. No credential is printed, accepted through argv/environment/files,
+or retained in repository evidence. The exclusive Staging window remains held.
+
+### Acceptance contract
+
+1. A narrow Staging-only command rotates **only the password** of the sole
+   exact current managed operator. Before any write, require approved
+   GitHub/Railway identity, fresh public and exact-instance target agreement,
+   approved deployment receipt, full #204 private-config/registry/database
+   reconciliation, managed+limited inspector `PASS`, a real TTY, exact public
+   confirmation, and disabled query/debug logging. Never select an ordinary
+   player, retired predecessor, limited operator, or superuser as a fallback.
+   The repository command is `rotate_staging_managed_password`, launched only
+   by `scripts.api_staging_managed_password_rotate_ssh`; its public
+   confirmation is `rotate Railway Staging managed operator password`.
+2. Pin the sole exact managed User and group before hidden input; inside one
+   transaction, lock and revalidate the same User, target, group, permissions,
+   limited role, and historical audit snapshot. Validate the new password with
+   Django's existing operator policy, and update only that User's password.
+   Any drift or write failure rolls back. A separate read-only postcommit
+   check must prove the same User/identifier/group/permission/limited/audit
+   state and a committed password hash that verifies the newly entered
+   password without invoking a setter. Fixed completion markers may report that
+   proof; an uncertain SSH result is never retried blindly.
+   `PREPARED` means only that the pre-write guards passed before password
+   input. `POSTCONDITION_PASS` and
+   `TAILTAG_MANAGED_PASSWORD_ROTATION_COMPLETED` report the remote
+   postcommit proof and successful command return, respectively.
+3. The read-only managed-auth diagnostic privately selects the sole exact
+   managed User before its hidden password prompt. After input, recheck the
+   target and pin; classify the password without an identifier prompt or
+   output, any setter, session creation, or audit write. The diagnostic must
+   check only the pinned managed User's hash; a distinct other actor password
+   must not pass.
+4. The #243 matrix privately selects that same exact managed actor and asks
+   only for its password. It must submit the actual stored identifier and
+   entered password through the existing CSRF-protected Django-admin HTTP
+   login, verify the resulting admin session and actor, and stop before case
+   submission on failure. The limited, emergency, and owner credential
+   boundaries remain separate and unchanged. No `force_login`, synthetic
+   session, authorization bypass, or direct service invocation substitutes
+   for the real login.
+5. The matrix's nine cases, two successful domain transitions, one denied
+   submission, Case 9 combined-evidence limitations, #204 reset interaction,
+   limited-operator decommission, and final-state assertions remain the
+   previously approved bounded sequence. No new domain fixture or product
+   authorization behavior is introduced.
+
+### Test surface and scope guard
+
+Use disposable local PostgreSQL with the real TailTag User, Group,
+Permission, session, and audit models. Fake only real-TTY input and the
+external Railway/SSH boundary. Tests must prove exact role selection,
+pre/post-input drift rejection, atomic password-only writes, unchanged audit
+and limited state, old-session invalidation, privacy-safe outputs, no write
+from read-only diagnosis, and actual Django-admin HTTP login before the
+matrix's first case. Exercise the real source-bundle path against the current
+deployed module boundary. Relevant full repository and static gates plus
+independent security/code review precede any new live rotation.
+
+This amendment changes #243 **tool input and credential recovery only**. It
+does not change application authentication/authorization, #205 permissions,
+the #204 reset contract, the limited operator lifecycle, the live case
+sequence, or #208 readiness criteria. Stop if a different product behavior,
+new secret transport, account deletion, or an unapproved mutation becomes
+necessary.
