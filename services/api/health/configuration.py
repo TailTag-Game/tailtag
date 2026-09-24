@@ -13,13 +13,14 @@ from django.core.validators import validate_domain_name
 from django.http.request import split_domain_port
 
 from authentication.clerk import ClerkVerificationConfiguration
-from config import build_identity
+from config import build_identity, replacement_target_binding
 from config.settings.clerk import load_clerk_authentication_configuration
 from config.settings.media import S3MediaConfiguration, load_s3_media_configuration
 
 _CONFIGURATION_ERROR: Final = "Health configuration unavailable"
 _PRODUCTION_SETTINGS: Final = "config.settings.production"
 _STAGING_HOST: Final = "staging.tailtag.app"
+_RAILWAY_HEALTHCHECK_HOST: Final = "healthcheck.railway.app"
 _LOCAL_STORAGE_BACKENDS: Final = frozenset(
     {
         "django.core.files.storage.FileSystemStorage",
@@ -87,6 +88,7 @@ def _validate_deployed_settings() -> None:
     )
 
     identity = build_identity.get_identity()
+    replacement_target_binding.validate_runtime_target(os.environ)
     environment = identity["environment"]
     if (
         environment not in {"development", "staging"}
@@ -94,10 +96,56 @@ def _validate_deployed_settings() -> None:
         or _runtime_service_name() != "api"
     ):
         raise ValueError
-    if environment == "staging" and (
-        identity["source_sha"] is None
-        or _STAGING_HOST not in settings.ALLOWED_HOSTS
-        or f"https://{_STAGING_HOST}" not in settings.CSRF_TRUSTED_ORIGINS
+    if environment == "staging":
+        _validate_staging_phase(identity["source_sha"])
+    else:
+        _validate_development_candidate(identity["source_sha"])
+
+
+def _validate_development_candidate(source_sha: str | None) -> None:
+    if source_sha is None:
+        raise ValueError
+    candidate_hosts = set(settings.ALLOWED_HOSTS) - {_RAILWAY_HEALTHCHECK_HOST}
+    if len(candidate_hosts) != 1:
+        raise ValueError
+    origin = replacement_target_binding.pinned_development_candidate_origin(
+        candidate_hosts.pop()
+    )
+    if (
+        len(settings.ALLOWED_HOSTS) != 2
+        or set(settings.ALLOWED_HOSTS)
+        != {origin.removeprefix("https://"), _RAILWAY_HEALTHCHECK_HOST}
+        or settings.CSRF_TRUSTED_ORIGINS != [origin]
+        or settings.CLERK_AUTHENTICATION.authorized_parties
+        != ("http://localhost:3000",)
+    ):
+        raise ValueError
+
+
+def _validate_staging_phase(source_sha: str | None) -> None:
+    phase = os.environ.get("TAILTAG_STAGING_TARGET_PHASE")
+    if source_sha is None or phase not in {"candidate", "canonical"}:
+        raise ValueError
+    if phase == "candidate":
+        candidate_hosts = set(settings.ALLOWED_HOSTS) - {_RAILWAY_HEALTHCHECK_HOST}
+        if len(candidate_hosts) != 1:
+            raise ValueError
+        origin = replacement_target_binding.pinned_candidate_origin(
+            candidate_hosts.pop()
+        )
+    else:
+        origin = f"https://{_STAGING_HOST}"
+    host = origin.removeprefix("https://")
+    expected_party = (
+        "https://accounts.staging-next.tailtag.app"
+        if phase == "candidate"
+        else "https://accounts.staging.tailtag.app"
+    )
+    if (
+        len(settings.ALLOWED_HOSTS) != 2
+        or set(settings.ALLOWED_HOSTS) != {host, _RAILWAY_HEALTHCHECK_HOST}
+        or settings.CSRF_TRUSTED_ORIGINS != [origin]
+        or settings.CLERK_AUTHENTICATION.authorized_parties != (expected_party,)
     ):
         raise ValueError
 

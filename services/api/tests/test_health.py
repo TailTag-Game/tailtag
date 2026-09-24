@@ -8,13 +8,15 @@ from typing import NoReturn, Self
 
 import pytest
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.db import DatabaseError
 from django.test import Client, RequestFactory, override_settings
 from pytest import MonkeyPatch
 
 from authentication.clerk import ClerkVerificationConfiguration
-from config import build_identity
+from config import build_identity, replacement_target_binding
 from config.settings.media import S3MediaConfiguration
+from health.configuration import validate_configuration
 from health.views import ready as readiness_view
 from tests.clerk_settings_contract import (
     valid_clerk_public_key as _valid_clerk_public_key,  # noqa: F401  # pyright: ignore[reportUnusedImport]
@@ -25,6 +27,14 @@ DEPLOYMENT_ID = "93de11d6-714f-405a-b931-a9b567d5ec1e"
 SECOND_SOURCE_SHA = "d" * 40
 SECOND_DEPLOYMENT_ID = "1b6a4b35-4e94-4775-a4b9-304205c75786"
 SENSITIVE_DIAGNOSTIC = "health-private-diagnostic-secret"
+REBUILD_PROJECT = "a1111111-1111-4111-8111-111111111111"
+REBUILD_DEVELOPMENT = "22222222-2222-4222-8222-222222222222"
+REBUILD_STAGING = "33333333-3333-4333-8333-333333333333"
+REBUILD_API = "d4444444-4444-4444-8444-444444444444"
+REBUILD_POSTGRES = "55555555-5555-4555-8555-555555555555"
+OLD_PROJECT = "66666666-6666-4666-8666-666666666666"
+DEVELOPMENT_CANDIDATE_HOST = "synthetic-development-api.up.railway.app"
+DEVELOPMENT_CANDIDATE_ORIGIN = f"https://{DEVELOPMENT_CANDIDATE_HOST}"
 
 DEPLOYED_MEDIA_CONFIGURATION = S3MediaConfiguration(
     endpoint_url="https://media.example.test",
@@ -72,6 +82,43 @@ def write_build_identity(path: Path, source_sha: str = SOURCE_SHA) -> None:
     path.write_text(json.dumps({"source_sha": source_sha}))
 
 
+def configure_replacement_runtime(
+    monkeypatch: MonkeyPatch, *, environment: str
+) -> None:
+    """Pin synthetic provider IDs while exercising actual deployed readiness."""
+    monkeypatch.setattr(
+        replacement_target_binding,
+        "_EXPECTED_DIGESTS",
+        {
+            role: replacement_target_binding.fingerprint_tuple(role, *values)
+            for role, values in {
+                "development-api": (
+                    REBUILD_PROJECT,
+                    REBUILD_DEVELOPMENT,
+                    REBUILD_API,
+                ),
+                "development-postgres": (
+                    REBUILD_PROJECT,
+                    REBUILD_DEVELOPMENT,
+                    REBUILD_POSTGRES,
+                ),
+                "staging-api": (REBUILD_PROJECT, REBUILD_STAGING, REBUILD_API),
+                "staging-postgres": (
+                    REBUILD_PROJECT,
+                    REBUILD_STAGING,
+                    REBUILD_POSTGRES,
+                ),
+            }.items()
+        },
+    )
+    monkeypatch.setenv("RAILWAY_PROJECT_ID", REBUILD_PROJECT)
+    monkeypatch.setenv(
+        "RAILWAY_ENVIRONMENT_ID",
+        REBUILD_STAGING if environment == "staging" else REBUILD_DEVELOPMENT,
+    )
+    monkeypatch.setenv("RAILWAY_SERVICE_ID", REBUILD_API)
+
+
 def configure_staging_identity(
     monkeypatch: MonkeyPatch, tmp_path: Path, *, deployment_id: str = DEPLOYMENT_ID
 ) -> None:
@@ -82,6 +129,8 @@ def configure_staging_identity(
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "staging")
     monkeypatch.setenv("RAILWAY_DEPLOYMENT_ID", deployment_id)
     monkeypatch.setenv("RAILWAY_SERVICE_NAME", "api")
+    monkeypatch.setenv("TAILTAG_STAGING_TARGET_PHASE", "canonical")
+    configure_replacement_runtime(monkeypatch, environment="staging")
 
 
 def configure_development_identity(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
@@ -90,6 +139,38 @@ def configure_development_identity(monkeypatch: MonkeyPatch, tmp_path: Path) -> 
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "development")
     monkeypatch.setenv("RAILWAY_DEPLOYMENT_ID", DEPLOYMENT_ID)
     monkeypatch.setenv("RAILWAY_SERVICE_NAME", "api")
+    configure_replacement_runtime(monkeypatch, environment="development")
+
+
+def configured_development_candidate_settings(
+    clerk_public_key: str,
+) -> dict[str, object]:
+    """Return the exact replacement Development effective settings profile."""
+    return {
+        **configured_deployed_settings(clerk_public_key),
+        "ALLOWED_HOSTS": [DEVELOPMENT_CANDIDATE_HOST, "healthcheck.railway.app"],
+        "CSRF_TRUSTED_ORIGINS": [DEVELOPMENT_CANDIDATE_ORIGIN],
+        "CLERK_AUTHENTICATION": ClerkVerificationConfiguration(
+            jwt_key=clerk_public_key,
+            authorized_parties=("http://localhost:3000",),
+        ),
+    }
+
+
+def configure_development_candidate_identity(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    """Provide the complete synthetic replacement Development runtime and pin."""
+    configure_development_identity(monkeypatch, tmp_path)
+    write_build_identity(tmp_path / "absent.json")
+    monkeypatch.setattr(
+        replacement_target_binding,
+        "_EXPECTED_DEVELOPMENT_CANDIDATE_HOST_DIGEST",
+        replacement_target_binding.fingerprint_development_candidate_hostname(
+            DEVELOPMENT_CANDIDATE_HOST
+        ),
+        raising=False,
+    )
 
 
 def configure_local_profile(monkeypatch: MonkeyPatch) -> None:
@@ -105,13 +186,13 @@ def configured_deployed_settings(clerk_public_key: str) -> dict[str, object]:
     return {
         "DEBUG": False,
         "SECRET_KEY": "test-deployed-secret-key",
-        "ALLOWED_HOSTS": ["staging.tailtag.app", "testserver"],
+        "ALLOWED_HOSTS": ["staging.tailtag.app", "healthcheck.railway.app"],
         "CSRF_TRUSTED_ORIGINS": ["https://staging.tailtag.app"],
         "SESSION_COOKIE_SECURE": True,
         "CSRF_COOKIE_SECURE": True,
         "CLERK_AUTHENTICATION": ClerkVerificationConfiguration(
             jwt_key=clerk_public_key,
-            authorized_parties=("https://staging.tailtag.app",),
+            authorized_parties=("https://accounts.staging.tailtag.app",),
         ),
         "MEDIA_STORAGE_CONFIGURATION": DEPLOYED_MEDIA_CONFIGURATION,
         "STORAGES": DEPLOYED_STORAGES,
@@ -234,7 +315,7 @@ def test_readiness_rejects_staging_runtime_claim_from_local_settings_profile(
 
     monkeypatch.setattr(settings, "SETTINGS_MODULE", "config.settings.local")
     with override_settings(**configured_deployed_settings(valid_clerk_public_key)):
-        response = client.get("/health/ready")
+        response = client.get("/health/ready", HTTP_HOST="staging.tailtag.app")
 
     assert response.status_code == 503
     assert response.json() == {"status": "unavailable"}
@@ -300,30 +381,145 @@ def test_readiness_accepts_complete_effective_staging_configuration(
     monkeypatch.setattr("authentication.clerk.authenticate_request", fail_vendor_call)
 
     with override_settings(**configured_deployed_settings(valid_clerk_public_key)):
-        response = client.get("/health/ready")
+        response = client.get("/health/ready", HTTP_HOST="staging.tailtag.app")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
     assert response["Cache-Control"] == "no-store"
 
 
+def test_deployed_configuration_joins_actual_runtime_to_replacement_pin(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+    valid_clerk_public_key: str,
+) -> None:
+    """T-3: valid source/settings cannot make an old-project runtime ready."""
+    configure_staging_identity(monkeypatch, tmp_path)
+    monkeypatch.setattr(settings, "SETTINGS_MODULE", "config.settings.production")
+
+    with override_settings(**configured_deployed_settings(valid_clerk_public_key)):
+        assert validate_configuration() is None
+
+        monkeypatch.setenv("RAILWAY_PROJECT_ID", OLD_PROJECT)
+        with pytest.raises(ImproperlyConfigured) as caught:
+            validate_configuration()
+
+    assert str(caught.value) == "Health configuration unavailable"
+    assert OLD_PROJECT not in str(caught.value)
+
+
 @pytest.mark.django_db
-def test_readiness_accepts_development_deployment_without_baked_source_sha(
+def test_readiness_rejects_development_deployment_without_baked_source_sha(
     client: Client,
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
     valid_clerk_public_key: str,
 ) -> None:
-    """AC-2/3: Development deployments may lack Staging's immutable source SHA."""
-    configure_development_identity(monkeypatch, tmp_path)
+    """D-2 supersedes the prior Development exemption from baked source identity."""
+    configure_development_candidate_identity(monkeypatch, tmp_path)
+    (tmp_path / "absent.json").unlink()
     monkeypatch.setattr(settings, "SETTINGS_MODULE", "config.settings.production")
 
-    with override_settings(**configured_deployed_settings(valid_clerk_public_key)):
-        response = client.get("/health/ready")
+    with override_settings(
+        **configured_development_candidate_settings(valid_clerk_public_key)
+    ):
+        response = client.get("/health/ready", HTTP_HOST=DEVELOPMENT_CANDIDATE_HOST)
+
+    assert response.status_code == 503
+    assert response.json() == {"status": "unavailable"}
+    assert response["Cache-Control"] == "no-store"
+
+
+@pytest.mark.django_db
+def test_readiness_accepts_complete_replacement_development_profile(
+    client: Client,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+    valid_clerk_public_key: str,
+) -> None:
+    """D-2: exact runtime, source, deployment and origins jointly pass."""
+    configure_development_candidate_identity(monkeypatch, tmp_path)
+    monkeypatch.setattr(settings, "SETTINGS_MODULE", "config.settings.production")
+
+    with override_settings(
+        **configured_development_candidate_settings(valid_clerk_public_key)
+    ):
+        response = client.get("/health/ready", HTTP_HOST=DEVELOPMENT_CANDIDATE_HOST)
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
     assert response["Cache-Control"] == "no-store"
+
+
+@pytest.mark.parametrize(
+    ("runtime_override", "settings_override"),
+    (
+        ({"RAILWAY_PROJECT_ID": OLD_PROJECT}, {}),
+        ({"RAILWAY_ENVIRONMENT_ID": REBUILD_STAGING}, {}),
+        ({"RAILWAY_DEPLOYMENT_ID": None}, {}),
+        ({}, {"ALLOWED_HOSTS": ["staging.tailtag.app", "healthcheck.railway.app"]}),
+        (
+            {},
+            {
+                "ALLOWED_HOSTS": [
+                    DEVELOPMENT_CANDIDATE_HOST,
+                    "healthcheck.railway.app",
+                    "other.invalid",
+                ]
+            },
+        ),
+        ({}, {"CSRF_TRUSTED_ORIGINS": ["https://staging.tailtag.app"]}),
+        (
+            {},
+            {
+                "CSRF_TRUSTED_ORIGINS": [
+                    DEVELOPMENT_CANDIDATE_ORIGIN,
+                    "https://other.invalid",
+                ]
+            },
+        ),
+        ({}, {"CLERK_AUTHENTICATION": "wrong-party"}),
+    ),
+    ids=(
+        "old-project",
+        "staging-environment",
+        "missing-deployment",
+        "staging-host",
+        "extra-host",
+        "staging-csrf",
+        "extra-csrf",
+        "wrong-clerk-party",
+    ),
+)
+def test_development_readiness_denies_other_generation_or_origin_sets(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+    valid_clerk_public_key: str,
+    runtime_override: dict[str, str | None],
+    settings_override: dict[str, object],
+) -> None:
+    """D-2: project/environment swaps and origin drift fail with fixed error."""
+    configure_development_candidate_identity(monkeypatch, tmp_path)
+    monkeypatch.setattr(settings, "SETTINGS_MODULE", "config.settings.production")
+    for name, value in runtime_override.items():
+        if value is None:
+            monkeypatch.delenv(name)
+        else:
+            monkeypatch.setenv(name, value)
+    if settings_override.get("CLERK_AUTHENTICATION") == "wrong-party":
+        settings_override = {
+            "CLERK_AUTHENTICATION": ClerkVerificationConfiguration(
+                jwt_key=valid_clerk_public_key,
+                authorized_parties=("https://accounts.staging.tailtag.app",),
+            )
+        }
+    configured = {
+        **configured_development_candidate_settings(valid_clerk_public_key),
+        **settings_override,
+    }
+    with override_settings(**configured), pytest.raises(ImproperlyConfigured) as caught:
+        validate_configuration()
+    assert str(caught.value) == "Health configuration unavailable"
 
 
 @pytest.mark.django_db
@@ -361,7 +557,7 @@ def test_readiness_rejects_unrecognized_or_incomplete_deployed_runtime(
             monkeypatch.setenv(name, value)
 
     with override_settings(**configured_deployed_settings(valid_clerk_public_key)):
-        response = client.get("/health/ready")
+        response = client.get("/health/ready", HTTP_HOST="staging.tailtag.app")
 
     assert response.status_code == 503
     assert response.json() == {"status": "unavailable"}
@@ -482,7 +678,7 @@ def test_readiness_rejects_malformed_effective_clerk_authorized_party(
     )
 
     with override_settings(**configured):
-        response = client.get("/health/ready")
+        response = client.get("/health/ready", HTTP_HOST="staging.tailtag.app")
 
     assert response.status_code == 503
     assert response.json() == {"status": "unavailable"}
@@ -514,10 +710,11 @@ def test_readiness_hides_invalid_deployed_identity(
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "staging")
     monkeypatch.setenv("RAILWAY_DEPLOYMENT_ID", deployment_id)
     monkeypatch.setenv("RAILWAY_SERVICE_NAME", "api")
+    configure_replacement_runtime(monkeypatch, environment="staging")
     monkeypatch.setattr(settings, "SETTINGS_MODULE", "config.settings.production")
 
     with override_settings(**configured_deployed_settings(valid_clerk_public_key)):
-        response = client.get("/health/ready")
+        response = client.get("/health/ready", HTTP_HOST="staging.tailtag.app")
 
     assert response.status_code == 503
     assert response.json() == {"status": "unavailable"}
