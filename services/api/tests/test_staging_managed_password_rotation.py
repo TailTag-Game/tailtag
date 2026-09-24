@@ -9,6 +9,7 @@ from io import StringIO
 from typing import Any, cast
 
 import pytest
+from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.core.management import CommandError
 from django.db import DatabaseError, transaction
 from django.test import Client
@@ -142,7 +143,7 @@ def test_rotation_changes_only_exact_managed_password_and_preserves_audit_and_li
     assert state(limited) == limited_before
     assert group_state(limited_group) == limited_group_before
     assert tuple(OperatorAuditEvent.objects.values_list()) == audit_before
-    assert OperatorAuditEvent.objects.get(pk=audit.pk).actor_id == original_pk
+    assert OperatorAuditEvent.objects.filter(pk=audit.pk, actor=managed).count() == 1
     assert old_client.get("/admin/").status_code == 302
     new_client = Client()
     assert new_client.login(clerk_user_id=OLD_IDENTIFIER, password=NEW_PASSWORD)
@@ -193,7 +194,11 @@ def test_prewrite_guards_refuse_without_prompt_or_mutation(
     else:
         kwargs["confirmation"] = "wrong phrase"
     prompts: list[str] = []
-    kwargs["after_prompt"] = lambda number: prompts.append(str(number))
+
+    def record_prompt(number: int) -> None:
+        prompts.append(str(number))
+
+    kwargs["after_prompt"] = record_prompt
     with pytest.raises(CommandError):
         invoke(monkeypatch, **kwargs)
     assert prompts == []
@@ -252,10 +257,9 @@ def test_unexpected_privilege_and_ambiguous_managed_role_fail_closed(
     """AC-1: a superuser or second managed group member is never selected."""
     settings.DEBUG = False
     managed, _, managed_group, _ = seed_roles()
-    extra = User.objects.create_user("extra-managed-role")
-    extra.is_staff = True
+    extra = User(clerk_user_id="extra-managed-role", is_staff=True)
     extra.set_password("extra-managed-password")
-    extra.save(update_fields={"is_staff", "password"})
+    extra.save()
     extra.groups.add(managed_group)  # pyright: ignore[reportUnknownMemberType]
     with pytest.raises(CommandError):
         invoke(monkeypatch)
@@ -321,7 +325,9 @@ def test_postcommit_must_check_entered_password_not_merely_usable_hash(
             def tamper_after_commit() -> None:
                 changed = User.objects.get(pk=managed.pk)
                 changed.set_password("different-policy-valid-password")
-                User.objects.filter(pk=managed.pk).update(password=changed.password)
+                User.objects.filter(pk=managed.pk).update(
+                    password=cast(str, changed.password)  # pyright: ignore[reportUnknownMemberType]
+                )
 
             transaction.on_commit(tamper_after_commit)
 
@@ -331,3 +337,32 @@ def test_postcommit_must_check_entered_password_not_merely_usable_hash(
         invoke(monkeypatch, terminal=output)
     assert "POSTCONDITION_PASS" not in output.getvalue()
     assert User.objects.get(pk=managed.pk).clerk_user_id == OLD_IDENTIFIER
+
+
+@pytest.mark.django_db(transaction=True)
+def test_postcommit_read_only_password_check_does_not_upgrade_legacy_hash(
+    monkeypatch: pytest.MonkeyPatch, settings: Any
+) -> None:
+    """AC-2: verification may read a valid hash but cannot call a write setter."""
+    settings.DEBUG = False
+    managed, _, _, _ = seed_roles()
+    weak_hasher = PBKDF2PasswordHasher()
+    weak_hasher.iterations = 1
+    weak_hash = weak_hasher.encode(NEW_PASSWORD, "local-legacy-test-salt")
+    original_save = User.save
+
+    def save_then_install_legacy_hash(
+        self: User, *args: object, **kwargs: object
+    ) -> None:
+        original_save(self, *args, **kwargs)
+        if self.pk == managed.pk and self.check_password(NEW_PASSWORD):
+            transaction.on_commit(
+                lambda: User.objects.filter(pk=managed.pk).update(password=weak_hash)
+            )
+
+    monkeypatch.setattr(User, "save", save_then_install_legacy_hash)
+    output, _, _ = invoke(monkeypatch)
+
+    managed.refresh_from_db()
+    assert cast(str, managed.password) == weak_hash  # pyright: ignore[reportUnknownMemberType]
+    assert output.getvalue().count("POSTCONDITION_PASS") == 1

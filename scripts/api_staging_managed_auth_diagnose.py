@@ -75,22 +75,13 @@ def _preconditions() -> tuple[str | None, User | None]:
     return None, operator
 
 
-def _classify(
-    identifier: str, password: str, status: str | None, operator: User | None
-) -> str:
+def _classify(password: str, status: str | None, operator: User | None) -> str:
     from django.contrib.auth.hashers import check_password
-
-    from accounts.models import User
 
     if status is not None:
         return status
     if operator is None:
         return "EXECUTION_FAILURE"
-    selected = list(User.objects.filter(clerk_user_id=identifier))
-    if len(selected) > 1:
-        return "IDENTITY_AMBIGUOUS"
-    if len(selected) != 1 or selected[0].pk != operator.pk:
-        return "IDENTITY_MISMATCH"
     if not operator.has_usable_password():
         return "PASSWORD_UNUSABLE"
     try:
@@ -102,11 +93,11 @@ def _classify(
     return "CREDENTIAL_ACCEPTED" if matches else "CREDENTIAL_REJECTED"
 
 
-def diagnose_local(identifier: str, password: str) -> str:
+def diagnose_local(password: str) -> str:
     """Classify one exact local credential without writing or invoking a setter."""
     try:
         status, operator = _preconditions()
-        return _classify(identifier, password, status, operator)
+        return _classify(password, status, operator)
     except Exception:  # noqa: BLE001
         return "EXECUTION_FAILURE"
 
@@ -122,7 +113,7 @@ def _result(classification: str, identity: object, started: str) -> dict[str, ob
 
 
 def run(expected_identity: object) -> dict[str, object]:
-    """Verify target and roles before acquiring two hidden terminal values."""
+    """Verify target and roles before acquiring one hidden password."""
     from django.conf import settings
     from django.db import connection, transaction
 
@@ -161,18 +152,37 @@ def run(expected_identity: object) -> dict[str, object]:
                 return _result("EXECUTION_FAILURE", identity, started)
             if not operator.has_usable_password():
                 return _result("PASSWORD_UNUSABLE", identity, started)
+            pinned = (
+                operator.pk,
+                operator.clerk_user_id,
+                cast(str, operator.password),  # pyright: ignore[reportUnknownMemberType]
+            )
         if not sys.stdin.isatty() or not sys.stdout.isatty():
             return _result("AUTH_PROTOCOL_FAILURE", identity, started)
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("error", getpass.GetPassWarning)
-                identifier = getpass.getpass("Operator identifier: ")
                 password = getpass.getpass("Password: ")
         except (EOFError, OSError, KeyboardInterrupt, getpass.GetPassWarning):
             return _result("AUTH_PROTOCOL_FAILURE", identity, started)
         with transaction.atomic():
             with connection.cursor() as cursor:
                 cursor.execute("SET TRANSACTION READ ONLY")
-            return _result(diagnose_local(identifier, password), identity, started)
+            if not _inspector._target_identity_matches(source_sha, deployment_id):  # pyright: ignore[reportPrivateUsage]
+                return _result("TARGET_OR_ROLE_FAILURE", identity, started)
+            status, current = _preconditions()
+            if status is not None:
+                return _result(status, identity, started)
+            if (
+                current is None
+                or (
+                    current.pk,
+                    current.clerk_user_id,
+                    cast(str, current.password),  # pyright: ignore[reportUnknownMemberType]
+                )
+                != pinned
+            ):
+                return _result("TARGET_OR_ROLE_FAILURE", identity, started)
+            return _result(_classify(password, None, current), identity, started)
     except Exception:  # noqa: BLE001
         return _result("EXECUTION_FAILURE", identity, started)

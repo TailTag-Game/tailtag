@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
+import os
 import subprocess
+import sys
 from io import StringIO
 from pathlib import Path
 from types import ModuleType
-from typing import cast
+from typing import NoReturn, cast
 
 import pytest
 
@@ -19,8 +22,11 @@ from tests.test_staging_managed_operator_replace_ssh import (
     registry_payload,
 )
 
+ROOT = Path(__file__).resolve().parents[3]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 COMMAND_PATH = (
-    Path(__file__).resolve().parents[3]
+    ROOT
     / "services/api/accounts/management/commands/rotate_staging_managed_password.py"
 )
 PRIVATE = "private-managed-password-never-in-launcher-output"
@@ -78,6 +84,22 @@ def assert_sanitized_result(result: dict[str, object]) -> None:
     assert INSTANCE not in json.dumps(result)
 
 
+def unexpected_ssh(_argv: list[str]) -> NoReturn:
+    pytest.fail("SSH started")
+
+
+def mismatched_registry(_path: Path) -> dict[str, object]:
+    return registry_payload(mismatch=True)
+
+
+def rejected_receipt(_identity: dict[str, str]) -> NoReturn:
+    raise ValueError(PRIVATE)
+
+
+def invalid_instance(_identity: dict[str, str]) -> str:
+    return "not-an-instance"
+
+
 def test_full_guards_precede_one_pinned_interactive_ssh(
     launcher: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -114,7 +136,9 @@ def test_full_guards_precede_one_pinned_interactive_ssh(
     assert argv[argv.index("-c") - 1] == "-I"
     request = json.loads(argv[-1])
     assert request["identity"] == IDENTITY
-    assert COMMAND_PATH.read_text(encoding="utf-8") in json.dumps(request)
+    assert request["sources"]["rotation_command"]["source"] == COMMAND_PATH.read_text(
+        encoding="utf-8"
+    )
     assert PRIVATE not in " ".join(argv)
 
 
@@ -124,7 +148,7 @@ def test_detached_terminal_stops_before_any_provider_call(
 ) -> None:
     events = green_guards(launcher, monkeypatch)
     monkeypatch.setattr(launcher.sys, detached, StringIO())
-    monkeypatch.setattr(launcher, "_run", lambda _argv: pytest.fail("SSH started"))
+    monkeypatch.setattr(launcher, "_run", unexpected_ssh)
     result = cast(dict[str, object], launcher.run())
     assert str(result["result"]).startswith("FAIL_")
     assert events == []
@@ -147,7 +171,7 @@ def test_bad_guard_never_starts_password_rotation(
         monkeypatch.setattr(
             launcher._registry_reconcile,
             "run",
-            lambda _path: registry_payload(mismatch=True),
+            mismatched_registry,
         )
     elif bad == "target":
         monkeypatch.setattr(
@@ -157,13 +181,11 @@ def test_bad_guard_never_starts_password_rotation(
         monkeypatch.setattr(
             launcher,
             "_approved_receipt",
-            lambda _identity: (_ for _ in ()).throw(ValueError(PRIVATE)),
+            rejected_receipt,
         )
     else:
-        monkeypatch.setattr(
-            launcher, "_active_instance", lambda _identity: "not-an-instance"
-        )
-    monkeypatch.setattr(launcher, "_run", lambda _argv: pytest.fail("SSH started"))
+        monkeypatch.setattr(launcher, "_active_instance", invalid_instance)
+    monkeypatch.setattr(launcher, "_run", unexpected_ssh)
 
     result = cast(dict[str, object], launcher.run())
 
@@ -199,3 +221,71 @@ def test_uncertain_transport_is_sanitized_and_never_retried(
     assert result["result"] == "FAIL_TRANSPORT_UNCERTAIN"
     assert attempts == 1
     assert_sanitized_result(result)
+
+
+def test_real_source_bundle_bootstrap_loads_rotation_module_and_dispatches(
+    launcher: ModuleType,
+) -> None:
+    """AC-1: execute actual bootstrap imports with only DB guards and write stubbed."""
+    sources = launcher._reviewed_source()
+    inspector_source = cast(str, sources["inspector"]["source"])
+    rotation_source = cast(str, sources["rotation_command"]["source"])
+    assert inspector_source == (
+        ROOT / "scripts/api_staging_operator_inspect.py"
+    ).read_text(encoding="utf-8")
+    assert rotation_source == COMMAND_PATH.read_text(encoding="utf-8")
+
+    # Keep every real import and class definition. Replace only the runtime
+    # target/DB guards and the final write-bearing execute call in this child.
+    inspector_source += f"""
+def _valid_expected_identity(source_sha, deployment_id): return True
+def _target_identity_matches(source_sha, deployment_id): return True
+def _bootstrap():
+    import contextlib, os, sys, django
+    sys.path.insert(0, {str(ROOT / "services/api")!r})
+    os.environ['DJANGO_SETTINGS_MODULE'] = 'config.settings.local'
+    django.setup()
+    from django.db import connection, transaction
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def execute(self, sql):
+            if sql != 'SET TRANSACTION READ ONLY': raise AssertionError
+    connection.cursor = lambda: Cursor()
+    transaction.atomic = contextlib.nullcontext
+def _inspect_orm_preconditions(): return 'PASS'
+"""
+    rotation_source += """
+def _test_execute(self, *args, **kwargs):
+    if kwargs.get('expected_identity', {}).get('environment') != 'staging':
+        raise AssertionError
+    print('TEST_ROTATION_EXECUTE_REACHED')
+Command.execute = _test_execute
+"""
+    for name, source in (
+        ("inspector", inspector_source),
+        ("rotation_command", rotation_source),
+    ):
+        sources[name] = {
+            "source": source,
+            "sha256": hashlib.sha256(source.encode()).hexdigest(),
+        }
+    request = json.dumps({"identity": IDENTITY, "sources": sources})
+    environment = dict(os.environ)
+    environment["DJANGO_SECRET_KEY"] = "local-bootstrap-test-only"
+    environment["DATABASE_URL"] = "postgresql://local:local@127.0.0.1/local"
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", cast(str, launcher._BOOTSTRAP), request],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment,
+        timeout=15,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.splitlines() == [
+        "TEST_ROTATION_EXECUTE_REACHED",
+        "TAILTAG_MANAGED_PASSWORD_ROTATION_COMPLETED",
+    ]
+    assert completed.stderr == ""

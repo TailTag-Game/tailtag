@@ -19,7 +19,7 @@ from collections.abc import Callable
 from io import StringIO
 from pathlib import Path
 from types import ModuleType
-from typing import NoReturn, cast
+from typing import Any, NoReturn, cast
 
 import pytest
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
@@ -591,9 +591,9 @@ def test_another_actors_password_cannot_authenticate_managed_operator(
 ) -> None:
     """Contract 3/4: valid password for the sole actor is insufficient by itself."""
     prepare_exact_roles()
-    other = User.objects.create_user("unrelated-auth-actor")
+    other = User(clerk_user_id="unrelated-auth-actor", is_staff=True)
     other.set_password("unrelated-actor-distinct-password")
-    other.save(update_fields={"password"})
+    other.save()
 
     assert (
         read_only_diagnosis(remote, "unrelated-actor-distinct-password")
@@ -808,16 +808,17 @@ def test_managed_actor_change_during_hidden_input_fails_closed(
 
     def hidden_input(prompt: str) -> str:
         assert "identifier" not in prompt.lower()
-        managed.groups.clear()
-        managed.is_staff = False
-        managed.save(update_fields={"is_staff"})
-        replacement = User.objects.create_user("replacement-managed-after-prompt")
+        cast(Any, cast(UserWithRoles, managed).groups).clear()
+        replacement = User(
+            clerk_user_id="replacement-managed-after-prompt", is_staff=True
+        )
         replacement.set_password(PASSWORD)
-        replacement.is_staff = True
-        replacement.save(update_fields={"password", "is_staff"})
+        replacement.save()
         from django.contrib.auth.models import Group
 
-        replacement.groups.add(Group.objects.get(name="TailTag Field Beta Operators"))
+        cast(UserWithRoles, replacement).groups.add(
+            Group.objects.get(name="TailTag Field Beta Operators")
+        )
         return PASSWORD
 
     monkeypatch.setattr(remote.getpass, "getpass", hidden_input)
@@ -825,7 +826,7 @@ def test_managed_actor_change_during_hidden_input_fails_closed(
     result = cast(dict[str, object], remote.run(IDENTITY))
 
     assert result["classification"] != "CREDENTIAL_ACCEPTED"
-    assert User.objects.get(pk=original_pk).is_staff is False
+    assert not User.objects.get(pk=original_pk).groups.exists()  # pyright: ignore[reportUnknownMemberType]
     assert PASSWORD not in output.getvalue() + json.dumps(result)
 
 

@@ -836,9 +836,9 @@ def test_managed_authentication_uses_pinned_actor_and_real_admin_http_login(
     create_owned_baseline()
     managed = create_exact_managed_operator()
     create_exact_limited_operator()
-    unrelated = User.objects.create_user("unrelated-managed-password-owner")
+    unrelated = User(clerk_user_id="unrelated-managed-password-owner", is_staff=True)
     unrelated.set_password("unrelated-distinct-password")
-    unrelated.save(update_fields={"password"})
+    unrelated.save()
     output = HiddenInputTerminal()
     prompts: list[str] = []
     requests: list[tuple[str, str, bytes | None]] = []
@@ -953,12 +953,11 @@ def test_managed_actor_drift_during_hidden_password_fails_before_post(
     def hidden_input(prompt: str = "") -> str:
         prompts.append(prompt)
         managed.groups.clear()  # pyright: ignore[reportUnknownMemberType]
-        managed.is_staff = False
-        managed.save(update_fields={"is_staff"})
-        replacement = User.objects.create_user("new-managed-after-hidden-prompt")
-        replacement.is_staff = True
+        replacement = User(
+            clerk_user_id="new-managed-after-hidden-prompt", is_staff=True
+        )
         replacement.set_password(INITIAL_PASSWORD)
-        replacement.save(update_fields={"is_staff", "password"})
+        replacement.save()
         replacement.groups.add(group)  # pyright: ignore[reportUnknownMemberType]
         return INITIAL_PASSWORD
 
@@ -985,6 +984,67 @@ def test_managed_actor_drift_during_hidden_password_fails_before_post(
     assert len(prompts) == 1
     assert "identifier" not in prompts[0].lower()
     assert all(method != "POST" for method, _ in requests)
+    assert OperatorAuditEvent.objects.count() == 0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_managed_login_rejects_admin_session_bound_to_different_actor(
+    matrix: ModuleType,
+    live_server: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    settings: SettingsWrapper,
+) -> None:
+    """AC-4: admin HTTP success for another User cannot authorize managed cases."""
+    from django.contrib.sessions.backends.db import SessionStore
+
+    create_owned_baseline()
+    managed = create_exact_managed_operator()
+    create_exact_limited_operator()
+    other = User(clerk_user_id="different-staff-session-actor", is_staff=True)
+    other.set_password("different-staff-password")
+    other.save()
+    requests: list[tuple[str, str, int]] = []
+    original_http = matrix._http_request
+    monkeypatch.setattr(sys, "stdin", HiddenInputTerminal())
+    monkeypatch.setattr(sys, "stdout", HiddenInputTerminal())
+    monkeypatch.setattr(matrix, "_STAGING_ORIGIN", live_server.url)
+    monkeypatch.setattr(matrix, "_guard_target", accept_target)
+    monkeypatch.setattr(matrix, "_active_identity", IDENTITY)
+    monkeypatch.setattr(getpass, "getpass", lambda _prompt="": INITIAL_PASSWORD)
+
+    def swapped_session_http(
+        method: str,
+        path: str,
+        *,
+        actor: Mapping[str, Any],
+        body: bytes | None = None,
+        csrf: str | None = None,
+    ) -> Mapping[str, Any]:
+        response = cast(
+            Mapping[str, Any],
+            original_http(method, path, actor=actor, body=body, csrf=csrf),
+        )
+        requests.append((method, path, cast(int, response["status"])))
+        if method == "POST" and path == "/admin/login/" and response["status"] == 302:
+            session_key = next(
+                cookie.value
+                for cookie in actor["cookies"]
+                if cookie.name == settings.SESSION_COOKIE_NAME
+            )
+            session = SessionStore(session_key=session_key)
+            session["_auth_user_id"] = str(other.pk)
+            session["_auth_user_hash"] = other.get_session_auth_hash()
+            session.save()
+        return response
+
+    monkeypatch.setattr(matrix, "_http_request", swapped_session_http)
+    with pytest.raises(ValueError):
+        matrix._authenticate("managed")
+
+    assert managed.pk != other.pk
+    assert ("POST", "/admin/login/", 302) in requests
+    assert ("GET", "/admin/", 200) in requests
+    assert all(path in {"/admin/login/", "/admin/"} for _, path, _ in requests)
     assert OperatorAuditEvent.objects.count() == 0
 
 

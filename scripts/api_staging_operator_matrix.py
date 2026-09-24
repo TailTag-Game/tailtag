@@ -194,8 +194,13 @@ def _csrf_from(response: Mapping[str, Any]) -> str:
 def _authenticate(role: str) -> dict[str, Any]:
     from django.conf import settings
     from django.contrib.auth.hashers import check_password
+    from django.contrib.auth.models import Group
+    from django.contrib.sessions.models import Session
     from django.http import HttpRequest
 
+    from accounts.management.commands.bootstrap_staging_operator import (
+        OPERATOR_GROUP_NAME,
+    )
     from accounts.models import User
     from authentication.clerk import ClerkSessionVerifier
     from rehearsal.models import StagingResetIdentity
@@ -224,10 +229,43 @@ def _authenticate(role: str) -> dict[str, Any]:
         }
     if role not in {"limited", "managed", "emergency"}:
         raise ValueError
-    identifier = getpass.getpass(f"{role} admin identifier: ")
+    group: Group | None = None
+    pinned: tuple[int, str, str] | None = None
+    if role == "managed":
+        if inspector._validate_managed_operator() is not None:  # pyright: ignore[reportPrivateUsage]
+            raise ValueError
+        group = Group.objects.get(name=OPERATOR_GROUP_NAME)
+        members = list(User.objects.filter(groups=group))
+        if len(members) != 1:
+            raise ValueError
+        operator = members[0]
+        pinned = (
+            operator.pk,
+            operator.clerk_user_id,
+            cast(str, operator.password),  # pyright: ignore[reportUnknownMemberType]
+        )
+        identifier = operator.clerk_user_id
+    else:
+        identifier = getpass.getpass(f"{role} admin identifier: ")
     password = getpass.getpass(f"{role} admin password: ")
     try:
-        operator = User.objects.get(clerk_user_id=identifier)
+        if role == "managed":
+            if group is None or pinned is None:
+                raise ValueError
+            if inspector._validate_managed_operator() is not None:  # pyright: ignore[reportPrivateUsage]
+                raise ValueError
+            current_members = list(User.objects.filter(groups=group))
+            if len(current_members) != 1:
+                raise ValueError
+            operator = current_members[0]
+            if (
+                operator.pk,
+                operator.clerk_user_id,
+                cast(str, operator.password),  # pyright: ignore[reportUnknownMemberType]
+            ) != pinned:
+                raise ValueError
+        else:
+            operator = User.objects.get(clerk_user_id=identifier)
         encoded_password = cast(str, operator.password)  # pyright: ignore[reportUnknownMemberType]
         if not operator.is_staff or not check_password(password, encoded_password):
             raise ValueError
@@ -247,13 +285,6 @@ def _authenticate(role: str) -> dict[str, Any]:
             or inspector._validate_managed_operator() is not None  # pyright: ignore[reportPrivateUsage]
         ):
             raise ValueError
-        if role == "managed":
-            from accounts.management.commands.bootstrap_staging_operator import (
-                OPERATOR_GROUP_NAME,
-            )
-
-            if not operator.groups.filter(name=OPERATOR_GROUP_NAME).exists():  # pyright: ignore[reportUnknownMemberType]
-                raise ValueError
         actor: dict[str, Any] = {
             "role": role,
             "actor_id": operator.pk,
@@ -276,6 +307,17 @@ def _authenticate(role: str) -> dict[str, Any]:
             or _http_request("GET", "/admin/", actor=actor)["status"] != 200
         ):
             raise ValueError
+        if role == "managed":
+            session_keys = [
+                cookie.value
+                for cookie in actor["cookies"]
+                if cookie.name == settings.SESSION_COOKIE_NAME
+            ]
+            if len(session_keys) != 1:
+                raise ValueError
+            session = Session.objects.get(session_key=session_keys[0])
+            if session.get_decoded().get("_auth_user_id") != str(operator.pk):
+                raise ValueError
         rotated = next(
             (cookie.value for cookie in actor["cookies"] if cookie.name == "csrftoken"),
             None,
