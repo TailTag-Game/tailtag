@@ -261,3 +261,69 @@ surfaces for known conflicting activity before mutation. Any conflicting writer,
 deployment or configuration operation stops the sequence; uncertain cleanup
 leaves the window held. The agent verifies execution cleanup; only the
 maintainer confirms release. Command exit status alone cannot release it.
+
+## Focused lifecycle failure-reporting correction
+
+The 02:06 attempt exposed a reporting defect: the SSH bootstrap suppresses
+all command exceptions into `FAIL_LIFECYCLE_UNCERTAIN`, including fixed,
+privacy-safe input errors already defined by the command. The actual original
+cause is unknown. A later separately authorized read-only inspection found
+managed-role validity and limited-role absence; it does not rewrite the old
+uncertain receipt.
+
+Scope: change only the lifecycle bootstrap's handling of known command errors
+and its focused tests/documentation. Preserve all target, identity, TTY, input,
+password, role, transaction and cleanup rules. No new CLI input, retry path,
+secret transport, provisioning behavior or product authorization change.
+
+Acceptance: during command execution, exact known Django `CommandError`
+messages map to these fixed remote classifications. Never print the message,
+exception, entered value, traceback or any other error content. Unknown errors,
+non-CommandError exceptions and database failures remain uncertain. The local
+transport result remains unverified; a fixed remote refusal is separate evidence,
+not a transport success or blanket proof of rollback.
+
+| Existing exact command error | Fixed remote classification |
+| --- | --- |
+| `Invalid command arguments.` | `FAIL_LIFECYCLE_CONFIGURATION` |
+| `This command is unavailable for the current target.` | `FAIL_LIFECYCLE_TARGET` |
+| `This command requires an interactive terminal.` | `FAIL_LIFECYCLE_TTY` |
+| `Query debugging must be disabled.` | `FAIL_LIFECYCLE_DEBUG_LOGGING` |
+| `Confirmation failed.` | `FAIL_LIFECYCLE_CONFIRMATION` |
+| `Hidden terminal input is unavailable.` | `FAIL_LIFECYCLE_HIDDEN_INPUT` |
+| `Operator identifier is invalid.` | `FAIL_LIFECYCLE_IDENTIFIER_INPUT` |
+| `Passwords do not match.` | `FAIL_LIFECYCLE_PASSWORD_CONFIRMATION` |
+| `Password does not meet operator requirements.` | `FAIL_LIFECYCLE_PASSWORD_POLICY` |
+| `Required operator permissions are unavailable.` | `FAIL_LIFECYCLE_PERMISSION_PREREQUISITE` |
+| `Existing group cannot be used as an operator.` | `FAIL_LIFECYCLE_EXISTING_GROUP` |
+| `Existing account cannot be used as an operator.` | `FAIL_LIFECYCLE_EXISTING_ACCOUNT` |
+| Database failure or any unrecognized exception/message | `FAIL_LIFECYCLE_UNCERTAIN` |
+
+Tests exercise the existing isolated `_BOOTSTRAP` seam using real Django
+`CommandError`, prove each category, refuse similarly worded private errors,
+retain nonzero exit/no completion marker, and prove startup errors cannot be
+misclassified as command refusals. Existing guard/transport tests remain required.
+Independent review must approve the correction before another live attempt.
+
+Input clarification: the maintainer chooses a new unused local admin login
+identifier without spaces. The unchanged configured password policy requires
+at least 12 characters, rejects common or entirely numeric passwords, and
+checks similarity to that identifier. TailTag stores it in its existing `clerk_user_id`
+field; this synthetic local-admin procedure creates no Clerk provider user.
+The public confirmation is entered once before hidden identifier/password
+prompts. The executing agent may enter that public phrase under the existing
+approval; identifiers and passwords are entered only by the maintainer directly
+in the hidden TTY. The owner's existing Clerk player session remains a separate
+later matrix input.
+
+Correction verification: the independent regression suite reproduced all 12
+collapsed known errors before the fix; all 63 lifecycle-transport tests pass
+after it. Fresh `make api-check` passed all 2,525 tests, Ruff, Pyright, the
+Semgrep rule fixtures and repository scan, Django checks, migration drift,
+OpenAPI validation and Gunicorn configuration. Explicit changed-launcher Ruff,
+Pyright and Semgrep checks also pass (zero findings). Doctor's required checks,
+local documentation link targets and `git diff --check` pass. The independent
+Compact reviewer found no material issue in classification exactness,
+execution-phase separation, sanitization, scope or historical evidence handling.
+These are local tooling results, not a successful live provisioning or matrix
+result. The earlier uncertain attempts remain unchanged.

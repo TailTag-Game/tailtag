@@ -490,6 +490,161 @@ def bootstrap_request(inspector_source: str) -> dict[str, object]:
     }
 
 
+def executing_command_request(command_source: str) -> dict[str, object]:
+    """Supply a local Django command behind the reviewed bootstrap guards."""
+    inspector_source = """\
+import sys, types
+class Cursor:
+    def __enter__(self): return self
+    def __exit__(self, *args): return False
+    def execute(self, statement):
+        if statement != "SET TRANSACTION READ ONLY": raise RuntimeError
+class Connection:
+    def cursor(self): return Cursor()
+class Atomic:
+    def __enter__(self): return self
+    def __exit__(self, *args): return False
+database = types.ModuleType("django.db")
+database.connection = Connection()
+database.transaction = types.SimpleNamespace(atomic=lambda: Atomic())
+def _valid_expected_identity(source_sha, deployment_id): return True
+def _target_identity_matches(source_sha, deployment_id): return True
+def _bootstrap():
+    from django.conf import settings
+    if not settings.configured: settings.configure(SECRET_KEY="local-test-only", INSTALLED_APPS=[])
+    import django.core.management.base
+    from django.db import DatabaseError
+    database.DatabaseError = DatabaseError
+    sys.modules["django.db"] = database
+def _inspect_orm_preconditions(): return "FAIL_LIMITED_OPERATOR_MISSING"
+"""
+    request = bootstrap_request(inspector_source)
+    command_record = cast(
+        dict[str, str], cast(dict[str, object], request["sources"])["lifecycle_command"]
+    )
+    command_record.update(
+        source=command_source,
+        sha256=hashlib.sha256(command_source.encode()).hexdigest(),
+    )
+    return request
+
+
+def raising_command_source(exception: str, message: str, trace: Path) -> str:
+    return f"""\
+from django.core.management.base import BaseCommand, CommandError
+from django.db import DatabaseError
+from pathlib import Path
+class Command(BaseCommand):
+    def handle(self, *args, **options):
+        Path({str(trace)!r}).write_text("handle reached")
+        raise {exception}({message!r})
+"""
+
+
+def assert_fixed_bootstrap_failure(
+    result: subprocess.CompletedProcess[str], expected: str
+) -> None:
+    assert result.returncode != 0
+    assert result.stdout == ""
+    assert result.stderr == expected + "\n"
+    assert "TAILTAG_LIFECYCLE_COMMAND_COMPLETED" not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("Invalid command arguments.", "FAIL_LIFECYCLE_CONFIGURATION"),
+        (
+            "This command is unavailable for the current target.",
+            "FAIL_LIFECYCLE_TARGET",
+        ),
+        ("This command requires an interactive terminal.", "FAIL_LIFECYCLE_TTY"),
+        ("Query debugging must be disabled.", "FAIL_LIFECYCLE_DEBUG_LOGGING"),
+        ("Confirmation failed.", "FAIL_LIFECYCLE_CONFIRMATION"),
+        ("Hidden terminal input is unavailable.", "FAIL_LIFECYCLE_HIDDEN_INPUT"),
+        ("Operator identifier is invalid.", "FAIL_LIFECYCLE_IDENTIFIER_INPUT"),
+        ("Passwords do not match.", "FAIL_LIFECYCLE_PASSWORD_CONFIRMATION"),
+        (
+            "Password does not meet operator requirements.",
+            "FAIL_LIFECYCLE_PASSWORD_POLICY",
+        ),
+        (
+            "Required operator permissions are unavailable.",
+            "FAIL_LIFECYCLE_PERMISSION_PREREQUISITE",
+        ),
+        (
+            "Existing group cannot be used as an operator.",
+            "FAIL_LIFECYCLE_EXISTING_GROUP",
+        ),
+        (
+            "Existing account cannot be used as an operator.",
+            "FAIL_LIFECYCLE_EXISTING_ACCOUNT",
+        ),
+    ],
+)
+def test_isolated_bootstrap_classifies_only_exact_safe_command_errors(
+    runner: ModuleType, tmp_path: Path, message: str, expected: str
+) -> None:
+    """Focused correction: known CommandError from execution has one fixed refusal."""
+    trace = tmp_path / "command-reached.txt"
+    request = executing_command_request(
+        raising_command_source("CommandError", message, trace)
+    )
+
+    result = isolated_bootstrap(runner, request)
+
+    assert trace.read_text() == "handle reached"
+    assert_fixed_bootstrap_failure(result, expected)
+    assert message not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    ("exception", "message"),
+    [
+        ("CommandError", "Validation operator action failed."),
+        ("DatabaseError", PRIVATE),
+        ("CommandError", PRIVATE),
+        ("CommandError", "Confirmation failed. " + PRIVATE),
+        ("CommandError", PRIVATE + " Confirmation failed."),
+        ("CommandError", "Confirmation failed.\n" + PRIVATE),
+        ("CommandError", "Confirmation failed.\x1b[31m"),
+        ("RuntimeError", "Confirmation failed."),
+    ],
+)
+def test_isolated_bootstrap_keeps_other_execution_failures_uncertain(
+    runner: ModuleType, tmp_path: Path, exception: str, message: str
+) -> None:
+    """Focused correction: private, database, and non-CommandError failures stay opaque."""
+    trace = tmp_path / "command-reached.txt"
+    request = executing_command_request(
+        raising_command_source(exception, message, trace)
+    )
+
+    result = isolated_bootstrap(runner, request)
+
+    assert trace.read_text() == "handle reached"
+    assert_fixed_bootstrap_failure(result, "FAIL_LIFECYCLE_UNCERTAIN")
+    assert message not in result.stdout + result.stderr
+    assert PRIVATE not in result.stdout + result.stderr
+
+
+def test_isolated_bootstrap_keeps_known_message_from_startup_uncertain(
+    runner: ModuleType,
+) -> None:
+    """Focused correction: a CommandError before execute is not a command refusal."""
+    message = "Confirmation failed."
+    command_source = f"""\
+from django.core.management.base import CommandError
+raise CommandError({message!r})
+"""
+    request = executing_command_request(command_source)
+
+    result = isolated_bootstrap(runner, request)
+
+    assert_fixed_bootstrap_failure(result, "FAIL_LIFECYCLE_UNCERTAIN")
+    assert message not in result.stdout + result.stderr
+
+
 @pytest.mark.parametrize(
     "tamper",
     ["inspector_digest", "command_digest", "extra_key", "bad_action"],

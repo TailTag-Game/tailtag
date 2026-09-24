@@ -364,3 +364,24 @@ roles remain exact, alongside repository-only diagnosis of the overly broad
 lifecycle failure classification. Do not authorize a provisioning retry or repair
 from this receipt alone. Preserve this outcome even if later evidence clarifies
 current state.
+
+## Authorized read-only reconciliation — 2026-09-24 02:08 UTC
+
+After the maintainer authorized another attempt, the reviewed read-only operator
+inspector ran first, without provisioning or credentials. Window:
+`2026-09-24T02:08:45.083854Z`–`2026-09-24T02:08:51.537255Z`.
+
+- Fresh verified environment: `staging`.
+- Source: `856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a`.
+- Deployment: `cbe83780-0256-49c2-b026-34709ddb69b0`.
+- Phase: `exact_instance_inspector`; target verified: true.
+- Result: `FAIL_LIMITED_OPERATOR_MISSING`. The prior fixture and managed-role
+  guards passed; no limited-role candidate was present at this observation.
+- No write, provisioning retry, matrix case, reset or decommission occurred.
+
+This establishes current inspected role absence; it does not recover the cause
+of the earlier command failure or rewrite its uncertain transport receipt.
+Before another provisioning attempt, the bounded repository correction in the
+[limited-role contract](staging-operator-validation-243-limited-role.md#focused-lifecycle-failure-reporting-correction)
+will preserve fixed known refusal classifications instead of suppressing every
+command error into uncertainty. Unknown errors remain fail-closed.

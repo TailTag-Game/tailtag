@@ -49,6 +49,20 @@ _BOOTSTRAP: Final = r"""
 import contextlib, hashlib, io, json, re, sys, uuid
 _SHA = re.compile(r"[0-9a-f]{40}\Z")
 _ACTIONS = {"provision": "FAIL_LIMITED_OPERATOR_MISSING", "decommission": "PASS"}
+_COMMAND_FAILURES = {
+    "Invalid command arguments.": "FAIL_LIFECYCLE_CONFIGURATION",
+    "This command is unavailable for the current target.": "FAIL_LIFECYCLE_TARGET",
+    "This command requires an interactive terminal.": "FAIL_LIFECYCLE_TTY",
+    "Query debugging must be disabled.": "FAIL_LIFECYCLE_DEBUG_LOGGING",
+    "Confirmation failed.": "FAIL_LIFECYCLE_CONFIRMATION",
+    "Hidden terminal input is unavailable.": "FAIL_LIFECYCLE_HIDDEN_INPUT",
+    "Operator identifier is invalid.": "FAIL_LIFECYCLE_IDENTIFIER_INPUT",
+    "Passwords do not match.": "FAIL_LIFECYCLE_PASSWORD_CONFIRMATION",
+    "Password does not meet operator requirements.": "FAIL_LIFECYCLE_PASSWORD_POLICY",
+    "Required operator permissions are unavailable.": "FAIL_LIFECYCLE_PERMISSION_PREREQUISITE",
+    "Existing group cannot be used as an operator.": "FAIL_LIFECYCLE_EXISTING_GROUP",
+    "Existing account cannot be used as an operator.": "FAIL_LIFECYCLE_EXISTING_ACCOUNT",
+}
 def _unique(pairs):
     result = {}
     for key, value in pairs:
@@ -72,8 +86,8 @@ def _valid(request):
         source, digest = item["source"], item["sha256"]
         if not isinstance(source, str) or not isinstance(digest, str) or len(source) > 131072 or hashlib.sha256(source.encode()).hexdigest() != digest: return False
     return True
-def _fail():
-    print("FAIL_LIFECYCLE_UNCERTAIN", file=sys.stderr)
+def _fail(classification="FAIL_LIFECYCLE_UNCERTAIN"):
+    print(classification, file=sys.stderr)
     raise SystemExit(1)
 try:
     if len(sys.argv) != 2 or len(sys.argv[1]) > 262144: raise ValueError
@@ -97,8 +111,17 @@ try:
         command_namespace = {"__name__": "tailtag_validation_operator_command", "__file__": "/app/staging_validation_operator.py"}
         exec(compile(sources["lifecycle_command"]["source"], command_namespace["__file__"], "exec"), command_namespace)
     if startup_stdout.getvalue() or startup_stderr.getvalue(): raise ValueError
-    command_namespace["Command"]().execute(action=request["action"], force_color=False, no_color=False, skip_checks=True)
 except BaseException:
+    _fail()
+try:
+    command_namespace["Command"]().execute(action=request["action"], force_color=False, no_color=False, skip_checks=True)
+except BaseException as error:
+    try:
+        from django.core.management.base import CommandError
+    except BaseException:
+        _fail()
+    if type(error) is CommandError and len(error.args) == 1 and type(error.args[0]) is str:
+        _fail(_COMMAND_FAILURES.get(error.args[0], "FAIL_LIFECYCLE_UNCERTAIN"))
     _fail()
 print("TAILTAG_LIFECYCLE_COMMAND_COMPLETED")
 """
