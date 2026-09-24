@@ -298,3 +298,69 @@ made to reconstruct the missing launch result.
   The exclusive window is not declared released; that decision remains with the
   maintainer. Resume only on instruction, with fresh guards and no inferred result
   from the missing receipt.
+
+## Resumed provisioning input stop — 2026-09-24 02:04–02:05 UTC
+
+Window: `2026-09-24T02:04:30.776190Z`–`2026-09-24T02:05:11.837540Z`.
+Reviewed source remains `1468cc7`; repository unchanged apart from evidence.
+Fresh approved identities, registry reconciliation, canonical preflight,
+approved deployment receipt, running-instance join and role guards passed.
+Environment `staging`; source `856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a`;
+deployment `cbe83780-0256-49c2-b026-34709ddb69b0`.
+
+The executing agent entered the exact public confirmation. The hidden identifier
+prompt then appeared. The attempt subsequently ended with
+`FAIL_LIFECYCLE_UNCERTAIN` and launcher `FAIL_TRANSPORT_UNCERTAIN` at
+`interactive_ssh`. No password prompt, password input or completion marker was
+observed. No entered identifier or secret is retained. The maintainer reported
+confusion between the public confirmation and the subsequent identifier input.
+The retained output establishes the identifier-input/validation boundary, not
+an underlying operator-state failure.
+
+Disposition: `BLOCKED_BEFORE_MUTATION`. The command cannot enter its write
+transaction before both hidden password prompts and password validation.
+Provisioning did not begin; cases 1–9 remain `NOT_EXERCISED`, and no reset or
+matrix action ran. No restoration is required by this attempt. Any new attempt
+must repeat fresh guards; clarify the existing input sequence without weakening
+validation or changing the hidden-TTY boundary. The exclusive window is not
+released by this record.
+
+## Provisioning hard stop after hidden inputs — 2026-09-24 02:06 UTC
+
+Window: `2026-09-24T02:06:10.429341Z`–`2026-09-24T02:06:48.117701Z`.
+Reviewed command and transport: `1468cc7`.
+The freshly guarded launcher reached the interactive command after approved
+provider identity, public preflight, approved receipt, exact running-instance
+and remote target/role checks. Before the command, the managed role was valid
+and the limited role was specifically absent. These are pre-operation facts.
+
+- Environment: `staging`.
+- Source: `856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a`.
+- Deployment: `cbe83780-0256-49c2-b026-34709ddb69b0`.
+- Observed prompt progression: public confirmation, hidden identifier, hidden
+  password, hidden password confirmation. The maintainer confirmed entering a
+  new identifier and password. Input values were not observed or retained.
+- Remote fixed result: `FAIL_LIFECYCLE_UNCERTAIN`.
+- Launcher result: `FAIL_TRANSPORT_UNCERTAIN`; phase `interactive_ssh`.
+- Neither a creation/reconciliation success message nor the fixed lifecycle
+  completion marker was observed.
+
+Disposition: `HARD_STOP_PROVISIONING_OUTCOME_UNCERTAIN`. Unlike the preceding
+input stops, the full credential-prompt sequence was reached. The sanitized
+wrapper does not distinguish input/password validation, a refused existing
+state, transaction failure, or failure after a possible commit. Do not infer
+which occurred. Mutation may have begun; actual provisioning outcome and the
+current limited-operator state are unknown. No retry or post-failure authenticated
+inspection was performed.
+
+Cases 1–9 remain `NOT_EXERCISED`. No matrix action, reset, decommission or cleanup
+mutation was invoked. No credential, identifier, permission dump or raw exception
+is retained. The exclusive Staging window remains held; cleanup/final operator
+state is not declared verified. #243 is incomplete and #208 remains NO-GO.
+
+Smallest next decision: separately authorize one fresh, exact-target, read-only
+operator inspection to establish whether provisioning committed and whether both
+roles remain exact, alongside repository-only diagnosis of the overly broad
+lifecycle failure classification. Do not authorize a provisioning retry or repair
+from this receipt alone. Preserve this outcome even if later evidence clarifies
+current state.
