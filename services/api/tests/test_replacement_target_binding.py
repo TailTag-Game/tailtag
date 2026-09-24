@@ -221,6 +221,14 @@ def test_loader_sanitizes_json_integer_conversion_failure(
     _assert_fixed_denial(binding, lambda: binding.load_local_manifest(path))
 
 
+def test_loader_sanitizes_excessive_json_nesting(
+    binding: ModuleType, tmp_path: Path
+) -> None:
+    """T-2/T-8: a bounded file can still exceed the JSON parser depth."""
+    path = _private_manifest(tmp_path, "[" * 32000 + "0" + "]" * 32000)
+    _assert_fixed_denial(binding, lambda: binding.load_local_manifest(path))
+
+
 def test_loader_rejects_missing_symlink_and_wrong_modes(
     binding: ModuleType, tmp_path: Path
 ) -> None:

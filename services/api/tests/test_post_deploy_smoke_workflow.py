@@ -101,6 +101,20 @@ def run_classifier(
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
     """Execute the classifier with controlled GitHub event values."""
     output = tmp_path / "github-output"
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "deployment": {
+                    "environment": "TailTag Rebuild / development",
+                    "creator": {"login": "railway-app[bot]"},
+                    "sha": deployment_sha,
+                    "ref": "main",
+                },
+                "deployment_status": {"state": "success"},
+            }
+        )
+    )
     workflow = WORKFLOW.read_text()
     completed = subprocess.run(
         ["bash", "-c", step_script(workflow, "Classify the trigger")],
@@ -108,13 +122,7 @@ def run_classifier(
         env={
             **os.environ,
             "EVENT_NAME": event_name,
-            "DEPLOYMENT_STATE": "success",
-            "DEPLOYMENT_ENVIRONMENT": "TailTag / development",
-            "DEPLOYMENT_CREATOR": "railway-app[bot]",
-            "DEPLOYMENT_ID": "123",
-            "DEPLOYMENT_STATUS_ID": "456",
-            "DEPLOYMENT_SHA": deployment_sha,
-            "DEPLOYMENT_REF": "main",
+            "GITHUB_EVENT_PATH": str(event_path),
             "GITHUB_SHA": "workflow-revision",
             "GITHUB_OUTPUT": str(output),
         },
@@ -342,8 +350,9 @@ def test_display_label_and_sha_alone_cannot_trigger_attributed_smoke(
         tmp_path, event_name="deployment_status", deployment_sha=SOURCE_SHA
     )
 
-    assert completed.returncode != 0 or values.get("should_verify") != "true"
-    assert values.get("checkout_ref") != SOURCE_SHA
+    assert completed.returncode == 0, completed.stderr
+    assert values.get("should_verify") == "false"
+    assert values.get("checkout_ref") == ""
 
 
 def test_manual_dispatch_does_not_label_the_workflow_revision_as_a_deployment(

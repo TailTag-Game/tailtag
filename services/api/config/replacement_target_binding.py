@@ -151,7 +151,7 @@ def _read_local_manifest(path: Path) -> dict[str, object]:
         if not isinstance(document, dict):
             raise TargetBindingError
         return cast(dict[str, object], document)
-    except (OSError, UnicodeError, ValueError, KeyError, TypeError):
+    except (OSError, RecursionError, UnicodeError, ValueError, KeyError, TypeError):
         raise TargetBindingError from None
 
 
