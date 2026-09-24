@@ -233,3 +233,68 @@ Local cleanup after this stop: the task-owned temporary-memory PostgreSQL
 container `tailtag-243-limited-tests` was stopped and removed. A subsequent
 container listing confirmed it absent. No unrelated containers, persistent
 volumes or reusable images were removed.
+
+## Provisioning input guard stop — 2026-09-24 00:57–00:59 UTC
+
+Reviewed tooling commit: `1468cc7`. Attempt window:
+`2026-09-24T00:57:45.524105Z`–`2026-09-24T00:59:37.756849Z`.
+Fresh registry reconciliation passed all structural and equality checks before
+this attempt. The lifecycle launcher's provider identities, canonical preflight,
+approved receipt, exact running instance and remote role/target guards passed
+before the interactive confirmation prompt. The prerequisite remained managed
+operator valid and limited operator absent at that inspection.
+
+- Environment: `staging`.
+- Source: `856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a`.
+- Deployment: `cbe83780-0256-49c2-b026-34709ddb69b0`.
+- Retained remote output: `FAIL_LIFECYCLE_UNCERTAIN`.
+- Retained launcher result: `FAIL_TRANSPORT_UNCERTAIN`;
+  phase: `interactive_ssh`.
+- Last observed input boundary: public confirmation. The maintainer's retained
+  account shows the public phrase split across lines. No identifier/password
+  prompt or secret entry was observed or reported. No completion marker appeared.
+- Supported attempt disposition: `BLOCKED_BEFORE_MUTATION`. The command requires
+  successful confirmation and all hidden credential inputs before entering its
+  provisioning transaction. None of those credential inputs was supplied.
+  A multiline confirmation is the apparent input failure; the sanitized wrapper
+  does not independently distinguish rejected confirmation from early hidden-input
+  setup failure. No operator-state mismatch is inferred from this failure.
+- Cases 1–9: `NOT_EXERCISED`. Provisioning, reset, decommission and matrix mutations
+  did not begin. No Staging restoration is required by this attempt. The operator
+  window is not declared released; release remains the maintainer's responsibility.
+
+Do not treat the transport classification as success or overwrite it. A new
+attempt must repeat all fresh target/role gates. The exact public confirmation
+may be entered by the executing agent under the existing explicit authorization;
+all identifiers/passwords still require the maintainer's direct hidden-TTY input.
+No guard is weakened and no credential transport changes.
+
+## Maintainer-requested safe pause — 2026-09-24 01:03 UTC
+
+After the preceding input-guard stop, an independent source review confirmed
+that no write was reachable without the missing hidden credential inputs.
+A second guarded launch was initiated under the standing authorization. Its
+bounded observation window falls after `2026-09-24T00:59:37.756849Z` and ends at
+`2026-09-24T01:03:47Z`. No new target/role receipt, confirmation prompt, hidden
+credential prompt or completion marker was retained from that launch. The
+agent's conditional public-confirmation entry did not run because its required
+prompt was not observed. No secret input was supplied or reported.
+
+The maintainer requested a safe pause. Delivery of a terminal interrupt could
+not be confirmed because the selected terminal surface was no longer available.
+A subsequent local process inspection found no matching lifecycle executor or
+SSH/Railway lifecycle transport. No new authenticated Staging observation was
+made to reconstruct the missing launch result.
+
+- Disposition: `PAUSED_NO_COMPLETION_RECEIPT`, before any established provisioning
+  mutation. The command's mandatory confirmation/credential gates were not
+  completed in the retained interaction; do not infer a successful provision.
+- Fresh target tuple and exact guard phase for this second launch: not established
+  by retained output. The preceding attempt's tuple remains historical evidence.
+- Cases 1–9: `NOT_EXERCISED`; no reset, decommission or matrix action ran.
+- Local test cleanup: task-owned disposable PostgreSQL container stopped,
+  removed and verified absent. No matching local execution/transport remains.
+- No Staging repair or follow-on inspection was attempted after the pause request.
+  The exclusive window is not declared released; that decision remains with the
+  maintainer. Resume only on instruction, with fresh guards and no inferred result
+  from the missing receipt.
