@@ -416,6 +416,13 @@ or forward-recovery decision.
 | `PORT` | Railway platform runtime configuration for the container; do not duplicate it as a TailTag-owned Django setting. |
 | Other `RAILWAY_*` values | Platform-owned variables; do not manually duplicate them unless an approved design explicitly requires a user-configured Railway behavior variable. |
 
+After the paired replacement Development deployment passes identity and readiness
+checks, run `make api-replacement-auth-smoke` from the repository root with fresh
+ordinary Clerk sessions for the replacement Development and Staging apps. The
+command uses the locked backend environment and hidden token prompts. Require
+both same-environment `/api/me/` checks and both cross-environment denials
+before calling the replacement Development API usable. Never record the tokens.
+
 `CLERK_SMOKE_USER_ID` and `TAILTAG_DEVELOPMENT_API_BASE_URL` are local
 operator/tooling inputs, not Railway API runtime configuration. The Clerk
 Development `sk_test_` credential is entered through the authenticated smoke

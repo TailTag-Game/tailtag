@@ -58,7 +58,7 @@ endef
 
 .PHONY: help \
 	api-setup api-run api-semgrep-check api-test api-check api-migrate api-migrations \
-	api-migrations-check api-shell api-smoke api-auth-smoke api-staging-auth-smoke api-media-storage-smoke api-staging-reset api-staging-reset-ssh api-staging-reset-provision \
+	api-migrations-check api-shell api-smoke api-auth-smoke api-staging-auth-smoke api-replacement-auth-smoke api-media-storage-smoke api-staging-reset api-staging-reset-ssh api-staging-reset-provision \
 	api-staging-restore-drill \
 	api-format-check api-lint-check api-type-check api-django-check \
 	api-schema-check api-gunicorn-check
@@ -124,6 +124,9 @@ api-auth-smoke: ## Authenticated smoke test with an interactive Clerk Developmen
 
 api-staging-auth-smoke: ## Run the explicit live Clerk Staging authenticated API smoke.
 	PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_staging_auth_smoke
+
+api-replacement-auth-smoke: ## Run the interactive replacement Development/Staging authenticated API smoke.
+	PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_replacement_auth_smoke
 
 api-staging-reset: ## Run the explicitly confirmed guarded Staging rehearsal reset.
 	DJANGO_SETTINGS_MODULE=config.settings.production PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_staging_reset --confirm reset-tailtag-staging
