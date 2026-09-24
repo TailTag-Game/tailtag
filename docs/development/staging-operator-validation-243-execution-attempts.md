@@ -570,3 +570,46 @@ limited-operator decommission and final readiness checks remain pending. A
 separately authorized task must establish the intended exact managed-operator
 identifier through the existing private operator boundary and freshly repeat
 the target and role guards before any new authentication attempt.
+
+## Managed-login replacement transport stop — 2026-09-24 04:15 UTC
+
+The reviewed repository-only managed-login recovery at `c5942bb` was invoked
+once from a real interactive Terminal after the previously documented
+managed-only scope decision. Its launcher had passed the exact managed+limited
+inspector, #204 registry reconciliation, fresh public target checks, approved
+deployment receipt, and unique running-instance guard before starting the
+interactive SSH phase. This is a separate attempt; the earlier managed-auth
+`IDENTITY_MISMATCH` remains historical.
+
+- Launcher window: `2026-09-24T04:15:25.205728Z`–
+  `2026-09-24T04:15:54.875802Z`; phase `interactive_ssh`;
+  `FAIL_TRANSPORT_UNCERTAIN`.
+- Public target: `environment=staging`, source
+  `856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a`, deployment
+  `cbe83780-0256-49c2-b026-34709ddb69b0`.
+- The public confirmation and hidden new-identifier prompt appeared. The
+  retained sanitized output includes `FAIL_MANAGED_REPLACEMENT_UNCERTAIN`.
+  Neither `PREPARED`, `POSTCONDITION_PASS`, nor the remote completion marker
+  was witnessed. The maintainer separately confirmed that neither the new
+  identifier nor password was entered before the failure. The reviewed command
+  cannot enter its write transaction without both inputs, so this attempt did
+  **not** transfer the managed role. The launcher still remains historically
+  `FAIL_TRANSPORT_UNCERTAIN`; its output alone does not establish the cause of
+  the remote/transport stop. No credential or identifier value was retained.
+- A fresh, independently guarded, read-only exact-instance operator
+  inspection at `2026-09-24T04:16:30.121910Z`–
+  `2026-09-24T04:16:36.112003Z` returned `PASS`, `target_verified=true`,
+  against the same public target. It establishes that the managed and limited
+  roles were exact at that observation. It does not identify a User; the
+  pre-write input boundary above establishes that this attempt did not create
+  a replacement or retire the predecessor.
+- No #205 matrix case, #204 reset, or limited-operator decommission was
+  invoked in this attempt; cases 1–9 remain `NOT_EXERCISED`. No final cleanup
+  or readiness check ran. The limited operator remains active at the read-only
+  inspection. Its approved decommission and final-state checks remain pending.
+
+Do not blindly retry replacement or begin the matrix based on this result.
+Diagnose the pre-input stop and use a new fully guarded attempt only after its
+interactive path is reviewed. The exclusive Staging window remains held. The
+new managed credentials cannot be used for the matrix until a future completed
+replacement postcondition and fresh authentication check establish them.
