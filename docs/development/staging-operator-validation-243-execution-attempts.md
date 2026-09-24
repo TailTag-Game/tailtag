@@ -523,3 +523,50 @@ The exclusive Staging window remains held and has not been released by this
 record. #243 remains incomplete and #208 remains NO-GO. A new separately
 authorized access/credential diagnosis and an explicit decision about cleanup
 or a newly guarded matrix attempt are required before further live work.
+
+## Managed authentication diagnosis stop — 2026-09-24 03:01–03:02 UTC
+
+This is a new, separate read-only attempt after the historical matrix
+`FAIL_AUTHENTICATION`; it does not reclassify that earlier result. The reviewed
+diagnostic at `da11788` ran after local validation and independent review. The
+approved GitHub/Railway identities, fresh canonical public preflight,
+deployment receipt, unique running instance, and repeated public tuple passed.
+The diagnostic launcher's independent exact-instance inspector was required to
+return `PASS` for both managed and limited roles before the remote credential
+prompt could start. The remote exact target and read-only role/fixture
+preconditions passed before the two hidden prompts.
+
+- Launcher window: `2026-09-24T03:01:36.878480Z`–
+  `2026-09-24T03:02:19.967161Z`; phase `exact_instance_auth_diagnosis`;
+  `FAIL_TRANSPORT_EXIT_STATUS`. A nonzero SSH exit is expected for the fixed
+  remote failure; the launcher does not infer a credential result from exit
+  status alone.
+- Remote window: `2026-09-24T03:01:47.424189Z`–
+  `2026-09-24T03:02:19.641681Z`; `IDENTITY_MISMATCH`. The successful remote
+  completion marker was absent.
+- Both retained results report the same public tuple: `environment=staging`,
+  source `856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a`, deployment
+  `cbe83780-0256-49c2-b026-34709ddb69b0`. The local launcher's
+  `target_verified=false` is intentional because it does not parse inherited
+  remote stdout; the remote target checks passed before prompting.
+- The entered identifier did not select the sole exact managed operator. The
+  diagnostic intentionally does not distinguish a mistyped/missing identifier
+  from one selecting another User. It did not establish whether the managed
+  operator's stored password matches the entered password or whether the
+  Django-admin HTTP login would succeed. No identifier, password, hash or
+  account detail was retained.
+- The diagnostic performed read-only queries only. No matrix case was
+  submitted; cases 1–9 remain `NOT_EXERCISED`. No domain transition, audit
+  mutation, #204 reset, credential reconciliation or limited-operator
+  decommission occurred in this attempt. The limited validation operator was
+  still exact and active at the pre-prompt inspection; no later lifecycle
+  action was taken. Its current post-attempt state was not re-inspected.
+
+This is an identity hard stop, not proof of an application authorization or
+password defect. Do not retry the failed authentication, switch accounts,
+rotate a credential, start the matrix or decommission on this evidence. The
+exclusive Staging window remains held, and the approved audit-preserving
+limited-operator decommission and final readiness checks remain pending. A
+separately authorized task must establish the intended exact managed-operator
+identifier through the existing private operator boundary and freshly repeat
+the target and role guards before any new authentication attempt.
