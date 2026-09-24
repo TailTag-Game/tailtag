@@ -385,3 +385,49 @@ Before another provisioning attempt, the bounded repository correction in the
 [limited-role contract](staging-operator-validation-243-limited-role.md#focused-lifecycle-failure-reporting-correction)
 will preserve fixed known refusal classifications instead of suppressing every
 command error into uncertainty. Unknown errors remain fail-closed.
+
+## Provisioning completion marker with uncertain transport — 2026-09-24 02:17–02:18 UTC
+
+Window: `2026-09-24T02:17:54.140857Z`–`2026-09-24T02:18:58.280920Z`.
+Reviewed tooling: `8ad4b15`. The reporting correction passed 63 focused tests,
+the full 2,525-test repository gate, static analysis and independent review.
+The task-owned disposable test database was stopped, removed and verified absent
+before this attempt.
+
+A fresh guarded registry reconciliation passed all three structural checks and
+all 12 equality checks. The lifecycle launcher independently passed its approved
+identity, canonical preflight, approved deployment receipt, running-instance,
+exact-instance target and role checks before displaying the public confirmation.
+Its required pre-operation role result establishes managed PASS / limited MISSING
+at that time, not after provisioning.
+
+- Environment: `staging`.
+- Source: `856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a`.
+- Deployment: `cbe83780-0256-49c2-b026-34709ddb69b0`.
+- Public confirmation was entered by the executing agent. The maintainer entered
+  the identifier/password/password confirmation directly through the hidden TTY.
+  No entered value was observed or retained.
+- Remote fixed output observed: `Validation operator created.` followed by
+  `TAILTAG_LIFECYCLE_COMMAND_COMPLETED`. No fixed lifecycle refusal was observed.
+- Local launcher: `FAIL_TRANSPORT_UNCERTAIN`, phase `interactive_ssh`.
+
+Disposition: `HARD_STOP_TRANSPORT_UNCERTAIN_AFTER_COMPLETION_MARKER`. The remote
+output supports command completion and an intended committed creation; the
+launcher did not accept the transport result. Its sanitized output does not
+distinguish nonzero transport exit from rejected stderr. Do not infer the cause,
+declare the whole operation successful, or retry provisioning. Actual current
+role state and cleanup remain independently unverified. Treat a Staging mutation
+as having potentially committed; this is not a before-mutation stop.
+
+The sequence stopped without post-operation authenticated inspection, matrix,
+reset, decommission or other mutation. Cases 1–9 remain `NOT_EXERCISED`.
+A local process check found no matching lifecycle executor or Railway lifecycle
+transport. No terminal transcript, credential, private identity, raw stderr or
+database content is retained. The exclusive Staging window remains held.
+
+Smallest next decision: authorize one newly preflighted, exact-instance,
+read-only operator inspection to determine whether both roles are exact, plus
+repository-only diagnosis of the transport-result handling. Do not retry
+provisioning or perform cleanup based solely on this receipt. Preserve both
+the remote completion evidence and the contradictory uncertain transport result.
+#243 remains incomplete; #208 remains NO-GO.
