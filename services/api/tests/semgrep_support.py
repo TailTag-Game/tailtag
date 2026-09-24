@@ -10,6 +10,7 @@ FROZEN_ROOT_HELPERS = frozenset(
         "scripts/api_auth_smoke.py",
         "scripts/api_staging_auth_smoke.py",
         "scripts/api_staging_preflight.py",
+        "scripts/api_development_delivery_event.py",
         "scripts/api_media_storage_smoke.py",
         "scripts/api_environment_fingerprint.py",
         "scripts/clerk_development_session.py",
