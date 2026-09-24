@@ -431,3 +431,47 @@ repository-only diagnosis of the transport-result handling. Do not retry
 provisioning or perform cleanup based solely on this receipt. Preserve both
 the remote completion evidence and the contradictory uncertain transport result.
 #243 remains incomplete; #208 remains NO-GO.
+
+## Independent postcondition inspection — 2026-09-24 02:26 UTC
+
+The single newly authorized read-only operator inspection ran after fresh
+approved GitHub and Railway identity checks. Its own credential-free public
+preflight, approved deployment receipt, exact running-instance selection,
+identity readback and repeated public preflight agreed. Window:
+`2026-09-24T02:26:41.715725Z`–`2026-09-24T02:26:47.890031Z`.
+
+- Verified environment: `staging`.
+- Source: `856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a`.
+- Deployment: `cbe83780-0256-49c2-b026-34709ddb69b0`.
+- Exact-instance inspector result: `PASS`; target verified: true.
+- Managed operator: `PASS` against the frozen #205 role contract.
+- Dedicated limited operator: `PASS` against the exact #243 group, staff,
+  nonsuperuser, password, permission and attachment contract.
+- Overall role disposition: `LIMITED_OPERATOR_READY`.
+
+This independently establishes the expected post-provision role state at the
+inspection time. The preceding `FAIL_TRANSPORT_UNCERTAIN` receipt remains the
+historical result of the earlier attempt; this later inspection does not change
+its missing transport facts or prove why the launcher rejected the transport.
+No operator, fixture, audit or other Staging state was mutated by this inspection.
+
+Local transport diagnosis: the lifecycle launcher inherits stdout, so the
+remote creation message and completion marker were visible outside the
+launcher. It returns the same uncertain classification on a nonzero Railway
+SSH exit, unallowlisted captured stderr, or execution interruption/timeout.
+The earlier receipt retained neither the actual exit code nor stderr category.
+Controlled local subprocess doubles reproduced both marker-then-nonzero-exit
+and marker-then-extra-stderr rejection; they cannot determine which occurred
+in the historical attempt. Railway CLI `5.57.2` passes the native SSH process's
+exit status and streams through to the caller. The strict rejection matches
+the reviewed fail-closed contract; independent review found no proven tooling
+defect or matrix safety blocker requiring a change before the approved matrix.
+The 172 focused lifecycle/matrix launcher tests passed. A terminal display
+truncation could limit human observation, but cannot affect the launcher's
+classification because it does not parse inherited stdout.
+
+Cases 1–9 remain `NOT_EXERCISED` at this point. Reset and decommission have not
+run. The exact limited operator is now active; the approved post-validation
+decommission and audit-preserving final checks remain cleanup obligations.
+The exclusive Staging window remains held through the bounded matrix, reset,
+decommission and final state verification.
