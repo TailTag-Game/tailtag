@@ -68,6 +68,7 @@ FAIL_FIXTURE_STATE_MISMATCH = "FAIL_FIXTURE_STATE_MISMATCH"
 FAIL_MANAGED_OPERATOR_MISSING = "FAIL_MANAGED_OPERATOR_MISSING"
 FAIL_MANAGED_OPERATOR_AMBIGUOUS = "FAIL_MANAGED_OPERATOR_AMBIGUOUS"
 FAIL_MANAGED_OPERATOR_STATE = "FAIL_MANAGED_OPERATOR_STATE"
+FAIL_MANAGED_OPERATOR_PASSWORD_UNUSABLE = "FAIL_MANAGED_OPERATOR_PASSWORD_UNUSABLE"
 FAIL_MANAGED_OPERATOR_PERMISSION = "FAIL_MANAGED_OPERATOR_PERMISSION"
 FAIL_LIMITED_OPERATOR_MISSING = "FAIL_LIMITED_OPERATOR_MISSING"
 FAIL_LIMITED_OPERATOR_AMBIGUOUS = "FAIL_LIMITED_OPERATOR_AMBIGUOUS"
@@ -85,6 +86,7 @@ ALL_CODES = frozenset(
         FAIL_MANAGED_OPERATOR_MISSING,
         FAIL_MANAGED_OPERATOR_AMBIGUOUS,
         FAIL_MANAGED_OPERATOR_STATE,
+        FAIL_MANAGED_OPERATOR_PASSWORD_UNUSABLE,
         FAIL_MANAGED_OPERATOR_PERMISSION,
         FAIL_LIMITED_OPERATOR_MISSING,
         FAIL_LIMITED_OPERATOR_AMBIGUOUS,
@@ -539,6 +541,53 @@ def test_managed_operator_role_state_drift_is_not_permission_drift(
     managed.save(update_fields={"is_staff"})
 
     assert inspect(configured_inspector) == FAIL_MANAGED_OPERATOR_STATE
+
+
+@pytest.mark.django_db
+def test_exact_managed_role_with_unusable_hash_has_distinct_failure(
+    configured_inspector: ModuleType,
+) -> None:
+    """The inspector preserves the exact role while naming missing local auth."""
+    create_owned_baseline()
+    managed = create_managed_operator()
+    create_limited_operator()
+    managed.set_unusable_password()
+    managed.save(update_fields={"password"})
+
+    assert inspect(configured_inspector) == FAIL_MANAGED_OPERATOR_PASSWORD_UNUSABLE
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("drift", "expected"),
+    [
+        ("staff", FAIL_MANAGED_OPERATOR_STATE),
+        ("group", FAIL_MANAGED_OPERATOR_STATE),
+        ("permission", FAIL_MANAGED_OPERATOR_PERMISSION),
+    ],
+)
+def test_unusable_hash_does_not_mask_other_managed_role_drift(
+    configured_inspector: ModuleType, drift: str, expected: str
+) -> None:
+    """State and permission failures retain their prior classifications."""
+    create_owned_baseline()
+    managed = create_managed_operator()
+    create_limited_operator()
+    managed.set_unusable_password()
+    managed.save(update_fields={"password"})
+    if drift == "staff":
+        managed.is_staff = False
+        managed.save(update_fields={"is_staff"})
+    elif drift == "group":
+        cast(UserWithRoles, managed).groups.add(
+            Group.objects.create(name="Other group")
+        )
+    else:
+        cast(UserWithRoles, managed).user_permissions.add(
+            permission_map()["profiles.set_profile_enabled"]
+        )
+
+    assert inspect(configured_inspector) == expected
 
 
 @pytest.mark.django_db

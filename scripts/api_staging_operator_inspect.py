@@ -32,6 +32,9 @@ FAIL_MANAGED_OPERATOR_MISSING: Final = "FAIL_MANAGED_OPERATOR_MISSING"
 FAIL_MANAGED_OPERATOR_AMBIGUOUS: Final = "FAIL_MANAGED_OPERATOR_AMBIGUOUS"
 FAIL_MANAGED_OPERATOR_STATE: Final = "FAIL_MANAGED_OPERATOR_STATE"
 FAIL_MANAGED_OPERATOR_PERMISSION: Final = "FAIL_MANAGED_OPERATOR_PERMISSION"
+FAIL_MANAGED_OPERATOR_PASSWORD_UNUSABLE: Final = (
+    "FAIL_MANAGED_OPERATOR_PASSWORD_UNUSABLE"
+)
 FAIL_LIMITED_OPERATOR_MISSING: Final = "FAIL_LIMITED_OPERATOR_MISSING"
 FAIL_LIMITED_OPERATOR_AMBIGUOUS: Final = "FAIL_LIMITED_OPERATOR_AMBIGUOUS"
 FAIL_LIMITED_OPERATOR_STATE: Final = "FAIL_LIMITED_OPERATOR_STATE"
@@ -50,6 +53,7 @@ STATUS_CODES: Final = frozenset(
         FAIL_MANAGED_OPERATOR_AMBIGUOUS,
         FAIL_MANAGED_OPERATOR_STATE,
         FAIL_MANAGED_OPERATOR_PERMISSION,
+        FAIL_MANAGED_OPERATOR_PASSWORD_UNUSABLE,
         FAIL_LIMITED_OPERATOR_MISSING,
         FAIL_LIMITED_OPERATOR_AMBIGUOUS,
         FAIL_LIMITED_OPERATOR_STATE,
@@ -181,7 +185,6 @@ def _validate_managed_operator() -> str | None:
         return FAIL_UNEXPECTED_PRIVILEGE
     if (
         not operator.is_staff
-        or not operator.has_usable_password()
         or list(operator.groups.values_list("pk", flat=True)) != [group.pk]  # pyright: ignore[reportUnknownMemberType]
     ):
         return FAIL_MANAGED_OPERATOR_STATE
@@ -190,6 +193,8 @@ def _validate_managed_operator() -> str | None:
         or _permission_names(group.permissions) != EXPECTED_PERMISSION_NAMES  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
     ):
         return FAIL_MANAGED_OPERATOR_PERMISSION
+    if not operator.has_usable_password():
+        return FAIL_MANAGED_OPERATOR_PASSWORD_UNUSABLE
     return None
 
 
