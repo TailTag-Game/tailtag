@@ -178,3 +178,58 @@ preservation policy; the final test container used temporary memory storage.
 Final independent evidence review passed with no material finding. The
 record preserves both failed attempts, the supported role result and the
 unexercised matrix boundary. Local documentation links and diff checks passed.
+
+
+## Repository-only feasibility stop — 2026-09-24 00:31 UTC
+
+Classification: `BLOCKED_BEFORE_MUTATION` / `PLAN_CONTRACT_GAP`.
+This is a local planning/review result, not an authenticated Staging attempt.
+No fresh target tuple was established; the earlier observations above remain
+point-in-time historical evidence. Cases 1–9 remain `NOT_EXERCISED`.
+
+The maintainer authorized a narrow limited-role provisioning path and then
+approved mixed evidence for absent Catch/credential object-level case-9
+checks. That amendment expressly excludes other missing live proof.
+Independent acceptance review found another unresolved boundary:
+
+- The frozen #204 baseline has active FursuitActivation records.
+- The approved profile and fursuit disables terminate sessions/revoke existing
+  credentials, but do not make those activation records inactive.
+- The real activation admin form exposes an editable, checked `is_active`
+  checkbox on the active owned record. An active-to-active submission does
+  not exercise the inactive-to-active rejection in `save_model`.
+- Local deterministic tests and exact-deployment control review can support
+  that rejection, but cannot replace its missing live proof under the current
+  plan's Catch/credential-only exception. Calling this subcheck live `PASS`
+  or merely calling its control unavailable would overstate the evidence.
+
+Accordingly, no limited operator was provisioned and no live matrix started.
+No authenticated Staging call, reset, fixture change, operator change, audit
+write or other Staging mutation occurred during this repository work.
+No Staging restoration is required by this work; current live state was not
+reinspected. Prior fixture, registry and operator observations are unchanged.
+
+The smallest decision is an explicit evidence-mode amendment for activation
+reactivation: retain its live empirical result `NOT_EXERCISED`, separately
+record the observed active form/control, exact-deployed-code review and
+existing deterministic inactive-to-active denial tests, and disclose the
+limitation in any satisfied case-level result. This would authorize no new
+fixture, deactivation/reactivation transition or gameplay object. Without
+that amendment, case 9 remains incomplete; no final #243 PASS is available.
+No such amendment is inferred or applied by this record.
+
+Local work remains in progress on the isolated #243 branch. The limited-role
+command (53 focused tests), active-role inspector (44 focused tests) and
+interactive lifecycle transport (41 focused tests) passed their bounded
+reviews. Matrix executor/launcher tests are unfinished acceptance work with
+production entry points absent; their expected red state is not a completed
+repository gate. The proposed exact decommission proof also remains pending.
+No final full-suite, execution or evidence approval is claimed.
+
+#243 remains open and #208 remains NO-GO / OR-6 `BLOCKING`. #205's historical
+closure, #207's restore GO and #241's non-blocking limitation remain unchanged.
+
+Local cleanup after this stop: the task-owned temporary-memory PostgreSQL
+container `tailtag-243-limited-tests` was stopped and removed. A subsequent
+container listing confirmed it absent. No unrelated containers, persistent
+volumes or reusable images were removed.
