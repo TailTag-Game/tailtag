@@ -11,6 +11,7 @@ BACKEND_RELEVANT_FILES = {
     "Makefile",
     "scripts/api_smoke.py",
     "scripts/api_auth_smoke.py",
+    "scripts/api_replacement_auth_smoke.py",
     "scripts/api_deployment_identity.py",
     "scripts/api_development_delivery_event.py",
     "scripts/api_staging_promote.py",

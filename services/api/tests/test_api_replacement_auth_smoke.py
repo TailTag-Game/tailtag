@@ -6,6 +6,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from http.client import HTTPMessage
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Self
@@ -339,7 +340,7 @@ def test_concrete_http_adapter_is_direct_bounded_and_does_not_echo_secrets(
     """Both normal and denied HTTP responses use the same safe transport."""
 
     class BoundedBody(BytesIO):
-        def read(self, size: int = -1) -> bytes:
+        def read(self, size: int | None = -1) -> bytes:
             assert size == 4097
             return super().read(size)
 
@@ -374,7 +375,7 @@ def test_concrete_http_adapter_is_direct_bounded_and_does_not_echo_secrets(
                     request.full_url,
                     401,
                     "synthetic-sensitive-response",
-                    {},
+                    HTTPMessage(),
                     BoundedBody(b"synthetic-sensitive-response"),
                 )
             return Response(request.full_url)
@@ -406,14 +407,19 @@ def test_concrete_http_adapter_is_direct_bounded_and_does_not_echo_secrets(
         if isinstance(handler, urllib.request.ProxyHandler)
     ]
     assert len(proxy_handlers) == 1
-    assert proxy_handlers[0].proxies == {}
+    assert vars(proxy_handlers[0])["proxies"] == {}
     redirect_handlers = [
         handler
         for handler in handlers
         if isinstance(handler, urllib.request.HTTPRedirectHandler)
     ]
     assert len(redirect_handlers) == 1
-    assert redirect_handlers[0].redirect_request(None, None, 302, "", {}, "") is None
+    assert (
+        redirect_handlers[0].redirect_request(
+            request, BytesIO(), 302, "", HTTPMessage(), ""
+        )
+        is None
+    )
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == ""

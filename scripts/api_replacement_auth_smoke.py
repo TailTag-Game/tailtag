@@ -10,7 +10,7 @@ import urllib.request
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 from urllib.parse import urlsplit
 
 from scripts import api_staging_preflight
@@ -54,21 +54,23 @@ class DefaultSmokeRuntime:
         }
 
     def preflight(self, *, environment: str, origin: str) -> dict[str, str]:
-        first = api_staging_preflight._validate_identity(
-            api_staging_preflight._fetch_json(f"{origin}/health/identity"),
+        first = api_staging_preflight._validate_identity(  # pyright: ignore[reportPrivateUsage]
+            api_staging_preflight._fetch_json(f"{origin}/health/identity"),  # pyright: ignore[reportPrivateUsage]
             expected_environment=environment,
         )
-        if api_staging_preflight._fetch_json(f"{origin}/health/ready") != {
+        if api_staging_preflight._fetch_json(f"{origin}/health/ready") != {  # pyright: ignore[reportPrivateUsage]
             "status": "ok"
         }:
             raise SmokeFailure
-        second = api_staging_preflight._validate_identity(
-            api_staging_preflight._fetch_json(f"{origin}/health/identity"),
+        second = api_staging_preflight._validate_identity(  # pyright: ignore[reportPrivateUsage]
+            api_staging_preflight._fetch_json(f"{origin}/health/identity"),  # pyright: ignore[reportPrivateUsage]
             expected_environment=environment,
         )
         if second != first:
             raise SmokeFailure
-        return dict(first)
+        return {
+            key: first[key] for key in ("environment", "source_sha", "deployment_id")
+        }
 
     def prompt_token(self, *, environment: str) -> str:
         if not sys.stdin.isatty() or not sys.stderr.isatty():
@@ -89,18 +91,19 @@ class DefaultSmokeRuntime:
             url, headers={"Authorization": f"Bearer {token}"}, method="GET"
         )
         opener = urllib.request.build_opener(
-            urllib.request.ProxyHandler({}), api_staging_preflight._NoRedirect()
+            urllib.request.ProxyHandler({}),
+            api_staging_preflight._NoRedirect(),  # pyright: ignore[reportPrivateUsage]
         )
         try:
             with opener.open(request, timeout=5) as response:
                 return (
                     response.getcode(),
                     response.read(_MAX_BODY + 1),
-                    response.geturl(),
+                    response.url,
                 )
         except urllib.error.HTTPError as error:
             try:
-                return error.code, error.read(_MAX_BODY + 1), error.geturl()
+                return error.code, error.read(_MAX_BODY + 1), error.url
             finally:
                 error.close()
 
@@ -122,7 +125,7 @@ def _valid_origin(value: object) -> bool:
 
 def _valid_identity(value: object, environment: str) -> bool:
     try:
-        api_staging_preflight._validate_identity(
+        api_staging_preflight._validate_identity(  # pyright: ignore[reportPrivateUsage]
             value, expected_environment=environment
         )
     except Exception:  # noqa: BLE001 - keep external identity details private
@@ -135,12 +138,19 @@ def _own_response(result: tuple[int, bytes, str], origin: str) -> bool:
     if status != 200 or final_url != f"{origin}{_API_PATH}" or len(body) > _MAX_BODY:
         return False
     try:
-        parsed = json.loads(
-            body, object_pairs_hook=api_staging_preflight._reject_duplicate_keys
+        parsed = cast(
+            object,
+            json.loads(
+                body,
+                object_pairs_hook=api_staging_preflight._reject_duplicate_keys,  # pyright: ignore[reportPrivateUsage]
+            ),
         )
     except (ValueError, UnicodeError, RecursionError):
         return False
-    return type(parsed) is dict and set(parsed) == {"id"} and type(parsed["id"]) is int
+    if type(parsed) is not dict:
+        return False
+    fields = cast(dict[object, object], parsed)
+    return set(fields) == {"id"} and type(fields["id"]) is int
 
 
 def _cross_response(result: tuple[int, bytes, str], origin: str) -> bool:
@@ -176,7 +186,7 @@ def run(runtime: SmokeRuntime) -> SmokeOutcome:
     ):
         try:
             token = runtime.prompt_token(environment=source)
-            if not isinstance(token, str) or not token:
+            if type(token) is not str or not token:
                 raise SmokeFailure
         except Exception:  # noqa: BLE001 - keep hidden input details private
             return SmokeOutcome(False, "hidden input")

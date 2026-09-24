@@ -111,15 +111,17 @@ def _validate_development_candidate(source_sha: str | None) -> None:
     origin = replacement_target_binding.pinned_development_candidate_origin(
         candidate_hosts.pop()
     )
+    parties = settings.CLERK_AUTHENTICATION.authorized_parties
     if (
         len(settings.ALLOWED_HOSTS) != 2
         or set(settings.ALLOWED_HOSTS)
         != {origin.removeprefix("https://"), _RAILWAY_HEALTHCHECK_HOST}
         or settings.CSRF_TRUSTED_ORIGINS != [origin]
-        or settings.CLERK_AUTHENTICATION.authorized_parties
-        != ("http://localhost:3000",)
+        or len(parties) != 2
+        or parties[0] != "http://localhost:3000"
     ):
         raise ValueError
+    replacement_target_binding.pinned_development_clerk_portal_origin(parties[1])
 
 
 def _validate_staging_phase(source_sha: str | None) -> None:

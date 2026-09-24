@@ -39,6 +39,9 @@ _EXPECTED_CANDIDATE_HOST_DIGEST: Final = (
 _EXPECTED_DEVELOPMENT_CANDIDATE_HOST_DIGEST: Final = (
     "6d194fe9f0785a5e90d9feaa62967fde2bc98dadf5fd5a126003e4f885f7ee41"
 )
+_EXPECTED_DEVELOPMENT_CLERK_PORTAL_ORIGIN_DIGEST: Final = (
+    "3cde8d9faf99b1089cc040f1db5342845a83120fea890634a3ad0ec85c9c4179"
+)
 _EXPECTED_DIGESTS: Final = {
     "development-api": "d67c0114b9b522306942115eb0735b9c8dca3291ab2d1cec52986c404bf9fc9a",
     "development-postgres": "6e0af05b3f6b4b0d561fe6edf9af3de960223ecfcae8d1d169bea74a0f5f6ad8",
@@ -206,6 +209,29 @@ def pinned_development_candidate_origin(hostname: str) -> str:
     ):
         raise TargetBindingError
     return f"https://{hostname}"
+
+
+def fingerprint_development_clerk_portal_origin(origin: object) -> str:
+    """Commit to the exact HTTPS Development Clerk portal origin."""
+    if (
+        not isinstance(origin, str)
+        or not origin.startswith("https://")
+        or _CANDIDATE_HOST.fullmatch(origin.removeprefix("https://")) is None
+    ):
+        raise TargetBindingError
+    return hashlib.sha256(
+        f"tailtag-development-clerk-portal-v1\0{origin}".encode()
+    ).hexdigest()
+
+
+def pinned_development_clerk_portal_origin(origin: str) -> str:
+    """Return only the reviewed Development Clerk portal origin."""
+    if (
+        fingerprint_development_clerk_portal_origin(origin)
+        != _EXPECTED_DEVELOPMENT_CLERK_PORTAL_ORIGIN_DIGEST
+    ):
+        raise TargetBindingError
+    return origin
 
 
 def load_development_candidate_origin() -> str:

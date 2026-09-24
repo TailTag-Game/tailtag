@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import NoReturn, Self
+from typing import NoReturn, Self, cast
 
 import pytest
 from django.conf import settings
@@ -35,6 +35,7 @@ REBUILD_POSTGRES = "55555555-5555-4555-8555-555555555555"
 OLD_PROJECT = "66666666-6666-4666-8666-666666666666"
 DEVELOPMENT_CANDIDATE_HOST = "synthetic-development-api.up.railway.app"
 DEVELOPMENT_CANDIDATE_ORIGIN = f"https://{DEVELOPMENT_CANDIDATE_HOST}"
+DEVELOPMENT_CLERK_PORTAL_ORIGIN = "https://holy-lioness-3896.accounts.dev"
 
 DEPLOYED_MEDIA_CONFIGURATION = S3MediaConfiguration(
     endpoint_url="https://media.example.test",
@@ -152,7 +153,10 @@ def configured_development_candidate_settings(
         "CSRF_TRUSTED_ORIGINS": [DEVELOPMENT_CANDIDATE_ORIGIN],
         "CLERK_AUTHENTICATION": ClerkVerificationConfiguration(
             jwt_key=clerk_public_key,
-            authorized_parties=("http://localhost:3000",),
+            authorized_parties=(
+                "http://localhost:3000",
+                DEVELOPMENT_CLERK_PORTAL_ORIGIN,
+            ),
         ),
     }
 
@@ -478,7 +482,36 @@ def test_readiness_accepts_complete_replacement_development_profile(
                 ]
             },
         ),
-        ({}, {"CLERK_AUTHENTICATION": "wrong-party"}),
+        ({}, {"CLERK_AUTHENTICATION": ("http://localhost:3000",)}),
+        ({}, {"CLERK_AUTHENTICATION": (DEVELOPMENT_CLERK_PORTAL_ORIGIN,)}),
+        (
+            {},
+            {
+                "CLERK_AUTHENTICATION": (
+                    "http://localhost:3000",
+                    "https://other.accounts.dev",
+                )
+            },
+        ),
+        (
+            {},
+            {
+                "CLERK_AUTHENTICATION": (
+                    "http://localhost:3000",
+                    DEVELOPMENT_CLERK_PORTAL_ORIGIN,
+                    "https://other.accounts.dev",
+                )
+            },
+        ),
+        (
+            {},
+            {
+                "CLERK_AUTHENTICATION": (
+                    DEVELOPMENT_CLERK_PORTAL_ORIGIN,
+                    "http://localhost:3000",
+                )
+            },
+        ),
     ),
     ids=(
         "old-project",
@@ -488,7 +521,11 @@ def test_readiness_accepts_complete_replacement_development_profile(
         "extra-host",
         "staging-csrf",
         "extra-csrf",
-        "wrong-clerk-party",
+        "localhost-only-clerk-party",
+        "portal-only-clerk-party",
+        "wrong-clerk-portal-party",
+        "extra-clerk-party",
+        "swapped-clerk-party-order",
     ),
 )
 def test_development_readiness_denies_other_generation_or_origin_sets(
@@ -506,11 +543,12 @@ def test_development_readiness_denies_other_generation_or_origin_sets(
             monkeypatch.delenv(name)
         else:
             monkeypatch.setenv(name, value)
-    if settings_override.get("CLERK_AUTHENTICATION") == "wrong-party":
+    parties = settings_override.get("CLERK_AUTHENTICATION")
+    if isinstance(parties, tuple):
         settings_override = {
             "CLERK_AUTHENTICATION": ClerkVerificationConfiguration(
                 jwt_key=valid_clerk_public_key,
-                authorized_parties=("https://accounts.staging.tailtag.app",),
+                authorized_parties=cast(tuple[str, ...], parties),
             )
         }
     configured = {

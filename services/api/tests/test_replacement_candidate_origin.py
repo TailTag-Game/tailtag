@@ -44,6 +44,10 @@ OTHER_HOST: Final = "other-api.up.railway.app"
 CANDIDATE_ORIGIN: Final = f"https://{CANDIDATE_HOST}"
 DEVELOPMENT_HOST: Final = "synthetic-development-api.up.railway.app"
 DEVELOPMENT_ORIGIN: Final = f"https://{DEVELOPMENT_HOST}"
+DEVELOPMENT_CLERK_PORTAL_ORIGIN: Final = "https://holy-lioness-3896.accounts.dev"
+DEVELOPMENT_CLERK_PORTAL_DIGEST: Final = (
+    "3cde8d9faf99b1089cc040f1db5342845a83120fea890634a3ad0ec85c9c4179"
+)
 CANONICAL_ORIGIN: Final = "https://staging.tailtag.app"
 IDENTITY: Final = {
     "source_sha": "a" * 40,
@@ -583,6 +587,47 @@ def test_development_host_fingerprint_uses_independent_reviewed_framing() -> Non
         DEVELOPMENT_HOST
     ) == _development_digest(DEVELOPMENT_HOST)
     assert _development_digest(DEVELOPMENT_HOST) != _candidate_digest(DEVELOPMENT_HOST)
+
+
+def test_development_clerk_portal_origin_uses_exact_code_owned_pin() -> None:
+    """The hosted Development Clerk party is bound to its reviewed framing."""
+    assert (
+        hashlib.sha256(
+            f"tailtag-development-clerk-portal-v1\0{DEVELOPMENT_CLERK_PORTAL_ORIGIN}".encode()
+        ).hexdigest()
+        == DEVELOPMENT_CLERK_PORTAL_DIGEST
+    )
+    assert (
+        replacement_target_binding.fingerprint_development_clerk_portal_origin(
+            DEVELOPMENT_CLERK_PORTAL_ORIGIN
+        )
+        == DEVELOPMENT_CLERK_PORTAL_DIGEST
+    )
+    assert (
+        replacement_target_binding.pinned_development_clerk_portal_origin(
+            DEVELOPMENT_CLERK_PORTAL_ORIGIN
+        )
+        == DEVELOPMENT_CLERK_PORTAL_ORIGIN
+    )
+
+
+@pytest.mark.parametrize(
+    "origin",
+    (
+        "https://other.accounts.dev",
+        "http://holy-lioness-3896.accounts.dev",
+        "https://holy-lioness-3896.accounts.dev:443",
+        "https://holy-lioness-3896.accounts.dev/",
+    ),
+    ids=("other-portal", "insecure-scheme", "explicit-port", "trailing-slash"),
+)
+def test_development_clerk_portal_pin_rejects_alternate_origins(origin: str) -> None:
+    """The code-owned pin accepts only the exact hosted HTTPS origin."""
+    _assert_binding_denied(
+        lambda: replacement_target_binding.pinned_development_clerk_portal_origin(
+            origin
+        )
+    )
 
 
 @pytest.mark.parametrize(
