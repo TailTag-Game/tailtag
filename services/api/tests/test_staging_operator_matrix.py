@@ -827,6 +827,168 @@ def test_http_seam_exercises_real_local_login_csrf_and_isolated_cookies(
 
 
 @pytest.mark.django_db(transaction=True)
+def test_managed_authentication_uses_pinned_actor_and_real_admin_http_login(
+    matrix: ModuleType,
+    live_server: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-4: one hidden password logs in the exact managed User over CSRF HTTP."""
+    create_owned_baseline()
+    managed = create_exact_managed_operator()
+    create_exact_limited_operator()
+    unrelated = User.objects.create_user("unrelated-managed-password-owner")
+    unrelated.set_password("unrelated-distinct-password")
+    unrelated.save(update_fields={"password"})
+    output = HiddenInputTerminal()
+    prompts: list[str] = []
+    requests: list[tuple[str, str, bytes | None]] = []
+    original_http = matrix._http_request
+    monkeypatch.setattr(sys, "stdin", HiddenInputTerminal())
+    monkeypatch.setattr(sys, "stdout", output)
+    monkeypatch.setattr(matrix, "_STAGING_ORIGIN", live_server.url)
+    monkeypatch.setattr(matrix, "_guard_target", accept_target)
+    monkeypatch.setattr(matrix, "_active_identity", IDENTITY)
+
+    def hidden_input(prompt: str = "") -> str:
+        prompts.append(prompt)
+        return INITIAL_PASSWORD
+
+    def observe_http(
+        method: str,
+        path: str,
+        *,
+        actor: Mapping[str, Any],
+        body: bytes | None = None,
+        csrf: str | None = None,
+    ) -> Mapping[str, Any]:
+        requests.append((method, path, body))
+        return cast(
+            Mapping[str, Any],
+            original_http(method, path, actor=actor, body=body, csrf=csrf),
+        )
+
+    monkeypatch.setattr(getpass, "getpass", hidden_input)
+    monkeypatch.setattr(matrix, "_http_request", observe_http)
+
+    actor = cast(Mapping[str, Any], matrix._authenticate("managed"))
+
+    assert len(prompts) == 1
+    assert "password" in prompts[0].lower()
+    assert "identifier" not in prompts[0].lower()
+    assert actor["actor_id"] == managed.pk
+    assert [(method, path) for method, path, _ in requests] == [
+        ("GET", "/admin/login/"),
+        ("POST", "/admin/login/"),
+        ("GET", "/admin/"),
+    ]
+    submitted = dict(parse_qsl(cast(bytes, requests[1][2]).decode()))
+    assert submitted["username"] == managed.clerk_user_id
+    assert submitted["password"] == INITIAL_PASSWORD
+    assert submitted["csrfmiddlewaretoken"]
+    assert "username" not in repr(actor)
+    assert INITIAL_PASSWORD not in repr(actor) + output.getvalue()
+    assert OperatorAuditEvent.objects.count() == 0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_wrong_managed_password_stops_before_case_submission(
+    matrix: ModuleType,
+    live_server: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-4: a wrong password cannot reach a sensitive case POST."""
+    create_owned_baseline()
+    create_exact_managed_operator()
+    create_exact_limited_operator()
+    monkeypatch.setattr(sys, "stdin", HiddenInputTerminal())
+    monkeypatch.setattr(sys, "stdout", HiddenInputTerminal())
+    monkeypatch.setattr(matrix, "_STAGING_ORIGIN", live_server.url)
+    monkeypatch.setattr(matrix, "_guard_target", accept_target)
+    monkeypatch.setattr(matrix, "_active_identity", IDENTITY)
+    monkeypatch.setattr(getpass, "getpass", lambda _prompt="": "wrong-managed-password")
+    original_http = matrix._http_request
+    requests: list[tuple[str, str]] = []
+
+    def observe_http(
+        method: str,
+        path: str,
+        *,
+        actor: Mapping[str, Any],
+        body: bytes | None = None,
+        csrf: str | None = None,
+    ) -> Mapping[str, Any]:
+        requests.append((method, path))
+        return cast(
+            Mapping[str, Any],
+            original_http(method, path, actor=actor, body=body, csrf=csrf),
+        )
+
+    monkeypatch.setattr(matrix, "_http_request", observe_http)
+    with pytest.raises(ValueError):
+        matrix._authenticate("managed")
+    assert all(path == "/admin/login/" for _, path in requests)
+    assert OperatorAuditEvent.objects.count() == 0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_managed_actor_drift_during_hidden_password_fails_before_post(
+    matrix: ModuleType,
+    live_server: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-4: a newly selected member with the same password cannot replace the pin."""
+    create_owned_baseline()
+    managed = create_exact_managed_operator()
+    create_exact_limited_operator()
+    group = managed.groups.get()  # pyright: ignore[reportUnknownMemberType]
+    prompts: list[str] = []
+    requests: list[tuple[str, str]] = []
+    original_http = matrix._http_request
+    monkeypatch.setattr(sys, "stdin", HiddenInputTerminal())
+    monkeypatch.setattr(sys, "stdout", HiddenInputTerminal())
+    monkeypatch.setattr(matrix, "_STAGING_ORIGIN", live_server.url)
+    monkeypatch.setattr(matrix, "_guard_target", accept_target)
+    monkeypatch.setattr(matrix, "_active_identity", IDENTITY)
+
+    def hidden_input(prompt: str = "") -> str:
+        prompts.append(prompt)
+        managed.groups.clear()  # pyright: ignore[reportUnknownMemberType]
+        managed.is_staff = False
+        managed.save(update_fields={"is_staff"})
+        replacement = User.objects.create_user("new-managed-after-hidden-prompt")
+        replacement.is_staff = True
+        replacement.set_password(INITIAL_PASSWORD)
+        replacement.save(update_fields={"is_staff", "password"})
+        replacement.groups.add(group)  # pyright: ignore[reportUnknownMemberType]
+        return INITIAL_PASSWORD
+
+    def observe_http(
+        method: str,
+        path: str,
+        *,
+        actor: Mapping[str, Any],
+        body: bytes | None = None,
+        csrf: str | None = None,
+    ) -> Mapping[str, Any]:
+        requests.append((method, path))
+        if method == "POST":
+            pytest.fail("changed managed actor reached admin or case submission")
+        return cast(
+            Mapping[str, Any],
+            original_http(method, path, actor=actor, body=body, csrf=csrf),
+        )
+
+    monkeypatch.setattr(getpass, "getpass", hidden_input)
+    monkeypatch.setattr(matrix, "_http_request", observe_http)
+    with pytest.raises(ValueError):
+        matrix._authenticate("managed")
+    assert len(prompts) == 1
+    assert "identifier" not in prompts[0].lower()
+    assert all(method != "POST" for method, _ in requests)
+    assert OperatorAuditEvent.objects.count() == 0
+
+
+@pytest.mark.django_db(transaction=True)
 def test_limited_login_rotates_csrf_for_real_audited_denial(
     matrix: ModuleType,
     live_server: Any,

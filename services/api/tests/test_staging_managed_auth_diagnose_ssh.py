@@ -202,7 +202,7 @@ def test_launcher_uses_fresh_exact_instance_guards_and_one_interactive_ssh(
 def test_interactive_ssh_allows_the_full_human_prompt_window(
     runner: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Contract 2: two hidden human inputs retain the 30-minute SSH window."""
+    """Contract 3: one hidden password retains the human SSH window."""
     observed: list[dict[str, object]] = []
 
     def execute(
@@ -552,7 +552,7 @@ def attach_synthetic_terminal(
     return output
 
 
-def read_only_diagnosis(remote: ModuleType, identifier: str, password: str) -> str:
+def read_only_diagnosis(remote: ModuleType, password: str) -> str:
     """Exercise the real PostgreSQL transaction and the approved local seam."""
     with transaction.atomic():
         with connection.cursor() as cursor:
@@ -560,7 +560,7 @@ def read_only_diagnosis(remote: ModuleType, identifier: str, password: str) -> s
             cursor.execute("SHOW transaction_read_only")
             assert cursor.fetchone() == ("on",)
         with CaptureQueriesContext(connection) as queries:
-            classification = cast(str, remote.diagnose_local(identifier, password))
+            classification = cast(str, remote.diagnose_local(password))
         assert not any(
             entry["sql"]
             .lstrip()
@@ -579,27 +579,25 @@ def test_local_password_match_and_mismatch_are_distinct_and_read_only(
     managed = prepare_exact_roles()
     original_hash = stored_password(managed)
 
-    assert read_only_diagnosis(remote, IDENTIFIER, PASSWORD) == "CREDENTIAL_ACCEPTED"
-    assert (
-        read_only_diagnosis(remote, IDENTIFIER, "wrong-password")
-        == "CREDENTIAL_REJECTED"
-    )
+    assert read_only_diagnosis(remote, PASSWORD) == "CREDENTIAL_ACCEPTED"
+    assert read_only_diagnosis(remote, "wrong-password") == "CREDENTIAL_REJECTED"
     managed.refresh_from_db()
     assert stored_password(managed) == original_hash
 
 
 @pytest.mark.django_db(transaction=True)
-def test_wrong_identifier_cannot_use_another_actors_password(
+def test_another_actors_password_cannot_authenticate_managed_operator(
     remote: ModuleType,
 ) -> None:
     """Contract 3/4: valid password for the sole actor is insufficient by itself."""
     prepare_exact_roles()
+    other = User.objects.create_user("unrelated-auth-actor")
+    other.set_password("unrelated-actor-distinct-password")
+    other.save(update_fields={"password"})
 
     assert (
-        read_only_diagnosis(remote, "limited-operator", PASSWORD) == "IDENTITY_MISMATCH"
-    )
-    assert (
-        read_only_diagnosis(remote, "missing-operator", PASSWORD) == "IDENTITY_MISMATCH"
+        read_only_diagnosis(remote, "unrelated-actor-distinct-password")
+        == "CREDENTIAL_REJECTED"
     )
 
 
@@ -614,7 +612,7 @@ def test_extra_managed_member_is_ambiguous_even_when_one_password_matches(
     extra.save()
     cast(UserWithRoles, extra).groups.add(cast(UserWithRoles, managed).groups.get())
 
-    assert read_only_diagnosis(remote, IDENTIFIER, PASSWORD) == "IDENTITY_AMBIGUOUS"
+    assert read_only_diagnosis(remote, PASSWORD) == "IDENTITY_AMBIGUOUS"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -624,7 +622,7 @@ def test_unusable_password_is_not_a_credential_rejection(remote: ModuleType) -> 
     managed.set_unusable_password()
     managed.save(update_fields={"password"})
 
-    assert read_only_diagnosis(remote, IDENTIFIER, PASSWORD) == "PASSWORD_UNUSABLE"
+    assert read_only_diagnosis(remote, PASSWORD) == "PASSWORD_UNUSABLE"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -637,7 +635,7 @@ def test_password_check_never_upgrades_a_stale_hash(remote: ModuleType) -> None:
     managed.password = old_hash
     managed.save(update_fields={"password"})
 
-    assert read_only_diagnosis(remote, IDENTIFIER, PASSWORD) == "CREDENTIAL_ACCEPTED"
+    assert read_only_diagnosis(remote, PASSWORD) == "CREDENTIAL_ACCEPTED"
     managed.refresh_from_db()
     assert stored_password(managed) == old_hash
 
@@ -650,7 +648,7 @@ def test_permission_drift_stops_before_a_password_result(remote: ModuleType) -> 
         permission_map()["profiles.view_playerprofile"]
     )
 
-    assert read_only_diagnosis(remote, IDENTIFIER, PASSWORD) == "TARGET_OR_ROLE_FAILURE"
+    assert read_only_diagnosis(remote, PASSWORD) == "TARGET_OR_ROLE_FAILURE"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -664,7 +662,7 @@ def test_real_database_query_failure_is_not_relabelled_password_failure(
             cursor.execute("SET TRANSACTION READ ONLY")
             with pytest.raises(DatabaseError):
                 cursor.execute("SELECT 1 / 0")
-        assert remote.diagnose_local(IDENTIFIER, PASSWORD) == "EXECUTION_FAILURE"
+        assert remote.diagnose_local(PASSWORD) == "EXECUTION_FAILURE"
 
 
 def _read_pty(master: int, until: bytes, *, deadline: float) -> bytes:
@@ -719,9 +717,10 @@ def test_remote_run_uses_hidden_real_tty_and_returns_only_fixed_classification(
                 _read_pty(master, b"\n", deadline=time.monotonic() + 0.05)
             )
         assert not termios.tcgetattr(master)[3] & termios.ECHO
-        os.write(master, (IDENTIFIER + "\n").encode())
-        transcript.extend(_read_pty(master, b"Password:", deadline=deadline))
+        if b"Password:" not in transcript:
+            transcript.extend(_read_pty(master, b"Password:", deadline=deadline))
         assert b"Password:" in transcript
+        assert b"identifier" not in transcript.lower()
         assert not termios.tcgetattr(master)[3] & termios.ECHO
         os.write(master, (PASSWORD + "\n").encode())
         transcript.extend(_read_pty(master, b'"classification"', deadline=deadline))
@@ -733,7 +732,7 @@ def test_remote_run_uses_hidden_real_tty_and_returns_only_fixed_classification(
                 reaped = True
                 break
             time.sleep(0.01)
-        assert reaped, "remote diagnosis did not complete after two hidden inputs"
+        assert reaped, "remote diagnosis did not complete after one hidden input"
         assert os.WIFEXITED(status)
         assert b"CHILD_EXECUTION_FAILURE" not in transcript
         assert IDENTIFIER.encode() not in transcript
@@ -785,14 +784,49 @@ def test_remote_never_holds_a_database_transaction_during_secret_input(
     def hidden_input(prompt: str) -> str:
         assert connection.in_atomic_block is False
         prompts.append(prompt)
-        return IDENTIFIER if len(prompts) == 1 else PASSWORD
+        return PASSWORD
 
     monkeypatch.setattr(remote.getpass, "getpass", hidden_input)
 
     result = cast(dict[str, object], remote.run(IDENTITY))
 
     assert result["classification"] == "CREDENTIAL_ACCEPTED"
-    assert len(prompts) == 2
+    assert len(prompts) == 1
+    assert "identifier" not in prompts[0].lower()
+
+
+@override_settings(DEBUG=False)
+@pytest.mark.django_db(transaction=True)
+def test_managed_actor_change_during_hidden_input_fails_closed(
+    remote: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-3: a pre-prompt pin cannot authenticate a different post-prompt actor."""
+    managed = prepare_exact_roles()
+    configure_remote_target(monkeypatch)
+    output = attach_synthetic_terminal(remote, monkeypatch)
+    original_pk = managed.pk
+
+    def hidden_input(prompt: str) -> str:
+        assert "identifier" not in prompt.lower()
+        managed.groups.clear()
+        managed.is_staff = False
+        managed.save(update_fields={"is_staff"})
+        replacement = User.objects.create_user("replacement-managed-after-prompt")
+        replacement.set_password(PASSWORD)
+        replacement.is_staff = True
+        replacement.save(update_fields={"password", "is_staff"})
+        from django.contrib.auth.models import Group
+
+        replacement.groups.add(Group.objects.get(name="TailTag Field Beta Operators"))
+        return PASSWORD
+
+    monkeypatch.setattr(remote.getpass, "getpass", hidden_input)
+
+    result = cast(dict[str, object], remote.run(IDENTITY))
+
+    assert result["classification"] != "CREDENTIAL_ACCEPTED"
+    assert User.objects.get(pk=original_pk).is_staff is False
+    assert PASSWORD not in output.getvalue() + json.dumps(result)
 
 
 @override_settings(DEBUG=False)
