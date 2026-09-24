@@ -48,6 +48,7 @@ def classify_paths(tmp_path: Path, paths: list[str]) -> bool:
         (["Makefile"], True),
         (["scripts/api_smoke.py"], True),
         (["scripts/api_auth_smoke.py"], True),
+        (["scripts/api_replacement_auth_smoke.py"], True),
         (["scripts/api_media_storage_smoke.py"], True),
         (["scripts/api_deployment_identity.py"], True),
         (["scripts/api_staging_promote.py"], True),
