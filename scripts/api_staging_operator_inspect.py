@@ -20,6 +20,8 @@ if _API_ROOT.is_dir() and str(_API_ROOT) not in sys.path:
     sys.path.insert(0, str(_API_ROOT))
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import Group
+
     from accounts.models import User
 
 PASS: Final = "PASS"
@@ -72,6 +74,7 @@ _RUNTIME_SELECTORS: Final = {
 }
 _PRODUCTION_SETTINGS: Final = "config.settings.production"
 _OPERATOR_GROUP_NAME: Final = "TailTag Field Beta Operators"
+_LIMITED_OPERATOR_GROUP_NAME: Final = "TailTag #243 Validation Operator"
 
 
 class _SafeArgumentParser(argparse.ArgumentParser):
@@ -118,11 +121,6 @@ def _permission_names(queryset: object) -> set[str]:
         list[tuple[str, str]],
         queryset.values_list("content_type__app_label", "codename"),  # type: ignore[attr-defined]
     )
-    return {f"{app_label}.{codename}" for app_label, codename in permissions}
-
-
-def _permission_names_from_rows(rows: object) -> set[str]:
-    permissions = cast(list[tuple[str, str]], rows)
     return {f"{app_label}.{codename}" for app_label, codename in permissions}
 
 
@@ -212,12 +210,45 @@ def _limited_candidates() -> list[User]:
     )
     return list(
         User.objects.exclude(groups__name=_OPERATOR_GROUP_NAME)
-        .filter(explicit_profile_permission)
+        .filter(
+            explicit_profile_permission | Q(groups__name=_LIMITED_OPERATOR_GROUP_NAME)
+        )
         .distinct()
     )
 
 
+def _limited_group(operator: User) -> Group | None:
+    from accounts.models import User
+    from catches.models import Catch
+    from conventions.models import ConventionEnrollment
+    from fursuits.models import Fursuit
+    from profiles.models import PlayerProfile
+
+    groups = list(operator.groups.all())  # pyright: ignore[reportUnknownMemberType]
+    if (
+        len(groups) != 1
+        or groups[0].name  # pyright: ignore[reportUnknownMemberType]
+        != _LIMITED_OPERATOR_GROUP_NAME
+    ):
+        return None
+    group = groups[0]
+    if list(User.objects.filter(groups=group).values_list("pk", flat=True)) != [
+        operator.pk
+    ]:
+        return None
+    if (
+        PlayerProfile.objects.filter(user=operator).exists()
+        or Fursuit.objects.filter(owner=operator).exists()
+        or ConventionEnrollment.objects.filter(user=operator).exists()
+        or Catch.objects.filter(catcher_user=operator).exists()
+    ):
+        return None
+    return group
+
+
 def _validate_limited_operator() -> str | None:
+    from django.contrib.auth.models import Permission
+
     candidates = _limited_candidates()
     if not candidates:
         return FAIL_LIMITED_OPERATOR_MISSING
@@ -226,16 +257,51 @@ def _validate_limited_operator() -> str | None:
     operator = candidates[0]
     if cast(bool, operator.is_superuser):  # pyright: ignore[reportUnknownMemberType]
         return FAIL_UNEXPECTED_PRIVILEGE
-    effective_permissions = _permission_names(
-        operator.user_permissions  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
-    ) | _permission_names_from_rows(
-        operator.groups.values_list(  # pyright: ignore[reportUnknownMemberType]
-            "permissions__content_type__app_label", "permissions__codename"
-        )
-    )
     if not operator.is_staff or not operator.has_usable_password():
         return FAIL_LIMITED_OPERATOR_STATE
-    if effective_permissions != _LIMITED_PERMISSION_NAMES:
+    group = _limited_group(operator)
+    if group is None:
+        return FAIL_LIMITED_OPERATOR_STATE
+    canonical_permissions = cast(
+        list[tuple[int, str]],
+        list(
+            Permission.objects.filter(
+                content_type__app_label="profiles",
+                content_type__model="playerprofile",
+                codename__in=("set_profile_enabled", "view_playerprofile"),
+            ).values_list("pk", "codename")
+        ),
+    )
+    if (
+        len(canonical_permissions) != 2
+        or {f"profiles.{codename}" for _, codename in canonical_permissions}
+        != _LIMITED_PERMISSION_NAMES
+        or operator.user_permissions.exists()  # pyright: ignore[reportUnknownMemberType]
+        or set(group.permissions.values_list("pk", flat=True))  # pyright: ignore[reportUnknownMemberType]
+        != {pk for pk, _ in canonical_permissions}
+    ):
+        return FAIL_LIMITED_OPERATOR_PERMISSION
+    return None
+
+
+def _validate_decommissioned_operator() -> str | None:  # pyright: ignore[reportUnusedFunction]
+    candidates = _limited_candidates()
+    if not candidates:
+        return FAIL_LIMITED_OPERATOR_MISSING
+    if len(candidates) != 1:
+        return FAIL_LIMITED_OPERATOR_AMBIGUOUS
+    operator = candidates[0]
+    if cast(bool, operator.is_superuser):  # pyright: ignore[reportUnknownMemberType]
+        return FAIL_UNEXPECTED_PRIVILEGE
+    if operator.is_staff or operator.has_usable_password():
+        return FAIL_LIMITED_OPERATOR_STATE
+    group = _limited_group(operator)
+    if group is None:
+        return FAIL_LIMITED_OPERATOR_STATE
+    if (
+        operator.user_permissions.exists()  # pyright: ignore[reportUnknownMemberType]
+        or group.permissions.exists()  # pyright: ignore[reportUnknownMemberType]
+    ):
         return FAIL_LIMITED_OPERATOR_PERMISSION
     return None
 

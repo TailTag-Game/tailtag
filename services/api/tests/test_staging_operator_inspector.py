@@ -14,8 +14,10 @@ from typing import Any, Protocol, cast
 
 import pytest
 from django.contrib.auth.models import Group, Permission
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import FieldDoesNotExist
-from django.db import DatabaseError
+from django.db import DatabaseError, connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from accounts.management.commands.bootstrap_staging_operator import (
@@ -23,13 +25,22 @@ from accounts.management.commands.bootstrap_staging_operator import (
     OPERATOR_GROUP_NAME,
 )
 from accounts.models import User
+from catches.models import Catch
 from conventions.models import (
     Convention,
     ConventionEnrollment,
     ConventionStatus,
     FursuitActivation,
+    FursuitCatchSession,
 )
 from fursuits.models import Fursuit
+from operator_audit.models import (
+    OperatorAction,
+    OperatorActorClass,
+    OperatorAuditEvent,
+    OperatorAuditOutcome,
+    OperatorTargetType,
+)
 from profiles.models import PlayerProfile
 from rehearsal import baseline
 from rehearsal.models import StagingResetIdentity
@@ -87,6 +98,7 @@ ALL_CODES = frozenset(
 LIMITED_PERMISSION_NAMES = frozenset(
     {"profiles.set_profile_enabled", "profiles.view_playerprofile"}
 )
+LIMITED_OPERATOR_GROUP_NAME = "TailTag #243 Validation Operator"
 
 
 class PermissionRelation(Protocol):
@@ -156,13 +168,75 @@ def create_managed_operator() -> User:
 def create_limited_operator(
     permission_names: frozenset[str] = LIMITED_PERMISSION_NAMES,
 ) -> User:
-    """Build the distinct one-action #243 operator using direct permissions only."""
+    """Build the exact dedicated one-action #243 group role."""
     operator = staff_user("limited-operator")
     permissions = permission_map()
-    cast(UserWithRoles, operator).user_permissions.add(
-        *(permissions[name] for name in permission_names)
+    group = Group.objects.create(name=LIMITED_OPERATOR_GROUP_NAME)
+    cast(GroupWithPermissions, group).permissions.set(
+        tuple(permissions[name] for name in permission_names)
     )
+    cast(UserWithRoles, operator).groups.add(group)
     return operator
+
+
+def attach_limited_gameplay(operator: User, attachment: str) -> None:
+    """Attach one prohibited product relationship to an otherwise exact role."""
+    if attachment == "profile":
+        PlayerProfile.objects.create(user=operator)
+        return
+
+    convention = Convention.objects.create(
+        name=f"Limited inspector {attachment}",
+        status=ConventionStatus.ACTIVE,
+        start_date=datetime.date(2026, 9, 1),
+        end_date=datetime.date(2026, 9, 2),
+    )
+    if attachment == "enrollment":
+        ConventionEnrollment.objects.create(user=operator, convention=convention)
+        return
+
+    owner = (
+        operator if attachment == "fursuit" else User.objects.create_user("catch-owner")
+    )
+    fursuit = Fursuit.objects.create(
+        owner=owner,
+        name="Inspector fursuit",
+        photo_key=MEDIA_KEY,
+    )
+    if attachment == "fursuit":
+        return
+
+    now = timezone.now()
+    activation = FursuitActivation.objects.create(
+        fursuit=fursuit,
+        convention=convention,
+        is_active=True,
+        activated_at=now,
+    )
+    session = FursuitCatchSession.objects.create(
+        activation=activation,
+        started_at=now,
+        expires_at=now + datetime.timedelta(hours=1),
+    )
+    Catch.objects.create(
+        catcher_user=operator,
+        fursuit=fursuit,
+        convention=convention,
+        activation=activation,
+        catch_session=session,
+    )
+
+
+def wrong_model_profile_permission() -> Permission:
+    """Create a noncanonical row sharing an approved public permission name."""
+    content_type = ContentType.objects.create(
+        app_label="profiles", model="limited_operator_wrong_model"
+    )
+    return Permission.objects.create(
+        content_type=content_type,
+        codename="set_profile_enabled",
+        name="Wrong model profile enablement",
+    )
 
 
 def create_owned_baseline() -> StagingResetIdentity:
@@ -480,6 +554,68 @@ def test_distinct_limited_operator_with_exact_profile_permissions_passes(
 
 
 @pytest.mark.django_db
+def test_limited_operator_direct_permissions_with_same_effective_union_fail(
+    configured_inspector: ModuleType,
+) -> None:
+    """The post-provision role must retain authority only through its sole group."""
+    create_owned_baseline()
+    create_managed_operator()
+    limited = create_limited_operator()
+    permissions = permission_map()
+    cast(UserWithRoles, limited).user_permissions.add(
+        *(permissions[name] for name in LIMITED_PERMISSION_NAMES)
+    )
+
+    assert inspect(configured_inspector) == FAIL_LIMITED_OPERATOR_PERMISSION
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "group_name", ("Unrelated validation role", "Empty extra role")
+)
+def test_limited_operator_with_an_additional_empty_group_fails_structural_check(
+    configured_inspector: ModuleType, group_name: str
+) -> None:
+    """Effective authority alone cannot replace the sole dedicated-group invariant."""
+    create_owned_baseline()
+    create_managed_operator()
+    limited = create_limited_operator()
+    cast(UserWithRoles, limited).groups.add(Group.objects.create(name=group_name))
+
+    assert inspect(configured_inspector) == FAIL_LIMITED_OPERATOR_STATE
+
+
+@pytest.mark.django_db
+def test_additional_member_of_limited_group_remains_an_ambiguous_candidate(
+    configured_inspector: ModuleType,
+) -> None:
+    """Candidate discovery remains fail-closed before the dedicated-shape guard."""
+    create_owned_baseline()
+    create_managed_operator()
+    limited = create_limited_operator()
+    additional = staff_user("additional-limited-member")
+    cast(UserWithRoles, additional).groups.add(
+        cast(UserWithRoles, limited).groups.get()
+    )
+
+    assert inspect(configured_inspector) == FAIL_LIMITED_OPERATOR_AMBIGUOUS
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("attachment", ("profile", "fursuit", "enrollment", "catch"))
+def test_limited_operator_gameplay_attachment_fails_structural_check(
+    configured_inspector: ModuleType, attachment: str
+) -> None:
+    """The synthetic validation actor cannot be a product participant or owner."""
+    create_owned_baseline()
+    create_managed_operator()
+    limited = create_limited_operator()
+    attach_limited_gameplay(limited, attachment)
+
+    assert inspect(configured_inspector) == FAIL_LIMITED_OPERATOR_STATE
+
+
+@pytest.mark.django_db
 def test_full_managed_operator_cannot_satisfy_limited_operator_fixture(
     configured_inspector: ModuleType,
 ) -> None:
@@ -532,6 +668,244 @@ def test_limited_operator_missing_profile_action_fails_distinctly(
 
 
 @pytest.mark.django_db
+def test_limited_group_rejects_third_wrong_model_permission_with_same_name(
+    configured_inspector: ModuleType,
+) -> None:
+    """The exact group permission set cannot contain a duplicate public name."""
+    create_owned_baseline()
+    create_managed_operator()
+    limited = create_limited_operator()
+    group = cast(UserWithRoles, limited).groups.get()
+    cast(GroupWithPermissions, group).permissions.add(wrong_model_profile_permission())
+
+    assert inspect(configured_inspector) == FAIL_LIMITED_OPERATOR_PERMISSION
+
+
+@pytest.mark.django_db
+def test_limited_group_rejects_wrong_model_replacement_with_same_public_name(
+    configured_inspector: ModuleType,
+) -> None:
+    """A matching string cannot replace the canonical PlayerProfile permission row."""
+    create_owned_baseline()
+    create_managed_operator()
+    limited = create_limited_operator()
+    group = cast(UserWithRoles, limited).groups.get()
+    permissions = permission_map()
+    cast(GroupWithPermissions, group).permissions.remove(
+        permissions["profiles.set_profile_enabled"]
+    )
+    cast(GroupWithPermissions, group).permissions.add(wrong_model_profile_permission())
+
+    assert inspect(configured_inspector) == FAIL_LIMITED_OPERATOR_PERMISSION
+
+
+@pytest.mark.django_db
+def test_dedicated_limited_group_without_both_permissions_is_not_missing(
+    configured_inspector: ModuleType,
+) -> None:
+    """The marker group keeps an active but incomplete limited role discoverable."""
+    create_owned_baseline()
+    create_managed_operator()
+    create_limited_operator(frozenset())
+
+    assert inspect(configured_inspector) == FAIL_LIMITED_OPERATOR_PERMISSION
+
+
+@pytest.mark.django_db
+def test_decommissioned_limited_marker_is_a_state_mismatch_not_missing(
+    configured_inspector: ModuleType,
+) -> None:
+    """The retained empty group/member marker must not trigger re-provisioning."""
+    create_owned_baseline()
+    create_managed_operator()
+    limited = create_limited_operator()
+    group = cast(UserWithRoles, limited).groups.get()
+    cast(GroupWithPermissions, group).permissions.set(())
+    limited.is_staff = False
+    limited.set_unusable_password()
+    limited.save(update_fields={"is_staff", "password"})
+
+    assert inspect(configured_inspector) == FAIL_LIMITED_OPERATOR_STATE
+
+
+def create_decommissioned_marker() -> User:
+    """Retain the exact inactive marker and a protected historical audit row."""
+    limited = create_limited_operator(frozenset())
+    limited.is_staff = False
+    limited.set_unusable_password()
+    limited.save(update_fields={"is_staff", "password"})
+    OperatorAuditEvent.objects.create(
+        action=OperatorAction.SET_FURSUIT_ENABLED,
+        actor=limited,
+        actor_class=OperatorActorClass.UNAUTHORIZED_ACTOR,
+        affected_record_type=OperatorTargetType.FURSUIT,
+        affected_record_id=1,
+        outcome=OperatorAuditOutcome.DENIED,
+    )
+    return limited
+
+
+def assert_decommission_inspection(script: ModuleType, expected: str | None) -> None:
+    """Both acceptance and refusal are read-only and preserve every audit field."""
+    before = list(OperatorAuditEvent.objects.order_by("pk").values())
+    with CaptureQueriesContext(connection) as queries:
+        result = script._validate_decommissioned_operator()
+    assert result == expected
+    assert queries.captured_queries
+    assert all(
+        query["sql"].lstrip().upper().startswith("SELECT")
+        for query in queries.captured_queries
+    )
+    assert list(OperatorAuditEvent.objects.order_by("pk").values()) == before
+
+
+@pytest.mark.django_db
+def test_decommission_inspection_accepts_only_retained_inactive_marker(
+    inspector: ModuleType,
+) -> None:
+    """Final cleanup proof independently recognizes the exact inactive role."""
+    create_managed_operator()
+    create_decommissioned_marker()
+
+    assert_decommission_inspection(inspector, None)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("shape", ("active", "staff", "password", "superuser"))
+def test_decommission_inspection_rejects_active_and_partial_cleanup(
+    inspector: ModuleType, monkeypatch: pytest.MonkeyPatch, shape: str
+) -> None:
+    """Staff revocation and unusable password are independently required."""
+    limited = create_decommissioned_marker()
+    if shape in {"active", "staff"}:
+        limited.is_staff = True
+    if shape == "active":
+        limited.set_password("local-inspector-test-password")
+    if shape == "superuser":
+        limited.is_superuser = True
+    limited.save()
+    if shape == "password":
+        # The model and database prohibit a usable nonstaff password. Simulate
+        # that reported state at its existing check seam to cover this guard.
+        def usable_password(_user: User) -> bool:
+            return True
+
+        monkeypatch.setattr(User, "has_usable_password", usable_password)
+    if shape == "active":
+        group = cast(UserWithRoles, limited).groups.get()
+        cast(GroupWithPermissions, group).permissions.set(
+            tuple(permission_map()[name] for name in LIMITED_PERMISSION_NAMES)
+        )
+
+    assert_decommission_inspection(
+        inspector,
+        FAIL_UNEXPECTED_PRIVILEGE
+        if shape == "superuser"
+        else FAIL_LIMITED_OPERATOR_STATE,
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("source", ("direct", "group", "wrong_model_group"))
+def test_decommission_inspection_rejects_any_retained_permission(
+    inspector: ModuleType, source: str
+) -> None:
+    """An inactive password/staff state cannot hide residual authority."""
+    limited = create_decommissioned_marker()
+    permission = (
+        wrong_model_profile_permission()
+        if source == "wrong_model_group"
+        else permission_map()["profiles.set_profile_enabled"]
+    )
+    if source == "direct":
+        cast(UserWithRoles, limited).user_permissions.add(permission)
+    else:
+        group = cast(UserWithRoles, limited).groups.get()
+        cast(GroupWithPermissions, group).permissions.add(permission)
+
+    assert_decommission_inspection(inspector, FAIL_LIMITED_OPERATOR_PERMISSION)
+
+
+@pytest.mark.django_db
+def test_decommission_inspection_rejects_additional_empty_group(
+    inspector: ModuleType,
+) -> None:
+    limited = create_decommissioned_marker()
+    cast(UserWithRoles, limited).groups.add(Group.objects.create(name="Extra group"))
+
+    assert_decommission_inspection(inspector, FAIL_LIMITED_OPERATOR_STATE)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("attachment", ("profile", "fursuit", "enrollment", "catch"))
+def test_decommission_inspection_rejects_gameplay_attachment(
+    inspector: ModuleType, attachment: str
+) -> None:
+    limited = create_decommissioned_marker()
+    attach_limited_gameplay(limited, attachment)
+
+    assert_decommission_inspection(inspector, FAIL_LIMITED_OPERATOR_STATE)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("shape", ("absent", "empty_group", "managed_only"))
+def test_decommission_inspection_reports_missing_marker_member(
+    inspector: ModuleType, shape: str
+) -> None:
+    if shape == "empty_group":
+        Group.objects.create(name=LIMITED_OPERATOR_GROUP_NAME)
+    if shape == "managed_only":
+        create_managed_operator()
+
+    assert_decommission_inspection(inspector, FAIL_LIMITED_OPERATOR_MISSING)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("source", ("marker_member", "explicit_permission"))
+def test_decommission_inspection_reports_ambiguous_candidates(
+    inspector: ModuleType, source: str
+) -> None:
+    limited = create_decommissioned_marker()
+    extra = User.objects.create_user("other-candidate")
+    if source == "marker_member":
+        cast(UserWithRoles, extra).groups.add(cast(UserWithRoles, limited).groups.get())
+    else:
+        cast(UserWithRoles, extra).user_permissions.add(
+            permission_map()["profiles.view_playerprofile"]
+        )
+
+    assert_decommission_inspection(inspector, FAIL_LIMITED_OPERATOR_AMBIGUOUS)
+
+
+@pytest.mark.django_db
+def test_decommission_inspection_rejects_managed_member_sharing_marker(
+    inspector: ModuleType,
+) -> None:
+    """Managed-candidate exclusion cannot hide an extra member of the marker."""
+    limited = create_decommissioned_marker()
+    managed = create_managed_operator()
+    cast(UserWithRoles, managed).groups.add(cast(UserWithRoles, limited).groups.get())
+
+    assert_decommission_inspection(inspector, FAIL_LIMITED_OPERATOR_STATE)
+
+
+@pytest.mark.django_db
+def test_decommission_inspection_requires_dedicated_group_for_explicit_candidate(
+    inspector: ModuleType,
+) -> None:
+    """Permission-based discovery alone cannot establish the retained marker."""
+    limited = create_decommissioned_marker()
+    group = cast(UserWithRoles, limited).groups.get()
+    group.name = "Unrelated group"
+    group.save(update_fields={"name"})
+    cast(UserWithRoles, limited).user_permissions.add(
+        permission_map()["profiles.view_playerprofile"]
+    )
+
+    assert_decommission_inspection(inspector, FAIL_LIMITED_OPERATOR_STATE)
+
+
+@pytest.mark.django_db
 def test_limited_operator_role_state_drift_is_not_permission_drift(
     configured_inspector: ModuleType,
 ) -> None:
@@ -552,12 +926,9 @@ def test_nonstaff_limited_shape_is_role_state_mismatch_not_missing(
     """A discoverable limited fixture with invalid staff state must not be relabelled absent."""
     create_owned_baseline()
     create_managed_operator()
-    limited = User(clerk_user_id="nonstaff-limited-operator", is_staff=False)
-    limited.save()
-    permissions = permission_map()
-    cast(UserWithRoles, limited).user_permissions.add(
-        *(permissions[name] for name in LIMITED_PERMISSION_NAMES)
-    )
+    limited = create_limited_operator()
+    limited.is_staff = False
+    limited.save(update_fields={"is_staff"})
 
     assert inspect(configured_inspector) == FAIL_LIMITED_OPERATOR_STATE
 

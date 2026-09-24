@@ -4,8 +4,10 @@ Status: **blocked before mutation: separate limited operator unavailable**.
 The [latest bounded read-only result](staging-operator-validation-243-execution-attempts.md)
 substantiates the managed role but found no limited-role candidate. Cases 1–9
 remain `NOT_EXERCISED`. A separately reviewed limited-role fixture/provisioning
-plan is required before resuming. No Staging mutation is authorized by this
-document. Parent evidence gap:
+implementation is required before resuming. The maintainer has since authorized
+the [dedicated limited-role contract](staging-operator-validation-243-limited-role.md),
+subject to its local validation, independent review and fresh live guards.
+No guard or matrix result is implied by that authorization. Parent evidence gap:
 [#205 handoff](staging-operator-validation-205.md); readiness owner:
 [#208](https://github.com/TailTag-Game/tailtag/issues/208).
 The [first approved attempt](staging-operator-validation-243-attempt-2026-09-23.md)
@@ -167,6 +169,10 @@ unowned state. Use only supported Django-admin and existing player flows.
   `fursuits.set_fursuit_enabled`. Confirm effective permissions before use;
   group name alone is not authority. Retained evidence does not establish
   whether an identity with these exact permissions currently exists.
+- **Managed operator:** the existing normal operator satisfying the exact #205
+  managed-group and permission contract. The maintainer's current authorization
+  assigns step C to this actor; step B continues to require the distinct limited
+  operator.
 - **Emergency superuser:** an existing authorized break-glass account,
   exercised only for the one approved synthetic action. It is not the normal
   operator. Keep credentials and session material out of arguments, files,
@@ -191,7 +197,7 @@ fixture is unavailable, stop and seek a separately reviewed fixture plan.
 | --- | --- | --- |
 | A | 1 | As the ordinary player, attempt the approved sensitive admin list/detail and one synthetic-target mutation. Require no inspection or state change. Do not expect a GET audit row; classify any submitted-attempt audit strictly by the documented actor contract. |
 | B | 2, 4, 7 | As the limited staff operator, submit **one** `set_fursuit_enabled` attempt on the distinct synthetic fursuit, for which this actor lacks permission. Require denial before the domain handler, unchanged fursuit/dependencies, and exactly one matching `denied` `OperatorAuditEvent` with `actor_class=unauthorized_actor`. Confirm the actor still has its separate profile permission. A second staff-denied attempt is needed only if the approved case-2 role is not demonstrably the same limited operator. |
-| C | 3, 6, 8 | As that same permitted non-superuser, disable the selected synthetic profile through its per-object Django-admin action. Require committed profile disable, the expected credential/session termination where the fixture supplies those dependents, preserved relationship/integrity constraints, and exactly one top-level `set_profile_enabled` / `operator` / `succeeded` audit row. No child cascade rows or duplicate success rows. |
+| C | 3, 6, 8 | As the permitted managed non-superuser, disable the selected synthetic profile through its per-object Django-admin action. Require committed profile disable, the expected credential/session termination where the fixture supplies those dependents, preserved relationship/integrity constraints, and exactly one top-level `set_profile_enabled` / `operator` / `succeeded` audit row. No child cascade rows or duplicate success rows. |
 | D | 5 | As the emergency superuser, disable the distinct synthetic fursuit through the approved per-object action. Require the committed transition and exactly one `set_fursuit_enabled` / `emergency_superuser` / `succeeded` row. Do not use the superuser for the normal-operator cases. |
 | E | 9 | On those synthetic targets, check every forbidden surface in the finite checklist below. Require each control/route unavailable or denied, synthetic state unchanged, and no Catch award or other authority mutation. Do not probe arbitrary IDs or live player data. |
 | F | Audit retention and final state | Snapshot only the approved audit event counts/classes/actions and protected-state checks. Run the separately approved guarded #204 reset once, with its own target/maintenance checks. Require known synthetic baseline and readiness restored, no unrelated protected data changed, the case audit rows still present and identical, and #204 temporary-source/connection cleanup verified. |
@@ -215,6 +221,38 @@ required surface lacks a safe owned fixture or a known no-op request, mark
 that subcheck `NOT_EXERCISED` with its exact reason; case 9 cannot be called
 `PASS` on the basis of that partial check. Do not improvise a fixture or
 route during the window.
+
+#### Approved bounded case-9 evidence amendments
+
+The maintainer approved a combined evidence model for the following live
+object/state-dependent subchecks that the frozen baseline cannot safely supply:
+
+- Catch object-level change paths without an owned Catch;
+- credential replacement/raw-edit paths without an owned credential;
+- inactive-to-active activation reactivation without an inactive activation.
+
+Retain each live empirical result as `NOT_EXERCISED`. Require both
+exact-deployment code/control operational review and existing deterministic
+tests directly proving the path unavailable or denied. Record those evidence
+results separately as `PASS` or `FAIL`, and retain an explicit empirical
+limitation. Do not create, deactivate, replace or otherwise mutate an object
+solely to obtain this proof. An active activation's editable checkbox is not
+live proof of inactive-to-active rejection.
+
+Keep safe object-independent add/create/bulk and alternate-admin-authority
+checks live, recording each actually exercised result as `PASS` or `FAIL`.
+A satisfied case-level `PASS` under this amended contract requires all safe
+live subchecks and all required control/deterministic evidence to pass, with
+every object/state-dependent `NOT_EXERCISED` boundary explicitly listed.
+It is not an undifferentiated live `PASS`.
+
+If independent review identifies another object/state-dependent case-9 path
+that cannot safely be exercised under the frozen fixtures, apply this same
+principle only when deployed-code/control review and existing deterministic
+tests directly substantiate that exact unavailable path. Otherwise leave the
+claim unsubstantiated. Do not broaden the approved live mutation sequence,
+operator authority or player flow. These approvals supersede only the earlier
+partial-check prohibition for these directly substantiated boundaries.
 
 ### Evidence, cleanup, and stop conditions
 
