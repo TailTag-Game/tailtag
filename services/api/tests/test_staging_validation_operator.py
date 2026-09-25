@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, NoReturn, cast
 
 import pytest
+from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import Group, Permission
 from django.contrib.contenttypes.models import ContentType
 from django.core.management import CommandError, call_command
@@ -726,6 +727,52 @@ def test_rotate_password_rechecks_limited_role_after_hidden_input(
     assert changed
     assert cast(str, limited.password) == old_hash  # pyright: ignore[reportUnknownMemberType]
     assert exact_limited_state(managed) == managed_before
+
+
+@pytest.mark.django_db
+def test_rotate_password_refuses_concurrent_password_hash_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A password changed during hidden input cannot be silently overwritten."""
+    limited = create_exact_limited_operator()
+    managed = create_exact_managed_operator()
+    managed_before = exact_limited_state(managed)
+    concurrent_hash = make_password("independent-concurrent-password-2026")
+    changed = False
+
+    def drift(prompt: str) -> None:
+        nonlocal changed
+        if prompt == "Password: " and not changed:
+            changed = True
+            assert (
+                User.objects.filter(pk=limited.pk).update(password=concurrent_hash) == 1
+            )
+
+    stdout = TtyStream()
+    stderr = TtyStream()
+    with pytest.raises(CommandError) as error:
+        invoke_command(
+            monkeypatch,
+            "rotate_password",
+            confirmation=ROTATE_CONFIRMATION,
+            hidden_inputs=(ROTATED_PASSWORD, ROTATED_PASSWORD),
+            after_hidden_prompt=drift,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    limited.refresh_from_db()
+    assert changed
+    assert cast(str, limited.password) == concurrent_hash  # pyright: ignore[reportUnknownMemberType]
+    assert exact_limited_state(managed) == managed_before
+    assert_private_values_absent(
+        (stdout, stderr),
+        OPERATOR_IDENTIFIER,
+        INITIAL_PASSWORD,
+        ROTATED_PASSWORD,
+        concurrent_hash,
+        exception_text=str(error.value),
+    )
 
 
 @pytest.mark.django_db(transaction=True)

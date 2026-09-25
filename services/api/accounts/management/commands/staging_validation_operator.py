@@ -83,6 +83,7 @@ class Command(BaseCommand):
             raise CommandError("Confirmation failed.")
 
         operator: User | None = None
+        pinned_password_hash: str | None = None
         if action == "rotate_password":
             try:
                 with transaction.atomic():
@@ -94,6 +95,7 @@ class Command(BaseCommand):
             except DatabaseError:
                 raise CommandError("Validation operator action failed.") from None
             identifier = operator.clerk_user_id
+            pinned_password_hash = cast(str, operator.password)  # pyright: ignore[reportUnknownMemberType]
         else:
             identifier = _hidden_input("Operator identifier: ")
             if (
@@ -135,6 +137,14 @@ class Command(BaseCommand):
                             "Existing account cannot be used as an operator."
                         )
                     operator = User.objects.select_for_update().get(pk=current.pk)
+                    if (
+                        pinned_password_hash is None
+                        or cast(str, operator.password)  # pyright: ignore[reportUnknownMemberType]
+                        != pinned_password_hash
+                    ):
+                        raise CommandError(
+                            "Existing account cannot be used as an operator."
+                        )
                 else:
                     operator = (
                         User.objects.select_for_update()

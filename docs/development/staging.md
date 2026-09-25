@@ -427,10 +427,11 @@ Keep the new expected configuration separately at
 directory mode `0700`); the replacement-bound launchers use only that default.
 Do not copy the retired file or its sentinel values into this path.
 The first database-fact prerequisite query for the replacement did not return
-a classification. A later guarded readback established the API/PostgreSQL
-service binding, but the private expected database name and cluster identifier
-still require fresh reconciliation before sentinel provisioning; the reset
-baseline remains unproven.
+a classification. Subsequent guarded checks established the API/PostgreSQL
+binding, reconciled the private expected database facts, provisioned the
+replacement sentinel, and reseeded the baseline as recorded below. Future
+operations still require fresh target and #204 safety checks.
+
 The later [#243 replacement prerequisite record](staging-operator-validation-243-execution-attempts.md#replacement-ordinary-identity-preparation--2026-09-25)
 establishes the two exact ordinary Clerk-bound User identities through one
 normal authenticated API call and a separate read-only exact-instance

@@ -215,9 +215,10 @@ unowned state. Use only supported Django-admin and existing player flows.
    through authorized read-only surfaces. The old-generation #204 sentinel,
    fixtures, private configuration, Clerk identities, media and operator
    results are historical and must not be reused. The replacement-bound #204
-   sentinel provision path is locally reviewed but has not been exercised on
-   live Staging; do not start the matrix until that prerequisite has been
-   safely provisioned and verified against the separate private
+   sentinel was provisioned and its baseline reseeded in the retained
+   [replacement #204 receipt](staging-operator-validation-243-execution-attempts.md#replacement-204-sentinel-and-baseline--2026-09-25).
+   Before the matrix, freshly verify the existing sentinel and baseline
+   against the separate private
    `~/.config/tailtag/staging-reset-replacement.env`. Identify exactly the disposable
    profile and a distinct disposable fursuit that #204 owns. If their state
    differs from the known baseline, an unrelated dependency exists, audit
