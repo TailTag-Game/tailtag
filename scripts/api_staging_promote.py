@@ -319,8 +319,7 @@ def _preflight(target: _TargetIds) -> None:
         and source.get("repo") == _REPOSITORY
         and "image" in source
         and source.get("image") is None
-        and command
-        == ["python manage.py migrate --settings=config.settings.production --noinput"]
+        and command == ["python -m config.replacement_migrate"]
         and config.get("healthcheckPath") == "/health/ready"
     ):
         raise ValueError("staging configuration invalid")

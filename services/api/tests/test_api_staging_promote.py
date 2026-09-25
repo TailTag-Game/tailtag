@@ -137,9 +137,7 @@ def canonical_config(**overrides: object) -> dict[str, object]:
         "serviceId": SERVICE_ID,
         "environmentId": ENVIRONMENT_ID,
         "source": {"repo": "TailTag-Game/tailtag", "image": None},
-        "preDeployCommand": [
-            "python manage.py migrate --settings=config.settings.production --noinput"
-        ],
+        "preDeployCommand": ["python -m config.replacement_migrate"],
         "healthcheckPath": "/health/ready",
         **overrides,
     }
@@ -802,7 +800,18 @@ def test_main_revalidates_the_selected_run_before_submission(
             source={"repo": "TailTag-Game/tailtag", "image": "registry/image"}
         ),
         canonical_config(source={"repo": "TailTag-Game/tailtag"}),
+        canonical_config(
+            preDeployCommand=[
+                "python manage.py migrate --settings=config.settings.production --noinput"
+            ]
+        ),
+        canonical_config(preDeployCommand=["python manage.py migrate"]),
         canonical_config(preDeployCommand=[]),
+        {
+            key: value
+            for key, value in canonical_config().items()
+            if key != "preDeployCommand"
+        },
         canonical_config(healthcheckPath="/health/live"),
     ),
 )

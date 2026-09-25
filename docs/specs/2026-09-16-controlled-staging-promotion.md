@@ -205,8 +205,10 @@ completed PRE_DEPLOY_COMMAND, CREATE_CONTAINER and HEALTHCHECK events, without
 error or affirmative skip, status SUCCESS and a RUNNING instance.
 
 There is no separate structured migration-result field on Deployment.
-The configured command remains
+For the September 2026 retired-generation exercise, the configured command was
 `python manage.py migrate --settings=config.settings.production --noinput`.
+The canonical replacement generation uses the guarded command specified in
+the [replacement promotion contract](../development/replacement-staging-promotion-contract.md).
 [Railway's pre-deploy contract](https://docs.railway.com/deployments/pre-deploy-command)
 requires exit zero to proceed; failure prevents deployment and is not retried.
 Combine the matching configured gate, completed event and subsequent successful
