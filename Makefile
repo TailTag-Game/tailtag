@@ -6,6 +6,7 @@ override API_UV := $(UV) --directory $(API_DIRECTORY)
 override SEMGREP_UV := $(UV) --directory $(SEMGREP_DIRECTORY)
 override SMOKE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_smoke.py
 override AUTH_SMOKE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_auth_smoke.py
+override REPLACEMENT_AUTH_SMOKE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_replacement_auth_smoke.py
 override STAGING_AUTH_SMOKE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_auth_smoke.py
 override ENVIRONMENT_FINGERPRINT_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_environment_fingerprint.py
 override MEDIA_STORAGE_SMOKE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_media_storage_smoke.py
@@ -13,6 +14,7 @@ override DEPLOYMENT_IDENTITY_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_deployment
 override STAGING_PROMOTION_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_promote.py
 override STAGING_PREFLIGHT_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_preflight.py
 override STAGING_OPERATOR_INSPECTOR_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_operator_inspect.py
+override DEVELOPMENT_DELIVERY_EVENT_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_development_delivery_event.py
 override STAGING_RESET_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_reset.py
 override STAGING_RESET_SSH_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_reset_ssh.py
 override STAGING_RESTORE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_restore_drill.py
@@ -25,6 +27,7 @@ override SEMGREP_TESTS := $(REPOSITORY_ROOT)/.semgrep/tests
 override SEMGREP_TARGETS := $(REPOSITORY_ROOT)/services/api \
 	$(SMOKE_SCRIPT) \
 	$(AUTH_SMOKE_SCRIPT) \
+	$(REPLACEMENT_AUTH_SMOKE_SCRIPT) \
 	$(STAGING_AUTH_SMOKE_SCRIPT) \
 	$(ENVIRONMENT_FINGERPRINT_SCRIPT) \
 	$(MEDIA_STORAGE_SMOKE_SCRIPT) \
@@ -32,6 +35,7 @@ override SEMGREP_TARGETS := $(REPOSITORY_ROOT)/services/api \
 	$(STAGING_PROMOTION_SCRIPT) \
 	$(STAGING_PREFLIGHT_SCRIPT) \
 	$(STAGING_OPERATOR_INSPECTOR_SCRIPT) \
+	$(DEVELOPMENT_DELIVERY_EVENT_SCRIPT) \
 	$(STAGING_RESET_SCRIPT) \
 	$(STAGING_RESET_SSH_SCRIPT) \
 	$(STAGING_RESTORE_SCRIPT) \
@@ -56,7 +60,7 @@ endef
 
 .PHONY: help \
 	api-setup api-run api-semgrep-check api-test api-check api-migrate api-migrations \
-	api-migrations-check api-shell api-smoke api-auth-smoke api-staging-auth-smoke api-media-storage-smoke api-staging-reset api-staging-reset-ssh api-staging-reset-provision \
+	api-migrations-check api-shell api-smoke api-auth-smoke api-staging-auth-smoke api-replacement-auth-smoke api-media-storage-smoke api-staging-reset api-staging-reset-ssh api-staging-reset-provision \
 	api-staging-restore-drill \
 	api-format-check api-lint-check api-type-check api-django-check \
 	api-schema-check api-gunicorn-check
@@ -123,6 +127,9 @@ api-auth-smoke: ## Authenticated smoke test with an interactive Clerk Developmen
 api-staging-auth-smoke: ## Run the explicit live Clerk Staging authenticated API smoke.
 	PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_staging_auth_smoke
 
+api-replacement-auth-smoke: ## Run the interactive replacement Development/Staging authenticated API smoke.
+	PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_replacement_auth_smoke
+
 api-staging-reset: ## Run the explicitly confirmed guarded Staging rehearsal reset.
 	DJANGO_SETTINGS_MODULE=config.settings.production PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_staging_reset --confirm reset-tailtag-staging
 
@@ -145,11 +152,11 @@ api-check: api-format-check api-lint-check api-type-check api-semgrep-check api-
 
 api-format-check:
 	@printf '%s\n' 'Checking Ruff formatting...'
-	$(API_UV) run --locked --no-sync ruff format --check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(STAGING_AUTH_SMOKE_SCRIPT) $(ENVIRONMENT_FINGERPRINT_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(DEPLOYMENT_IDENTITY_SCRIPT) $(STAGING_PROMOTION_SCRIPT) $(STAGING_PREFLIGHT_SCRIPT) $(STAGING_OPERATOR_INSPECTOR_SCRIPT) $(STAGING_RESET_SCRIPT) $(STAGING_RESET_SSH_SCRIPT) $(STAGING_RESTORE_SCRIPT) $(STAGING_RESTORE_INTEGRITY_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
+	$(API_UV) run --locked --no-sync ruff format --check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(REPLACEMENT_AUTH_SMOKE_SCRIPT) $(STAGING_AUTH_SMOKE_SCRIPT) $(ENVIRONMENT_FINGERPRINT_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(DEPLOYMENT_IDENTITY_SCRIPT) $(STAGING_PROMOTION_SCRIPT) $(STAGING_PREFLIGHT_SCRIPT) $(STAGING_OPERATOR_INSPECTOR_SCRIPT) $(DEVELOPMENT_DELIVERY_EVENT_SCRIPT) $(STAGING_RESET_SCRIPT) $(STAGING_RESET_SSH_SCRIPT) $(STAGING_RESTORE_SCRIPT) $(STAGING_RESTORE_INTEGRITY_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
 
 api-lint-check:
 	@printf '%s\n' 'Running Ruff lint...'
-	$(API_UV) run --locked --no-sync ruff check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(STAGING_AUTH_SMOKE_SCRIPT) $(ENVIRONMENT_FINGERPRINT_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(DEPLOYMENT_IDENTITY_SCRIPT) $(STAGING_PROMOTION_SCRIPT) $(STAGING_PREFLIGHT_SCRIPT) $(STAGING_OPERATOR_INSPECTOR_SCRIPT) $(STAGING_RESET_SCRIPT) $(STAGING_RESET_SSH_SCRIPT) $(STAGING_RESTORE_SCRIPT) $(STAGING_RESTORE_INTEGRITY_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
+	$(API_UV) run --locked --no-sync ruff check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(REPLACEMENT_AUTH_SMOKE_SCRIPT) $(STAGING_AUTH_SMOKE_SCRIPT) $(ENVIRONMENT_FINGERPRINT_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(DEPLOYMENT_IDENTITY_SCRIPT) $(STAGING_PROMOTION_SCRIPT) $(STAGING_PREFLIGHT_SCRIPT) $(STAGING_OPERATOR_INSPECTOR_SCRIPT) $(DEVELOPMENT_DELIVERY_EVENT_SCRIPT) $(STAGING_RESET_SCRIPT) $(STAGING_RESET_SSH_SCRIPT) $(STAGING_RESTORE_SCRIPT) $(STAGING_RESTORE_INTEGRITY_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
 
 api-type-check:
 	@printf '%s\n' 'Running strict Pyright...'

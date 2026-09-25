@@ -11,7 +11,9 @@ BACKEND_RELEVANT_FILES = {
     "Makefile",
     "scripts/api_smoke.py",
     "scripts/api_auth_smoke.py",
+    "scripts/api_replacement_auth_smoke.py",
     "scripts/api_deployment_identity.py",
+    "scripts/api_development_delivery_event.py",
     "scripts/api_staging_promote.py",
     "scripts/api_staging_preflight.py",
     "scripts/api_staging_reset.py",
@@ -21,6 +23,7 @@ BACKEND_RELEVANT_FILES = {
     "scripts/backend_ci_relevance.py",
     "scripts/validate_semgrep_contract.py",
     ".github/workflows/api.yml",
+    ".github/workflows/post-deploy-smoke.yml",
     ".semgrepignore",
 }
 
