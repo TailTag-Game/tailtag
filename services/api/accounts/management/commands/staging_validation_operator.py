@@ -10,12 +10,14 @@ import warnings
 from typing import NoReturn, cast
 
 from django.conf import settings
+from django.contrib.auth.hashers import check_password
 from django.contrib.auth.models import Group, Permission
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.core.management import BaseCommand, CommandError
 from django.core.management.base import CommandParser
 from django.db import DatabaseError, connection, transaction
+from django.db.models import Q
 
 from accounts.models import User
 from catches.models import Catch
@@ -30,6 +32,7 @@ PERMISSION_NAMES = frozenset(
 CONFIRMATIONS = {
     "provision": "provision Railway Staging validation operator",
     "decommission": "decommission Railway Staging validation operator",
+    "rotate_password": "rotate Railway Staging validation operator password",
 }
 
 
@@ -44,7 +47,7 @@ def _hidden_input(prompt: str) -> str:
 
 
 class Command(BaseCommand):
-    """Provision or decommission the exact limited validation role."""
+    """Manage the exact limited validation role."""
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("action", choices=tuple(CONFIRMATIONS))
@@ -79,19 +82,32 @@ class Command(BaseCommand):
         if input("Confirmation: ") != CONFIRMATIONS[action]:
             raise CommandError("Confirmation failed.")
 
-        identifier = _hidden_input("Operator identifier: ")
-        if (
-            not identifier
-            or len(identifier) > 255
-            or any(
-                character.isspace() or unicodedata.category(character) == "Cc"
-                for character in identifier
-            )
-        ):
-            raise CommandError("Operator identifier is invalid.")
+        operator: User | None = None
+        if action == "rotate_password":
+            try:
+                with transaction.atomic():
+                    operator = self._sole_limited_operator()
+                    if not self._active_exact(operator, self._required_permissions()):
+                        raise CommandError(
+                            "Existing account cannot be used as an operator."
+                        )
+            except DatabaseError:
+                raise CommandError("Validation operator action failed.") from None
+            identifier = operator.clerk_user_id
+        else:
+            identifier = _hidden_input("Operator identifier: ")
+            if (
+                not identifier
+                or len(identifier) > 255
+                or any(
+                    character.isspace() or unicodedata.category(character) == "Cc"
+                    for character in identifier
+                )
+            ):
+                raise CommandError("Operator identifier is invalid.")
 
         password = ""
-        if action == "provision":
+        if action in {"provision", "rotate_password"}:
             password = _hidden_input("Password: ")
             if password != _hidden_input("Confirm password: "):
                 raise CommandError("Passwords do not match.")
@@ -108,18 +124,50 @@ class Command(BaseCommand):
         try:
             permissions = self._required_permissions()
             with transaction.atomic():
-                operator = (
-                    User.objects.select_for_update()
-                    .filter(clerk_user_id=identifier)
-                    .first()
-                )
+                if action == "rotate_password":
+                    current = self._sole_limited_operator()
+                    if (
+                        operator is None
+                        or current.pk != operator.pk
+                        or current.clerk_user_id != identifier
+                    ):
+                        raise CommandError(
+                            "Existing account cannot be used as an operator."
+                        )
+                    operator = User.objects.select_for_update().get(pk=current.pk)
+                else:
+                    operator = (
+                        User.objects.select_for_update()
+                        .filter(clerk_user_id=identifier)
+                        .first()
+                    )
                 if action == "provision":
                     if operator is None:
                         outcome = self._create(identifier, password, permissions)
                     else:
                         outcome = self._reconcile(operator, password, permissions)
-                else:
+                elif action == "decommission":
                     outcome = self._decommission(operator, permissions)
+                else:
+                    if operator is None or not self._active_exact(
+                        operator, permissions
+                    ):
+                        raise CommandError(
+                            "Existing account cannot be used as an operator."
+                        )
+                    operator.set_password(password)
+                    operator.save(update_fields={"password"})
+                    confirmed = self._sole_limited_operator()
+                    if (
+                        confirmed.pk != operator.pk
+                        or not self._active_exact(confirmed, permissions)
+                        or not check_password(
+                            password,
+                            cast(str, confirmed.password),  # pyright: ignore[reportUnknownMemberType]
+                        )
+                    ):
+                        raise CommandError("Validation operator postcondition failed.")
+                    outcome = "Validation operator password rotated."
         except DatabaseError:
             raise CommandError("Validation operator action failed.") from None
 
@@ -172,6 +220,40 @@ class Command(BaseCommand):
         operator.set_password(password)
         operator.save(update_fields={"password"})
         return "Validation operator reconciled."
+
+    @staticmethod
+    def _sole_limited_operator() -> User:
+        profile_permission = Q(
+            user_permissions__content_type__app_label="profiles",
+            user_permissions__codename__in=(
+                "set_profile_enabled",
+                "view_playerprofile",
+            ),
+        ) | Q(
+            groups__permissions__content_type__app_label="profiles",
+            groups__permissions__codename__in=(
+                "set_profile_enabled",
+                "view_playerprofile",
+            ),
+        )
+        candidates = list(
+            User.objects.exclude(groups__name="TailTag Field Beta Operators")
+            .filter(profile_permission | Q(groups__name=GROUP_NAME))
+            .distinct()[:2]
+        )
+        if len(candidates) != 1:
+            raise CommandError("Existing account cannot be used as an operator.")
+        return candidates[0]
+
+    def _active_exact(
+        self, operator: User, permissions: tuple[Permission, ...]
+    ) -> bool:
+        return bool(
+            operator.is_staff
+            and operator.has_usable_password()
+            and self._exact_group(operator, {item.pk for item in permissions})
+            is not None
+        )
 
     def _decommission(
         self, operator: User | None, permissions: tuple[Permission, ...]

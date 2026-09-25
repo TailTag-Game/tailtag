@@ -1188,7 +1188,7 @@ def test_limited_login_rotates_csrf_for_real_audited_denial(
     limited_user.password = legacy_hash
     limited_user.save()
     direct_auth_sql: list[str] = []
-    inputs = iter((limited_user.clerk_user_id, INITIAL_PASSWORD))
+    inputs = iter((INITIAL_PASSWORD,))
     prompts: list[str] = []
     terminal_output = HiddenInputTerminal()
     monkeypatch.setattr(sys, "stdin", HiddenInputTerminal())
@@ -1248,7 +1248,7 @@ def test_limited_login_rotates_csrf_for_real_audited_denial(
     with warnings.catch_warnings():
         result = matrix.run(IDENTITY)
 
-    assert len(prompts) == 2
+    assert prompts == ["limited admin password: "]
     assert len(authenticated) == 1
     assert all(result["cases"][case] == "PASS" for case in ("1", "2", "4", "7"))
     assert result["classification"] != "PASS"
@@ -1271,7 +1271,59 @@ def test_limited_login_rotates_csrf_for_real_audited_denial(
     # The actual HTTP login upgraded the legacy hash.
     assert limited_user.password != legacy_hash  # pyright: ignore[reportUnknownMemberType]
     assert limited_user.clerk_user_id not in repr(authenticated[0])
+    assert limited_user.clerk_user_id not in terminal_output.getvalue()
     assert INITIAL_PASSWORD not in repr(authenticated[0]) + terminal_output.getvalue()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_wrong_limited_password_stops_before_case_submission(
+    matrix: ModuleType,
+    live_server: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A derived limited identity still requires its own valid hidden password."""
+    create_owned_baseline()
+    limited = create_exact_limited_operator()
+    create_exact_managed_operator()
+    terminal_output = HiddenInputTerminal()
+    prompts: list[str] = []
+    requests: list[tuple[str, str]] = []
+    monkeypatch.setattr(sys, "stdin", HiddenInputTerminal())
+    monkeypatch.setattr(sys, "stdout", terminal_output)
+    monkeypatch.setattr(matrix, "_STAGING_ORIGIN", live_server.url)
+    monkeypatch.setattr(matrix, "_guard_target", accept_target)
+    monkeypatch.setattr(matrix, "_active_identity", IDENTITY)
+
+    def hidden(prompt: str = "") -> str:
+        prompts.append(prompt)
+        return "wrong-limited-password"
+
+    original_http = matrix._http_request
+
+    def observe_http(
+        method: str,
+        path: str,
+        *,
+        actor: Mapping[str, Any],
+        body: bytes | None = None,
+        csrf: str | None = None,
+    ) -> Mapping[str, Any]:
+        requests.append((method, path))
+        return cast(
+            Mapping[str, Any],
+            original_http(method, path, actor=actor, body=body, csrf=csrf),
+        )
+
+    monkeypatch.setattr(getpass, "getpass", hidden)
+    monkeypatch.setattr(matrix, "_http_request", observe_http)
+    with pytest.raises(ValueError):
+        matrix._authenticate("limited")
+
+    assert prompts == ["limited admin password: "]
+    assert all(path == "/admin/login/" for _, path in requests)
+    assert limited.clerk_user_id not in terminal_output.getvalue()
+    assert "wrong-limited-password" not in terminal_output.getvalue()
+    assert OperatorAuditEvent.objects.count() == 0
 
 
 @pytest.mark.django_db(transaction=True)

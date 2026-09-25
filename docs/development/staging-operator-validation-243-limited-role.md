@@ -53,8 +53,9 @@ reactivation path in this bounded command.
 
 ## Acceptance contract
 
-1. A dedicated `staging_validation_operator` management command exposes only
-   `provision` and `decommission`. Require exactly Railway `staging` / `api`,
+1. A dedicated `staging_validation_operator` management command exposes the
+   bounded `provision`, `decommission`, and password-recovery action described
+   below. Require exactly Railway `staging` / `api`,
    a real stdin/stdout TTY, and exact action-specific confirmation. Hidden
    `getpass` prompts are the only identifier/password input. Reject CLI input
    errors without reflecting arguments. Fail closed if hidden terminal input
@@ -124,7 +125,8 @@ exactness, secret handling, transaction boundaries and audit preservation.
 ## Frozen interactive execution boundary
 
 The narrow launcher is `scripts/api_staging_operator_lifecycle_ssh.py`, invoked
-as a module with the sole positional action `provision` or `decommission`.
+as a module with the sole positional action `provision`, `decommission`, or
+the password-recovery action described below.
 It accepts no identifier/password arguments, environment inputs or files.
 It requires real stdin/stdout terminals before any provider call. The maintainer
 enters secrets directly into hidden prompts in the real interactive terminal;
@@ -327,3 +329,32 @@ Compact reviewer found no material issue in classification exactness,
 execution-phase separation, sanitization, scope or historical evidence handling.
 These are local tooling results, not a successful live provisioning or matrix
 result. The earlier uncertain attempts remain unchanged.
+
+## Lost limited credential recovery — 2026-09-25
+
+The replacement Staging matrix stopped at limited-operator authentication
+before any case or mutation. The maintainer reported that the saved synthetic
+limited username and password may be lost. This does not invalidate the
+separate exact-role inspection, and it does not justify another provisioned
+identity.
+
+The bounded recovery action is `staging_validation_operator rotate_password`,
+through the same exact-instance lifecycle SSH launcher. It requires an
+inspector `PASS`, the fresh public/exact-instance target and receipt guards,
+Railway `staging` / `api`, a real terminal, and exact confirmation
+`rotate Railway Staging validation operator password`. The command derives
+the sole exact limited actor from its approved group and permission state;
+the maintainer enters only a new password and confirmation through separate
+non-echoing prompts. It must refuse absent, ambiguous, privileged, drifted,
+or gameplay-attached accounts. Its one permitted database change is that
+actor's password hash. Role authority, managed/emergency actors, domain rows,
+and retained audit rows remain unchanged. A failed in-transaction check rolls
+back the write; a transport-uncertain result requires independent read-only
+postcondition inspection and must never trigger a blind retry.
+
+The matrix's limited-operator login also derives this inspected singleton
+identity and prompts only for its password. It still proves the real admin
+login and refuses a wrong password before any case submission. A newly
+preflighted matrix run begins at Case 1 only after credential recovery,
+role postcondition, and authentication are independently established. The
+earlier `FAIL_AUTHENTICATION` remains historical evidence.

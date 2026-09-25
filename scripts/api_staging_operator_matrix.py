@@ -231,11 +231,16 @@ def _authenticate(role: str) -> dict[str, Any]:
         raise ValueError
     group: Group | None = None
     pinned: tuple[int, str, str] | None = None
-    if role == "managed":
-        if inspector._validate_managed_operator() is not None:  # pyright: ignore[reportPrivateUsage]
-            raise ValueError
-        group = Group.objects.get(name=OPERATOR_GROUP_NAME)
-        members = list(User.objects.filter(groups=group))
+    if role in {"managed", "limited"}:
+        if role == "managed":
+            if inspector._validate_managed_operator() is not None:  # pyright: ignore[reportPrivateUsage]
+                raise ValueError
+            group = Group.objects.get(name=OPERATOR_GROUP_NAME)
+            members = list(User.objects.filter(groups=group))
+        else:
+            if inspector._validate_limited_operator() is not None:  # pyright: ignore[reportPrivateUsage]
+                raise ValueError
+            members = inspector._limited_candidates()  # pyright: ignore[reportPrivateUsage]
         if len(members) != 1:
             raise ValueError
         operator = members[0]
@@ -249,12 +254,17 @@ def _authenticate(role: str) -> dict[str, Any]:
         identifier = getpass.getpass(f"{role} admin identifier: ")
     password = getpass.getpass(f"{role} admin password: ")
     try:
-        if role == "managed":
-            if group is None or pinned is None:
+        if role in {"managed", "limited"}:
+            if pinned is None:
                 raise ValueError
-            if inspector._validate_managed_operator() is not None:  # pyright: ignore[reportPrivateUsage]
-                raise ValueError
-            current_members = list(User.objects.filter(groups=group))
+            if role == "managed":
+                if group is None or inspector._validate_managed_operator() is not None:  # pyright: ignore[reportPrivateUsage]
+                    raise ValueError
+                current_members = list(User.objects.filter(groups=group))
+            else:
+                if inspector._validate_limited_operator() is not None:  # pyright: ignore[reportPrivateUsage]
+                    raise ValueError
+                current_members = inspector._limited_candidates()  # pyright: ignore[reportPrivateUsage]
             if len(current_members) != 1:
                 raise ValueError
             operator = current_members[0]

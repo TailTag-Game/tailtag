@@ -416,7 +416,7 @@ rehearsals. Fixtures are resolved through preserved explicit registry bindings,
 never by name/prefix or because all Staging state is synthetic. Conflicting
 unowned dependencies deny reset instead of enlarging its deletion scope.
 
-#### One-time preparation for replacement Staging: pending
+#### One-time preparation for replacement Staging: completed
 
 The former generation's provision/reset evidence and private
 `staging-reset.env` are not reusable. The replacement database requires a new
@@ -434,22 +434,25 @@ baseline remains unproven.
 The later [#243 replacement prerequisite record](staging-operator-validation-243-execution-attempts.md#replacement-ordinary-identity-preparation--2026-09-25)
 establishes the two exact ordinary Clerk-bound User identities through one
 normal authenticated API call and a separate read-only exact-instance
-postcondition. That result does not establish the designated media, new
-private reset configuration, sentinel, or baseline. The replacement media
-bucket was observed empty at the read-only bucket inventory.
+postcondition. The subsequent [designated media and private prerequisite
+check](staging-operator-validation-243-execution-attempts.md#replacement-204-private-prerequisite-check--2026-09-25)
+established an application-readable synthetic image, the actual connected
+database binding, and the new owner-only replacement reset configuration.
+That check made no Staging mutation. The later [guarded sentinel and baseline
+receipt](staging-operator-validation-243-execution-attempts.md#replacement-204-sentinel-and-baseline--2026-09-25)
+records one replacement-bound provision, a matching three-way reconciliation,
+one guarded baseline reseed with the expected counts and cleanup, and a second
+matching reconciliation. Current operator-role and #243 matrix evidence remain
+separate from this #204 prerequisite.
 
 The replacement-target SSH reset path and its separately confirmed, sentinel-only
-`api-staging-reset-provision-ssh` mode have passed local tests and independent
-security review on the #243 branch. They have **not** established a replacement
-sentinel or baseline in live Staging. Preserve and freshly verify the two
-established ordinary Clerk-bound Users. Establish readable designated media,
-owner-only new reset configuration, actual database binding, empty registry
-schema, exact deployed source and exclusive operation window. Then use the
-reviewed replacement-bound SSH provision mode once, reconcile the persisted
-sentinel against private configuration and
-actual connected database, and use the guarded SSH reset mode to build the
-baseline. Any uncertain provision result requires a fresh read-only reconciliation;
-do not retry it blindly. The native `api-staging-reset-provision` command assumes
+`api-staging-reset-provision-ssh` mode passed local tests and independent
+security review on the #243 branch. They established the replacement sentinel
+and baseline in the bounded receipt linked above. For any future reset, repeat
+the independent identity, database, media, registry, target, and exclusive-window
+guards; this point-in-time result is not a standing authorization. Any uncertain
+provision result requires a fresh read-only reconciliation; do not retry it
+blindly. The native `api-staging-reset-provision` command assumes
 a reachable database and must not be substituted for the private-network SSH
 path. Retired-generation commands and receipts do not authorize a replacement
 mutation. Record fresh evidence without changing the historical receipts.

@@ -1,7 +1,7 @@
 # #243 operator evidence recovery and bounded validation proposal
 
-Status: **replacement-generation ordinary identity prerequisite established;
-#204 sentinel/media still absent; matrix not started**.
+Status: **replacement-generation #204 baseline and exact managed, limited,
+and emergency operators established; bounded matrix not started**.
 The old-generation
 [bounded read-only result](staging-operator-validation-243-execution-attempts.md)
 substantiated the old managed and limited roles only; it found no limited-role
@@ -26,6 +26,28 @@ postcondition](staging-operator-validation-243-execution-attempts.md#replacement
 established the two exact approved ordinary User bindings. The designated
 replacement media bucket remained empty, and no reset sentinel, baseline,
 operator role, or matrix case was established by that step.
+The later [single synthetic media upload and read-only bucket inventory](staging-operator-validation-243-execution-attempts.md#replacement-designated-media-preparation--2026-09-25)
+established one designated object in replacement Staging R2. Application
+readability and the connected database binding were then established through
+the [guarded private prerequisite check](staging-operator-validation-243-execution-attempts.md#replacement-204-private-prerequisite-check--2026-09-25).
+That check did not provision the #204 sentinel or build the synthetic baseline.
+The later [guarded replacement sentinel and baseline receipt](staging-operator-validation-243-execution-attempts.md#replacement-204-sentinel-and-baseline--2026-09-25)
+established both and verified the private/registry/database binding. The first
+role inspection reached `FAIL_MANAGED_OPERATOR_MISSING` before limited-role
+inspection. It does not establish either limited or emergency role state.
+The [subsequent managed creation and independent read-only postcondition](staging-operator-validation-243-execution-attempts.md#replacement-managed-operator-creation-and-postcondition--2026-09-25)
+established managed-role PASS and dedicated limited-role absence. Its original
+launcher transport result remains historically uncertain.
+The [limited-role creation and independent postcondition](staging-operator-validation-243-execution-attempts.md#replacement-limited-operator-creation-and-postcondition--2026-09-25)
+then established exact managed and limited role PASS. Emergency-role state
+remains a separate prerequisite.
+The [replacement emergency-role inspection](staging-operator-validation-243-execution-attempts.md#replacement-emergency-role-inspection--2026-09-25)
+returned `ABSENT`; the conditionally approved synthetic actor path below is
+the approved response to that missing prerequisite. It did not add a matrix
+mutation.
+The later [guarded emergency creation and independent read-only postcondition](staging-operator-validation-243-execution-attempts.md#replacement-emergency-creation-and-postcondition--2026-09-25)
+returned `READY`; the launcher's uncertain transport receipt remains
+historical. All three roles now require fresh pre-matrix target checks.
 The [dedicated limited-role contract](staging-operator-validation-243-limited-role.md)
 remains authoritative; the previously established role states belonged to the
 old generation and do not establish replacement roles. Fresh replacement role

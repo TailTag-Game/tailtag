@@ -157,7 +157,7 @@ def unexpected_ssh(*_args: object) -> NoReturn:
     pytest.fail("SSH started")
 
 
-@pytest.mark.parametrize("action", ["provision", "decommission"])
+@pytest.mark.parametrize("action", ["provision", "decommission", "rotate_password"])
 def test_run_uses_fresh_guards_and_one_pinned_interactive_ssh(
     runner: ModuleType, monkeypatch: pytest.MonkeyPatch, action: str
 ) -> None:
@@ -232,6 +232,8 @@ def test_run_requires_both_real_terminals_before_any_provider_call(
         ("provision", "FAIL_MANAGED_OPERATOR_PERMISSION"),
         ("decommission", "FAIL_LIMITED_OPERATOR_MISSING"),
         ("decommission", "FAIL_LIMITED_OPERATOR_PERMISSION"),
+        ("rotate_password", "FAIL_LIMITED_OPERATOR_MISSING"),
+        ("rotate_password", "FAIL_LIMITED_OPERATOR_PERMISSION"),
     ],
 )
 def test_run_rejects_every_other_inspector_status_before_provider_recheck(
