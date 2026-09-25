@@ -1,5 +1,10 @@
 # #243 replacement Staging emergency actor amendment
 
+The later owner-approved [three-operator restart](staging-operator-validation-243-operator-restart.md)
+adds one coordinated replacement of the existing dedicated actor. The
+create-if-absent boundary below remains authoritative for the earlier
+provisioning attempt and does not permit rerunning bootstrap after retirement.
+
 Status: **conditionally approved by the #243 owner; not yet exercised**. The frozen
 [#243 matrix](staging-operator-validation-243-plan.md) requires an existing
 authorized break-glass superuser for Case 5 and directs the operator to stop if

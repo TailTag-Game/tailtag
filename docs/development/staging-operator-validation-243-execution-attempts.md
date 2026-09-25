@@ -840,3 +840,369 @@ or Staging mutation occurred. Cases 1–9 remain `NOT_EXERCISED` on the
 replacement generation. This preflight result remains historical; a corrected
 promoter requires its own reviewed repository change and fresh target gates
 before any later live attempt.
+
+## Replacement promotion and prerequisite readback — 2026-09-25
+
+The reviewed #202 promoter on merged `main` submitted one eligible accepted
+source, `99e6466e1bd5432025c085134e72c2c46eb92dbc`, after approved
+GitHub/Railway identity, canonical public target, replacement pins, approved
+handoff receipt, exact running-instance readback, guarded migration-command
+configuration, disabled autodeploy, and an exclusive operator window passed.
+The exact-SHA successful push workflow was run `36095037272`, attempt 1.
+The sanitized [deployment receipt](staging-deployments/2adc748c-ee54-4446-958c-f49a384925be.json)
+records deployment `2adc748c-ee54-4446-958c-f49a384925be` as `SUCCEEDED`
+and `ACTIVE`, including migration, startup, readiness, identity, and public
+smoke. Fresh canonical public and exact-instance readback then agreed on
+`environment=staging` and the same source/deployment tuple. No second
+promotion submission occurred.
+
+The fresh replacement operator inspector returned `FAIL_FIXTURE_MISSING`
+with exact-instance target verification `true`; it stopped before managed or
+limited operator checks. A bounded separate read-only check on that same
+current target established API/PostgreSQL service binding `PASS`, #204 reset
+registry `MISSING`, and ordinary Clerk-bound TailTag User count category `ONE`.
+The independently retained private replacement reset configuration was also
+absent at the local ownership/mode check. These observations do not establish
+the state of the managed, limited, or emergency roles, the designated media,
+or the rest of the #204 fixture baseline. No sentinel provision, reset,
+operator change, or #205 matrix action occurred. Cases 1–9 remain
+`NOT_EXERCISED`; the exclusive window remains held pending prerequisite work.
+
+## Replacement ordinary identity preparation — 2026-09-25
+
+Window: approximately 12:54–14:09 UTC. The approved replacement Staging
+Clerk application initially had one synthetic account. A second, separately
+designated synthetic catcher account was created through the Clerk form; the
+maintainer entered its password and new-device code privately. Its signed-in
+account page was observed without retaining an identifier or credential.
+
+Before the normal API call, approved GitHub and Railway identities passed,
+canonical credential-free preflight observed `environment=staging`, source
+`99e6466e1bd5432025c085134e72c2c46eb92dbc`, and deployment
+`2adc748c-ee54-4446-958c-f49a384925be`, matching the approved promotion
+receipt. The reviewed exact-instance inspector returned
+`FAIL_FIXTURE_MISSING` with `target_verified=true`, as expected while the
+#204 sentinel is absent. A one-use, independently reviewed client compared
+the normal session token's subject with the separately copied subject from
+the signed-in catcher session before sending one authenticated `/api/me/`
+request. Its fixed result was `PASS_CATCHER_API_AUTH`; that line alone was
+not treated as proof of the database binding. The token and subject were
+transferred through hidden TTY prompts with clipboard clearing and were not
+retained.
+
+A separate independently reviewed exact-instance reconciliation reran the
+identity, receipt, active-instance and public preflight guards. In one
+repeatable-read, read-only database transaction, it required exactly two
+distinct ordinary, non-staff, non-superuser Users bound to the exact privately
+supplied approved owner and catcher subjects, with unusable local passwords
+and no group or direct-user permissions; it also required the #204 registry
+to remain absent. Its maintainer-reported fixed result was `PASS`. A prior
+read-only binding check on the same replacement generation established that
+the API was attached to the approved PostgreSQL service; this identity
+postcondition does not independently re-prove the database name or cluster
+identifier needed before #204 provision.
+
+The replacement Staging R2 bucket was separately observed empty. Thus
+designated media and the new private #204 reset configuration remain missing;
+sentinel provisioning, reset/reseed, operator-role checks, and cases 1–9 were
+not run. This preparation created the designated Clerk account and invoked
+its normal TailTag User resolution once. It did not invoke a #204 fixture,
+operator, audit, or gameplay action; those domain tables were not independently
+reread in this postcondition. The exclusive Staging window remains held.
+
+## Replacement designated media preparation — 2026-09-25
+
+The replacement Staging R2 bucket was observed empty before the action. The
+maintainer approved one upload of a 256×256 synthetic rehearsal PNG normalized
+by TailTag's image code. The local candidate used one valid opaque `images/`
+key. The Cloudflare upload flow was submitted once; its immediate browser
+response did not report completion, so no second upload was submitted. A fresh
+read-only bucket inventory then showed exactly one `image/png` object under
+`images/`, with the expected 2.87 KB displayed size. A value-free comparison
+also matched its opaque filename to the one locally prepared candidate. No
+old-generation media was copied and no additional object was observed in that
+inventory.
+
+This establishes bucket presence at that observation time, not application
+readability or an exact #204 media binding. Those remain pending fresh guarded
+verification before sentinel provisioning. No #204 provision/reset, operator
+action, or #205 matrix case occurred; the exclusive Staging window remains held.
+
+## Replacement #204 private prerequisite check — 2026-09-25
+
+Window: approximately 14:18–14:22 UTC. A separately reviewed, one-use
+read-only check first verified approved GitHub/Railway identities, the canonical
+public Staging tuple, approved deployment receipt, exact running API instance,
+and matching API/PostgreSQL service `DATABASE_URL` binding. It observed source
+`99e6466e1bd5432025c085134e72c2c46eb92dbc` and deployment
+`2adc748c-ee54-4446-958c-f49a384925be` throughout its guarded execution.
+The maintainer supplied the two already approved Clerk subjects through
+separate hidden TTY prompts. On the exact instance, a read-only transaction
+required the two exact ordinary, nonstaff, nonsuperuser User bindings, absent
+#204 sentinel, zero prepared transactions and subscriptions, a superuser
+database executor, and actual connected database facts. A separate storage
+read required the designated replacement R2 object to match the locally
+prepared image's SHA-256. The fixed result was
+`PASS_MEDIA_READ_DATABASE_BINDING_AND_PRIVATE_CONFIG`.
+
+The check created only the independent owner-only local replacement #204
+expected-configuration file. A separate local read verified its nine-key
+schema, owner, parent-directory mode `0700`, and file mode `0600` without
+rendering values. The random reset identity, database values, Clerk subjects,
+and media key remain private. The clipboard was cleared after subject transfer.
+No Staging database, fixture, operator, audit, or gameplay state was changed.
+The sentinel is still absent and the #204 baseline remains unproven. Cases
+1–9 remain `NOT_EXERCISED`; the exclusive Staging window remains held.
+
+## Replacement #204 sentinel and baseline — 2026-09-25
+
+After fresh approved GitHub/Railway identity checks and canonical public
+preflight, the reviewed replacement-bound `api-staging-reset-provision-ssh`
+command was invoked once. It observed source
+`99e6466e1bd5432025c085134e72c2c46eb92dbc` and deployment
+`2adc748c-ee54-4446-958c-f49a384925be`. Its sentinel-only receipt reported
+`provision_postcondition=PASS` and `cleanup_confirmed=true`. The subsequent
+value-free, read-only three-way check reported `PASS`: registry singleton,
+structure, and root completeness passed, and all 12 private-configuration /
+registry / connected-database equality checks matched.
+
+The guarded `api-staging-reset-ssh` command then ran once against the same
+public tuple. Its sanitized receipt reported `baseline_version=1`, two
+profiles, one Convention, two Fursuits, two enrollments, two activations, zero
+Catches, zero sessions, zero credentials, and `cleanup_confirmed=true`. A
+separate read-only three-way reconciliation again returned `PASS`, including
+root completeness and all 12 equalities. The first exact-instance #243
+operator inspector reached the role phase with `target_verified=true` and
+reported `FAIL_MANAGED_OPERATOR_MISSING`; it stopped before limited-role
+inspection. No operator account was provisioned by #204. No #205 matrix case
+has run; cases 1–9 remain `NOT_EXERCISED`. The exclusive Staging window remains
+held while the missing role is handled through its separate approved boundary.
+
+## Replacement managed-operator creation and postcondition — 2026-09-25
+
+Window: approximately 14:31–14:33 UTC. The first replacement role inspection
+had established `FAIL_MANAGED_OPERATOR_MISSING` with the #204 baseline guard
+and exact target verified. A separately reviewed creation-only launcher
+rechecked the managed-role absence, #204 three-way reconciliation, approved
+GitHub/Railway identities, public source/deployment tuple, approved receipt,
+exact running instance, and matching API/PostgreSQL database binding. The
+maintainer entered a new unused dedicated local operator identifier and
+password through the real hidden TTY; no Clerk identity was created. The
+remote command displayed the fixed `Staging operator created.` and completion
+markers, while the SSH launcher returned `FAIL_TRANSPORT_UNCERTAIN`. Preserve
+that launcher result as uncertain; it is not a transport PASS and the mutation
+was not retried.
+
+A new independent, freshly preflighted, read-only exact-instance operator
+inspection then reported `FAIL_LIMITED_OPERATOR_MISSING` with
+`target_verified=true` against source
+`99e6466e1bd5432025c085134e72c2c46eb92dbc` and deployment
+`2adc748c-ee54-4446-958c-f49a384925be`. The inspector reaches that result
+only after the replacement #204 baseline and exact managed-role checks pass.
+This separately establishes the managed operator's required state and the
+dedicated limited role's absence; it does not imply emergency-role readiness.
+No matrix case or cleanup reset ran. The managed account remains active for
+the approved matrix, and the exclusive Staging window remains held.
+
+## Replacement limited-operator creation and postcondition — 2026-09-25
+
+Window: approximately 14:34–14:36 UTC. The reviewed lifecycle launcher
+freshly required the managed-role PASS / dedicated limited-role MISSING
+classification, approved target, and #204 registry reconciliation. The
+maintainer entered a new unused dedicated limited local operator identifier
+and password through real hidden TTY prompts. The remote command displayed
+its fixed creation and completion markers, while the launcher returned
+`FAIL_TRANSPORT_UNCERTAIN`. Preserve that transport classification; no
+provisioning retry occurred.
+
+A separate freshly preflighted read-only exact-instance operator inspection
+then reported `PASS` with `target_verified=true` against source
+`99e6466e1bd5432025c085134e72c2c46eb92dbc` and deployment
+`2adc748c-ee54-4446-958c-f49a384925be`. This independently establishes
+that the managed and dedicated limited roles both meet their exact frozen
+contracts, including the limited role's narrow permission shape. Emergency
+role state is still uninspected. No #205 matrix case, #204 cleanup reset, or
+role decommission ran. Both synthetic operator rows remain active for the
+approved validation; the exclusive Staging window remains held.
+
+## Replacement emergency-role inspection — 2026-09-25
+
+After managed and limited roles independently passed, a new read-only check
+reverified approved GitHub/Railway identities, the current public source and
+deployment, approved receipt, exact running instance, full #204 three-way
+reconciliation, and exact managed/limited inspector PASS. The existing
+reviewed emergency-state check ran only on that instance and returned
+`ABSENT`; a repeated public preflight retained the same tuple. The
+conditionally approved dedicated synthetic emergency actor is therefore
+needed for Case 5. No emergency provisioning, #205 matrix action, or cleanup
+ran in this read-only inspection. The exclusive Staging window remains held.
+
+## Replacement emergency creation input stop — 2026-09-25
+
+Window: 14:38–14:39 UTC. The reviewed emergency launcher passed its prior
+read-only guards and reached the real interactive SSH command. After the
+confirmation phrase, the command displayed the hidden operator-identifier
+prompt and then fixed `FAIL_EMERGENCY_COMMAND`; no password prompt or creation
+completion marker was observed. The launcher classified the transport
+`FAIL_TRANSPORT_UNCERTAIN`. The specific prompt failure is not established by
+that generic marker, and no retry was submitted.
+
+A separate freshly guarded, read-only exact-instance check then required
+the current public tuple, approved receipt, #204 three-way reconciliation,
+and exact managed/limited operator PASS. The emergency state was `ABSENT`
+and the public tuple remained source
+`99e6466e1bd5432025c085134e72c2c46eb92dbc`, deployment
+`2adc748c-ee54-4446-958c-f49a384925be`. This establishes no emergency
+account survived the attempt; it does not identify whether input format,
+hidden-input availability, or transport caused the prompt failure. No matrix
+case or cleanup reset ran. The exclusive Staging window remains held.
+The maintainer subsequently confirmed that the entered identifier lacked the
+required `staging_emergency_` prefix. This explains the command's documented
+identifier rejection; the original generic failure and uncertain transport
+receipt remain historical. The separate `ABSENT` postcondition supports a new
+fully guarded attempt without treating the failed attempt as a live PASS.
+
+## Replacement emergency creation and postcondition — 2026-09-25
+
+Window: approximately 14:42–14:45 UTC. After the prior `ABSENT`
+postcondition and the corrected identifier format, the reviewed emergency
+launcher repeated its target, #204 registry, managed/limited-role, database,
+and emergency-absence guards. The maintainer entered one new dedicated
+synthetic emergency local identifier and password through real hidden TTY
+prompts. The remote command displayed its fixed creation and completion
+markers, while the launcher returned `FAIL_TRANSPORT_UNCERTAIN`; that
+transport classification remains unchanged, and no provisioning retry was
+submitted.
+
+A separate freshly guarded read-only exact-instance check then required the
+same canonical source `99e6466e1bd5432025c085134e72c2c46eb92dbc` and
+deployment `2adc748c-ee54-4446-958c-f49a384925be`, approved receipt,
+matching #204 private/registry/database facts, and exact managed and limited
+operator PASS. The reviewed emergency-state check returned `READY`, and a
+repeat public preflight retained the same tuple. This independently
+establishes the emergency actor's exact approved synthetic state. No matrix
+case, cleanup reset, or operator decommission has run. All three operator
+actors remain active for the bounded matrix; the exclusive Staging window
+remains held.
+
+## Replacement matrix confirmation stop — 2026-09-25
+
+Window: approximately 14:46–14:48 UTC. The reviewed matrix launcher passed
+its target, registry, exact-instance operator, and deployed-control guards.
+The remote matrix then requested the exact exclusive-window confirmation. The
+maintainer's entered text omitted the word `window`; the bounded result was
+`FAIL_CONFIRMATION`, `mutation_may_have_begun=false`, empty audit-event
+evidence, and Cases 1–9 all `NOT_EXERCISED`. No credential prompt, case
+submission, #204 cleanup reset, or decommission was reached. The outer SSH
+launcher returned `FAIL_TRANSPORT_UNCERTAIN`; preserve that transport result
+separately from the remote confirmation classification. Do not infer a matrix
+PASS from reaching the remote command.
+
+A fresh independent read-only guard then required the same canonical source
+and deployment, approved receipt, #204 private/registry/database agreement,
+synthetic baseline, exact managed/limited roles, and emergency state `READY`.
+It returned `POST_CONFIRMATION_GUARDS_PASS`. The exclusive Staging window
+remains held; a new matrix attempt must begin from Case 1 with the full exact
+confirmation phrase.
+
+## Replacement matrix limited-authentication stop — 2026-09-25
+
+Remote matrix window: 14:50:16–14:51:29 UTC. After the prior independent
+read-only guards passed, the maintainer entered the exact exclusive-window
+confirmation and reached the hidden limited-operator identifier and password
+prompts. The remote matrix classified the attempt `FAIL_AUTHENTICATION`, with
+`mutation_may_have_begun=false`, no audit events, and Cases 1–9 all
+`NOT_EXERCISED`. The source was
+`99e6466e1bd5432025c085134e72c2c46eb92dbc`; the deployment was
+`2adc748c-ee54-4446-958c-f49a384925be`. No owner session prompt, case
+submission, #204 cleanup reset, or operator decommission was reached. The
+launcher separately classified SSH transport `FAIL_TRANSPORT_UNCERTAIN` for
+14:49:35–14:51:30 UTC; this does not change the remote pre-mutation result.
+
+The maintainer reported that the dedicated limited operator's saved local
+identifier and password may have been lost. This is an input uncertainty, not
+proof of Staging role drift or an application authentication defect. The
+limited account was previously proven exact by independent read-only
+inspection, but its current post-attempt state has not yet been freshly
+rechecked. No credential was retained in this evidence. The exclusive Staging
+window remains held. Recovery requires a separately validated exact-account
+credential path and new preflight; do not blindly retry the matrix or
+provision another limited account.
+
+## Replacement limited-password recovery — 2026-09-25
+
+Repository-only recovery at commit `b547218` added a password-only action for
+the existing exact synthetic limited account and removed the matrix's need
+for its identifier. The independent review found no remaining material issue;
+the full backend gate passed 3,210 tests, Ruff, Pyright, Semgrep, Django,
+migration, OpenAPI and Gunicorn checks. Doctor, changed-document links and
+`git diff --check` passed. These are local tooling results, not live matrix
+evidence.
+
+Immediately before recovery, fresh read-only #204 three-way registry
+reconciliation returned `PASS` on all structural and equality checks. The
+read-only exact-instance operator inspector returned `PASS` with
+`target_verified=true` at source
+`99e6466e1bd5432025c085134e72c2c46eb92dbc`, deployment
+`2adc748c-ee54-4446-958c-f49a384925be` during 15:07:39–15:07:47 UTC.
+The reviewed lifecycle launcher then repeated its own current-target,
+receipt, exact-instance and role guards. The maintainer entered a new limited
+password twice through the real hidden terminal. The remote command printed
+`Validation operator password rotated.` and
+`TAILTAG_LIFECYCLE_COMMAND_COMPLETED`; the outer launcher returned
+`FAIL_TRANSPORT_UNCERTAIN` for 15:08:59–15:09:49 UTC. Preserve that transport
+classification and do not retry the rotation.
+
+A new independent read-only exact-instance operator inspection at
+15:10:09–15:10:16 UTC returned `PASS`, `target_verified=true` at the same
+source/deployment. This independently establishes that managed and limited
+role state remains exact after the attempted rotation; it cannot by itself
+prove which password is accepted. The next newly guarded matrix must prove
+limited authentication before any case submission. Cases 1–9 remain
+`NOT_EXERCISED`; #204 cleanup reset and both decommissions remain pending.
+The exclusive Staging window remains held.
+
+## Replacement matrix emergency-authentication stop — 2026-09-25
+
+The newly guarded matrix attempt used the exact confirmation phrase and the
+password-only limited, managed and dedicated emergency prompts. The remote
+matrix returned `FAIL_AUTHENTICATION` for 15:45:44–15:46:06 UTC at canonical
+source `99e6466e1bd5432025c085134e72c2c46eb92dbc` and deployment
+`2adc748c-ee54-4446-958c-f49a384925be`. Because the emergency prompt was
+reached after the sequential limited and managed logins, those two
+authentication paths completed during this attempt. The emergency path did
+not complete; this result alone does not distinguish a rejected password,
+actor-state drift, admin-login response failure, or execution error.
+
+The remote result reports `mutation_may_have_begun=false`, empty audit-event
+evidence, and Cases 1–9 all `NOT_EXERCISED`. The owner Clerk token prompt,
+case submissions, #204 reset and both decommissions were not reached. The
+launcher separately returned `FAIL_TRANSPORT_UNCERTAIN` for
+15:45:14–15:46:07 UTC; preserve both classifications. No matrix retry or
+Staging remediation has been submitted. All three synthetic operators remain
+subject to fresh state inspection; cleanup is pending and the exclusive
+Staging window remains held.
+
+## Replacement emergency password diagnosis — 2026-09-25
+
+A separate reviewed, one-use read-only diagnosis checked the saved emergency
+password on the exact replacement Staging instance. Its remote fixed result was
+`CREDENTIAL_REJECTED` during 15:52:05–15:53:55 UTC at source
+`99e6466e1bd5432025c085134e72c2c46eb92dbc` and deployment
+`2adc748c-ee54-4446-958c-f49a384925be`. The check required the dedicated
+emergency actor to be `READY`, pinned its identity and password hash across the
+hidden prompt, and compared the entered password without a write. This proves
+only that the password entered for this diagnosis did not match that actor's
+current stored hash. It does not prove why the user-held value differed, nor
+does it test the later admin HTTP login path. The outer Railway launcher
+separately returned `FAIL_TRANSPORT_UNCERTAIN`; preserve that transport result
+without rewriting the remote classification or the earlier matrix attempt.
+
+No matrix case, reset, provisioning, decommission, fixture write, or audit write
+occurred during this diagnosis. Cases 1–9 remain `NOT_EXERCISED`; the managed,
+limited, and emergency actors' active state requires fresh verification before
+any further action. The approved emergency bootstrap is an absent-role creation
+path, not a password-rotation path. Restoring usable emergency access would
+require a separately reviewed, exact-actor, password-only remediation with its
+own authorization and guards. No such remediation was run. The exclusive
+Staging window remains held and matrix/cleanup obligations remain pending.

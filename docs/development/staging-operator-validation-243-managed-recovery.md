@@ -1,5 +1,11 @@
 # #243 managed-operator login recovery contract
 
+The later owner-approved [three-operator restart](staging-operator-validation-243-operator-restart.md)
+supersedes this document only for the single coordinated replacement of all
+three current synthetic replacement-Staging logins. The managed-only recovery
+rules below remain historical and do not authorize a separate concurrent
+replacement.
+
 Status: repository design for a separately guarded Staging recovery operation.
 The last managed-auth diagnosis remains `IDENTITY_MISMATCH`. No matrix case,
 reset, or decommission ran in that attempt. The exclusive #243 Staging window

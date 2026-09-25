@@ -33,10 +33,11 @@ _SOURCES: Final = {
     / "commands"
     / "staging_validation_operator.py",
 }
-_ACTIONS: Final = frozenset({"provision", "decommission"})
+_ACTIONS: Final = frozenset({"provision", "decommission", "rotate_password"})
 _EXPECTED_STATUS: Final = {
     "provision": "FAIL_LIMITED_OPERATOR_MISSING",
     "decommission": "PASS",
+    "rotate_password": "PASS",
 }
 _SHA: Final = re.compile(r"[0-9a-f]{40}\Z")
 _TIMEOUT_SECONDS: Final = 1800
@@ -46,7 +47,7 @@ _TIMEOUT_SECONDS: Final = 1800
 _BOOTSTRAP: Final = r"""
 import contextlib, hashlib, io, json, re, sys, uuid
 _SHA = re.compile(r"[0-9a-f]{40}\Z")
-_ACTIONS = {"provision": "FAIL_LIMITED_OPERATOR_MISSING", "decommission": "PASS"}
+_ACTIONS = {"provision": "FAIL_LIMITED_OPERATOR_MISSING", "decommission": "PASS", "rotate_password": "PASS"}
 _COMMAND_FAILURES = {
     "Invalid command arguments.": "FAIL_LIFECYCLE_CONFIGURATION",
     "This command is unavailable for the current target.": "FAIL_LIFECYCLE_TARGET",
@@ -60,6 +61,7 @@ _COMMAND_FAILURES = {
     "Required operator permissions are unavailable.": "FAIL_LIFECYCLE_PERMISSION_PREREQUISITE",
     "Existing group cannot be used as an operator.": "FAIL_LIFECYCLE_EXISTING_GROUP",
     "Existing account cannot be used as an operator.": "FAIL_LIFECYCLE_EXISTING_ACCOUNT",
+    "Validation operator postcondition failed.": "FAIL_LIFECYCLE_POSTCONDITION",
 }
 def _unique(pairs):
     result = {}

@@ -1,7 +1,13 @@
 # #243 operator evidence recovery and bounded validation proposal
 
-Status: **replacement-generation baseline and operator prerequisites unproven;
-matrix not started**.
+Status: **replacement-generation #204 baseline and exact managed, limited,
+and emergency operators established; bounded matrix not started**.
+The later emergency password diagnosis stopped before Case 1. The owner has
+authorized a [guarded three-operator restart](staging-operator-validation-243-operator-restart.md)
+with generated local usernames and password-only hidden prompts. That restart
+is a prerequisite amendment; it does not add a matrix case or widen the two
+approved domain transitions. Its compatible lifecycle code must be reviewed,
+merged and promoted before any restart mutation.
 The old-generation
 [bounded read-only result](staging-operator-validation-243-execution-attempts.md)
 substantiated the old managed and limited roles only; it found no limited-role
@@ -14,7 +20,40 @@ for source `fc1376e9b4387cb46e37ef3f60191b2ce7f06c68` and deployment
 did not return database facts. It did not inspect the #204 sentinel/fixtures or
 operators, and it performed no matrix action or mutation. Thus replacement
 database binding, #204 baseline, and managed/limited/emergency operator state
-remain unknown.
+were unknown at that observation. A later [single guarded promotion](staging-deployments/2adc748c-ee54-4446-958c-f49a384925be.json)
+served source `99e6466e1bd5432025c085134e72c2c46eb92dbc`. Fresh public and
+exact-instance identity joined; a read-only inspector then returned
+`FAIL_FIXTURE_MISSING` before reaching either operator role. A separate bounded
+read-only prerequisite check established matching API/PostgreSQL service
+binding, one ordinary Clerk-bound TailTag User, and no #204 registry row.
+These are point-in-time facts, not a completed baseline or operator result.
+The later [bounded identity preparation and independent read-only
+postcondition](staging-operator-validation-243-execution-attempts.md#replacement-ordinary-identity-preparation--2026-09-25)
+established the two exact approved ordinary User bindings. The designated
+replacement media bucket remained empty, and no reset sentinel, baseline,
+operator role, or matrix case was established by that step.
+The later [single synthetic media upload and read-only bucket inventory](staging-operator-validation-243-execution-attempts.md#replacement-designated-media-preparation--2026-09-25)
+established one designated object in replacement Staging R2. Application
+readability and the connected database binding were then established through
+the [guarded private prerequisite check](staging-operator-validation-243-execution-attempts.md#replacement-204-private-prerequisite-check--2026-09-25).
+That check did not provision the #204 sentinel or build the synthetic baseline.
+The later [guarded replacement sentinel and baseline receipt](staging-operator-validation-243-execution-attempts.md#replacement-204-sentinel-and-baseline--2026-09-25)
+established both and verified the private/registry/database binding. The first
+role inspection reached `FAIL_MANAGED_OPERATOR_MISSING` before limited-role
+inspection. It does not establish either limited or emergency role state.
+The [subsequent managed creation and independent read-only postcondition](staging-operator-validation-243-execution-attempts.md#replacement-managed-operator-creation-and-postcondition--2026-09-25)
+established managed-role PASS and dedicated limited-role absence. Its original
+launcher transport result remains historically uncertain.
+The [limited-role creation and independent postcondition](staging-operator-validation-243-execution-attempts.md#replacement-limited-operator-creation-and-postcondition--2026-09-25)
+then established exact managed and limited role PASS. Emergency-role state
+remains a separate prerequisite.
+The [replacement emergency-role inspection](staging-operator-validation-243-execution-attempts.md#replacement-emergency-role-inspection--2026-09-25)
+returned `ABSENT`; the conditionally approved synthetic actor path below is
+the approved response to that missing prerequisite. It did not add a matrix
+mutation.
+The later [guarded emergency creation and independent read-only postcondition](staging-operator-validation-243-execution-attempts.md#replacement-emergency-creation-and-postcondition--2026-09-25)
+returned `READY`; the launcher's uncertain transport receipt remains
+historical. All three roles now require fresh pre-matrix target checks.
 The [dedicated limited-role contract](staging-operator-validation-243-limited-role.md)
 remains authoritative; the previously established role states belonged to the
 old generation and do not establish replacement roles. Fresh replacement role
@@ -176,9 +215,10 @@ unowned state. Use only supported Django-admin and existing player flows.
    through authorized read-only surfaces. The old-generation #204 sentinel,
    fixtures, private configuration, Clerk identities, media and operator
    results are historical and must not be reused. The replacement-bound #204
-   sentinel provision path is locally reviewed but has not been exercised on
-   live Staging; do not start the matrix until that prerequisite has been
-   safely provisioned and verified against the separate private
+   sentinel was provisioned and its baseline reseeded in the retained
+   [replacement #204 receipt](staging-operator-validation-243-execution-attempts.md#replacement-204-sentinel-and-baseline--2026-09-25).
+   Before the matrix, freshly verify the existing sentinel and baseline
+   against the separate private
    `~/.config/tailtag/staging-reset-replacement.env`. Identify exactly the disposable
    profile and a distinct disposable fursuit that #204 owns. If their state
    differs from the known baseline, an unrelated dependency exists, audit

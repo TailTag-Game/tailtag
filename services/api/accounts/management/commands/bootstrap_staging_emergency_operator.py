@@ -49,36 +49,36 @@ def inspect_emergency_state() -> str:
     try:
         superusers = list(User.objects.filter(is_superuser=True)[:2])
         dedicated = list(
-            User.objects.filter(clerk_user_id__startswith="staging_emergency_")[:2]
+            User.objects.filter(clerk_user_id__startswith="staging_emergency_")[:3]
         )
         if not superusers and not dedicated:
             return "ABSENT"
-        if len(superusers) > 1 or len(dedicated) != 1:
+        if len(superusers) > 1 or len(dedicated) not in {1, 2}:
             return "MISMATCH"
-        user = dedicated[0]
-        if _IDENTIFIER.fullmatch(user.clerk_user_id) is None:
+        if any(_IDENTIFIER.fullmatch(user.clerk_user_id) is None for user in dedicated):
             return "MISMATCH"
-        if not superusers:
+        active = [
+            user
+            for user in dedicated
+            if cast(bool, user.is_superuser)  # pyright: ignore[reportUnknownMemberType]
+        ]
+        if len(active) != len(superusers) or (
+            active and active[0].pk != superusers[0].pk
+        ):
+            return "MISMATCH"
+        for user in dedicated:
             if (
-                user.is_staff
-                or cast(bool, user.is_superuser)  # pyright: ignore[reportUnknownMemberType]
-                or user.has_usable_password()
-                or user.groups.exists()  # pyright: ignore[reportUnknownMemberType]
+                user.groups.exists()  # pyright: ignore[reportUnknownMemberType]
                 or user.user_permissions.exists()  # pyright: ignore[reportUnknownMemberType]
                 or _has_forbidden_attachment(user)
             ):
                 return "MISMATCH"
-            return "DECOMMISSIONED"
-        if (
-            superusers[0].pk != user.pk
-            or not user.is_staff
-            or not user.has_usable_password()
-            or user.groups.exists()  # pyright: ignore[reportUnknownMemberType]
-            or user.user_permissions.exists()  # pyright: ignore[reportUnknownMemberType]
-            or _has_forbidden_attachment(user)
-        ):
-            return "MISMATCH"
-        return "READY"
+            if user in active:
+                if not user.is_staff or not user.has_usable_password():
+                    return "MISMATCH"
+            elif user.is_staff or user.has_usable_password():
+                return "MISMATCH"
+        return "READY" if active else "DECOMMISSIONED"
     except Exception:  # noqa: BLE001
         return "INDETERMINATE"
 

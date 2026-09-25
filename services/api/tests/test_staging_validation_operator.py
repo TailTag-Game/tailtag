@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, NoReturn, cast
 
 import pytest
+from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import Group, Permission
 from django.contrib.contenttypes.models import ContentType
 from django.core.management import CommandError, call_command
@@ -53,6 +54,7 @@ COMMAND_NAME = "staging_validation_operator"
 GROUP_NAME = "TailTag #243 Validation Operator"
 PROVISION_CONFIRMATION = "provision Railway Staging validation operator"
 DECOMMISSION_CONFIRMATION = "decommission Railway Staging validation operator"
+ROTATE_CONFIRMATION = "rotate Railway Staging validation operator password"
 OPERATOR_IDENTIFIER = "validation_operator_243"
 INITIAL_PASSWORD = "validation-operator-password-2026"
 ROTATED_PASSWORD = "validation-operator-rotated-password-2026"
@@ -298,6 +300,8 @@ def invoke_command(
     stdin: StringIO | None = None,
     stdout: StringIO | None = None,
     stderr: StringIO | None = None,
+    hidden_prompts: list[str] | None = None,
+    after_hidden_prompt: Callable[[str], None] | None = None,
 ) -> tuple[StringIO, StringIO]:
     """Run the public command through controlled TTY and getpass surfaces."""
     values = tuple(hidden_inputs)
@@ -307,7 +311,11 @@ def invoke_command(
     inputs = iter(values)
 
     def hidden_input(prompt: str, stream: Any | None = None) -> str:
-        del prompt, stream
+        del stream
+        if hidden_prompts is not None:
+            hidden_prompts.append(prompt)
+        if after_hidden_prompt is not None:
+            after_hidden_prompt(prompt)
         try:
             return next(inputs)
         except StopIteration as error:
@@ -554,6 +562,304 @@ def test_provision_reconciles_only_the_exact_active_limited_role(
     assert operator.pk == original_pk
     assert_exact_active_limited_role(operator, ROTATED_PASSWORD)
     assert not operator.check_password(INITIAL_PASSWORD)
+
+
+@pytest.mark.django_db
+def test_rotate_password_keeps_exact_limited_actor_authority_and_audit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A password-only recovery retains the actor and its narrow authority."""
+    limited = create_exact_limited_operator()
+    managed = create_exact_managed_operator()
+    audit = OperatorAuditEvent.objects.create(
+        action=OperatorAction.SET_PROFILE_ENABLED,
+        actor=limited,
+        actor_class=OperatorActorClass.OPERATOR,
+        affected_record_type=OperatorTargetType.PLAYER_PROFILE,
+        affected_record_id=1,
+        outcome=OperatorAuditOutcome.SUCCEEDED,
+    )
+    before_limited = exact_limited_state(limited)
+    before_managed = exact_limited_state(managed)
+    before_audit = tuple(OperatorAuditEvent.objects.values_list())
+    prompts: list[str] = []
+    stdout, stderr = invoke_command(
+        monkeypatch,
+        "rotate_password",
+        confirmation=ROTATE_CONFIRMATION,
+        hidden_inputs=(ROTATED_PASSWORD, ROTATED_PASSWORD),
+        hidden_prompts=prompts,
+    )
+
+    limited.refresh_from_db()
+    managed.refresh_from_db()
+    assert limited.check_password(ROTATED_PASSWORD)
+    assert not limited.check_password(INITIAL_PASSWORD)
+    after_limited = exact_limited_state(limited)
+    assert {
+        key: value
+        for key, value in after_limited.items()
+        if key != "password_fingerprint"
+    } == {
+        key: value
+        for key, value in before_limited.items()
+        if key != "password_fingerprint"
+    }
+    assert exact_limited_state(managed) == before_managed
+    assert tuple(OperatorAuditEvent.objects.values_list()) == before_audit
+    assert OperatorAuditEvent.objects.filter(pk=audit.pk, actor=limited).count() == 1
+    assert prompts == ["Password: ", "Confirm password: "]
+    assert_private_values_absent(
+        (stdout, stderr), OPERATOR_IDENTIFIER, INITIAL_PASSWORD, ROTATED_PASSWORD
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "failure",
+    (
+        "environment",
+        "service",
+        "stdin",
+        "stdout",
+        "confirmation",
+        "missing",
+        "ambiguous",
+        "group_drift",
+        "permission_drift",
+        "direct_permission",
+        "superuser",
+        "password_mismatch",
+        "password_policy",
+    ),
+)
+def test_rotate_password_refuses_inexact_target_role_or_secret_without_write(
+    monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    """Rotation cannot select or change an inexact limited role."""
+    limited = create_exact_limited_operator()
+    managed = create_exact_managed_operator()
+    if failure == "missing":
+        limited.delete()
+    elif failure == "ambiguous":
+        create_user("second_limited_candidate").user_permissions.add(  # pyright: ignore[reportUnknownMemberType]
+            permissions_by_name()["profiles.set_profile_enabled"]
+        )
+    elif failure == "group_drift":
+        limited.groups.add(Group.objects.create(name="unrelated group"))  # pyright: ignore[reportUnknownMemberType]
+    elif failure == "permission_drift":
+        limited.groups.get().permissions.add(  # pyright: ignore[reportUnknownMemberType]
+            permissions_by_name()[EXTRA_SENSITIVE_PERMISSION]
+        )
+    elif failure == "direct_permission":
+        limited.user_permissions.add(  # pyright: ignore[reportUnknownMemberType]
+            permissions_by_name()["profiles.set_profile_enabled"]
+        )
+    elif failure == "superuser":
+        limited.is_superuser = True
+        limited.save(update_fields={"is_superuser"})
+    before = tuple(
+        User.objects.values_list("pk", "password", "is_staff", "is_superuser")
+    )
+    managed_before = exact_limited_state(managed)
+    kwargs: dict[str, Any] = {}
+    if failure == "environment":
+        kwargs["environment"] = "production"
+    elif failure == "service":
+        kwargs["service"] = "worker"
+    elif failure == "stdin":
+        kwargs["stdin"] = NonTtyStream()
+    elif failure == "stdout":
+        kwargs["stdout"] = NonTtyStream()
+    kwargs["confirmation"] = (
+        "wrong phrase" if failure == "confirmation" else ROTATE_CONFIRMATION
+    )
+    kwargs["hidden_inputs"] = (
+        (ROTATED_PASSWORD, "different-rotated-password-2026")
+        if failure == "password_mismatch"
+        else ("short", "short")
+        if failure == "password_policy"
+        else (ROTATED_PASSWORD, ROTATED_PASSWORD)
+    )
+    with pytest.raises(CommandError) as error:
+        invoke_command(monkeypatch, "rotate_password", **kwargs)
+    assert (
+        tuple(User.objects.values_list("pk", "password", "is_staff", "is_superuser"))
+        == before
+    )
+    assert exact_limited_state(managed) == managed_before
+    assert_private_values_absent(
+        (),
+        OPERATOR_IDENTIFIER,
+        INITIAL_PASSWORD,
+        ROTATED_PASSWORD,
+        exception_text=str(error.value),
+    )
+
+
+@pytest.mark.django_db
+def test_rotate_password_rechecks_limited_role_after_hidden_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A role changed while the operator types cannot inherit prior approval."""
+    limited = create_exact_limited_operator()
+    managed = create_exact_managed_operator()
+    old_hash = cast(str, limited.password)  # pyright: ignore[reportUnknownMemberType]
+    managed_before = exact_limited_state(managed)
+    changed = False
+
+    def drift(prompt: str) -> None:
+        nonlocal changed
+        if prompt == "Password: " and not changed:
+            changed = True
+            limited.groups.clear()  # pyright: ignore[reportUnknownMemberType]
+
+    with pytest.raises(CommandError):
+        invoke_command(
+            monkeypatch,
+            "rotate_password",
+            confirmation=ROTATE_CONFIRMATION,
+            hidden_inputs=(ROTATED_PASSWORD, ROTATED_PASSWORD),
+            after_hidden_prompt=drift,
+        )
+
+    limited.refresh_from_db()
+    assert changed
+    assert cast(str, limited.password) == old_hash  # pyright: ignore[reportUnknownMemberType]
+    assert exact_limited_state(managed) == managed_before
+
+
+@pytest.mark.django_db
+def test_rotate_password_refuses_concurrent_password_hash_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A password changed during hidden input cannot be silently overwritten."""
+    limited = create_exact_limited_operator()
+    managed = create_exact_managed_operator()
+    managed_before = exact_limited_state(managed)
+    concurrent_hash = make_password("independent-concurrent-password-2026")
+    changed = False
+
+    def drift(prompt: str) -> None:
+        nonlocal changed
+        if prompt == "Password: " and not changed:
+            changed = True
+            assert (
+                User.objects.filter(pk=limited.pk).update(password=concurrent_hash) == 1
+            )
+
+    stdout = TtyStream()
+    stderr = TtyStream()
+    with pytest.raises(CommandError) as error:
+        invoke_command(
+            monkeypatch,
+            "rotate_password",
+            confirmation=ROTATE_CONFIRMATION,
+            hidden_inputs=(ROTATED_PASSWORD, ROTATED_PASSWORD),
+            after_hidden_prompt=drift,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    limited.refresh_from_db()
+    assert changed
+    assert cast(str, limited.password) == concurrent_hash  # pyright: ignore[reportUnknownMemberType]
+    assert exact_limited_state(managed) == managed_before
+    assert_private_values_absent(
+        (stdout, stderr),
+        OPERATOR_IDENTIFIER,
+        INITIAL_PASSWORD,
+        ROTATED_PASSWORD,
+        concurrent_hash,
+        exception_text=str(error.value),
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_rotate_password_database_failure_rolls_back_password_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Even a failure after the password save leaves the old credential usable."""
+    limited = create_exact_limited_operator()
+    managed = create_exact_managed_operator()
+    old_hash = cast(str, limited.password)  # pyright: ignore[reportUnknownMemberType]
+    managed_before = exact_limited_state(managed)
+    original_save = User.save
+    raised = False
+
+    def fail_after_save(self: User, *args: Any, **kwargs: Any) -> None:
+        nonlocal raised
+        original_save(self, *args, **kwargs)
+        if self.pk == limited.pk and kwargs.get("update_fields") == {"password"}:
+            raised = True
+            raise DatabaseError("private database detail must not escape")
+
+    monkeypatch.setattr(User, "save", fail_after_save)
+    stdout = TtyStream()
+    stderr = TtyStream()
+    with pytest.raises(CommandError) as error:
+        invoke_command(
+            monkeypatch,
+            "rotate_password",
+            confirmation=ROTATE_CONFIRMATION,
+            hidden_inputs=(ROTATED_PASSWORD, ROTATED_PASSWORD),
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    limited.refresh_from_db()
+    assert raised
+    assert cast(str, limited.password) == old_hash  # pyright: ignore[reportUnknownMemberType]
+    assert exact_limited_state(managed) == managed_before
+    assert_private_values_absent(
+        (stdout, stderr),
+        OPERATOR_IDENTIFIER,
+        INITIAL_PASSWORD,
+        ROTATED_PASSWORD,
+        "private database detail must not escape",
+        exception_text=str(error.value),
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_rotate_password_failed_postcondition_rolls_back_password_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed after-write role check must not leave a committed new secret."""
+    limited = create_exact_limited_operator()
+    managed = create_exact_managed_operator()
+    old_hash = cast(str, limited.password)  # pyright: ignore[reportUnknownMemberType]
+    managed_before = exact_limited_state(managed)
+    command_module = importlib.import_module(COMMAND_MODULE)
+    original_check = command_module.Command._active_exact
+    after_write_reached = False
+
+    def fail_after_write(
+        self: Any, operator: User, permissions: tuple[Permission, ...]
+    ) -> bool:
+        nonlocal after_write_reached
+        if operator.check_password(ROTATED_PASSWORD):
+            after_write_reached = True
+            return False
+        return cast(bool, original_check(self, operator, permissions))
+
+    monkeypatch.setattr(
+        command_module.Command,
+        "_active_exact",
+        fail_after_write,
+    )
+    with pytest.raises(CommandError):
+        invoke_command(
+            monkeypatch,
+            "rotate_password",
+            confirmation=ROTATE_CONFIRMATION,
+            hidden_inputs=(ROTATED_PASSWORD, ROTATED_PASSWORD),
+        )
+
+    limited.refresh_from_db()
+    assert after_write_reached
+    assert cast(str, limited.password) == old_hash  # pyright: ignore[reportUnknownMemberType]
+    assert exact_limited_state(managed) == managed_before
 
 
 @pytest.mark.django_db

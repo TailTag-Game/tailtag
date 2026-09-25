@@ -949,9 +949,9 @@ def test_wrong_managed_password_stops_before_case_submission(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "drift", ("group", "direct_permission", "second_retained_actor")
+    "drift", ("group", "direct_permission", "abnormal_retained_actor")
 )
-def test_synthetic_emergency_authentication_refuses_inexact_singleton_before_http(
+def test_synthetic_emergency_authentication_refuses_inexact_role_before_http(
     matrix: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     drift: str,
@@ -971,7 +971,9 @@ def test_synthetic_emergency_authentication_refuses_inexact_singleton_before_htt
             )
         )
     else:
-        User.objects.create_user("staging_emergency_retained_matrix_243")
+        retired = User.objects.create_user("staging_emergency_retained_matrix_243")
+        retired.is_staff = True
+        retired.save(update_fields={"is_staff"})
 
     def account_states() -> dict[int, tuple[str, bool, bool, str]]:
         return {
@@ -987,7 +989,7 @@ def test_synthetic_emergency_authentication_refuses_inexact_singleton_before_htt
     before = account_states()
     output = HiddenInputTerminal()
     prompts: list[str] = []
-    answers = iter((actor.clerk_user_id, "local-only-emergency-test-password"))
+    answers = iter(("local-only-emergency-test-password",))
     monkeypatch.setattr(sys, "stdin", HiddenInputTerminal())
     monkeypatch.setattr(sys, "stdout", output)
     monkeypatch.setattr(matrix, "_guard_target", accept_target)
@@ -1006,7 +1008,7 @@ def test_synthetic_emergency_authentication_refuses_inexact_singleton_before_htt
     with pytest.raises(ValueError):
         matrix._authenticate("emergency")
 
-    assert len(prompts) == 2
+    assert all("identifier" not in prompt.lower() for prompt in prompts)
     assert account_states() == before
     assert OperatorAuditEvent.objects.count() == 0
     assert actor.clerk_user_id not in output.getvalue()
@@ -1028,11 +1030,21 @@ def test_exact_emergency_actor_can_reach_admin_login_http(
     actor = User.objects.get(pk=sessions["emergency"]["actor_id"])
     actor.clerk_user_id = identifier
     actor.save(update_fields={"clerk_user_id"})
-    answers = iter((identifier, "local-only-emergency-test-password"))
+    answers = iter(
+        ("local-only-emergency-test-password",)
+        if identifier.startswith("staging_emergency_")
+        else (identifier, "local-only-emergency-test-password")
+    )
+    prompts: list[str] = []
     requests: list[tuple[str, str]] = []
     monkeypatch.setattr(sys, "stdin", HiddenInputTerminal())
     monkeypatch.setattr(sys, "stdout", HiddenInputTerminal())
-    monkeypatch.setattr(getpass, "getpass", lambda _prompt="": next(answers))
+
+    def hidden(prompt: str = "") -> str:
+        prompts.append(prompt)
+        return next(answers)
+
+    monkeypatch.setattr(getpass, "getpass", hidden)
     monkeypatch.setattr(matrix, "_guard_target", accept_target)
     monkeypatch.setattr(matrix, "_active_identity", IDENTITY)
 
@@ -1049,6 +1061,139 @@ def test_exact_emergency_actor_can_reach_admin_login_http(
         matrix._authenticate("emergency")
 
     assert requests == [("GET", "/admin/login/")]
+    assert prompts == (
+        ["emergency admin password: "]
+        if identifier.startswith("staging_emergency_")
+        else ["emergency admin identifier: ", "emergency admin password: "]
+    )
+    assert OperatorAuditEvent.objects.count() == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("retired_state", ("exact", "staff", "third_row"))
+def test_emergency_login_selects_sole_active_actor_with_retained_predecessor(
+    matrix: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    retired_state: str,
+) -> None:
+    """Restart AC-5: only an exact retired predecessor permits active Case-5 login."""
+    identity = create_owned_baseline()
+    sessions = role_sessions(identity)
+    active = User.objects.get(pk=sessions["emergency"]["actor_id"])
+    active.clerk_user_id = "staging_emergency_active_matrix_243"
+    active.save(update_fields={"clerk_user_id"})
+    retired = User.objects.create_user("staging_emergency_retired_matrix_243")
+    if retired_state == "staff":
+        retired.is_staff = True
+        retired.save(update_fields={"is_staff"})
+    elif retired_state == "third_row":
+        User.objects.create_user("staging_emergency_third_matrix_243")
+    prompts: list[str] = []
+    requests: list[tuple[str, str]] = []
+    monkeypatch.setattr(sys, "stdin", HiddenInputTerminal())
+    monkeypatch.setattr(sys, "stdout", HiddenInputTerminal())
+    monkeypatch.setattr(matrix, "_guard_target", accept_target)
+    monkeypatch.setattr(matrix, "_active_identity", IDENTITY)
+
+    def hidden(prompt: str = "") -> str:
+        prompts.append(prompt)
+        return "local-only-emergency-test-password"
+
+    class LoginReached(Exception):
+        pass
+
+    def observe_http(method: str, path: str, **_kwargs: object) -> NoReturn:
+        requests.append((method, path))
+        raise LoginReached
+
+    monkeypatch.setattr(getpass, "getpass", hidden)
+    monkeypatch.setattr(matrix, "_http_request", observe_http)
+
+    if retired_state == "exact":
+        with pytest.raises(LoginReached):
+            matrix._authenticate("emergency")
+        assert requests == [("GET", "/admin/login/")]
+        assert prompts == ["emergency admin password: "]
+    else:
+        with pytest.raises(ValueError):
+            matrix._authenticate("emergency")
+        assert requests == []
+    assert OperatorAuditEvent.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_dedicated_emergency_password_hash_drift_during_hidden_input_fails_before_http(
+    matrix: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An exact actor must remain the same credential while input is pending."""
+    identity = create_owned_baseline()
+    sessions = role_sessions(identity)
+    actor = User.objects.get(pk=sessions["emergency"]["actor_id"])
+    actor.clerk_user_id = "staging_emergency_matrix_243"
+    actor.save(update_fields={"clerk_user_id"})
+    output = HiddenInputTerminal()
+    prompts: list[str] = []
+    changed = False
+    monkeypatch.setattr(sys, "stdin", HiddenInputTerminal())
+    monkeypatch.setattr(sys, "stdout", output)
+    monkeypatch.setattr(matrix, "_guard_target", accept_target)
+    monkeypatch.setattr(matrix, "_active_identity", IDENTITY)
+
+    def hidden(prompt: str = "") -> str:
+        nonlocal changed
+        prompts.append(prompt)
+        if not changed:
+            actor.set_password("local-only-emergency-test-password")
+            actor.save(update_fields={"password"})
+            changed = True
+        return "local-only-emergency-test-password"
+
+    def forbidden_http(*_args: object, **_kwargs: object) -> NoReturn:
+        pytest.fail("changed emergency credential reached HTTP")
+
+    monkeypatch.setattr(getpass, "getpass", hidden)
+    monkeypatch.setattr(matrix, "_http_request", forbidden_http)
+    with pytest.raises(ValueError):
+        matrix._authenticate("emergency")
+
+    assert changed
+    assert prompts == ["emergency admin password: "]
+    assert OperatorAuditEvent.objects.count() == 0
+    assert actor.clerk_user_id not in output.getvalue()
+    assert "local-only-emergency-test-password" not in output.getvalue()
+
+
+@pytest.mark.django_db
+def test_wrong_dedicated_emergency_password_stops_before_http(
+    matrix: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pinned synthetic identity does not excuse a bad password."""
+    identity = create_owned_baseline()
+    sessions = role_sessions(identity)
+    actor = User.objects.get(pk=sessions["emergency"]["actor_id"])
+    actor.clerk_user_id = "staging_emergency_matrix_243"
+    actor.save(update_fields={"clerk_user_id"})
+    prompts: list[str] = []
+    monkeypatch.setattr(sys, "stdin", HiddenInputTerminal())
+    monkeypatch.setattr(sys, "stdout", HiddenInputTerminal())
+    monkeypatch.setattr(matrix, "_guard_target", accept_target)
+    monkeypatch.setattr(matrix, "_active_identity", IDENTITY)
+
+    def hidden(prompt: str = "") -> str:
+        prompts.append(prompt)
+        return "wrong-emergency-password"
+
+    def forbidden_http(*_args: object, **_kwargs: object) -> NoReturn:
+        pytest.fail("wrong emergency password reached HTTP")
+
+    monkeypatch.setattr(getpass, "getpass", hidden)
+    monkeypatch.setattr(matrix, "_http_request", forbidden_http)
+    with pytest.raises(ValueError):
+        matrix._authenticate("emergency")
+
+    assert prompts == ["emergency admin password: "]
     assert OperatorAuditEvent.objects.count() == 0
 
 
@@ -1188,7 +1333,7 @@ def test_limited_login_rotates_csrf_for_real_audited_denial(
     limited_user.password = legacy_hash
     limited_user.save()
     direct_auth_sql: list[str] = []
-    inputs = iter((limited_user.clerk_user_id, INITIAL_PASSWORD))
+    inputs = iter((INITIAL_PASSWORD,))
     prompts: list[str] = []
     terminal_output = HiddenInputTerminal()
     monkeypatch.setattr(sys, "stdin", HiddenInputTerminal())
@@ -1248,7 +1393,7 @@ def test_limited_login_rotates_csrf_for_real_audited_denial(
     with warnings.catch_warnings():
         result = matrix.run(IDENTITY)
 
-    assert len(prompts) == 2
+    assert prompts == ["limited admin password: "]
     assert len(authenticated) == 1
     assert all(result["cases"][case] == "PASS" for case in ("1", "2", "4", "7"))
     assert result["classification"] != "PASS"
@@ -1271,7 +1416,59 @@ def test_limited_login_rotates_csrf_for_real_audited_denial(
     # The actual HTTP login upgraded the legacy hash.
     assert limited_user.password != legacy_hash  # pyright: ignore[reportUnknownMemberType]
     assert limited_user.clerk_user_id not in repr(authenticated[0])
+    assert limited_user.clerk_user_id not in terminal_output.getvalue()
     assert INITIAL_PASSWORD not in repr(authenticated[0]) + terminal_output.getvalue()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_wrong_limited_password_stops_before_case_submission(
+    matrix: ModuleType,
+    live_server: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A derived limited identity still requires its own valid hidden password."""
+    create_owned_baseline()
+    limited = create_exact_limited_operator()
+    create_exact_managed_operator()
+    terminal_output = HiddenInputTerminal()
+    prompts: list[str] = []
+    requests: list[tuple[str, str]] = []
+    monkeypatch.setattr(sys, "stdin", HiddenInputTerminal())
+    monkeypatch.setattr(sys, "stdout", terminal_output)
+    monkeypatch.setattr(matrix, "_STAGING_ORIGIN", live_server.url)
+    monkeypatch.setattr(matrix, "_guard_target", accept_target)
+    monkeypatch.setattr(matrix, "_active_identity", IDENTITY)
+
+    def hidden(prompt: str = "") -> str:
+        prompts.append(prompt)
+        return "wrong-limited-password"
+
+    original_http = matrix._http_request
+
+    def observe_http(
+        method: str,
+        path: str,
+        *,
+        actor: Mapping[str, Any],
+        body: bytes | None = None,
+        csrf: str | None = None,
+    ) -> Mapping[str, Any]:
+        requests.append((method, path))
+        return cast(
+            Mapping[str, Any],
+            original_http(method, path, actor=actor, body=body, csrf=csrf),
+        )
+
+    monkeypatch.setattr(getpass, "getpass", hidden)
+    monkeypatch.setattr(matrix, "_http_request", observe_http)
+    with pytest.raises(ValueError):
+        matrix._authenticate("limited")
+
+    assert prompts == ["limited admin password: "]
+    assert all(path == "/admin/login/" for _, path in requests)
+    assert limited.clerk_user_id not in terminal_output.getvalue()
+    assert "wrong-limited-password" not in terminal_output.getvalue()
+    assert OperatorAuditEvent.objects.count() == 0
 
 
 @pytest.mark.django_db(transaction=True)

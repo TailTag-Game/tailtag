@@ -28,6 +28,7 @@ BACKEND_RELEVANT_FILES = {
     "scripts/api_staging_operator_inspect.py",
     "scripts/api_staging_operator_inspect_ssh.py",
     "scripts/api_staging_operator_lifecycle_ssh.py",
+    "scripts/api_staging_operator_restart_ssh.py",
     "scripts/api_staging_operator_matrix.py",
     "scripts/api_staging_operator_matrix_ssh.py",
     "scripts/api_staging_registry_reconcile.py",
