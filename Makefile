@@ -13,6 +13,20 @@ override MEDIA_STORAGE_SMOKE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_media_stor
 override DEPLOYMENT_IDENTITY_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_deployment_identity.py
 override STAGING_PROMOTION_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_promote.py
 override STAGING_PREFLIGHT_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_preflight.py
+override STAGING_OPERATOR_INSPECTOR_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_operator_inspect.py
+override STAGING_OPERATOR_MATRIX_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_operator_matrix.py
+override STAGING_OPERATOR_MATRIX_SSH_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_operator_matrix_ssh.py
+override STAGING_FIXTURE_DIAGNOSE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_fixture_diagnose.py
+override STAGING_MANAGED_AUTH_DIAGNOSE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_managed_auth_diagnose.py
+override STAGING_MANAGED_AUTH_DIAGNOSE_SSH_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_managed_auth_diagnose_ssh.py
+override STAGING_MANAGED_OPERATOR_REPLACE_SSH_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_managed_operator_replace_ssh.py
+override STAGING_MANAGED_PASSWORD_ROTATE_SSH_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_managed_password_rotate_ssh.py
+override STAGING_OPERATOR_INSPECT_SSH_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_operator_inspect_ssh.py
+override STAGING_OPERATOR_LIFECYCLE_SSH_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_operator_lifecycle_ssh.py
+override STAGING_REGISTRY_RECONCILE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_registry_reconcile.py
+override STAGING_REGISTRY_RECONCILE_REMOTE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_registry_reconcile_remote.py
+override STAGING_EMERGENCY_OPERATOR_SSH_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_emergency_operator_ssh.py
+override STAGING_EMERGENCY_DECOMMISSION_SSH_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_emergency_operator_decommission_ssh.py
 override DEVELOPMENT_DELIVERY_EVENT_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_development_delivery_event.py
 override STAGING_RESET_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_reset.py
 override STAGING_RESET_SSH_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_reset_ssh.py
@@ -33,6 +47,20 @@ override SEMGREP_TARGETS := $(REPOSITORY_ROOT)/services/api \
 	$(DEPLOYMENT_IDENTITY_SCRIPT) \
 	$(STAGING_PROMOTION_SCRIPT) \
 	$(STAGING_PREFLIGHT_SCRIPT) \
+	$(STAGING_OPERATOR_INSPECTOR_SCRIPT) \
+	$(STAGING_OPERATOR_MATRIX_SCRIPT) \
+	$(STAGING_OPERATOR_MATRIX_SSH_SCRIPT) \
+	$(STAGING_FIXTURE_DIAGNOSE_SCRIPT) \
+	$(STAGING_MANAGED_AUTH_DIAGNOSE_SCRIPT) \
+	$(STAGING_MANAGED_AUTH_DIAGNOSE_SSH_SCRIPT) \
+	$(STAGING_MANAGED_OPERATOR_REPLACE_SSH_SCRIPT) \
+	$(STAGING_MANAGED_PASSWORD_ROTATE_SSH_SCRIPT) \
+	$(STAGING_OPERATOR_INSPECT_SSH_SCRIPT) \
+	$(STAGING_OPERATOR_LIFECYCLE_SSH_SCRIPT) \
+	$(STAGING_REGISTRY_RECONCILE_SCRIPT) \
+	$(STAGING_REGISTRY_RECONCILE_REMOTE_SCRIPT) \
+	$(STAGING_EMERGENCY_OPERATOR_SSH_SCRIPT) \
+	$(STAGING_EMERGENCY_DECOMMISSION_SSH_SCRIPT) \
 	$(DEVELOPMENT_DELIVERY_EVENT_SCRIPT) \
 	$(STAGING_RESET_SCRIPT) \
 	$(STAGING_RESET_SSH_SCRIPT) \
@@ -58,7 +86,7 @@ endef
 
 .PHONY: help \
 	api-setup api-run api-semgrep-check api-test api-check api-migrate api-migrations \
-	api-migrations-check api-shell api-smoke api-auth-smoke api-staging-auth-smoke api-replacement-auth-smoke api-media-storage-smoke api-staging-reset api-staging-reset-ssh api-staging-reset-provision \
+	api-migrations-check api-shell api-smoke api-auth-smoke api-staging-auth-smoke api-replacement-auth-smoke api-media-storage-smoke api-staging-reset api-staging-reset-ssh api-staging-reset-provision api-staging-reset-provision-ssh \
 	api-staging-restore-drill \
 	api-format-check api-lint-check api-type-check api-django-check \
 	api-schema-check api-gunicorn-check
@@ -137,6 +165,9 @@ api-staging-reset-ssh: ## Run the confirmed guarded Staging reset through its pi
 api-staging-reset-provision: ## Provision the Staging reset sentinel after explicit confirmation.
 	DJANGO_SETTINGS_MODULE=config.settings.production PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_staging_reset --provision --confirm provision-tailtag-staging-reset
 
+api-staging-reset-provision-ssh: ## Provision the replacement Staging reset sentinel on the pinned Railway instance.
+	PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_staging_reset_ssh --provision --confirm provision-tailtag-staging-reset
+
 api-staging-restore-drill: ## Run the confirmed isolated Staging PostgreSQL backup restore drill.
 	PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_staging_restore_drill --confirm restore-tailtag-staging-backup
 
@@ -150,11 +181,11 @@ api-check: api-format-check api-lint-check api-type-check api-semgrep-check api-
 
 api-format-check:
 	@printf '%s\n' 'Checking Ruff formatting...'
-	$(API_UV) run --locked --no-sync ruff format --check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(REPLACEMENT_AUTH_SMOKE_SCRIPT) $(STAGING_AUTH_SMOKE_SCRIPT) $(ENVIRONMENT_FINGERPRINT_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(DEPLOYMENT_IDENTITY_SCRIPT) $(STAGING_PROMOTION_SCRIPT) $(STAGING_PREFLIGHT_SCRIPT) $(DEVELOPMENT_DELIVERY_EVENT_SCRIPT) $(STAGING_RESET_SCRIPT) $(STAGING_RESET_SSH_SCRIPT) $(STAGING_RESTORE_SCRIPT) $(STAGING_RESTORE_INTEGRITY_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
+	$(API_UV) run --locked --no-sync ruff format --check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(REPLACEMENT_AUTH_SMOKE_SCRIPT) $(STAGING_AUTH_SMOKE_SCRIPT) $(ENVIRONMENT_FINGERPRINT_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(DEPLOYMENT_IDENTITY_SCRIPT) $(STAGING_PROMOTION_SCRIPT) $(STAGING_PREFLIGHT_SCRIPT) $(STAGING_OPERATOR_INSPECTOR_SCRIPT) $(STAGING_OPERATOR_MATRIX_SCRIPT) $(STAGING_OPERATOR_MATRIX_SSH_SCRIPT) $(STAGING_FIXTURE_DIAGNOSE_SCRIPT) $(STAGING_MANAGED_AUTH_DIAGNOSE_SCRIPT) $(STAGING_MANAGED_AUTH_DIAGNOSE_SSH_SCRIPT) $(STAGING_MANAGED_OPERATOR_REPLACE_SSH_SCRIPT) $(STAGING_MANAGED_PASSWORD_ROTATE_SSH_SCRIPT) $(STAGING_OPERATOR_INSPECT_SSH_SCRIPT) $(STAGING_OPERATOR_LIFECYCLE_SSH_SCRIPT) $(STAGING_REGISTRY_RECONCILE_SCRIPT) $(STAGING_REGISTRY_RECONCILE_REMOTE_SCRIPT) $(STAGING_EMERGENCY_OPERATOR_SSH_SCRIPT) $(STAGING_EMERGENCY_DECOMMISSION_SSH_SCRIPT) $(DEVELOPMENT_DELIVERY_EVENT_SCRIPT) $(STAGING_RESET_SCRIPT) $(STAGING_RESET_SSH_SCRIPT) $(STAGING_RESTORE_SCRIPT) $(STAGING_RESTORE_INTEGRITY_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
 
 api-lint-check:
 	@printf '%s\n' 'Running Ruff lint...'
-	$(API_UV) run --locked --no-sync ruff check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(REPLACEMENT_AUTH_SMOKE_SCRIPT) $(STAGING_AUTH_SMOKE_SCRIPT) $(ENVIRONMENT_FINGERPRINT_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(DEPLOYMENT_IDENTITY_SCRIPT) $(STAGING_PROMOTION_SCRIPT) $(STAGING_PREFLIGHT_SCRIPT) $(DEVELOPMENT_DELIVERY_EVENT_SCRIPT) $(STAGING_RESET_SCRIPT) $(STAGING_RESET_SSH_SCRIPT) $(STAGING_RESTORE_SCRIPT) $(STAGING_RESTORE_INTEGRITY_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
+	$(API_UV) run --locked --no-sync ruff check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(REPLACEMENT_AUTH_SMOKE_SCRIPT) $(STAGING_AUTH_SMOKE_SCRIPT) $(ENVIRONMENT_FINGERPRINT_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(DEPLOYMENT_IDENTITY_SCRIPT) $(STAGING_PROMOTION_SCRIPT) $(STAGING_PREFLIGHT_SCRIPT) $(STAGING_OPERATOR_INSPECTOR_SCRIPT) $(STAGING_OPERATOR_MATRIX_SCRIPT) $(STAGING_OPERATOR_MATRIX_SSH_SCRIPT) $(STAGING_FIXTURE_DIAGNOSE_SCRIPT) $(STAGING_MANAGED_AUTH_DIAGNOSE_SCRIPT) $(STAGING_MANAGED_AUTH_DIAGNOSE_SSH_SCRIPT) $(STAGING_MANAGED_OPERATOR_REPLACE_SSH_SCRIPT) $(STAGING_MANAGED_PASSWORD_ROTATE_SSH_SCRIPT) $(STAGING_OPERATOR_INSPECT_SSH_SCRIPT) $(STAGING_OPERATOR_LIFECYCLE_SSH_SCRIPT) $(STAGING_REGISTRY_RECONCILE_SCRIPT) $(STAGING_REGISTRY_RECONCILE_REMOTE_SCRIPT) $(STAGING_EMERGENCY_OPERATOR_SSH_SCRIPT) $(STAGING_EMERGENCY_DECOMMISSION_SSH_SCRIPT) $(DEVELOPMENT_DELIVERY_EVENT_SCRIPT) $(STAGING_RESET_SCRIPT) $(STAGING_RESET_SSH_SCRIPT) $(STAGING_RESTORE_SCRIPT) $(STAGING_RESTORE_INTEGRITY_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
 
 api-type-check:
 	@printf '%s\n' 'Running strict Pyright...'

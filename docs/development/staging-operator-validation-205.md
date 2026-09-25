@@ -50,3 +50,5 @@ scoped and authorized plan for the minimum safe validation needed to prove the
 #205 Staging boundary. Do not repeat a live mutation merely to improve the
 appearance of #208 evidence or infer PASS from issue closure.
 The focused owner is [#243](https://github.com/TailTag-Game/tailtag/issues/243).
+Its [retained-evidence search and proposed bounded validation](staging-operator-validation-243-plan.md)
+does not authorize a live run.

@@ -28,9 +28,23 @@ if str(API_ROOT) not in sys.path:
 
 
 @pytest.fixture
-def safety() -> Any:
+def safety(monkeypatch: pytest.MonkeyPatch) -> Any:
     """Load the approved guard only once the production module exists."""
     assert (API_ROOT / "rehearsal" / "safety.py").is_file()
+    binding = importlib.import_module("config.replacement_target_binding")
+    monkeypatch.setattr(
+        binding,
+        "_EXPECTED_DIGESTS",
+        {
+            **binding._EXPECTED_DIGESTS,
+            "staging-api": binding.fingerprint_tuple(
+                "staging-api",
+                "a1111111-1111-4111-8111-111111111111",
+                "c3333333-3333-4333-8333-333333333333",
+                "d4444444-4444-4444-8444-444444444444",
+            ),
+        },
+    )
     return cast(Any, importlib.import_module("rehearsal.safety"))
 
 
@@ -38,9 +52,10 @@ def reset_environment(**overrides: str) -> dict[str, str]:
     """Return one complete, separately supplied Staging reset configuration."""
     return {
         "RAILWAY_ENVIRONMENT_NAME": "staging",
-        "RAILWAY_PROJECT_ID": "85324de4-be6a-49c3-a3f9-6cac13877849",
-        "RAILWAY_ENVIRONMENT_ID": "5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e",
-        "RAILWAY_SERVICE_ID": "2247da27-97df-4d5d-b1dc-d21eeb7901d9",
+        "RAILWAY_SERVICE_NAME": "api",
+        "RAILWAY_PROJECT_ID": "a1111111-1111-4111-8111-111111111111",
+        "RAILWAY_ENVIRONMENT_ID": "c3333333-3333-4333-8333-333333333333",
+        "RAILWAY_SERVICE_ID": "d4444444-4444-4444-8444-444444444444",
         "TAILTAG_STAGING_RESET_ENABLED": "true",
         "TAILTAG_STAGING_RESET_ID": str(RESET_ID),
         "TAILTAG_STAGING_DATABASE_SYSTEM_ID": "742391",

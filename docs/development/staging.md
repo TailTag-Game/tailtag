@@ -2,7 +2,8 @@
 
 This is the maintainer runbook for TailTag's persistent Railway **Staging**
 backend: a controlled production-rehearsal target for maintainers with the
-needed Railway, Clerk, and Cloudflare access. It is separate from the mutable
+needed Railway, Clerk, and Cloudflare access. The replacement generation became
+canonical during the 2026-09-24 rebuild. It is separate from the mutable
 contributor/integration [Development runbook](backend-delivery-operations.md).
 It covers the controlled promotion procedure below. It is not a production SRE
 guide or a source of credentials.
@@ -12,25 +13,44 @@ and their [#208 evidence matrix](v0-backend-operational-readiness-matrix.md).
 
 ## Supported target and boundary
 
-Use only this observed Railway target:
+Use only the replacement Railway target below. The former `TailTag` project is
+the retired generation; its historical receipts remain attributable to that
+generation and do not establish replacement readiness.
 
 | Item | Value |
 | --- | --- |
 | Workspace | `Finn the Panther's Projects` |
-| Project / environment | `TailTag` / `staging` |
+| Project / environment | `TailTag Rebuild` / `staging` |
 | Services | `api`, `Postgres` |
 | Canonical public API | `https://staging.tailtag.app` |
+
+The sanitized [replacement canonical handoff receipt](staging-deployments/c34c45bb-6eb8-488d-8114-d1dd931cf25e.json)
+records source `fc1376e9b4387cb46e37ef3f60191b2ce7f06c68`, deployment
+`c34c45bb-6eb8-488d-8114-d1dd931cf25e`, and a successful public/exact-instance
+join observed on 2026-09-25. It is a point-in-time target receipt, not proof of
+the current active deployment or of the new database, #204 baseline, operator
+roles, or restore state. The subsequent
+[replacement prerequisite readback](staging-replacement-prerequisite-attempt-2026-09-25.md)
+did not establish database facts; #204 sentinel, fixtures, operator inspection,
+and #243 cases 1–9 remain unverified on this generation.
+
+**Command boundary:** command examples below that retain selectors for the
+retired project are historical instructions and must not be used against
+`TailTag Rebuild`. Use a replacement-target command only after its owner-only
+target binding and exact-instance guard are present in the reviewed common
+baseline. Do not substitute a project ID or reuse old private configuration to
+make an old command address the replacement.
 
 Staging owns its Railway environment instances, PostgreSQL service and volume,
 runtime configuration and secrets, and public API networking. The API reaches
 its database through the environment-local `Postgres` reference; never copy or
 record a rendered database URL. Its private R2 bucket is Staging-owned, with a
-single-bucket `TailTag Railway Staging` Object Read & Write credential. The
+single-bucket Object Read & Write credential. The
 R2 account endpoint may be shared platform infrastructure; the bucket and
 credential must not be.
 
-`TailTag Staging` is a separate Clerk application using its dedicated
-Production instance, not Development's Clerk application or instance. The
+`TailTag Staging Replacement` is a separate Clerk application using its
+dedicated Production instance, not Development's Clerk application or instance. The
 current hosted Account Portal origin,
 `https://accounts.staging.tailtag.app`, is authorized only for the bootstrap
 authentication validation described here. It is deliberately replaceable when
@@ -42,9 +62,10 @@ data, production data, or ordinary user accounts. Development remains the
 mutable contributor/integration environment. TailTag has no Production
 environment, deployment target, or production data.
 
-## Bootstrap status and deployment boundary
+## Retired-generation bootstrap and deployment history
 
-The one-time bootstrap is complete. Staging GitHub autodeploy is disabled while
+The one-time bootstrap for the former `TailTag` project is complete. Staging
+GitHub autodeploy is disabled while
 the `main` source connection remains. Reviewed Staging configuration was
 committed with deployment suppressed; after the Staging-only volume wipe, the
 previously stopped PostgreSQL instance used its existing image path once, and
@@ -180,8 +201,9 @@ SUCCEEDED, final active state ACTIVE and overall SUCCEEDED. Exact-instance image
 source matched the candidate through #201's unchanged join; canonical smoke
 passed. The final exact-D active check was the last remote gate before success.
 
-This validates #202's normal promotion path. It is a point-in-time declaration
-and durable historical evidence, not a promise about later serving state.
+This validates #202's normal promotion path on the retired generation. It is a
+point-in-time declaration and durable historical evidence, not a promise about
+later serving state or replacement-project delivery.
 Bootstrap and older #201 observations below remain separate historical evidence.
 Staging autodeploy stayed disabled; no recovery or deliberate failure test ran.
 
@@ -232,7 +254,7 @@ read/write coverage, retained new migration records/objects, negative constraint
 coverage, and proof that O does not reinterpret or mutate newer valid state
 unsafely. This is pair-specific maintainer review, not a generic analyzer.
 
-### Current Staging conclusion: NO-GO
+### Retired-generation candidate conclusion: NO-GO
 
 The preferred representative boundary was old
 `04f8383fe750bec712ced27a1932b82b1eabb292`, retained as deployment
@@ -251,8 +273,10 @@ change permits a staff/non-superuser to hold a usable local password and
 authentication state, and that state is valid and current. When loaded and
 saved by O, its usable password becomes unusable. O
 also lacks the newer authorization/audit semantics. This affirmative result
-means schema compatibility is insufficient and establishes final **NO-GO for
-live Staging application rollback**.
+means schema compatibility was insufficient for that old pair and establishes
+**NO-GO for that live Staging application rollback**. It does not establish a current
+replacement-generation rollback pair. The #206 policy remains authoritative;
+the exact live compatible Railway rehearsal remains assigned to #241.
 
 Deployment `3acf7fee-260b-472d-9b20-d1dd76efcb25`, source
 `756f48e2d90bbb803060cd015e8bcf2d47ad4fbc`, to current has no migration delta.
@@ -304,9 +328,12 @@ selectors, not a guessed linked context.
 The frozen [backup restoration contract](../specs/2026-09-22-v0-postgresql-backup-restore.md)
 and [implementation plan](../specs/2026-09-22-v0-postgresql-backup-restore-implementation-plan.md)
 govern this operation. Read-only discovery found no usable PITR recovery point,
-so #207 uses a real custom-format `pg_dump` from canonical `TailTag/staging`
-Postgres and `pg_restore` into a disposable local PostgreSQL 18 target. It does
-not restore a Railway volume or change backup settings.
+so the September 23 #207 GO used a real custom-format `pg_dump` from the former
+`TailTag/staging` Postgres and `pg_restore` into a disposable local PostgreSQL
+18 target. That restore is historical evidence for the retired database only;
+the replacement database has no restore receipt. A new-generation restore must
+wait until the #207 command is safely bound to `TailTag Rebuild/staging`. The
+procedure does not restore a Railway volume or change backup settings.
 
 Before the drill, verify the approved Finn identities, exact Railway project,
 Staging environment, Postgres service/volume, active API deployment/revision,
@@ -352,8 +379,8 @@ readability or authorize closing the issue.
 
 The [frozen reset contract](../specs/2026-09-17-staging-synthetic-reset-reseed.md)
 and [implementation handoff](../specs/2026-09-17-staging-synthetic-reset-reseed-implementation-plan.md)
-define a small canonical baseline. Local implementation, independent review and
-authorized two-run live Staging acceptance are complete. The contract records
+define a small canonical baseline. Local implementation, independent review
+and two-run live acceptance are complete for the retired generation only. The contract records
 sanitized local and live verification evidence, including the initially missing
 fixtures and their separately authorized preparation.
 
@@ -366,7 +393,36 @@ rehearsals. Fixtures are resolved through preserved explicit registry bindings,
 never by name/prefix or because all Staging state is synthetic. Conflicting
 unowned dependencies deny reset instead of enlarging its deletion scope.
 
-#### One-time preparation
+#### One-time preparation for replacement Staging: pending
+
+The former generation's provision/reset evidence and private
+`staging-reset.env` are not reusable. The replacement database requires a new
+independently generated sentinel identity, new owner-only expected configuration,
+new fixture/root/media bindings and fresh registry/database reconciliation.
+Keep the new expected configuration separately at
+`~/.config/tailtag/staging-reset-replacement.env` (file mode `0600`, parent
+directory mode `0700`); the replacement-bound launchers use only that default.
+Do not copy the retired file or its sentinel values into this path.
+The database-fact prerequisite query for the replacement did not return a
+classification, so its current database binding and reset baseline remain
+unproven.
+
+The replacement-target SSH reset path and its separately confirmed, sentinel-only
+`api-staging-reset-provision-ssh` mode have passed local tests and independent
+security review on the #243 branch. They have **not** established a replacement
+sentinel or baseline in live Staging. First establish the two distinct ordinary
+Clerk-bound Users, readable designated media, owner-only new reset configuration,
+actual database binding, empty registry schema, exact deployed source and
+exclusive operation window. Then use the reviewed replacement-bound SSH provision
+mode once, reconcile the persisted sentinel against private configuration and
+actual connected database, and use the guarded SSH reset mode to build the
+baseline. Any uncertain provision result requires a fresh read-only reconciliation;
+do not retry it blindly. The native `api-staging-reset-provision` command assumes
+a reachable database and must not be substituted for the private-network SSH
+path. Retired-generation commands and receipts do not authorize a replacement
+mutation. Record fresh evidence without changing the historical receipts.
+
+#### Retired-generation one-time preparation (historical)
 
 Use the approved Railway/operator identity checks and verify the exact Staging
 Postgres resource independently before establishing the pinned database endpoint,
