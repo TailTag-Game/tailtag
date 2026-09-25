@@ -1,6 +1,6 @@
-# #243 replacement Staging emergency actor proposal
+# #243 replacement Staging emergency actor amendment
 
-Status: **proposed; not authorized for live provisioning or decommission**. The frozen
+Status: **conditionally approved by the #243 owner; not yet exercised**. The frozen
 [#243 matrix](staging-operator-validation-243-plan.md) requires an existing
 authorized break-glass superuser for Case 5 and directs the operator to stop if
 that actor is unavailable. The replacement environment has not yet been
@@ -11,10 +11,12 @@ replacement role exists.
 
 First inspect the fresh replacement target through a reviewed, read-only path.
 If one existing authorized break-glass actor satisfies the frozen plan, use that
-actor and do not create another. If no suitable actor exists, stop the matrix.
-The alternative below requires separate approval before any live mutation.
+actor and do not create another. If no suitable actor exists, the owner-approved
+conditional synthetic actor below may be provisioned only after its code is
+reviewed, merged, deployed, and every current target, fixture, role, and
+database guard passes. A mismatch or ambiguity still stops the matrix.
 
-## Proposed synthetic actor if the role is absent
+## Conditional synthetic actor if the role is absent
 
 - Create at most one dedicated replacement-Staging `staging_emergency_...` User.
   It is staff and superuser, has a usable local password, no group or direct
@@ -46,13 +48,12 @@ The alternative below requires separate approval before any live mutation.
   disabled postcondition and retained audit before it offers the limited-role
   cleanup handoff; a successful limited cleanup cannot imply emergency cleanup.
   The repository-only decommission command and launcher have been implemented
-  with local tests; their live use remains pending this amendment and final
-  independent review. Require the read-only `DECOMMISSIONED` classification
+  with local tests and independent review. Require the read-only `DECOMMISSIONED` classification
   on the exact running instance, not merely a successful SSH exit status.
   Verify the retained actor classification, disabled access, managed/limited
   role state, and final fixture/readiness state before releasing the exclusive
-  window. Do not provision until this decommission path is approved, tested,
-  and reviewed against the complete #243 procedure.
+  window. Do not provision until the complete procedure is deployed and its
+  current-generation guards pass.
 
 If the fresh read-only result is ambiguous, another superuser exists, target
 binding fails, or decommission cannot be proven safe, stop. This proposal does

@@ -683,6 +683,16 @@ def test_launcher_private_configuration_failure_is_sanitized_before_remote_work(
 
     monkeypatch.setattr(launcher, "_read_configuration", unreadable)
     monkeypatch.setattr(launcher, "_github_identity", github_identity)
+    monkeypatch.setattr(
+        launcher,
+        "_target_ids",
+        lambda: (
+            "a1111111-1111-4111-8111-111111111111",
+            "c3333333-3333-4333-8333-333333333333",
+            "d4444444-4444-4444-8444-444444444444",
+            "e5555555-5555-4555-8555-555555555555",
+        ),
+    )
     monkeypatch.setattr(sys, "argv", ["api_staging_registry_reconcile.py"])
 
     assert launcher.main() == 1
@@ -720,6 +730,16 @@ def test_launcher_target_failure_is_sanitized_and_does_not_reach_ssh(
     )
     monkeypatch.setattr(launcher, "_github_identity", github_identity)
     monkeypatch.setattr(launcher, "_railway_identity", railway_identity)
+    monkeypatch.setattr(
+        launcher,
+        "_target_ids",
+        lambda: (
+            "a1111111-1111-4111-8111-111111111111",
+            "c3333333-3333-4333-8333-333333333333",
+            "d4444444-4444-4444-8444-444444444444",
+            "e5555555-5555-4555-8555-555555555555",
+        ),
+    )
 
     def unavailable_preflight() -> object:
         events.append("preflight")

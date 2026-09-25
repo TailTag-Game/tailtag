@@ -114,6 +114,14 @@ from tests.test_staging_validation_operator import (
     create_exact_managed_operator,
 )
 
+
+@pytest.fixture(autouse=True)
+def local_http_cookie_transport(settings: SettingsWrapper) -> None:
+    """The disposable HTTP server needs cookies that work without production TLS."""
+    settings.SESSION_COOKIE_SECURE = False
+    settings.CSRF_COOKIE_SECURE = False
+
+
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts" / "api_staging_operator_matrix.py"
 WINDOW_CONFIRMATION = "exclusive Railway Staging validation window; I own cleanup"

@@ -78,6 +78,16 @@ def install_healthy_preflight(
     monkeypatch.setattr(runner, "_preflight", preflight)
     monkeypatch.setattr(runner, "_approved_receipt", receipt)
     monkeypatch.setattr(runner, "_active_instance", instance)
+    monkeypatch.setattr(
+        runner,
+        "_target_ids",
+        lambda: (
+            "a1111111-1111-4111-8111-111111111111",
+            "c3333333-3333-4333-8333-333333333333",
+            "d4444444-4444-4444-8444-444444444444",
+            "e5555555-5555-4555-8555-555555555555",
+        ),
+    )
     return calls
 
 

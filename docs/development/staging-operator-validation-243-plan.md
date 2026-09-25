@@ -198,10 +198,13 @@ unowned state. Use only supported Django-admin and existing player flows.
   managed-group and permission contract. The maintainer's current authorization
   assigns step C to this actor; step B continues to require the distinct limited
   operator.
-- **Emergency superuser:** an existing authorized break-glass account,
-  exercised only for the one approved synthetic action. It is not the normal
-  operator. Keep credentials and session material out of arguments, files,
-  logs, tickets and evidence.
+- **Emergency superuser:** prefer an existing authorized break-glass account,
+  exercised only for the one approved synthetic action. If the fresh replacement
+  inspection proves that role absent, the owner-approved
+  [conditional synthetic actor amendment](staging-operator-validation-243-emergency-role-proposal.md)
+  permits one guarded dedicated actor with mandatory post-matrix decommission.
+  It is not the normal operator. Keep credentials and session material out of
+  arguments, files, logs, tickets and evidence.
 - **Cascade target:** one enabled owned synthetic profile with its existing
   activation. For a meaningful session cascade, the owner may start **one**
   normal synthetic catch session using the established player flow immediately
@@ -213,11 +216,11 @@ unowned state. Use only supported Django-admin and existing player flows.
   #204 reset restores the known synthetic baseline afterward.
 
 Do not create an ad hoc staff identity or repurpose a player/superuser to fill
-a missing role. If the limited operator, emergency superuser, or required
-fixture is unavailable, stop and seek a separately reviewed fixture plan.
-The [replacement emergency-actor proposal](staging-operator-validation-243-emergency-role-proposal.md)
-is such a proposed plan; it does not authorize live provisioning until separately
-approved and its decommission boundary has been implemented and reviewed.
+a missing role. If the limited operator or required fixture is unavailable,
+stop and seek the separately reviewed provisioning/reset boundary. If the
+existing emergency superuser is absent, follow only the conditionally approved
+replacement amendment after its current-generation guards pass. An ambiguous
+or mismatched emergency role still stops the matrix.
 
 ### Case sequence and expected assertions
 
