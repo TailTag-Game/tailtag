@@ -20,8 +20,13 @@ DEPLOYMENT_ID = "93de11d6-714f-405a-b931-a9b567d5ec1e"
 SECOND_SOURCE_SHA = "d" * 40
 SECOND_DEPLOYMENT_ID = "1b6a4b35-4e94-4775-a4b9-304205c75786"
 DEPLOYMENT_TIMESTAMP = "2026-09-17T00:16:10.526Z"
-PROJECT_ID = "85324de4-be6a-49c3-a3f9-6cac13877849"
-SERVICE_ID = "2247da27-97df-4d5d-b1dc-d21eeb7901d9"
+PROJECT_ID = "a1111111-1111-4111-8111-111111111111"
+ENVIRONMENT_ID = "33333333-3333-4333-8333-333333333333"
+SERVICE_ID = "d4444444-4444-4444-8444-444444444444"
+POSTGRES_SERVICE_ID = "55555555-5555-4555-8555-555555555555"
+RETIRED_PROJECT_ID = "85324de4-be6a-49c3-a3f9-6cac13877849"
+RETIRED_ENVIRONMENT_ID = "5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e"
+RETIRED_SERVICE_ID = "2247da27-97df-4d5d-b1dc-d21eeb7901d9"
 SENSITIVE_VALUES = (
     "stdin-untrusted-secret",
     "railway-cli-stderr-secret",
@@ -34,9 +39,16 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 
 @pytest.fixture
-def deployment_identity() -> ModuleType:
+def deployment_identity(monkeypatch: MonkeyPatch) -> ModuleType:
     """Load the maintainer command only once its implementation exists."""
-    return importlib.import_module("scripts.api_deployment_identity")
+    command = importlib.import_module("scripts.api_deployment_identity")
+    monkeypatch.setattr(
+        command,
+        "_target_ids",
+        lambda: (PROJECT_ID, ENVIRONMENT_ID, SERVICE_ID, POSTGRES_SERVICE_ID),
+        raising=False,
+    )
+    return command
 
 
 def backend_identity(**overrides: object) -> dict[str, object]:
@@ -59,6 +71,7 @@ def deployment_record(**overrides: object) -> dict[str, object]:
             "unapproved": "control-plane-extra-metadata-secret",
         },
         "projectId": PROJECT_ID,
+        "environmentId": ENVIRONMENT_ID,
         "environment": {"name": "staging"},
         "serviceId": SERVICE_ID,
         **overrides,
@@ -93,8 +106,10 @@ def test_join_deployment_returns_only_validated_exact_record_fields(
         deployment_record(id="1b6a4b35-4e94-4775-a4b9-304205c75786"),
         deployment_record(meta={"commitHash": "b" * 40}),
         deployment_record(projectId="3b8d2a03-38ec-4bf7-91f1-1e562b9f4793"),
+        deployment_record(projectId=RETIRED_PROJECT_ID),
         deployment_record(environment={"name": "development"}),
         deployment_record(serviceId="2d913bc3-0fa2-436e-bd21-6b55847cf65e"),
+        deployment_record(serviceId=RETIRED_SERVICE_ID),
         deployment_record(createdAt="2026-09-17T00:16:10.526"),
         deployment_record(createdAt=None, updatedAt="2030-01-01T00:00:00.000Z"),
     ),
@@ -105,6 +120,17 @@ def test_join_deployment_rejects_mismatched_target_identity_or_non_aware_timesta
     """AC-4/6/7/8: neither another deployment nor a derived timestamp can join."""
     with pytest.raises(ValueError):
         deployment_identity.join_deployment(backend_identity(), record)
+
+
+@pytest.mark.parametrize("environment_id", (RETIRED_ENVIRONMENT_ID, None))
+def test_join_deployment_requires_pinned_environment_id_despite_staging_name(
+    deployment_identity: ModuleType, environment_id: str | None
+) -> None:
+    """Replacement AC-3: a staging label cannot substitute for the pinned ID."""
+    with pytest.raises(ValueError):
+        deployment_identity.join_deployment(
+            backend_identity(), deployment_record(environmentId=environment_id)
+        )
 
 
 @pytest.mark.parametrize(
@@ -176,6 +202,7 @@ def test_main_queries_only_the_captured_deployment_id_and_renders_allowlisted_js
     variables_index = arguments.index("--variables")
     assert json.loads(arguments[variables_index + 1]) == {"id": deployment_id}
     assert any("deployment(id: $id)" in argument for argument in arguments)
+    assert "environmentId" in arguments[2]
     assert options.get("shell") is False
     rendered = captured.out + captured.err
     for value in SENSITIVE_VALUES:
@@ -210,6 +237,37 @@ def test_main_rejects_untrusted_or_extra_stdin_before_contacting_railway(
 
     assert calls == []
     assert captured.out == ""
+    for value in SENSITIVE_VALUES:
+        assert value not in captured.err
+
+
+@pytest.mark.parametrize("reason", ("unavailable", "fingerprint mismatch"))
+def test_main_requires_replacement_pin_before_exact_id_lookup(
+    deployment_identity: ModuleType,
+    monkeypatch: MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    reason: str,
+) -> None:
+    """Replacement AC-1/3/5: a missing or wrong private target stops locally."""
+    calls: list[object] = []
+
+    def rejected_target() -> tuple[str, str, str, str]:
+        raise ValueError(f"{reason}: {PROJECT_ID} stdin-untrusted-secret")
+
+    def forbidden_run(*args: object, **kwargs: object) -> NoReturn:
+        calls.append((args, kwargs))
+        raise AssertionError("target denial must precede Railway")
+
+    monkeypatch.setattr(deployment_identity, "_target_ids", rejected_target)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(backend_identity())))
+    monkeypatch.setattr(deployment_identity.subprocess, "run", forbidden_run)
+
+    assert deployment_identity.main() != 0
+
+    captured = capsys.readouterr()
+    assert calls == []
+    assert captured.out == ""
+    assert PROJECT_ID not in captured.err
     for value in SENSITIVE_VALUES:
         assert value not in captured.err
 

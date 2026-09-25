@@ -17,9 +17,14 @@ from pathlib import Path
 from typing import Final, NoReturn, TypedDict, cast
 
 _REPOSITORY_ROOT: Final = Path(__file__).resolve().parents[1]
-_PROJECT_ID: Final = "85324de4-be6a-49c3-a3f9-6cac13877849"
-_SERVICE_ID: Final = "2247da27-97df-4d5d-b1dc-d21eeb7901d9"
-_ENVIRONMENT_ID: Final = "5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e"
+if str(_REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPOSITORY_ROOT))
+
+from scripts.api_staging_reset_ssh import (
+    _target_ids,  # pyright: ignore[reportPrivateUsage]
+)
+
+_TargetIds = tuple[str, str, str, str]
 _SOURCE_SHA = re.compile(r"[0-9a-f]{40}")
 _REPOSITORY: Final = "TailTag-Game/tailtag"
 _TIMEOUT_SECONDS: Final = 30
@@ -301,14 +306,15 @@ def _eligible(source_sha: str) -> tuple[str, Mapping[str, object]]:
     return main_sha, verified
 
 
-def _preflight() -> None:
-    selectors = {"serviceId": _SERVICE_ID, "environmentId": _ENVIRONMENT_ID}
+def _preflight(target: _TargetIds) -> None:
+    project_id, environment_id, service_id, _ = target
+    selectors = {"serviceId": service_id, "environmentId": environment_id}
     config = _data(_railway(_CONFIG_QUERY, selectors), "serviceInstance")
     source = _mapping(config.get("source"))
     command = config.get("preDeployCommand")
     if not (
-        config.get("serviceId") == _SERVICE_ID
-        and config.get("environmentId") == _ENVIRONMENT_ID
+        config.get("serviceId") == service_id
+        and config.get("environmentId") == environment_id
         and source is not None
         and source.get("repo") == _REPOSITORY
         and "image" in source
@@ -319,7 +325,7 @@ def _preflight() -> None:
     ):
         raise ValueError("staging configuration invalid")
     triggers = _data(
-        _railway(_TRIGGERS_QUERY, {"projectId": _PROJECT_ID, **selectors}),
+        _railway(_TRIGGERS_QUERY, {"projectId": project_id, **selectors}),
         "deploymentTriggers",
     )
     page_info = _mapping(triggers.get("pageInfo"))
@@ -333,13 +339,16 @@ def _preflight() -> None:
         raise ValueError("staging autodeploy enabled")
 
 
-def _deployment_valid(deployment: Mapping[str, object], deployment_id: str) -> bool:
+def _deployment_valid(
+    deployment: Mapping[str, object], deployment_id: str, target: _TargetIds
+) -> bool:
+    project_id, environment_id, service_id, _ = target
     environment = _mapping(deployment.get("environment"))
     return (
         deployment.get("id") == deployment_id
-        and deployment.get("projectId") == _PROJECT_ID
-        and deployment.get("serviceId") == _SERVICE_ID
-        and deployment.get("environmentId") == _ENVIRONMENT_ID
+        and deployment.get("projectId") == project_id
+        and deployment.get("serviceId") == service_id
+        and deployment.get("environmentId") == environment_id
         and environment is not None
         and environment.get("name") == "staging"
     )
@@ -371,7 +380,7 @@ def _event_outcome(events: list[Mapping[str, object]], step: str) -> str:
     return "SUCCEEDED"
 
 
-def _lifecycle(record: Evidence) -> Mapping[str, object] | None:
+def _lifecycle(record: Evidence, target: _TargetIds) -> Mapping[str, object] | None:
     after: str | None = None
     cursors: set[str] = set()
     events: list[Mapping[str, object]] = []
@@ -392,7 +401,7 @@ def _lifecycle(record: Evidence) -> Mapping[str, object] | None:
         if (
             deployment is None
             or connection is None
-            or not _deployment_valid(deployment, record["deployment_id"])
+            or not _deployment_valid(deployment, record["deployment_id"], target)
         ):
             raise ValueError("observation invalid")
         raw_edges = connection.get("edges")
@@ -494,17 +503,18 @@ def _lifecycle(record: Evidence) -> Mapping[str, object] | None:
         return None
 
 
-def _identity(record: Evidence, instance_id: str) -> bool:
+def _identity(record: Evidence, instance_id: str, target: _TargetIds) -> bool:
+    project_id, environment_id, service_id, _ = target
     ssh = _run(
         [
             "railway",
             "ssh",
             "--project",
-            _PROJECT_ID,
+            project_id,
             "--service",
-            "api",
+            service_id,
             "--environment",
-            "staging",
+            environment_id,
             "--deployment-instance",
             instance_id,
             "--",
@@ -545,21 +555,22 @@ def _identity(record: Evidence, instance_id: str) -> bool:
     }
 
 
-def _final_active(record: Evidence) -> None:
+def _final_active(record: Evidence, target: _TargetIds) -> None:
+    project_id, environment_id, service_id, _ = target
     response = _railway(
-        _ACTIVE_QUERY, {"serviceId": _SERVICE_ID, "environmentId": _ENVIRONMENT_ID}
+        _ACTIVE_QUERY, {"serviceId": service_id, "environmentId": environment_id}
     )
     service_instance = _data(response, "serviceInstance")
     if (
-        service_instance.get("serviceId") != _SERVICE_ID
-        or service_instance.get("environmentId") != _ENVIRONMENT_ID
+        service_instance.get("serviceId") != service_id
+        or service_instance.get("environmentId") != environment_id
     ):
         raise ValueError("active deployment invalid")
     raw_active = service_instance.get("activeDeployments")
     if not isinstance(raw_active, list):
         raise TypeError("active deployment invalid")
     active = cast(list[object], raw_active)
-    target: dict[str, object] | None = None
+    target_deployment: dict[str, object] | None = None
     for item in active:
         candidate = _mapping(item)
         instances = candidate.get("instances") if candidate else None
@@ -572,9 +583,9 @@ def _final_active(record: Evidence) -> None:
         if not (
             candidate is not None
             and _uuid(candidate.get("id")) is not None
-            and candidate.get("projectId") == _PROJECT_ID
-            and candidate.get("serviceId") == _SERVICE_ID
-            and candidate.get("environmentId") == _ENVIRONMENT_ID
+            and candidate.get("projectId") == project_id
+            and candidate.get("serviceId") == service_id
+            and candidate.get("environmentId") == environment_id
             and isinstance(candidate.get("status"), str)
             and valid_instances
         ):
@@ -582,13 +593,13 @@ def _final_active(record: Evidence) -> None:
             record["overall_outcome"] = "INDETERMINATE"
             return
         if candidate and candidate.get("id") == record["deployment_id"]:
-            target = candidate
+            target_deployment = candidate
             break
-    if target is None:
+    if target_deployment is None:
         record["final_active_state"] = "SUPERSEDED" if active else "INACTIVE"
         record["overall_outcome"] = "SUPERSEDED" if active else "FAILED"
         return
-    raw_instances = target.get("instances")
+    raw_instances = target_deployment.get("instances")
     instances = (
         cast(list[object], raw_instances) if isinstance(raw_instances, list) else []
     )
@@ -596,11 +607,11 @@ def _final_active(record: Evidence) -> None:
         (_mapping(item) or {}).get("status") == "RUNNING" for item in instances
     )
     if (
-        target.get("id") == record["deployment_id"]
-        and target.get("projectId") == _PROJECT_ID
-        and target.get("serviceId") == _SERVICE_ID
-        and target.get("environmentId") == _ENVIRONMENT_ID
-        and target.get("status") == "SUCCESS"
+        target_deployment.get("id") == record["deployment_id"]
+        and target_deployment.get("projectId") == project_id
+        and target_deployment.get("serviceId") == service_id
+        and target_deployment.get("environmentId") == environment_id
+        and target_deployment.get("status") == "SUCCESS"
         and running
     ):
         record["final_active_state"] = "ACTIVE"
@@ -646,6 +657,7 @@ def main() -> int:
             or arguments.confirm != "promote-tailtag-staging"
         ):
             raise ValueError("arguments invalid")
+        target = _target_ids()
         evidence_directory = (
             _REPOSITORY_ROOT / "docs" / "development" / "staging-deployments"
         )
@@ -665,13 +677,13 @@ def main() -> int:
         ):
             raise ValueError("validation record invalid")
         _railway_identity()
-        _preflight()
+        _preflight(target)
         _railway_identity()
         mutation = _railway(
             _MUTATION,
             {
-                "serviceId": _SERVICE_ID,
-                "environmentId": _ENVIRONMENT_ID,
+                "serviceId": target[2],
+                "environmentId": target[1],
                 "commitSha": source_sha,
             },
         )
@@ -683,11 +695,13 @@ def main() -> int:
             source_sha, main_sha, validation, cast(str, deployment_id)
         )
         _persist(record)
-        lifecycle = _lifecycle(record)
+        lifecycle = _lifecycle(record, target)
         if lifecycle is None:
             return _result(record)
         instance_id = lifecycle.get("running_instance_id")
-        if not isinstance(instance_id, str) or not _identity(record, instance_id):
+        if not isinstance(instance_id, str) or not _identity(
+            record, instance_id, target
+        ):
             record["identity_outcome"] = "FAILED"
             record["overall_outcome"] = "FAILED"
             _persist(record)
@@ -704,7 +718,7 @@ def main() -> int:
             return _result(record)
         record["smoke_outcome"] = "SUCCEEDED"
         _persist(record)
-        _final_active(record)
+        _final_active(record, target)
         _persist(record)
         return _result(record)
     except KeyboardInterrupt:
