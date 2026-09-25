@@ -24,9 +24,11 @@ DEPLOYMENT_ID = "93de11d6-714f-405a-b931-a9b567d5ec1e"
 OTHER_DEPLOYMENT_ID = "1b6a4b35-4e94-4775-a4b9-304205c75786"
 RUNNING_INSTANCE_ID = "46d09c1e-9c09-4f31-8b86-4ce9b667c70b"
 STOPPED_INSTANCE_ID = "674ca47c-37ca-4658-a6d8-85048c7e8fca"
-PROJECT_ID = "85324de4-be6a-49c3-a3f9-6cac13877849"
-SERVICE_ID = "2247da27-97df-4d5d-b1dc-d21eeb7901d9"
-ENVIRONMENT_ID = "5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e"
+PROJECT_ID = "a1111111-1111-4111-8111-111111111111"
+SERVICE_ID = "d4444444-4444-4444-8444-444444444444"
+ENVIRONMENT_ID = "33333333-3333-4333-8333-333333333333"
+POSTGRES_SERVICE_ID = "55555555-5555-4555-8555-555555555555"
+RETIRED_PROJECT_ID = "85324de4-be6a-49c3-a3f9-6cac13877849"
 CREATED_AT = "2026-09-17T00:16:10.526Z"
 RUN_ID = 35179642379
 SENSITIVE_SENTINEL = "promotion-untrusted-diagnostic-secret"
@@ -144,10 +146,17 @@ def canonical_config(**overrides: object) -> dict[str, object]:
 
 
 @pytest.fixture
-def staging_promote() -> ModuleType:
+def staging_promote(monkeypatch: MonkeyPatch) -> ModuleType:
     """Load the operator only after its production file exists."""
     assert SCRIPT.is_file(), "scripts/api_staging_promote.py must exist"
-    return importlib.import_module("scripts.api_staging_promote")
+    operator = importlib.import_module("scripts.api_staging_promote")
+    monkeypatch.setattr(
+        operator,
+        "_target_ids",
+        lambda: (PROJECT_ID, ENVIRONMENT_ID, SERVICE_ID, POSTGRES_SERVICE_ID),
+        raising=False,
+    )
+    return operator
 
 
 class PromotionSubprocess:
@@ -344,6 +353,10 @@ class PromotionSubprocess:
             }
             return completed({"data": {"deploymentTriggers": self.deployment_triggers}})
         if "preDeployCommand" in query:
+            assert variables == {
+                "serviceId": SERVICE_ID,
+                "environmentId": ENVIRONMENT_ID,
+            }
             return completed({"data": {"serviceInstance": self.config}})
         raise AssertionError(f"unapproved Railway GraphQL operation: {query}")
 
@@ -402,8 +415,8 @@ class PromotionSubprocess:
             return self._graphql(command)
         if command[:2] == ("railway", "ssh"):
             assert ("--project", PROJECT_ID) in pairwise(command)
-            assert ("--service", "api") in pairwise(command)
-            assert ("--environment", "staging") in pairwise(command)
+            assert ("--service", SERVICE_ID) in pairwise(command)
+            assert ("--environment", ENVIRONMENT_ID) in pairwise(command)
             assert ("--deployment-instance", RUNNING_INSTANCE_ID) in pairwise(command)
             assert "--" in command
             assert command[command.index("--") + 1 :] == (
@@ -522,6 +535,58 @@ def test_main_rejects_invalid_or_unconfirmed_submission_before_any_subprocess(
     assert runner.calls == []
     assert not evidence_file(tmp_path).exists()
     assert_sanitized(captured.out, captured.err)
+
+
+@pytest.mark.parametrize("reason", ("unavailable", "fingerprint mismatch"))
+def test_main_requires_pinned_replacement_selectors_before_external_work(
+    staging_promote: ModuleType,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    reason: str,
+) -> None:
+    """Replacement AC-1/5: an unavailable or rejected pin cannot reach a provider."""
+    path = evidence_file(tmp_path)
+    runner = PromotionSubprocess(path)
+
+    def rejected_target() -> tuple[str, str, str, str]:
+        raise ValueError(f"{reason}: {SENSITIVE_SENTINEL} {PROJECT_ID}")
+
+    monkeypatch.setattr(staging_promote, "_target_ids", rejected_target)
+
+    assert run_operator(staging_promote, monkeypatch, tmp_path, runner) != 0
+
+    captured = capsys.readouterr()
+    assert runner.calls == []
+    assert runner.mutation_count == 0
+    assert not path.exists()
+    assert SENSITIVE_SENTINEL not in captured.out + captured.err
+    assert PROJECT_ID not in captured.out + captured.err
+
+
+def test_main_uses_one_loaded_replacement_tuple_through_the_full_attempt(
+    staging_promote: ModuleType,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Replacement AC-1/2/4: every existing gate uses one replacement target."""
+    loads = 0
+
+    def replacement_target() -> tuple[str, str, str, str]:
+        nonlocal loads
+        loads += 1
+        return PROJECT_ID, ENVIRONMENT_ID, SERVICE_ID, POSTGRES_SERVICE_ID
+
+    monkeypatch.setattr(staging_promote, "_target_ids", replacement_target)
+    monkeypatch.setenv("RAILWAY_PROJECT_ID", RETIRED_PROJECT_ID)
+    path = evidence_file(tmp_path)
+    runner = PromotionSubprocess(path)
+
+    assert run_operator(staging_promote, monkeypatch, tmp_path, runner) == 0
+
+    assert loads == 1
+    assert runner.mutation_count == 1
+    assert read_evidence(path)["overall_outcome"] == "SUCCEEDED"
 
 
 def test_main_accepts_a_valid_older_main_ancestor_and_completes_the_exact_d_flow(
@@ -900,6 +965,7 @@ def test_main_requires_all_completed_startup_and_readiness_events(
 @pytest.mark.parametrize(
     "observed",
     (
+        deployment(project_id=RETIRED_PROJECT_ID),
         deployment(project_id="3b8d2a03-38ec-4bf7-91f1-1e562b9f4793"),
         deployment(service_id="2d913bc3-0fa2-436e-bd21-6b55847cf65e"),
         deployment(environment_id="bea90e14-3b5d-4bc1-b6ab-3c12d4f665b8"),

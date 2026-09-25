@@ -9,10 +9,18 @@ import sys
 import uuid
 from collections.abc import Mapping
 from datetime import datetime
+from pathlib import Path
 from typing import Final, TypedDict, cast
 
-_PROJECT_ID: Final = "85324de4-be6a-49c3-a3f9-6cac13877849"
-_SERVICE_ID: Final = "2247da27-97df-4d5d-b1dc-d21eeb7901d9"
+_REPOSITORY_ROOT: Final = Path(__file__).resolve().parents[1]
+if str(_REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPOSITORY_ROOT))
+
+from scripts.api_staging_reset_ssh import (
+    _target_ids,  # pyright: ignore[reportPrivateUsage]
+)
+
+_TargetIds = tuple[str, str, str, str]
 _SOURCE_SHA_PATTERN: Final = re.compile(r"[0-9a-f]{40}")
 _IDENTITY_FIELDS: Final = frozenset({"source_sha", "deployment_id", "environment"})
 _QUERY: Final = """query DeploymentIdentity($id: String!) {
@@ -21,6 +29,7 @@ _QUERY: Final = """query DeploymentIdentity($id: String!) {
     createdAt
     meta
     projectId
+    environmentId
     environment { name }
     serviceId
   }
@@ -86,6 +95,13 @@ def join_deployment(
     identity: Mapping[str, object], record: Mapping[str, object]
 ) -> DeploymentIdentity:
     """Validate that an exact Railway record proves the supplied Staging identity."""
+    return _join_deployment(identity, record, _target_ids())
+
+
+def _join_deployment(
+    identity: Mapping[str, object], record: Mapping[str, object], target: _TargetIds
+) -> DeploymentIdentity:
+    project_id, environment_id, service_id, _ = target
     validated = _validate_identity(identity)
     metadata = record.get("meta")
     record_environment = record.get("environment")
@@ -94,8 +110,9 @@ def join_deployment(
         record.get("id") != validated["deployment_id"]
         or not isinstance(metadata, Mapping)
         or not isinstance(record_environment, Mapping)
-        or record.get("projectId") != _PROJECT_ID
-        or record.get("serviceId") != _SERVICE_ID
+        or record.get("projectId") != project_id
+        or record.get("environmentId") != environment_id
+        or record.get("serviceId") != service_id
         or timestamp is None
     ):
         raise ValueError("deployment record invalid")
@@ -158,7 +175,10 @@ def main() -> int:
     """Read one safe tuple, make one exact-ID lookup, and render safe evidence."""
     try:
         identity = _read_identity()
-        result = join_deployment(identity, _query_deployment(identity["deployment_id"]))
+        target = _target_ids()
+        result = _join_deployment(
+            identity, _query_deployment(identity["deployment_id"]), target
+        )
     except (OSError, TypeError, UnicodeError, ValueError, subprocess.SubprocessError):
         print("FAIL deployment identity unavailable", file=sys.stderr)
         return 1

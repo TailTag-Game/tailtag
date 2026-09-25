@@ -34,12 +34,13 @@ roles, or restore state. The subsequent
 did not establish database facts; #204 sentinel, fixtures, operator inspection,
 and #243 cases 1–9 remain unverified on this generation.
 
-**Command boundary:** command examples below that retain selectors for the
-retired project are historical instructions and must not be used against
-`TailTag Rebuild`. Use a replacement-target command only after its owner-only
-target binding and exact-instance guard are present in the reviewed common
-baseline. Do not substitute a project ID or reuse old private configuration to
-make an old command address the replacement.
+**Command boundary:** use the #202 promotion command below only from a reviewed
+repository revision that includes the [replacement target binding
+contract](replacement-staging-promotion-contract.md). It loads the owner-only
+replacement manifest and checks its code-owned pins before provider operations.
+Older revisions with retired-project selectors are historical and must not be
+used against `TailTag Rebuild`. Do not substitute a project ID or reuse old
+private configuration to make an old command address the replacement.
 
 Staging owns its Railway environment instances, PostgreSQL service and volume,
 runtime configuration and secrets, and public API networking. The API reaches
@@ -115,6 +116,15 @@ Verify approved Finn GitHub/Railway identities; the command repeats the required
 checks. An identity mismatch, failed identity lookup, authentication/access
 failure or failed authenticated operation ends the task. Do not switch accounts,
 repair credentials, use another session or retry the failure.
+
+Before invoking the command on the replacement generation, require the
+reviewed replacement binding in the common baseline and the private
+`~/.config/tailtag/staging-clean-rebuild-targets.json` manifest with its established file
+ownership and mode. The command checks the replacement `staging` API selectors
+against code-owned pins and fails closed when the manifest is unavailable or
+mismatched. It does not accept target selectors from arguments or environment
+variables. The retired-generation receipts below cannot authorize a new
+replacement deployment.
 
 From the repository root, with existing locked dependencies installed:
 
