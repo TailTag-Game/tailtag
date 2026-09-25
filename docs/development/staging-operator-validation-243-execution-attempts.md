@@ -1161,3 +1161,48 @@ prove which password is accepted. The next newly guarded matrix must prove
 limited authentication before any case submission. Cases 1–9 remain
 `NOT_EXERCISED`; #204 cleanup reset and both decommissions remain pending.
 The exclusive Staging window remains held.
+
+## Replacement matrix emergency-authentication stop — 2026-09-25
+
+The newly guarded matrix attempt used the exact confirmation phrase and the
+password-only limited, managed and dedicated emergency prompts. The remote
+matrix returned `FAIL_AUTHENTICATION` for 15:45:44–15:46:06 UTC at canonical
+source `99e6466e1bd5432025c085134e72c2c46eb92dbc` and deployment
+`2adc748c-ee54-4446-958c-f49a384925be`. Because the emergency prompt was
+reached after the sequential limited and managed logins, those two
+authentication paths completed during this attempt. The emergency path did
+not complete; this result alone does not distinguish a rejected password,
+actor-state drift, admin-login response failure, or execution error.
+
+The remote result reports `mutation_may_have_begun=false`, empty audit-event
+evidence, and Cases 1–9 all `NOT_EXERCISED`. The owner Clerk token prompt,
+case submissions, #204 reset and both decommissions were not reached. The
+launcher separately returned `FAIL_TRANSPORT_UNCERTAIN` for
+15:45:14–15:46:07 UTC; preserve both classifications. No matrix retry or
+Staging remediation has been submitted. All three synthetic operators remain
+subject to fresh state inspection; cleanup is pending and the exclusive
+Staging window remains held.
+
+## Replacement emergency password diagnosis — 2026-09-25
+
+A separate reviewed, one-use read-only diagnosis checked the saved emergency
+password on the exact replacement Staging instance. Its remote fixed result was
+`CREDENTIAL_REJECTED` during 15:52:05–15:53:55 UTC at source
+`99e6466e1bd5432025c085134e72c2c46eb92dbc` and deployment
+`2adc748c-ee54-4446-958c-f49a384925be`. The check required the dedicated
+emergency actor to be `READY`, pinned its identity and password hash across the
+hidden prompt, and compared the entered password without a write. This proves
+only that the password entered for this diagnosis did not match that actor's
+current stored hash. It does not prove why the user-held value differed, nor
+does it test the later admin HTTP login path. The outer Railway launcher
+separately returned `FAIL_TRANSPORT_UNCERTAIN`; preserve that transport result
+without rewriting the remote classification or the earlier matrix attempt.
+
+No matrix case, reset, provisioning, decommission, fixture write, or audit write
+occurred during this diagnosis. Cases 1–9 remain `NOT_EXERCISED`; the managed,
+limited, and emergency actors' active state requires fresh verification before
+any further action. The approved emergency bootstrap is an absent-role creation
+path, not a password-rotation path. Restoring usable emergency access would
+require a separately reviewed, exact-actor, password-only remediation with its
+own authorization and guards. No such remediation was run. The exclusive
+Staging window remains held and matrix/cleanup obligations remain pending.
