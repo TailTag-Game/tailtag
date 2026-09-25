@@ -43,10 +43,15 @@ sessions for live evidence. Keep cookie jars, CSRF values, form bodies, private
 fixture bindings and returned pages solely in memory. Do not log raw requests,
 responses, URLs with object paths, exceptions or authentication material.
 
-The maintainer supplies the existing synthetic owner's ordinary Clerk token,
-and separately the limited, managed and emergency identifier/password pairs,
-through distinct hidden real-TTY prompts. No echoed fallback or automated secret
-relay. Confirm each actor privately against the exact inspected role and the
+The maintainer supplies the existing synthetic owner's ordinary Clerk token
+through its hidden real-TTY prompt. For inspected singleton managed and limited
+operators, the matrix derives each existing local identifier from its exact
+role state and prompts separately for passwords only. When the dedicated
+`staging_emergency_` actor is exactly `READY`, it likewise derives that
+identifier and prompts only for its password; an existing non-synthetic
+break-glass actor still requires a hidden identifier and password pair. No
+echoed fallback or automated secret relay. Confirm each actor privately
+against the exact inspected role and the
 real HTTP authenticated session. The synthetic owner's authenticated `/api/me/`
 must match the preserved ordinary #204 owner. Clerk-backed admin sign-in is not
 part of #205: case 1 proves this verified player's Bearer token grants no admin

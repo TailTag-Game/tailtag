@@ -198,6 +198,9 @@ def _authenticate(role: str) -> dict[str, Any]:
     from django.contrib.sessions.models import Session
     from django.http import HttpRequest
 
+    from accounts.management.commands.bootstrap_staging_emergency_operator import (
+        inspect_emergency_state,
+    )
     from accounts.management.commands.bootstrap_staging_operator import (
         OPERATOR_GROUP_NAME,
     )
@@ -231,6 +234,7 @@ def _authenticate(role: str) -> dict[str, Any]:
         raise ValueError
     group: Group | None = None
     pinned: tuple[int, str, str] | None = None
+    dedicated_emergency = False
     if role in {"managed", "limited"}:
         if role == "managed":
             if inspector._validate_managed_operator() is not None:  # pyright: ignore[reportPrivateUsage]
@@ -250,6 +254,23 @@ def _authenticate(role: str) -> dict[str, Any]:
             cast(str, operator.password),  # pyright: ignore[reportUnknownMemberType]
         )
         identifier = operator.clerk_user_id
+    elif role == "emergency":
+        dedicated = list(
+            User.objects.filter(clerk_user_id__startswith="staging_emergency_")[:2]
+        )
+        if dedicated:
+            if len(dedicated) != 1 or inspect_emergency_state() != "READY":
+                raise ValueError
+            operator = dedicated[0]
+            pinned = (
+                operator.pk,
+                operator.clerk_user_id,
+                cast(str, operator.password),  # pyright: ignore[reportUnknownMemberType]
+            )
+            identifier = operator.clerk_user_id
+            dedicated_emergency = True
+        else:
+            identifier = getpass.getpass("emergency admin identifier: ")
     else:
         identifier = getpass.getpass(f"{role} admin identifier: ")
     password = getpass.getpass(f"{role} admin password: ")
@@ -274,7 +295,29 @@ def _authenticate(role: str) -> dict[str, Any]:
                 cast(str, operator.password),  # pyright: ignore[reportUnknownMemberType]
             ) != pinned:
                 raise ValueError
+        elif role == "emergency" and dedicated_emergency:
+            if pinned is None or inspect_emergency_state() != "READY":
+                raise ValueError
+            current = list(
+                User.objects.filter(clerk_user_id__startswith="staging_emergency_")[:2]
+            )
+            if len(current) != 1:
+                raise ValueError
+            operator = current[0]
+            if (
+                operator.pk,
+                operator.clerk_user_id,
+                cast(str, operator.password),  # pyright: ignore[reportUnknownMemberType]
+            ) != pinned:
+                raise ValueError
         else:
+            if role == "emergency" and (
+                identifier.startswith("staging_emergency_")
+                or User.objects.filter(
+                    clerk_user_id__startswith="staging_emergency_"
+                ).exists()
+            ):
+                raise ValueError
             operator = User.objects.get(clerk_user_id=identifier)
         encoded_password = cast(str, operator.password)  # pyright: ignore[reportUnknownMemberType]
         if not operator.is_staff or not check_password(password, encoded_password):
@@ -282,22 +325,6 @@ def _authenticate(role: str) -> dict[str, Any]:
         if role == "emergency":
             if not cast(bool, operator.is_superuser):  # pyright: ignore[reportUnknownMemberType]
                 raise ValueError
-            if operator.clerk_user_id.startswith("staging_emergency_"):
-                from accounts.management.commands.bootstrap_staging_emergency_operator import (
-                    inspect_emergency_state,
-                )
-
-                dedicated = list(
-                    User.objects.filter(clerk_user_id__startswith="staging_emergency_")[
-                        :2
-                    ]
-                )
-                if (
-                    inspect_emergency_state() != "READY"
-                    or len(dedicated) != 1
-                    or dedicated[0].pk != operator.pk
-                ):
-                    raise ValueError
         elif role == "limited":
             if (
                 cast(bool, operator.is_superuser)  # pyright: ignore[reportUnknownMemberType]

@@ -1128,3 +1128,36 @@ rechecked. No credential was retained in this evidence. The exclusive Staging
 window remains held. Recovery requires a separately validated exact-account
 credential path and new preflight; do not blindly retry the matrix or
 provision another limited account.
+
+## Replacement limited-password recovery — 2026-09-25
+
+Repository-only recovery at commit `b547218` added a password-only action for
+the existing exact synthetic limited account and removed the matrix's need
+for its identifier. The independent review found no remaining material issue;
+the full backend gate passed 3,210 tests, Ruff, Pyright, Semgrep, Django,
+migration, OpenAPI and Gunicorn checks. Doctor, changed-document links and
+`git diff --check` passed. These are local tooling results, not live matrix
+evidence.
+
+Immediately before recovery, fresh read-only #204 three-way registry
+reconciliation returned `PASS` on all structural and equality checks. The
+read-only exact-instance operator inspector returned `PASS` with
+`target_verified=true` at source
+`99e6466e1bd5432025c085134e72c2c46eb92dbc`, deployment
+`2adc748c-ee54-4446-958c-f49a384925be` during 15:07:39–15:07:47 UTC.
+The reviewed lifecycle launcher then repeated its own current-target,
+receipt, exact-instance and role guards. The maintainer entered a new limited
+password twice through the real hidden terminal. The remote command printed
+`Validation operator password rotated.` and
+`TAILTAG_LIFECYCLE_COMMAND_COMPLETED`; the outer launcher returned
+`FAIL_TRANSPORT_UNCERTAIN` for 15:08:59–15:09:49 UTC. Preserve that transport
+classification and do not retry the rotation.
+
+A new independent read-only exact-instance operator inspection at
+15:10:09–15:10:16 UTC returned `PASS`, `target_verified=true` at the same
+source/deployment. This independently establishes that managed and limited
+role state remains exact after the attempted rotation; it cannot by itself
+prove which password is accepted. The next newly guarded matrix must prove
+limited authentication before any case submission. Cases 1–9 remain
+`NOT_EXERCISED`; #204 cleanup reset and both decommissions remain pending.
+The exclusive Staging window remains held.
