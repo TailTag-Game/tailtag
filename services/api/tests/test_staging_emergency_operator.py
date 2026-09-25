@@ -1082,8 +1082,7 @@ def test_command_parser_never_echoes_identifier_or_password_arguments(
 
 
 # The following tests describe the proposed post-Case-5 cleanup boundary. They
-# intentionally remain RED until the separately reviewed decommission command
-# exists. They do not authorize a live Staging action.
+# do not authorize a live Staging action.
 DECOMMISSION_COMMAND = "decommission_staging_emergency_operator"
 DECOMMISSION_CONFIRMATION = "decommission Railway Staging emergency operator"
 DECOMMISSION_SUCCESS = "Staging emergency operator decommissioned.\n"
@@ -1170,6 +1169,54 @@ def test_emergency_decommission_revokes_access_and_preserves_actor_audit(
     assert len(prompts) == 1
     assert prompts[0].startswith("Confirmation")
     _assert_private(stdout, stderr, None, caplog, IDENTIFIER, PASSWORD)
+
+
+@pytest.mark.django_db
+def test_bootstrap_refuses_new_emergency_actor_after_prior_actor_decommission(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A retained retired actor prevents a second synthetic emergency identity."""
+    _pin_test_target(monkeypatch)
+    _set_target(monkeypatch)
+    _install_registry()
+    _invoke(monkeypatch)
+    first = User.objects.get(clerk_user_id=IDENTIFIER)
+    audit = _make_emergency_audit(first)
+    _invoke_decommission(monkeypatch)
+    first_before = _state(first)
+    audit_before = OperatorAuditEvent.objects.filter(pk=audit.pk).values().get()
+    assert first.has_usable_password() is False
+    assert first.is_staff is False
+    assert cast(bool, first.is_superuser) is False  # pyright: ignore[reportUnknownMemberType]
+    second_identifier = "staging_emergency_second_243"
+    caplog.set_level(logging.DEBUG)
+    stdout, stderr = TtyStream(), TtyStream()
+
+    with pytest.raises(CommandError) as error:
+        _invoke(
+            monkeypatch,
+            private_inputs=(second_identifier, PASSWORD, PASSWORD),
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    assert (
+        User.objects.filter(clerk_user_id__startswith="staging_emergency_").count() == 1
+    )
+    assert not User.objects.filter(clerk_user_id=second_identifier).exists()
+    assert _state(first) == first_before
+    assert OperatorAuditEvent.objects.filter(pk=audit.pk).values().get() == audit_before
+    assert stdout.getvalue() == ""
+    _assert_private(
+        stdout,
+        stderr,
+        error.value,
+        caplog,
+        IDENTIFIER,
+        second_identifier,
+        PASSWORD,
+    )
 
 
 @pytest.mark.django_db

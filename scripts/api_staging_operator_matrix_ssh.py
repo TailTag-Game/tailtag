@@ -78,7 +78,7 @@ def _fail():
     print('FAIL_MATRIX_UNCERTAIN', file=sys.stderr)
     raise SystemExit(1)
 def _completed(result, identity):
-    if not isinstance(result, dict) or set(result) != {'classification', 'identity', 'window_utc', 'cases', 'case9', 'deployed_control_hash_match', 'case9_control_review', 'case9_deterministic_evidence', 'case9_limitations', 'mutation_may_have_begun', 'reset', 'decommission', 'audit_events', 'session_cascade', 'credential_cascade'}: return False
+    if not isinstance(result, dict) or set(result) != {'classification', 'identity', 'window_utc', 'cases', 'case9', 'deployed_control_hash_match', 'case9_control_review', 'case9_deterministic_evidence', 'case9_limitations', 'mutation_may_have_begun', 'reset', 'emergency_decommission', 'decommission', 'audit_events', 'session_cascade', 'credential_cascade'}: return False
     if result['classification'] != 'LIVE_SEQUENCE_COMPLETE_PENDING_CASE9_EVIDENCE' or result['identity'] != identity: return False
     window = result['window_utc']
     if not isinstance(window, list) or len(window) != 2: return False
@@ -90,6 +90,7 @@ def _completed(result, identity):
     if result['case9_limitations'] != sorted(_LIMITATIONS): return False
     if result['deployed_control_hash_match'] != 'PASS' or result['case9_control_review'] != 'NOT_EXERCISED' or result['case9_deterministic_evidence'] != 'NOT_EXERCISED': return False
     if result['mutation_may_have_begun'] is not True or result['reset'] != 'PASS' or result['decommission'] != 'PASS': return False
+    if result['emergency_decommission'] not in {'PASS', 'NOT_EXERCISED'}: return False
     if result['session_cascade'] != 'PASS' or result['credential_cascade'] != 'NOT_EXERCISED': return False
     events = result['audit_events']
     return isinstance(events, list) and all(isinstance(event, dict) and type(event.get('count')) is int for event in events) and events == _AUDIT_EVENTS

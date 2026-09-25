@@ -173,6 +173,9 @@ class Command(BaseCommand):
                 _require_database_binding()
                 if (
                     User.objects.filter(is_superuser=True).exists()
+                    or User.objects.filter(
+                        clerk_user_id__startswith="staging_emergency_"
+                    ).exists()
                     or User.objects.filter(clerk_user_id=identifier).exists()
                 ):
                     raise CommandError(

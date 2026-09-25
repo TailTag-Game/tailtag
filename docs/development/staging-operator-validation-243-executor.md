@@ -125,13 +125,23 @@ Missing/duplicate/privacy-unsafe audit evidence, unexpected state changes,
 target drift, unavailable credentials or a required failure stops the sequence.
 The tool never compensates with extra writes or silently invokes reset.
 
-After matrix/reset evidence completes, keep the comparison process alive and
-use the separately reviewed lifecycle command to decommission the limited
-operator in a separate terminal. Close database connections while waiting.
-The parent/maintainer enters the fixed acknowledgement only after observing
-the successful lifecycle command marker and sanitized transport result. The
-matrix does not parse that external marker. Perform a
-fresh target readback and read-only exact decommissioned-role check: sole
+After matrix/reset evidence completes, keep the comparison process alive.
+If Case 5 used the separately approved dedicated synthetic emergency actor,
+the matrix first emits `TAILTAG_MATRIX_EMERGENCY_DECOMMISSION_READY`. While the
+limited operator is still active, invoke the separately reviewed emergency
+decommission launcher in a separate terminal. Retain its successful sanitized
+receipt and exact `DECOMMISSIONED` postcondition. Enter the emergency-specific
+fixed acknowledgement only after observing both; the matrix independently
+checks the same retained actor's disabled state and unchanged audit rows.
+If Case 5 used an existing authorized break-glass actor, the synthetic
+emergency decommission handoff is skipped.
+
+The matrix then emits `TAILTAG_MATRIX_DECOMMISSION_READY`. Use the separately
+reviewed limited lifecycle command in a separate terminal. Close database
+connections while waiting. Retain its separate successful sanitized receipt;
+enter the limited-specific fixed acknowledgement only after observing it.
+The matrix does not parse either external receipt. Perform a fresh target
+readback and read-only exact decommissioned-role check: sole
 dedicated group/member, nonstaff/nonsuperuser, unusable password, zero direct
 and group permissions, no other groups or gameplay attachments. Reuse the
 inspector helper; an ordinary active-role mismatch is not proof of this state.

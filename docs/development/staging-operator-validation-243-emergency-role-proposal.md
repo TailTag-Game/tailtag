@@ -39,6 +39,12 @@ The alternative below requires separate approval before any live mutation.
   referenced by durable `OperatorAuditEvent` records. A separately reviewed
   exact-instance guarded decommission action must remove staff and superuser authority and
   make the local password unusable, without deleting or rewriting audit rows.
+  At the matrix's emergency-specific cleanup handoff, run this action **before**
+  limited-operator decommission because its guard requires the limited role to
+  remain active. Preserve the distinct sanitized emergency and limited
+  decommission receipts. The matrix must verify the emergency actor's exact
+  disabled postcondition and retained audit before it offers the limited-role
+  cleanup handoff; a successful limited cleanup cannot imply emergency cleanup.
   The repository-only decommission command and launcher have been implemented
   with local tests; their live use remains pending this amendment and final
   independent review. Require the read-only `DECOMMISSIONED` classification

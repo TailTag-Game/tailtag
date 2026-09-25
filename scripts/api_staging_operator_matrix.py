@@ -192,16 +192,17 @@ def _csrf_from(response: Mapping[str, Any]) -> str:
 
 
 def _authenticate(role: str) -> dict[str, Any]:
-    from accounts.management.commands.bootstrap_staging_operator import (
-        OPERATOR_GROUP_NAME,
-    )
-    from accounts.models import User
-    from authentication.clerk import ClerkSessionVerifier
     from django.conf import settings
     from django.contrib.auth.hashers import check_password
     from django.contrib.auth.models import Group
     from django.contrib.sessions.models import Session
     from django.http import HttpRequest
+
+    from accounts.management.commands.bootstrap_staging_operator import (
+        OPERATOR_GROUP_NAME,
+    )
+    from accounts.models import User
+    from authentication.clerk import ClerkSessionVerifier
     from rehearsal.models import StagingResetIdentity
 
     _reject_debug_database_logging()
@@ -271,6 +272,22 @@ def _authenticate(role: str) -> dict[str, Any]:
         if role == "emergency":
             if not cast(bool, operator.is_superuser):  # pyright: ignore[reportUnknownMemberType]
                 raise ValueError
+            if operator.clerk_user_id.startswith("staging_emergency_"):
+                from accounts.management.commands.bootstrap_staging_emergency_operator import (
+                    inspect_emergency_state,
+                )
+
+                dedicated = list(
+                    User.objects.filter(clerk_user_id__startswith="staging_emergency_")[
+                        :2
+                    ]
+                )
+                if (
+                    inspect_emergency_state() != "READY"
+                    or len(dedicated) != 1
+                    or dedicated[0].pk != operator.pk
+                ):
+                    raise ValueError
         elif role == "limited":
             if (
                 cast(bool, operator.is_superuser)  # pyright: ignore[reportUnknownMemberType]
@@ -335,10 +352,11 @@ def _owner_token_still_valid(actor: Mapping[str, Any], owner_id: int) -> None:
     token = actor.get("token")
     if not isinstance(token, str):
         return  # Injected test actors are verified by their approved seam.
-    from accounts.models import User
-    from authentication.clerk import ClerkSessionVerifier
     from django.conf import settings
     from django.http import HttpRequest
+
+    from accounts.models import User
+    from authentication.clerk import ClerkSessionVerifier
 
     configuration = settings.CLERK_AUTHENTICATION
     if configuration is None:
@@ -355,6 +373,8 @@ def _owner_token_still_valid(actor: Mapping[str, Any], owner_id: int) -> None:
 
 def _snapshot() -> dict[str, Any]:
     """Read the registered closure and its exact audit rows without secret fields."""
+    from django.db import connection, transaction
+
     from catches.models import Catch
     from conventions.models import (
         Convention,
@@ -363,7 +383,6 @@ def _snapshot() -> dict[str, Any]:
         FursuitCatchCredential,
         FursuitCatchSession,
     )
-    from django.db import connection, transaction
     from fursuits.models import Fursuit
     from operator_audit.models import OperatorAuditEvent
     from profiles.models import PlayerProfile
@@ -623,6 +642,13 @@ def _await_decommission_receipt() -> dict[str, str]:
     )
 
 
+def _await_emergency_decommission_receipt() -> dict[str, str]:
+    return _await_receipt(
+        "TAILTAG_MATRIX_EMERGENCY_DECOMMISSION_READY",
+        "verified Railway Staging emergency decommission",
+    )
+
+
 def _require(condition: bool) -> None:
     if not condition:
         raise ValueError
@@ -818,6 +844,7 @@ def run(expected_identity: Mapping[str, str]) -> dict[str, Any]:
         "case9_limitations": sorted(_COMBINED),
         "mutation_may_have_begun": False,
         "reset": "NOT_EXERCISED",
+        "emergency_decommission": "NOT_EXERCISED",
         "decommission": "NOT_EXERCISED",
         "audit_events": [],
         "session_cascade": "NOT_EXERCISED",
@@ -1135,6 +1162,33 @@ def run(expected_identity: Mapping[str, str]) -> dict[str, Any]:
             observed["roots"] == before["roots"] and observed["audit"] == retained_audit
         )
         result["reset"] = "PASS"
+        from accounts.models import User
+
+        emergency_user = User.objects.get(pk=actors["emergency"]["actor_id"])
+        if emergency_user.clerk_user_id.startswith("staging_emergency_"):
+            phase = "emergency_decommission"
+            _guard_target(expected_identity)
+            connections.close_all()
+            _require(
+                _await_emergency_decommission_receipt().get("classification") == "PASS"
+            )
+            _guard_target(expected_identity)
+            from accounts.management.commands.bootstrap_staging_emergency_operator import (
+                inspect_emergency_state,
+            )
+
+            _require(inspect_emergency_state() == "DECOMMISSIONED")
+            decommissioned_actor = User.objects.get(pk=actors["emergency"]["actor_id"])
+            _require(
+                decommissioned_actor.clerk_user_id.startswith("staging_emergency_")
+                and decommissioned_actor.is_staff is False
+                and not decommissioned_actor.is_superuser
+                and not decommissioned_actor.has_usable_password()
+                and not decommissioned_actor.groups.exists()
+                and not decommissioned_actor.user_permissions.exists()
+            )
+            _require(_snapshot()["audit"] == retained_audit)
+            result["emergency_decommission"] = "PASS"
         phase = "decommission"
         _guard_target(expected_identity)
         connections.close_all()
@@ -1145,8 +1199,6 @@ def run(expected_identity: Mapping[str, str]) -> dict[str, Any]:
             len(inspector._limited_candidates()) == 1  # pyright: ignore[reportPrivateUsage]
             and inspector._limited_candidates()[0].pk == limited["actor_id"]  # pyright: ignore[reportPrivateUsage]
         )
-        from accounts.models import User
-
         _require(User.objects.get(pk=limited["actor_id"]).is_staff is False)
         _require(inspector._validate_managed_operator() is None)  # pyright: ignore[reportPrivateUsage]
         validate_baseline(StagingResetIdentity.objects.get(pk=1))

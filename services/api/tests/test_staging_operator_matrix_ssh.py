@@ -461,6 +461,7 @@ def pending_matrix_result() -> dict[str, object]:
         "deployed_control_hash_match": "PASS",
         "mutation_may_have_begun": True,
         "reset": "PASS",
+        "emergency_decommission": "NOT_EXERCISED",
         "decommission": "PASS",
         "audit_events": [
             {
@@ -569,9 +570,13 @@ def _inspect_orm_preconditions(): return 'PASS'
     assert PRIVATE not in result.stdout + result.stderr
 
 
+@pytest.mark.parametrize("emergency_status", ("NOT_EXERCISED", "PASS"))
 def test_bootstrap_injects_control_hashes_and_in_memory_inspector_then_marks_pending_sequence(
     runner: ModuleType,
+    emergency_status: str,
 ) -> None:
+    observed = pending_matrix_result()
+    observed["emergency_decommission"] = emergency_status
     inspector = (
         SYNTHETIC_INSPECTOR
         + """\
@@ -591,7 +596,7 @@ def run(expected_identity):
     if set(_CONTROL_HASHES) != {'accounts/admin.py', 'catches/admin.py', 'conventions/admin.py', 'fursuits/admin.py', 'profiles/admin.py'}:
         raise RuntimeError('controls')
     return """
-        + repr(pending_matrix_result())
+        + repr(observed)
         + "\n"
     )
 
@@ -602,6 +607,28 @@ def run(expected_identity):
     assert result.stdout.strip() == PENDING_MARKER
     assert "TAILTAG_MATRIX_COMMAND_COMPLETED" not in result.stdout
     assert result.stderr == ""
+
+
+@pytest.mark.parametrize("fault", ("missing", "invalid", "wrong_type"))
+def test_bootstrap_rejects_missing_or_malformed_emergency_cleanup_result(
+    runner: ModuleType, fault: str
+) -> None:
+    observed = pending_matrix_result()
+    if fault == "missing":
+        del observed["emergency_decommission"]
+    elif fault == "invalid":
+        observed["emergency_decommission"] = "READY"
+    else:
+        observed["emergency_decommission"] = True
+
+    result = isolated_bootstrap(
+        runner,
+        bootstrap_request(SYNTHETIC_INSPECTOR, matrix_source_for_result(observed)),
+    )
+
+    assert result.returncode != 0
+    assert result.stdout == ""
+    assert result.stderr.strip() == "FAIL_MATRIX_UNCERTAIN"
 
 
 @pytest.mark.parametrize(

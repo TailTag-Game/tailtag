@@ -40,6 +40,10 @@ Test surface contract for this file (approved by the ADW parent):
   returning the fixed ``{"classification": "PASS"}`` receipt only on success.
   Completed live sequence status requires a fresh exact target guard, exact inactive
   limited role, valid managed role/baseline, and unchanged retained audit rows.
+* A synthetic ``staging_emergency_...`` Case-5 actor additionally requires a
+  separate ``_await_emergency_decommission_receipt()`` handoff and direct proof
+  that staff, superuser, and usable-password access are gone before limited-role
+  cleanup. An existing non-synthetic break-glass actor skips that lifecycle.
 * ``_guard_target(expected_identity)`` checks the exact running tuple before
   each mutation. ``_await_reset_receipt()`` is the single external reset
   handoff; it never performs the reset itself. Tests substitute these bounded
@@ -75,7 +79,7 @@ from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 import pytest
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
-from django.contrib.auth.models import Permission
+from django.contrib.auth.models import Group, Permission
 from django.db import connection
 from django.utils import timezone
 from pytest_django.fixtures import SettingsWrapper
@@ -935,6 +939,111 @@ def test_wrong_managed_password_stops_before_case_submission(
     assert OperatorAuditEvent.objects.count() == 0
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "drift", ("group", "direct_permission", "second_retained_actor")
+)
+def test_synthetic_emergency_authentication_refuses_inexact_singleton_before_http(
+    matrix: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    drift: str,
+) -> None:
+    """A valid password cannot bypass the synthetic emergency role boundary."""
+    identity = create_owned_baseline()
+    sessions = role_sessions(identity)
+    actor = User.objects.get(pk=sessions["emergency"]["actor_id"])
+    actor.clerk_user_id = "staging_emergency_matrix_243"
+    actor.save(update_fields={"clerk_user_id"})
+    if drift == "group":
+        actor.groups.add(Group.objects.create(name="unexpected matrix emergency group"))  # pyright: ignore[reportUnknownMemberType]
+    elif drift == "direct_permission":
+        actor.user_permissions.add(  # pyright: ignore[reportUnknownMemberType]
+            Permission.objects.get(
+                content_type__app_label="accounts", codename="view_user"
+            )
+        )
+    else:
+        User.objects.create_user("staging_emergency_retained_matrix_243")
+
+    def account_states() -> dict[int, tuple[str, bool, bool, str]]:
+        return {
+            user.pk: (
+                user.clerk_user_id,
+                user.is_staff,
+                cast(bool, user.is_superuser),  # pyright: ignore[reportUnknownMemberType]
+                cast(str, user.password),  # pyright: ignore[reportUnknownMemberType]
+            )
+            for user in User.objects.all()
+        }
+
+    before = account_states()
+    output = HiddenInputTerminal()
+    prompts: list[str] = []
+    answers = iter((actor.clerk_user_id, "local-only-emergency-test-password"))
+    monkeypatch.setattr(sys, "stdin", HiddenInputTerminal())
+    monkeypatch.setattr(sys, "stdout", output)
+    monkeypatch.setattr(matrix, "_guard_target", accept_target)
+    monkeypatch.setattr(matrix, "_active_identity", IDENTITY)
+
+    def hidden_input(prompt: str = "") -> str:
+        prompts.append(prompt)
+        return next(answers)
+
+    def forbidden_http(*_args: object, **_kwargs: object) -> NoReturn:
+        pytest.fail("inexact synthetic emergency actor reached HTTP")
+
+    monkeypatch.setattr(getpass, "getpass", hidden_input)
+    monkeypatch.setattr(matrix, "_http_request", forbidden_http)
+
+    with pytest.raises(ValueError):
+        matrix._authenticate("emergency")
+
+    assert len(prompts) == 2
+    assert account_states() == before
+    assert OperatorAuditEvent.objects.count() == 0
+    assert actor.clerk_user_id not in output.getvalue()
+    assert "local-only-emergency-test-password" not in output.getvalue()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "identifier", ("staging_emergency_matrix_243", "existing_breakglass_matrix_243")
+)
+def test_exact_emergency_actor_can_reach_admin_login_http(
+    matrix: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    identifier: str,
+) -> None:
+    """A valid synthetic actor and existing break-glass actor retain Case-5 access."""
+    identity = create_owned_baseline()
+    sessions = role_sessions(identity)
+    actor = User.objects.get(pk=sessions["emergency"]["actor_id"])
+    actor.clerk_user_id = identifier
+    actor.save(update_fields={"clerk_user_id"})
+    answers = iter((identifier, "local-only-emergency-test-password"))
+    requests: list[tuple[str, str]] = []
+    monkeypatch.setattr(sys, "stdin", HiddenInputTerminal())
+    monkeypatch.setattr(sys, "stdout", HiddenInputTerminal())
+    monkeypatch.setattr(getpass, "getpass", lambda _prompt="": next(answers))
+    monkeypatch.setattr(matrix, "_guard_target", accept_target)
+    monkeypatch.setattr(matrix, "_active_identity", IDENTITY)
+
+    class LoginReached(Exception):
+        pass
+
+    def observe_http(method: str, path: str, **_kwargs: object) -> NoReturn:
+        requests.append((method, path))
+        raise LoginReached
+
+    monkeypatch.setattr(matrix, "_http_request", observe_http)
+
+    with pytest.raises(LoginReached):
+        matrix._authenticate("emergency")
+
+    assert requests == [("GET", "/admin/login/")]
+    assert OperatorAuditEvent.objects.count() == 0
+
+
 @pytest.mark.django_db(transaction=True)
 def test_managed_actor_drift_during_hidden_password_fails_before_post(
     matrix: ModuleType,
@@ -1459,6 +1568,8 @@ def test_deployed_source_hashes_never_claim_control_review_or_test_execution(
         ("complete", "clean_reset", "managed_drift"),
         ("complete", "clean_reset", "fixture_drift"),
         ("complete", "clean_reset", "complete"),
+        ("complete", "clean_reset", "synthetic_still_active"),
+        ("complete", "clean_reset", "synthetic_complete"),
     ),
 )
 def test_two_successes_case9_review_and_reset_audit_retention(
@@ -1473,11 +1584,17 @@ def test_two_successes_case9_review_and_reset_audit_retention(
     review_ok = review_mode == "complete"
     identity = create_owned_baseline()
     sessions = role_sessions(identity)
+    synthetic_emergency = decommission_mode.startswith("synthetic_")
+    if synthetic_emergency:
+        emergency_actor = User.objects.get(pk=sessions["emergency"]["actor_id"])
+        emergency_actor.clerk_user_id = "staging_emergency_matrix_243"
+        emergency_actor.save(update_fields={"clerk_user_id"})
     authenticated: list[str] = []
     mutations: list[tuple[str, str, str]] = []
     reviews: list[str] = []
     reset_calls: list[str] = []
     decommission_calls: list[str] = []
+    emergency_decommission_calls: list[str] = []
     observations: list[str] = []
     case9_visits: set[tuple[str, str]] = set()
     expected_case9: set[tuple[str, str]] = set()
@@ -1652,6 +1769,10 @@ def test_two_successes_case9_review_and_reset_audit_retention(
         assert connection.connection is None
         assert "guard" in observations  # Fresh guard after reset.
         observations.clear()
+        if synthetic_emergency:
+            assert emergency_decommission_calls == ["handoff"]
+            if decommission_mode == "synthetic_still_active":
+                pytest.fail("limited cleanup began before synthetic emergency proof")
         decommission_calls.append("handoff")
         if decommission_mode == "not_called":
             pytest.fail("decommission started before reset/audit proof")
@@ -1690,6 +1811,25 @@ def test_two_successes_case9_review_and_reset_audit_retention(
             )
         return {"classification": "PASS"}
 
+    def emergency_decommission_receipt() -> Mapping[str, str]:
+        assert connection.connection is None
+        assert reset_calls == ["handoff"]
+        assert decommission_calls == []  # Emergency cleanup precedes limited cleanup.
+        emergency_decommission_calls.append("handoff")
+        if decommission_mode == "synthetic_complete":
+            emergency_actor = User.objects.get(pk=sessions["emergency"]["actor_id"])
+            emergency_actor.is_staff = False
+            emergency_actor.is_superuser = False
+            emergency_actor.set_unusable_password()
+            emergency_actor.save(update_fields={"is_staff", "is_superuser", "password"})
+        return {"classification": "PASS"}
+
+    monkeypatch.setattr(
+        matrix,
+        "_await_emergency_decommission_receipt",
+        emergency_decommission_receipt,
+        raising=False,
+    )
     monkeypatch.setattr(matrix, "_await_decommission_receipt", decommission_receipt)
     monkeypatch.setattr(matrix, "_authenticate", authenticate)
     monkeypatch.setattr(matrix, "_http_request", http)
@@ -1715,15 +1855,34 @@ def test_two_successes_case9_review_and_reset_audit_retention(
         assert reset_calls == []
         assert decommission_calls == []
         return
-    if reset_mode == "clean_reset" and decommission_mode == "complete":
+    if reset_mode == "clean_reset" and decommission_mode in {
+        "complete",
+        "synthetic_complete",
+    }:
         assert result["classification"] == LIVE_SEQUENCE_COMPLETE
         assert "guard" in observations  # Fresh guard after decommission.
     else:
         assert result["classification"] != LIVE_SEQUENCE_COMPLETE
     if reset_mode == "clean_reset":
-        assert decommission_calls == ["handoff"]
+        assert decommission_calls == (
+            [] if decommission_mode == "synthetic_still_active" else ["handoff"]
+        )
     else:
         assert decommission_calls == []
+    if synthetic_emergency:
+        assert emergency_decommission_calls == ["handoff"]
+        assert result["emergency_decommission"] == (
+            "PASS" if decommission_mode == "synthetic_complete" else "NOT_EXERCISED"
+        )
+        if decommission_mode == "synthetic_still_active":
+            assert result["classification"] == "FAIL_EMERGENCY_DECOMMISSION"
+            emergency_actor = User.objects.get(pk=sessions["emergency"]["actor_id"])
+            assert emergency_actor.is_staff is True
+            assert cast(bool, emergency_actor.is_superuser) is True  # pyright: ignore[reportUnknownMemberType]
+            assert emergency_actor.has_usable_password() is True
+    else:
+        assert emergency_decommission_calls == []
+        assert result["emergency_decommission"] == "NOT_EXERCISED"
     if review_ok:
         assert expected_case9
         assert expected_case9 <= case9_visits
