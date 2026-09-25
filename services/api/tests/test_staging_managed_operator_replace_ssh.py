@@ -97,6 +97,16 @@ def install_green_guards(
     monkeypatch: pytest.MonkeyPatch,
 ) -> list[str]:
     calls: list[str] = []
+    monkeypatch.setattr(
+        runner,
+        "_target_ids",
+        lambda: (
+            "a1111111-1111-4111-8111-111111111111",
+            "c3333333-3333-4333-8333-333333333333",
+            "d4444444-4444-4444-8444-444444444444",
+            "e5555555-5555-4555-8555-555555555555",
+        ),
+    )
 
     def inspect() -> dict[str, object]:
         calls.append("inspector")
@@ -119,7 +129,9 @@ def install_green_guards(
         return INSTANCE
 
     def registry(config_path: Path) -> dict[str, object]:
-        assert config_path == Path.home() / ".config/tailtag/staging-reset.env"
+        assert (
+            config_path == Path.home() / ".config/tailtag/staging-reset-replacement.env"
+        )
         calls.append("registry")
         return registry_payload()
 
@@ -190,9 +202,9 @@ def test_green_guard_sequence_starts_one_pinned_ssh_without_private_input(
     arguments = attempts[0]
     assert arguments[:2] == ["railway", "ssh"]
     assert arguments[arguments.index("--deployment-instance") + 1] == INSTANCE
-    assert arguments[arguments.index("--project") + 1] == runner._PROJECT_ID
-    assert arguments[arguments.index("--environment") + 1] == runner._ENVIRONMENT_ID
-    assert arguments[arguments.index("--service") + 1] == runner._SERVICE_ID
+    assert arguments[arguments.index("--project") + 1] == runner._target_ids()[0]
+    assert arguments[arguments.index("--environment") + 1] == runner._target_ids()[1]
+    assert arguments[arguments.index("--service") + 1] == runner._target_ids()[2]
     assert arguments[arguments.index("-c") - 1] == "-I"
     assert arguments[arguments.index("--") + 1] == "env"
     assert (
@@ -360,7 +372,9 @@ def test_registry_reconciliation_must_prove_all_private_and_live_bindings(
     calls = install_green_guards(runner, monkeypatch)
 
     def reconcile(config_path: Path) -> dict[str, object]:
-        assert config_path == Path.home() / ".config/tailtag/staging-reset.env"
+        assert (
+            config_path == Path.home() / ".config/tailtag/staging-reset-replacement.env"
+        )
         calls.append("registry")
         if failure == "query_error":
             raise ValueError(PRIVATE_DIAGNOSTIC)

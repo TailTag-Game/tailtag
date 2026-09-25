@@ -53,9 +53,9 @@ MEDIA_KEY = "images/0123456789abcdef0123456789abcdef.png"
 RUNTIME_SELECTORS = {
     "RAILWAY_ENVIRONMENT_NAME": "staging",
     "RAILWAY_SERVICE_NAME": "api",
-    "RAILWAY_PROJECT_ID": "85324de4-be6a-49c3-a3f9-6cac13877849",
-    "RAILWAY_ENVIRONMENT_ID": "5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e",
-    "RAILWAY_SERVICE_ID": "2247da27-97df-4d5d-b1dc-d21eeb7901d9",
+    "RAILWAY_PROJECT_ID": "a1111111-1111-4111-8111-111111111111",
+    "RAILWAY_ENVIRONMENT_ID": "c3333333-3333-4333-8333-333333333333",
+    "RAILWAY_SERVICE_ID": "d4444444-4444-4444-8444-444444444444",
 }
 # #204's reset sentinel is an independently generated identity. It deliberately
 # differs from the Railway environment selector above.
@@ -321,6 +321,20 @@ def configured_inspector(
     """Bind every local run to the only accepted runtime identity tuple."""
     for name, value in RUNTIME_SELECTORS.items():
         monkeypatch.setenv(name, value)
+    binding = importlib.import_module("config.replacement_target_binding")
+    monkeypatch.setattr(
+        binding,
+        "_EXPECTED_DIGESTS",
+        {
+            **binding._EXPECTED_DIGESTS,
+            "staging-api": binding.fingerprint_tuple(
+                "staging-api",
+                RUNTIME_SELECTORS["RAILWAY_PROJECT_ID"],
+                RUNTIME_SELECTORS["RAILWAY_ENVIRONMENT_ID"],
+                RUNTIME_SELECTORS["RAILWAY_SERVICE_ID"],
+            ),
+        },
+    )
     monkeypatch.setattr(
         inspector,
         "get_identity",
@@ -1069,6 +1083,76 @@ def test_mismatched_railway_environment_selector_fails_before_orm_inspection(
 
     assert inspect(configured_inspector) == FAIL_INVALID_INPUT
     assert not reached_fixture_guard
+
+
+def test_replacement_runtime_reaches_both_role_checks_and_retired_runtime_does_not(
+    inspector: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#243 in-image authority follows code-pinned replacement, not old UUIDs."""
+    binding = importlib.import_module("config.replacement_target_binding")
+    replacement = {
+        "RAILWAY_ENVIRONMENT_NAME": "staging",
+        "RAILWAY_SERVICE_NAME": "api",
+        "RAILWAY_PROJECT_ID": "a1111111-1111-4111-8111-111111111111",
+        "RAILWAY_ENVIRONMENT_ID": "c3333333-3333-4333-8333-333333333333",
+        "RAILWAY_SERVICE_ID": "d4444444-4444-4444-8444-444444444444",
+    }
+    monkeypatch.setattr(
+        binding,
+        "_EXPECTED_DIGESTS",
+        {
+            **binding._EXPECTED_DIGESTS,
+            "staging-api": binding.fingerprint_tuple(
+                "staging-api",
+                replacement["RAILWAY_PROJECT_ID"],
+                replacement["RAILWAY_ENVIRONMENT_ID"],
+                replacement["RAILWAY_SERVICE_ID"],
+            ),
+        },
+    )
+    monkeypatch.setattr(
+        inspector,
+        "get_identity",
+        lambda: {
+            "source_sha": SOURCE_SHA,
+            "deployment_id": DEPLOYMENT_ID,
+            "environment": "staging",
+        },
+    )
+    checks: list[str] = []
+    for name in (
+        "_validate_fixture",
+        "_validate_managed_operator",
+        "_validate_limited_operator",
+    ):
+        monkeypatch.setattr(
+            inspector,
+            name,
+            lambda name=name: checks.append(name) or None,
+        )
+    for name, value in replacement.items():
+        monkeypatch.setenv(name, value)
+
+    assert inspector.inspect_preconditions(SOURCE_SHA, DEPLOYMENT_ID) == PASS
+    assert checks == [
+        "_validate_fixture",
+        "_validate_managed_operator",
+        "_validate_limited_operator",
+    ]
+
+    checks.clear()
+    for name, value in {
+        "RAILWAY_ENVIRONMENT_NAME": "staging",
+        "RAILWAY_SERVICE_NAME": "api",
+        "RAILWAY_PROJECT_ID": "85324de4-be6a-49c3-a3f9-6cac13877849",
+        "RAILWAY_ENVIRONMENT_ID": "5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e",
+        "RAILWAY_SERVICE_ID": "2247da27-97df-4d5d-b1dc-d21eeb7901d9",
+    }.items():
+        monkeypatch.setenv(name, value)
+    assert (
+        inspector.inspect_preconditions(SOURCE_SHA, DEPLOYMENT_ID) == FAIL_INVALID_INPUT
+    )
+    assert checks == []
 
 
 def test_main_prints_one_allowlisted_code_for_malformed_arguments(

@@ -448,6 +448,58 @@ def _launcher_identity() -> dict[str, str]:
     }
 
 
+def test_replacement_handoff_receipt_requires_exact_current_target_and_join(
+    launcher: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Manual replacement handoff cannot masquerade as the old promotion receipt."""
+    monkeypatch.setattr(launcher, "_ROOT", tmp_path)
+    identity = _launcher_identity()
+    directory = tmp_path / "docs/development/staging-deployments"
+    directory.mkdir(parents=True)
+    path = directory / f"{identity['deployment_id']}.json"
+    receipt = {
+        "receipt_type": "replacement_canonical_handoff",
+        **identity,
+        "provider_deployment_status": "SUCCESS",
+        "public_exact_instance_join": "PASS",
+        "final_active_state": "ACTIVE",
+    }
+    path.write_text(json.dumps(receipt))
+    launcher._approved_receipt(identity)
+    for key, value in (
+        ("source_sha", "b" * 40),
+        ("provider_deployment_status", "FAILED"),
+        ("public_exact_instance_join", "NOT_CHECKED"),
+        ("final_active_state", "INACTIVE"),
+    ):
+        path.write_text(json.dumps({**receipt, key: value}))
+        with pytest.raises(ValueError):
+            launcher._approved_receipt(identity)
+
+
+def test_replacement_receipt_does_not_accept_promotion_status_as_override(
+    launcher: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(launcher, "_ROOT", tmp_path)
+    identity = _launcher_identity()
+    directory = tmp_path / "docs/development/staging-deployments"
+    directory.mkdir(parents=True)
+    (directory / f"{identity['deployment_id']}.json").write_text(
+        json.dumps(
+            {
+                "receipt_type": "replacement_canonical_handoff",
+                **identity,
+                "overall_outcome": "SUCCEEDED",
+                "provider_deployment_status": "FAILED",
+                "public_exact_instance_join": "PASS",
+                "final_active_state": "ACTIVE",
+            }
+        )
+    )
+    with pytest.raises(ValueError):
+        launcher._approved_receipt(identity)
+
+
 def _launcher_success_payload() -> dict[str, object]:
     return {
         "result": "PASS",
@@ -512,6 +564,16 @@ def _prepare_successful_launcher(
     monkeypatch.setattr(module, "_source_commit", source_commit)
     monkeypatch.setattr(module, "_active_instance", active_instance)
     monkeypatch.setattr(module, "_runtime_database_fingerprint", database_fingerprint)
+    monkeypatch.setattr(
+        module,
+        "_target_ids",
+        lambda: (
+            "a1111111-1111-4111-8111-111111111111",
+            "c3333333-3333-4333-8333-333333333333",
+            "d4444444-4444-4444-8444-444444444444",
+            "e5555555-5555-4555-8555-555555555555",
+        ),
+    )
     monkeypatch.setattr(module, "_reviewed_source", reviewed_source)
 
     def fake_run(
@@ -571,11 +633,11 @@ def test_launcher_uses_only_the_exact_read_only_reconciliation_command(
         "railway",
         "ssh",
         "--project",
-        launcher._PROJECT_ID,
+        "a1111111-1111-4111-8111-111111111111",
         "--service",
-        launcher._SERVICE_ID,
+        "d4444444-4444-4444-8444-444444444444",
         "--environment",
-        launcher._ENVIRONMENT_ID,
+        "c3333333-3333-4333-8333-333333333333",
         "--deployment-instance",
         "instance-synthetic",
         "--",
@@ -609,7 +671,10 @@ def test_launcher_private_configuration_failure_is_sanitized_before_remote_work(
     """Private file failure cannot reach identity, provider, or SSH operations."""
     events: list[str] = []
 
-    def unreadable(_: Path) -> object:
+    observed_paths: list[Path] = []
+
+    def unreadable(path: Path) -> object:
+        observed_paths.append(path)
         events.append("configuration")
         raise ValueError("private configuration content")
 
@@ -626,6 +691,9 @@ def test_launcher_private_configuration_failure_is_sanitized_before_remote_work(
     assert json.loads(rendered) == {"result": "FAIL_EXECUTION", "checks": {}}
     assert "private configuration content" not in rendered
     assert events == ["configuration"]
+    assert observed_paths == [
+        Path.home() / ".config/tailtag/staging-reset-replacement.env"
+    ]
 
 
 def test_launcher_target_failure_is_sanitized_and_does_not_reach_ssh(

@@ -19,9 +19,7 @@ _preflight = _inspector._preflight  # pyright: ignore[reportPrivateUsage]
 _approved_receipt = _inspector._approved_receipt  # pyright: ignore[reportPrivateUsage]
 _active_instance = _inspector._active_instance  # pyright: ignore[reportPrivateUsage]
 _parse_identity = _inspector._identity  # pyright: ignore[reportPrivateUsage]
-_PROJECT_ID = _inspector._PROJECT_ID  # pyright: ignore[reportPrivateUsage]
-_SERVICE_ID = _inspector._SERVICE_ID  # pyright: ignore[reportPrivateUsage]
-_ENVIRONMENT_ID = _inspector._ENVIRONMENT_ID  # pyright: ignore[reportPrivateUsage]
+_target_ids = _inspector._target_ids  # pyright: ignore[reportPrivateUsage]
 _ROOT: Final = Path(__file__).resolve().parents[1]
 _REMOTE: Final = _ROOT / "scripts" / "api_staging_managed_auth_diagnose.py"
 _INSPECTOR_REMOTE: Final = _ROOT / "scripts" / "api_staging_operator_inspect.py"
@@ -179,6 +177,7 @@ def run() -> dict[str, object]:
         if identity is None:
             raise ValueError
         _approved_receipt(identity)
+        project_id, environment_id, service_id, _ = _target_ids()
         instance = _active_instance(identity)
         if str(uuid.UUID(instance)) != instance:
             raise ValueError
@@ -209,11 +208,11 @@ def run() -> dict[str, object]:
         "railway",
         "ssh",
         "--project",
-        _PROJECT_ID,
+        project_id,
         "--service",
-        _SERVICE_ID,
+        service_id,
         "--environment",
-        _ENVIRONMENT_ID,
+        environment_id,
         "--deployment-instance",
         instance,
         "--",

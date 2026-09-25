@@ -90,6 +90,16 @@ def install_launcher_guards(
 ) -> list[str]:
     """Replace provider boundaries, keeping public launcher behavior under test."""
     events: list[str] = []
+    monkeypatch.setattr(
+        runner,
+        "_target_ids",
+        lambda: (
+            "a1111111-1111-4111-8111-111111111111",
+            "c3333333-3333-4333-8333-333333333333",
+            "d4444444-4444-4444-8444-444444444444",
+            "e5555555-5555-4555-8555-555555555555",
+        ),
+    )
 
     def inspect() -> dict[str, object]:
         events.append("inspector")
@@ -186,9 +196,9 @@ def test_launcher_uses_fresh_exact_instance_guards_and_one_interactive_ssh(
     arguments = invocations[0]
     assert arguments[:2] == ["railway", "ssh"]
     assert arguments[arguments.index("--deployment-instance") + 1] == INSTANCE
-    assert arguments[arguments.index("--project") + 1] == runner._PROJECT_ID
-    assert arguments[arguments.index("--service") + 1] == runner._SERVICE_ID
-    assert arguments[arguments.index("--environment") + 1] == runner._ENVIRONMENT_ID
+    assert arguments[arguments.index("--project") + 1] == runner._target_ids()[0]
+    assert arguments[arguments.index("--service") + 1] == runner._target_ids()[2]
+    assert arguments[arguments.index("--environment") + 1] == runner._target_ids()[1]
     assert arguments[arguments.index("-c") - 1] == "-I"
     assert "DJANGO_SETTINGS_MODULE=config.settings.production" in arguments
     request = json.loads(arguments[-1])
@@ -538,6 +548,20 @@ def configure_remote_target(monkeypatch: pytest.MonkeyPatch) -> None:
     """Fake only the established build-identity provider used by the inspector."""
     for name, value in RUNTIME_SELECTORS.items():
         monkeypatch.setenv(name, value)
+    binding = importlib.import_module("config.replacement_target_binding")
+    monkeypatch.setattr(
+        binding,
+        "_EXPECTED_DIGESTS",
+        {
+            **binding._EXPECTED_DIGESTS,
+            "staging-api": binding.fingerprint_tuple(
+                "staging-api",
+                RUNTIME_SELECTORS["RAILWAY_PROJECT_ID"],
+                RUNTIME_SELECTORS["RAILWAY_ENVIRONMENT_ID"],
+                RUNTIME_SELECTORS["RAILWAY_SERVICE_ID"],
+            ),
+        },
+    )
     inspector = importlib.import_module("scripts.api_staging_operator_inspect")
     monkeypatch.setattr(inspector, "get_identity", lambda: IDENTITY)
 

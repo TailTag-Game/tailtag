@@ -44,12 +44,25 @@ def launcher() -> ModuleType:
 
 def green_guards(launcher: ModuleType, monkeypatch: pytest.MonkeyPatch) -> list[str]:
     events: list[str] = []
+    monkeypatch.setattr(
+        launcher,
+        "_target_ids",
+        lambda: (
+            "a1111111-1111-4111-8111-111111111111",
+            "c3333333-3333-4333-8333-333333333333",
+            "d4444444-4444-4444-8444-444444444444",
+            "e5555555-5555-4555-8555-555555555555",
+        ),
+    )
 
     def inspected() -> dict[str, object]:
         events.append("inspector")
         return inspector_result()
 
-    def reconciled(_config: Path) -> dict[str, object]:
+    def reconciled(config_path: Path) -> dict[str, object]:
+        assert (
+            config_path == Path.home() / ".config/tailtag/staging-reset-replacement.env"
+        )
         events.append("registry")
         return registry_payload()
 
@@ -130,9 +143,9 @@ def test_full_guards_precede_one_pinned_interactive_ssh(
     argv = calls[0]
     assert argv[:2] == ["railway", "ssh"]
     assert argv[argv.index("--deployment-instance") + 1] == INSTANCE
-    assert argv[argv.index("--project") + 1] == launcher._PROJECT_ID
-    assert argv[argv.index("--service") + 1] == launcher._SERVICE_ID
-    assert argv[argv.index("--environment") + 1] == launcher._ENVIRONMENT_ID
+    assert argv[argv.index("--project") + 1] == launcher._target_ids()[0]
+    assert argv[argv.index("--service") + 1] == launcher._target_ids()[2]
+    assert argv[argv.index("--environment") + 1] == launcher._target_ids()[1]
     assert argv[argv.index("-c") - 1] == "-I"
     request = json.loads(argv[-1])
     assert request["identity"] == IDENTITY

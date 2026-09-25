@@ -1,25 +1,53 @@
 # V0 backend operational readiness evidence matrix (#208)
 
-Status: final #208 reconciliation on 2026-09-23; **NO-GO** until the #205 live
-operator evidence gap is resolved through [#243](https://github.com/TailTag-Game/tailtag/issues/243).
+Historical status: final #208 reconciliation on 2026-09-23 found **NO-GO** for
+the retired Staging generation because #205 live operator evidence was missing.
+Replacement-generation reconciliation is pending; this document makes no new
+final #208 GO/NO-GO decision. [#243](https://github.com/TailTag-Game/tailtag/issues/243)
+remains the owner of replacement-generation #205 evidence.
 Parent: [#197](https://github.com/TailTag-Game/tailtag/issues/197). Scope and verification classes: [#208](https://github.com/TailTag-Game/tailtag/issues/208).
 
-The two detailed tables below retain the pre-decision evidence inventory;
-the **Final dispositions** section supersedes their `Pending` review notes.
-This matrix distinguishes a completed historical exercise from proof that its
-procedure still applies to canonical `TailTag/staging`. A historical `PASS` is
-not a claim that the same deployment is serving now. Before final reconciliation,
-compare the current canonical target, active source/deployment identity,
-configuration ownership, migration leaves, and maintained parity record with
-the inherited evidence. Record only sanitized identifiers and fixed outcomes.
+The two detailed tables below retain the pre-decision evidence inventory; the
+historical final-disposition section supersedes their `Pending` review notes.
+The tables and dispositions below preserve the retired-generation evidence.
+A historical `PASS` is not proof about `TailTag Rebuild/staging`. Record only
+sanitized identifiers and fixed outcomes when reconciling the replacement.
 On 2026-09-23 the repository's credential-free preflight against the exact
 canonical origin passed and returned `environment=staging`,
 `source_sha=856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a`, and
 `deployment_id=cbe83780-0256-49c2-b026-34709ddb69b0`. This confirms the
 public health/identity boundary at that instant. The matching sanitized
 [#202 promotion receipt](staging-deployments/cbe83780-0256-49c2-b026-34709ddb69b0.json)
-is now in the merged baseline; the public response alone does
-not replace Railway exact-instance attribution or a fresh resource-drift review.
+is now in the merged baseline; that observation applies to the retired
+generation and is superseded for current targeting by the replacement receipt
+below.
+
+## Replacement-generation delta (2026-09-25)
+
+The sanitized [replacement handoff receipt](staging-deployments/c34c45bb-6eb8-488d-8114-d1dd931cf25e.json)
+records `environment=staging`, source
+`fc1376e9b4387cb46e37ef3f60191b2ce7f06c68`, deployment
+`c34c45bb-6eb8-488d-8114-d1dd931cf25e`, and `public_exact_instance_join=PASS`
+with the deployment active in that observation window. It proves that
+point-in-time public/exact-instance identity only. It is not a fresh assertion
+that the same deployment remains active or evidence of reset, operator, audit,
+restore, promotion, or recovery behavior on the replacement.
+
+The subsequent [replacement prerequisite attempt](staging-replacement-prerequisite-attempt-2026-09-25.md)
+did not return database facts. It did not inspect #204 state or operators and
+made no Staging mutation. Therefore the replacement #204 baseline and OR-5,
+all nine #243/#205 live cases and OR-6, and a replacement-database restore and
+OR-8 remain unverified. The #202 promotion and #206 recovery commands still
+have old-generation target bindings; their safe use against `TailTag Rebuild`
+is also unverified. Do not invoke old-pinned commands against the replacement.
+
+The September 23 matrix below remains the historical NO-GO finding for the
+retired target. A bounded replacement reconciliation must establish current
+identity and target bindings, validate #204 and #243 on the new generation,
+review current first-response surfaces, and disposition current-generation
+recovery evidence before any later readiness decision. The compatible Railway
+rollback rehearsal remains owned by [#241](https://github.com/TailTag-Game/tailtag/issues/241)
+and is a non-blocking limitation by itself.
 
 **Verification classes.** *Inherited exercise* checks durable completed live
 evidence, present applicability, and material drift without repeating an
@@ -73,17 +101,16 @@ not itself complete their operational review.
 | Application rollback | #206 contract and NO-GO evidence in issue-206 checkout; [#241](https://github.com/TailTag-Game/tailtag/issues/241) | Operational review | Exact O/N/D identities, `canRollback`, migration/schema/data compatibility, Railway rollback action and exact-D observation | Incorporate #206's fail-closed decision and forward-fix path into Staging runbook | Exact live Railway compatible rollback/pre-deploy behavior deferred to #241 | **Pending** for procedure quality; #241 gap alone does **not** block | [#241](https://github.com/TailTag-Game/tailtag/issues/241) |
 | Restore from backup | [Final #207 GO record](staging-recovery/20260923T165714Z-issue-207-restore-d6def5ea5b9442c7992d301a575c6f8b.json), [maintained drill](staging.md#postgresql-backup-restoration-drill-207) | Inherited exercise + operational review | Canonical source preflight, isolated local restore target, integrity/backend reads, nonimpact and cleanup | Live restoration proved; review first-response decision and invocation; do not rerun solely for #208 | Logical dump is a point-in-time drill, not automatic PITR or Production recovery | **Pending**; yes if current restore procedure or safe target guard is unusable | None identified |
 
-## Final dispositions
+## Historical final dispositions — retired Staging (2026-09-23)
 
-The #206 contract, sanitized NO-GO record, and current deployment receipt are
-now in the same repository branch as #208. The September 23 credential-free
-preflight again returned the approved `staging` source/deployment pair shown
-above and in the [current promotion receipt](staging-deployments/cbe83780-0256-49c2-b026-34709ddb69b0.json).
+At the September 23 reconciliation, the #206 contract, sanitized NO-GO record,
+and old-generation deployment receipt were in the repository baseline. The
+credential-free preflight returned the old `staging` source/deployment pair
+shown in the [retired-generation promotion receipt](staging-deployments/cbe83780-0256-49c2-b026-34709ddb69b0.json).
 The [final #207 GO record](staging-recovery/20260923T165714Z-issue-207-restore-d6def5ea5b9442c7992d301a575c6f8b.json)
-uses that same source SHA and records Staging nonimpact and verified cleanup.
-No material contradiction was found in the merged repository baseline. A
-current public response is not an exact-image attestation by itself; the
-inherited #202/#201 receipt supplies the exact-deployment/image join.
+uses that same old source SHA and records nonimpact and cleanup for the retired
+database. The exact-image join was supported by that generation's #201/#202
+receipt; none of these observations establishes replacement readiness.
 
 | Parent/OR | Final disposition | Exact remaining boundary and owner |
 | --- | --- | --- |

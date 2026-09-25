@@ -279,7 +279,7 @@ def test_registry_structure_does_not_compare_the_reset_uuid_to_railway_identity(
     """Regression: #204's reset UUID is a separate namespace from Railway's UUID."""
     identity = _create_baseline()
     reset_uuid = uuid.UUID("d2719be4-13dd-4cd5-b55c-ed79742c52ea")
-    assert reset_uuid != uuid.UUID(diagnostic._SELECTORS["RAILWAY_ENVIRONMENT_ID"])
+    assert reset_uuid != uuid.UUID(ENVIRONMENT_ID)
     identity.environment_id = reset_uuid
     identity.save(update_fields={"environment_id"})
 

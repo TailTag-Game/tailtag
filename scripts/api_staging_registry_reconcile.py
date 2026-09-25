@@ -17,16 +17,18 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from scripts.api_staging_reset_ssh import (
+    REPLACEMENT_RESET_CONFIG_PATH,
     _active_instance,  # pyright: ignore[reportPrivateUsage]
     _preflight,  # pyright: ignore[reportPrivateUsage]
     _railway_identity,  # pyright: ignore[reportPrivateUsage]
     _read_configuration,
     _runtime_database_fingerprint,  # pyright: ignore[reportPrivateUsage]
+    _target_ids,  # pyright: ignore[reportPrivateUsage]
+)
+from scripts.api_staging_reset_ssh import (
+    _approved_receipt as _reset_approved_receipt,  # pyright: ignore[reportPrivateUsage]
 )
 
-_PROJECT_ID: Final = "85324de4-be6a-49c3-a3f9-6cac13877849"
-_SERVICE_ID: Final = "2247da27-97df-4d5d-b1dc-d21eeb7901d9"
-_ENVIRONMENT_ID: Final = "5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e"
 _REMOTE_SOURCE: Final = _ROOT / "scripts/api_staging_registry_reconcile_remote.py"
 _SHA: Final = re.compile(r"[0-9a-f]{40}\Z")
 _CHECKS: Final = frozenset(
@@ -113,23 +115,7 @@ def _source_commit(source_sha: str) -> None:
 
 
 def _approved_receipt(identity: dict[str, str]) -> None:
-    receipt_path = (
-        _ROOT
-        / "docs/development/staging-deployments"
-        / (identity["deployment_id"] + ".json")
-    )
-    receipt = json.loads(receipt_path.read_text())
-    if not isinstance(receipt, dict):
-        raise TypeError
-    values = cast(dict[str, object], receipt)
-    if (
-        values.get("deployment_id") != identity["deployment_id"]
-        or values.get("source_sha") != identity["source_sha"]
-        or values.get("environment") != "staging"
-        or values.get("overall_outcome") != "SUCCEEDED"
-        or values.get("final_active_state") != "ACTIVE"
-    ):
-        raise ValueError
+    _reset_approved_receipt(identity, _ROOT)
 
 
 def _reviewed_source() -> tuple[str, str]:
@@ -203,6 +189,7 @@ def _valid_output(raw: str) -> dict[str, object]:
 
 def run(config_path: Path) -> dict[str, object]:
     """Perform one guarded read-only request; never expose private observations."""
+    project_id, environment_id, service_id, _ = _target_ids()
     configuration = _read_configuration(config_path)
     _github_identity()
     _railway_identity()
@@ -229,11 +216,11 @@ def run(config_path: Path) -> dict[str, object]:
             "railway",
             "ssh",
             "--project",
-            _PROJECT_ID,
+            project_id,
             "--service",
-            _SERVICE_ID,
+            service_id,
             "--environment",
-            _ENVIRONMENT_ID,
+            environment_id,
             "--deployment-instance",
             instance,
             "--",
@@ -253,9 +240,7 @@ def run(config_path: Path) -> dict[str, object]:
 
 def main() -> int:
     parser = _SafeParser(add_help=False, allow_abbrev=False)
-    parser.add_argument(
-        "--config", type=Path, default=Path.home() / ".config/tailtag/staging-reset.env"
-    )
+    parser.add_argument("--config", type=Path, default=REPLACEMENT_RESET_CONFIG_PATH)
     try:
         arguments = parser.parse_args()
         result = run(arguments.config)

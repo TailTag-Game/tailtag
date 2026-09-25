@@ -14,6 +14,7 @@ from typing import Final, cast
 
 from scripts import api_staging_operator_inspect_ssh as _inspector
 from scripts import api_staging_registry_reconcile as _registry_reconcile
+from scripts import api_staging_reset_ssh as _reset_ssh
 
 _railway_identity = _inspector._railway_identity  # pyright: ignore[reportPrivateUsage]
 _preflight = _inspector._preflight  # pyright: ignore[reportPrivateUsage]
@@ -21,9 +22,7 @@ _approved_receipt = _inspector._approved_receipt  # pyright: ignore[reportPrivat
 _active_instance = _inspector._active_instance  # pyright: ignore[reportPrivateUsage]
 _identity = _inspector._identity  # pyright: ignore[reportPrivateUsage]
 _allowed_ssh_stderr = _inspector._allowed_ssh_stderr  # pyright: ignore[reportPrivateUsage]
-_PROJECT_ID = _inspector._PROJECT_ID  # pyright: ignore[reportPrivateUsage]
-_SERVICE_ID = _inspector._SERVICE_ID  # pyright: ignore[reportPrivateUsage]
-_ENVIRONMENT_ID = _inspector._ENVIRONMENT_ID  # pyright: ignore[reportPrivateUsage]
+_target_ids = _inspector._target_ids  # pyright: ignore[reportPrivateUsage]
 _ROOT: Final = Path(__file__).resolve().parents[1]
 _SOURCES: Final = {
     "inspector": _ROOT / "scripts" / "api_staging_operator_inspect.py",
@@ -184,7 +183,7 @@ def run() -> dict[str, object]:
         _railway_identity()
         phase = "registry_reconciliation"
         reconciliation = _registry_reconcile.run(
-            Path.home() / ".config/tailtag/staging-reset.env"
+            _reset_ssh.REPLACEMENT_RESET_CONFIG_PATH
         )
         try:
             validated_registry = _registry_reconcile._valid_output(  # pyright: ignore[reportPrivateUsage]
@@ -200,6 +199,7 @@ def run() -> dict[str, object]:
         phase = "approved_receipt"
         _approved_receipt(identity)
         phase = "running_instance"
+        project_id, environment_id, service_id, _ = _target_ids()
         instance = _active_instance(identity)
         if str(uuid.UUID(instance)) != instance:
             return _result("FAIL_INSTANCE", phase, identity, started)
@@ -219,11 +219,11 @@ def run() -> dict[str, object]:
                 "railway",
                 "ssh",
                 "--project",
-                _PROJECT_ID,
+                project_id,
                 "--service",
-                _SERVICE_ID,
+                service_id,
                 "--environment",
-                _ENVIRONMENT_ID,
+                environment_id,
                 "--deployment-instance",
                 instance,
                 "--",

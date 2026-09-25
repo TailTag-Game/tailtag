@@ -15,7 +15,7 @@ import tarfile
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Self, cast
+from typing import Any, NoReturn, Self, cast
 
 import pytest
 
@@ -37,9 +37,13 @@ CONFIGURATION_NAMES = frozenset(
 SOURCE_SHA = "c070f413eec1518459f1fef21b471642765a54e9"
 DEPLOYMENT_ID = "93de11d6-714f-405a-b931-a9b567d5ec1e"
 INSTANCE_ID = "46d09c1e-9c09-4f31-8b86-4ce9b667c70b"
-PROJECT_ID = "85324de4-be6a-49c3-a3f9-6cac13877849"
-ENVIRONMENT_ID = "5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e"
-SERVICE_ID = "2247da27-97df-4d5d-b1dc-d21eeb7901d9"
+PROJECT_ID = "a1111111-1111-4111-8111-111111111111"
+ENVIRONMENT_ID = "c3333333-3333-4333-8333-333333333333"
+SERVICE_ID = "d4444444-4444-4444-8444-444444444444"
+POSTGRES_ID = "e5555555-5555-4555-8555-555555555555"
+RETIRED_PROJECT_ID = "85324de4-be6a-49c3-a3f9-6cac13877849"
+RETIRED_ENVIRONMENT_ID = "5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e"
+RETIRED_SERVICE_ID = "2247da27-97df-4d5d-b1dc-d21eeb7901d9"
 DATABASE_URL = (
     "postgresql://synthetic_user:synthetic_password@postgres.internal:5432/tailtag"
 )
@@ -68,6 +72,18 @@ def identity(**overrides: str) -> dict[str, str]:
         "environment": "staging",
         **overrides,
     }
+
+
+def accept_receipt(_: dict[str, str]) -> None:
+    """Stub an approved deployment receipt in tests of later reset guards."""
+
+
+def fixed_configuration(_: Path) -> dict[str, str]:
+    return configuration()
+
+
+def fixed_target(_: str) -> dict[str, str]:
+    return identity()
 
 
 def configuration(**overrides: str) -> dict[str, str]:
@@ -106,9 +122,10 @@ def completed(
 
 
 @pytest.fixture
-def staging_ssh() -> Any:
+def staging_ssh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     """Load the approved operator only after the implementation exists."""
     assert SCRIPT.is_file(), "scripts/api_staging_reset_ssh.py must exist"
+    install_synthetic_replacement_manifest(tmp_path, monkeypatch)
     return cast(Any, importlib.import_module("scripts.api_staging_reset_ssh"))
 
 
@@ -122,6 +139,41 @@ def write_configuration(path: Path, values: Mapping[str, str]) -> None:
         + "\n"
     )
     path.chmod(0o600)
+
+
+def install_synthetic_replacement_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> dict[str, str]:
+    """Pin one disposable replacement generation without private provider IDs."""
+    binding = importlib.import_module("config.replacement_target_binding")
+    selectors = {
+        "rebuild_railway_project_id": "a1111111-1111-4111-8111-111111111111",
+        "rebuild_development_environment_id": "b2222222-2222-4222-8222-222222222222",
+        "rebuild_staging_environment_id": "c3333333-3333-4333-8333-333333333333",
+        "rebuild_api_service_id": "d4444444-4444-4444-8444-444444444444",
+        "rebuild_postgres_service_id": "e5555555-5555-4555-8555-555555555555",
+    }
+    private_dir = tmp_path / "private"
+    private_dir.mkdir(mode=0o700, exist_ok=True)
+    private_file = private_dir / "staging-clean-rebuild-targets.json"
+    private_file.write_text(json.dumps(selectors))
+    private_file.chmod(0o600)
+    monkeypatch.setattr(binding, "_MANIFEST_PATH", private_file)
+    monkeypatch.setattr(
+        binding,
+        "_EXPECTED_DIGESTS",
+        {
+            f"{environment}-{service}": binding.fingerprint_tuple(
+                f"{environment}-{service}",
+                selectors["rebuild_railway_project_id"],
+                selectors[f"rebuild_{environment}_environment_id"],
+                selectors[f"rebuild_{service}_service_id"],
+            )
+            for environment in ("development", "staging")
+            for service in ("api", "postgres")
+        },
+    )
+    return selectors
 
 
 def archive_bytes(members: Mapping[str, bytes]) -> tuple[str, dict[str, str]]:
@@ -192,12 +244,17 @@ def mutate_bootstrap_payload(payload: dict[str, object], mutation: str) -> None:
 
 
 def bootstrap_payload(
-    bundle: str, manifest: Mapping[str, str], **overrides: object
+    bundle: str,
+    manifest: Mapping[str, str],
+    *,
+    operation: str,
+    **overrides: object,
 ) -> dict[str, object]:
     """Return the sole private stdin document accepted by the remote bootstrap."""
     return {
         "bundle": bundle,
         "manifest": dict(manifest),
+        "operation": operation,
         "identity": identity(),
         "database_url_fingerprint": DATABASE_URL_FINGERPRINT,
         "configuration": configuration(),
@@ -524,7 +581,7 @@ def test_remote_bootstrap_accepts_operator_audit_package_member(
 
     result = isolated_bootstrap(
         staging_ssh,
-        bootstrap_payload(bootstrap_bundle, bootstrap_manifest),
+        bootstrap_payload(bootstrap_bundle, bootstrap_manifest, operation="reset"),
         tmp_path,
     )
 
@@ -541,6 +598,29 @@ def test_build_bundle_rejects_a_symlink_or_unsafe_member_source(
     (tmp_path / "scripts" / "api_staging_reset.py").symlink_to("../../outside.py")
 
     assert_denied(lambda: staging_ssh._build_bundle(tmp_path))
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    (
+        ["--confirm", "reset-tailtag-staging"],
+        ["--provision", "--confirm", "provision-tailtag-staging-reset"],
+    ),
+    ids=("reset", "provision"),
+)
+def test_reset_and_provision_default_to_replacement_private_configuration(
+    staging_ssh: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    arguments: list[str],
+) -> None:
+    """The two #204 operations must not silently consume the retired sentinel."""
+    monkeypatch.setattr(sys, "argv", ["api_staging_reset_ssh.py", *arguments])
+
+    parsed = staging_ssh._arguments()
+
+    assert (
+        parsed.config == Path.home() / ".config/tailtag/staging-reset-replacement.env"
+    )
 
 
 def test_main_denies_unknown_arguments_before_configuration_or_remote_work(
@@ -576,8 +656,16 @@ def test_main_denies_unknown_arguments_before_configuration_or_remote_work(
         ["--conf", "reset-tailtag-staging"],
         ["--confirm", "wrong"],
         ["--confirm", "reset-tailtag-staging", "--provision"],
+        ["--provision", "--confirm", "provision-tailtag-staging-reset "],
+        ["--prov", "--confirm", "provision-tailtag-staging-reset"],
     ),
-    ids=("abbreviated-confirmation", "wrong-confirmation", "provision"),
+    ids=(
+        "abbreviated-confirmation",
+        "wrong-confirmation",
+        "reset-phrase-for-provision",
+        "provision-phrase-whitespace",
+        "abbreviated-provision",
+    ),
 )
 def test_main_rejects_noncanonical_arguments_before_configuration_or_external_work(
     staging_ssh: ModuleType,
@@ -675,6 +763,7 @@ def test_main_pins_provider_target_rechecks_account_and_sends_only_stdin_private
 
     monkeypatch.setattr(staging_ssh, "_read_configuration", read_configuration)
     monkeypatch.setattr(staging_ssh, "_build_bundle", build_bundle)
+    monkeypatch.setattr(staging_ssh, "_approved_receipt", accept_receipt)
     preflight = importlib.import_module("scripts.api_staging_preflight")
     monkeypatch.setattr(preflight, "validate_target", validate_target)
 
@@ -741,10 +830,422 @@ def test_main_pins_provider_target_rechecks_account_and_sends_only_stdin_private
         staging_ssh._BOOTSTRAP,
     )
     assert ssh_input is not None
-    assert json.loads(ssh_input) == bootstrap_payload(bundle, manifest)
+    assert json.loads(ssh_input) == bootstrap_payload(
+        bundle, manifest, operation="reset"
+    )
     assert DATABASE_URL not in " ".join(ssh_arguments)
     assert configuration()["TAILTAG_STAGING_RESET_ID"] not in " ".join(ssh_arguments)
     assert json.loads(capsys.readouterr().out) == json.loads(remote_output)
+
+
+def test_main_selects_only_the_code_pinned_replacement_generation(
+    staging_ssh: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A fresh private selector cannot leave #204 aimed at retired Railway."""
+    selectors = install_synthetic_replacement_manifest(tmp_path, monkeypatch)
+    new_project = selectors["rebuild_railway_project_id"]
+    new_staging = selectors["rebuild_staging_environment_id"]
+    new_api = selectors["rebuild_api_service_id"]
+    new_postgres = selectors["rebuild_postgres_service_id"]
+    bundle, manifest = archive_bytes({"scripts/api_staging_reset.py": b"pass\n"})
+
+    def build_bundle(_: Path) -> tuple[str, dict[str, str]]:
+        return bundle, manifest
+
+    monkeypatch.setattr(staging_ssh, "_read_configuration", fixed_configuration)
+    monkeypatch.setattr(staging_ssh, "_build_bundle", build_bundle)
+    monkeypatch.setattr(staging_ssh, "_approved_receipt", accept_receipt)
+    preflight = importlib.import_module("scripts.api_staging_preflight")
+    monkeypatch.setattr(preflight, "validate_target", fixed_target)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["api_staging_reset_ssh.py", "--confirm", "reset-tailtag-staging"],
+    )
+    commands: list[list[str]] = []
+
+    def run(
+        arguments: list[str], *, input: str | None = None, **_: object
+    ) -> subprocess.CompletedProcess[str]:
+        commands.append(arguments)
+        if arguments == ["railway", "whoami", "--json"]:
+            return completed(
+                {"name": "Finn the Panther", "email": "finn@finnthepanther.com"}
+            )
+        if arguments[:2] == ["railway", "api"]:
+            return completed(
+                {
+                    "data": {
+                        "serviceInstance": {
+                            "serviceId": new_api,
+                            "environmentId": new_staging,
+                            "activeDeployments": [
+                                {
+                                    "id": DEPLOYMENT_ID,
+                                    "projectId": new_project,
+                                    "serviceId": new_api,
+                                    "environmentId": new_staging,
+                                    "status": "SUCCESS",
+                                    "instances": [
+                                        {"id": INSTANCE_ID, "status": "RUNNING"}
+                                    ],
+                                }
+                            ],
+                        }
+                    }
+                }
+            )
+        if arguments[:3] == ["railway", "variable", "list"]:
+            selected_service = arguments[arguments.index("--service") + 1]
+            return completed(
+                {
+                    "RAILWAY_PROJECT_ID": new_project,
+                    "RAILWAY_ENVIRONMENT_ID": new_staging,
+                    "RAILWAY_SERVICE_ID": selected_service,
+                    "RAILWAY_ENVIRONMENT_NAME": "staging",
+                    "DATABASE_URL": DATABASE_URL,
+                }
+            )
+        if arguments[:2] == ["railway", "ssh"]:
+            return completed(
+                {
+                    "identity": identity(),
+                    "baseline_version": 1,
+                    "counts": COUNTS,
+                    "bundle_fingerprint": bundle_fingerprint(manifest),
+                    "cleanup_confirmed": True,
+                }
+            )
+        raise AssertionError("unexpected command")
+
+    monkeypatch.setattr(staging_ssh, "_run", run)
+
+    assert staging_ssh.main() == 0
+    ssh = next(command for command in commands if command[:2] == ["railway", "ssh"])
+    assert ssh[ssh.index("--project") + 1] == new_project
+    assert ssh[ssh.index("--service") + 1] == new_api
+    assert ssh[ssh.index("--environment") + 1] == new_staging
+    assert ssh[ssh.index("--deployment-instance") + 1] == INSTANCE_ID
+    variable_services = [
+        command[command.index("--service") + 1]
+        for command in commands
+        if command[:3] == ["railway", "variable", "list"]
+    ]
+    assert variable_services == [new_api, new_postgres]
+    assert DATABASE_URL not in capsys.readouterr().out
+
+
+def test_main_rejects_retired_generation_before_remote_reset(
+    staging_ssh: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A healthy retired deployment is never sufficient reset authority."""
+    install_synthetic_replacement_manifest(tmp_path, monkeypatch)
+    bundle, manifest = archive_bytes({"scripts/api_staging_reset.py": b"pass\n"})
+
+    def build_bundle(_: Path) -> tuple[str, dict[str, str]]:
+        return bundle, manifest
+
+    monkeypatch.setattr(staging_ssh, "_read_configuration", fixed_configuration)
+    monkeypatch.setattr(staging_ssh, "_build_bundle", build_bundle)
+    monkeypatch.setattr(staging_ssh, "_approved_receipt", accept_receipt)
+    preflight = importlib.import_module("scripts.api_staging_preflight")
+    monkeypatch.setattr(preflight, "validate_target", fixed_target)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["api_staging_reset_ssh.py", "--confirm", "reset-tailtag-staging"],
+    )
+    ssh_attempted = False
+
+    def run(
+        arguments: list[str], *, input: str | None = None, **_: object
+    ) -> subprocess.CompletedProcess[str]:
+        nonlocal ssh_attempted
+        if arguments == ["railway", "whoami", "--json"]:
+            return completed(
+                {"name": "Finn the Panther", "email": "finn@finnthepanther.com"}
+            )
+        if arguments[:2] == ["railway", "api"]:
+            return completed(
+                {
+                    "data": {
+                        "serviceInstance": {
+                            "serviceId": RETIRED_SERVICE_ID,
+                            "environmentId": RETIRED_ENVIRONMENT_ID,
+                            "activeDeployments": [
+                                {
+                                    "id": DEPLOYMENT_ID,
+                                    "projectId": RETIRED_PROJECT_ID,
+                                    "serviceId": RETIRED_SERVICE_ID,
+                                    "environmentId": RETIRED_ENVIRONMENT_ID,
+                                    "status": "SUCCESS",
+                                    "instances": [
+                                        {"id": INSTANCE_ID, "status": "RUNNING"}
+                                    ],
+                                }
+                            ],
+                        }
+                    }
+                }
+            )
+        if arguments[:3] == ["railway", "variable", "list"]:
+            selected_service = arguments[arguments.index("--service") + 1]
+            return completed(
+                {
+                    "RAILWAY_PROJECT_ID": RETIRED_PROJECT_ID,
+                    "RAILWAY_ENVIRONMENT_ID": RETIRED_ENVIRONMENT_ID,
+                    "RAILWAY_SERVICE_ID": selected_service,
+                    "RAILWAY_ENVIRONMENT_NAME": "staging",
+                    "DATABASE_URL": DATABASE_URL,
+                }
+            )
+        if arguments[:2] == ["railway", "ssh"]:
+            ssh_attempted = True
+            return completed(
+                {
+                    "identity": identity(),
+                    "baseline_version": 1,
+                    "counts": COUNTS,
+                    "bundle_fingerprint": bundle_fingerprint(manifest),
+                    "cleanup_confirmed": True,
+                }
+            )
+        raise AssertionError("unexpected command")
+
+    monkeypatch.setattr(staging_ssh, "_run", run)
+
+    assert staging_ssh.main() == 1
+    assert ssh_attempted is False
+
+
+@pytest.mark.parametrize(
+    ("transport_status", "receipt_valid"),
+    ((0, True), (1, True), (0, False)),
+    ids=("verified", "transport-uncertain", "invalid-postcondition"),
+)
+def test_provision_uses_reset_target_guards_and_requires_verified_receipt(
+    staging_ssh: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    transport_status: int,
+    receipt_valid: bool,
+) -> None:
+    """Fresh #204 sentinel provision uses the same pinned, exact-instance gate."""
+    selectors = install_synthetic_replacement_manifest(tmp_path, monkeypatch)
+    bundle, manifest = archive_bytes({"scripts/api_staging_reset.py": b"pass\n"})
+    events: list[str] = []
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "api_staging_reset_ssh.py",
+            "--provision",
+            "--confirm",
+            "provision-tailtag-staging-reset",
+        ],
+    )
+
+    def read_configuration(_: Path) -> dict[str, str]:
+        events.append("configuration")
+        return configuration()
+
+    def railway_identity() -> None:
+        events.append("railway-identity")
+
+    def preflight() -> dict[str, str]:
+        events.append("public-preflight")
+        return identity()
+
+    def approved_receipt(observed: dict[str, str]) -> None:
+        assert observed == identity()
+        events.append("approved-receipt")
+
+    def active_instance(observed: Mapping[str, str]) -> str:
+        assert observed == identity()
+        events.append("exact-instance")
+        return INSTANCE_ID
+
+    def database_fingerprint() -> str:
+        events.append("api-postgres-binding")
+        return DATABASE_URL_FINGERPRINT
+
+    def build_bundle(_: Path) -> tuple[str, dict[str, str]]:
+        events.append("reviewed-bundle")
+        return bundle, manifest
+
+    def run(
+        arguments: list[str], *, input: str | None = None, **_: object
+    ) -> subprocess.CompletedProcess[str]:
+        events.append("exact-instance-ssh")
+        assert arguments[:2] == ["railway", "ssh"]
+        assert (
+            arguments[arguments.index("--project") + 1]
+            == selectors["rebuild_railway_project_id"]
+        )
+        assert (
+            arguments[arguments.index("--service") + 1]
+            == selectors["rebuild_api_service_id"]
+        )
+        assert (
+            arguments[arguments.index("--environment") + 1]
+            == selectors["rebuild_staging_environment_id"]
+        )
+        assert arguments[arguments.index("--deployment-instance") + 1] == INSTANCE_ID
+        assert input is not None
+        request = json.loads(input)
+        assert request["operation"] == "provision"
+        assert request["identity"] == identity()
+        assert request["database_url_fingerprint"] == DATABASE_URL_FINGERPRINT
+        assert request["configuration"] == configuration()
+        assert DATABASE_URL not in " ".join(arguments)
+        assert configuration()["TAILTAG_STAGING_RESET_ID"] not in " ".join(arguments)
+        receipt = {
+            "identity": identity(),
+            "provision_postcondition": "PASS" if receipt_valid else "NOT_CHECKED",
+            "bundle_fingerprint": bundle_fingerprint(manifest),
+            "cleanup_confirmed": True,
+        }
+        return completed(
+            receipt,
+            returncode=transport_status,
+            stderr=SENSITIVE if transport_status else "",
+        )
+
+    monkeypatch.setattr(staging_ssh, "_read_configuration", read_configuration)
+    monkeypatch.setattr(staging_ssh, "_railway_identity", railway_identity)
+    monkeypatch.setattr(staging_ssh, "_preflight", preflight)
+    monkeypatch.setattr(
+        staging_ssh, "_approved_receipt", approved_receipt, raising=False
+    )
+    monkeypatch.setattr(staging_ssh, "_active_instance", active_instance)
+    monkeypatch.setattr(
+        staging_ssh, "_runtime_database_fingerprint", database_fingerprint
+    )
+    monkeypatch.setattr(staging_ssh, "_build_bundle", build_bundle)
+    monkeypatch.setattr(staging_ssh, "_run", run)
+
+    status = staging_ssh.main()
+    rendered = capsys.readouterr()
+    assert events == [
+        "configuration",
+        "railway-identity",
+        "public-preflight",
+        "approved-receipt",
+        "exact-instance",
+        "api-postgres-binding",
+        "reviewed-bundle",
+        "railway-identity",
+        "exact-instance-ssh",
+    ]
+    if transport_status == 0 and receipt_valid:
+        assert status == 0
+        assert json.loads(rendered.out) == {
+            "identity": identity(),
+            "provision_postcondition": "PASS",
+            "bundle_fingerprint": bundle_fingerprint(manifest),
+            "cleanup_confirmed": True,
+        }
+        assert rendered.err == ""
+    else:
+        assert status == 1
+        assert rendered.out == ""
+        assert_sanitized(rendered.err)
+    assert_sanitized(rendered.out, rendered.err)
+
+
+@pytest.mark.parametrize("operation", ("reset", "provision"))
+@pytest.mark.parametrize("receipt_state", ("missing", "mismatched"))
+def test_main_requires_approved_current_deployment_receipt_before_any_ssh(
+    staging_ssh: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    operation: str,
+    receipt_state: str,
+) -> None:
+    """#204 target safety: a public tuple alone cannot authorize a mutation."""
+    events: list[str] = []
+    arguments = ["api_staging_reset_ssh.py"]
+    if operation == "provision":
+        arguments.append("--provision")
+    arguments.extend(
+        [
+            "--confirm",
+            (
+                "provision-tailtag-staging-reset"
+                if operation == "provision"
+                else "reset-tailtag-staging"
+            ),
+        ]
+    )
+    monkeypatch.setattr(sys, "argv", arguments)
+    monkeypatch.setattr(staging_ssh, "_read_configuration", fixed_configuration)
+    monkeypatch.setattr(staging_ssh, "_railway_identity", lambda: None)
+
+    def preflight() -> dict[str, str]:
+        events.append("fresh-public-preflight")
+        return identity()
+
+    def approved_receipt(observed: dict[str, str]) -> None:
+        events.append("approved-receipt")
+        assert observed == identity()
+        raise ValueError(f"{receipt_state} {SENSITIVE}")
+
+    def forbidden_next_step(_: object) -> NoReturn:
+        events.append("exact-instance-or-ssh")
+        raise AssertionError("receipt failure must stop before provider or SSH work")
+
+    monkeypatch.setattr(staging_ssh, "_preflight", preflight)
+    monkeypatch.setattr(
+        staging_ssh, "_approved_receipt", approved_receipt, raising=False
+    )
+    monkeypatch.setattr(staging_ssh, "_active_instance", forbidden_next_step)
+    monkeypatch.setattr(staging_ssh, "_run", forbidden_next_step)
+
+    assert staging_ssh.main() == 1
+    rendered = capsys.readouterr()
+    assert events == ["fresh-public-preflight", "approved-receipt"]
+    assert rendered.out == ""
+    assert rendered.err == "FAIL staging reset maintenance unknown\n"
+    assert_sanitized(rendered.out, rendered.err)
+
+
+def test_approved_receipt_accepts_only_the_current_active_joined_handoff(
+    staging_ssh: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """#204 target safety: a file's existence is insufficient deployment authority."""
+    monkeypatch.setattr(staging_ssh, "_REPOSITORY_ROOT", tmp_path)
+    directory = tmp_path / "docs/development/staging-deployments"
+    directory.mkdir(parents=True)
+    path = directory / f"{DEPLOYMENT_ID}.json"
+    receipt = {
+        "receipt_type": "replacement_canonical_handoff",
+        **identity(),
+        "provider_deployment_status": "SUCCESS",
+        "public_exact_instance_join": "PASS",
+        "final_active_state": "ACTIVE",
+    }
+    with pytest.raises((OSError, ValueError)):
+        staging_ssh._approved_receipt(identity())
+
+    path.write_text(json.dumps(receipt))
+    staging_ssh._approved_receipt(identity())
+    for field, bad_value in (
+        ("deployment_id", "e1111111-1111-4111-8111-111111111111"),
+        ("source_sha", "b" * 40),
+        ("environment", "development"),
+        ("provider_deployment_status", "FAILED"),
+        ("public_exact_instance_join", "NOT_CHECKED"),
+        ("final_active_state", "INACTIVE"),
+    ):
+        path.write_text(json.dumps({**receipt, field: bad_value}))
+        with pytest.raises((OSError, TypeError, ValueError)):
+            staging_ssh._approved_receipt(identity())
 
 
 @pytest.mark.parametrize(
@@ -791,6 +1292,7 @@ def test_main_rejects_an_ssh_response_with_private_or_extra_fields(
 
     monkeypatch.setattr(staging_ssh, "_read_configuration", read_configuration)
     monkeypatch.setattr(staging_ssh, "_build_bundle", build_bundle)
+    monkeypatch.setattr(staging_ssh, "_approved_receipt", accept_receipt)
     preflight = importlib.import_module("scripts.api_staging_preflight")
     monkeypatch.setattr(preflight, "validate_target", validate_target)
 
@@ -865,6 +1367,7 @@ def test_main_denies_provider_or_recheck_mismatch_before_ssh(
 
     monkeypatch.setattr(staging_ssh, "_read_configuration", read_configuration)
     monkeypatch.setattr(staging_ssh, "_build_bundle", build_bundle)
+    monkeypatch.setattr(staging_ssh, "_approved_receipt", accept_receipt)
     preflight = importlib.import_module("scripts.api_staging_preflight")
     monkeypatch.setattr(preflight, "validate_target", validate_target)
     whoami_calls = 0
@@ -969,6 +1472,7 @@ def test_main_preserves_a_safe_remote_maintenance_retained_failure(
 
     monkeypatch.setattr(staging_ssh, "_read_configuration", read_configuration)
     monkeypatch.setattr(staging_ssh, "_build_bundle", build_bundle)
+    monkeypatch.setattr(staging_ssh, "_approved_receipt", accept_receipt)
     preflight = importlib.import_module("scripts.api_staging_preflight")
     monkeypatch.setattr(preflight, "validate_target", validate_target)
 
@@ -1024,7 +1528,7 @@ def test_remote_bootstrap_validates_complete_archive_before_synthetic_reset_and_
     before = set(Path("/tmp").glob("tailtag-staging-reset-*"))
 
     result = isolated_bootstrap(
-        staging_ssh, bootstrap_payload(bundle, manifest), tmp_path
+        staging_ssh, bootstrap_payload(bundle, manifest, operation="reset"), tmp_path
     )
 
     assert result.returncode == 0, result.stderr
@@ -1039,6 +1543,52 @@ def test_remote_bootstrap_validates_complete_archive_before_synthetic_reset_and_
     marker = tmp_path / "synthetic-executor-ran"
     assert marker.read_text().startswith("/tmp/tailtag-staging-reset-")
     assert not Path(marker.read_text()).exists()
+    assert set(Path("/tmp").glob("tailtag-staging-reset-*")) <= before
+    assert_sanitized(result.stdout, result.stderr)
+
+
+@pytest.mark.parametrize("postcondition", ("PASS", "NOT_CHECKED"))
+def test_remote_bootstrap_requires_verified_provision_postcondition_and_cleanup(
+    staging_ssh: ModuleType,
+    tmp_path: Path,
+    postcondition: str,
+) -> None:
+    """Copied-source cleanup and sentinel proof both precede a success receipt."""
+    source = (
+        "import json\n"
+        "def _execute_remote(request, root):\n"
+        "    if request.get('operation') != 'provision': raise ValueError\n"
+        f"    return 0, json.dumps({{'identity': {identity()!r}, "
+        f"'provision_postcondition': {postcondition!r}}})\n"
+    ).encode()
+    bundle, manifest = archive_bytes(
+        {
+            "scripts/api_staging_reset.py": b"# synthetic provision entry point\n",
+            "scripts/api_staging_preflight.py": b"# synthetic preflight\n",
+            "scripts/api_staging_reset_ssh.py": source,
+        }
+    )
+    before = set(Path("/tmp").glob("tailtag-staging-reset-*"))
+
+    result = isolated_bootstrap(
+        staging_ssh,
+        bootstrap_payload(bundle, manifest, operation="provision"),
+        tmp_path,
+    )
+
+    if postcondition == "PASS":
+        assert result.returncode == 0
+        assert json.loads(result.stdout) == {
+            "identity": identity(),
+            "provision_postcondition": "PASS",
+            "bundle_fingerprint": bundle_fingerprint(manifest),
+            "cleanup_confirmed": True,
+        }
+        assert result.stderr == ""
+    else:
+        assert result.returncode == 1
+        assert result.stdout == ""
+        assert "PASS" not in result.stderr
     assert set(Path("/tmp").glob("tailtag-staging-reset-*")) <= before
     assert_sanitized(result.stdout, result.stderr)
 
@@ -1062,7 +1612,7 @@ def test_remote_bootstrap_denies_malicious_or_incomplete_input_before_code_execu
     bundle, manifest = archive_bytes(
         {"scripts/api_staging_reset_ssh.py": synthetic_remote_executor_source()}
     )
-    payload = bootstrap_payload(bundle, manifest)
+    payload = bootstrap_payload(bundle, manifest, operation="reset")
     mutate_bootstrap_payload(payload, payload_mutator)
     before = set(Path("/tmp").glob("tailtag-staging-reset-*"))
 
@@ -1078,7 +1628,9 @@ def test_remote_bootstrap_rejects_an_oversized_bundle_before_extracting(
     staging_ssh: ModuleType, tmp_path: Path
 ) -> None:
     """SSH-5: archive size limits are checked before a bounded temporary root is used."""
-    payload = bootstrap_payload(base64.b64encode(b"x" * (9 * 1024 * 1024)).decode(), {})
+    payload = bootstrap_payload(
+        base64.b64encode(b"x" * (9 * 1024 * 1024)).decode(), {}, operation="reset"
+    )
 
     result = isolated_bootstrap(staging_ssh, payload, tmp_path)
 
@@ -1109,7 +1661,7 @@ def test_remote_bootstrap_rejects_nonregular_or_duplicate_archive_members(
     before = set(Path("/tmp").glob("tailtag-staging-reset-*"))
 
     result = isolated_bootstrap(
-        staging_ssh, bootstrap_payload(bundle, manifest), tmp_path
+        staging_ssh, bootstrap_payload(bundle, manifest, operation="reset"), tmp_path
     )
 
     assert result.returncode != 0
@@ -1129,7 +1681,7 @@ def test_remote_bootstrap_rejects_a_first_party_test_namespace_member(
     )
 
     result = isolated_bootstrap(
-        staging_ssh, bootstrap_payload(bundle, manifest), tmp_path
+        staging_ssh, bootstrap_payload(bundle, manifest, operation="reset"), tmp_path
     )
 
     assert result.returncode != 0
@@ -1171,7 +1723,7 @@ def test_remote_bootstrap_cleans_temporary_source_after_failure_or_interruption(
     before = set(Path("/tmp").glob("tailtag-staging-reset-*"))
 
     result = isolated_bootstrap(
-        staging_ssh, bootstrap_payload(bundle, manifest), tmp_path
+        staging_ssh, bootstrap_payload(bundle, manifest, operation="reset"), tmp_path
     )
 
     assert result.returncode != 0
@@ -1198,7 +1750,7 @@ def test_bootstrap_denies_success_when_temporary_source_removal_fails(
 
     result = isolated_bootstrap(
         staging_ssh,
-        bootstrap_payload(bundle, manifest),
+        bootstrap_payload(bundle, manifest, operation="reset"),
         tmp_path,
         bootstrap=bootstrap,
     )
@@ -1227,6 +1779,7 @@ def test_execute_remote_requires_immutable_identity_runtime_match_and_exact_conf
     monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", SOURCE_SHA)
     monkeypatch.setenv("RAILWAY_DEPLOYMENT_ID", DEPLOYMENT_ID)
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "staging")
+    monkeypatch.setenv("RAILWAY_SERVICE_NAME", "api")
     monkeypatch.setenv("RAILWAY_PROJECT_ID", PROJECT_ID)
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_ID", ENVIRONMENT_ID)
     monkeypatch.setenv("RAILWAY_SERVICE_ID", SERVICE_ID)
@@ -1245,7 +1798,7 @@ def test_execute_remote_requires_immutable_identity_runtime_match_and_exact_conf
 
     monkeypatch.setattr(reset, "validate_target", canonical_preflight)
     monkeypatch.setattr(reset, "main", reset_main)
-    request = bootstrap_payload("bundle", {})
+    request = bootstrap_payload("bundle", {}, operation="reset")
 
     status, output = staging_ssh._execute_remote(request, tmp_path)
     assert status == 0
@@ -1253,10 +1806,17 @@ def test_execute_remote_requires_immutable_identity_runtime_match_and_exact_conf
 
     for unsafe_request, environment in (
         (
-            bootstrap_payload("bundle", {}, identity=identity(source_sha="a" * 40)),
+            bootstrap_payload(
+                "bundle", {}, operation="reset", identity=identity(source_sha="a" * 40)
+            ),
             {},
         ),
-        (bootstrap_payload("bundle", {}, configuration={"unexpected": "value"}), {}),
+        (
+            bootstrap_payload(
+                "bundle", {}, operation="reset", configuration={"unexpected": "value"}
+            ),
+            {},
+        ),
         (request, {"RAILWAY_DEPLOYMENT_ID": "1b6a4b35-4e94-4775-a4b9-304205c75786"}),
         (
             request,
@@ -1278,6 +1838,253 @@ def test_execute_remote_requires_immutable_identity_runtime_match_and_exact_conf
     )
 
 
+def test_copied_reset_executor_accepts_only_replacement_runtime_tuple(
+    staging_ssh: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A valid public deployment alone cannot authorize an old in-image target."""
+    selectors = install_synthetic_replacement_manifest(tmp_path, monkeypatch)
+    artifact = tmp_path / "build-identity.json"
+    artifact.write_text(json.dumps({"source_sha": SOURCE_SHA}))
+    monkeypatch.setattr(staging_ssh, "_BUILD_IDENTITY_PATH", artifact)
+    for name, value in {
+        "RAILWAY_GIT_COMMIT_SHA": SOURCE_SHA,
+        "RAILWAY_DEPLOYMENT_ID": DEPLOYMENT_ID,
+        "RAILWAY_ENVIRONMENT_NAME": "staging",
+        "RAILWAY_SERVICE_NAME": "api",
+        "RAILWAY_PROJECT_ID": selectors["rebuild_railway_project_id"],
+        "RAILWAY_ENVIRONMENT_ID": selectors["rebuild_staging_environment_id"],
+        "RAILWAY_SERVICE_ID": selectors["rebuild_api_service_id"],
+        "DATABASE_URL": DATABASE_URL,
+    }.items():
+        monkeypatch.setenv(name, value)
+    reset = importlib.import_module("scripts.api_staging_reset")
+    monkeypatch.setattr(reset, "validate_target", fixed_target)
+    reset_calls: list[str] = []
+
+    def core_reset() -> int:
+        reset_calls.append("reset")
+        print(core_output())
+        return 0
+
+    monkeypatch.setattr(reset, "main", core_reset)
+    request = bootstrap_payload("bundle", {}, operation="reset")
+
+    assert staging_ssh._execute_remote(request, tmp_path) == (
+        0,
+        json.dumps(json.loads(core_output()), sort_keys=True),
+    )
+    assert reset_calls == ["reset"]
+
+    reset_calls.clear()
+    for name, value in {
+        "RAILWAY_PROJECT_ID": RETIRED_PROJECT_ID,
+        "RAILWAY_ENVIRONMENT_ID": RETIRED_ENVIRONMENT_ID,
+        "RAILWAY_SERVICE_ID": RETIRED_SERVICE_ID,
+    }.items():
+        monkeypatch.setenv(name, value)
+    assert staging_ssh._execute_remote(request, tmp_path) == (
+        1,
+        "FAIL staging reset maintenance unknown",
+    )
+    assert reset_calls == []
+
+
+def test_copied_provision_executor_verifies_postcondition_without_reset(
+    staging_ssh: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Provision creates only the sentinel, then rechecks its exact binding."""
+    selectors = install_synthetic_replacement_manifest(tmp_path, monkeypatch)
+    artifact = tmp_path / "build-identity.json"
+    artifact.write_text(json.dumps({"source_sha": SOURCE_SHA}))
+    monkeypatch.setattr(staging_ssh, "_BUILD_IDENTITY_PATH", artifact)
+    for name, value in {
+        "RAILWAY_GIT_COMMIT_SHA": SOURCE_SHA,
+        "RAILWAY_DEPLOYMENT_ID": DEPLOYMENT_ID,
+        "RAILWAY_ENVIRONMENT_NAME": "staging",
+        "RAILWAY_SERVICE_NAME": "api",
+        "RAILWAY_PROJECT_ID": selectors["rebuild_railway_project_id"],
+        "RAILWAY_ENVIRONMENT_ID": selectors["rebuild_staging_environment_id"],
+        "RAILWAY_SERVICE_ID": selectors["rebuild_api_service_id"],
+        "DATABASE_URL": DATABASE_URL,
+    }.items():
+        monkeypatch.setenv(name, value)
+    reset = importlib.import_module("scripts.api_staging_reset")
+    safety = importlib.import_module("rehearsal.safety")
+    events: list[str] = []
+    expected_configuration = object()
+
+    def preflight(_: str) -> dict[str, str]:
+        events.append("pinned-public-preflight")
+        return identity()
+
+    def provision(configuration_value: object) -> None:
+        assert configuration_value is expected_configuration
+        events.append("provision-sentinel")
+
+    def postcondition(configuration_value: object) -> object:
+        assert configuration_value is expected_configuration
+        events.append("read-only-postcondition")
+        return object()
+
+    def forbidden(*_args: object, **_kwargs: object) -> NoReturn:
+        pytest.fail("provision attempted maintenance or baseline reset")
+
+    monkeypatch.setattr(reset, "validate_target", preflight)
+    monkeypatch.setattr(reset, "_bootstrap", lambda: None)
+
+    def load_configuration(_: Mapping[str, str]) -> object:
+        return expected_configuration
+
+    monkeypatch.setattr(reset, "load_configuration", load_configuration)
+    monkeypatch.setattr(reset, "provision_identity", provision)
+    monkeypatch.setattr(reset, "DatabaseMaintenance", forbidden)
+    monkeypatch.setattr(reset, "reset_baseline", forbidden)
+    monkeypatch.setattr(safety, "validate_identity", postcondition)
+
+    status, output = staging_ssh._execute_remote(
+        bootstrap_payload("bundle", {}, operation="provision"), tmp_path
+    )
+
+    assert status == 0
+    assert json.loads(output) == {
+        "identity": identity(),
+        "provision_postcondition": "PASS",
+    }
+    assert events == [
+        "pinned-public-preflight",
+        "provision-sentinel",
+        "read-only-postcondition",
+        "pinned-public-preflight",
+    ]
+    assert_sanitized(output)
+
+    events.clear()
+
+    def existing_sentinel(_: object) -> NoReturn:
+        events.append("existing-sentinel")
+        raise RuntimeError(SENSITIVE)
+
+    monkeypatch.setattr(reset, "provision_identity", existing_sentinel)
+    status, output = staging_ssh._execute_remote(
+        bootstrap_payload("bundle", {}, operation="provision"), tmp_path
+    )
+    assert status == 1
+    assert "existing-sentinel" in events
+    assert "read-only-postcondition" not in events
+    assert "PASS" not in output
+    assert_sanitized(output)
+
+    events.clear()
+    monkeypatch.setattr(reset, "provision_identity", provision)
+
+    def unavailable_postcondition(_: object) -> NoReturn:
+        events.append("postcondition-unavailable")
+        raise RuntimeError(SENSITIVE)
+
+    monkeypatch.setattr(safety, "validate_identity", unavailable_postcondition)
+    status, output = staging_ssh._execute_remote(
+        bootstrap_payload("bundle", {}, operation="provision"), tmp_path
+    )
+    assert status == 1
+    assert events[:2] == ["pinned-public-preflight", "provision-sentinel"]
+    assert "postcondition-unavailable" in events
+    assert "PASS" not in output
+    assert_sanitized(output)
+
+    events.clear()
+    monkeypatch.setattr(safety, "validate_identity", postcondition)
+
+    def drift_database(configuration_value: object) -> None:
+        provision(configuration_value)
+        monkeypatch.setenv(
+            "DATABASE_URL", "postgresql://changed:changed@other.internal:5432/other"
+        )
+
+    monkeypatch.setattr(reset, "provision_identity", drift_database)
+    status, output = staging_ssh._execute_remote(
+        bootstrap_payload("bundle", {}, operation="provision"), tmp_path
+    )
+    assert status == 1
+    assert "provision-sentinel" in events
+    assert "PASS" not in output
+    assert_sanitized(output)
+
+
+@pytest.mark.parametrize("unsafe_mode", (None, "unknown"))
+def test_copied_provision_executor_rejects_missing_or_unknown_mode_before_write(
+    staging_ssh: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    unsafe_mode: str | None,
+) -> None:
+    """Private stdin cannot default an ambiguous request into a mutation."""
+    selectors = install_synthetic_replacement_manifest(tmp_path, monkeypatch)
+    artifact = tmp_path / "build-identity.json"
+    artifact.write_text(json.dumps({"source_sha": SOURCE_SHA}))
+    monkeypatch.setattr(staging_ssh, "_BUILD_IDENTITY_PATH", artifact)
+    for name, value in {
+        "RAILWAY_GIT_COMMIT_SHA": SOURCE_SHA,
+        "RAILWAY_DEPLOYMENT_ID": DEPLOYMENT_ID,
+        "RAILWAY_ENVIRONMENT_NAME": "staging",
+        "RAILWAY_SERVICE_NAME": "api",
+        "RAILWAY_PROJECT_ID": selectors["rebuild_railway_project_id"],
+        "RAILWAY_ENVIRONMENT_ID": selectors["rebuild_staging_environment_id"],
+        "RAILWAY_SERVICE_ID": selectors["rebuild_api_service_id"],
+        "DATABASE_URL": DATABASE_URL,
+    }.items():
+        monkeypatch.setenv(name, value)
+    reset = importlib.import_module("scripts.api_staging_reset")
+    mutations: list[str] = []
+
+    class Maintenance:
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def quiesce(self) -> None:
+            return None
+
+        def resume(self) -> None:
+            return None
+
+    def reset_baseline(_: object) -> dict[str, int]:
+        mutations.append("reset")
+        return COUNTS
+
+    def load_configuration(_: Mapping[str, str]) -> object:
+        return object()
+
+    def maintenance(_: object) -> Maintenance:
+        return Maintenance()
+
+    def provision(_: object) -> None:
+        mutations.append("provision")
+
+    monkeypatch.setattr(reset, "validate_target", fixed_target)
+    monkeypatch.setattr(reset, "_bootstrap", lambda: None)
+    monkeypatch.setattr(reset, "load_configuration", load_configuration)
+    monkeypatch.setattr(reset, "DatabaseMaintenance", maintenance)
+    monkeypatch.setattr(reset, "provision_identity", provision)
+    monkeypatch.setattr(reset, "reset_baseline", reset_baseline)
+    request = bootstrap_payload(
+        "bundle", {}, operation=unsafe_mode if unsafe_mode is not None else "reset"
+    )
+    if unsafe_mode is None:
+        request.pop("operation")
+
+    status, output = staging_ssh._execute_remote(request, tmp_path)
+
+    assert status == 1
+    assert mutations == []
+    assert_sanitized(output)
+
+
 def test_execute_remote_preserves_the_core_failure_when_its_second_preflight_changes(
     staging_ssh: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
@@ -1291,6 +2098,7 @@ def test_execute_remote_preserves_the_core_failure_when_its_second_preflight_cha
         "RAILWAY_GIT_COMMIT_SHA": SOURCE_SHA,
         "RAILWAY_DEPLOYMENT_ID": DEPLOYMENT_ID,
         "RAILWAY_ENVIRONMENT_NAME": "staging",
+        "RAILWAY_SERVICE_NAME": "api",
         "RAILWAY_PROJECT_ID": PROJECT_ID,
         "RAILWAY_ENVIRONMENT_ID": ENVIRONMENT_ID,
         "RAILWAY_SERVICE_ID": SERVICE_ID,
@@ -1339,7 +2147,9 @@ def test_execute_remote_preserves_the_core_failure_when_its_second_preflight_cha
     monkeypatch.setattr(reset, "DatabaseMaintenance", maintenance)
     monkeypatch.setattr(reset, "reset_baseline", reset_baseline)
 
-    assert staging_ssh._execute_remote(bootstrap_payload("bundle", {}), tmp_path) == (
+    assert staging_ssh._execute_remote(
+        bootstrap_payload("bundle", {}, operation="reset"), tmp_path
+    ) == (
         1,
         "FAIL staging reset committed maintenance retained",
     )

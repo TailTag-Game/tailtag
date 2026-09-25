@@ -136,6 +136,16 @@ def source_bundle() -> dict[str, object]:
 def install_guards(runner: ModuleType, monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Replace only the approved provider, reconciliation, and SSH seams."""
     events: list[str] = []
+    monkeypatch.setattr(
+        runner,
+        "_target_ids",
+        lambda: (
+            "a1111111-1111-4111-8111-111111111111",
+            "c3333333-3333-4333-8333-333333333333",
+            "d4444444-4444-4444-8444-444444444444",
+            "e5555555-5555-4555-8555-555555555555",
+        ),
+    )
 
     def github() -> None:
         events.append("github")
@@ -177,6 +187,24 @@ def install_guards(runner: ModuleType, monkeypatch: pytest.MonkeyPatch) -> list[
     return events
 
 
+def test_matrix_registry_guard_uses_replacement_private_configuration(
+    runner: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The #243 matrix cannot consume the retired #204 sentinel by default."""
+    observed_paths: list[Path] = []
+
+    def reconcile(path: Path) -> dict[str, object]:
+        observed_paths.append(path)
+        return registry_result()
+
+    monkeypatch.setattr(runner._registry, "run", reconcile)
+
+    assert runner._reconcile() == registry_result()
+    assert observed_paths == [
+        Path.home() / ".config/tailtag/staging-reset-replacement.env"
+    ]
+
+
 def assert_safe_result(result: dict[str, object]) -> None:
     rendered = json.dumps(result, sort_keys=True)
     assert PRIVATE not in rendered
@@ -201,9 +229,11 @@ def test_run_requires_fresh_full_registry_and_operator_pass_before_one_pinned_ss
     def execute(arguments: list[str]) -> subprocess.CompletedProcess[str]:
         events.append("ssh")
         assert arguments[:2] == ["railway", "ssh"]
-        assert arguments[arguments.index("--project") + 1] == runner._PROJECT_ID
-        assert arguments[arguments.index("--service") + 1] == runner._SERVICE_ID
-        assert arguments[arguments.index("--environment") + 1] == runner._ENVIRONMENT_ID
+        assert arguments[arguments.index("--project") + 1] == runner._target_ids()[0]
+        assert arguments[arguments.index("--service") + 1] == runner._target_ids()[2]
+        assert (
+            arguments[arguments.index("--environment") + 1] == runner._target_ids()[1]
+        )
         assert arguments[arguments.index("--deployment-instance") + 1] == INSTANCE
         assert arguments[arguments.index("-c") - 1] == "-I"
         assert "DJANGO_SETTINGS_MODULE=config.settings.production" in arguments

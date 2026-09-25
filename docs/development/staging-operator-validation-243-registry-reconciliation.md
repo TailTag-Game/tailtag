@@ -1,8 +1,12 @@
-# #243 registry diagnostic correction and future reconciliation
+# #243 retired-generation registry diagnostic correction and reconciliation
 
 This repository-only correction follows the [local defect review](staging-operator-validation-243-registry-tooling-review-2026-09-23.md).
 The [September 23 fixture output](staging-operator-validation-243-fixture-result-2026-09-23.md)
 remains historical. No new Staging observation is implied by this document.
+The `staging-reset.env` path below belongs to the retired Staging generation.
+Current replacement Staging uses the separate
+`~/.config/tailtag/staging-reset-replacement.env`; do not run the historical
+example against the replacement target.
 
 ## Fixture-level contract
 
@@ -58,7 +62,7 @@ identify a candidate drift direction, but cannot authorize repair. Missing or
 malformed configuration, target ambiguity, and query failure fail closed with
 fixed status and no compared values.
 
-**Future command, requiring separate live approval:** from the repository root,
+**Historical retired-generation command (not a current run instruction):** from the repository root,
 with the approved identity available to the operator:
 
 ```sh

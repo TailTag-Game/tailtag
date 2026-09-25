@@ -277,6 +277,33 @@ independent semantic/preservation/readiness observations. Parent completion
 records, retained private operator configuration and cleanup are in the contract.
 The baseline library, migration and command were not changed for live proof.
 
+### 2026-09-25 replacement Staging sentinel-provision extension
+
+The SSH command contract below describes the completed 2026-09-17 reset-only
+review unit. The replacement Staging project has a private PostgreSQL network
+and a new, empty #204 registry. For this replacement generation, the reviewed
+SSH launcher also accepts the separate explicit
+`--provision --confirm provision-tailtag-staging-reset` mode. The reset mode and
+its confirmation remain unchanged.
+
+Provision mode uses the same pinned replacement target, current public preflight,
+sole exact running instance, immutable source identity, API/PostgreSQL binding,
+owner-only nine-key private configuration, code archive, and cleanup checks as
+reset. Its only authorized database mutation is the existing #204 transactional
+`provision_identity` operation, which refuses an existing sentinel and requires
+the two distinct preserved non-admin Clerk-bound Users, readable designated
+media, and matching actual database name and PostgreSQL cluster identifier.
+It does not quiesce connections, reset fixtures, run migrations, create Users,
+or upload media. A sanitized success receipt requires a read-only sentinel
+binding postcondition, an unchanged canonical public tuple, successful SSH
+transport, and confirmed temporary-source removal.
+
+If transport, provisioning, postcondition, or cleanup is uncertain, the result
+is failure/unknown; do not retry provisioning blindly. Resolve the sentinel
+state through a newly guarded read-only reconciliation before deciding any next
+action. This extension does not turn the old-generation #204 live exercise into
+proof of the replacement baseline.
+
 ## Repository-owned SSH reset command: frozen review unit
 
 The user authorized finishing the reusable private-network operator entry point.

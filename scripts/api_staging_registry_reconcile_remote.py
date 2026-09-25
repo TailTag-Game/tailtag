@@ -13,13 +13,6 @@ _SHA: Final = re.compile(r"[0-9a-f]{40}\Z")
 _HASH: Final = re.compile(r"[0-9a-f]{64}\Z")
 _CLUSTER: Final = re.compile(r"[1-9][0-9]*\Z")
 _DATABASE: Final = re.compile(r"[a-z][a-z0-9_]{0,62}\Z")
-_SELECTORS: Final = {
-    "RAILWAY_ENVIRONMENT_NAME": "staging",
-    "RAILWAY_PROJECT_ID": "85324de4-be6a-49c3-a3f9-6cac13877849",
-    "RAILWAY_ENVIRONMENT_ID": "5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e",
-    "RAILWAY_SERVICE_ID": "2247da27-97df-4d5d-b1dc-d21eeb7901d9",
-    "RAILWAY_SERVICE_NAME": "api",
-}
 _PRIVATE_KEYS: Final = frozenset(
     {
         "TAILTAG_STAGING_RESET_ENABLED",
@@ -210,7 +203,18 @@ def target_matches(request: Mapping[str, object]) -> bool:
         return False
     if _HASH.fullmatch(fingerprint) is None:
         return False
-    return all(os.environ.get(key) == value for key, value in _SELECTORS.items()) and (
+    from config.replacement_target_binding import (
+        TargetBindingError,
+        validate_runtime_target,
+    )
+
+    if os.environ.get("RAILWAY_ENVIRONMENT_NAME") != "staging":
+        return False
+    try:
+        validate_runtime_target(os.environ)
+    except TargetBindingError:
+        return False
+    return (
         hashlib.sha256(os.environ.get("DATABASE_URL", "").encode()).hexdigest()
         == fingerprint
     )
@@ -233,7 +237,6 @@ def read_registry() -> _Registry | None:
 
 def read_actual_database_facts() -> tuple[str, str, str, str]:
     from django.conf import settings
-
     from rehearsal.safety import _database_facts  # pyright: ignore[reportPrivateUsage]
 
     database_name, cluster_identifier = _database_facts()

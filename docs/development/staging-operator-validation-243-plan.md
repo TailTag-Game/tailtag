@@ -1,12 +1,24 @@
 # #243 operator evidence recovery and bounded validation proposal
 
-Status: **blocked before mutation: separate limited operator unavailable**.
-The [latest bounded read-only result](staging-operator-validation-243-execution-attempts.md)
-substantiates the managed role but found no limited-role candidate. Cases 1–9
-remain `NOT_EXERCISED`. A separately reviewed limited-role fixture/provisioning
-implementation is required before resuming. The maintainer has since authorized
-the [dedicated limited-role contract](staging-operator-validation-243-limited-role.md),
-subject to its local validation, independent review and fresh live guards.
+Status: **replacement-generation baseline and operator prerequisites unproven;
+matrix not started**.
+The old-generation
+[bounded read-only result](staging-operator-validation-243-execution-attempts.md)
+substantiated the old managed and limited roles only; it found no limited-role
+candidate before the later old-generation provisioning. Cases 1–9 remain
+`NOT_EXERCISED` on both generations. The replacement Staging handoff is recorded
+in the [current public/exact-instance receipt](staging-deployments/c34c45bb-6eb8-488d-8114-d1dd931cf25e.json)
+for source `fc1376e9b4387cb46e37ef3f60191b2ce7f06c68` and deployment
+`c34c45bb-6eb8-488d-8114-d1dd931cf25e`. The follow-up
+[replacement prerequisite readback](staging-replacement-prerequisite-attempt-2026-09-25.md)
+did not return database facts. It did not inspect the #204 sentinel/fixtures or
+operators, and it performed no matrix action or mutation. Thus replacement
+database binding, #204 baseline, and managed/limited/emergency operator state
+remain unknown.
+The [dedicated limited-role contract](staging-operator-validation-243-limited-role.md)
+remains authoritative; the previously established role states belonged to the
+old generation and do not establish replacement roles. Fresh replacement role
+inspection is required before the matrix.
 No guard or matrix result is implied by that authorization. Parent evidence gap:
 [#205 handoff](staging-operator-validation-205.md); readiness owner:
 [#208](https://github.com/TailTag-Game/tailtag/issues/208).
@@ -42,11 +54,11 @@ found no other cross-namespace identifier comparison.
 ### Corrected read-only inspection contract
 
 The repository-owned #243 inspector is a read-only Python entry point streamed
-to an explicitly selected running Staging `api` instance after the separate
-canonical preflight and exact-deployment join. It accepts only the public
+to an explicitly selected running `TailTag Rebuild` / `staging` `api` instance
+after the separate canonical preflight and exact-deployment join. It accepts only the public
 expected source SHA and deployment ID, verifies them against that instance's
-build/runtime identity and fixed Railway Staging selectors, and emits one
-allowlisted status. Malformed input/target identity, fixture missing,
+build/runtime identity and the replacement selectors loaded from the owner-only
+target manifest, and emits one allowlisted status. Malformed input/target identity, fixture missing,
 fixture ambiguous, fixture state mismatch, managed operator missing,
 managed operator ambiguous, distinct managed role-state and permission-set
 mismatches, limited operator missing, limited operator ambiguous, distinct
@@ -60,8 +72,12 @@ narrowly required `profiles.view_playerprofile` inspection permission; it
 must lack `fursuits.set_fursuit_enabled` and all other sensitive permissions.
 No live result follows from a local inspector test or from this contract.
 
-For an **authorized read-only inspection**, run the repository-owned launcher
-from this reviewed checkout:
+For an **authorized read-only inspection**, run the replacement-aware launcher
+from the reviewed #243 checkout only when its owner-only target manifest is
+present and the fresh public preflight matches a current approved receipt. The
+September 25 receipt above is a point-in-time handoff observation; obtain a new
+preflight and exact-instance join before every invocation. Do not run a launcher
+from the old main baseline or select the retired Railway project.
 
 ```sh
 PYTHONPATH="$PWD" uv run --project services/api --locked --no-sync \
@@ -69,8 +85,9 @@ PYTHONPATH="$PWD" uv run --project services/api --locked --no-sync \
 ```
 
 The launcher verifies approved GitHub/Railway identity, fresh canonical
-preflight, the matching approved deployment receipt, and the sole running
-instance. It repeats public preflight before the one SSH execution. An
+preflight, the matching replacement deployment receipt, and the sole running
+instance in `TailTag Rebuild` / `staging` / `api`. It repeats public preflight
+before the one SSH execution. An
 isolated Python bootstrap explicitly selects `/app`, verifies the exact
 instance's build/runtime identity before ORM access, and runs the fixture
 and role inspector inside a PostgreSQL read-only transaction. It streams
@@ -141,20 +158,28 @@ unowned state. Use only supported Django-admin and existing player flows.
    Staging rehearsal window; stop if other writers or configuration/deployment
    work are active. The approval must name the operator who owns cleanup.
 2. Verify the acting GitHub and Railway identities under TailTag's identity
-   rule. Positively select `Finn the Panther's Projects` / `TailTag` /
+   rule. Positively select `Finn the Panther's Projects` / `TailTag Rebuild` /
    `staging` / `api` and its environment-local `Postgres`; reject Development,
    Production, stale links, or mismatched service/volume ownership.
 3. Run the repository's credential-free
    [canonical preflight](staging.md#health-and-public-staging-preflight-203)
    against exactly `https://staging.tailtag.app`. Bind its safe source SHA and
-   deployment ID to the exact running Railway deployment/image identity using
+   deployment ID to the exact running replacement Railway deployment/image
+   identity using
    the maintained [#201/#202 join](staging.md#immutable-build-and-deployment-identity-201).
    Capture only approved public identifiers. Repeat the preflight before the
    first mutation, before reset, and after cleanup; any tuple change stops the
    matrix as indeterminate.
-4. Inspect the approved baseline, audit migration, admin permission set,
+4. Inspect the replacement generation's newly provisioned baseline, audit
+   migration, admin permission set,
    `OperatorAuditEvent` availability, and #204 reset sentinel/configuration
-   through authorized read-only surfaces. Identify exactly the disposable
+   through authorized read-only surfaces. The old-generation #204 sentinel,
+   fixtures, private configuration, Clerk identities, media and operator
+   results are historical and must not be reused. The replacement-bound #204
+   sentinel provision path is locally reviewed but has not been exercised on
+   live Staging; do not start the matrix until that prerequisite has been
+   safely provisioned and verified against the separate private
+   `~/.config/tailtag/staging-reset-replacement.env`. Identify exactly the disposable
    profile and a distinct disposable fursuit that #204 owns. If their state
    differs from the known baseline, an unrelated dependency exists, audit
    persistence is unavailable, or reset safety cannot be proved, stop.
@@ -190,6 +215,9 @@ unowned state. Use only supported Django-admin and existing player flows.
 Do not create an ad hoc staff identity or repurpose a player/superuser to fill
 a missing role. If the limited operator, emergency superuser, or required
 fixture is unavailable, stop and seek a separately reviewed fixture plan.
+The [replacement emergency-actor proposal](staging-operator-validation-243-emergency-role-proposal.md)
+is such a proposed plan; it does not authorize live provisioning until separately
+approved and its decommission boundary has been implemented and reviewed.
 
 ### Case sequence and expected assertions
 

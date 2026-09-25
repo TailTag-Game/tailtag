@@ -17,9 +17,7 @@ from scripts import api_staging_reset_ssh as _reset_ssh
 
 _approved_receipt = _registry_reconcile._approved_receipt  # pyright: ignore[reportPrivateUsage]
 _github_identity = _registry_reconcile._github_identity  # pyright: ignore[reportPrivateUsage]
-_ENVIRONMENT_ID = _reset_ssh._ENVIRONMENT_ID  # pyright: ignore[reportPrivateUsage]
-_PROJECT_ID = _reset_ssh._PROJECT_ID  # pyright: ignore[reportPrivateUsage]
-_SERVICE_ID = _reset_ssh._SERVICE_ID  # pyright: ignore[reportPrivateUsage]
+_target_ids = _reset_ssh._target_ids  # pyright: ignore[reportPrivateUsage]
 _active_instance = _reset_ssh._active_instance  # pyright: ignore[reportPrivateUsage]
 _preflight = _reset_ssh._preflight  # pyright: ignore[reportPrivateUsage]
 _railway_identity = _reset_ssh._railway_identity  # pyright: ignore[reportPrivateUsage]
@@ -276,6 +274,7 @@ def run() -> dict[str, object]:
     except Exception:  # noqa: BLE001
         return _result(FAIL_IDENTITY, "railway_identity", identity, False, started)
     try:
+        project_id, environment_id, service_id, _ = _target_ids()
         instance = _active_instance(identity)
     except Exception:  # noqa: BLE001
         return _result(FAIL_INSTANCE, "running_instance", identity, False, started)
@@ -304,11 +303,11 @@ def run() -> dict[str, object]:
                 "railway",
                 "ssh",
                 "--project",
-                _PROJECT_ID,
+                project_id,
                 "--service",
-                _SERVICE_ID,
+                service_id,
                 "--environment",
-                _ENVIRONMENT_ID,
+                environment_id,
                 "--deployment-instance",
                 instance,
                 "--",

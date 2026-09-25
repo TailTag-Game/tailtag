@@ -50,14 +50,6 @@ OWNERSHIP: Final = {
 _SHA = re.compile(r"[0-9a-f]{40}\Z")
 _CLUSTER_IDENTIFIER = re.compile(r"[1-9][0-9]*\Z")
 _DATABASE_NAME = re.compile(r"[a-z][a-z0-9_]{0,62}\Z")
-_ENVIRONMENT_ID = uuid.UUID("5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e")
-_SELECTORS = {
-    "RAILWAY_ENVIRONMENT_NAME": "staging",
-    "RAILWAY_SERVICE_NAME": "api",
-    "RAILWAY_PROJECT_ID": "85324de4-be6a-49c3-a3f9-6cac13877849",
-    "RAILWAY_ENVIRONMENT_ID": str(_ENVIRONMENT_ID),
-    "RAILWAY_SERVICE_ID": "2247da27-97df-4d5d-b1dc-d21eeb7901d9",
-}
 
 
 class _SafeParser(argparse.ArgumentParser):
@@ -77,18 +69,26 @@ def _target_matches(source_sha: str, deployment_id: str) -> bool:
     except ValueError:
         return False
     actual = get_identity()
+    from config.replacement_target_binding import (
+        TargetBindingError,
+        validate_runtime_target,
+    )
+
+    try:
+        if os.environ.get("RAILWAY_ENVIRONMENT_NAME") != "staging":
+            return False
+        validate_runtime_target(os.environ)
+    except TargetBindingError:
+        return False
     return (
         actual.get("source_sha") == source_sha
         and actual.get("deployment_id") == deployment_id
         and actual.get("environment") == "staging"
-        and all(os.environ.get(key) == value for key, value in _SELECTORS.items())
     )
 
 
 def diagnose_fixture() -> dict[str, str]:
     """Inspect only the frozen #204 closure; never return database values."""
-    from django.db.models import Q
-
     from catches.models import Catch
     from conventions.models import (
         Convention,
@@ -98,6 +98,7 @@ def diagnose_fixture() -> dict[str, str]:
         FursuitCatchCredential,
         FursuitCatchSession,
     )
+    from django.db.models import Q
     from fursuits.models import Fursuit
     from profiles.models import PlayerProfile
     from rehearsal import baseline

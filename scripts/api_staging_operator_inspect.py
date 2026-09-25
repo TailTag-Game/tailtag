@@ -69,13 +69,6 @@ _LIMITED_PERMISSION_NAMES: Final = {
     "profiles.set_profile_enabled",
     "profiles.view_playerprofile",
 }
-_RUNTIME_SELECTORS: Final = {
-    "RAILWAY_ENVIRONMENT_NAME": "staging",
-    "RAILWAY_SERVICE_NAME": "api",
-    "RAILWAY_PROJECT_ID": "85324de4-be6a-49c3-a3f9-6cac13877849",
-    "RAILWAY_ENVIRONMENT_ID": "5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e",
-    "RAILWAY_SERVICE_ID": "2247da27-97df-4d5d-b1dc-d21eeb7901d9",
-}
 _PRODUCTION_SETTINGS: Final = "config.settings.production"
 _OPERATOR_GROUP_NAME: Final = "TailTag Field Beta Operators"
 _LIMITED_OPERATOR_GROUP_NAME: Final = "TailTag #243 Validation Operator"
@@ -115,9 +108,18 @@ def _target_identity_matches(source_sha: str, deployment_id: str) -> bool:
         or identity.get("environment") != "staging"
     ):
         return False
-    return all(
-        os.environ.get(name) == value for name, value in _RUNTIME_SELECTORS.items()
+    from config.replacement_target_binding import (
+        TargetBindingError,
+        validate_runtime_target,
     )
+
+    if os.environ.get("RAILWAY_ENVIRONMENT_NAME") != "staging":
+        return False
+    try:
+        validate_runtime_target(os.environ)
+    except TargetBindingError:
+        return False
+    return True
 
 
 def _permission_names(queryset: object) -> set[str]:

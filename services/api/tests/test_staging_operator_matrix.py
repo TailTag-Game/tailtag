@@ -165,6 +165,11 @@ def matrix(
     # independently exercised below through the unpatched module fixture.
     settings.DEBUG = False
     monkeypatch.setattr(unconfirmed_matrix, "_confirm_window", lambda: None)
+    monkeypatch.setattr(
+        unconfirmed_matrix,
+        "_review_deployed_controls",
+        lambda: {"deployed_control_hash_match": "PASS"},
+    )
     return unconfirmed_matrix
 
 
@@ -1404,13 +1409,13 @@ def test_exact_denial_advances_only_its_cases_before_owner_session_failure(
 
 @pytest.mark.parametrize("file_state", ("matching", "mismatched", "missing"))
 def test_deployed_source_hashes_never_claim_control_review_or_test_execution(
-    matrix: ModuleType,
+    unconfirmed_matrix: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     file_state: str,
 ) -> None:
     """Matching deployed bytes prove correlation only, never external evidence."""
-    control_files = cast(tuple[str, ...], tuple(matrix._CONTROL_FILES))
+    control_files = cast(tuple[str, ...], tuple(unconfirmed_matrix._CONTROL_FILES))
     assert control_files
     payload = b"local synthetic deployed control source"
     hashes = {path: hashlib.sha256(payload).hexdigest() for path in control_files}
@@ -1428,9 +1433,9 @@ def test_deployed_source_hashes_never_claim_control_review_or_test_execution(
         assert root == "/app"
         return tmp_path
 
-    monkeypatch.setattr(matrix, "Path", deployed_root)
-    monkeypatch.setattr(matrix, "_CONTROL_HASHES", hashes)
-    result = matrix._review_deployed_controls()
+    monkeypatch.setattr(unconfirmed_matrix, "Path", deployed_root)
+    monkeypatch.setattr(unconfirmed_matrix, "_CONTROL_HASHES", hashes)
+    result = unconfirmed_matrix._review_deployed_controls()
 
     assert result == {
         "deployed_control_hash_match": "PASS" if file_state == "matching" else "FAIL"
@@ -1535,6 +1540,9 @@ def test_two_successes_case9_review_and_reset_audit_retention(
                 convention_id=identity.convention_id,
             )
             session = create_catch_session(activation=activation)
+            expected_case9.update(
+                (method, path) for method, path, _ in case9_routes(identity).values()
+            )
             response = {
                 "fursuit_id": identity.first_fursuit_id,
                 "convention_id": identity.convention_id,
@@ -1594,11 +1602,9 @@ def test_two_successes_case9_review_and_reset_audit_retention(
 
     def review_controls() -> Mapping[str, str]:
         reviews.append("exact-deployment-controls")
-        assert OperatorAuditEvent.objects.count() == 3
-        assert FursuitCatchSession.objects.count() == 1
-        expected_case9.update(
-            (method, path) for method, path, _ in case9_routes(identity).values()
-        )
+        assert mutations == []
+        assert OperatorAuditEvent.objects.count() == 0
+        assert FursuitCatchSession.objects.count() == 0
         return {"deployed_control_hash_match": "PASS" if review_ok else "FAIL"}
 
     def reset_receipt() -> Mapping[str, str]:
@@ -1695,6 +1701,20 @@ def test_two_successes_case9_review_and_reset_audit_retention(
     assert result["classification"] != "PASS"
     assert result["case9_control_review"] == "NOT_EXERCISED"
     assert result["case9_deterministic_evidence"] == "NOT_EXERCISED"
+    assert reviews == ["exact-deployment-controls"]
+    if not review_ok:
+        assert result["classification"].startswith("FAIL_")
+        assert result["deployed_control_hash_match"] == "FAIL"
+        assert result["mutation_may_have_begun"] is False
+        assert all(value == "NOT_EXERCISED" for value in result["cases"].values())
+        assert result["audit_events"] == []
+        assert result["reset"] == "NOT_EXERCISED"
+        assert result["decommission"] == "NOT_EXERCISED"
+        assert mutations == []
+        assert OperatorAuditEvent.objects.count() == 0
+        assert reset_calls == []
+        assert decommission_calls == []
+        return
     if reset_mode == "clean_reset" and decommission_mode == "complete":
         assert result["classification"] == LIVE_SEQUENCE_COMPLETE
         assert "guard" in observations  # Fresh guard after decommission.
@@ -1726,7 +1746,6 @@ def test_two_successes_case9_review_and_reset_audit_retention(
         assert result["cases"]["9"] != "PASS"
         assert result["deployed_control_hash_match"] == "FAIL"
         assert reset_calls == []
-    assert reviews == ["exact-deployment-controls"]
     assert authenticated == ["limited", "managed", "emergency", "owner"]
     assert (
         sum(

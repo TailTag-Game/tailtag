@@ -14,13 +14,14 @@ from django.core.files.storage import default_storage
 from django.db import connection
 from psycopg import sql
 
+from config.replacement_target_binding import (
+    TargetBindingError,
+    validate_runtime_target,
+)
 from media.keys import validate_image_key
 
 from .models import StagingResetIdentity
 
-_PROJECT_ID = "85324de4-be6a-49c3-a3f9-6cac13877849"
-_ENVIRONMENT_ID = "5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e"
-_SERVICE_ID = "2247da27-97df-4d5d-b1dc-d21eeb7901d9"
 _DECIMAL = re.compile(r"[1-9][0-9]*\Z")
 _DNS = re.compile(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\Z")
 _PORT = re.compile(
@@ -75,12 +76,15 @@ def load_configuration(environment: Mapping[str, str]) -> ResetConfiguration:
     except KeyError:
         raise ResetSafetyError from None
     if (
-        values["RAILWAY_ENVIRONMENT_NAME"],
-        values["RAILWAY_PROJECT_ID"],
-        values["RAILWAY_ENVIRONMENT_ID"],
-        values["RAILWAY_SERVICE_ID"],
-        values["TAILTAG_STAGING_RESET_ENABLED"],
-    ) != ("staging", _PROJECT_ID, _ENVIRONMENT_ID, _SERVICE_ID, "true"):
+        values["RAILWAY_ENVIRONMENT_NAME"] != "staging"
+        or values["TAILTAG_STAGING_RESET_ENABLED"] != "true"
+    ):
+        raise ResetSafetyError
+    try:
+        validate_runtime_target(
+            {**values, "RAILWAY_SERVICE_NAME": environment["RAILWAY_SERVICE_NAME"]}
+        )
+    except (KeyError, TargetBindingError):
         raise ResetSafetyError
     try:
         environment_id = uuid.UUID(values["TAILTAG_STAGING_RESET_ID"])

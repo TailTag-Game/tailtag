@@ -192,17 +192,16 @@ def _csrf_from(response: Mapping[str, Any]) -> str:
 
 
 def _authenticate(role: str) -> dict[str, Any]:
-    from django.conf import settings
-    from django.contrib.auth.hashers import check_password
-    from django.contrib.auth.models import Group
-    from django.contrib.sessions.models import Session
-    from django.http import HttpRequest
-
     from accounts.management.commands.bootstrap_staging_operator import (
         OPERATOR_GROUP_NAME,
     )
     from accounts.models import User
     from authentication.clerk import ClerkSessionVerifier
+    from django.conf import settings
+    from django.contrib.auth.hashers import check_password
+    from django.contrib.auth.models import Group
+    from django.contrib.sessions.models import Session
+    from django.http import HttpRequest
     from rehearsal.models import StagingResetIdentity
 
     _reject_debug_database_logging()
@@ -336,11 +335,10 @@ def _owner_token_still_valid(actor: Mapping[str, Any], owner_id: int) -> None:
     token = actor.get("token")
     if not isinstance(token, str):
         return  # Injected test actors are verified by their approved seam.
-    from django.conf import settings
-    from django.http import HttpRequest
-
     from accounts.models import User
     from authentication.clerk import ClerkSessionVerifier
+    from django.conf import settings
+    from django.http import HttpRequest
 
     configuration = settings.CLERK_AUTHENTICATION
     if configuration is None:
@@ -357,8 +355,6 @@ def _owner_token_still_valid(actor: Mapping[str, Any], owner_id: int) -> None:
 
 def _snapshot() -> dict[str, Any]:
     """Read the registered closure and its exact audit rows without secret fields."""
-    from django.db import connection, transaction
-
     from catches.models import Catch
     from conventions.models import (
         Convention,
@@ -367,6 +363,7 @@ def _snapshot() -> dict[str, Any]:
         FursuitCatchCredential,
         FursuitCatchSession,
     )
+    from django.db import connection, transaction
     from fursuits.models import Fursuit
     from operator_audit.models import OperatorAuditEvent
     from profiles.models import PlayerProfile
@@ -852,6 +849,9 @@ def run(expected_identity: Mapping[str, str]) -> dict[str, Any]:
         from rehearsal.reset import validate_baseline
 
         validate_baseline(StagingResetIdentity.objects.get(pk=1))
+        review = _review_deployed_controls()
+        result["deployed_control_hash_match"] = review["deployed_control_hash_match"]
+        _require(review == {"deployed_control_hash_match": "PASS"})
         phase = "confirmation"
         _confirm_window()
         phase = "authentication"
@@ -1117,9 +1117,6 @@ def run(expected_identity: Mapping[str, str]) -> dict[str, Any]:
             _require(observed == before)
             if name not in _COMBINED:
                 result["case9"][name] = "PASS"
-        review = _review_deployed_controls()
-        result["deployed_control_hash_match"] = review["deployed_control_hash_match"]
-        _require(review == {"deployed_control_hash_match": "PASS"})
         retained_audit = before["audit"]
         for actor in actors.values():
             actor.pop("csrf", None)

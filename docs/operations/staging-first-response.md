@@ -1,8 +1,8 @@
 # Staging backend first response
 
-This is the first-response guide for the canonical Railway `TailTag` / `staging`
-backend at `https://staging.tailtag.app`. It covers the nine V0 operational
-scenarios in [#208](https://github.com/TailTag-Game/tailtag/issues/208).
+This is the first-response guide for the replacement Railway
+`TailTag Rebuild` / `staging` backend at `https://staging.tailtag.app`. It
+covers the nine V0 operational scenarios in [#208](https://github.com/TailTag-Game/tailtag/issues/208).
 Use it with the [Staging runbook](../development/staging.md), the
 [operator authorization runbook](operator-authorization-audit.md), and the
 [readiness evidence matrix](../development/v0-backend-operational-readiness-matrix.md).
@@ -10,9 +10,20 @@ It does not authorize a new deployment, reset, rollback, restore, credential
 change, database repair, or provider configuration change. Those actions retain
 their own target checks, operator authority, and approval boundaries.
 
+The September 25 [replacement handoff receipt](../development/staging-deployments/c34c45bb-6eb8-488d-8114-d1dd931cf25e.json)
+proves a public/exact-instance identity join for its observation window only.
+The replacement #204 baseline, #243 operator/audit results, and #207 restore
+remain unverified. Historical receipts and target-pinned commands for the
+former `TailTag` project do not apply to `TailTag Rebuild`. In particular, the
+replacement #202 promotion path remains old-target-pinned. The replacement
+#204 provision/reset SSH path is locally implemented and reviewed, but has no
+live replacement-baseline result. A replacement #207 restore has not been
+recorded. Do not run an old-pinned command against the replacement.
+
 ## Common first check and evidence
 
-1. Identify `Finn the Panther's Projects` / `TailTag` / `staging`; select the
+1. Identify `Finn the Panther's Projects` / `TailTag Rebuild` / `staging`;
+   select the
    exact `api` deployment and, for database incidents, the environment-local
    `Postgres` service. Development is a separate contributor environment.
    Stop if the target or acting account cannot be verified. Never infer the
@@ -24,7 +35,8 @@ their own target checks, operator authority, and approval boundaries.
    acceptance, reset, or simulation traffic. `/health/live` proves only a
    responding process; `/health/ready` proves local configuration and a small
    PostgreSQL query, not Clerk or R2 provider availability.
-3. In Railway `staging` → `api` → **Deployments**, bind diagnostics to the
+3. In Railway `TailTag Rebuild` → `staging` → `api` → **Deployments**, bind
+   diagnostics to the
    affected deployment ID. Inspect its status, build output, pre-deploy
    migration output, startup/runtime output, instances, and lifecycle events
    as appropriate. For database symptoms inspect `staging` → `Postgres`
@@ -93,8 +105,11 @@ interpreting denied connections.
 rehearsal activity; preserve the current database and exact deployment state.
 If an approved reset left its maintenance gate closed, use only the verified
 control-database [recovery procedure](../development/staging.md#synthetic-baseline-reset-and-reseed-204)
-after its own target and cluster checks. Otherwise hand off to the backend and
-Railway resource owners. For partial migration state use #206's reviewed
+after its own target and cluster checks. The replacement #204 SSH/provision
+path is locally reviewed, but its live sentinel/baseline is unverified. If its
+own target or cluster guard fails, stop and hand off to the backend and Railway
+resource owners. For partial
+migration state use #206's reviewed
 forward-fix decision; for suspected data loss use #207's restore evidence to
 plan separately approved recovery. The #207 drill restores to an isolated
 target and is not an instruction to replace Staging's active database.
@@ -109,7 +124,7 @@ reset as incident repair, or point the API at a restore clone.
 **Recognize and diagnose.** A normal authenticated request or approved
 synthetic [Clerk smoke](../development/staging.md#clerk-authenticated-smoke)
 fails while basic API health may remain ready. Confirm the canonical Staging
-origin and dedicated `TailTag Staging` Clerk application/Production instance.
+origin and dedicated `TailTag Staging Replacement` Clerk application/Production instance.
 Compare affected API responses and bounded exact-D logs with Clerk's own
 authorized status/diagnostic surface. Distinguish token/session problems,
 local verification configuration, and provider availability without exposing
@@ -153,7 +168,7 @@ or assume application rollback restores R2 state.
 
 ## Abnormal API load
 
-**Recognize and diagnose.** In Railway, select `TailTag` → `staging` → `api` →
+**Recognize and diagnose.** In Railway, select `TailTag Rebuild` → `staging` → `api` →
 **Deployments** → the exact affected D. Review its status and bounded
 deployment/runtime logs alongside canonical liveness and readiness. Correlate
 the time window with known controlled promotions, resets, synthetic rehearsal
@@ -213,8 +228,9 @@ identified synthetic domain-state mistake, an explicitly permitted
 non-superuser operator can use the documented per-object Convention
 playability or other exact action, with its audit outcome checked afterward.
 Use #204 reset only as the separately authorized Staging synthetic-baseline
-operation when its destructive scope is actually appropriate; it preserves
-users and audit evidence but replaces disposable domain state. For uncertain
+operation when its destructive scope is actually appropriate and the reviewed
+replacement-target command is available; it preserves users and audit evidence
+but replaces disposable domain state. For uncertain
 configuration or schema state, stop and escalate to the owning maintainer.
 
 **Preserve / avoid.** Retain sanitized before/after state class, D, action
@@ -237,10 +253,11 @@ choose a reviewed forward fix by default. Only an explicitly approved,
 positively compatible rollback uses the exact Railway selected-deployment
 action and #206's exact resulting-D observation; an ambiguous mutation
 response must not be retried. Restore the intended source through a new #202
-exact-SHA promotion after separate review. Current representative Staging
-state had a #206 NO-GO because older code could invalidate a limited
-operator's local authentication. Do not create a migration merely to make a
-rollback candidate.
+exact-SHA promotion after separate review. The retired-generation #206
+candidate was NO-GO because older code could
+invalidate a limited operator's local authentication. That finding is not a
+replacement-generation rollback rehearsal. Do not create a migration merely to
+make a rollback candidate.
 
 **Preserve / avoid.** Retain O/N/D, `canRollback`, reviewed schema/data and
 old-code proof outcomes, approval decision, new exact-D lifecycle and final
@@ -257,7 +274,9 @@ the source identity and intended recovery point. Review the maintained #207
 and its [final GO evidence](../development/staging-recovery/20260923T165714Z-issue-207-restore-d6def5ea5b9442c7992d301a575c6f8b.json).
 The September 23 logical dump/restore proved isolated PostgreSQL 18 restore,
 integrity checks, matching-revision backend usability, Staging nonimpact and
-cleanup; the earlier failed preflight is historical.
+cleanup for the retired database; the earlier failed preflight is historical.
+That exercise does not prove recovery for the replacement database, which has
+no current restore result.
 
 **First safe mitigation and recovery.** Stop writes and preserve the source
 database, current deployment, and relevant logs while the backend/database

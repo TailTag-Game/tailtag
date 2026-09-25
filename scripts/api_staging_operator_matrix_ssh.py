@@ -20,9 +20,7 @@ _railway_identity = _reset_ssh._railway_identity  # pyright: ignore[reportPrivat
 _preflight = _reset_ssh._preflight  # pyright: ignore[reportPrivateUsage]
 _approved_receipt = _registry._approved_receipt  # pyright: ignore[reportPrivateUsage]
 _active_instance = _reset_ssh._active_instance  # pyright: ignore[reportPrivateUsage]
-_PROJECT_ID = _reset_ssh._PROJECT_ID  # pyright: ignore[reportPrivateUsage]
-_SERVICE_ID = _reset_ssh._SERVICE_ID  # pyright: ignore[reportPrivateUsage]
-_ENVIRONMENT_ID = _reset_ssh._ENVIRONMENT_ID  # pyright: ignore[reportPrivateUsage]
+_target_ids = _reset_ssh._target_ids  # pyright: ignore[reportPrivateUsage]
 
 _ROOT: Final = Path(__file__).resolve().parents[1]
 _SOURCES: Final = {
@@ -169,7 +167,7 @@ def _reviewed_source() -> dict[str, object]:
 
 
 def _reconcile() -> dict[str, object]:
-    return _registry.run(Path.home() / ".config/tailtag/staging-reset.env")
+    return _registry.run(_reset_ssh.REPLACEMENT_RESET_CONFIG_PATH)
 
 
 def _registry_pass(value: object) -> bool:
@@ -241,6 +239,7 @@ def run() -> dict[str, object]:
         phase = "approved_receipt"
         _approved_receipt(identity)
         phase = "running_instance"
+        project_id, environment_id, service_id, _ = _target_ids()
         instance = _active_instance(identity)
         if str(uuid.UUID(instance)) != instance:
             raise ValueError
@@ -265,11 +264,11 @@ def run() -> dict[str, object]:
                 "railway",
                 "ssh",
                 "--project",
-                _PROJECT_ID,
+                project_id,
                 "--service",
-                _SERVICE_ID,
+                service_id,
                 "--environment",
-                _ENVIRONMENT_ID,
+                environment_id,
                 "--deployment-instance",
                 instance,
                 "--",
