@@ -237,6 +237,7 @@ def read_registry() -> _Registry | None:
 
 def read_actual_database_facts() -> tuple[str, str, str, str]:
     from django.conf import settings
+
     from rehearsal.safety import _database_facts  # pyright: ignore[reportPrivateUsage]
 
     database_name, cluster_identifier = _database_facts()

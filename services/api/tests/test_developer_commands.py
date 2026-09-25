@@ -128,7 +128,20 @@ def semgrep_scan_tokens(dry_run: str) -> list[list[str]]:
             for operator in ("&&", "||", ";", "|", "`", "$(", "${", ">", "<")
         ), command
         tokens = shlex.split(command)
-        lowered = command.lower()
+        reviewed_registry_targets = {
+            str(REPOSITORY_ROOT / helper)
+            for helper in (
+                "scripts/api_staging_registry_reconcile.py",
+                "scripts/api_staging_registry_reconcile_remote.py",
+            )
+            if helper in FROZEN_ROOT_HELPERS
+        }
+        target_operands = semgrep_target_operands(tokens)
+        lowered = " ".join(
+            token
+            for token in tokens
+            if token not in reviewed_registry_targets or token not in target_operands
+        ).lower()
         assert not any(
             forbidden in lowered
             for forbidden in (
@@ -182,6 +195,28 @@ def test_semgrep_scan_tokens_allows_only_the_empty_trusted_app_token_prefix() ->
         semgrep_scan_tokens(
             command.replace("SEMGREP_APP_TOKEN=", "SEMGREP_APP_TOKEN=secret")
         )
+
+
+def test_semgrep_scan_tokens_allows_only_reviewed_registry_target_paths() -> None:
+    """Reviewed registry source operands do not license other registry access."""
+    command = (
+        "SEMGREP_APP_TOKEN= uv --directory .semgrep run --locked --no-sync "
+        "semgrep scan --config .semgrep/rules"
+    )
+    approved = [
+        str(REPOSITORY_ROOT / "scripts/api_staging_registry_reconcile.py"),
+        str(REPOSITORY_ROOT / "scripts/api_staging_registry_reconcile_remote.py"),
+    ]
+    reviewed_command = " ".join((command, *approved))
+
+    assert semgrep_scan_tokens(reviewed_command) == [shlex.split(reviewed_command)]
+    for extra in (
+        str(REPOSITORY_ROOT / "scripts/api_staging_registry_unreviewed.py"),
+        "--registry=untrusted",
+        "registry",
+    ):
+        with pytest.raises(AssertionError):
+            semgrep_scan_tokens(f"{reviewed_command} {extra}")
 
 
 def test_api_check_uv_run_contract_rejects_implicit_project_sync() -> None:

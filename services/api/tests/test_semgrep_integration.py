@@ -58,6 +58,37 @@ def canonical_main_scan_command(repository: Path) -> tuple[dict[str, str], list[
     return environment, tokens
 
 
+def test_canonical_ruff_commands_include_all_reviewed_root_helpers() -> None:
+    """Each root helper in the backend security scan also receives Ruff checks."""
+    for target, command in (
+        ("api-format-check", ("ruff", "format")),
+        ("api-lint-check", ("ruff", "check")),
+    ):
+        completed = subprocess.run(
+            ["make", "-n", target],
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr
+        matching = [
+            shlex.split(line)
+            for line in dry_run_commands(completed.stdout)
+            if all(part in shlex.split(line) for part in command)
+        ]
+        assert len(matching) == 1
+        checked = set(matching[0])
+        missing = {
+            helper
+            for helper in FROZEN_ROOT_HELPERS
+            if str(REPOSITORY_ROOT / helper) not in checked
+        }
+        assert not missing, (
+            f"{target} excludes reviewed root helpers: {sorted(missing)}"
+        )
+
+
 def overlay_working_tree(source: Path, destination: Path) -> None:
     """Overlay tracked and untracked source files without replacing clone metadata."""
     completed = subprocess.run(

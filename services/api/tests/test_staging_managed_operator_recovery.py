@@ -43,6 +43,32 @@ RAILWAY_SELECTORS = {
     "RAILWAY_ENVIRONMENT_ID": "5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e",
     "RAILWAY_SERVICE_ID": "2247da27-97df-4d5d-b1dc-d21eeb7901d9",
 }
+REPLACEMENT_SELECTORS = {
+    "RAILWAY_PROJECT_ID": "a1111111-1111-4111-8111-111111111111",
+    "RAILWAY_ENVIRONMENT_ID": "c3333333-3333-4333-8333-333333333333",
+    "RAILWAY_SERVICE_ID": "d4444444-4444-4444-8444-444444444444",
+}
+
+
+def pin_replacement_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bind disposable selectors to the same code-owned replacement contract."""
+    from config import replacement_target_binding as binding
+
+    monkeypatch.setattr(
+        binding,
+        "_EXPECTED_DIGESTS",
+        {
+            **binding._EXPECTED_DIGESTS,  # pyright: ignore[reportPrivateUsage]
+            "staging-api": binding.fingerprint_tuple(
+                "staging-api",
+                REPLACEMENT_SELECTORS["RAILWAY_PROJECT_ID"],
+                REPLACEMENT_SELECTORS["RAILWAY_ENVIRONMENT_ID"],
+                REPLACEMENT_SELECTORS["RAILWAY_SERVICE_ID"],
+            ),
+        },
+    )
+
+
 MANAGED_GROUP = "TailTag Field Beta Operators"
 LIMITED_GROUP = "TailTag #243 Validation Operator"
 OLD_IDENTIFIER = "operator_staging_205"
@@ -185,7 +211,8 @@ def invoke(
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", environment)
     monkeypatch.setenv("RAILWAY_SERVICE_NAME", service)
     monkeypatch.setenv("RAILWAY_DEPLOYMENT_ID", DEPLOYMENT_ID)
-    for key, value in RAILWAY_SELECTORS.items():
+    pin_replacement_runtime(monkeypatch)
+    for key, value in REPLACEMENT_SELECTORS.items():
         monkeypatch.setenv(key, value)
     if selector_override is not None:
         monkeypatch.setenv(*selector_override)
@@ -212,6 +239,35 @@ def invoke(
     finally:
         assert dict(os.environ) == environment_before
     return terminal, stderr
+
+
+@pytest.mark.parametrize(
+    "command_name",
+    ("replace_staging_managed_operator", "rotate_staging_managed_password"),
+)
+@pytest.mark.parametrize(
+    ("runtime_selectors", "expected"),
+    ((REPLACEMENT_SELECTORS, True), (RAILWAY_SELECTORS, False)),
+    ids=("pinned-replacement", "retired-project"),
+)
+def test_managed_recovery_target_guard_uses_replacement_pin(
+    monkeypatch: pytest.MonkeyPatch,
+    command_name: str,
+    runtime_selectors: dict[str, str],
+    expected: bool,
+) -> None:
+    """Both managed recovery commands accept only the code-pinned runtime."""
+    from config import build_identity
+
+    pin_replacement_runtime(monkeypatch)
+    for key, value in runtime_selectors.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "staging")
+    monkeypatch.setenv("RAILWAY_SERVICE_NAME", "api")
+    monkeypatch.setattr(build_identity, "get_identity", lambda: EXPECTED_IDENTITY)
+    command = importlib.import_module(f"accounts.management.commands.{command_name}")
+
+    assert command.Command()._target_matches(EXPECTED_IDENTITY) is expected
 
 
 def assert_sanitized(
@@ -578,7 +634,7 @@ def test_target_and_interactive_guards_refuse_before_write(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("selector", tuple(RAILWAY_SELECTORS))
+@pytest.mark.parametrize("selector", tuple(REPLACEMENT_SELECTORS))
 def test_wrong_railway_resource_selector_refuses_without_write(
     monkeypatch: pytest.MonkeyPatch, selector: str
 ) -> None:

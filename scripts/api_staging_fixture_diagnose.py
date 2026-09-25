@@ -89,6 +89,8 @@ def _target_matches(source_sha: str, deployment_id: str) -> bool:
 
 def diagnose_fixture() -> dict[str, str]:
     """Inspect only the frozen #204 closure; never return database values."""
+    from django.db.models import Q
+
     from catches.models import Catch
     from conventions.models import (
         Convention,
@@ -98,7 +100,6 @@ def diagnose_fixture() -> dict[str, str]:
         FursuitCatchCredential,
         FursuitCatchSession,
     )
-    from django.db.models import Q
     from fursuits.models import Fursuit
     from profiles.models import PlayerProfile
     from rehearsal import baseline

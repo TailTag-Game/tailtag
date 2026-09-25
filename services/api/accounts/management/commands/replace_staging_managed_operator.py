@@ -21,6 +21,10 @@ from django.db import DatabaseError, connection, transaction
 from accounts.models import User
 from catches.models import Catch
 from config import build_identity
+from config.replacement_target_binding import (
+    TargetBindingError,
+    validate_runtime_target,
+)
 from conventions.models import ConventionEnrollment
 from fursuits.models import Fursuit
 from operator_audit.models import OperatorAuditEvent
@@ -35,11 +39,6 @@ LIMITED_PERMISSION_NAMES = frozenset(
     {"profiles.set_profile_enabled", "profiles.view_playerprofile"}
 )
 _IDENTIFIER = re.compile(r"staging_managed_[a-z0-9_]{1,64}\Z", re.ASCII)
-_RAILWAY_SELECTORS = {
-    "RAILWAY_PROJECT_ID": "85324de4-be6a-49c3-a3f9-6cac13877849",
-    "RAILWAY_ENVIRONMENT_ID": "5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e",
-    "RAILWAY_SERVICE_ID": "2247da27-97df-4d5d-b1dc-d21eeb7901d9",
-}
 _MAX_AUDIT_ROWS = 10_000
 
 
@@ -323,15 +322,12 @@ class Command(BaseCommand):
             or not isinstance(identity.get("deployment_id"), str)
             or os.environ.get("RAILWAY_ENVIRONMENT_NAME") != "staging"
             or os.environ.get("RAILWAY_SERVICE_NAME") != "api"
-            or any(
-                os.environ.get(key) != value
-                for key, value in _RAILWAY_SELECTORS.items()
-            )
         ):
             return False
         try:
+            validate_runtime_target(os.environ)
             return build_identity.get_identity() == identity
-        except (ValueError, OSError):
+        except (TargetBindingError, ValueError, OSError):
             return False
 
     @staticmethod

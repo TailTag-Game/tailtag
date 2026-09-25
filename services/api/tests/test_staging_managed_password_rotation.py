@@ -28,8 +28,9 @@ from tests.test_staging_managed_operator_recovery import (
     MANAGED_PERMISSIONS,
     OLD_IDENTIFIER,
     OLD_PASSWORD,
-    RAILWAY_SELECTORS,
+    REPLACEMENT_SELECTORS,
     group_state,
+    pin_replacement_runtime,
     seed_roles,
     state,
 )
@@ -81,7 +82,8 @@ def invoke(
     monkeypatch.setattr("builtins.input", lambda _prompt="": confirmation)
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", environment)
     monkeypatch.setenv("RAILWAY_SERVICE_NAME", service)
-    for key, value in RAILWAY_SELECTORS.items():
+    pin_replacement_runtime(monkeypatch)
+    for key, value in REPLACEMENT_SELECTORS.items():
         monkeypatch.setenv(key, value)
     from config import build_identity
 
