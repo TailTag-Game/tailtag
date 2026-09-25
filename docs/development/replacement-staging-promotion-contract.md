@@ -29,6 +29,11 @@ promotion receipts remain historical.
    exact-SHA push workflow), one submission, durable safe S/D checkpoint,
    migration/startup/readiness checks, exact-instance identity, canonical HTTP
    smoke, final active-set proof, and fail-closed no-retry behavior.
+   On the replacement generation, the required configured pre-deploy command
+   is exactly `python -m config.replacement_migrate`, as approved by the
+   [replacement API launch contract](../specs/2026-09-24-replacement-api-launch.md).
+   The retired generation's direct `manage.py migrate` command is historical
+   and must fail replacement promotion preflight.
 5. Preserve GitHub and Railway identity gates and sanitized evidence. No raw
    manifest contents, provider response, database URL, secret, or private
    target identifier enters the receipt or an error message.

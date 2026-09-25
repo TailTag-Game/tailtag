@@ -126,6 +126,12 @@ mismatched. It does not accept target selectors from arguments or environment
 variables. The retired-generation receipts below cannot authorize a new
 replacement deployment.
 
+The replacement API uses the guarded
+`python -m config.replacement_migrate` Railway pre-deploy command established
+by the [replacement launch contract](../specs/2026-09-24-replacement-api-launch.md).
+The retired direct `manage.py migrate` command is not a valid replacement
+pre-deploy setting. A mismatch stops promotion before submission.
+
 From the repository root, with existing locked dependencies installed:
 
 ```bash

@@ -812,3 +812,31 @@ inspections remain point-in-time evidence only.
 The decision to plan a clean-slate replacement preserves this attempt as
 historical Staging evidence. It does not turn any #205 case into a PASS or
 erase the outstanding limited-role cleanup obligation on the old stack.
+
+## Replacement promotion preflight blocked — 2026-09-25
+
+After #248 merged, a read-only promotion configuration preflight stopped
+before any deployment submission with fixed result
+`staging configuration invalid`. The exact attempt timestamps were not
+retained. The fresh credential-free canonical preflight reported
+`environment=staging`, source
+`fc1376e9b4387cb46e37ef3f60191b2ce7f06c68`, and deployment
+`c34c45bb-6eb8-488d-8114-d1dd931cf25e`; the approved replacement
+receipt and exact active-instance check passed. Approved GitHub and Railway
+identity checks and replacement target pins also passed.
+
+A subsequent separately authorized, sanitized read-only comparison found
+the service binding, environment binding, repository source, null image
+source, and readiness path all `PASS`; only the promotion script's
+pre-deploy-command comparison was `MISMATCH`. A focused equality check
+confirmed the live setting was the approved replacement
+`python -m config.replacement_migrate` wrapper. The promoter still expected
+the retired direct Django migration command. This is a repository tooling
+contract mismatch, not evidence that the Staging migration configuration
+drifted. No raw provider configuration was retained.
+
+No promotion submission, #205 matrix case, #204 reset, operator provisioning,
+or Staging mutation occurred. Cases 1–9 remain `NOT_EXERCISED` on the
+replacement generation. This preflight result remains historical; a corrected
+promoter requires its own reviewed repository change and fresh target gates
+before any later live attempt.
