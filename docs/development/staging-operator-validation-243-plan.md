@@ -1,7 +1,7 @@
 # #243 operator evidence recovery and bounded validation proposal
 
-Status: **replacement-generation #204 sentinel absent and ordinary identity
-prerequisite incomplete; matrix not started**.
+Status: **replacement-generation ordinary identity prerequisite established;
+#204 sentinel/media still absent; matrix not started**.
 The old-generation
 [bounded read-only result](staging-operator-validation-243-execution-attempts.md)
 substantiated the old managed and limited roles only; it found no limited-role
@@ -21,6 +21,11 @@ exact-instance identity joined; a read-only inspector then returned
 read-only prerequisite check established matching API/PostgreSQL service
 binding, one ordinary Clerk-bound TailTag User, and no #204 registry row.
 These are point-in-time facts, not a completed baseline or operator result.
+The later [bounded identity preparation and independent read-only
+postcondition](staging-operator-validation-243-execution-attempts.md#replacement-ordinary-identity-preparation--2026-09-25)
+established the two exact approved ordinary User bindings. The designated
+replacement media bucket remained empty, and no reset sentinel, baseline,
+operator role, or matrix case was established by that step.
 The [dedicated limited-role contract](staging-operator-validation-243-limited-role.md)
 remains authoritative; the previously established role states belonged to the
 old generation and do not establish replacement roles. Fresh replacement role

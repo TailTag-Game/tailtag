@@ -867,3 +867,45 @@ the state of the managed, limited, or emergency roles, the designated media,
 or the rest of the #204 fixture baseline. No sentinel provision, reset,
 operator change, or #205 matrix action occurred. Cases 1–9 remain
 `NOT_EXERCISED`; the exclusive window remains held pending prerequisite work.
+
+## Replacement ordinary identity preparation — 2026-09-25
+
+Window: approximately 12:54–14:09 UTC. The approved replacement Staging
+Clerk application initially had one synthetic account. A second, separately
+designated synthetic catcher account was created through the Clerk form; the
+maintainer entered its password and new-device code privately. Its signed-in
+account page was observed without retaining an identifier or credential.
+
+Before the normal API call, approved GitHub and Railway identities passed,
+canonical credential-free preflight observed `environment=staging`, source
+`99e6466e1bd5432025c085134e72c2c46eb92dbc`, and deployment
+`2adc748c-ee54-4446-958c-f49a384925be`, matching the approved promotion
+receipt. The reviewed exact-instance inspector returned
+`FAIL_FIXTURE_MISSING` with `target_verified=true`, as expected while the
+#204 sentinel is absent. A one-use, independently reviewed client compared
+the normal session token's subject with the separately copied subject from
+the signed-in catcher session before sending one authenticated `/api/me/`
+request. Its fixed result was `PASS_CATCHER_API_AUTH`; that line alone was
+not treated as proof of the database binding. The token and subject were
+transferred through hidden TTY prompts with clipboard clearing and were not
+retained.
+
+A separate independently reviewed exact-instance reconciliation reran the
+identity, receipt, active-instance and public preflight guards. In one
+repeatable-read, read-only database transaction, it required exactly two
+distinct ordinary, non-staff, non-superuser Users bound to the exact privately
+supplied approved owner and catcher subjects, with unusable local passwords
+and no group or direct-user permissions; it also required the #204 registry
+to remain absent. Its maintainer-reported fixed result was `PASS`. A prior
+read-only binding check on the same replacement generation established that
+the API was attached to the approved PostgreSQL service; this identity
+postcondition does not independently re-prove the database name or cluster
+identifier needed before #204 provision.
+
+The replacement Staging R2 bucket was separately observed empty. Thus
+designated media and the new private #204 reset configuration remain missing;
+sentinel provisioning, reset/reseed, operator-role checks, and cases 1–9 were
+not run. This preparation created the designated Clerk account and invoked
+its normal TailTag User resolution once. It did not invoke a #204 fixture,
+operator, audit, or gameplay action; those domain tables were not independently
+reread in this postcondition. The exclusive Staging window remains held.

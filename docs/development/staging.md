@@ -426,18 +426,27 @@ Keep the new expected configuration separately at
 `~/.config/tailtag/staging-reset-replacement.env` (file mode `0600`, parent
 directory mode `0700`); the replacement-bound launchers use only that default.
 Do not copy the retired file or its sentinel values into this path.
-The database-fact prerequisite query for the replacement did not return a
-classification, so its current database binding and reset baseline remain
-unproven.
+The first database-fact prerequisite query for the replacement did not return
+a classification. A later guarded readback established the API/PostgreSQL
+service binding, but the private expected database name and cluster identifier
+still require fresh reconciliation before sentinel provisioning; the reset
+baseline remains unproven.
+The later [#243 replacement prerequisite record](staging-operator-validation-243-execution-attempts.md#replacement-ordinary-identity-preparation--2026-09-25)
+establishes the two exact ordinary Clerk-bound User identities through one
+normal authenticated API call and a separate read-only exact-instance
+postcondition. That result does not establish the designated media, new
+private reset configuration, sentinel, or baseline. The replacement media
+bucket was observed empty at the read-only bucket inventory.
 
 The replacement-target SSH reset path and its separately confirmed, sentinel-only
 `api-staging-reset-provision-ssh` mode have passed local tests and independent
 security review on the #243 branch. They have **not** established a replacement
-sentinel or baseline in live Staging. First establish the two distinct ordinary
-Clerk-bound Users, readable designated media, owner-only new reset configuration,
-actual database binding, empty registry schema, exact deployed source and
-exclusive operation window. Then use the reviewed replacement-bound SSH provision
-mode once, reconcile the persisted sentinel against private configuration and
+sentinel or baseline in live Staging. Preserve and freshly verify the two
+established ordinary Clerk-bound Users. Establish readable designated media,
+owner-only new reset configuration, actual database binding, empty registry
+schema, exact deployed source and exclusive operation window. Then use the
+reviewed replacement-bound SSH provision mode once, reconcile the persisted
+sentinel against private configuration and
 actual connected database, and use the guarded SSH reset mode to build the
 baseline. Any uncertain provision result requires a fresh read-only reconciliation;
 do not retry it blindly. The native `api-staging-reset-provision` command assumes
