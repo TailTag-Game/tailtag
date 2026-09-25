@@ -19,6 +19,7 @@ FROZEN_ROOT_HELPERS = frozenset(
         "scripts/api_staging_managed_password_rotate_ssh.py",
         "scripts/api_staging_operator_inspect_ssh.py",
         "scripts/api_staging_operator_lifecycle_ssh.py",
+        "scripts/api_staging_operator_restart_ssh.py",
         "scripts/api_staging_registry_reconcile.py",
         "scripts/api_staging_registry_reconcile_remote.py",
         "scripts/api_staging_operator_matrix.py",

@@ -949,9 +949,9 @@ def test_wrong_managed_password_stops_before_case_submission(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "drift", ("group", "direct_permission", "second_retained_actor")
+    "drift", ("group", "direct_permission", "abnormal_retained_actor")
 )
-def test_synthetic_emergency_authentication_refuses_inexact_singleton_before_http(
+def test_synthetic_emergency_authentication_refuses_inexact_role_before_http(
     matrix: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     drift: str,
@@ -971,7 +971,9 @@ def test_synthetic_emergency_authentication_refuses_inexact_singleton_before_htt
             )
         )
     else:
-        User.objects.create_user("staging_emergency_retained_matrix_243")
+        retired = User.objects.create_user("staging_emergency_retained_matrix_243")
+        retired.is_staff = True
+        retired.save(update_fields={"is_staff"})
 
     def account_states() -> dict[int, tuple[str, bool, bool, str]]:
         return {
@@ -1064,6 +1066,58 @@ def test_exact_emergency_actor_can_reach_admin_login_http(
         if identifier.startswith("staging_emergency_")
         else ["emergency admin identifier: ", "emergency admin password: "]
     )
+    assert OperatorAuditEvent.objects.count() == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("retired_state", ("exact", "staff", "third_row"))
+def test_emergency_login_selects_sole_active_actor_with_retained_predecessor(
+    matrix: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    retired_state: str,
+) -> None:
+    """Restart AC-5: only an exact retired predecessor permits active Case-5 login."""
+    identity = create_owned_baseline()
+    sessions = role_sessions(identity)
+    active = User.objects.get(pk=sessions["emergency"]["actor_id"])
+    active.clerk_user_id = "staging_emergency_active_matrix_243"
+    active.save(update_fields={"clerk_user_id"})
+    retired = User.objects.create_user("staging_emergency_retired_matrix_243")
+    if retired_state == "staff":
+        retired.is_staff = True
+        retired.save(update_fields={"is_staff"})
+    elif retired_state == "third_row":
+        User.objects.create_user("staging_emergency_third_matrix_243")
+    prompts: list[str] = []
+    requests: list[tuple[str, str]] = []
+    monkeypatch.setattr(sys, "stdin", HiddenInputTerminal())
+    monkeypatch.setattr(sys, "stdout", HiddenInputTerminal())
+    monkeypatch.setattr(matrix, "_guard_target", accept_target)
+    monkeypatch.setattr(matrix, "_active_identity", IDENTITY)
+
+    def hidden(prompt: str = "") -> str:
+        prompts.append(prompt)
+        return "local-only-emergency-test-password"
+
+    class LoginReached(Exception):
+        pass
+
+    def observe_http(method: str, path: str, **_kwargs: object) -> NoReturn:
+        requests.append((method, path))
+        raise LoginReached
+
+    monkeypatch.setattr(getpass, "getpass", hidden)
+    monkeypatch.setattr(matrix, "_http_request", observe_http)
+
+    if retired_state == "exact":
+        with pytest.raises(LoginReached):
+            matrix._authenticate("emergency")
+        assert requests == [("GET", "/admin/login/")]
+        assert prompts == ["emergency admin password: "]
+    else:
+        with pytest.raises(ValueError):
+            matrix._authenticate("emergency")
+        assert requests == []
     assert OperatorAuditEvent.objects.count() == 0
 
 

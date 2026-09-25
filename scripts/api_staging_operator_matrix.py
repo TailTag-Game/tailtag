@@ -256,12 +256,15 @@ def _authenticate(role: str) -> dict[str, Any]:
         identifier = operator.clerk_user_id
     elif role == "emergency":
         dedicated = list(
-            User.objects.filter(clerk_user_id__startswith="staging_emergency_")[:2]
+            User.objects.filter(clerk_user_id__startswith="staging_emergency_")[:3]
         )
         if dedicated:
-            if len(dedicated) != 1 or inspect_emergency_state() != "READY":
+            if len(dedicated) not in {1, 2} or inspect_emergency_state() != "READY":
                 raise ValueError
-            operator = dedicated[0]
+            active = [candidate for candidate in dedicated if candidate.is_superuser]
+            if len(active) != 1:
+                raise ValueError
+            operator = active[0]
             pinned = (
                 operator.pk,
                 operator.clerk_user_id,
@@ -299,11 +302,14 @@ def _authenticate(role: str) -> dict[str, Any]:
             if pinned is None or inspect_emergency_state() != "READY":
                 raise ValueError
             current = list(
-                User.objects.filter(clerk_user_id__startswith="staging_emergency_")[:2]
+                User.objects.filter(clerk_user_id__startswith="staging_emergency_")[:3]
             )
-            if len(current) != 1:
+            if len(current) not in {1, 2}:
                 raise ValueError
-            operator = current[0]
+            active = [candidate for candidate in current if candidate.is_superuser]
+            if len(active) != 1:
+                raise ValueError
+            operator = active[0]
             if (
                 operator.pk,
                 operator.clerk_user_id,

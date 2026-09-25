@@ -1,5 +1,10 @@
 # #243 dedicated limited validation operator
 
+The later owner-approved [three-operator restart](staging-operator-validation-243-operator-restart.md)
+adds one atomic transfer from the current limited actor to a newly generated
+limited actor while retaining the old User row. The standalone lifecycle rules
+below do not authorize deleting or reactivating the retired predecessor.
+
 Status: lifecycle command, exact-role inspector and interactive lifecycle
 transport implemented and independently reviewed; the matrix and launcher
 now also pass independent review after the explicit evidence-mode amendment. This

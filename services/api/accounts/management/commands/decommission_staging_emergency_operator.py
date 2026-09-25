@@ -17,6 +17,7 @@ from accounts.management.commands.bootstrap_staging_emergency_operator import (
     _IDENTIFIER,  # pyright: ignore[reportPrivateUsage]
     _has_forbidden_attachment,  # pyright: ignore[reportPrivateUsage]
     _require_database_binding,  # pyright: ignore[reportPrivateUsage]
+    inspect_emergency_state,
 )
 from accounts.models import User
 from config.replacement_target_binding import (
@@ -68,6 +69,8 @@ class Command(BaseCommand):
                     app_label="accounts", model="user"
                 )
                 _require_database_binding()
+                if inspect_emergency_state() != "READY":
+                    raise CommandError("Emergency operator state is unavailable.")
                 candidates = list(
                     User.objects.select_for_update().filter(is_superuser=True)[:2]
                 )

@@ -2,6 +2,12 @@
 
 Status: **replacement-generation #204 baseline and exact managed, limited,
 and emergency operators established; bounded matrix not started**.
+The later emergency password diagnosis stopped before Case 1. The owner has
+authorized a [guarded three-operator restart](staging-operator-validation-243-operator-restart.md)
+with generated local usernames and password-only hidden prompts. That restart
+is a prerequisite amendment; it does not add a matrix case or widen the two
+approved domain transitions. Its compatible lifecycle code must be reviewed,
+merged and promoted before any restart mutation.
 The old-generation
 [bounded read-only result](staging-operator-validation-243-execution-attempts.md)
 substantiated the old managed and limited roles only; it found no limited-role

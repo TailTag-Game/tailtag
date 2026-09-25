@@ -926,7 +926,7 @@ def test_read_only_emergency_state_recognizes_exact_retained_decommissioned_acto
         "group",
         "direct_permission",
         "attachment",
-        "multiple",
+        "third_retired",
     ),
 )
 def test_read_only_emergency_state_rejects_inexact_retained_actor(
@@ -960,6 +960,11 @@ def test_read_only_emergency_state_rejects_inexact_retained_actor(
         second.is_superuser = False
         second.set_unusable_password()
         second.save(update_fields={"is_staff", "is_superuser", "password"})
+        third = _make_emergency("staging_emergency_third_243")
+        third.is_staff = False
+        third.is_superuser = False
+        third.set_unusable_password()
+        third.save(update_fields={"is_staff", "is_superuser", "password"})
     before = {row.pk: _state(row) for row in User.objects.all()}
 
     assert _inspect_emergency_state() == "MISMATCH"
@@ -1169,6 +1174,45 @@ def test_emergency_decommission_revokes_access_and_preserves_actor_audit(
     assert len(prompts) == 1
     assert prompts[0].startswith("Confirmation")
     _assert_private(stdout, stderr, None, caplog, IDENTIFIER, PASSWORD)
+
+
+@pytest.mark.django_db
+def test_decommission_preserves_retired_predecessor_and_reaches_two_row_final_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Restart AC-5: final cleanup retires the active actor, retaining both audit links."""
+    _pin_test_target(monkeypatch)
+    _set_target(monkeypatch)
+    _install_registry()
+    old = _make_emergency("staging_emergency_prior_243")
+    old.is_staff = False
+    old.is_superuser = False
+    old.set_unusable_password()
+    old.save(update_fields={"is_staff", "is_superuser", "password"})
+    active = _make_emergency("staging_emergency_current_243")
+    old_audit = _make_emergency_audit(old)
+    active_audit = _make_emergency_audit(active)
+    before_audit = {
+        row.pk: OperatorAuditEvent.objects.filter(pk=row.pk).values().get()
+        for row in (old_audit, active_audit)
+    }
+
+    stdout, stderr, _ = _invoke_decommission(monkeypatch)
+
+    for actor in (old, active):
+        actor.refresh_from_db()
+        assert not actor.is_staff
+        assert not cast(bool, actor.is_superuser)  # pyright: ignore[reportUnknownMemberType]
+        assert not actor.has_usable_password()
+        assert not actor.groups.exists()  # pyright: ignore[reportUnknownMemberType]
+        assert not actor.user_permissions.exists()  # pyright: ignore[reportUnknownMemberType]
+    assert _inspect_emergency_state() == "DECOMMISSIONED"
+    assert {
+        row.pk: OperatorAuditEvent.objects.filter(pk=row.pk).values().get()
+        for row in (old_audit, active_audit)
+    } == before_audit
+    assert stdout.getvalue() == DECOMMISSION_SUCCESS
+    assert stderr.getvalue() == ""
 
 
 @pytest.mark.django_db
