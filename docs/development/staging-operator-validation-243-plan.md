@@ -1,7 +1,7 @@
 # #243 operator evidence recovery and bounded validation proposal
 
-Status: **replacement-generation baseline and operator prerequisites unproven;
-matrix not started**.
+Status: **replacement-generation #204 sentinel absent and ordinary identity
+prerequisite incomplete; matrix not started**.
 The old-generation
 [bounded read-only result](staging-operator-validation-243-execution-attempts.md)
 substantiated the old managed and limited roles only; it found no limited-role
@@ -14,7 +14,13 @@ for source `fc1376e9b4387cb46e37ef3f60191b2ce7f06c68` and deployment
 did not return database facts. It did not inspect the #204 sentinel/fixtures or
 operators, and it performed no matrix action or mutation. Thus replacement
 database binding, #204 baseline, and managed/limited/emergency operator state
-remain unknown.
+were unknown at that observation. A later [single guarded promotion](staging-deployments/2adc748c-ee54-4446-958c-f49a384925be.json)
+served source `99e6466e1bd5432025c085134e72c2c46eb92dbc`. Fresh public and
+exact-instance identity joined; a read-only inspector then returned
+`FAIL_FIXTURE_MISSING` before reaching either operator role. A separate bounded
+read-only prerequisite check established matching API/PostgreSQL service
+binding, one ordinary Clerk-bound TailTag User, and no #204 registry row.
+These are point-in-time facts, not a completed baseline or operator result.
 The [dedicated limited-role contract](staging-operator-validation-243-limited-role.md)
 remains authoritative; the previously established role states belonged to the
 old generation and do not establish replacement roles. Fresh replacement role

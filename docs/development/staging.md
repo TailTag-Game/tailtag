@@ -34,6 +34,13 @@ roles, or restore state. The subsequent
 did not establish database facts; #204 sentinel, fixtures, operator inspection,
 and #243 cases 1–9 remain unverified on this generation.
 
+The later [single guarded promotion receipt](staging-deployments/2adc748c-ee54-4446-958c-f49a384925be.json)
+records source `99e6466e1bd5432025c085134e72c2c46eb92dbc` and deployment
+`2adc748c-ee54-4446-958c-f49a384925be` as `SUCCEEDED` and `ACTIVE` on
+2026-09-25. Fresh canonical public and exact-instance readback matched that
+tuple afterward. This receipt supersedes the handoff receipt for current
+deployment identification; it does not establish #204 or #243 readiness.
+
 **Command boundary:** use the #202 promotion command below only from a reviewed
 repository revision that includes the [replacement target binding
 contract](replacement-staging-promotion-contract.md). It loads the owner-only

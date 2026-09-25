@@ -840,3 +840,30 @@ or Staging mutation occurred. Cases 1–9 remain `NOT_EXERCISED` on the
 replacement generation. This preflight result remains historical; a corrected
 promoter requires its own reviewed repository change and fresh target gates
 before any later live attempt.
+
+## Replacement promotion and prerequisite readback — 2026-09-25
+
+The reviewed #202 promoter on merged `main` submitted one eligible accepted
+source, `99e6466e1bd5432025c085134e72c2c46eb92dbc`, after approved
+GitHub/Railway identity, canonical public target, replacement pins, approved
+handoff receipt, exact running-instance readback, guarded migration-command
+configuration, disabled autodeploy, and an exclusive operator window passed.
+The exact-SHA successful push workflow was run `36095037272`, attempt 1.
+The sanitized [deployment receipt](staging-deployments/2adc748c-ee54-4446-958c-f49a384925be.json)
+records deployment `2adc748c-ee54-4446-958c-f49a384925be` as `SUCCEEDED`
+and `ACTIVE`, including migration, startup, readiness, identity, and public
+smoke. Fresh canonical public and exact-instance readback then agreed on
+`environment=staging` and the same source/deployment tuple. No second
+promotion submission occurred.
+
+The fresh replacement operator inspector returned `FAIL_FIXTURE_MISSING`
+with exact-instance target verification `true`; it stopped before managed or
+limited operator checks. A bounded separate read-only check on that same
+current target established API/PostgreSQL service binding `PASS`, #204 reset
+registry `MISSING`, and ordinary Clerk-bound TailTag User count category `ONE`.
+The independently retained private replacement reset configuration was also
+absent at the local ownership/mode check. These observations do not establish
+the state of the managed, limited, or emergency roles, the designated media,
+or the rest of the #204 fixture baseline. No sentinel provision, reset,
+operator change, or #205 matrix action occurred. Cases 1–9 remain
+`NOT_EXERCISED`; the exclusive window remains held pending prerequisite work.
