@@ -49,16 +49,16 @@ def development_event() -> dict[str, object]:
     return {
         "deployment": {
             "id": 123,
-            "environment": "TailTag Rebuild / development",
+            "environment": "TailTag / development",
             "creator": {"login": "railway-app[bot]"},
             "sha": SOURCE_SHA,
-            "ref": "main",
+            "ref": SOURCE_SHA,
             "payload": {"environmentId": DEVELOPMENT},
         },
         "deployment_status": {
             "id": 456,
             "state": "success",
-            "environment": "TailTag Rebuild / development",
+            "environment": "TailTag / development",
             "creator": {"login": "railway-app[bot]"},
             "target_url": railway_link(),
             "environment_url": railway_link(),
@@ -106,10 +106,10 @@ def run_classifier(
         json.dumps(
             {
                 "deployment": {
-                    "environment": "TailTag Rebuild / development",
+                    "environment": "TailTag / development",
                     "creator": {"login": "railway-app[bot]"},
                     "sha": deployment_sha,
-                    "ref": "main",
+                    "ref": deployment_sha,
                 },
                 "deployment_status": {"state": "success"},
             }
@@ -180,13 +180,23 @@ def test_matching_replacement_event_returns_only_canonical_source_sha(
     )
 
 
+def test_matching_replacement_event_allows_main_ref(
+    delivery_event: ModuleType, monkeypatch: MonkeyPatch
+) -> None:
+    """A branch ref remains eligible when all pinned bindings also match."""
+    install_event_pin(delivery_event, monkeypatch)
+    event = development_event()
+    event_field(event, "deployment.ref", "main")
+    assert delivery_event.classify_development_deployment_event(event) == SOURCE_SHA
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     (
-        ("deployment.environment", "TailTag / development"),
+        ("deployment.environment", "TailTag Rebuild / development"),
         ("deployment.creator.login", "someone-else"),
         ("deployment_status.creator.login", "someone-else"),
-        ("deployment_status.environment", "TailTag / development"),
+        ("deployment_status.environment", "TailTag Rebuild / development"),
         ("deployment.ref", "feature"),
         ("deployment.sha", "A" * 40),
         ("deployment.sha", "a" * 39),
