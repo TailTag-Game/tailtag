@@ -42,8 +42,9 @@ OLD_PROJECT: Final = "66666666-6666-4666-8666-666666666666"
 CANDIDATE_HOST: Final = "synthetic-api.up.railway.app"
 OTHER_HOST: Final = "other-api.up.railway.app"
 CANDIDATE_ORIGIN: Final = f"https://{CANDIDATE_HOST}"
-DEVELOPMENT_HOST: Final = "synthetic-development-api.up.railway.app"
+DEVELOPMENT_HOST: Final = "dev.tailtag.app"
 DEVELOPMENT_ORIGIN: Final = f"https://{DEVELOPMENT_HOST}"
+RAILWAY_DEVELOPMENT_HOST_EXAMPLE: Final = "synthetic-development-api.up.railway.app"
 DEVELOPMENT_CLERK_PORTAL_ORIGIN: Final = "https://holy-lioness-3896.accounts.dev"
 DEVELOPMENT_CLERK_PORTAL_DIGEST: Final = (
     "3cde8d9faf99b1089cc040f1db5342845a83120fea890634a3ad0ec85c9c4179"
@@ -589,6 +590,19 @@ def test_development_host_fingerprint_uses_independent_reviewed_framing() -> Non
     assert _development_digest(DEVELOPMENT_HOST) != _candidate_digest(DEVELOPMENT_HOST)
 
 
+def test_code_owned_development_pin_selects_only_new_api_origin() -> None:
+    """The production pin accepts the canonical host and denies a Railway host."""
+    assert (
+        replacement_target_binding.pinned_development_candidate_origin(DEVELOPMENT_HOST)
+        == DEVELOPMENT_ORIGIN
+    )
+    _assert_binding_denied(
+        lambda: replacement_target_binding.pinned_development_candidate_origin(
+            RAILWAY_DEVELOPMENT_HOST_EXAMPLE
+        )
+    )
+
+
 def test_development_clerk_portal_origin_uses_exact_code_owned_pin() -> None:
     """The hosted Development Clerk party is bound to its reviewed framing."""
     assert (
@@ -636,12 +650,12 @@ def test_development_clerk_portal_pin_rejects_alternate_origins(origin: str) -> 
         None,
         "",
         OTHER_HOST,
-        "http://synthetic-development-api.up.railway.app",
-        "synthetic-development-api.up.railway.app:443",
-        "synthetic-development-api.up.railway.app/path",
-        "SYNTHETIC-development-api.up.railway.app",
-        " synthetic-development-api.up.railway.app",
-        "synthetic-development-api.up.railway.app.",
+        "http://dev.tailtag.app",
+        "dev.tailtag.app:443",
+        "dev.tailtag.app/path",
+        "DEV.tailtag.app",
+        " dev.tailtag.app",
+        "dev.tailtag.app.",
         "localhost",
     ),
 )
@@ -737,13 +751,14 @@ def test_manual_development_preflight_checks_current_health_without_event_attrib
     (
         None,
         "",
-        "http://synthetic-development-api.up.railway.app",
+        "http://dev.tailtag.app",
         DEVELOPMENT_ORIGIN + "/",
         DEVELOPMENT_ORIGIN + ":443",
         DEVELOPMENT_ORIGIN + "/path",
         DEVELOPMENT_ORIGIN + "?environmentId=other",
         DEVELOPMENT_ORIGIN + "#fragment",
-        "https://user@synthetic-development-api.up.railway.app",
+        "https://user@dev.tailtag.app",
+        f"https://{RAILWAY_DEVELOPMENT_HOST_EXAMPLE}",
         "https://other-api.up.railway.app",
     ),
 )
