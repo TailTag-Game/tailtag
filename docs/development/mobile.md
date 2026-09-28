@@ -92,7 +92,7 @@ The configuration selects the API, rather than using flavors or schemes:
 | Environment | Approved backend API root |
 | --- | --- |
 | Local | `http://127.0.0.1:8000` |
-| Railway Development | `https://api-development-8fa7.up.railway.app` |
+| Railway Development | `https://dev.tailtag.app` |
 
 The Local row names the API on the contributor host; it is not a portable
 device URL. In the standard Android Emulator, `127.0.0.1` is the emulator

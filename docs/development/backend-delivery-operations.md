@@ -29,7 +29,7 @@ Use these exact Railway targets:
 | Environment | `development` |
 | API service | `api` |
 | Database service | `Postgres` |
-| Public API | `https://api-development-8fa7.up.railway.app` |
+| Public API | `https://dev.tailtag.app` |
 
 The shared environment is disposable, non-production infrastructure. It is
 available for integration testing, verification of merged backend behavior,
@@ -403,8 +403,8 @@ or forward-recovery decision.
 | --- | --- |
 | `DATABASE_URL` | `api` uses a Railway reference to `Postgres.DATABASE_URL`. Do not replace it with copied credentials or expose PostgreSQL publicly. |
 | `DJANGO_SECRET_KEY` | Railway-managed secret for the development API. Never copy it into source, documentation, or tickets. |
-| `DJANGO_ALLOWED_HOSTS` | Railway `api` development configuration derived from the Railway development domain and required health-check host. |
-| `DJANGO_CSRF_TRUSTED_ORIGINS` | Railway `api` development configuration derived from the public development origin. |
+| `DJANGO_ALLOWED_HOSTS` | Replacement Development `api` requires exactly `dev.tailtag.app,healthcheck.railway.app`. |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | Replacement Development `api` requires exactly `https://dev.tailtag.app`. |
 | `CLERK_AUTHENTICATION_ENABLED` | TailTag-owned Development authentication switch. The validated Railway Development value is exactly `true`; do not enable it without the two complete verification inputs below. |
 | `CLERK_JWT_KEY` | Clerk Development instance RSA JWKS Public Key used for offline verification. It is not a Clerk secret key, but manage it through Railway's staged variable boundary and do not copy its contents into source, issues, reviews, logs, or chat. |
 | `CLERK_AUTHORIZED_PARTIES` | The old Development generation uses exactly `http://localhost:3000`. The replacement Development generation requires the ordered pair of that synthetic backend-tooling origin and its separately code-pinned hosted Clerk Account Portal origin, as defined by the [replacement amendment](../specs/2026-09-24-replacement-development-portal-auth.md). Stage the new value with `--skip-deploys` before the reviewed source handoff; never add the Railway API destination or an unpinned origin. |

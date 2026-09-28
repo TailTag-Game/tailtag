@@ -33,8 +33,9 @@ REBUILD_STAGING = "33333333-3333-4333-8333-333333333333"
 REBUILD_API = "d4444444-4444-4444-8444-444444444444"
 REBUILD_POSTGRES = "55555555-5555-4555-8555-555555555555"
 OLD_PROJECT = "66666666-6666-4666-8666-666666666666"
-DEVELOPMENT_CANDIDATE_HOST = "synthetic-development-api.up.railway.app"
+DEVELOPMENT_CANDIDATE_HOST = "dev.tailtag.app"
 DEVELOPMENT_CANDIDATE_ORIGIN = f"https://{DEVELOPMENT_CANDIDATE_HOST}"
+RAILWAY_DEVELOPMENT_HOST_EXAMPLE = "synthetic-development-api.up.railway.app"
 DEVELOPMENT_CLERK_PORTAL_ORIGIN = "https://holy-lioness-3896.accounts.dev"
 
 DEPLOYED_MEDIA_CONFIGURATION = S3MediaConfiguration(
@@ -466,6 +467,16 @@ def test_readiness_accepts_complete_replacement_development_profile(
             {},
             {
                 "ALLOWED_HOSTS": [
+                    RAILWAY_DEVELOPMENT_HOST_EXAMPLE,
+                    "healthcheck.railway.app",
+                ],
+                "CSRF_TRUSTED_ORIGINS": [f"https://{RAILWAY_DEVELOPMENT_HOST_EXAMPLE}"],
+            },
+        ),
+        (
+            {},
+            {
+                "ALLOWED_HOSTS": [
                     DEVELOPMENT_CANDIDATE_HOST,
                     "healthcheck.railway.app",
                     "other.invalid",
@@ -518,6 +529,7 @@ def test_readiness_accepts_complete_replacement_development_profile(
         "staging-environment",
         "missing-deployment",
         "staging-host",
+        "railway-development-origin",
         "extra-host",
         "staging-csrf",
         "extra-csrf",
