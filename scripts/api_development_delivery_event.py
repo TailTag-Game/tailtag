@@ -17,7 +17,7 @@ _SHA = re.compile(r"[0-9a-f]{40}")
 _EXPECTED_GENERATION_DIGEST = (
     "28f2adc0fdba2d36145b5c2bff65ab15e15022cf1bf41df50442641a637ea3ae"
 )
-_LABEL = "TailTag Rebuild / development"
+_LABEL = "TailTag / development"
 
 
 def fingerprint_development_generation(project: str, environment: str) -> str:
@@ -79,7 +79,7 @@ def classify_development_deployment_event(event: object) -> str | None:
         not isinstance(sha, str)
         or _SHA.fullmatch(sha) is None
         or deployment.get("environment") != _LABEL
-        or deployment.get("ref") != "main"
+        or deployment.get("ref") not in {"main", sha}
         or _creator_login(deployment.get("creator")) != "railway-app[bot]"
         or set(payload) != {"environmentId"}
         or status.get("state") != "success"
