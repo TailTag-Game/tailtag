@@ -33,13 +33,16 @@ point-in-time public/exact-instance identity only. It is not a fresh assertion
 that the same deployment remains active or evidence of reset, operator, audit,
 restore, promotion, or recovery behavior on the replacement.
 
-The subsequent [replacement prerequisite attempt](staging-replacement-prerequisite-attempt-2026-09-25.md)
+An early [replacement prerequisite attempt](staging-replacement-prerequisite-attempt-2026-09-25.md)
 did not return database facts. It did not inspect #204 state or operators and
-made no Staging mutation. Therefore the replacement #204 baseline and OR-5,
-all nine #243/#205 live cases and OR-6, and a replacement-database restore and
-OR-8 remain unverified. The #202 promotion and #206 recovery commands still
-have old-generation target bindings; their safe use against `TailTag Rebuild`
-is also unverified. Do not invoke old-pinned commands against the replacement.
+made no Staging mutation. At that observation, the replacement #204 baseline
+and OR-5, all nine #243/#205 live cases and OR-6, and a replacement-database
+restore and OR-8 were unverified. The #202 promotion command also still had an
+old-generation target binding. Later [replacement promotion](staging-deployments/2adc748c-ee54-4446-958c-f49a384925be.json)
+and [#204 sentinel/baseline evidence](staging-operator-validation-243-execution-attempts.md#replacement-204-sentinel-and-baseline--2026-09-25)
+supersede those specific point-in-time gaps. This pass reconciles #202 below;
+OR-5, OR-6, and OR-8 await their own final dispositions. Old-pinned commands
+remain invalid against the replacement.
 
 The September 23 matrix below remains the historical NO-GO finding for the
 retired target. A bounded replacement reconciliation must establish current
@@ -48,6 +51,25 @@ review current first-response surfaces, and disposition current-generation
 recovery evidence before any later readiness decision. The compatible Railway
 rollback rehearsal remains owned by [#241](https://github.com/TailTag-Game/tailtag/issues/241)
 and is a non-blocking limitation by itself.
+
+## Replacement current-target reconciliation (2026-09-28; OR-1–OR-4 and OR-7)
+
+This bounded read-only pass updates only the target, configuration, deployment,
+health, and recovery-policy evidence. It does not make a final #208 GO/NO-GO
+decision or change the historical tables below. No promotion, reset, operator
+matrix, restore, rollback, authenticated Clerk smoke, or media smoke ran.
+
+| Outcome | Current replacement evidence | Disposition and exact boundary |
+| --- | --- | --- |
+| OR-1 / #200: isolation and parity | The approved `TailTag Rebuild` target and [replacement parity readback](staging.md#2026-09-28-replacement-parity-readback) identify distinct Development/Staging effective database URLs, Django secrets, Clerk verification tuples, bucket names, and credential tuples under pinned replacement selectors. The September 25 #243 prerequisite readback established the Staging API/PostgreSQL binding and designated Staging R2 object. | **PARTIALLY SUBSTANTIATED.** The effective values differ and the intentional-drift record is current. This pass did not collect provider resource-ownership fingerprints. A grouped Clerk or credential comparison does not prove every constituent differs; a separate Clerk-key readback yielded no usable result. Do not relabel the retired-generation ownership proof as replacement proof. |
+| OR-2 / #201: immutable identity | One current credential-free canonical preflight returned `environment=staging`, source `99e6466e1bd5432025c085134e72c2c46eb92dbc`, deployment `2adc748c-ee54-4446-958c-f49a384925be`, matching the [approved exact-SHA replacement promotion receipt](staging-deployments/2adc748c-ee54-4446-958c-f49a384925be.json). | **SUBSTANTIATED for the observed public tuple**, with inherited September 25 exact-instance/image attribution from the receipt. The shared-origin readback is not a fresh image attestation or a promise that the deployment cannot change. |
+| OR-3 / #202: controlled deployment | The same receipt records one accepted exact-SHA promotion with migration, startup, readiness, identity, smoke, and final active-state gates `SUCCEEDED`. [Replacement target binding](replacement-staging-promotion-contract.md) and the corrected guarded pre-deploy command are in the merged baseline. | **SUBSTANTIATED for the completed promotion.** The current public tuple matches its D; no second promotion was needed. The receipt remains a point-in-time exact-D result. |
+| OR-4 / #203: health and target safety | The current repository-owned canonical preflight passed and returned the tuple above. It requires live, ready, and stable Staging identity at the exact approved origin; its negative-target and dependency-failure behavior retain deterministic #203 proof. | **SUBSTANTIATED for the current positive preflight and inherited contract.** No live dependency outage or negative-target traffic was induced. |
+| OR-7 / #206: migration and application recovery | The [approved compatibility policy](../specs/2026-09-22-v0-migration-application-rollback.md) and [Staging recovery procedure](staging.md#migration-and-application-image-recovery-206) remain the rule: positively prove old-code compatibility with actual schema and persisted state or fix forward. The September 25 replacement promotion passed its guarded migration gate. | **POLICY SUBSTANTIATED; current rollback pair unproven.** The retired-generation candidate's NO-GO does not decide a replacement pair. The naturally compatible live rehearsal remains [#241](https://github.com/TailTag-Game/tailtag/issues/241) and is not a #208 blocker by itself. |
+
+The remaining #208 decision still depends on replacement OR-5/OR-6/OR-8
+evidence and the nine first-response reviews. OR-1's provider ownership
+boundary above must be resolved or explicitly dispositioned before a final GO.
 
 **Verification classes.** *Inherited exercise* checks durable completed live
 evidence, present applicability, and material drift without repeating an

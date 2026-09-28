@@ -886,13 +886,69 @@ tuple; tuple inequality does **not** prove that every individual field differs.
 Use the independent owned-resource identities, scope review, and successful
 bounded checks as complementary evidence.
 
+## 2026-09-28 replacement parity readback
+
+This is a point-in-time, read-only comparison for `TailTag Rebuild` /
+`development` and `staging`. The repository-pinned replacement project selectors
+and approved Railway identity passed before the existing
+`api_environment_fingerprint.py` helper ran against each `api` configuration.
+The helper emitted only short, one-way fingerprints. All five approved groups
+were different:
+
+| Effective configuration group | Development | Staging | Result |
+| --- | --- | --- | --- |
+| Database URL | `a70514d7f0d89fc4` | `8fd03c48623fd8f7` | DIFFER |
+| Django secret | `0b1a74f19516074a` | `801e9055b74d381b` | DIFFER |
+| Clerk verification key and authorized parties | `0810af6281c98c9d` | `b8faad750558e6d7` | DIFFER |
+| Media bucket name | `a750eecf47ff92d9` | `b95c8d61f8b9386a` | DIFFER |
+| Media credential pair | `2bd4737fdf60c2d8` | `7dbd16c08d745956` | DIFFER |
+
+The canonical credential-free preflight also returned `environment=staging`,
+source `99e6466e1bd5432025c085134e72c2c46eb92dbc`, and deployment
+`2adc748c-ee54-4446-958c-f49a384925be`, matching the approved replacement
+[promotion receipt](staging-deployments/2adc748c-ee54-4446-958c-f49a384925be.json).
+That receipt retains the exact-instance image join and successful promotion
+gates from September 25; the public preflight is a current shared-origin
+observation, not a fresh image attestation.
+
+These comparisons establish distinct effective configuration values for the
+database URL, Django secret, and bucket name. A grouped result does not prove
+that each Clerk or credential field differs individually. A separate normalized
+Clerk public-key readback returned no usable sanitized result, so no key-level
+comparison is claimed. This pass did not collect provider resource-ownership
+fingerprints, authenticated Clerk or media smoke, or a Staging mutation. The
+replacement [launch contract](../specs/2026-09-24-replacement-api-launch.md)
+and the [current target boundary](#supported-target-and-boundary) identify the
+intended distinct PostgreSQL, Clerk, and R2 resources; this configuration
+readback alone does not prove their provider ownership.
+
+The maintained intentional-drift record for the replacement is:
+
+| Concern | Development | Staging | Future Production |
+| --- | --- | --- | --- |
+| Purpose and data | Mutable contributor/integration work with synthetic data | Controlled rehearsal with synthetic data | No environment or data exists |
+| Railway | `TailTag Rebuild/development` with its own PostgreSQL environment and volume | `TailTag Rebuild/staging` with its own PostgreSQL environment and volume | Not established |
+| Delivery | Normal Development delivery path | Exact-SHA controlled promotion; automatic Staging delivery disabled | Not established |
+| Authentication | Development Clerk application and authorized origins | Dedicated `TailTag Staging Replacement` application and Staging origins | Not established |
+| Media | Development private R2 bucket and scoped credential | Distinct private Staging R2 bucket and scoped credential | Not established |
+| Effective configuration | Development database, secret, Clerk, bucket, and credential groups above | Different values for all five groups above | Not established |
+| Public origin | Development API origin | `https://staging.tailtag.app` | Not established |
+
+The resource-ownership descriptions are the approved replacement target
+contract, not a fresh provider inventory. Reconcile any future configuration
+change against this record without publishing values or private selectors.
+
 ## 2026-09-16 sanitized parity record
+
+The following fingerprint and live-smoke evidence belongs to the retired
+`TailTag` Railway generation. It remains historical and does not establish
+resource isolation or smoke outcomes for `TailTag Rebuild`.
 
 The observed target has successful `api` and `Postgres` deployments, a ready
 5000 MB Staging PostgreSQL volume, disabled Staging autodeploy, canonical HTTPS
 HTTP smoke success, and only `development` and `staging` Railway environments.
-The following is the maintained intentional-parity record; it does not disclose
-private addresses or secrets.
+The following was the retired generation's intentional-parity record; it does
+not disclose private addresses or secrets.
 
 Porkbun is the authoritative DNS provider for `tailtag.app`; the approved
 hostname-scoped Clerk and Railway records were added through verified
