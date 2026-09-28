@@ -13,14 +13,16 @@ and their [#208 evidence matrix](v0-backend-operational-readiness-matrix.md).
 
 ## Supported target and boundary
 
-Use only the replacement Railway target below. The former `TailTag` project is
-the retired generation; its historical receipts remain attributable to that
-generation and do not establish replacement readiness.
+Use only the code-pinned replacement Railway target below. Its temporary
+`TailTag Rebuild` display name was changed to `TailTag`. The retired project
+also used the `TailTag` name, so verify the project ID against the code-owned
+replacement pin; a display name alone cannot select the target. Historical
+retired-project receipts do not establish replacement readiness.
 
 | Item | Value |
 | --- | --- |
 | Workspace | `Finn the Panther's Projects` |
-| Project / environment | `TailTag Rebuild` / `staging` |
+| Project / environment | Replacement project (currently displayed as `TailTag`) / `staging` |
 | Services | `api`, `Postgres` |
 | Canonical public API | `https://staging.tailtag.app` |
 
@@ -46,7 +48,7 @@ repository revision that includes the [replacement target binding
 contract](replacement-staging-promotion-contract.md). It loads the owner-only
 replacement manifest and checks its code-owned pins before provider operations.
 Older revisions with retired-project selectors are historical and must not be
-used against `TailTag Rebuild`. Do not substitute a project ID or reuse old
+used against the replacement project. Do not substitute a project ID or reuse old
 private configuration to make an old command address the replacement.
 
 Staging owns its Railway environment instances, PostgreSQL service and volume,
@@ -355,7 +357,7 @@ so the September 23 #207 GO used a real custom-format `pg_dump` from the former
 `TailTag/staging` Postgres and `pg_restore` into a disposable local PostgreSQL
 18 target. That restore is historical evidence for the retired database only;
 the replacement database has no restore receipt. A new-generation restore must
-wait until the #207 command is safely bound to `TailTag Rebuild/staging`. The
+wait until the #207 command is safely bound to the replacement `TailTag/staging`. The
 procedure does not restore a Railway volume or change backup settings.
 
 Before the drill, verify the approved Finn identities, exact Railway project,
@@ -888,7 +890,7 @@ bounded checks as complementary evidence.
 
 ## 2026-09-28 replacement parity readback
 
-This is a point-in-time, read-only comparison for `TailTag Rebuild` /
+This is a point-in-time, read-only comparison for the replacement `TailTag` /
 `development` and `staging`. The repository-pinned replacement project selectors
 and approved Railway identity passed before the existing
 `api_environment_fingerprint.py` helper ran against each `api` configuration.
@@ -911,38 +913,59 @@ That receipt retains the exact-instance image join and successful promotion
 gates from September 25; the public preflight is a current shared-origin
 observation, not a fresh image attestation.
 
-These comparisons establish distinct effective configuration values for the
-database URL, Django secret, and bucket name. A grouped result does not prove
-that each Clerk or credential field differs individually. A separate normalized
-Clerk public-key readback returned no usable sanitized result, so no key-level
-comparison is claimed. This pass did not collect provider resource-ownership
-fingerprints, authenticated Clerk or media smoke, or a Staging mutation. The
-replacement [launch contract](../specs/2026-09-24-replacement-api-launch.md)
-and the [current target boundary](#supported-target-and-boundary) identify the
-intended distinct PostgreSQL, Clerk, and R2 resources; this configuration
-readback alone does not prove their provider ownership.
+The same read-only pass checked provider resource ownership. Railway returned
+the project ID pinned by the replacement manifest and code, distinct from the
+retired project's ID. Its current display name is `TailTag`, following the
+temporary `TailTag Rebuild` name. The approved active deployment belongs to
+the pinned replacement project, `staging` environment, and `api` service. Each
+Development/Staging Railway resource below was distinct and attached to the
+respective pinned environment and service; fingerprints are SHA-256 prefixes
+of resource IDs, not configuration values:
+
+| Railway resource | Development | Staging | Result |
+| --- | --- | --- | --- |
+| Environment | `f7023481cda2ea4a` | `774b263fa12467f7` | DIFFER / PASS |
+| API service instance | `6b894823bb3276c2` | `ca975902ff3eb800` | DIFFER / PASS |
+| PostgreSQL service instance | `9ad9c82f62db7440` | `4db28d59e8b726f9` | DIFFER / PASS |
+| PostgreSQL volume instance | `c74dc72fab8fa311` | `264e3033b5ad5dee` | DIFFER / PASS |
+| Underlying PostgreSQL volume | `2e214df95860c779` | `ae3eaaf53778396b` | DIFFER / PASS |
+
+The Clerk provider inventory showed separate replacement Development and
+Staging applications and instances (DIFFER / PASS); Staging's instance is the
+Production instance of its dedicated application. The Cloudflare provider
+inventory showed separate replacement Development and Staging R2 buckets and
+separate active API tokens, each with Object Read & Write scope restricted to
+its corresponding single bucket (DIFFER / PASS). These are point-in-time
+ownership and scope observations, not credential or application smoke tests.
+
+The configuration comparisons establish distinct effective database URLs,
+Django secrets, and bucket names. Grouped Clerk and credential results do not
+prove that every constituent field differs. A separate normalized Clerk
+public-key readback returned no usable sanitized result, so no key-level
+comparison is claimed. No authenticated Clerk or media smoke or Staging
+mutation ran in this pass.
 
 The maintained intentional-drift record for the replacement is:
 
 | Concern | Development | Staging | Future Production |
 | --- | --- | --- | --- |
 | Purpose and data | Mutable contributor/integration work with synthetic data | Controlled rehearsal with synthetic data | No environment or data exists |
-| Railway | `TailTag Rebuild/development` with its own PostgreSQL environment and volume | `TailTag Rebuild/staging` with its own PostgreSQL environment and volume | Not established |
+| Railway | Replacement `TailTag/development` with its own PostgreSQL environment and volume | Replacement `TailTag/staging` with its own PostgreSQL environment and volume | Not established |
 | Delivery | Normal Development delivery path | Exact-SHA controlled promotion; automatic Staging delivery disabled | Not established |
 | Authentication | Development Clerk application and authorized origins | Dedicated `TailTag Staging Replacement` application and Staging origins | Not established |
 | Media | Development private R2 bucket and scoped credential | Distinct private Staging R2 bucket and scoped credential | Not established |
 | Effective configuration | Development database, secret, Clerk, bucket, and credential groups above | Different values for all five groups above | Not established |
 | Public origin | Development API origin | `https://staging.tailtag.app` | Not established |
 
-The resource-ownership descriptions are the approved replacement target
-contract, not a fresh provider inventory. Reconcile any future configuration
-change against this record without publishing values or private selectors.
+The resource-ownership descriptions above have a fresh provider inventory as
+of this readback. Reconcile any future configuration change against this record
+without publishing values or private selectors.
 
 ## 2026-09-16 sanitized parity record
 
 The following fingerprint and live-smoke evidence belongs to the retired
 `TailTag` Railway generation. It remains historical and does not establish
-resource isolation or smoke outcomes for `TailTag Rebuild`.
+resource isolation or smoke outcomes for the replacement project.
 
 The observed target has successful `api` and `Postgres` deployments, a ready
 5000 MB Staging PostgreSQL volume, disabled Staging autodeploy, canonical HTTPS

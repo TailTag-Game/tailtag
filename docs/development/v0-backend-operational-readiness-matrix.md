@@ -10,7 +10,7 @@ Parent: [#197](https://github.com/TailTag-Game/tailtag/issues/197). Scope and ve
 The two detailed tables below retain the pre-decision evidence inventory; the
 historical final-disposition section supersedes their `Pending` review notes.
 The tables and dispositions below preserve the retired-generation evidence.
-A historical `PASS` is not proof about `TailTag Rebuild/staging`. Record only
+A historical `PASS` is not proof about replacement `TailTag/staging`. Record only
 sanitized identifiers and fixed outcomes when reconciling the replacement.
 On 2026-09-23 the repository's credential-free preflight against the exact
 canonical origin passed and returned `environment=staging`,
@@ -61,15 +61,17 @@ matrix, restore, rollback, authenticated Clerk smoke, or media smoke ran.
 
 | Outcome | Current replacement evidence | Disposition and exact boundary |
 | --- | --- | --- |
-| OR-1 / #200: isolation and parity | The approved `TailTag Rebuild` target and [replacement parity readback](staging.md#2026-09-28-replacement-parity-readback) identify distinct Development/Staging effective database URLs, Django secrets, Clerk verification tuples, bucket names, and credential tuples under pinned replacement selectors. The September 25 #243 prerequisite readback established the Staging API/PostgreSQL binding and designated Staging R2 object. | **PARTIALLY SUBSTANTIATED.** The effective values differ and the intentional-drift record is current. This pass did not collect provider resource-ownership fingerprints. A grouped Clerk or credential comparison does not prove every constituent differs; a separate Clerk-key readback yielded no usable result. Do not relabel the retired-generation ownership proof as replacement proof. |
+| OR-1 / #200: isolation and parity | The [replacement parity and provider-ownership readback](staging.md#2026-09-28-replacement-parity-readback) verifies the pinned project ID despite its temporary display-name change, distinct Railway Development/Staging API, PostgreSQL, and volume resources, separate Clerk applications and instances, separate R2 buckets and single-bucket tokens, and different effective configuration groups. The September 25 #243 prerequisite readback established the Staging API/PostgreSQL binding and designated Staging R2 object. | **SUBSTANTIATED for the observed replacement ownership and parity boundary.** The intentional-drift record is current. Grouped Clerk and credential comparisons do not prove each constituent differs; separate Clerk-key readback yielded no usable result. Provider observations are point-in-time, and no authenticated Clerk or media smoke ran in this pass. |
 | OR-2 / #201: immutable identity | One current credential-free canonical preflight returned `environment=staging`, source `99e6466e1bd5432025c085134e72c2c46eb92dbc`, deployment `2adc748c-ee54-4446-958c-f49a384925be`, matching the [approved exact-SHA replacement promotion receipt](staging-deployments/2adc748c-ee54-4446-958c-f49a384925be.json). | **SUBSTANTIATED for the observed public tuple**, with inherited September 25 exact-instance/image attribution from the receipt. The shared-origin readback is not a fresh image attestation or a promise that the deployment cannot change. |
 | OR-3 / #202: controlled deployment | The same receipt records one accepted exact-SHA promotion with migration, startup, readiness, identity, smoke, and final active-state gates `SUCCEEDED`. [Replacement target binding](replacement-staging-promotion-contract.md) and the corrected guarded pre-deploy command are in the merged baseline. | **SUBSTANTIATED for the completed promotion.** The current public tuple matches its D; no second promotion was needed. The receipt remains a point-in-time exact-D result. |
 | OR-4 / #203: health and target safety | The current repository-owned canonical preflight passed and returned the tuple above. It requires live, ready, and stable Staging identity at the exact approved origin; its negative-target and dependency-failure behavior retain deterministic #203 proof. | **SUBSTANTIATED for the current positive preflight and inherited contract.** No live dependency outage or negative-target traffic was induced. |
 | OR-7 / #206: migration and application recovery | The [approved compatibility policy](../specs/2026-09-22-v0-migration-application-rollback.md) and [Staging recovery procedure](staging.md#migration-and-application-image-recovery-206) remain the rule: positively prove old-code compatibility with actual schema and persisted state or fix forward. The September 25 replacement promotion passed its guarded migration gate. | **POLICY SUBSTANTIATED; current rollback pair unproven.** The retired-generation candidate's NO-GO does not decide a replacement pair. The naturally compatible live rehearsal remains [#241](https://github.com/TailTag-Game/tailtag/issues/241) and is not a #208 blocker by itself. |
 
 The remaining #208 decision still depends on replacement OR-5/OR-6/OR-8
-evidence and the nine first-response reviews. OR-1's provider ownership
-boundary above must be resolved or explicitly dispositioned before a final GO.
+evidence and the nine first-response reviews. OR-1's replacement ownership
+boundary is resolved by the pinned resource comparison above; operator
+procedures must continue to use the code-owned pins because both project
+generations have used the `TailTag` display name.
 
 **Verification classes.** *Inherited exercise* checks durable completed live
 evidence, present applicability, and material drift without repeating an
