@@ -28,17 +28,17 @@ from pathlib import Path
 from shutil import rmtree
 from typing import Any, cast
 
+from scripts.api_staging_reset_ssh import (
+    _target_ids,  # pyright: ignore[reportPrivateUsage]
+)
+
 CONFIRMATION = "restore-tailtag-staging-backup"
 POSTGRES_IMAGE = "postgres:18"
 TARGET_DATABASE = "tailtag_recovery"
 ISSUE_LABEL = {"tailtag.issue": "207"}
 _TUNNEL_LABELS = ("Host", "Port", "User", "Password", "Database", "URL")
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-_PROJECT_ID = "85324de4-be6a-49c3-a3f9-6cac13877849"
-_ENVIRONMENT_ID = "5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e"
-_API_SERVICE_ID = "2247da27-97df-4d5d-b1dc-d21eeb7901d9"
-_POSTGRES_SERVICE_ID = "3316216c-ecdd-474a-aebc-d9cab9986507"
-_SCHEMA_MANIFEST_SOURCE_SHA = "856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a"
+_SCHEMA_MANIFEST_SOURCE_SHA = "f16ff7527059e32d2cca15038e55ba406aa35381"
 _APPROVED_RAILWAY_IDENTITY = (
     "Logged in as Finn the Panther (finn@finnthepanther.com) 👋"
 )
@@ -169,6 +169,19 @@ class DrillDenied(RuntimeError):
     """A fail-closed guard denied an unsafe or incomplete operation."""
 
 
+def _pinned_target_ids(
+    expected: tuple[str, str, str, str] | None = None,
+) -> tuple[str, str, str, str]:
+    """Require the code-pinned replacement selectors at every source boundary."""
+    try:
+        pinned = _target_ids()
+    except (OSError, TypeError, ValueError) as error:
+        raise DrillDenied("replacement Staging target binding unavailable") from error
+    if expected is not None and expected != pinned:
+        raise DrillDenied("replacement Staging target binding changed")
+    return pinned
+
+
 class CleanupUnverified(DrillDenied):
     """A task-created resource may remain; expose only its local handle."""
 
@@ -214,12 +227,15 @@ def verify_railway_identity() -> None:
         raise DrillDenied("Railway identity mismatch")
 
 
-def open_railway_tunnel() -> tuple[Any, TunnelDetails]:
+def open_railway_tunnel(
+    target_ids: tuple[str, str, str, str] | None = None,
+) -> tuple[Any, TunnelDetails]:
     """Open only the pinned Staging Postgres loopback tunnel.
 
     No connection detail is logged; process output exists only long enough to
     parse its complete labelled tunnel description in memory.
     """
+    project_id, environment_id, _, _ = _pinned_target_ids(target_ids)
     verify_railway_identity()
     tunnel = subprocess.Popen(
         (
@@ -228,9 +244,9 @@ def open_railway_tunnel() -> tuple[Any, TunnelDetails]:
             "Postgres",
             "--tunnel-only",
             "--project",
-            _PROJECT_ID,
+            project_id,
             "--environment",
-            _ENVIRONMENT_ID,
+            environment_id,
         ),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
@@ -985,18 +1001,23 @@ def _verify_exact_deployment(identity: Mapping[str, object]) -> None:
         raise DrillDenied("active deployment identity unavailable") from error
 
 
-def _staging_database_fingerprint() -> str:
+def _staging_database_fingerprint(
+    target_ids: tuple[str, str, str, str] | None = None,
+) -> str:
     """Verify the pinned API/Postgres URL and ready Postgres volume relationship."""
     try:
+        project_id, environment_id, api_service_id, postgres_service_id = (
+            _pinned_target_ids(target_ids)
+        )
         reset_module = importlib.import_module("scripts.api_staging_reset_ssh")
         variables = cast(Callable[[str], dict[str, str]], reset_module._variables)
         verify_railway_identity()
-        api = variables(_API_SERVICE_ID)
+        api = variables(api_service_id)
         verify_railway_identity()
-        postgres = variables(_POSTGRES_SERVICE_ID)
+        postgres = variables(postgres_service_id)
         expected = {
-            "RAILWAY_PROJECT_ID": _PROJECT_ID,
-            "RAILWAY_ENVIRONMENT_ID": _ENVIRONMENT_ID,
+            "RAILWAY_PROJECT_ID": project_id,
+            "RAILWAY_ENVIRONMENT_ID": environment_id,
             "RAILWAY_ENVIRONMENT_NAME": "staging",
         }
         if (
@@ -1004,8 +1025,8 @@ def _staging_database_fingerprint() -> str:
                 api.get(key) != value or postgres.get(key) != value
                 for key, value in expected.items()
             )
-            or api.get("RAILWAY_SERVICE_ID") != _API_SERVICE_ID
-            or postgres.get("RAILWAY_SERVICE_ID") != _POSTGRES_SERVICE_ID
+            or api.get("RAILWAY_SERVICE_ID") != api_service_id
+            or postgres.get("RAILWAY_SERVICE_ID") != postgres_service_id
             or not api.get("DATABASE_URL")
             or api["DATABASE_URL"] != postgres.get("DATABASE_URL")
         ):
@@ -1016,15 +1037,15 @@ def _staging_database_fingerprint() -> str:
                 "railway",
                 "status",
                 "--project",
-                _PROJECT_ID,
+                project_id,
                 "--environment",
-                _ENVIRONMENT_ID,
+                environment_id,
                 "--json",
             ).stdout
         )
         if (
             not isinstance(status, Mapping)
-            or status.get("id") != _PROJECT_ID
+            or status.get("id") != project_id
             or status.get("name") != "TailTag"
         ):
             raise DrillDenied("canonical Staging database relationship unavailable")
@@ -1042,7 +1063,7 @@ def _staging_database_fingerprint() -> str:
         )
         if (
             not isinstance(environment, Mapping)
-            or environment.get("id") != _ENVIRONMENT_ID
+            or environment.get("id") != environment_id
             or environment.get("name") != "staging"
             or environment.get("deletedAt") is not None
         ):
@@ -1057,8 +1078,8 @@ def _staging_database_fingerprint() -> str:
             and isinstance((node := edge.get("node")), Mapping)
         }
         if (
-            services.get("api") != _API_SERVICE_ID
-            or services.get("Postgres") != _POSTGRES_SERVICE_ID
+            services.get("api") != api_service_id
+            or services.get("Postgres") != postgres_service_id
         ):
             raise DrillDenied("canonical Staging database relationship unavailable")
         volume_edges = environment.get("volumeInstances", {}).get("edges")
@@ -1068,8 +1089,8 @@ def _staging_database_fingerprint() -> str:
         volume = volume_edge.get("node") if isinstance(volume_edge, Mapping) else None
         if (
             not isinstance(volume, Mapping)
-            or volume.get("serviceId") != _POSTGRES_SERVICE_ID
-            or volume.get("environmentId") != _ENVIRONMENT_ID
+            or volume.get("serviceId") != postgres_service_id
+            or volume.get("environmentId") != environment_id
             or volume.get("state") != "READY"
             or volume.get("isPendingDeletion") is not False
             or volume.get("deletedAt") is not None
@@ -1082,7 +1103,7 @@ def _staging_database_fingerprint() -> str:
             + "\n"
             + cast(str, volume["id"])
             + "\n"
-            + _POSTGRES_SERVICE_ID
+            + postgres_service_id
         )
     except (
         AttributeError,
@@ -1248,6 +1269,7 @@ def run_drill() -> int:
     global _active_exact_source_root, _active_exact_source_sha
     evidence_path = _evidence_attempt_path()
     try:
+        target_ids = _pinned_target_ids()
         context = _run(
             "docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"
         )
@@ -1257,10 +1279,10 @@ def run_drill() -> int:
         before = _active_staging_identity()
         verify_railway_identity()
         _verify_exact_deployment(before)
-        before_database = _staging_database_fingerprint()
+        before_database = _staging_database_fingerprint(target_ids)
         image_id = _docker_image_id()
         stage = "TUNNEL"
-        tunnel, details = open_railway_tunnel()
+        tunnel, details = open_railway_tunnel(target_ids)
         stage = "SNAPSHOT"
         snapshot = open_source_snapshot(details)
         recovery_point_time = utc_now()
@@ -1332,7 +1354,7 @@ def run_drill() -> int:
         stage = "NONIMPACT"
         after = _active_staging_identity()
         _verify_exact_deployment(after)
-        after_database = _staging_database_fingerprint()
+        after_database = _staging_database_fingerprint(target_ids)
         if before != after or before_database != after_database:
             raise DrillDenied("canonical Staging changed during drill")
         staging_nonimpact = "PASS"
@@ -1384,7 +1406,7 @@ def run_drill() -> int:
         "schema_version": 1,
         "outcome": "GO" if passed else "FAIL",
         "mechanism": "logical_custom_pg_dump",
-        "selection_reason": "PITR_DISABLED_NO_VOLUME_BACKUPS_LOGICAL_DUMP",
+        "selection_reason": "LOGICAL_DUMP_FOR_ISOLATED_RESTORE_PROOF",
         "recovery_point_time": recovery_point_time,
         "source_sha": before.get("source_sha") if before is not None else None,
         "source_deployment_fingerprint": (
@@ -1468,8 +1490,7 @@ def write_sanitized_evidence(path: Path, evidence: Mapping[str, object]) -> None
         evidence.get("schema_version") != 1
         or outcome not in {"GO", "FAIL"}
         or evidence.get("mechanism") != "logical_custom_pg_dump"
-        or evidence.get("selection_reason")
-        != "PITR_DISABLED_NO_VOLUME_BACKUPS_LOGICAL_DUMP"
+        or evidence.get("selection_reason") != "LOGICAL_DUMP_FOR_ISOLATED_RESTORE_PROOF"
         or evidence.get("target_class") != "local_disposable_docker_tmpfs"
         or (evidence.get("recovery_point_time") is None and outcome == "GO")
         or (

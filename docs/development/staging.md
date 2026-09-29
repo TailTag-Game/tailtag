@@ -352,13 +352,30 @@ selectors, not a guessed linked context.
 
 The frozen [backup restoration contract](../specs/2026-09-22-v0-postgresql-backup-restore.md)
 and [implementation plan](../specs/2026-09-22-v0-postgresql-backup-restore-implementation-plan.md)
-govern this operation. Read-only discovery found no usable PITR recovery point,
-so the September 23 #207 GO used a real custom-format `pg_dump` from the former
-`TailTag/staging` Postgres and `pg_restore` into a disposable local PostgreSQL
-18 target. That restore is historical evidence for the retired database only;
-the replacement database has no restore receipt. A new-generation restore must
-wait until the #207 command is safely bound to the replacement `TailTag/staging`. The
-procedure does not restore a Railway volume or change backup settings.
+govern this operation. Read-only discovery for the retired database found no
+usable PITR recovery point, so the September 23 #207 GO used a real
+custom-format `pg_dump` from the former `TailTag/staging` Postgres and
+`pg_restore` into a disposable local PostgreSQL 18 target. That restore is
+historical evidence for the retired database only. The #207 command now uses
+the owner-only, code-pinned replacement `TailTag/staging` selectors and fails
+closed if they are unavailable. Read-only replacement discovery at
+2026-09-29 04:09 UTC found a ready Postgres volume, zero Railway API backups
+and schedules, and a Railway Backups panel showing no backups. The panel
+described backup creation and PITR as Pro features while this workspace was on
+Hobby. These are point-in-time observations, not a claim about internal backup
+state. The replacement drill uses a logical dump for isolated restore proof.
+The procedure does not restore a Railway volume or change backup settings.
+
+The [September 29 guarded replacement restore receipt](staging-recovery/20260929T063432Z-issue-207-restore-d4480275113242e7bba0b25387cdf6eb.json)
+records `outcome=GO` for source `f16ff7527059e32d2cca15038e55ba406aa35381`
+at recovery point `2026-09-29T06:34:40.582701Z`. A real custom-format dump
+restored into isolated PostgreSQL 18; 36 of 43 named checks passed. Seven were
+`NOT_EXERCISED`: Catch, session and credential representative reads plus the
+session, credential and Catch relationship and Catch provenance checks, because
+their source tables were empty. Matching-revision backend usability, active
+Staging nonimpact and cleanup passed, with no listed limitations or follow-up.
+This is isolated restore evidence; it is not an active Staging restore, PITR
+proof or Production recovery proof.
 
 Before the drill, verify the approved Finn identities, exact Railway project,
 Staging environment, Postgres service/volume, active API deployment/revision,
@@ -405,9 +422,10 @@ readability or authorize closing the issue.
 The [frozen reset contract](../specs/2026-09-17-staging-synthetic-reset-reseed.md)
 and [implementation handoff](../specs/2026-09-17-staging-synthetic-reset-reseed-implementation-plan.md)
 define a small canonical baseline. Local implementation, independent review
-and two-run live acceptance are complete for the retired generation only. The contract records
-sanitized local and live verification evidence, including the initially missing
-fixtures and their separately authorized preparation.
+and two-run live acceptance were completed for the retired generation. The
+replacement normal-path result and its evidence boundary are recorded below.
+The contract records sanitized local and live verification evidence, including
+the initially missing fixtures and their separately authorized preparation.
 
 Reset preserves all Users/admin permissions, reusable Clerk identities,
 designated media, migration history/schema, and the reset sentinel. It restores
@@ -445,8 +463,18 @@ That check made no Staging mutation. The later [guarded sentinel and baseline
 receipt](staging-operator-validation-243-execution-attempts.md#replacement-204-sentinel-and-baseline--2026-09-25)
 records one replacement-bound provision, a matching three-way reconciliation,
 one guarded baseline reseed with the expected counts and cleanup, and a second
-matching reconciliation. Current operator-role and #243 matrix evidence remain
-separate from this #204 prerequisite.
+matching reconciliation. At that point, operator-role and #243 matrix evidence
+remained separate from this #204 prerequisite.
+
+Two later guarded replacement resets on September 29 returned the same
+version-1 baseline counts and confirmed temporary-source cleanup. The last
+reset occurred during the [completed #243 matrix](staging-operator-validation-243-execution-attempts.md#replacement-bounded-matrix-completed--2026-09-29);
+its in-process readback passed the semantic baseline, retained registered
+roots and audit rows, canonical readiness, and managed-role validity after
+resumption. The [#208 OR-5 reconciliation](v0-backend-operational-readiness-matrix.md#replacement-or-5--204-reset-evidence-2026-09-29)
+records the exact preservation and inherited-test boundary. These receipts
+demonstrate the replacement normal path, while each future reset still needs
+its own target, database, asset, identity and maintenance-window guards.
 
 The replacement-target SSH reset path and its separately confirmed, sentinel-only
 `api-staging-reset-provision-ssh` mode passed local tests and independent
@@ -648,7 +676,10 @@ railway api 'query Deployment($id: String!) { deployment(id: $id) { id projectId
 
 Choose only a `RUNNING` instance returned for `D` and pass its actual
 deployment-instance ID explicitly to SSH. Never allow `railway ssh` to select
-its default active instance. From the repository root, use a pipefail pipeline:
+its default active instance. The following pinned SSH pipeline belongs to the
+**retired Railway project** and is unsupported for replacement Staging. Do not
+execute it against the replacement or substitute a guessed project ID. Its
+successful historical proof remains valid for the retired deployment only:
 
 ```bash
 set -o pipefail
@@ -726,9 +757,9 @@ Future #199 reports must capture the observed source SHA and deployment ID.
 This is protection against accidental/misconfigured targeting, not remote
 attestation or a promise that a deployment cannot change afterward. It needs no
 Railway credentials, deployment timestamp, or expected candidate SHA. Optional
-operator correlation of captured deployment ID through the #201 exact-deployment
-procedure above can add `deployment_timestamp` and stronger Railway evidence;
-that enrichment is separate from permission to send acceptance traffic.
+operator correlation requires a separately reviewed replacement-bound
+exact-instance procedure; the retired SSH invocation above cannot provide it.
+That enrichment is separate from permission to send acceptance traffic.
 
 Live #203 validation passed on 2026-09-17 after controlled promotion of merged
 revision `04f8383fe750bec712ced27a1932b82b1eabb292`, validated by exact push
@@ -759,8 +790,12 @@ deploy or change Staging or establish the #203 identity/target-safety contract.
 API_BASE_URL=https://staging.tailtag.app make api-smoke
 ```
 
-For the guarded configuration fingerprint rerun, use the exact target and
-confirmation. It emits only resource/configuration fingerprints, never values:
+The following configuration-fingerprint, media-smoke, and Clerk-smoke
+`railway run --project` invocations pin the **retired Railway project**. They
+are historical examples, unsupported for replacement Staging. Do not execute
+them for the replacement or substitute a guessed project ID. The retired
+configuration-fingerprint command emitted only resource/configuration
+fingerprints, never values:
 
 ```bash
 DJANGO_SETTINGS_MODULE=config.settings.production \
@@ -769,8 +804,8 @@ railway run --project 85324de4-be6a-49c3-a3f9-6cac13877849 --no-local --service 
 uv run --project services/api --locked --no-sync python scripts/api_environment_fingerprint.py
 ```
 
-Run the corresponding Development command in the same review window before
-comparing the labeled outputs:
+The retired comparison used the corresponding Development command in the same
+review window:
 
 ```bash
 DJANGO_SETTINGS_MODULE=config.settings.production \
@@ -779,8 +814,8 @@ railway run --project 85324de4-be6a-49c3-a3f9-6cac13877849 --no-local --service 
 uv run --project services/api --locked --no-sync python scripts/api_environment_fingerprint.py
 ```
 
-For the synthetic R2 upload/read/delete/absence check, use the same explicit
-target. Its cleanup and final absence check are mandatory:
+The retired synthetic R2 upload/read/delete/absence check used that same
+project. Its cleanup and final absence check were mandatory:
 
 ```bash
 DJANGO_SETTINGS_MODULE=config.settings.production \
@@ -795,8 +830,12 @@ failure, not a warning.
 
 ### Clerk authenticated smoke
 
-This is the only Staging Production-Clerk live entry point. From a TTY, first
-disable clipboard history and synchronization before copying any Backend secret,
+The command below is the retired-generation Production-Clerk smoke launcher
+and is unsupported for replacement Staging. A replacement authenticated smoke
+requires a separately reviewed, code-pinned launcher and owner-controlled
+bounded validation; do not use the retired command below. The historical
+procedure used a TTY and first required the operator to disable clipboard
+history and synchronization before copying any Backend secret,
 session ID, or JWT. Then sign in through `/sign-in`, open `/user`, and copy the
 session ID in the browser console with `copy(Clerk.session.id)`. Only when the
 command prompts, obtain a fresh ordinary token with

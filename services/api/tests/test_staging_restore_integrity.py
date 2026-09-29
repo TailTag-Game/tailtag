@@ -539,6 +539,51 @@ def test_matching_source_and_target_pass_while_empty_optional_domains_are_not_ex
     assert results.checks["conventions_fursuitactivation_constraints"] == "PASS"
 
 
+def test_zero_source_relationships_are_not_populated_recovery_proof(
+    integrity: ModuleType,
+) -> None:
+    """#207: empty relationships are unexercised; populated clean ones pass."""
+    relationship_checks = frozenset(
+        {
+            "session_relationships",
+            "credential_relationships",
+            "catch_relationships",
+            "catch_provenance",
+        }
+    )
+    empty = source_facts(integrity)
+    empty_result = integrity.compare_integrity(empty, empty)
+    assert empty_result.overall_outcome == "PASS"
+    assert {name: empty_result.checks[name] for name in relationship_checks} == {
+        name: "NOT_EXERCISED" for name in relationship_checks
+    }
+
+    for table, populated_checks in (
+        ("conventions_fursuitcatchsession", frozenset({"session_relationships"})),
+        (
+            "conventions_fursuitcatchcredential",
+            frozenset({"credential_relationships"}),
+        ),
+        (
+            "catches_catch",
+            frozenset({"catch_relationships", "catch_provenance"}),
+        ),
+    ):
+        populated = replace(
+            empty,
+            table_counts={**empty.table_counts, table: 1},
+            representative_records={**empty.representative_records, table: True},
+        )
+        populated_result = integrity.compare_integrity(populated, populated)
+        assert populated_result.overall_outcome == "PASS"
+        assert {
+            name: populated_result.checks[name] for name in relationship_checks
+        } == {
+            name: "PASS" if name in populated_checks else "NOT_EXERCISED"
+            for name in relationship_checks
+        }, table
+
+
 @pytest.mark.parametrize(
     "changed_source",
     (

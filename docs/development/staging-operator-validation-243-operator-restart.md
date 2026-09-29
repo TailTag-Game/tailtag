@@ -1,12 +1,32 @@
 # #243 replacement Staging operator restart
 
-Status: **approved objective, design and execution pending**. The owner asked to
+Status: **restart and bounded matrix completed; limited and emergency operators decommissioned**. The owner asked to
 retire the three current synthetic Staging operator logins and create fresh
 managed, limited and emergency logins, with generated local usernames and
 password-only hidden prompts. This amends only #243's operator prerequisite
-lifecycle. Cases 1–9 remain `NOT_EXERCISED`; the exclusive Staging window stays
-held. Preserve the earlier `CREDENTIAL_REJECTED` and transport-uncertain
+lifecycle. Preserve the earlier `CREDENTIAL_REJECTED` and transport-uncertain
 attempts in the chronological [evidence record](staging-operator-validation-243-execution-attempts.md).
+The first 2026-09-29 restart attempt lacked `POSTCONDITION_PASS`. A separately reviewed
+read-only exact-instance probe found only one dedicated emergency row; the
+atomic restart would retain that row and create a second if committed. A local
+hidden-input preflight then confirmed three distinct, policy-valid replacement
+passwords. Within the declared exclusive window, these findings permit one
+new guarded restart attempt, provided its launcher repeats the exact-instance,
+identity, receipt, registry, database and role checks. The uncertain original
+attempt remains recorded as such. The second attempt produced both fixed remote
+completion markers. A fresh exact-instance managed/limited inspection passed,
+and the emergency readback was `READY` with one active and one retired dedicated
+actor. The three operator passwords and ordinary owner token were accepted in
+the second matrix attempt.
+The first matrix stopped at limited authentication because the saved role
+password order was misread; the second passed all operator and owner
+authentication but stopped on a lowercase HTTP `location` header before Case
+1's POST. After the reviewed matrix helper correction, a later live sequence
+passed Cases 1–8, all safe Case 9 routes, reset, audit retention and both
+operator decommissions. The four object/state-dependent Case 9 routes retain
+the approved live `NOT_EXERCISED` limitations and were separately reconciled
+through matching deployed controls and direct deterministic tests. See the
+[completed replacement matrix record](staging-operator-validation-243-execution-attempts.md#replacement-bounded-matrix-completed--2026-09-29).
 
 ## Acceptance contract
 
@@ -86,14 +106,13 @@ uncertainty. Prove that old sessions lose admin access and that the new limited
 
 ## Rollout gate
 
-The current deployed image still assumes one dedicated emergency row. Review,
-test and merge the replacement command **and every consuming inspector, matrix
-and decommission helper** before the restart write. Promote the accepted code
-through the existing guarded #202 path within the exclusive operator window,
-then freshly prove the canonical public/exact-instance tuple and full #204
-binding. Do not run a source-bundled replacement command against an old image
-whose later matrix or decommission path cannot interpret the retained actor.
-If promotion or target evidence is ambiguous, do not start the restart write.
+At approval, the prior deployed image assumed one dedicated emergency row.
+The rollout gate required review, tests and merge of the replacement command
+**and every consuming inspector, matrix and decommission helper** before the
+restart write. The accepted code was promoted through the guarded #202 path
+within the exclusive operator window, followed by a fresh canonical
+public/exact-instance tuple and full #204 binding check. A source-bundled
+replacement command against an older incompatible image was outside this gate.
 
 The generated identifiers are not evidence and need not be remembered by the
 maintainer. The matrix and lifecycle tooling must select the sole exact actor

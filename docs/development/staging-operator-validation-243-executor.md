@@ -1,8 +1,9 @@
 # #243 bounded matrix executor contract
 
-Status: resumed after explicit activation-reactivation evidence amendment;
-implementation, independent review and local verification complete; live
-execution pending. No live matrix result is claimed. The earlier local
+Status: implementation, independent review and local verification complete;
+the separately recorded [replacement live matrix and Case 9 reconciliation](staging-operator-validation-243-execution-attempts.md#replacement-bounded-matrix-completed--2026-09-29)
+completed the approved evidence contract. This executor document records its
+prelaunch contract and does not substitute for that live result. The earlier local
 [feasibility stop](staging-operator-validation-243-execution-attempts.md#repository-only-feasibility-stop--2026-09-24-0031-utc)
 remains historical evidence.
 This implements only the [approved matrix](staging-operator-validation-243-plan.md)

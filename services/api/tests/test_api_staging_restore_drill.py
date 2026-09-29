@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import os
@@ -21,6 +22,13 @@ import pytest
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = REPOSITORY_ROOT / "scripts" / "api_staging_restore_drill.py"
 SENSITIVE = "postgresql://private-user:private-password@private-host/private-db"
+REVIEWED_SCHEMA_SHA = "f16ff7527059e32d2cca15038e55ba406aa35381"
+REPLACEMENT_IDS = (
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+    "33333333-3333-4333-8333-333333333333",
+    "44444444-4444-4444-8444-444444444444",
+)
 
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
@@ -151,6 +159,227 @@ def test_tunnel_details_require_one_complete_loopback_tunnel_without_untrusted_e
                 unsafe_output
             )
         )
+
+
+@pytest.mark.parametrize("operation", ("tunnel", "fingerprint"))
+def test_unavailable_replacement_binding_refuses_before_provider_actions(
+    drill: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    """Issue 208 OR-8: unavailable pins cannot open a tunnel or inspect a DB."""
+
+    def load_binding() -> tuple[str, str, str, str]:
+        raise ValueError("missing pins")
+
+    monkeypatch.setattr(drill, "_target_ids", load_binding)
+    monkeypatch.setattr(
+        drill,
+        "verify_railway_identity",
+        lambda: pytest.fail("invalid pins reached Railway identity lookup"),
+    )
+    monkeypatch.setattr(
+        drill.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: pytest.fail("invalid pins opened a tunnel"),
+    )
+    monkeypatch.setattr(
+        drill,
+        "_run",
+        lambda *_args, **_kwargs: pytest.fail("invalid pins queried Railway"),
+    )
+
+    with pytest.raises(drill.DrillDenied):
+        if operation == "tunnel":
+            drill.open_railway_tunnel()
+        else:
+            drill._staging_database_fingerprint()
+
+
+@pytest.mark.parametrize("operation", ("tunnel", "fingerprint"))
+def test_supplied_target_cannot_override_replacement_binding(
+    drill: ModuleType, monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    """Issue 208 OR-8: a caller cannot redirect either source helper."""
+    import scripts.api_staging_reset_ssh as reset
+
+    other_ids = (
+        "66666666-6666-4666-8666-666666666666",
+        *REPLACEMENT_IDS[1:],
+    )
+    monkeypatch.setattr(drill, "_target_ids", lambda: REPLACEMENT_IDS)
+    monkeypatch.setattr(
+        drill,
+        "verify_railway_identity",
+        lambda: pytest.fail("alternate target reached Railway identity lookup"),
+    )
+    monkeypatch.setattr(
+        drill.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: pytest.fail("alternate target opened a tunnel"),
+    )
+    monkeypatch.setattr(
+        drill,
+        "_run",
+        lambda *_args, **_kwargs: pytest.fail("alternate target queried Railway"),
+    )
+    monkeypatch.setattr(
+        reset,
+        "_variables",
+        lambda _service_id: pytest.fail("alternate target queried variables"),
+    )
+
+    with pytest.raises(drill.DrillDenied):
+        if operation == "tunnel":
+            drill.open_railway_tunnel(other_ids)
+        else:
+            drill._staging_database_fingerprint(other_ids)
+
+
+def test_replacement_binding_selects_tunnel_and_database_relationship(
+    drill: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issue 208 OR-8: one approved pin tuple selects the source for both guards."""
+    import scripts.api_staging_reset_ssh as reset
+
+    project_id, environment_id, api_id, postgres_id = REPLACEMENT_IDS
+    database_url = "postgresql://synthetic:secret@synthetic.invalid/railway"
+    volume_id = "55555555-5555-4555-8555-555555555555"
+    requests: list[str] = []
+    commands: list[tuple[str, ...]] = []
+    monkeypatch.setattr(drill, "_target_ids", lambda: REPLACEMENT_IDS)
+    monkeypatch.setattr(drill, "verify_railway_identity", lambda: None)
+
+    def tunnel_command(command: tuple[str, ...], **_kwargs: object) -> NoReturn:
+        commands.append(command)
+        raise RuntimeError("tunnel command observed")
+
+    monkeypatch.setattr(drill.subprocess, "Popen", tunnel_command)
+    with pytest.raises(RuntimeError, match="tunnel command observed"):
+        drill.open_railway_tunnel()
+    assert commands == [
+        (
+            "railway",
+            "connect",
+            "Postgres",
+            "--tunnel-only",
+            "--project",
+            project_id,
+            "--environment",
+            environment_id,
+        )
+    ]
+
+    def variables(service_id: str) -> dict[str, str]:
+        requests.append(service_id)
+        assert service_id in {api_id, postgres_id}
+        return {
+            "RAILWAY_PROJECT_ID": project_id,
+            "RAILWAY_ENVIRONMENT_ID": environment_id,
+            "RAILWAY_ENVIRONMENT_NAME": "staging",
+            "RAILWAY_SERVICE_ID": service_id,
+            "DATABASE_URL": database_url,
+        }
+
+    status = {
+        "id": project_id,
+        "name": "TailTag",
+        "environments": {
+            "edges": [
+                {
+                    "node": {
+                        "id": environment_id,
+                        "name": "staging",
+                        "deletedAt": None,
+                        "volumeInstances": {
+                            "edges": [
+                                {
+                                    "node": {
+                                        "id": volume_id,
+                                        "serviceId": postgres_id,
+                                        "environmentId": environment_id,
+                                        "state": "READY",
+                                        "isPendingDeletion": False,
+                                        "deletedAt": None,
+                                    }
+                                }
+                            ]
+                        },
+                    }
+                }
+            ]
+        },
+        "services": {
+            "edges": [
+                {"node": {"name": "api", "id": api_id}},
+                {"node": {"name": "Postgres", "id": postgres_id}},
+            ]
+        },
+    }
+    monkeypatch.setattr(reset, "_variables", variables)
+
+    def status_command(*args: str) -> SimpleNamespace:
+        commands.append(args)
+        return SimpleNamespace(stdout=json.dumps(status))
+
+    monkeypatch.setattr(drill, "_run", status_command)
+    expected_fingerprint = hashlib.sha256(
+        (database_url + "\n" + volume_id + "\n" + postgres_id).encode("utf-8")
+    ).hexdigest()
+    assert drill._staging_database_fingerprint() == expected_fingerprint
+    assert requests == [api_id, postgres_id]
+    assert commands[-1] == (
+        "railway",
+        "status",
+        "--project",
+        project_id,
+        "--environment",
+        environment_id,
+        "--json",
+    )
+
+
+def test_reviewed_schema_revision_requires_matching_sha_and_clean_schema_dirs(
+    drill: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issue 208 OR-8: an unreviewed deployed or local schema cannot claim integrity."""
+    commands: list[tuple[str, ...]] = []
+    returncode = 0
+
+    def git_diff(command: tuple[str, ...], **_kwargs: object) -> SimpleNamespace:
+        commands.append(command)
+        return SimpleNamespace(returncode=returncode)
+
+    monkeypatch.setattr(drill.subprocess, "run", git_diff)
+    drill._verify_manifest_revision(REVIEWED_SCHEMA_SHA)
+    assert len(commands) == 1
+    assert commands[0][:4] == (
+        "git",
+        "diff",
+        "--quiet",
+        REVIEWED_SCHEMA_SHA,
+    )
+    assert set(commands[0][5:]) == {
+        f"services/api/{app}"
+        for app in (
+            "accounts",
+            "profiles",
+            "fursuits",
+            "conventions",
+            "catches",
+            "operator_audit",
+            "rehearsal",
+        )
+    }
+
+    with pytest.raises(drill.DrillDenied):
+        drill._verify_manifest_revision("856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a")
+    assert len(commands) == 1
+
+    returncode = 1
+    with pytest.raises(drill.DrillDenied):
+        drill._verify_manifest_revision(REVIEWED_SCHEMA_SHA)
+    assert len(commands) == 2
 
 
 def recovery_inspect(expected_id: str, image_id: str) -> dict[str, object]:
@@ -833,7 +1062,7 @@ def sanitized_evidence() -> dict[str, object]:
         "schema_version": 1,
         "outcome": "GO",
         "mechanism": "logical_custom_pg_dump",
-        "selection_reason": "PITR_DISABLED_NO_VOLUME_BACKUPS_LOGICAL_DUMP",
+        "selection_reason": "LOGICAL_DUMP_FOR_ISOLATED_RESTORE_PROOF",
         "recovery_point_time": "2026-09-22T12:00:00Z",
         "source_sha": "a" * 40,
         "source_deployment_fingerprint": "b" * 64,
@@ -905,6 +1134,8 @@ def test_runner_uses_a_distinct_timestamped_evidence_path_for_each_attempt(
 ) -> None:
     """AC-9: independent attempts retain separate durable outcomes rather than replacing one file."""
     paths: list[Path] = []
+    evidence_records: list[dict[str, object]] = []
+    monkeypatch.setattr(drill, "_target_ids", lambda: REPLACEMENT_IDS)
     monkeypatch.setattr(
         drill,
         "_run",
@@ -915,9 +1146,12 @@ def test_runner_uses_a_distinct_timestamped_evidence_path_for_each_attempt(
         "_tool_versions",
         lambda: (_ for _ in ()).throw(drill.DrillDenied("unavailable")),
     )
-    monkeypatch.setattr(
-        drill, "write_sanitized_evidence", lambda path, _evidence: paths.append(path)
-    )
+
+    def capture_evidence(path: Path, evidence: dict[str, object]) -> None:
+        paths.append(path)
+        evidence_records.append(dict(evidence))
+
+    monkeypatch.setattr(drill, "write_sanitized_evidence", capture_evidence)
 
     for _ in range(2):
         with pytest.raises(
@@ -928,6 +1162,10 @@ def test_runner_uses_a_distinct_timestamped_evidence_path_for_each_attempt(
     assert len(paths) == 2
     assert paths[0].parent == paths[1].parent
     assert paths[0] != paths[1]
+    assert all(
+        evidence["selection_reason"] == "LOGICAL_DUMP_FOR_ISOLATED_RESTORE_PROOF"
+        for evidence in evidence_records
+    )
     assert all(
         re.fullmatch(
             r"[0-9]{8}T[0-9]{6}Z-issue-207-restore-[0-9a-f]{32}\.json",
@@ -1001,6 +1239,9 @@ def test_failure_evidence_keeps_only_opaque_task_handle_when_cleanup_is_unverifi
         lambda evidence: evidence.update({"recovery_point_time": "not-a-utc-time"}),
         lambda evidence: evidence.update({"limitations": ["UNAPPROVED_CODE"]}),
         lambda evidence: evidence.update({"cleanup_verified": False}),
+        lambda evidence: evidence.update(
+            {"selection_reason": "PITR_DISABLED_NO_VOLUME_BACKUPS_LOGICAL_DUMP"}
+        ),
     ),
 )
 def test_evidence_writer_rejects_unsafe_or_incomplete_records_without_writing(
@@ -1023,6 +1264,7 @@ def install_runner_preflight(
     identities: list[dict[str, object]],
 ) -> None:
     """Replace only external command/source seams for an offline runner observation."""
+    monkeypatch.setattr(drill, "_target_ids", lambda: REPLACEMENT_IDS)
     monkeypatch.setattr(
         drill,
         "_run",
@@ -1030,7 +1272,9 @@ def install_runner_preflight(
     )
     monkeypatch.setattr(drill, "verify_railway_identity", lambda: None)
     monkeypatch.setattr(drill, "_verify_exact_deployment", lambda _identity: None)
-    monkeypatch.setattr(drill, "_staging_database_fingerprint", lambda: "a" * 64)
+    monkeypatch.setattr(
+        drill, "_staging_database_fingerprint", lambda _target_ids: "a" * 64
+    )
     monkeypatch.setattr(
         drill, "_tool_versions", lambda: {"pg_dump": "18.6", "pg_restore": "18.6"}
     )
@@ -1068,7 +1312,9 @@ def test_runner_refuses_target_identity_mismatch_before_dump_or_restore(
     created_id = "c" * 64
 
     monkeypatch.setattr(
-        drill, "open_railway_tunnel", lambda: (tunnel, tunnel_details(drill))
+        drill,
+        "open_railway_tunnel",
+        lambda _target_ids: (tunnel, tunnel_details(drill)),
     )
     monkeypatch.setattr(
         drill,
@@ -1152,7 +1398,9 @@ def test_runner_marks_changed_staging_identity_as_a_failed_nonimpact_proof_and_c
     backend_calls: list[str] = []
 
     monkeypatch.setattr(
-        drill, "open_railway_tunnel", lambda: (Process(), tunnel_details(drill))
+        drill,
+        "open_railway_tunnel",
+        lambda _target_ids: (Process(), tunnel_details(drill)),
     )
     monkeypatch.setattr(
         drill,

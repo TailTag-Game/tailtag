@@ -1,7 +1,7 @@
 # Staging backend first response
 
 This is the first-response guide for the replacement Railway
-`TailTag Rebuild` / `staging` backend at `https://staging.tailtag.app`. It
+`TailTag` / `staging` backend at `https://staging.tailtag.app`. It
 covers the nine V0 operational scenarios in [#208](https://github.com/TailTag-Game/tailtag/issues/208).
 Use it with the [Staging runbook](../development/staging.md), the
 [operator authorization runbook](operator-authorization-audit.md), and the
@@ -12,17 +12,15 @@ their own target checks, operator authority, and approval boundaries.
 
 The September 25 [replacement handoff receipt](../development/staging-deployments/c34c45bb-6eb8-488d-8114-d1dd931cf25e.json)
 proves a public/exact-instance identity join for its observation window only.
-The replacement #204 baseline, #243 operator/audit results, and #207 restore
-remain unverified. Historical receipts and target-pinned commands for the
-former `TailTag` project do not apply to `TailTag Rebuild`. In particular, the
-replacement #202 promotion path remains old-target-pinned. The replacement
-#204 provision/reset SSH path is locally implemented and reviewed, but has no
-live replacement-baseline result. A replacement #207 restore has not been
-recorded. Do not run an old-pinned command against the replacement.
+The current [readiness matrix](../development/v0-backend-operational-readiness-matrix.md)
+records the replacement #204 baseline, #243 operator/audit results, and #207
+isolated restore. Historical target-pinned commands for the retired Staging
+generation do not apply to the replacement, even though both generations used
+the `TailTag` display name. Use only the current code-pinned commands.
 
 ## Common first check and evidence
 
-1. Identify `Finn the Panther's Projects` / `TailTag Rebuild` / `staging`;
+1. Identify `Finn the Panther's Projects` / `TailTag` / `staging`;
    select the
    exact `api` deployment and, for database incidents, the environment-local
    `Postgres` service. Development is a separate contributor environment.
@@ -35,7 +33,7 @@ recorded. Do not run an old-pinned command against the replacement.
    acceptance, reset, or simulation traffic. `/health/live` proves only a
    responding process; `/health/ready` proves local configuration and a small
    PostgreSQL query, not Clerk or R2 provider availability.
-3. In Railway `TailTag Rebuild` → `staging` → `api` → **Deployments**, bind
+3. In Railway `TailTag` → `staging` → `api` → **Deployments**, bind
    diagnostics to the
    affected deployment ID. Inspect its status, build output, pre-deploy
    migration output, startup/runtime output, instances, and lifecycle events
@@ -105,8 +103,9 @@ interpreting denied connections.
 rehearsal activity; preserve the current database and exact deployment state.
 If an approved reset left its maintenance gate closed, use only the verified
 control-database [recovery procedure](../development/staging.md#synthetic-baseline-reset-and-reseed-204)
-after its own target and cluster checks. The replacement #204 SSH/provision
-path is locally reviewed, but its live sentinel/baseline is unverified. If its
+after its own target and cluster checks. The replacement #204 sentinel and
+baseline passed the [guarded live reset and matrix readback](../development/v0-backend-operational-readiness-matrix.md#replacement-or-5--204-reset-evidence-2026-09-29)
+in their observation window. If the current operation's
 own target or cluster guard fails, stop and hand off to the backend and Railway
 resource owners. For partial
 migration state use #206's reviewed
@@ -121,20 +120,20 @@ reset as incident repair, or point the API at a restore clone.
 
 ## Clerk or authentication failure
 
-**Recognize and diagnose.** A normal authenticated request or approved
-synthetic [Clerk smoke](../development/staging.md#clerk-authenticated-smoke)
-fails while basic API health may remain ready. Confirm the canonical Staging
+**Recognize and diagnose.** A normal authenticated request fails while basic
+API health may remain ready. Confirm the canonical Staging
 origin and dedicated `TailTag Staging Replacement` Clerk application/Production instance.
 Compare affected API responses and bounded exact-D logs with Clerk's own
-authorized status/diagnostic surface. Distinguish token/session problems,
+read-only authorized status/diagnostic surface. Distinguish token/session problems,
 local verification configuration, and provider availability without exposing
 the token or changing an ordinary account.
 
 **First safe mitigation and recovery.** Pause authenticated rehearsal and
-preserve the current identity/configuration. If the approved synthetic smoke
-was started, follow its mandatory session cleanup; a cleanup failure requires
-manual owner follow-up. Escalate configuration or provider faults to the
-backend/Clerk owner. Resume only after the owning fix and a safe canonical
+preserve the current identity/configuration. Escalate configuration or provider
+faults to the backend/Clerk owner. Any bounded synthetic authenticated check
+requires an owner-controlled replacement-target procedure and session cleanup;
+the retired [Clerk smoke command](../development/staging.md#clerk-authenticated-smoke)
+is unsupported here. Resume only after the owning fix and a safe canonical
 authenticated check. Readiness alone does not validate live Clerk service.
 
 **Preserve / avoid.** Retain only sanitized failure class, time, D, smoke
@@ -149,13 +148,14 @@ the provider merely to reproduce an outage.
 R2 upload, HEAD/GET, presigned GET, or deletion failures. Review exact-D API
 diagnostics, Staging-owned private bucket/credential configuration through
 approved names/ownership (never rendered values), and the affected media
-operation. The existing guarded [Staging media smoke](../development/staging.md#http-configuration-and-media)
-is an optional bounded upload/read/delete/absence check only after its target,
-authorization and cleanup prerequisites are satisfied.
+operation. Use read-only R2 ownership and provider status/diagnostics first.
+The pinned [historical Staging media smoke](../development/staging.md#http-configuration-and-media)
+is unsupported for the replacement target.
 
 **First safe mitigation and recovery.** Pause new media operations and retain
 existing object references. Escalate R2 access or availability to its owner;
-use a reviewed configuration/code fix and then a bounded check. For a partial
+use a reviewed configuration/code fix and then an owner-controlled bounded
+replacement-target check with cleanup. For a partial
 replace/remove, follow the [media lifecycle boundary](../development/backend-delivery-operations.md#media-lifecycle-and-recovery-boundary):
 a failed best-effort deletion can leave an orphan, while a committed absent
 reference must not be recreated from a stale object. Investigate object and
@@ -168,7 +168,7 @@ or assume application rollback restores R2 state.
 
 ## Abnormal API load
 
-**Recognize and diagnose.** In Railway, select `TailTag Rebuild` → `staging` → `api` →
+**Recognize and diagnose.** In Railway, select `TailTag` → `staging` → `api` →
 **Deployments** → the exact affected D. Review its status and bounded
 deployment/runtime logs alongside canonical liveness and readiness. Correlate
 the time window with known controlled promotions, resets, synthetic rehearsal
@@ -212,6 +212,10 @@ flow after the cause is corrected.
 affected record types and authorized audit outcome. Do not log QR credentials,
 tokens or raw payloads, create a Catch through admin, change catch history,
 replace a credential arbitrarily, or treat a stale preview as write authority.
+`OperatorAuditEvent` has no viewer. If an approved bounded audit read is
+unavailable, preserve the action time and sanitized target class, stop further
+correction or resumption, and escalate to the backend/database owner.
+Application and Railway logs are not audit proof.
 Detection/alerting belongs to [#198](https://github.com/TailTag-Game/tailtag/issues/198).
 
 ## Broken convention or configuration state
@@ -237,6 +241,10 @@ configuration or schema state, stop and escalate to the owning maintainer.
 type, audit outcome and reset receipt if used. Do not bypass permissions with
 a superuser as the routine path, alter the database directly, reset merely to
 hide an unexplained defect, or manufacture data corruption for rehearsal.
+`OperatorAuditEvent` has no viewer. If an approved bounded audit read is
+unavailable, preserve the action time and sanitized target class, stop further
+correction or resumption, and escalate to the backend/database owner.
+Application and Railway logs are not audit proof.
 
 ## Application rollback
 
@@ -271,12 +279,25 @@ The exact live Railway compatible-rollback/pre-deploy gap remains [#241](https:/
 database unavailability, or a reversible code/configuration failure. Record
 the source identity and intended recovery point. Review the maintained #207
 [isolated restore procedure](../development/staging.md#postgresql-backup-restoration-drill-207)
-and its [final GO evidence](../development/staging-recovery/20260923T165714Z-issue-207-restore-d6def5ea5b9442c7992d301a575c6f8b.json).
+and the [replacement GO receipt](../development/staging-recovery/20260929T063432Z-issue-207-restore-d4480275113242e7bba0b25387cdf6eb.json).
 The September 23 logical dump/restore proved isolated PostgreSQL 18 restore,
 integrity checks, matching-revision backend usability, Staging nonimpact and
-cleanup for the retired database; the earlier failed preflight is historical.
-That exercise does not prove recovery for the replacement database, which has
-no current restore result.
+cleanup for the retired database; its [GO receipt](../development/staging-recovery/20260923T165714Z-issue-207-restore-d6def5ea5b9442c7992d301a575c6f8b.json)
+and earlier failed preflight are historical. The guarded drill now uses the
+owner-only, code-pinned replacement Staging selectors. Read-only discovery at
+2026-09-29 04:09 UTC found a ready Postgres volume, zero Railway API backups
+and schedules, and no backups in Railway's Backups panel. The panel described
+backup creation and PITR as Pro features while this workspace was on Hobby.
+Treat these as point-in-time observations. The September 29 replacement receipt
+records a real logical dump and isolated PostgreSQL 18 restore, 36 of 43 named
+checks passed, matching-revision backend usability, Staging nonimpact and
+verified cleanup. Catch, session and credential representative reads, their
+relationship checks, and Catch provenance were `NOT_EXERCISED` because their
+source tables were empty. Four of those relationship/provenance statuses were
+corrected in the retained receipt from captured zero source counts after the
+run; no restore was repeated. This proves isolated restore for the observed
+replacement source and recovery point, not active Staging restoration, PITR or
+Production recovery.
 
 **First safe mitigation and recovery.** Stop writes and preserve the source
 database, current deployment, and relevant logs while the backend/database
@@ -288,5 +309,6 @@ substitute for backup recovery.
 
 **Preserve / avoid.** Retain sanitized source/target class, recovery-point
 time, outcome, backend/integrity checks, nonimpact and cleanup result. Do not
-publish a dump or row contents, point the API at the drill clone, claim PITR
-when none was available, or rerun a restore solely to duplicate #208 evidence.
+publish a dump or row contents, point the API at the drill clone, infer internal
+PITR state from the Backups panel, or rerun a restore solely to duplicate #208
+evidence.

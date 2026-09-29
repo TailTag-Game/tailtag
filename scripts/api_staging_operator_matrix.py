@@ -144,7 +144,7 @@ def _http_request(
             raise ValueError
         return {
             "status": response.status,
-            "headers": dict(response.headers),
+            "headers": response.headers,
             "body": observed,
         }
 

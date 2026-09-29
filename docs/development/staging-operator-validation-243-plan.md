@@ -1,18 +1,19 @@
 # #243 operator evidence recovery and bounded validation proposal
 
-Status: **replacement-generation #204 baseline and exact managed, limited,
-and emergency operators established; bounded matrix not started**.
-The later emergency password diagnosis stopped before Case 1. The owner has
+Status: **replacement bounded matrix completed with approved Case 9 combined
+evidence; cleanup complete**. The [final replacement result](staging-operator-validation-243-execution-attempts.md#replacement-bounded-matrix-completed--2026-09-29)
+supersedes the pre-execution status in the historical sequence below.
+The earlier emergency password diagnosis stopped before Case 1. The owner had
 authorized a [guarded three-operator restart](staging-operator-validation-243-operator-restart.md)
 with generated local usernames and password-only hidden prompts. That restart
 is a prerequisite amendment; it does not add a matrix case or widen the two
-approved domain transitions. Its compatible lifecycle code must be reviewed,
-merged and promoted before any restart mutation.
-The old-generation
+approved domain transitions. Its compatible lifecycle code was reviewed,
+merged and promoted before restart mutation.
+At that stage, the old-generation
 [bounded read-only result](staging-operator-validation-243-execution-attempts.md)
 substantiated the old managed and limited roles only; it found no limited-role
-candidate before the later old-generation provisioning. Cases 1–9 remain
-`NOT_EXERCISED` on both generations. The replacement Staging handoff is recorded
+candidate before the later old-generation provisioning. Cases 1–9 were
+`NOT_EXERCISED` on both generations at that time. The replacement Staging handoff is recorded
 in the [current public/exact-instance receipt](staging-deployments/c34c45bb-6eb8-488d-8114-d1dd931cf25e.json)
 for source `fc1376e9b4387cb46e37ef3f60191b2ce7f06c68` and deployment
 `c34c45bb-6eb8-488d-8114-d1dd931cf25e`. The follow-up
