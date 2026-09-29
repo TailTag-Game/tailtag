@@ -751,9 +751,10 @@ def test_http_seam_uses_local_server_without_following_admin_redirect(
     assert cast(Mapping[str, str], admin["headers"])["Location"].startswith(
         "/admin/login/"
     )
-    assert cast(Mapping[str, str], admin["headers"])["location"] == cast(
-        Mapping[str, str], admin["headers"]
-    )["Location"]
+    assert (
+        cast(Mapping[str, str], admin["headers"])["location"]
+        == cast(Mapping[str, str], admin["headers"])["Location"]
+    )
     with pytest.raises(ValueError):
         matrix._http_request("GET", "https://staging.tailtag.app/admin/", actor=None)
     with pytest.raises(ValueError):
