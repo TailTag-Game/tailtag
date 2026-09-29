@@ -352,13 +352,30 @@ selectors, not a guessed linked context.
 
 The frozen [backup restoration contract](../specs/2026-09-22-v0-postgresql-backup-restore.md)
 and [implementation plan](../specs/2026-09-22-v0-postgresql-backup-restore-implementation-plan.md)
-govern this operation. Read-only discovery found no usable PITR recovery point,
-so the September 23 #207 GO used a real custom-format `pg_dump` from the former
-`TailTag/staging` Postgres and `pg_restore` into a disposable local PostgreSQL
-18 target. That restore is historical evidence for the retired database only;
-the replacement database has no restore receipt. A new-generation restore must
-wait until the #207 command is safely bound to the replacement `TailTag/staging`. The
-procedure does not restore a Railway volume or change backup settings.
+govern this operation. Read-only discovery for the retired database found no
+usable PITR recovery point, so the September 23 #207 GO used a real
+custom-format `pg_dump` from the former `TailTag/staging` Postgres and
+`pg_restore` into a disposable local PostgreSQL 18 target. That restore is
+historical evidence for the retired database only. The #207 command now uses
+the owner-only, code-pinned replacement `TailTag/staging` selectors and fails
+closed if they are unavailable. Read-only replacement discovery at
+2026-09-29 04:09 UTC found a ready Postgres volume, zero Railway API backups
+and schedules, and a Railway Backups panel showing no backups. The panel
+described backup creation and PITR as Pro features while this workspace was on
+Hobby. These are point-in-time observations, not a claim about internal backup
+state. The replacement drill uses a logical dump for isolated restore proof.
+The procedure does not restore a Railway volume or change backup settings.
+
+The [September 29 guarded replacement restore receipt](staging-recovery/20260929T063432Z-issue-207-restore-d4480275113242e7bba0b25387cdf6eb.json)
+records `outcome=GO` for source `f16ff7527059e32d2cca15038e55ba406aa35381`
+at recovery point `2026-09-29T06:34:40.582701Z`. A real custom-format dump
+restored into isolated PostgreSQL 18; 36 of 43 named checks passed. Seven were
+`NOT_EXERCISED`: Catch, session and credential representative reads plus the
+session, credential and Catch relationship and Catch provenance checks, because
+their source tables were empty. Matching-revision backend usability, active
+Staging nonimpact and cleanup passed, with no listed limitations or follow-up.
+This is isolated restore evidence; it is not an active Staging restore, PITR
+proof or Production recovery proof.
 
 Before the drill, verify the approved Finn identities, exact Railway project,
 Staging environment, Postgres service/volume, active API deployment/revision,

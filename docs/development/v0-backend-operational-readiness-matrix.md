@@ -67,8 +67,8 @@ matrix, restore, rollback, authenticated Clerk smoke, or media smoke ran.
 | OR-4 / #203: health and target safety | The current repository-owned canonical preflight passed and returned the tuple above. It requires live, ready, and stable Staging identity at the exact approved origin; its negative-target and dependency-failure behavior retain deterministic #203 proof. | **SUBSTANTIATED for the current positive preflight and inherited contract.** No live dependency outage or negative-target traffic was induced. |
 | OR-7 / #206: migration and application recovery | The [approved compatibility policy](../specs/2026-09-22-v0-migration-application-rollback.md) and [Staging recovery procedure](staging.md#migration-and-application-image-recovery-206) remain the rule: positively prove old-code compatibility with actual schema and persisted state or fix forward. The September 25 replacement promotion passed its guarded migration gate. | **POLICY SUBSTANTIATED; current rollback pair unproven.** The retired-generation candidate's NO-GO does not decide a replacement pair. The naturally compatible live rehearsal remains [#241](https://github.com/TailTag-Game/tailtag/issues/241) and is not a #208 blocker by itself. |
 
-The remaining #208 decision still depends on replacement OR-8 evidence and
-the nine first-response reviews; OR-5 and OR-6 are dispositioned below.
+The remaining #208 decision depends on the nine first-response reviews;
+replacement OR-5, OR-6 and OR-8 are dispositioned below.
 OR-1's replacement ownership
 boundary is resolved by the pinned resource comparison above; operator
 procedures must continue to use the code-owned pins because both project
@@ -131,8 +131,42 @@ postconditions are retained separately, without reclassifying transport.
 **OR-6: PASS WITH FOUR EXPLICIT CASE 9 LIVE LIMITATIONS** for this observed
 replacement deployment. The retired-generation OR-6 blocker in the historical
 table below remains historical. This OR-6 result alone does not make #208 GO:
-replacement OR-8 and the current nine first-response reviews retain
-their own dispositions.
+the OR-8 disposition below and the current nine first-response reviews retain
+their own boundaries.
+
+## Replacement OR-8 / #207 restore evidence boundary (2026-09-29)
+
+The [#207 acceptance contract](../specs/2026-09-22-v0-postgresql-backup-restore.md)
+AC-1 required an exact PITR-disabled discovery for the retired database. That
+observation belongs to the September 23 receipt and is not inherited by the
+replacement. For #208 replacement OR-8, the accepted backup-method selection
+evidence is the code-pinned current source and the 2026-09-29 04:09 UTC read-only
+provider observation: zero Railway API backups and schedules, a Backups panel
+showing no backups and describing backup creation and PITR as Pro features while
+the workspace was on Hobby. This supports a neutral logical dump selection for
+isolated restore proof; it does not claim an internal PITR setting or a durable
+backup-policy state.
+
+The [guarded replacement restore receipt](staging-recovery/20260929T063432Z-issue-207-restore-d4480275113242e7bba0b25387cdf6eb.json)
+records source `f16ff7527059e32d2cca15038e55ba406aa35381`, recovery point
+`2026-09-29T06:34:40.582701Z`, a real custom-format logical dump and isolated
+PostgreSQL 18 restore, and `outcome=GO`. Its 43 named checks include 36 `PASS`
+results for the archive, restore, target guard, migrations, schema/constraints,
+and populated-domain relationships and representative reads. Seven are
+`NOT_EXERCISED`: Catch, session and credential representative reads; their three
+relationship checks; and Catch provenance. The corresponding source table
+counts were zero. The guarded command originally emitted `PASS` for those four
+empty-source relationship/provenance checks. The retained receipt reclassifies
+only those four statuses from the captured source counts under the #207
+contract's zero-row rule; no live operation was rerun, and the source identity,
+recovery time, fingerprints and other captured fields are unchanged.
+Matching-revision backend usability and active Staging nonimpact are
+`PASS`, cleanup is verified, and the receipt lists no limitations or follow-up.
+
+**Replacement OR-8: PASS WITH SEVEN EXPLICIT EMPTY-SOURCE CHECK BOUNDARIES**
+for this observed source and recovery point. The retired GO remains historical.
+The drill proves isolated restoration and does not restore active Staging or
+establish PITR or Production recovery.
 
 **Verification classes.** *Inherited exercise* checks durable completed live
 evidence, present applicability, and material drift without repeating an

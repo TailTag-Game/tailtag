@@ -1,7 +1,7 @@
 # Staging backend first response
 
 This is the first-response guide for the replacement Railway
-`TailTag Rebuild` / `staging` backend at `https://staging.tailtag.app`. It
+`TailTag` / `staging` backend at `https://staging.tailtag.app`. It
 covers the nine V0 operational scenarios in [#208](https://github.com/TailTag-Game/tailtag/issues/208).
 Use it with the [Staging runbook](../development/staging.md), the
 [operator authorization runbook](operator-authorization-audit.md), and the
@@ -12,17 +12,15 @@ their own target checks, operator authority, and approval boundaries.
 
 The September 25 [replacement handoff receipt](../development/staging-deployments/c34c45bb-6eb8-488d-8114-d1dd931cf25e.json)
 proves a public/exact-instance identity join for its observation window only.
-The replacement #204 baseline, #243 operator/audit results, and #207 restore
-remain unverified. Historical receipts and target-pinned commands for the
-former `TailTag` project do not apply to `TailTag Rebuild`. In particular, the
-replacement #202 promotion path remains old-target-pinned. The replacement
-#204 provision/reset SSH path is locally implemented and reviewed, but has no
-live replacement-baseline result. A replacement #207 restore has not been
-recorded. Do not run an old-pinned command against the replacement.
+The current [readiness matrix](../development/v0-backend-operational-readiness-matrix.md)
+records the replacement #204 baseline, #243 operator/audit results, and #207
+isolated restore. Historical target-pinned commands for the retired Staging
+generation do not apply to the replacement, even though both generations used
+the `TailTag` display name. Use only the current code-pinned commands.
 
 ## Common first check and evidence
 
-1. Identify `Finn the Panther's Projects` / `TailTag Rebuild` / `staging`;
+1. Identify `Finn the Panther's Projects` / `TailTag` / `staging`;
    select the
    exact `api` deployment and, for database incidents, the environment-local
    `Postgres` service. Development is a separate contributor environment.
@@ -35,7 +33,7 @@ recorded. Do not run an old-pinned command against the replacement.
    acceptance, reset, or simulation traffic. `/health/live` proves only a
    responding process; `/health/ready` proves local configuration and a small
    PostgreSQL query, not Clerk or R2 provider availability.
-3. In Railway `TailTag Rebuild` → `staging` → `api` → **Deployments**, bind
+3. In Railway `TailTag` → `staging` → `api` → **Deployments**, bind
    diagnostics to the
    affected deployment ID. Inspect its status, build output, pre-deploy
    migration output, startup/runtime output, instances, and lifecycle events
@@ -168,7 +166,7 @@ or assume application rollback restores R2 state.
 
 ## Abnormal API load
 
-**Recognize and diagnose.** In Railway, select `TailTag Rebuild` → `staging` → `api` →
+**Recognize and diagnose.** In Railway, select `TailTag` → `staging` → `api` →
 **Deployments** → the exact affected D. Review its status and bounded
 deployment/runtime logs alongside canonical liveness and readiness. Correlate
 the time window with known controlled promotions, resets, synthetic rehearsal
@@ -271,12 +269,25 @@ The exact live Railway compatible-rollback/pre-deploy gap remains [#241](https:/
 database unavailability, or a reversible code/configuration failure. Record
 the source identity and intended recovery point. Review the maintained #207
 [isolated restore procedure](../development/staging.md#postgresql-backup-restoration-drill-207)
-and its [final GO evidence](../development/staging-recovery/20260923T165714Z-issue-207-restore-d6def5ea5b9442c7992d301a575c6f8b.json).
+and the [replacement GO receipt](../development/staging-recovery/20260929T063432Z-issue-207-restore-d4480275113242e7bba0b25387cdf6eb.json).
 The September 23 logical dump/restore proved isolated PostgreSQL 18 restore,
 integrity checks, matching-revision backend usability, Staging nonimpact and
-cleanup for the retired database; the earlier failed preflight is historical.
-That exercise does not prove recovery for the replacement database, which has
-no current restore result.
+cleanup for the retired database; its [GO receipt](../development/staging-recovery/20260923T165714Z-issue-207-restore-d6def5ea5b9442c7992d301a575c6f8b.json)
+and earlier failed preflight are historical. The guarded drill now uses the
+owner-only, code-pinned replacement Staging selectors. Read-only discovery at
+2026-09-29 04:09 UTC found a ready Postgres volume, zero Railway API backups
+and schedules, and no backups in Railway's Backups panel. The panel described
+backup creation and PITR as Pro features while this workspace was on Hobby.
+Treat these as point-in-time observations. The September 29 replacement receipt
+records a real logical dump and isolated PostgreSQL 18 restore, 36 of 43 named
+checks passed, matching-revision backend usability, Staging nonimpact and
+verified cleanup. Catch, session and credential representative reads, their
+relationship checks, and Catch provenance were `NOT_EXERCISED` because their
+source tables were empty. Four of those relationship/provenance statuses were
+corrected in the retained receipt from captured zero source counts after the
+run; no restore was repeated. This proves isolated restore for the observed
+replacement source and recovery point, not active Staging restoration, PITR or
+Production recovery.
 
 **First safe mitigation and recovery.** Stop writes and preserve the source
 database, current deployment, and relevant logs while the backend/database
@@ -288,5 +299,6 @@ substitute for backup recovery.
 
 **Preserve / avoid.** Retain sanitized source/target class, recovery-point
 time, outcome, backend/integrity checks, nonimpact and cleanup result. Do not
-publish a dump or row contents, point the API at the drill clone, claim PITR
-when none was available, or rerun a restore solely to duplicate #208 evidence.
+publish a dump or row contents, point the API at the drill clone, infer internal
+PITR state from the Backups panel, or rerun a restore solely to duplicate #208
+evidence.

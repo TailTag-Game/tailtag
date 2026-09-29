@@ -504,6 +504,18 @@ def compare_integrity(source: IntegrityFacts, restored: IntegrityFacts) -> Check
             if source.violations.get(name) == restored.violations.get(name) == 0
             else "FAIL"
         )
+    for table, names in {
+        "conventions_fursuitcatchsession": ("session_relationships",),
+        "conventions_fursuitcatchcredential": ("credential_relationships",),
+        "catches_catch": ("catch_relationships", "catch_provenance"),
+    }.items():
+        if source.table_counts.get(table) == 0:
+            for name in names:
+                checks[name] = (
+                    "NOT_EXERCISED"
+                    if restored.table_counts.get(table) == 0 and checks[name] == "PASS"
+                    else "FAIL"
+                )
     for table in TABLES:
         checks[f"{table}_constraints"] = (
             "PASS"
