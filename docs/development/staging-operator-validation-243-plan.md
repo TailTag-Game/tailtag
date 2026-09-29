@@ -189,6 +189,10 @@ provider fixture, general test harness, or unrelated admin action. Reuse the
 approved two-user, two-fursuit, one-Convention synthetic #204 baseline if it
 is still exact and has no conflicting unowned dependency. Preserve unrelated
 unowned state. Use only supported Django-admin and existing player flows.
+The interactive restart, matrix-window, and separate reset/decommission
+receipt prompts accept only uppercase `Y` to continue; `N` and every other
+answer stop that step. A `Y` receipt acknowledgement follows separately
+observed success and never substitutes for the command's postcondition check.
 
 ### Preconditions and target binding
 
@@ -244,7 +248,9 @@ unowned state. Use only supported Django-admin and existing player flows.
   [conditional synthetic actor amendment](staging-operator-validation-243-emergency-role-proposal.md)
   permits one guarded dedicated actor with mandatory post-matrix decommission.
   It is not the normal operator. Keep credentials and session material out of
-  arguments, files, logs, tickets and evidence.
+  arguments, files, logs, tickets and evidence. The matrix selects the sole
+  verified emergency superuser and prompts only for its password; multiple
+  candidates stop before authentication.
 - **Cascade target:** one enabled owned synthetic profile with its existing
   activation. For a meaningful session cascade, the owner may start **one**
   normal synthetic catch session using the established player flow immediately

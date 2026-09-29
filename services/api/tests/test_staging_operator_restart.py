@@ -38,7 +38,7 @@ from rehearsal.reset import validate_baseline
 from tests.test_staging_operator_inspector import create_owned_baseline
 
 COMMAND = "accounts.management.commands.restart_staging_validation_operators"
-CONFIRMATION = "restart Railway Staging validation operators"
+CONFIRMATION = "Y"
 IDENTITY = {
     "environment": "staging",
     "source_sha": "a" * 40,
@@ -598,14 +598,19 @@ def test_generated_identifier_collision_refuses_without_adopting_account(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
     "terminal,confirmation",
-    ((Terminal(attached=False), CONFIRMATION), (Terminal(), "wrong phrase")),
+    (
+        (Terminal(attached=False), CONFIRMATION),
+        (Terminal(), "N"),
+        (Terminal(), "y"),
+        (Terminal(), "Y "),
+    ),
 )
 def test_tty_and_confirmation_are_required_before_write(
     monkeypatch: pytest.MonkeyPatch,
     terminal: Terminal,
     confirmation: str,
 ) -> None:
-    """AC-2: a real hidden terminal and exact public confirmation are mandatory."""
+    """AC-2: a real terminal and exact uppercase Y are required before write."""
     seed_exact_state()
     set_target(monkeypatch)
     before = persisted_state()

@@ -29,8 +29,9 @@ Private reset configuration remains inside its existing reviewed comparison
 path; the matrix command does not read or alter it.
 
 The operator confirms an exclusive validation window and cleanup responsibility
-with an exact non-secret phrase before authentication. Failure or concurrent
-activity stops execution. Deployment work and other Staging writers remain
+with uppercase `Y` at the explicit `[Y/N]` prompt before authentication. Any
+other answer or concurrent activity stops execution. Deployment work and other
+Staging writers remain
 excluded for the entire window. This is procedural coordination, not a new
 maintenance flag or infrastructure feature.
 
@@ -43,14 +44,20 @@ sessions for live evidence. Keep cookie jars, CSRF values, form bodies, private
 fixture bindings and returned pages solely in memory. Do not log raw requests,
 responses, URLs with object paths, exceptions or authentication material.
 
-The maintainer supplies the existing synthetic owner's ordinary Clerk token
-through its hidden real-TTY prompt. For inspected singleton managed and limited
+At matrix runtime, use Chrome DevTools on the existing signed-in synthetic
+owner's ordinary Clerk player session to copy a fresh session token directly
+to the hidden real-TTY prompt. The agent handles this transfer; the maintainer
+enters only role passwords and uppercase `Y` confirmations. A Clerk dashboard
+API key, impersonation token, or another player's token is not a substitute.
+For inspected singleton managed and limited
 operators, the matrix derives each existing local identifier from its exact
 role state and prompts separately for passwords only. When the dedicated
 `staging_emergency_` actor is exactly `READY`, it likewise derives that
-identifier and prompts only for its password; an existing non-synthetic
-break-glass actor still requires a hidden identifier and password pair. No
-echoed fallback or automated secret relay. Confirm each actor privately
+identifier and prompts only for its password. With no dedicated actor, the
+matrix selects the sole staff superuser, requires its identity to remain stable
+through the password prompt, and stops if the superuser set is ambiguous. No
+echoed fallback or token in chat, command arguments, files, logs, or tool
+output. Confirm each actor privately
 against the exact inspected role and the
 real HTTP authenticated session. The synthetic owner's authenticated `/api/me/`
 must match the preserved ordinary #204 owner. Clerk-backed admin sign-in is not
@@ -68,9 +75,10 @@ This precheck does not replace the actual HTTP API/admin evidence.
 
 Any authentication/access failure stops immediately without retry or another
 identity. If a short-lived player token expires before its approved session
-step, stop before that request; do not manufacture provider credentials. The
-owner may obtain a fresh ordinary token through the same existing signed-in
-browser and enter it at the designated prompt before that step.
+step, stop before that request; do not manufacture provider credentials. A
+fresh ordinary token may be copied from the same signed-in owner browser
+session into the designated hidden prompt before that step. If that session
+is unavailable, stop rather than substitute a dashboard credential.
 
 ## Frozen observations and mutations
 

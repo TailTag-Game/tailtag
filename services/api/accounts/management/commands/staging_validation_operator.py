@@ -31,7 +31,7 @@ PERMISSION_NAMES = frozenset(
 )
 CONFIRMATIONS = {
     "provision": "provision Railway Staging validation operator",
-    "decommission": "decommission Railway Staging validation operator",
+    "decommission": "Y",
     "rotate_password": "rotate Railway Staging validation operator password",
 }
 
@@ -79,7 +79,14 @@ class Command(BaseCommand):
             raise CommandError("This command requires an interactive terminal.")
         if settings.DEBUG or connection.force_debug_cursor:
             raise CommandError("Query debugging must be disabled.")
-        if input("Confirmation: ") != CONFIRMATIONS[action]:
+        if action == "decommission":
+            confirmed = (
+                input("Decommission Railway Staging validation operator? [Y/N]: ")
+                == "Y"
+            )
+        else:
+            confirmed = input("Confirmation: ") == CONFIRMATIONS[action]
+        if not confirmed:
             raise CommandError("Confirmation failed.")
 
         operator: User | None = None
@@ -96,7 +103,7 @@ class Command(BaseCommand):
                 raise CommandError("Validation operator action failed.") from None
             identifier = operator.clerk_user_id
             pinned_password_hash = cast(str, operator.password)  # pyright: ignore[reportUnknownMemberType]
-        else:
+        elif action == "provision":
             identifier = _hidden_input("Operator identifier: ")
             if (
                 not identifier
@@ -107,6 +114,8 @@ class Command(BaseCommand):
                 )
             ):
                 raise CommandError("Operator identifier is invalid.")
+        else:
+            identifier = ""
 
         password = ""
         if action in {"provision", "rotate_password"}:
@@ -141,6 +150,19 @@ class Command(BaseCommand):
                         pinned_password_hash is None
                         or cast(str, operator.password)  # pyright: ignore[reportUnknownMemberType]
                         != pinned_password_hash
+                    ):
+                        raise CommandError(
+                            "Existing account cannot be used as an operator."
+                        )
+                elif action == "decommission":
+                    current = self._sole_limited_operator()
+                    operator = (
+                        User.objects.select_for_update().filter(pk=current.pk).first()
+                    )
+                    if (
+                        operator is None
+                        or operator.clerk_user_id != current.clerk_user_id
+                        or self._sole_limited_operator().pk != operator.pk
                     ):
                         raise CommandError(
                             "Existing account cannot be used as an operator."

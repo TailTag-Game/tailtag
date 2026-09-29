@@ -26,7 +26,7 @@ from config.replacement_target_binding import (
 )
 from rehearsal.models import StagingResetIdentity
 
-CONFIRMATION_PHRASE = "decommission Railway Staging emergency operator"
+CONFIRMATION_PROMPT = "Decommission the Railway Staging emergency operator? [Y/N]: "
 
 
 class Command(BaseCommand):
@@ -60,7 +60,7 @@ class Command(BaseCommand):
             or logging.getLogger("django.db.backends").isEnabledFor(logging.DEBUG)
         ):
             raise CommandError("Query debugging must be disabled.")
-        if input("Confirmation: ") != CONFIRMATION_PHRASE:
+        if input(CONFIRMATION_PROMPT) != "Y":
             raise CommandError("Confirmation failed.")
 
         try:

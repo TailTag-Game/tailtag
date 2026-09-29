@@ -24,7 +24,7 @@ Test surface contract for this file (approved by the ADW parent):
   live code must use actual HTTPS and isolated per-actor sessions.
   ``_STAGING_ORIGIN`` is fixed in production and may be monkeypatched only by
   tests to point at a disposable local HTTP server.
-* ``_confirm_window()`` performs the exact nonsecret real-TTY coordination
+* ``_confirm_window()`` performs the uppercase Y/N real-TTY coordination
   confirmation after target/fixture guards and before authentication. Sequence
   tests substitute this seam; separate tests exercise the original function.
 * ``run`` emits its final sanitized evidence mapping as JSON on stdout, so the
@@ -124,7 +124,7 @@ def local_http_cookie_transport(settings: SettingsWrapper) -> None:
 
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts" / "api_staging_operator_matrix.py"
-WINDOW_CONFIRMATION = "exclusive Railway Staging validation window; I own cleanup"
+WINDOW_CONFIRMATION = "Y"
 LIVE_SEQUENCE_COMPLETE = "LIVE_SEQUENCE_COMPLETE_PENDING_CASE9_EVIDENCE"
 IDENTITY = {
     "source_sha": "a" * 40,
@@ -234,14 +234,14 @@ class HiddenInputTerminal(io.StringIO):
 
 
 @pytest.mark.parametrize(
-    "answer", (WINDOW_CONFIRMATION, "wrong", WINDOW_CONFIRMATION + " ", "eof")
+    "answer", (WINDOW_CONFIRMATION, "N", "y", WINDOW_CONFIRMATION + " ", "eof")
 )
-def test_window_confirmation_requires_exact_nonsecret_phrase(
+def test_window_confirmation_accepts_only_uppercase_y(
     unconfirmed_matrix: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     answer: str,
 ) -> None:
-    """The exclusive window and cleanup acknowledgement is an exact TTY event."""
+    """Only an explicit Y confirms the exclusive window and cleanup owner."""
     prompts: list[str] = []
     monkeypatch.setattr(sys, "stdin", HiddenInputTerminal())
 
@@ -262,7 +262,8 @@ def test_window_confirmation_requires_exact_nonsecret_phrase(
         with pytest.raises((ValueError, EOFError)):
             unconfirmed_matrix._confirm_window()
     assert len(prompts) == 1
-    assert WINDOW_CONFIRMATION in prompts[0]
+    assert "Railway Staging" in prompts[0]
+    assert "[Y/N]" in prompts[0]
 
 
 def test_window_confirmation_rejects_non_tty_without_reading_input(
@@ -277,6 +278,34 @@ def test_window_confirmation_rejects_non_tty_without_reading_input(
     monkeypatch.setattr(getpass, "getpass", forbidden)
     with pytest.raises(ValueError):
         unconfirmed_matrix._confirm_window()
+
+
+@pytest.mark.parametrize("answer", ("Y", "N", "y", "Y "))
+def test_external_receipt_acknowledgement_accepts_only_uppercase_y(
+    unconfirmed_matrix: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    answer: str,
+) -> None:
+    terminal = HiddenInputTerminal()
+    prompts: list[str] = []
+    monkeypatch.setattr(sys, "stdin", HiddenInputTerminal())
+    monkeypatch.setattr(sys, "stdout", terminal)
+
+    def ordinary_input(prompt: str = "") -> str:
+        prompts.append(prompt)
+        return answer
+
+    monkeypatch.setattr(builtins, "input", ordinary_input)
+
+    result = unconfirmed_matrix._await_receipt(
+        "TAILTAG_MATRIX_RESET_READY", "Railway Staging reset"
+    )
+
+    assert result == {"classification": "PASS" if answer == "Y" else "FAIL"}
+    assert terminal.getvalue() == "TAILTAG_MATRIX_RESET_READY\n"
+    assert len(prompts) == 1
+    assert "Railway Staging reset" in prompts[0]
+    assert "[Y/N]" in prompts[0]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1030,11 +1059,7 @@ def test_exact_emergency_actor_can_reach_admin_login_http(
     actor = User.objects.get(pk=sessions["emergency"]["actor_id"])
     actor.clerk_user_id = identifier
     actor.save(update_fields={"clerk_user_id"})
-    answers = iter(
-        ("local-only-emergency-test-password",)
-        if identifier.startswith("staging_emergency_")
-        else (identifier, "local-only-emergency-test-password")
-    )
+    answers = iter(("local-only-emergency-test-password",))
     prompts: list[str] = []
     requests: list[tuple[str, str]] = []
     monkeypatch.setattr(sys, "stdin", HiddenInputTerminal())
@@ -1061,12 +1086,34 @@ def test_exact_emergency_actor_can_reach_admin_login_http(
         matrix._authenticate("emergency")
 
     assert requests == [("GET", "/admin/login/")]
-    assert prompts == (
-        ["emergency admin password: "]
-        if identifier.startswith("staging_emergency_")
-        else ["emergency admin identifier: ", "emergency admin password: "]
-    )
+    assert prompts == ["emergency admin password: "]
     assert OperatorAuditEvent.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_existing_emergency_login_refuses_ambiguous_superusers_without_prompt(
+    matrix: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    identity = create_owned_baseline()
+    sessions = role_sessions(identity)
+    existing = User.objects.get(pk=sessions["emergency"]["actor_id"])
+    existing.clerk_user_id = "existing_breakglass_matrix_243"
+    existing.save(update_fields={"clerk_user_id"})
+    User.objects.create_superuser(
+        "second_breakglass_matrix_243", password="local-only-second-password"
+    )
+    monkeypatch.setattr(sys, "stdin", HiddenInputTerminal())
+    monkeypatch.setattr(sys, "stdout", HiddenInputTerminal())
+
+    def forbidden(*_args: object, **_kwargs: object) -> NoReturn:
+        pytest.fail("ambiguous emergency actors reached a password or HTTP prompt")
+
+    monkeypatch.setattr(getpass, "getpass", forbidden)
+    monkeypatch.setattr(matrix, "_http_request", forbidden)
+
+    with pytest.raises(ValueError):
+        matrix._authenticate("emergency")
 
 
 @pytest.mark.django_db
