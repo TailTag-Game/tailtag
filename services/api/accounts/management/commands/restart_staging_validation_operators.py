@@ -45,7 +45,7 @@ from operator_audit.models import OperatorAuditEvent
 from rehearsal.models import StagingResetIdentity
 from rehearsal.reset import validate_baseline
 
-CONFIRMATION_PHRASE = "restart Railway Staging validation operators"
+CONFIRMATION_PROMPT = "Restart the three Railway Staging validation operators? [Y/N]: "
 _ROLES = ("managed", "limited", "emergency")
 _MAX_AUDIT_ROWS = 10_000
 # A Permission's display name omits its content-type model. The frozen role
@@ -273,7 +273,7 @@ class Command(BaseCommand):
             )
             for role, actor in actors.items()
         }
-        if input("Confirmation: ") != CONFIRMATION_PHRASE:
+        if input(CONFIRMATION_PROMPT) != "Y":
             raise CommandError("Confirmation failed.")
         names = {
             role: f"staging_{'validation' if role == 'limited' else role}_{secrets.token_hex(8)}"

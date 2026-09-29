@@ -1089,7 +1089,7 @@ def test_command_parser_never_echoes_identifier_or_password_arguments(
 # The following tests describe the proposed post-Case-5 cleanup boundary. They
 # do not authorize a live Staging action.
 DECOMMISSION_COMMAND = "decommission_staging_emergency_operator"
-DECOMMISSION_CONFIRMATION = "decommission Railway Staging emergency operator"
+DECOMMISSION_CONFIRMATION = "Y"
 DECOMMISSION_SUCCESS = "Staging emergency operator decommissioned.\n"
 
 
@@ -1172,7 +1172,7 @@ def test_emergency_decommission_revokes_access_and_preserves_actor_audit(
     assert stdout.getvalue() == DECOMMISSION_SUCCESS
     assert stderr.getvalue() == ""
     assert len(prompts) == 1
-    assert prompts[0].startswith("Confirmation")
+    assert prompts[0] == "Decommission the Railway Staging emergency operator? [Y/N]: "
     _assert_private(stdout, stderr, None, caplog, IDENTIFIER, PASSWORD)
 
 
@@ -1466,8 +1466,10 @@ def test_emergency_decommission_requires_real_tty(
 
 
 @pytest.mark.django_db
-def test_emergency_decommission_requires_exact_confirmation(
+@pytest.mark.parametrize("answer", ("N", "y", "Y "))
+def test_emergency_decommission_accepts_only_uppercase_y(
     monkeypatch: pytest.MonkeyPatch,
+    answer: str,
 ) -> None:
     _pin_test_target(monkeypatch)
     _set_target(monkeypatch)
@@ -1476,9 +1478,7 @@ def test_emergency_decommission_requires_exact_confirmation(
     stdout = TtyStream()
 
     with pytest.raises(CommandError):
-        _invoke_decommission(
-            monkeypatch, confirmation="wrong confirmation", stdout=stdout
-        )
+        _invoke_decommission(monkeypatch, confirmation=answer, stdout=stdout)
 
     assert _state(actor) == before
     assert stdout.getvalue() == ""

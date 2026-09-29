@@ -53,7 +53,7 @@ COMMAND_MODULE = "accounts.management.commands.staging_validation_operator"
 COMMAND_NAME = "staging_validation_operator"
 GROUP_NAME = "TailTag #243 Validation Operator"
 PROVISION_CONFIRMATION = "provision Railway Staging validation operator"
-DECOMMISSION_CONFIRMATION = "decommission Railway Staging validation operator"
+DECOMMISSION_CONFIRMATION = "Y"
 ROTATE_CONFIRMATION = "rotate Railway Staging validation operator password"
 OPERATOR_IDENTIFIER = "validation_operator_243"
 INITIAL_PASSWORD = "validation-operator-password-2026"
@@ -1311,11 +1311,27 @@ def test_provision_rolls_back_creation_when_group_write_fails(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("answer", ("N", "y", "Y "))
+def test_decommission_requires_uppercase_y_before_write(
+    monkeypatch: pytest.MonkeyPatch, answer: str
+) -> None:
+    operator = create_exact_limited_operator()
+    before = exact_limited_state(operator)
+
+    with pytest.raises(CommandError):
+        invoke_command(monkeypatch, "decommission", confirmation=answer)
+
+    operator.refresh_from_db()
+    assert exact_limited_state(operator) == before
+
+
+@pytest.mark.django_db
 def test_decommission_preserves_actor_and_audit_but_removes_future_access(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """AC-5/8: lifecycle cleanup protects audit integrity while revoking access."""
+    """Cleanup auto-selects the exact role without a username or secret prompt."""
     operator = create_exact_limited_operator()
+    hidden_prompts: list[str] = []
     audit = OperatorAuditEvent.objects.create(
         action=OperatorAction.SET_PROFILE_ENABLED,
         actor=operator,
@@ -1329,9 +1345,10 @@ def test_decommission_preserves_actor_and_audit_but_removes_future_access(
         monkeypatch,
         "decommission",
         confirmation=DECOMMISSION_CONFIRMATION,
-        hidden_inputs=(OPERATOR_IDENTIFIER,),
+        hidden_prompts=hidden_prompts,
     )
 
+    assert hidden_prompts == []
     operator.refresh_from_db()
     group = Group.objects.get(name=GROUP_NAME)
     assert operator.is_staff is False
@@ -1358,7 +1375,6 @@ def test_decommission_is_idempotent_only_for_exact_decommissioned_shape(
         monkeypatch,
         "decommission",
         confirmation=DECOMMISSION_CONFIRMATION,
-        hidden_inputs=(OPERATOR_IDENTIFIER,),
     )
     operator.refresh_from_db()
     before = exact_limited_state(operator)
@@ -1367,7 +1383,6 @@ def test_decommission_is_idempotent_only_for_exact_decommissioned_shape(
         monkeypatch,
         "decommission",
         confirmation=DECOMMISSION_CONFIRMATION,
-        hidden_inputs=(OPERATOR_IDENTIFIER,),
     )
 
     operator.refresh_from_db()
@@ -1384,6 +1399,7 @@ def test_decommission_is_idempotent_only_for_exact_decommissioned_shape(
         "extra_group_permission",
         "extra_group",
         "gameplay_attachment",
+        "other_candidate",
         "superuser",
     ),
 )
@@ -1406,6 +1422,9 @@ def test_decommission_refuses_every_drifted_limited_role_without_altering_audit(
         protected.groups.add(Group.objects.create(name="unexpected decommission group"))  # pyright: ignore[reportUnknownMemberType]
     elif drift == "gameplay_attachment":
         attach_gameplay_record(protected, "profile")
+    elif drift == "other_candidate":
+        other = create_user("other_limited_candidate_243")
+        other.user_permissions.add(permissions["profiles.set_profile_enabled"])  # pyright: ignore[reportUnknownMemberType]
     else:
         protected.is_superuser = True
         protected.save(update_fields={"is_superuser"})
@@ -1428,7 +1447,6 @@ def test_decommission_refuses_every_drifted_limited_role_without_altering_audit(
             monkeypatch,
             "decommission",
             confirmation=DECOMMISSION_CONFIRMATION,
-            hidden_inputs=(OPERATOR_IDENTIFIER,),
         )
 
     protected.refresh_from_db()
@@ -1484,7 +1502,6 @@ def test_decommission_rolls_back_group_clear_when_account_update_fails(
             monkeypatch,
             "decommission",
             confirmation=DECOMMISSION_CONFIRMATION,
-            hidden_inputs=(OPERATOR_IDENTIFIER,),
         )
 
     protected.refresh_from_db()
@@ -1514,7 +1531,6 @@ def test_decommission_refuses_managed_or_drifted_role_without_touching_audit(
             monkeypatch,
             "decommission",
             confirmation=DECOMMISSION_CONFIRMATION,
-            hidden_inputs=(OPERATOR_IDENTIFIER,),
         )
 
     protected.refresh_from_db()

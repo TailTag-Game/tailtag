@@ -23,12 +23,12 @@ attempts in the chronological [evidence record](staging-operator-validation-243-
    The existing limited actor may have an older arbitrary local identifier and
    is selected by its exact dedicated group; its old name is not renamed. The
    maintainer enters only three new role-specific passwords and confirmations
-   through a real non-echoing TTY. Require an exact public confirmation phrase
-   and the existing Django password policy. Require the three passwords to be
-   distinct so one disclosed credential cannot authenticate every role. Never
-   put a username, password or
-   password hash in argv, environment variables, logs, receipts or chat.
-   The phrase is `restart Railway Staging validation operators`.
+   through a real non-echoing TTY. Require an exact uppercase `Y` at the prompt
+   naming the three-operator restart; `N` or any other input stops before
+   passwords or writes. Apply the existing Django password policy. Require
+   the three passwords to be distinct so one disclosed credential cannot
+   authenticate every role. Never put a username, password or password hash
+   in argv, environment variables, logs, receipts or chat.
 3. In one guarded database transaction, retain all three old User rows and
    their audit relationships, remove their staff/superuser/group authority and
    make their passwords unusable. Create exactly one new actor for each role:
@@ -64,7 +64,9 @@ attempts in the chronological [evidence record](staging-operator-validation-243-
    superuser or an abnormal retired row still fail closed. Existing bootstrap
    must not adopt or reactivate a retired actor. The final decommission launcher
    must accept the exact two-retired-row postcondition without relaxing its
-   old audit-retention checks.
+   old audit-retention checks. Limited-operator decommission selects the sole
+   exact validation-role candidate; it must stop on ambiguous ownership and
+   must not ask the maintainer for the generated username.
 6. After fresh independently guarded target/role inspection, test each new
    password through its role's real Django-admin login before any #205 case
    submission. Only then restart the bounded matrix at Case 1. Preserve the

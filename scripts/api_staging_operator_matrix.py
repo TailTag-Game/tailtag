@@ -63,7 +63,10 @@ _COMBINED: Final = frozenset(
         "activation_reactivation",
     }
 )
-_WINDOW_PHRASE: Final = "exclusive Railway Staging validation window; I own cleanup"
+_WINDOW_PROMPT: Final = (
+    "Exclusive Railway Staging validation window is active and I own cleanup. "
+    "Proceed? [Y/N]: "
+)
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -168,7 +171,7 @@ def _confirm_window() -> None:
         "Confirm exclusive Staging validation window and cleanup responsibility.",
         flush=True,
     )
-    if input(f"Type exactly: {_WINDOW_PHRASE}\n> ") != _WINDOW_PHRASE:
+    if input(_WINDOW_PROMPT) != "Y":
         raise ValueError
 
 
@@ -273,9 +276,18 @@ def _authenticate(role: str) -> dict[str, Any]:
             identifier = operator.clerk_user_id
             dedicated_emergency = True
         else:
-            identifier = getpass.getpass("emergency admin identifier: ")
+            existing = list(User.objects.filter(is_superuser=True)[:2])
+            if len(existing) != 1 or not existing[0].is_staff:
+                raise ValueError
+            operator = existing[0]
+            pinned = (
+                operator.pk,
+                operator.clerk_user_id,
+                cast(str, operator.password),  # pyright: ignore[reportUnknownMemberType]
+            )
+            identifier = operator.clerk_user_id
     else:
-        identifier = getpass.getpass(f"{role} admin identifier: ")
+        raise ValueError
     password = getpass.getpass(f"{role} admin password: ")
     try:
         if role in {"managed", "limited"}:
@@ -316,15 +328,29 @@ def _authenticate(role: str) -> dict[str, Any]:
                 cast(str, operator.password),  # pyright: ignore[reportUnknownMemberType]
             ) != pinned:
                 raise ValueError
-        else:
-            if role == "emergency" and (
-                identifier.startswith("staging_emergency_")
+        elif role == "emergency":
+            if (
+                pinned is None
+                or identifier.startswith("staging_emergency_")
                 or User.objects.filter(
                     clerk_user_id__startswith="staging_emergency_"
                 ).exists()
             ):
                 raise ValueError
-            operator = User.objects.get(clerk_user_id=identifier)
+            current = list(User.objects.filter(is_superuser=True)[:2])
+            if (
+                len(current) != 1
+                or (
+                    current[0].pk,
+                    current[0].clerk_user_id,
+                    cast(str, current[0].password),  # pyright: ignore[reportUnknownMemberType]
+                )
+                != pinned
+            ):
+                raise ValueError
+            operator = current[0]
+        else:
+            raise ValueError
         encoded_password = cast(str, operator.password)  # pyright: ignore[reportUnknownMemberType]
         if not operator.is_staff or not check_password(password, encoded_password):
             raise ValueError
@@ -659,36 +685,32 @@ def _review_deployed_controls() -> dict[str, str]:
     return {"deployed_control_hash_match": "PASS"}
 
 
-def _await_receipt(marker: str, acknowledgement: str) -> dict[str, str]:
+def _await_receipt(marker: str, action: str) -> dict[str, str]:
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         raise ValueError
     print(marker, flush=True)
     return {
         "classification": "PASS"
-        if input(
-            f"Acknowledge the separately observed successful command receipt: {acknowledgement}\n> "
-        )
-        == acknowledgement
+        if input(f"Did you separately verify the successful {action} receipt? [Y/N]: ")
+        == "Y"
         else "FAIL"
     }
 
 
 def _await_reset_receipt() -> dict[str, str]:
-    return _await_receipt(
-        "TAILTAG_MATRIX_RESET_READY", "verified Railway Staging reset"
-    )
+    return _await_receipt("TAILTAG_MATRIX_RESET_READY", "Railway Staging reset")
 
 
 def _await_decommission_receipt() -> dict[str, str]:
     return _await_receipt(
-        "TAILTAG_MATRIX_DECOMMISSION_READY", "verified Railway Staging decommission"
+        "TAILTAG_MATRIX_DECOMMISSION_READY", "Railway Staging decommission"
     )
 
 
 def _await_emergency_decommission_receipt() -> dict[str, str]:
     return _await_receipt(
         "TAILTAG_MATRIX_EMERGENCY_DECOMMISSION_READY",
-        "verified Railway Staging emergency decommission",
+        "Railway Staging emergency decommission",
     )
 
 
