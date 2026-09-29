@@ -93,7 +93,7 @@ release come only from build identity; environment is `unknown` when identity
 has none.
 
 Events never include the incoming request's body, query string, or cookies,
-stack-frame local variables, user IP, or authorization and cookie headers.
+request headers, stack-frame local variables, or user IP.
 Breadcrumbs for outgoing HTTP calls can still include the called URL and its
 query string; today the only outgoing calls are signed S3 requests with no
 secrets in the URL, and #211 owns tightening this. ERROR log lines become

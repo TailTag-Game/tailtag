@@ -117,6 +117,7 @@ def test_transaction_events_are_scrubbed_like_error_events() -> None:
             "query_string": f"token={SECRET_QUERY}",
             "data": {"password": SECRET_BODY},
             "cookies": {"sessionid": SECRET_COOKIE},
+            "headers": {"X-Api-Key": SECRET_HEADER},
         },
     }
     with sentry_capturing(identity()):
@@ -124,7 +125,10 @@ def test_transaction_events_are_scrubbed_like_error_events() -> None:
         scrubbed = hook(event, {})
 
     assert scrubbed is not None
-    assert not {"query_string", "data", "cookies"} & scrubbed.get("request", {}).keys()
+    assert (
+        not {"query_string", "data", "cookies", "headers"}
+        & scrubbed.get("request", {}).keys()
+    )
     assert scrubbed.get("release") in (None, SOURCE_SHA)
     assert all(secret not in json.dumps(scrubbed) for secret in SECRETS)
 
@@ -150,7 +154,10 @@ def _assert_reported_without_secrets(
         line for line in capture.lines() if line["logger"] == "tailtag.request"
     ]
     for event in events:
-        assert not {"query_string", "data", "cookies"} & event.get("request", {}).keys()
+        assert (
+            not {"query_string", "data", "cookies", "headers"}
+            & event.get("request", {}).keys()
+        )
         assert event["tags"]["request_id"] == completion["request_id"]
         assert event["tags"]["railway_request_id"] == RAILWAY_ID
     for secret in SECRETS:

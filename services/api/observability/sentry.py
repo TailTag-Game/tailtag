@@ -14,7 +14,7 @@ from config.build_identity import Identity
 
 from .logging import ALLOWED_EXTRA_FIELDS
 
-_REMOVED_REQUEST_FIELDS = ("query_string", "data", "cookies")
+_REMOVED_REQUEST_FIELDS = ("query_string", "data", "cookies", "headers")
 
 
 def _allow_listed(values: object) -> dict[str, Any]:

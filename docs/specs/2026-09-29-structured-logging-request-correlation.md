@@ -163,6 +163,7 @@ when absent), and `release` from `source_sha` only.
 
 **AC-9 Sentry event hygiene.** Every error and transaction event leaving the
 process has: no `request.query_string`; no `request.data`; no `request.cookies`;
+no `request.headers`;
 no `release` unless it equals the build identity `source_sha`; `request_id` and,
 when present, `railway_request_id` as tags. Logging breadcrumbs carry only
 allow-listed `extra` fields (AC-4).
@@ -192,8 +193,10 @@ logging configuration.
 - `observability/middleware.py`: `RequestCorrelationMiddleware`, first in
   `MIDDLEWARE`. Generates the ID, validates the Railway header, sets both
   contextvars and Sentry scope tags, times the request, emits the completion
-  line, and resets the contextvars in `finally`. Django's per-middleware
-  exception conversion means this middleware receives a response for view errors.
+  line. The contextvars are cleared by a Django `request_finished` receiver,
+  not by the middleware, so Django's own 4xx log lines after the middleware
+  returns stay correlated. Django's per-middleware exception conversion means
+  this middleware receives a response for view errors.
 - `observability/logging.py`: a stdlib `logging.Formatter` subclass writing
   allow-listed JSON; a filter adding context, trace IDs (via
   `sentry_sdk.get_current_scope().get_trace_context()` only when the SDK is

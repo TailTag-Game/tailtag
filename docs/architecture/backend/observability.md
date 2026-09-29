@@ -99,7 +99,7 @@ Every structured log line, Sentry event, and span carries these fields where app
 | `release` | From build identity (`source_sha`). |
 | `deployment_id` | From build identity. |
 
-Railway's log query syntax supports custom JSON attribute filters, so operators should be able to filter logs by `@request_id` or `@trace_id`. [#210](https://github.com/TailTag-Game/tailtag/issues/210) confirms this in Development, because Railway does not document whether every custom key is indexed. Correlation keys contain no dots, so they do not depend on how Railway treats dotted keys. The field contract and request lookup steps are in [backend logging and request correlation](../../operations/backend-logging.md).
+Railway's log query syntax supports custom JSON attribute filters, so operators should be able to filter logs by `@request_id` or `@trace_id`. Check D-1 of [#210](https://github.com/TailTag-Game/tailtag/issues/210) will confirm this in Development after merge, because Railway does not document whether every custom key is indexed. Correlation keys contain no dots, so they do not depend on how Railway treats dotted keys. The field contract and request lookup steps are in [backend logging and request correlation](../../operations/backend-logging.md).
 
 ### 6.3 Structured log events
 
