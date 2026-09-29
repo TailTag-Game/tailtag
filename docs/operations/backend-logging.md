@@ -102,13 +102,37 @@ not enabled by #210.
 
 ## Development evidence
 
-To be recorded after the first Development deployment with `SENTRY_DSN` set:
+Recorded on 2026-09-29 against Development deployment of `main` at
+`2416110` (the #210 merge), with `SENTRY_DSN` set. Requests went to
+`/health/live`, `/health/ready`, and an unauthenticated
+`/api/conventions/<id>/`. The last one carried a forged `X-Railway-Request-Id`
+and a client `X-Request-ID`.
 
-- **D-1** Whether `@request_id:<id>` returns that request's lines, and whether a
-  dotted key such as `@http.route:<value>` filters.
-- **D-2** Whether `railway_request_id` appears, and whether it equals the HTTP
-  log `@requestId` and the `x-railway-request-id` response header.
-- **D-3** Whether a Development Sentry event shows the right environment and
-  release, with no request body, query string, or cookies.
+- **D-1 passed for correlation.** `@request_id:<id>` returned every line for
+  that request: the completion line and Django's `Unauthorized` warning.
+  `@railway_request_id`, `@event`, `@logger`, and numeric filters such as
+  `@duration_ms:>0` also work, including values that contain dots.
+  **Keys that contain dots are not searchable.** `@http.route`,
+  `@http.request.method`, and `@http.response.status_code` returned nothing,
+  quoted or not, although the fields appear in every completion line. Search
+  Railway HTTP logs with `@path`, `@method`, `@httpStatus`, and
+  `@totalDuration` instead, then join through `railway_request_id`. Railway does
+  not document filtering on nested objects, and a nested test line could not be
+  written from an SSH session, so nesting is untested. See
+  [observability §6.3](../architecture/backend/observability.md#63-structured-log-events).
+- **D-2 passed.** For all three requests, `railway_request_id` on log lines
+  equalled the `x-railway-request-id` response header and the HTTP log
+  `@requestId`, with matching path and status. Railway's edge replaced the
+  forged header, and neither the forged value nor the client `X-Request-ID`
+  appeared in any log. Every line carried `environment`, the full `release`
+  SHA, and `deployment_id`.
+- **D-3 passed.** A one-off ERROR log from a Django shell on the Development
+  service produced one Sentry event with environment `development`, release
+  `241611022e6b…` as the only release, no URL, transaction, request, cookies,
+  or headers, zero users, and the same `trace_id` as the stdout log line.
+  Sentry showed a server-derived geography from the sending server's IP
+  address; the SDK sends no IP. Turning on the project's "Prevent Storing of IP
+  Addresses" setting removes it.
 
-Record results here without secret values, DSNs, or personal data.
+Request-bound Sentry hygiene under Gunicorn was verified locally before merge
+(see the [spec](../specs/2026-09-29-structured-logging-request-correlation.md)).
