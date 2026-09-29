@@ -413,6 +413,7 @@ or forward-recovery decision.
 | `MEDIA_STORAGE_REGION` | S3-compatible region for the private Development bucket; stage it with the complete media configuration. |
 | `MEDIA_STORAGE_ACCESS_KEY_ID` | Minimum-scope private-bucket object credential identifier; manage only through Railway's secret boundary. |
 | `MEDIA_STORAGE_SECRET_ACCESS_KEY` | Matching minimum-scope private-bucket object credential secret; never display or record it. |
+| `SENTRY_DSN` | Optional Sentry ingest credential for the Development and Staging Sentry project. When unset, the API runs without error reporting. Manage it as a Railway secret and never copy its value into repository artifacts, issues, or chat. See [backend logging and request correlation](../operations/backend-logging.md). |
 | `PORT` | Railway platform runtime configuration for the container; do not duplicate it as a TailTag-owned Django setting. |
 | Other `RAILWAY_*` values | Platform-owned variables; do not manually duplicate them unless an approved design explicitly requires a user-configured Railway behavior variable. |
 
