@@ -263,7 +263,7 @@ The API service uses PostgreSQL for runtime checks and does not provide a SQLite
 
 ## Decision log
 
-The accepted architecture decisions are recorded in:
+Architecture decisions are recorded in:
 
 - [0001 — Use Django and DRF for the backend](adrs/0001-use-django-and-drf-for-backend.md)
 - [0002 — Use PostgreSQL as the primary database](adrs/0002-use-postgresql-as-primary-database.md)
@@ -271,5 +271,6 @@ The accepted architecture decisions are recorded in:
 - [0004 — Use Railway for V0 hosting](adrs/0004-use-railway-for-v0-hosting.md)
 - [0005 — Use a modular monolith for V0](adrs/0005-use-modular-monolith-for-v0.md)
 - [0006 — Use Flutter for mobile V0](adrs/0006-use-flutter-for-mobile-v0.md)
+- [0007 — Use Railway and Sentry for V0 observability](adrs/0007-v0-observability-backend.md) (proposed)
 
 See [the ADR index](adrs/README.md) for the decision threshold and format.
