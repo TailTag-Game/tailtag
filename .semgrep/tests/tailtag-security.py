@@ -306,6 +306,8 @@ _LOGGER.debug("Operator removed catch " + str(catch_pk))
 logger.exception(f"Failed at {stage}")
 # ruleid: tailtag.logging.interpolated-message
 logging.getLogger(__name__).info("Failed at " + stage)
+# ruleid: tailtag.logging.interpolated-message
+logging.info(f"Failed at {stage}")
 # ok: tailtag.logging.interpolated-message
 _LOGGER.info(
     "Operator removed catch %s (catcher_user_id=%s).", catch_pk, catcher_user_id
@@ -329,6 +331,8 @@ _LOGGER.warning("Rejected %s for %s", stage, request_token)
 logger.info("Header %s", request.authorization_header)
 # ruleid: tailtag.logging.sensitive-argument
 logging.getLogger(__name__).debug("Body %s", raw_payload)
+# ruleid: tailtag.logging.sensitive-argument
+logging.warning("Rejected %s", request_token)
 # ruleid: tailtag.logging.sensitive-argument
 _LOGGER.error("Upload failed", extra={"stage": presigned_url})
 # ruleid: tailtag.logging.sensitive-argument

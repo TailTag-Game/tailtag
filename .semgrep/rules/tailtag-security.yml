@@ -163,7 +163,7 @@ rules:
           regex: "^(debug|info|warning|warn|error|exception|critical|fatal)$"
       - metavariable-regex:
           metavariable: $LOGGER
-          regex: "(?i)^(.*logger.*|logging\\.getLogger\\(.*\\))$"
+          regex: "(?i)^(.*logger.*|logging|logging\\.getLogger\\(.*\\))$"
 
   - id: tailtag.logging.sensitive-argument
     message: Do not pass tokens, credentials, payloads, authorization values, secrets, passwords, presigned URLs, or cookies to a logger.
@@ -178,7 +178,7 @@ rules:
               regex: "^(debug|info|warning|warn|error|exception|critical|fatal)$"
           - metavariable-regex:
               metavariable: $LOGGER
-              regex: "(?i)^(.*logger.*|logging\\.getLogger\\(.*\\))$"
+              regex: "(?i)^(.*logger.*|logging|logging\\.getLogger\\(.*\\))$"
           - metavariable-regex:
               metavariable: $ARG
               regex: "(?is)^.*(token|credential|payload|authorization|secret|password|presigned|cookie)"
@@ -189,7 +189,7 @@ rules:
               regex: "^(debug|info|warning|warn|error|exception|critical|fatal)$"
           - metavariable-regex:
               metavariable: $LOGGER
-              regex: "(?i)^(.*logger.*|logging\\.getLogger\\(.*\\))$"
+              regex: "(?i)^(.*logger.*|logging|logging\\.getLogger\\(.*\\))$"
           - metavariable-regex:
               metavariable: $ARG
               regex: "(?is)^.*(token|credential|payload|authorization|secret|password|presigned|cookie)"
@@ -200,7 +200,7 @@ rules:
               regex: "^(debug|info|warning|warn|error|exception|critical|fatal)$"
           - metavariable-regex:
               metavariable: $LOGGER
-              regex: "(?i)^(.*logger.*|logging\\.getLogger\\(.*\\))$"
+              regex: "(?i)^(.*logger.*|logging|logging\\.getLogger\\(.*\\))$"
           - metavariable-regex:
               metavariable: $KEY
               regex: "(?is)^.*(token|credential|payload|authorization|secret|password|presigned|cookie)"
@@ -212,5 +212,5 @@ rules:
     metadata: {owner: tailtag, confidence: HIGH}
     paths:
       exclude:
-        - "**/observability/**"
+        - "/services/api/observability/**"
     pattern: sentry_sdk.metrics.$FUNC(...)

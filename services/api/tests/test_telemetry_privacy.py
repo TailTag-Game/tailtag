@@ -370,15 +370,17 @@ def test_transaction_spans_and_trace_context_are_scrubbed() -> None:
         "django.db.backends",
     ],
 )
-def test_third_party_loggers_only_emit_warnings_and_above(logger_name: str) -> None:
-    """AC-7: their INFO output (URLs, request detail) never reaches stdout."""
+def test_third_party_loggers_never_emit_below_warning(logger_name: str) -> None:
+    """AC-7: their INFO output (URLs, request detail) never reaches stdout.
+
+    Runs under whichever settings pytest loads; CI uses production settings,
+    which silence the AWS SDK loggers entirely, so only the INFO cap is asserted.
+    """
     third_party = logging.getLogger(logger_name)
     with capture_json_stdout() as capture:
         third_party.info("synthetic-info-must-not-reach-stdout")
-        third_party.warning("synthetic-warning-must-reach-stdout")
         _LOGGER.info("synthetic-application-info-still-emitted")
 
     messages = [line["message"] for line in capture.lines()]
     assert "synthetic-info-must-not-reach-stdout" not in messages
-    assert "synthetic-warning-must-reach-stdout" in messages
     assert "synthetic-application-info-still-emitted" in messages

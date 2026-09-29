@@ -53,7 +53,7 @@ Values of allow-listed keys are not pattern-redacted. Pass only constants, enume
 Each layer covers what the others cannot. No single layer is the whole control.
 
 1. **Key allow-list.** Only the keys above leave the process from `extra`. This is the primary control for structured fields.
-2. **Semgrep rules** in `.semgrep/rules/tailtag-security.yml`, which fail CI:
+2. **Semgrep rules** in `.semgrep/rules/tailtag-security.yml`, which fail CI. A logger call is a call on a named logger, a `logging.getLogger(...)` chain, or module-level `logging`:
    - `tailtag.logging.interpolated-message` flags a logger call whose message is an f-string, a `.format(...)` result, or a `%`-formatted or concatenated string. Lazy `%s` arguments remain allowed;
    - `tailtag.logging.sensitive-argument` flags a logger call's positional argument, `extra` value, or `extra` key whose expression matches `token|credential|payload|authorization|secret|password|presigned|cookie`;
    - `tailtag.observability.direct-sentry-metrics` flags `sentry_sdk.metrics.*` calls outside `services/api/observability/`.
@@ -133,5 +133,5 @@ Every addition needs a test in `services/api/tests/test_telemetry_privacy.py` (o
 - **New metric dimension:** add the key and its bounded value set to `_is_bounded` in `services/api/observability/privacy.py`, with the value set as a constant beside `_HTTP_METHODS`. Update the table in section 5. Never add an unbounded key.
 - **Outcome and reason values ([#213](https://github.com/TailTag-Game/tailtag/issues/213)):** populate `_OUTCOMES` and `_REASONS` in `privacy.py`. Each value must be a member of the enumeration in the outcomes module, and the two must not drift.
 - **New text shape:** add a pattern to `_TEXT_REDACTIONS` only for a shape that is unmistakable. Prefer a Semgrep rule for anything ambiguous.
-- **New third-party logger cap:** add the logger name to `_QUIET_THIRD_PARTY_LOGGERS` in `logging.py`.
+- **New third-party logger cap:** add the logger name to `_QUIET_THIRD_PARTY_LOGGERS` in `logging.py`. `config/settings/production.py` adds stricter botocore, boto3, and s3transfer entries on top of these caps; settings must extend the base `loggers`, never replace them.
 - **New span or breadcrumb data key that can hold a URL or SQL value:** extend `scrub_url_data` in `privacy.py`.
