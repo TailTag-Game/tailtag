@@ -1,7 +1,8 @@
-# #243 read-only operator execution attempts
+# #243 operator execution and validation attempts
 
-These records preserve the chronological pre-mutation evidence. They do not
-substantiate any of the nine #205 live matrix cases.
+The early records below preserve chronological pre-mutation evidence and do
+not substantiate any #205 live case. The later [replacement bounded matrix](#replacement-bounded-matrix-completed--2026-09-29)
+and Case 9 reconciliation provide the current replacement-generation result.
 
 ## Stopped attempt: 2026-09-23 23:27:33–23:27:40 UTC
 
@@ -1206,3 +1207,242 @@ path, not a password-rotation path. Restoring usable emergency access would
 require a separately reviewed, exact-actor, password-only remediation with its
 own authorization and guards. No such remediation was run. The exclusive
 Staging window remains held and matrix/cleanup obligations remain pending.
+
+## Replacement operator restart uncertain — 2026-09-29
+
+The reviewed source `f16ff7527059e32d2cca15038e55ba406aa35381` passed its
+exact-SHA main push API validation and was promoted through the guarded #202
+path. The sanitized [promotion receipt](staging-deployments/70f0752d-e78d-4177-a5e0-540463299ca8.json)
+reports deployment `70f0752d-e78d-4177-a5e0-540463299ca8` as `SUCCEEDED`
+and `ACTIVE`, with migration, readiness, identity and smoke gates successful.
+The maintainer declared an exclusive Staging window before the restart.
+
+The guarded three-operator restart launcher reached `interactive_ssh` at that
+source/deployment. The maintainer confirmed the named `Y` prompt and completed
+the three role-specific password confirmations privately. The remote command
+reported `FAIL_OPERATOR_RESTART_UNCERTAIN`; the launcher returned
+`FAIL_TRANSPORT_UNCERTAIN` for 01:32:02–01:35:29 UTC. The maintainer did not
+observe `POSTCONDITION_PASS` or the remote completion marker. Preserve both
+failure classifications. The output does not establish whether the atomic
+restart transaction committed, rolled back, or failed before writes; do not
+retry the restart on this evidence.
+
+A fresh guarded read-only exact-instance operator inspection returned `PASS`
+with `target_verified=true` during 01:36:05–01:36:50 UTC on the same
+source/deployment. That establishes current role shape only; it cannot prove
+which predecessor actors were retired or replace the missing postcondition
+marker. No matrix case, owner token submission, #204 cleanup reset or
+decommission was attempted. Cases 1–9 remain `NOT_EXERCISED` and #208 OR-6
+remains `BLOCKING`. Further work requires a separately reviewed recovery
+decision based on the uncertain restart, with no blind write retry.
+
+A separately reviewed one-use, read-only probe then repeated the approved
+identity, receipt, registry, baseline, exact-instance and physical-database
+guards. In one repeatable-read snapshot, it returned `ONE_DEDICATED`: the
+current database had one synthetic emergency row in the exact `READY` shape.
+The restart's atomic transaction would add a second retained emergency row if
+it committed, so this supports a pre-write failure or rollback within the
+declared exclusive window. It does not identify the failing guard or password
+check, recover the lost in-process pre/post snapshot, or authorize a blind
+retry. No state mutation was part of this probe.
+
+A separate local, no-write password preflight then prompted twice for each
+role, applied the deployed Django password policy, and returned
+`FAIL_DISTINCTNESS`. All three role confirmations and individual policy checks
+had passed; at least two of the entered values matched. The maintainer intended
+to enter the same role-specific values as in the failed restart but could have
+mistyped a long value, so this is a plausible pre-transaction explanation, not
+proof of the remote failure's cause. The restart command checks distinctness
+before entering its write transaction. No password value was disclosed or
+recorded.
+
+The maintainer then entered three clearly different role passwords in the same
+local hidden-input preflight and reported `PASS_PASSWORD_PREFLIGHT`. This is
+preparation for a new attempt; it does not repair or reclassify the original
+transport-uncertain attempt. Given `ONE_DEDICATED`, the transaction's atomic
+retention of the predecessor and creation of a second dedicated emergency row,
+and the declared exclusive window, one new launcher-guarded attempt is permitted.
+The launcher must freshly recheck its target and role prerequisites; any failed
+guard, missing completion marker or failed fresh role readback stops the run.
+
+The new guarded restart was attempted during 01:56:38–02:02:18 UTC on source
+`f16ff7527059e32d2cca15038e55ba406aa35381`, deployment
+`70f0752d-e78d-4177-a5e0-540463299ca8`. The maintainer witnessed both
+`POSTCONDITION_PASS` and `TAILTAG_OPERATOR_RESTART_COMMAND_COMPLETED`. The
+outer launcher still returned `FAIL_TRANSPORT_UNCERTAIN`; preserve that
+transport result separately from the remote command's postcommit proof. A
+fresh read-only exact-instance managed/limited inspection returned `PASS`,
+`target_verified=true` during 02:04:37–02:05:24 UTC on the same deployment.
+A separately guarded read-only repeatable-read emergency inspection returned
+`TWO_DEDICATED`: one active dedicated emergency actor and one exact retired
+predecessor, with `inspect_emergency_state()` equal to `READY`. The first local
+invocation of that inspection failed on local Python import path before any
+remote operation; rerunning with the worktree on `PYTHONPATH` produced the
+fixed `TWO_DEDICATED` result. No matrix case or #204 reset has yet run.
+
+The first post-restart matrix attempt passed its guarded launcher preflight and
+received the exclusive-window `Y` confirmation. It stopped at the first
+`limited admin password:` prompt with remote `FAIL_AUTHENTICATION` during
+02:14:28–02:14:48 UTC on the same source/deployment. The launcher separately
+returned `FAIL_TRANSPORT_UNCERTAIN` for 02:11:49–02:14:51 UTC. The remote result
+reported `deployed_control_hash_match=PASS`, `mutation_may_have_begun=false`,
+no audit events, and Cases 1–9 all `NOT_EXERCISED`. Managed/emergency passwords,
+the owner token, reset and decommissions were not reached. This result does not
+identify whether the limited password was mistyped, the stored hash differed,
+or the admin HTTP session check failed. A bounded read-only credential diagnosis
+is required before any new matrix attempt; the exclusive window remains held.
+
+The first two invocations of a reviewed one-use read-only limited-password
+diagnostic stopped in local guards before prompting (`FAIL_GUARD`); the second
+was interrupted after about 90 seconds. A separate sanitized guard trace then
+passed GitHub/Railway identities, public preflight, receipt, current instance,
+exact-instance operator inspection, registry reconciliation, repeated preflight
+and database binding. A later diagnostic reached the hidden password and
+confirmation prompts and returned `CREDENTIAL_REJECTED` during
+02:25:48–02:30:35 UTC on the same source/deployment; its outer launcher was
+`FAIL_TRANSPORT_UNCERTAIN`. The matching confirmed input did not match the
+active limited actor's hash in a read-only transaction. The maintainer then
+identified a possible role-order mix-up: creation prompted managed, limited,
+emergency, while the matrix prompted limited first. The value saved second is
+being checked separately before any retry. No username or password was exposed.
+
+The same reviewed read-only diagnostic, using the second value saved in the
+creation prompt order, returned `CREDENTIAL_ACCEPTED` during
+02:31:53–02:35:02 UTC on the same exact deployment. Its outer launcher again
+reported `FAIL_TRANSPORT_UNCERTAIN`; the remote fixed classification is the
+credential evidence. The earlier rejection is consistent with using the wrong
+saved role value at the matrix's limited-first prompt. This establishes the
+limited hash match only, not the later admin HTTP login. A newly guarded matrix
+attempt can use the confirmed role mapping; no account rotation is needed.
+
+The corrected role mapping advanced a new matrix run through all three real
+admin login checks, an ordinary Clerk owner token whose verified subject and
+`/api/me/` result matched the registered #204 owner, and into Case 1. The
+remote result was `FAIL_CASE1` during 02:38:29–02:40:46 UTC; the outer launcher
+was `FAIL_TRANSPORT_UNCERTAIN` for 02:35:57–02:40:48 UTC. Case 1 was marked
+`FAIL`, Cases 2–9 remained `NOT_EXERCISED`, and
+`mutation_may_have_begun=false` with no audit events. Reset and decommissions
+were not reached. The token was removed from the clipboard after use.
+
+A bounded credential-free GET of the same Staging admin list route showed the
+expected `302` with a relative admin-login redirect, but the HTTP header key
+arrived as lowercase `location`. The matrix helper converted the case-insensitive
+HTTP headers to a case-sensitive `dict`, then Case 1 looked up `Location`. This
+explains the pre-POST failure. A focused local regression assertion failed on
+the original helper with `KeyError: 'location'`, then passed after preserving
+the response's case-insensitive `HTTPMessage` object. Independent scoped review
+found no remaining issue in that fix. The helper is source-bundled into the
+guarded matrix SSH command, so the current deployed application is unchanged;
+the corrected harness requires a fresh live matrix attempt for OR-6 proof.
+
+The first invocation of the corrected source-bundled matrix helper stopped in
+the local launcher's `repeat_preflight` phase with `FAIL_REPEAT_PREFLIGHT` during
+03:08:42–03:10:57 UTC. It did not start interactive SSH, prompt for passwords
+or token, or submit any case. A separate canonical public preflight then
+returned the same approved source/deployment identity; this supports a
+transient read failure rather than target drift but does not reclassify the
+failed launch. One newly guarded attempt remains necessary.
+
+The next corrected-harness run passed all three admin logins and the ordinary
+owner token check. Cases 1–8 returned `PASS`; the finite Case 9 route subchecks
+returned `PASS` except the four approved combined-evidence limitations, which
+remained `NOT_EXERCISED`. The remote result nevertheless classified the full
+sequence `FAIL_RESET` during 03:17:51–03:19:11 UTC. It reported
+`mutation_may_have_begun=true`, the three expected allowlisted audit-event
+summaries, `reset=NOT_EXERCISED`, and both decommissions `NOT_EXERCISED`; the
+outer launcher was `FAIL_TRANSPORT_UNCERTAIN` for 03:15:03–03:19:14 UTC.
+
+The maintainer confirmed seeing `TAILTAG_MATRIX_RESET_READY` and entering `Y`
+before the separate guarded reset had run. The matrix therefore failed its
+post-acknowledgement baseline check, as intended. Once that process ended, the
+guarded #204 reset launcher ran separately and returned a sanitized success
+receipt for the same deployment: baseline version 1, expected two profiles,
+two fursuits, two activations and enrollments, one convention, and zero
+catches, credentials and sessions. This restored the synthetic baseline but
+cannot recover the terminated matrix's in-memory audit comparison. A new
+bounded matrix sequence is required for its reset and decommission proof. At
+its next reset marker, leave the matrix waiting for an independently verified
+reset receipt before entering `Y`.
+
+## Replacement bounded matrix completed — 2026-09-29
+
+The next guarded matrix ran on `staging`, source
+`f16ff7527059e32d2cca15038e55ba406aa35381`, deployment
+`70f0752d-e78d-4177-a5e0-540463299ca8`, during
+03:28:03–03:41:12 UTC. The maintainer supplied the three role passwords and a
+fresh ordinary Clerk owner token through hidden terminal input. The token was
+cleared from the clipboard. The remote matrix emitted
+`TAILTAG_MATRIX_LIVE_SEQUENCE_COMPLETED_PENDING_CASE9_EVIDENCE`; the outer SSH
+launcher retained `FAIL_TRANSPORT_UNCERTAIN` for 03:24:29–03:41:15 UTC. The
+remote completion marker and fixed result are the sequence evidence; the outer
+transport classification is not relabeled.
+
+| Matrix fact | Retained result |
+| --- | --- |
+| Launcher and remote target guards | Passed to `interactive_ssh` and remote completion: approved GitHub/Railway identities, canonical public preflight, approved receipt, sole running instance, exact-instance role/fixture inspection, registry/database binding, repeated preflight, and remote build/runtime identity |
+| Exact deployed control-file hash comparison | `PASS` |
+| Cases 1–8 | `PASS` each |
+| Case 9 safe live route subchecks | `PASS` for activation add/delete, Catch add/bulk edit, Convention create/delete, credential add, enrollment add/selection change, session add/delete/bulk/history edit |
+| Case 9 object/state-dependent live subchecks | `NOT_EXERCISED`: activation reactivation, Catch change, credential raw edit/replacement |
+| Audit events | Exactly one denied unauthorized `set_fursuit_enabled`, one successful operator `set_profile_enabled`, and one successful emergency-superuser `set_fursuit_enabled`; no extra event in the allowlisted result |
+| Representative cascade | `session_cascade=PASS`; credential cascade `NOT_EXERCISED` because no owned credential existed |
+| #204 reset and audit retention | `reset=PASS` |
+| Emergency and limited operator cleanup | `emergency_decommission=PASS`, `decommission=PASS` |
+
+At `TAILTAG_MATRIX_RESET_READY`, the matrix waited while a separate guarded
+#204 reset returned a sanitized receipt on the same deployment with baseline
+version 1, cleanup confirmed, two profiles, two fursuits, two activations, two
+enrollments, one convention, and zero Catches, credentials and sessions. Only
+then did the maintainer acknowledge the reset. The matrix's in-process
+post-reset comparison passed, including retained audit tuples.
+
+At `TAILTAG_MATRIX_EMERGENCY_DECOMMISSION_READY`, the separate guarded command
+printed `TAILTAG_EMERGENCY_DECOMMISSION_COMMAND_COMPLETED`; its outer SSH exit
+was `FAIL_TRANSPORT_UNCERTAIN` during 03:31:52–03:35:46 UTC. A fresh read-only
+exact-instance check on the approved deployment returned `DECOMMISSIONED`.
+The maintainer then acknowledged this receipt, and the matrix independently
+passed the retained emergency actor and audit checks.
+
+At `TAILTAG_MATRIX_DECOMMISSION_READY`, the separate guarded limited command
+printed `Validation operator decommissioned.` and
+`TAILTAG_LIFECYCLE_COMMAND_COMPLETED`; its outer SSH exit was
+`FAIL_TRANSPORT_UNCERTAIN` during 03:37:47–03:39:28 UTC. The maintainer
+acknowledged that remote completion receipt. The matrix then independently
+passed its exact decommissioned-role, managed-role, baseline and audit-retention
+readbacks before emitting the final completion marker. No write was retried to
+resolve an uncertain outer SSH exit. The final matrix readback also passed
+canonical identity/readiness checks, the #204 baseline, and the managed-role
+contract; limited and emergency access remained decommissioned.
+
+### Case 9 combined-evidence reconciliation
+
+The live executor intentionally left `case9_control_review`,
+`case9_deterministic_evidence`, and case 9 itself `NOT_EXERCISED`. Its
+`deployed_control_hash_match=PASS` ties the five reviewed admin control files
+to the exact deployed image; it is not itself a behavior or test result.
+Separate review of the matching controls and the existing direct tests yields:
+
+| Live empirical limitation | Exact control reviewed | Direct deterministic result |
+| --- | --- | --- |
+| `catch_change` | `CatchAdmin.has_change_permission` always returns false and all Catch fields are read-only. | `test_catch_admin_permissions_and_bulk_delete_denial` and `test_catch_admin_configuration_and_immutability` passed in the prelaunch `make api-check` gate. |
+| `credential_replacement` | The credential form exposes only `revoke`; `save_model` permits only that transition, while add is denied. | `test_credential_admin_is_staff_only_safe_history_with_exact_search_and_no_mutation_paths` passed in that gate against a real existing credential. |
+| `credential_raw_edit` | Credential identity/history fields are read-only and token is absent from the form. | The same existing-credential test passed and checked the rendered form and terminal revocation. |
+| `activation_reactivation` | `FursuitActivationAdmin.save_model` rejects a changed `is_active=True` and delegates only deactivation. | `test_activation_view_is_read_only_and_reactivation_has_no_alternate_authority_path` and `test_activation_admin_only_allows_active_to_inactive_and_preserves_timestamps_on_noop` passed in that gate, including an inactive-to-active denial. |
+
+The [prelaunch verification](staging-operator-validation-243-executor.md#prelaunch-verification)
+records 2,504 passing tests for source `f16ff7527059e32d2cca15038e55ba406aa35381`;
+the current worktree changes only the source-bundled matrix HTTP header seam,
+its regression assertion and evidence documentation, not the deployed admin
+controls or these five existing tests. The actual control review and these
+direct test results are **PASS**. Under the explicitly approved combined model,
+Case 9 is **PASS with the four named live empirical limitations**. No Catch,
+credential or inactive activation was created solely to remove a limitation.
+
+The bounded #243/#205 replacement sequence is **PASS with those limitations**:
+Cases 1–8 passed live; Case 9's safe paths passed live and its four excluded
+paths passed the separately reviewed control/deterministic proof; reset,
+retained audit rows, role decommissions and the baseline all passed. The raw
+matrix result remains `LIVE_SEQUENCE_COMPLETE_PENDING_CASE9_EVIDENCE`; this
+parent reconciliation supplies the separately required Case 9 evidence. This
+clears #208 OR-6 for the observed deployment, subject to the normal point-in-time
+identity boundary. It does not establish the other #208 readiness rows.

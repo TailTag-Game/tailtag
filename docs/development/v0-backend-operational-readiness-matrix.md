@@ -4,7 +4,7 @@ Historical status: final #208 reconciliation on 2026-09-23 found **NO-GO** for
 the retired Staging generation because #205 live operator evidence was missing.
 Replacement-generation reconciliation is pending; this document makes no new
 final #208 GO/NO-GO decision. [#243](https://github.com/TailTag-Game/tailtag/issues/243)
-remains the owner of replacement-generation #205 evidence.
+owns the replacement-generation #205 evidence, now completed for OR-6 below.
 Parent: [#197](https://github.com/TailTag-Game/tailtag/issues/197). Scope and verification classes: [#208](https://github.com/TailTag-Game/tailtag/issues/208).
 
 The two detailed tables below retain the pre-decision evidence inventory; the
@@ -40,8 +40,8 @@ and OR-5, all nine #243/#205 live cases and OR-6, and a replacement-database
 restore and OR-8 were unverified. The #202 promotion command also still had an
 old-generation target binding. Later [replacement promotion](staging-deployments/2adc748c-ee54-4446-958c-f49a384925be.json)
 and [#204 sentinel/baseline evidence](staging-operator-validation-243-execution-attempts.md#replacement-204-sentinel-and-baseline--2026-09-25)
-supersede those specific point-in-time gaps. This pass reconciles #202 below;
-OR-5, OR-6, and OR-8 await their own final dispositions. Old-pinned commands
+supersede those specific point-in-time gaps. At that point, this pass reconciled
+#202 while OR-5, OR-6, and OR-8 awaited their own dispositions. Old-pinned commands
 remain invalid against the replacement.
 
 The September 23 matrix below remains the historical NO-GO finding for the
@@ -67,11 +67,72 @@ matrix, restore, rollback, authenticated Clerk smoke, or media smoke ran.
 | OR-4 / #203: health and target safety | The current repository-owned canonical preflight passed and returned the tuple above. It requires live, ready, and stable Staging identity at the exact approved origin; its negative-target and dependency-failure behavior retain deterministic #203 proof. | **SUBSTANTIATED for the current positive preflight and inherited contract.** No live dependency outage or negative-target traffic was induced. |
 | OR-7 / #206: migration and application recovery | The [approved compatibility policy](../specs/2026-09-22-v0-migration-application-rollback.md) and [Staging recovery procedure](staging.md#migration-and-application-image-recovery-206) remain the rule: positively prove old-code compatibility with actual schema and persisted state or fix forward. The September 25 replacement promotion passed its guarded migration gate. | **POLICY SUBSTANTIATED; current rollback pair unproven.** The retired-generation candidate's NO-GO does not decide a replacement pair. The naturally compatible live rehearsal remains [#241](https://github.com/TailTag-Game/tailtag/issues/241) and is not a #208 blocker by itself. |
 
-The remaining #208 decision still depends on replacement OR-5/OR-6/OR-8
-evidence and the nine first-response reviews. OR-1's replacement ownership
+The remaining #208 decision still depends on replacement OR-8 evidence and
+the nine first-response reviews; OR-5 and OR-6 are dispositioned below.
+OR-1's replacement ownership
 boundary is resolved by the pinned resource comparison above; operator
 procedures must continue to use the code-owned pins because both project
 generations have used the `TailTag` display name.
+
+## Replacement OR-5 / #204 reset evidence (2026-09-29)
+
+The approved [#204 reset contract](../specs/2026-09-17-staging-synthetic-reset-reseed.md#acceptance-contract)
+and its existing deterministic safety/failure tests apply to the replacement-bound
+command. The [September 25 replacement preparation and first reset](staging-operator-validation-243-execution-attempts.md#replacement-204-sentinel-and-baseline--2026-09-25)
+established the independently configured sentinel, exact API/PostgreSQL and
+private-config/registry/database binding, existing ordinary identities,
+application-readable designated media, and baseline version 1. Its receipt
+reported two profiles, one Convention, two Fursuits, two enrollments, two
+activations, and zero Catches, sessions and credentials, with cleanup confirmed.
+A separate read-only three-way reconciliation passed after that reset.
+
+The guarded reset after the incomplete September 29 matrix restored the same
+baseline counts. The later [completed #243 matrix](staging-operator-validation-243-execution-attempts.md#replacement-bounded-matrix-completed--2026-09-29)
+held its process at the reset handoff while the separate guarded #204 command
+returned another success receipt on source
+`f16ff7527059e32d2cca15038e55ba406aa35381`, deployment
+`70f0752d-e78d-4177-a5e0-540463299ca8`: baseline version 1, those same
+counts, and `cleanup_confirmed=true`. Only then did the matrix continue. Its
+read-only post-reset comparison passed the full semantic baseline, stable
+registered root bindings, retained audit rows, canonical identity/readiness,
+and eventual managed-role validity. The command's success path includes the
+positive connection gate and drain, one atomic scoped reconstruction,
+explicit resumption, and matching final public preflight. A failed gate or
+resumption cannot return this success receipt.
+
+| #204 requirement | Replacement disposition |
+| --- | --- |
+| AC-1–3, AC-8: bounded ownership, canonical reseed and repeatability | **PASS.** The registered closure and versioned manifest are unchanged; one initial and two later guarded resets returned the same expected counts, with zero Catch/session/credential history. Each successful command validated the semantic baseline before commit; the final matrix independently checked baseline state and stable roots. |
+| AC-4: protected identities, schema, sentinel, configuration and media | **PASS with an evidence boundary.** The replacement sentinel and private/database bindings were independently reconciled after the initial reset; the final matrix checked registered roots, audit retention and managed-role survival. Scoped code and existing deterministic protection cover other preserved state. No separate post-reset schema or R2 inventory was taken in this #208 pass. |
+| AC-5–7, AC-9: fail-closed guards, quiescence, atomicity and failure coverage | **PASS through the guarded normal-path receipts and inherited deterministic tests.** No destructive negative-target or injected-failure rehearsal was run against live Staging. |
+| AC-10: live result, safe resumption and operator procedure | **PASS.** The final receipt and matrix readback establish the known baseline and readiness after resumption; the [replacement operator procedure](staging.md#synthetic-baseline-reset-and-reseed-204) documents target checks, expected result, retained-gate recovery and limitations. |
+
+**OR-5: PASS WITH THE EXPLICIT EVIDENCE BOUNDARY ABOVE** for the observed
+replacement deployment. This is a point-in-time normal-path result, not a
+standing reset authorization or backup/restore claim. No new reset, outage or
+negative-target operation is needed for #208 OR-5 on the retained evidence.
+
+## Replacement OR-6 / #205 operator evidence (2026-09-29)
+
+The guarded [#243 live execution and Case 9 reconciliation](staging-operator-validation-243-execution-attempts.md#replacement-bounded-matrix-completed--2026-09-29)
+on source `f16ff7527059e32d2cca15038e55ba406aa35381`, deployment
+`70f0752d-e78d-4177-a5e0-540463299ca8`, supplies the missing replacement
+operator proof. Cases 1–8 passed live. Case 9's safe live routes passed; four
+object/state-dependent routes remained empirically `NOT_EXERCISED` and have
+separate matching deployed-control review and direct deterministic test proof
+under the approved combined model. The fixed remote result also reports the
+three expected single audit events, session cascade, #204 reset with audit
+retention, emergency and limited operator decommissions, and baseline cleanup
+as `PASS`. Separate guarded reset and decommission receipts preceded the
+matrix acknowledgements. Outer Railway SSH exits remained
+`FAIL_TRANSPORT_UNCERTAIN`; the remote completion markers and exact-instance
+postconditions are retained separately, without reclassifying transport.
+
+**OR-6: PASS WITH FOUR EXPLICIT CASE 9 LIVE LIMITATIONS** for this observed
+replacement deployment. The retired-generation OR-6 blocker in the historical
+table below remains historical. This OR-6 result alone does not make #208 GO:
+replacement OR-8 and the current nine first-response reviews retain
+their own dispositions.
 
 **Verification classes.** *Inherited exercise* checks durable completed live
 evidence, present applicability, and material drift without repeating an

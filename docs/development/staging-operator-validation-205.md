@@ -1,5 +1,13 @@
 # #205 bounded Staging operator validation: evidence handoff
 
+Current replacement-generation disposition (2026-09-29): **PASS with four
+explicit Case 9 live limitations**. The guarded [#243 replacement execution
+record](staging-operator-validation-243-execution-attempts.md#replacement-bounded-matrix-completed--2026-09-29)
+contains the exact-deployment live matrix, separate reset and cleanup receipts,
+and the approved combined Case 9 control/test reconciliation. This clears
+#208 OR-6 for the observed replacement deployment. The historical gap review
+below applies to the retired Staging generation and remains unchanged.
+
 Issue: [#205](https://github.com/TailTag-Game/tailtag/issues/205).
 Reviewed for [#208](https://github.com/TailTag-Game/tailtag/issues/208) on
 2026-09-23 at approximately 18:07 UTC. This is the **evidence review time**;

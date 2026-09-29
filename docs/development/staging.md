@@ -405,9 +405,10 @@ readability or authorize closing the issue.
 The [frozen reset contract](../specs/2026-09-17-staging-synthetic-reset-reseed.md)
 and [implementation handoff](../specs/2026-09-17-staging-synthetic-reset-reseed-implementation-plan.md)
 define a small canonical baseline. Local implementation, independent review
-and two-run live acceptance are complete for the retired generation only. The contract records
-sanitized local and live verification evidence, including the initially missing
-fixtures and their separately authorized preparation.
+and two-run live acceptance were completed for the retired generation. The
+replacement normal-path result and its evidence boundary are recorded below.
+The contract records sanitized local and live verification evidence, including
+the initially missing fixtures and their separately authorized preparation.
 
 Reset preserves all Users/admin permissions, reusable Clerk identities,
 designated media, migration history/schema, and the reset sentinel. It restores
@@ -445,8 +446,18 @@ That check made no Staging mutation. The later [guarded sentinel and baseline
 receipt](staging-operator-validation-243-execution-attempts.md#replacement-204-sentinel-and-baseline--2026-09-25)
 records one replacement-bound provision, a matching three-way reconciliation,
 one guarded baseline reseed with the expected counts and cleanup, and a second
-matching reconciliation. Current operator-role and #243 matrix evidence remain
-separate from this #204 prerequisite.
+matching reconciliation. At that point, operator-role and #243 matrix evidence
+remained separate from this #204 prerequisite.
+
+Two later guarded replacement resets on September 29 returned the same
+version-1 baseline counts and confirmed temporary-source cleanup. The last
+reset occurred during the [completed #243 matrix](staging-operator-validation-243-execution-attempts.md#replacement-bounded-matrix-completed--2026-09-29);
+its in-process readback passed the semantic baseline, retained registered
+roots and audit rows, canonical readiness, and managed-role validity after
+resumption. The [#208 OR-5 reconciliation](v0-backend-operational-readiness-matrix.md#replacement-or-5--204-reset-evidence-2026-09-29)
+records the exact preservation and inherited-test boundary. These receipts
+demonstrate the replacement normal path, while each future reset still needs
+its own target, database, asset, identity and maintenance-window guards.
 
 The replacement-target SSH reset path and its separately confirmed, sentinel-only
 `api-staging-reset-provision-ssh` mode passed local tests and independent
