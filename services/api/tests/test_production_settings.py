@@ -97,7 +97,7 @@ def run_settings_import(
     static_inspection = (
         "from django.conf import settings; "
         "assert settings.DEBUG is False; "
-        "assert settings.MIDDLEWARE[1] == "
+        "assert settings.MIDDLEWARE[2] == "
         "'whitenoise.middleware.WhiteNoiseMiddleware'; "
         "assert settings.STORAGES['staticfiles']['BACKEND'] == "
         "'whitenoise.storage.CompressedManifestStaticFilesStorage'; "

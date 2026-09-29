@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import os
+from typing import Any
+
+from config.build_identity import get_identity
+from observability.logging import build_logging_config
+from observability.sentry import init_sentry
 
 from .base import *
 from .base import database_from_url
@@ -62,9 +67,8 @@ STORAGES = {  # pyright: ignore[reportConstantRedefinition]
     },
 }
 
-LOGGING: dict[str, object] = {
-    "version": 1,
-    "disable_existing_loggers": False,
+LOGGING: dict[str, Any] = {  # pyright: ignore[reportConstantRedefinition]
+    **build_logging_config(),
     "loggers": {
         "botocore": {"handlers": [], "level": "WARNING", "propagate": False},
         "botocore.auth": {
@@ -76,6 +80,12 @@ LOGGING: dict[str, object] = {
         "s3transfer": {"handlers": [], "level": "WARNING", "propagate": False},
     },
 }
+
+try:
+    _build_identity = get_identity()
+except (ValueError, OSError):
+    _build_identity = None
+init_sentry(os.environ.get("SENTRY_DSN"), _build_identity)
 
 SESSION_COOKIE_SECURE = True
 SESSION_COOKIE_HTTPONLY = True
