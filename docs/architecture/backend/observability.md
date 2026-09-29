@@ -113,12 +113,13 @@ Railway's log query syntax supports custom JSON attribute filters, so operators 
 - Record metrics through the Sentry SDK (`count`, `distribution`, `gauge`). Name them `tailtag.<module>.<measure>`.
 - Allowed dimensions are **closed, bounded sets only**:
   - `environment`;
-  - `release`;
   - `http.route` (the route template, never the raw path);
   - `http.request.method`;
   - HTTP status class;
   - `tailtag.outcome` and `tailtag.reason`, from enumerations defined in code.
 - Never use these as dimensions: user, account, Clerk, fursuit, convention, catch, or session IDs; credentials or tokens; raw paths or query strings; exception messages; or any free text.
+- Build identity (`release`, `deployment_id`) is not a TailTag metric dimension, because every deployment would add new values. It stays on log lines, errors, and spans, and deployment-regression questions use those signals.
+- If the SDK attaches `release` to metrics automatically, [#211](https://github.com/TailTag-Game/tailtag/issues/211) decides whether to strip it in `before_send_metric`.
 - Where an entity ID is justified, it belongs only in protected logs or span attributes under [#211](https://github.com/TailTag-Game/tailtag/issues/211)'s rules.
 - Domain outcomes are recorded through **one shared backend module**, named by [#210](https://github.com/TailTag-Game/tailtag/issues/210), that owns the outcome and reason enumerations. It emits the metric and the log event together. Feature code does not call the Sentry metrics API directly. That keeps a future OTLP backend swap confined to this module.
 - [#213](https://github.com/TailTag-Game/tailtag/issues/213) defines the actual outcome and reason values.
