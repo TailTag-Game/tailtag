@@ -4,8 +4,10 @@ This runbook covers the eight existing sensitive Django-admin actions for
 field-beta operations. It is not an operator-management UI, an audit viewer, or
 a product API. Do not run the Staging procedure or mutate Staging without
 separate explicit authorization.
-The [#205 live-evidence handoff](../development/staging-operator-validation-205.md)
-records the current limits of the retained bounded Staging validation result.
+The [replacement #243 live-evidence record](../development/staging-operator-validation-243-execution-attempts.md)
+records the current bounded Staging validation result and its four Case 9 live
+limitations. The [#205 handoff](../development/staging-operator-validation-205.md)
+is historical context for the retired-generation gap.
 
 ## Authority and inspection matrix
 
@@ -49,8 +51,14 @@ convenience only: authorization/admin checks use explicit permissions, never a
 group-name check. Provisioning does not create or make a normal operator a
 superuser.
 
-From a real interactive Railway SSH terminal attached to the Staging `api`
-service, use this one command sequence:
+The SSH invocation below is a **retired-generation historical example**: its
+project ID selects the former Railway project and it is unsupported for the
+replacement Staging target. Do not run it for replacement provisioning. The
+[replacement #243 execution record](../development/staging-operator-validation-243-execution-attempts.md)
+documents the current bounded operator evidence; any new provisioning requires
+a separately verified, code-pinned replacement procedure and authorization.
+
+The retired command sequence was:
 
 ```text
 railway ssh --project 85324de4-be6a-49c3-a3f9-6cac13877849 --service api --environment staging

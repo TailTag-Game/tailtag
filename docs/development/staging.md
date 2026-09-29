@@ -676,7 +676,10 @@ railway api 'query Deployment($id: String!) { deployment(id: $id) { id projectId
 
 Choose only a `RUNNING` instance returned for `D` and pass its actual
 deployment-instance ID explicitly to SSH. Never allow `railway ssh` to select
-its default active instance. From the repository root, use a pipefail pipeline:
+its default active instance. The following pinned SSH pipeline belongs to the
+**retired Railway project** and is unsupported for replacement Staging. Do not
+execute it against the replacement or substitute a guessed project ID. Its
+successful historical proof remains valid for the retired deployment only:
 
 ```bash
 set -o pipefail
@@ -754,9 +757,9 @@ Future #199 reports must capture the observed source SHA and deployment ID.
 This is protection against accidental/misconfigured targeting, not remote
 attestation or a promise that a deployment cannot change afterward. It needs no
 Railway credentials, deployment timestamp, or expected candidate SHA. Optional
-operator correlation of captured deployment ID through the #201 exact-deployment
-procedure above can add `deployment_timestamp` and stronger Railway evidence;
-that enrichment is separate from permission to send acceptance traffic.
+operator correlation requires a separately reviewed replacement-bound
+exact-instance procedure; the retired SSH invocation above cannot provide it.
+That enrichment is separate from permission to send acceptance traffic.
 
 Live #203 validation passed on 2026-09-17 after controlled promotion of merged
 revision `04f8383fe750bec712ced27a1932b82b1eabb292`, validated by exact push
@@ -787,8 +790,12 @@ deploy or change Staging or establish the #203 identity/target-safety contract.
 API_BASE_URL=https://staging.tailtag.app make api-smoke
 ```
 
-For the guarded configuration fingerprint rerun, use the exact target and
-confirmation. It emits only resource/configuration fingerprints, never values:
+The following configuration-fingerprint, media-smoke, and Clerk-smoke
+`railway run --project` invocations pin the **retired Railway project**. They
+are historical examples, unsupported for replacement Staging. Do not execute
+them for the replacement or substitute a guessed project ID. The retired
+configuration-fingerprint command emitted only resource/configuration
+fingerprints, never values:
 
 ```bash
 DJANGO_SETTINGS_MODULE=config.settings.production \
@@ -797,8 +804,8 @@ railway run --project 85324de4-be6a-49c3-a3f9-6cac13877849 --no-local --service 
 uv run --project services/api --locked --no-sync python scripts/api_environment_fingerprint.py
 ```
 
-Run the corresponding Development command in the same review window before
-comparing the labeled outputs:
+The retired comparison used the corresponding Development command in the same
+review window:
 
 ```bash
 DJANGO_SETTINGS_MODULE=config.settings.production \
@@ -807,8 +814,8 @@ railway run --project 85324de4-be6a-49c3-a3f9-6cac13877849 --no-local --service 
 uv run --project services/api --locked --no-sync python scripts/api_environment_fingerprint.py
 ```
 
-For the synthetic R2 upload/read/delete/absence check, use the same explicit
-target. Its cleanup and final absence check are mandatory:
+The retired synthetic R2 upload/read/delete/absence check used that same
+project. Its cleanup and final absence check were mandatory:
 
 ```bash
 DJANGO_SETTINGS_MODULE=config.settings.production \
@@ -823,8 +830,12 @@ failure, not a warning.
 
 ### Clerk authenticated smoke
 
-This is the only Staging Production-Clerk live entry point. From a TTY, first
-disable clipboard history and synchronization before copying any Backend secret,
+The command below is the retired-generation Production-Clerk smoke launcher
+and is unsupported for replacement Staging. A replacement authenticated smoke
+requires a separately reviewed, code-pinned launcher and owner-controlled
+bounded validation; do not use the retired command below. The historical
+procedure used a TTY and first required the operator to disable clipboard
+history and synchronization before copying any Backend secret,
 session ID, or JWT. Then sign in through `/sign-in`, open `/user`, and copy the
 session ID in the browser console with `copy(Clerk.session.id)`. Only when the
 command prompts, obtain a fresh ordinary token with

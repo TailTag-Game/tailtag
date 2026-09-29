@@ -103,8 +103,9 @@ interpreting denied connections.
 rehearsal activity; preserve the current database and exact deployment state.
 If an approved reset left its maintenance gate closed, use only the verified
 control-database [recovery procedure](../development/staging.md#synthetic-baseline-reset-and-reseed-204)
-after its own target and cluster checks. The replacement #204 SSH/provision
-path is locally reviewed, but its live sentinel/baseline is unverified. If its
+after its own target and cluster checks. The replacement #204 sentinel and
+baseline passed the [guarded live reset and matrix readback](../development/v0-backend-operational-readiness-matrix.md#replacement-or-5--204-reset-evidence-2026-09-29)
+in their observation window. If the current operation's
 own target or cluster guard fails, stop and hand off to the backend and Railway
 resource owners. For partial
 migration state use #206's reviewed
@@ -119,20 +120,20 @@ reset as incident repair, or point the API at a restore clone.
 
 ## Clerk or authentication failure
 
-**Recognize and diagnose.** A normal authenticated request or approved
-synthetic [Clerk smoke](../development/staging.md#clerk-authenticated-smoke)
-fails while basic API health may remain ready. Confirm the canonical Staging
+**Recognize and diagnose.** A normal authenticated request fails while basic
+API health may remain ready. Confirm the canonical Staging
 origin and dedicated `TailTag Staging Replacement` Clerk application/Production instance.
 Compare affected API responses and bounded exact-D logs with Clerk's own
-authorized status/diagnostic surface. Distinguish token/session problems,
+read-only authorized status/diagnostic surface. Distinguish token/session problems,
 local verification configuration, and provider availability without exposing
 the token or changing an ordinary account.
 
 **First safe mitigation and recovery.** Pause authenticated rehearsal and
-preserve the current identity/configuration. If the approved synthetic smoke
-was started, follow its mandatory session cleanup; a cleanup failure requires
-manual owner follow-up. Escalate configuration or provider faults to the
-backend/Clerk owner. Resume only after the owning fix and a safe canonical
+preserve the current identity/configuration. Escalate configuration or provider
+faults to the backend/Clerk owner. Any bounded synthetic authenticated check
+requires an owner-controlled replacement-target procedure and session cleanup;
+the retired [Clerk smoke command](../development/staging.md#clerk-authenticated-smoke)
+is unsupported here. Resume only after the owning fix and a safe canonical
 authenticated check. Readiness alone does not validate live Clerk service.
 
 **Preserve / avoid.** Retain only sanitized failure class, time, D, smoke
@@ -147,13 +148,14 @@ the provider merely to reproduce an outage.
 R2 upload, HEAD/GET, presigned GET, or deletion failures. Review exact-D API
 diagnostics, Staging-owned private bucket/credential configuration through
 approved names/ownership (never rendered values), and the affected media
-operation. The existing guarded [Staging media smoke](../development/staging.md#http-configuration-and-media)
-is an optional bounded upload/read/delete/absence check only after its target,
-authorization and cleanup prerequisites are satisfied.
+operation. Use read-only R2 ownership and provider status/diagnostics first.
+The pinned [historical Staging media smoke](../development/staging.md#http-configuration-and-media)
+is unsupported for the replacement target.
 
 **First safe mitigation and recovery.** Pause new media operations and retain
 existing object references. Escalate R2 access or availability to its owner;
-use a reviewed configuration/code fix and then a bounded check. For a partial
+use a reviewed configuration/code fix and then an owner-controlled bounded
+replacement-target check with cleanup. For a partial
 replace/remove, follow the [media lifecycle boundary](../development/backend-delivery-operations.md#media-lifecycle-and-recovery-boundary):
 a failed best-effort deletion can leave an orphan, while a committed absent
 reference must not be recreated from a stale object. Investigate object and
@@ -210,6 +212,10 @@ flow after the cause is corrected.
 affected record types and authorized audit outcome. Do not log QR credentials,
 tokens or raw payloads, create a Catch through admin, change catch history,
 replace a credential arbitrarily, or treat a stale preview as write authority.
+`OperatorAuditEvent` has no viewer. If an approved bounded audit read is
+unavailable, preserve the action time and sanitized target class, stop further
+correction or resumption, and escalate to the backend/database owner.
+Application and Railway logs are not audit proof.
 Detection/alerting belongs to [#198](https://github.com/TailTag-Game/tailtag/issues/198).
 
 ## Broken convention or configuration state
@@ -235,6 +241,10 @@ configuration or schema state, stop and escalate to the owning maintainer.
 type, audit outcome and reset receipt if used. Do not bypass permissions with
 a superuser as the routine path, alter the database directly, reset merely to
 hide an unexplained defect, or manufacture data corruption for rehearsal.
+`OperatorAuditEvent` has no viewer. If an approved bounded audit read is
+unavailable, preserve the action time and sanitized target class, stop further
+correction or resumption, and escalate to the backend/database owner.
+Application and Railway logs are not audit proof.
 
 ## Application rollback
 

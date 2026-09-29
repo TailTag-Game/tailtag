@@ -67,8 +67,8 @@ matrix, restore, rollback, authenticated Clerk smoke, or media smoke ran.
 | OR-4 / #203: health and target safety | The current repository-owned canonical preflight passed and returned the tuple above. It requires live, ready, and stable Staging identity at the exact approved origin; its negative-target and dependency-failure behavior retain deterministic #203 proof. | **SUBSTANTIATED for the current positive preflight and inherited contract.** No live dependency outage or negative-target traffic was induced. |
 | OR-7 / #206: migration and application recovery | The [approved compatibility policy](../specs/2026-09-22-v0-migration-application-rollback.md) and [Staging recovery procedure](staging.md#migration-and-application-image-recovery-206) remain the rule: positively prove old-code compatibility with actual schema and persisted state or fix forward. The September 25 replacement promotion passed its guarded migration gate. | **POLICY SUBSTANTIATED; current rollback pair unproven.** The retired-generation candidate's NO-GO does not decide a replacement pair. The naturally compatible live rehearsal remains [#241](https://github.com/TailTag-Game/tailtag/issues/241) and is not a #208 blocker by itself. |
 
-The remaining #208 decision depends on the nine first-response reviews;
-replacement OR-5, OR-6 and OR-8 are dispositioned below.
+Replacement OR-5, OR-6 and OR-8 and the nine first-response reviews are
+dispositioned below. A final #208 GO/NO-GO decision is separate.
 OR-1's replacement ownership
 boundary is resolved by the pinned resource comparison above; operator
 procedures must continue to use the code-owned pins because both project
@@ -167,6 +167,39 @@ Matching-revision backend usability and active Staging nonimpact are
 for this observed source and recovery point. The retired GO remains historical.
 The drill proves isolated restoration and does not restore active Staging or
 establish PITR or Production recovery.
+
+## Replacement first-response review (2026-09-29)
+
+The current [Staging first-response guide](../operations/staging-first-response.md)
+supplies the nine paths below. This is an operational review against the
+replacement OR-1–OR-8 evidence above, not an induced incident or provider
+outage. The source `f16ff7527059e32d2cca15038e55ba406aa35381` and deployment
+`70f0752d-e78d-4177-a5e0-540463299ca8` in the OR-5/OR-6 receipts identify
+their observation window; every incident starts by checking its own current
+target and exact deployment.
+
+| Path | Recognition | First diagnostic | First safe mitigation | Recovery / escalation | Evidence and unsafe action boundary | Replacement disposition |
+| --- | --- | --- | --- | --- | --- | --- |
+| Bad deployment | Candidate gate fails or a newly active D correlates with symptoms. | Bind #202 receipt to exact D; inspect its lifecycle, migration output, active set and canonical health. | Stop submissions and pause rehearsal. | Apply #206's compatibility decision; forward-fix through #202 when compatibility or database state is uncertain. | Retain S/D, failed gate and active set; never retry an indeterminate submission or reverse a migration. | **PASS.** Exact-D diagnostics and safe stop are documented; compatible live rollback belongs to #241. |
+| Database unavailable/degraded | Live/ready diverge or database work fails. | Inspect exact-D API errors, Staging Postgres state and any reset maintenance gate or migration window. | Pause writes, reset, promotion and rehearsal; preserve database state. | Verified #204 gate recovery only after its target/cluster checks; #206 forward-fix or separately approved data recovery with Railway/backend owners. | Retain health, D and bounded failure class; never reset as incident repair or point the API at a drill clone. | **PASS.** Replacement #204 baseline and #207 isolated restore are evidenced; no database outage was induced. |
+| Clerk/authentication failure | Authenticated requests fail while health may remain ready. | Check canonical origin, dedicated replacement Clerk resource, exact-D errors and read-only provider status. | Pause authenticated rehearsal and preserve identity/configuration. | Backend/Clerk owner fixes cause; any bounded authenticated validation needs a reviewed replacement target and session cleanup. | Retain fixed class, D and cleanup result; never expose tokens or use the retired Clerk smoke launcher. | **PASS WITH NON-BLOCKING LIMITATION.** A current authenticated smoke was not run; safe diagnosis and escalation exist. |
+| Storage/media failure | Upload/read/delete fails or object and database reference disagree. | Inspect exact-D error stage, read-only Staging R2 ownership/provider status and reference state. | Pause new media work and preserve references. | R2/backend owner reviews object and database independently, then uses a bounded replacement check with cleanup. | Retain stage, D and cleanup outcome; never publish an object or use the retired media smoke launcher. | **PASS WITH NON-BLOCKING LIMITATION.** No current media smoke or provider outage was induced. |
+| Abnormal API load | Health or runtime degrades during observed traffic. | Inspect exact-D Railway status/logs, canonical health and known synthetic job owner. | Stop only task-owned traffic and pause new jobs. | Backend/Railway owners decide any reviewed scale or configuration change. | Retain window, D and sanitized resource state; never generate load for this review. | **PASS WITH NON-BLOCKING LIMITATION.** #198 owns missing quantitative metrics/alerts; #199 owns simulation. |
+| Elevated catch-confirmation failures | Reports or logs show repeated confirmation errors. | Correlate exact-D failures with permitted session, credential, activation and Catch inspection. | Pause affected synthetic catch rehearsal; preserve attempts. | Authorized operator uses only a documented correction after cause is verified; verify audit through an approved bounded read or stop and escalate to the backend/database owner. | Retain error class, D and audit outcome if verified; never create/edit Catch, replace credentials through alternate admin paths, or treat logs as audit proof. | **PASS WITH NON-BLOCKING LIMITATION.** OR-6 supports operator/audit authority; four Case 9 routes lack live exercise and #198 owns detection. |
+| Broken convention/configuration state | Current playability or eligibility differs from intended synthetic state. | Inspect canonical admin state and #204 baseline; audit read requires an approved bounded procedure. | Pause affected rehearsal. | Authorized operator applies one documented action and checks audit through an approved bounded read; otherwise stop and escalate to the backend/database owner. Separately authorized #204 reset is only for disposable baseline restoration. | Retain before/after class and verified audit outcome; never use routine superuser bypass, treat logs as audit proof, or reset to hide an unknown defect. | **PASS WITH NON-BLOCKING LIMITATION.** OR-5 and OR-6 support safe correction with their stated evidence boundaries. |
+| Application rollback | A code/runtime fault suggests an earlier image. | Check exact O/N/D, `canRollback`, migrations, actual schema/data and old-code compatibility. | Preserve database and choose reviewed forward fix. | Only a separately approved compatible exact-D rollback; otherwise #202 forward fix. | Retain compatibility decision and resulting D; never use latest, reverse schema or retry ambiguous mutation. | **PASS WITH NON-BLOCKING LIMITATION.** #241 owns the naturally compatible Railway rollback rehearsal. |
+| Restore from backup | Data loss/corruption is suspected after ruling out code/config fault. | Identify source/recovery point and review the replacement #207 isolated restore receipt and current database state. | Stop writes and preserve source, D and logs. | Backend/database owners review a separate active recovery plan, target isolation and data-loss boundary. | Retain sanitized integrity/nonimpact/cleanup evidence; never point active API at the drill clone or use #204 reset as backup recovery. | **PASS WITH NON-BLOCKING LIMITATION.** OR-8 proves isolated restore with seven empty-source checks; active restoration was not attempted. |
+
+Each path supplies recognition, an available first diagnostic, a safe stop,
+recovery ownership, evidence and an explicit unsafe shortcut. No blocking
+first-response gap was found. #198 metrics/alerts, #241 compatible rollback,
+OR-6's four Case 9 live limits and OR-8's seven empty-source checks remain
+non-blocking boundaries. No Clerk, R2, PostgreSQL, load or rollback failure was
+induced. The retired-pinned #201 SSH, fingerprint, media, Clerk and operator
+bootstrap snippets are historical and cannot serve as replacement launchers;
+the first-response paths use read-only diagnosis and owner-controlled,
+separately reviewed validation where needed. This review does not itself make
+the final #208 readiness decision.
 
 **Verification classes.** *Inherited exercise* checks durable completed live
 evidence, present applicability, and material drift without repeating an
