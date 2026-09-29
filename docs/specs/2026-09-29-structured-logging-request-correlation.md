@@ -42,8 +42,13 @@ guessed release appeared in stdout or in any envelope, including envelope
 headers, and no session envelopes were sent. The client `X-Request-ID` value
 appears only as a raw request header in the Sentry event and never as the
 request ID. Harness files and processes were removed.
-Current: commit and pull request.
-Pending: Development deploy evidence (D-1 to D-3).
+Completed additionally: implementation PR #256 merged as `2416110`, with a
+review fix removing request headers from Sentry events. Development evidence
+D-1 to D-3 was recorded in the maintainer guide on 2026-09-29: correlation
+search, the Railway ID link, and a clean Sentry event all passed. Railway
+cannot filter on keys that contain dots; the naming decision is handed to
+#211 or #212.
+Current: complete.
 
 Implementation notes accepted by the parent:
 

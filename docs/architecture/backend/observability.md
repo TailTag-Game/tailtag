@@ -107,6 +107,7 @@ Railway's log query syntax supports custom JSON attribute filters, so operators 
 - Domain events use an `event` field named `tailtag.<module>.<event>`, for example `tailtag.catches.confirmation`.
 - Where an [OpenTelemetry semantic convention](https://opentelemetry.io/docs/specs/semconv/) name exists, use it for the attribute: for example `http.request.method`, `http.route`, `http.response.status_code`, and `error.type`.
 - TailTag-specific attributes use the `tailtag.` prefix.
+- Railway log search cannot filter on keys that contain dots, such as `http.route` or a future `tailtag.outcome`; values containing dots filter normally ([#210 D-1](../../operations/backend-logging.md#development-evidence)). Before adding more dotted attributes, [#211](https://github.com/TailTag-Game/tailtag/issues/211) or [#212](https://github.com/TailTag-Game/tailtag/issues/212) decides whether log attributes are nested objects or underscore names, after testing nested filtering in Development. Sentry attributes are unaffected.
 - Logging breadcrumbs attached to Sentry errors follow the same redaction rules as stdout logs.
 
 ### 6.4 Metrics and dimensions
