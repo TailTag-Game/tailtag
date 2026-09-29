@@ -14,6 +14,7 @@ import sentry_sdk
 from config.build_identity import Identity, get_identity
 
 from .context import railway_request_id_var, request_id_var
+from .privacy import redact_text
 
 # The only `extra` attributes written to stdout or kept on Sentry breadcrumbs.
 # Anything else, including Django's attached `request`, is dropped.
@@ -27,6 +28,13 @@ ALLOWED_EXTRA_FIELDS: Final = (
     "error.type",
 )
 
+_QUIET_THIRD_PARTY_LOGGERS: Final = (
+    "botocore",
+    "boto3",
+    "s3transfer",
+    "urllib3",
+    "django.db.backends",
+)
 _CONTEXT_ATTRIBUTE: Final = "_tailtag_context"
 _LEVEL_NAMES: Final = {
     logging.DEBUG: "debug",
@@ -80,7 +88,7 @@ class JsonFormatter(logging.Formatter):
         payload: dict[str, Any] = {
             "timestamp": datetime.fromtimestamp(record.created, tz=UTC).isoformat(),
             "level": _LEVEL_NAMES.get(record.levelno, "error"),
-            "message": record.getMessage(),
+            "message": redact_text(record.getMessage()),
             "logger": record.name,
         }
         payload.update(getattr(record, _CONTEXT_ATTRIBUTE, {}))
@@ -129,4 +137,6 @@ def build_logging_config() -> dict[str, Any]:
             },
         },
         "root": {"handlers": ["stdout"], "level": "INFO"},
+        # Their INFO output carries URLs and request detail that must not reach stdout.
+        "loggers": {name: {"level": "WARNING"} for name in _QUIET_THIRD_PARTY_LOGGERS},
     }

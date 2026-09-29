@@ -84,7 +84,7 @@ Every later observability issue must use this boundary.
 - Use native SDK tracing. Do not enable Sentry's OTLP integration alongside it.
 - Keep `send_default_pii` off, or its successor data-collection option at the equivalent setting.
 - Disable request-body capture.
-- Strip query strings from reported URLs unless [#211](https://github.com/TailTag-Game/tailtag/issues/211) allow-lists them.
+- Strip query strings from reported URLs. [#211](https://github.com/TailTag-Game/tailtag/issues/211) allow-lists none, so every query string is stripped ([telemetry privacy policy](telemetry-privacy.md#6-sql-spans-and-query-strings)).
 
 ### 6.2 Correlation fields
 
@@ -107,8 +107,8 @@ Railway's log query syntax supports custom JSON attribute filters, so operators 
 - Domain events use an `event` field named `tailtag.<module>.<event>`, for example `tailtag.catches.confirmation`.
 - Where an [OpenTelemetry semantic convention](https://opentelemetry.io/docs/specs/semconv/) name exists, use it for the attribute: for example `http.request.method`, `http.route`, `http.response.status_code`, and `error.type`.
 - TailTag-specific attributes use the `tailtag.` prefix.
-- Railway log search cannot filter on keys that contain dots, such as `http.route` or a future `tailtag.outcome`; values containing dots filter normally ([#210 D-1](../../operations/backend-logging.md#development-evidence)). Before adding more dotted attributes, [#211](https://github.com/TailTag-Game/tailtag/issues/211) or [#212](https://github.com/TailTag-Game/tailtag/issues/212) decides whether log attributes are nested objects or underscore names, after testing nested filtering in Development. Sentry attributes are unaffected.
-- Logging breadcrumbs attached to Sentry errors follow the same redaction rules as stdout logs.
+- Railway log search cannot filter on keys that contain dots, such as `http.route` or a future `tailtag.outcome`; values containing dots filter normally ([#210 D-1](../../operations/backend-logging.md#development-evidence)). [#211](https://github.com/TailTag-Game/tailtag/issues/211) added no dotted keys. Before adding more, [#212](https://github.com/TailTag-Game/tailtag/issues/212) decides whether log attributes are nested objects or underscore names, after testing nested filtering in Development. Sentry attributes are unaffected.
+- Logging breadcrumbs attached to Sentry errors follow the same redaction rules as stdout logs. The key allow-list, text redaction, and third-party logger caps are in the [telemetry privacy policy](telemetry-privacy.md).
 
 ### 6.4 Metrics and dimensions
 
@@ -121,8 +121,9 @@ Railway's log query syntax supports custom JSON attribute filters, so operators 
   - `tailtag.outcome` and `tailtag.reason`, from enumerations defined in code.
 - Never use these as dimensions: user, account, Clerk, fursuit, convention, catch, or session IDs; credentials or tokens; raw paths or query strings; exception messages; or any free text.
 - Build identity (`release`, `deployment_id`) is not a TailTag metric dimension, because every deployment would add new values. It stays on log lines, errors, and spans, and deployment-regression questions use those signals.
-- If the SDK attaches `release` to metrics automatically, [#211](https://github.com/TailTag-Game/tailtag/issues/211) decides whether to strip it in `before_send_metric`.
-- Where an entity ID is justified, it belongs only in protected logs or span attributes under [#211](https://github.com/TailTag-Game/tailtag/issues/211)'s rules.
+- The SDK attaches `sentry.release` to metrics automatically. [#211](https://github.com/TailTag-Game/tailtag/issues/211) decided to keep it as a narrow exception, alongside `sentry.environment` and `sentry.sdk.*`. TailTag code never adds `release` or `deployment_id` as a dimension.
+- The `before_send_metric` hook removes every other attribute that is not allow-listed with a bounded value.
+- Internal entity IDs may appear raw in protected logs and span attributes, never as metric attributes, and are never hashed. Clerk user and subject IDs are prohibited in all telemetry. See the [telemetry privacy policy](telemetry-privacy.md#4-entity-ids).
 - Domain outcomes are recorded through **one shared backend module**, named by [#210](https://github.com/TailTag-Game/tailtag/issues/210), that owns the outcome and reason enumerations. It emits the metric and the log event together. Feature code does not call the Sentry metrics API directly. That keeps a future OTLP backend swap confined to this module.
 - [#213](https://github.com/TailTag-Game/tailtag/issues/213) defines the actual outcome and reason values.
 
@@ -134,16 +135,16 @@ Railway's log query syntax supports custom JSON attribute filters, so operators 
 ### 6.6 Traces
 
 - Transactions are named by route template.
-- Spans for SQL may include parameterized query text but never parameter values. [#211](https://github.com/TailTag-Game/tailtag/issues/211) decides whether query text is kept at all.
+- Spans for SQL keep parameterized query text and never include parameter values. [#211](https://github.com/TailTag-Game/tailtag/issues/211) decided to keep the query text and remove parameter data in `before_send_transaction`. Tracing is not enabled yet, so those hooks are proven on synthetic transactions until [#212](https://github.com/TailTag-Game/tailtag/issues/212).
 - Sampling rates are per-environment configuration, not code constants.
 
 ## 7. Constraints handed to later issues
 
-- **[#211](https://github.com/TailTag-Game/tailtag/issues/211):**
-  - Enforce redaction through SDK-side controls, because server-side scrubbing is not documented for spans or metrics.
-  - The SDK hooks are `before_send`, `before_send_transaction`, and `before_send_metric`, plus `before_send_span` only if stream mode is adopted.
-  - Cover headers, Clerk tokens, raw QR or catch credentials, presigned media URLs, request bodies, and query strings.
-  - Enforce the dimension allow-list above.
+- **[#211](https://github.com/TailTag-Game/tailtag/issues/211):** delivered. The rules are in the [telemetry privacy policy](telemetry-privacy.md).
+  - Redaction is enforced through SDK-side controls, because server-side scrubbing is not documented for spans or metrics.
+  - The hooks are `before_send`, `before_send_transaction`, `before_breadcrumb`, and `before_send_metric`. `before_send_span` is needed only if stream mode is adopted.
+  - The dimension allow-list above is enforced in code.
+  - Later issues extend the allow-lists as described in the policy's extension section.
 - **[#215](https://github.com/TailTag-Game/tailtag/issues/215):**
   - Set policy across two retention systems.
   - Railway log retention was documented as 7 days on Hobby, 30 on Pro, and up to 90 on Enterprise (reviewed 2026-09-29).

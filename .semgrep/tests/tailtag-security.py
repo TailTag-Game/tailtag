@@ -1,6 +1,7 @@
 import ast
 import django
 import json
+import logging
 import marshal
 import os
 import pickle
@@ -8,11 +9,13 @@ import subprocess
 
 import httpx
 import requests
+import sentry_sdk
 import yaml
 from django.db.models.expressions import RawSQL
 from django.db.models.expressions import RawSQL as DjangoRawSQL
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
+from sentry_sdk import metrics
 from yaml import CSafeLoader, SafeLoader
 from yaml import CSafeLoader as LocalCSafeLoader
 from yaml import SafeLoader as LocalSafeLoader
@@ -282,3 +285,74 @@ s3_client.generate_presigned_url("create_multipart_upload", Params={})
 s3_client.generate_presigned_post(Bucket="bucket", Key="key")
 # ok: tailtag.storage.presigned-upload
 s3_client.generate_presigned_url("get_object", Params={})
+
+_LOGGER = logging.getLogger(__name__)
+logger = logging.getLogger("tailtag.fixture")
+catch_pk = 1
+catcher_user_id = 2
+stage = "confirm"
+
+# ruleid: tailtag.logging.interpolated-message
+_LOGGER.info(f"Operator removed catch {catch_pk}")
+# ruleid: tailtag.logging.interpolated-message
+_LOGGER.info(f"Rejected {request_token}")
+# ruleid: tailtag.logging.interpolated-message
+_LOGGER.error("Operator removed catch {}".format(catch_pk))
+# ruleid: tailtag.logging.interpolated-message
+_LOGGER.warning("Operator removed catch %s" % catch_pk)
+# ruleid: tailtag.logging.interpolated-message
+_LOGGER.debug("Operator removed catch " + str(catch_pk))
+# ruleid: tailtag.logging.interpolated-message
+logger.exception(f"Failed at {stage}")
+# ruleid: tailtag.logging.interpolated-message
+logging.getLogger(__name__).info("Failed at " + stage)
+# ok: tailtag.logging.interpolated-message
+_LOGGER.info(
+    "Operator removed catch %s (catcher_user_id=%s).", catch_pk, catcher_user_id
+)
+# ok: tailtag.logging.interpolated-message
+_LOGGER.error("Unexpected catch confirmation failure.", extra={"stage": stage})
+# ok: tailtag.logging.interpolated-message
+_LOGGER.warning(_CLEANUP_WARNING)
+# ok: tailtag.logging.interpolated-message
+logger.exception("Failed at %s", stage)
+# ok: tailtag.logging.interpolated-message
+_LOGGER.info(message, *arguments)
+# ok: tailtag.logging.interpolated-message
+writer.write(f"not a log call: {stage}")
+
+# ruleid: tailtag.logging.sensitive-argument
+_LOGGER.info("Resolved %s", credential)
+# ruleid: tailtag.logging.sensitive-argument
+_LOGGER.warning("Rejected %s for %s", stage, request_token)
+# ruleid: tailtag.logging.sensitive-argument
+logger.info("Header %s", request.authorization_header)
+# ruleid: tailtag.logging.sensitive-argument
+logging.getLogger(__name__).debug("Body %s", raw_payload)
+# ruleid: tailtag.logging.sensitive-argument
+_LOGGER.error("Upload failed", extra={"stage": presigned_url})
+# ruleid: tailtag.logging.sensitive-argument
+_LOGGER.error("Failed", extra={"stage": stage, "detail": session_cookie})
+# ruleid: tailtag.logging.sensitive-argument
+_LOGGER.error("Failed", extra={"authorization": header})
+# ok: tailtag.logging.sensitive-argument
+_LOGGER.info(
+    "Operator removed catch %s (catcher_user_id=%s).", catch_pk, catcher_user_id
+)
+# ok: tailtag.logging.sensitive-argument
+_LOGGER.error("Unexpected catch confirmation failure.", extra={"stage": stage})
+# ok: tailtag.logging.sensitive-argument
+_LOGGER.info("HTTP request completed", extra=extra)
+# ok: tailtag.logging.sensitive-argument
+_LOGGER.warning(_CLEANUP_WARNING)
+# ok: tailtag.logging.sensitive-argument
+writer.write(request_token)
+
+# ruleid: tailtag.observability.direct-sentry-metrics
+sentry_sdk.metrics.count("tailtag.catches", 1)
+# ruleid: tailtag.observability.direct-sentry-metrics
+metrics.distribution("tailtag.latency", 1.5, unit="millisecond")
+# ok: tailtag.observability.direct-sentry-metrics
+sentry_sdk.set_tag("stage", stage)
+# ok: tailtag.observability.direct-sentry-metrics
+statsd.metrics.count("unrelated.client", 1)

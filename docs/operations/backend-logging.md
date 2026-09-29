@@ -71,8 +71,9 @@ The formatter writes only allow-listed fields. Anything else passed through
 `extra` is dropped silently, and the same list filters logging breadcrumbs sent
 to Sentry. To add a field:
 
-1. Check it against the privacy and cardinality rules owned by
-   [#211](https://github.com/TailTag-Game/tailtag/issues/211). Never add
+1. Check it against the
+   [telemetry privacy policy](../architecture/backend/telemetry-privacy.md)
+   ([#211](https://github.com/TailTag-Game/tailtag/issues/211)). Never add
    credentials, tokens, request bodies, query strings, presigned URLs, or
    personal data.
 2. Name it with the OpenTelemetry semantic convention name where one exists,
@@ -94,11 +95,17 @@ has none.
 
 Events never include the incoming request's body, query string, or cookies,
 request headers, stack-frame local variables, or user IP.
-Breadcrumbs for outgoing HTTP calls can still include the called URL and its
-query string; today the only outgoing calls are signed S3 requests with no
-secrets in the URL, and #211 owns tightening this. ERROR log lines become
-Sentry events. INFO and above become breadcrumbs. Sentry Logs and tracing are
-not enabled by #210.
+Breadcrumbs for outgoing HTTP calls have the query string and fragment removed
+from the called URL. ERROR log lines become Sentry events. INFO and above become
+breadcrumbs. Sentry Logs and tracing are not enabled by #210.
+
+As a backstop, the `message` on stdout, on breadcrumbs, and on Sentry events has
+`Bearer` tokens, JWT-shaped strings, `tailtag:catch:v1:` payloads, and URL query
+strings replaced with `[redacted]`. Records from `botocore`, `boto3`,
+`s3transfer`, `urllib3`, and `django.db.backends` below WARNING are not written.
+Neither is a reason to log sensitive values; Semgrep fails CI on interpolated
+log messages and on sensitive-named logger arguments. Details are in the
+[telemetry privacy policy](../architecture/backend/telemetry-privacy.md).
 
 ## Development evidence
 

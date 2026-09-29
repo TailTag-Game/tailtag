@@ -13,6 +13,14 @@ from sentry_sdk.types import Breadcrumb, BreadcrumbHint, Event, Hint
 from config.build_identity import Identity
 
 from .logging import ALLOWED_EXTRA_FIELDS
+from .privacy import (
+    redact_text,
+    scrub_event_text,
+    scrub_metric,
+    scrub_transaction,
+    scrub_url_data,
+    strip_query_and_fragment,
+)
 
 _REMOVED_REQUEST_FIELDS = ("query_string", "data", "cookies", "headers")
 
@@ -33,9 +41,10 @@ def _scrub_event(event: Event, source_sha: str | None) -> Event:
             request_fields.pop(field, None)
         url = request_fields.get("url")
         if isinstance(url, str):
-            request_fields["url"] = url.split("?", 1)[0].split("#", 1)[0]
+            request_fields["url"] = strip_query_and_fragment(url)
     if "extra" in scrubbed:
         scrubbed["extra"] = _allow_listed(scrubbed["extra"])
+    scrub_event_text(scrubbed)
     if source_sha is None:
         scrubbed.pop("release", None)
     else:
@@ -44,9 +53,15 @@ def _scrub_event(event: Event, source_sha: str | None) -> Event:
 
 
 def before_breadcrumb(crumb: Breadcrumb, hint: BreadcrumbHint) -> Breadcrumb:
-    """Keep only allow-listed `extra` fields on logging breadcrumbs."""
+    """Allow-list log `extra` fields, redact messages, and strip URL queries."""
     if "log_record" in hint and "data" in crumb:
         crumb["data"] = _allow_listed(crumb["data"])
+    message = crumb.get("message")
+    if isinstance(message, str):
+        crumb["message"] = redact_text(message)
+    data: object = crumb.get("data")
+    if isinstance(data, dict):
+        scrub_url_data(cast("dict[str, Any]", data))
     return crumb
 
 
@@ -60,6 +75,11 @@ def init_sentry(dsn: str | None, identity: Identity | None) -> bool:
     def before_send(event: Event, hint: Hint) -> Event:
         return _scrub_event(event, source_sha)
 
+    def before_send_transaction(event: Event, hint: Hint) -> Event:
+        scrubbed = _scrub_event(event, source_sha)
+        scrub_transaction(cast("dict[str, Any]", scrubbed))
+        return scrubbed
+
     sentry_sdk.init(
         dsn=dsn,
         environment=environment or "unknown",
@@ -72,7 +92,8 @@ def init_sentry(dsn: str | None, identity: Identity | None) -> bool:
             LoggingIntegration(level=logging.INFO, event_level=logging.ERROR),
         ],
         before_send=before_send,
-        before_send_transaction=before_send,
+        before_send_transaction=before_send_transaction,
+        before_send_metric=scrub_metric,
         before_breadcrumb=before_breadcrumb,
     )
     if source_sha is None:

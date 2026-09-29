@@ -146,3 +146,71 @@ rules:
       - pattern: $CLIENT.generate_presigned_url("upload_part", ...)
       - pattern: $CLIENT.generate_presigned_url("create_multipart_upload", ...)
       - pattern: $CLIENT.generate_presigned_post(...)
+
+  - id: tailtag.logging.interpolated-message
+    message: Log a constant message and pass values as lazy % arguments or allow-listed extra fields, never an interpolated string.
+    languages: [python]
+    severity: ERROR
+    metadata: {owner: tailtag, confidence: HIGH}
+    patterns:
+      - pattern-either:
+          - pattern: $LOGGER.$LEVEL(f"...{$VALUE}...", ...)
+          - pattern: $LOGGER.$LEVEL("...".format(...), ...)
+          - pattern: $LOGGER.$LEVEL($MESSAGE % $VALUE, ...)
+          - pattern: $LOGGER.$LEVEL($MESSAGE + $VALUE, ...)
+      - metavariable-regex:
+          metavariable: $LEVEL
+          regex: "^(debug|info|warning|warn|error|exception|critical|fatal)$"
+      - metavariable-regex:
+          metavariable: $LOGGER
+          regex: "(?i)^(.*logger.*|logging\\.getLogger\\(.*\\))$"
+
+  - id: tailtag.logging.sensitive-argument
+    message: Do not pass tokens, credentials, payloads, authorization values, secrets, passwords, presigned URLs, or cookies to a logger.
+    languages: [python]
+    severity: ERROR
+    metadata: {owner: tailtag, confidence: HIGH}
+    pattern-either:
+      - patterns:
+          - pattern: $LOGGER.$LEVEL($MESSAGE, ..., $ARG, ...)
+          - metavariable-regex:
+              metavariable: $LEVEL
+              regex: "^(debug|info|warning|warn|error|exception|critical|fatal)$"
+          - metavariable-regex:
+              metavariable: $LOGGER
+              regex: "(?i)^(.*logger.*|logging\\.getLogger\\(.*\\))$"
+          - metavariable-regex:
+              metavariable: $ARG
+              regex: "(?is)^.*(token|credential|payload|authorization|secret|password|presigned|cookie)"
+      - patterns:
+          - pattern: '$LOGGER.$LEVEL(..., extra={..., $KEY: $ARG, ...}, ...)'
+          - metavariable-regex:
+              metavariable: $LEVEL
+              regex: "^(debug|info|warning|warn|error|exception|critical|fatal)$"
+          - metavariable-regex:
+              metavariable: $LOGGER
+              regex: "(?i)^(.*logger.*|logging\\.getLogger\\(.*\\))$"
+          - metavariable-regex:
+              metavariable: $ARG
+              regex: "(?is)^.*(token|credential|payload|authorization|secret|password|presigned|cookie)"
+      - patterns:
+          - pattern: '$LOGGER.$LEVEL(..., extra={..., $KEY: $VALUE, ...}, ...)'
+          - metavariable-regex:
+              metavariable: $LEVEL
+              regex: "^(debug|info|warning|warn|error|exception|critical|fatal)$"
+          - metavariable-regex:
+              metavariable: $LOGGER
+              regex: "(?i)^(.*logger.*|logging\\.getLogger\\(.*\\))$"
+          - metavariable-regex:
+              metavariable: $KEY
+              regex: "(?is)^.*(token|credential|payload|authorization|secret|password|presigned|cookie)"
+
+  - id: tailtag.observability.direct-sentry-metrics
+    message: Emit metrics only from services/api/observability so the privacy policy owns every dimension.
+    languages: [python]
+    severity: ERROR
+    metadata: {owner: tailtag, confidence: HIGH}
+    paths:
+      exclude:
+        - "**/observability/**"
+    pattern: sentry_sdk.metrics.$FUNC(...)
