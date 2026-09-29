@@ -2,9 +2,11 @@
 
 Historical status: final #208 reconciliation on 2026-09-23 found **NO-GO** for
 the retired Staging generation because #205 live operator evidence was missing.
-Replacement-generation reconciliation is pending; this document makes no new
-final #208 GO/NO-GO decision. [#243](https://github.com/TailTag-Game/tailtag/issues/243)
-owns the replacement-generation #205 evidence, now completed for OR-6 below.
+The replacement-generation decision is **GO** for the observed 2026-09-29
+Staging readiness window, with scope and limitations in the [final replacement
+decision](#replacement-final-readiness-decision-2026-09-29). The completed
+[#243 evidence](staging-operator-validation-243-execution-attempts.md)
+supplies replacement OR-6 below.
 Parent: [#197](https://github.com/TailTag-Game/tailtag/issues/197). Scope and verification classes: [#208](https://github.com/TailTag-Game/tailtag/issues/208).
 
 The two detailed tables below retain the pre-decision evidence inventory; the
@@ -45,19 +47,21 @@ supersede those specific point-in-time gaps. At that point, this pass reconciled
 remain invalid against the replacement.
 
 The September 23 matrix below remains the historical NO-GO finding for the
-retired target. A bounded replacement reconciliation must establish current
-identity and target bindings, validate #204 and #243 on the new generation,
-review current first-response surfaces, and disposition current-generation
-recovery evidence before any later readiness decision. The compatible Railway
+retired target. The bounded replacement reconciliation below establishes target
+bindings, #204 and #243 outcomes, first-response paths and current-generation
+recovery evidence for its observed window. The compatible Railway
 rollback rehearsal remains owned by [#241](https://github.com/TailTag-Game/tailtag/issues/241)
 and is a non-blocking limitation by itself.
 
 ## Replacement current-target reconciliation (2026-09-28; OR-1–OR-4 and OR-7)
 
 This bounded read-only pass updates only the target, configuration, deployment,
-health, and recovery-policy evidence. It does not make a final #208 GO/NO-GO
-decision or change the historical tables below. No promotion, reset, operator
-matrix, restore, rollback, authenticated Clerk smoke, or media smoke ran.
+health, and recovery-policy evidence. At that pass it made no final #208
+decision and did not change the historical tables below. No promotion, reset,
+operator matrix, restore, rollback, authenticated Clerk smoke, or media smoke
+ran.
+The later exact-SHA [promotion receipt](staging-deployments/70f0752d-e78d-4177-a5e0-540463299ca8.json)
+supersedes this pass's observed deployment tuple for the final decision.
 
 | Outcome | Current replacement evidence | Disposition and exact boundary |
 | --- | --- | --- |
@@ -68,7 +72,7 @@ matrix, restore, rollback, authenticated Clerk smoke, or media smoke ran.
 | OR-7 / #206: migration and application recovery | The [approved compatibility policy](../specs/2026-09-22-v0-migration-application-rollback.md) and [Staging recovery procedure](staging.md#migration-and-application-image-recovery-206) remain the rule: positively prove old-code compatibility with actual schema and persisted state or fix forward. The September 25 replacement promotion passed its guarded migration gate. | **POLICY SUBSTANTIATED; current rollback pair unproven.** The retired-generation candidate's NO-GO does not decide a replacement pair. The naturally compatible live rehearsal remains [#241](https://github.com/TailTag-Game/tailtag/issues/241) and is not a #208 blocker by itself. |
 
 Replacement OR-5, OR-6 and OR-8 and the nine first-response reviews are
-dispositioned below. A final #208 GO/NO-GO decision is separate.
+dispositioned below. Their combined final #208 decision follows the reviews.
 OR-1's replacement ownership
 boundary is resolved by the pinned resource comparison above; operator
 procedures must continue to use the code-owned pins because both project
@@ -130,7 +134,7 @@ postconditions are retained separately, without reclassifying transport.
 
 **OR-6: PASS WITH FOUR EXPLICIT CASE 9 LIVE LIMITATIONS** for this observed
 replacement deployment. The retired-generation OR-6 blocker in the historical
-table below remains historical. This OR-6 result alone does not make #208 GO:
+table below remains historical. This OR-6 result alone did not decide #208:
 the OR-8 disposition below and the current nine first-response reviews retain
 their own boundaries.
 
@@ -200,6 +204,38 @@ bootstrap snippets are historical and cannot serve as replacement launchers;
 the first-response paths use read-only diagnosis and owner-controlled,
 separately reviewed validation where needed. This review does not itself make
 the final #208 readiness decision.
+
+## Replacement final readiness decision (2026-09-29)
+
+**GO for replacement `TailTag/staging` rehearsal and future field-beta support
+within the observed evidence window.** No OR-1–OR-8 or first-response blocker
+remains under #208's readiness rule. This is an operational readiness decision,
+not authorization for an incident mutation or a claim about later serving state.
+
+OR-1's [replacement ownership/parity readback](staging.md#2026-09-28-replacement-parity-readback)
+established separate Staging resources at its observation time. OR-2 and OR-3's
+newest [exact-SHA promotion receipt](staging-deployments/70f0752d-e78d-4177-a5e0-540463299ca8.json)
+records source `f16ff7527059e32d2cca15038e55ba406aa35381`, deployment
+`70f0752d-e78d-4177-a5e0-540463299ca8`, successful migration, startup,
+readiness, identity and smoke gates, and final `ACTIVE` state. OR-4's canonical
+preflight and source/deployment nonimpact passed during the [guarded OR-8
+drill](staging-recovery/20260929T063432Z-issue-207-restore-d4480275113242e7bba0b25387cdf6eb.json);
+its deployment fingerprint matches that D. OR-5's guarded reset receipts and
+OR-6's bounded operator matrix pass on that source/D with the limits recorded
+above. OR-7 supplies the fail-closed compatibility and forward-fix policy;
+OR-8's same-source isolated restore receipt reports `GO`, backend usability,
+Staging nonimpact and cleanup. All nine current first-response paths above
+have a safe diagnostic, first mitigation and escalation boundary.
+
+The GO retains these explicit limits: OR-1 provider facts and all live receipts
+are point-in-time; four OR-6 Case 9 routes lack live exercise; seven OR-8
+empty-source checks do not prove populated Catch/session/credential recovery;
+the compatible Railway rollback rehearsal belongs to #241; metrics/alerting
+and simulation belong to #198/#199. The retired Clerk/media launchers are
+unsupported for replacement, and no current authenticated Clerk or media
+smoke or induced provider outage ran for this decision. No Production recovery
+or availability claim follows from this Staging result. Any later material
+deployment, resource or procedure change requires a fresh target-bound review.
 
 **Verification classes.** *Inherited exercise* checks durable completed live
 evidence, present applicability, and material drift without repeating an
