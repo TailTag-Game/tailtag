@@ -37,6 +37,8 @@ Only these keys pass from a logger call's `extra` to stdout or to Sentry breadcr
 | `http_response_status_code` | Integer status. |
 | `duration_ms` | Request duration. |
 | `error_type` | Exception class name. |
+| `tailtag_outcome` | Domain outcome, from `Outcome` in `observability/outcomes.py`. |
+| `tailtag_reason` | Domain outcome reason, from `Reason` in `observability/outcomes.py`. |
 
 Log keys contain no dots, because Railway log search cannot filter on dotted keys ([#212](https://github.com/TailTag-Game/tailtag/issues/212)). Where an OpenTelemetry name exists, the log key is that name with dots replaced by underscores. Sentry span and metric attributes keep the dotted OpenTelemetry names.
 
@@ -94,8 +96,8 @@ Every metric passes through `scrub_metric`, the `before_send_metric` hook. It ke
 | `http.request.method` | `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `TRACE`, `CONNECT`, or `_OTHER` for any other method |
 | `http.route` | A route template from the project URLconf, as `request.resolver_match.route` yields it, for example `api/conventions/<int:pk>/`, or `<unmatched>` when no route matched. A raw path such as `api/v1/fursuits/42/` is rejected. |
 | `http.response.status_class` | `1xx`, `2xx`, `3xx`, `4xx`, `5xx` |
-| `tailtag.outcome` | Empty until [#213](https://github.com/TailTag-Game/tailtag/issues/213), so every value is rejected today |
-| `tailtag.reason` | Empty until #213, so every value is rejected today |
+| `tailtag.outcome` | A value of `Outcome` in `services/api/observability/outcomes.py` ([#213](https://github.com/TailTag-Game/tailtag/issues/213)) |
+| `tailtag.reason` | A value of `Reason` in the same module |
 
 Values must be strings. A non-string value is rejected for every key.
 
@@ -111,7 +113,7 @@ A rejected attribute logs one WARNING per key per process, naming the metric tha
 
 ### Where metrics are emitted
 
-Feature code does not call `sentry_sdk.metrics` directly. The `direct-sentry-metrics` Semgrep rule enforces this outside `services/api/observability/`. The request metric, `tailtag.http.server.requests`, is emitted by the request correlation middleware ([#212](https://github.com/TailTag-Game/tailtag/issues/212)). Domain outcomes go through the shared module that [#213](https://github.com/TailTag-Game/tailtag/issues/213) creates.
+Feature code does not call `sentry_sdk.metrics` directly. The `direct-sentry-metrics` Semgrep rule enforces this outside `services/api/observability/`. The request metric, `tailtag.http.server.requests`, is emitted by the request correlation middleware ([#212](https://github.com/TailTag-Game/tailtag/issues/212)). Domain outcomes go through `record_outcome` in `services/api/observability/outcomes.py` ([#213](https://github.com/TailTag-Game/tailtag/issues/213)); see [backend domain outcomes](../../operations/backend-domain-outcomes.md).
 
 ## 6. SQL spans and query strings
 
@@ -136,7 +138,7 @@ Every addition needs a test in `services/api/tests/test_telemetry_privacy.py` (o
 
 - **New log field:** add the key to `ALLOWED_EXTRA_FIELDS` in `services/api/observability/logging.py`. Use an OpenTelemetry semantic-convention name with underscores for dots where one exists, otherwise a `tailtag_` prefix. Never use a dot. Update the table in section 2 and in [backend logging](../../operations/backend-logging.md).
 - **New metric dimension:** add the key and its bounded value set to `_is_bounded` in `services/api/observability/privacy.py`, with the value set as a constant beside `_HTTP_METHODS`. Update the table in section 5. Never add an unbounded key.
-- **Outcome and reason values ([#213](https://github.com/TailTag-Game/tailtag/issues/213)):** populate `_OUTCOMES` and `_REASONS` in `privacy.py`. Each value must be a member of the enumeration in the outcomes module, and the two must not drift.
+- **Outcome and reason values ([#213](https://github.com/TailTag-Game/tailtag/issues/213)):** add the value to `Outcome` or `Reason` in `services/api/observability/outcomes.py`. `_OUTCOMES` and `_REASONS` in `privacy.py` are derived from those enumerations, so they cannot drift. Follow [adding an outcome or reason](../../operations/backend-domain-outcomes.md#adding-an-outcome-or-reason).
 - **New text shape:** add a pattern to `_TEXT_REDACTIONS` only for a shape that is unmistakable. Prefer a Semgrep rule for anything ambiguous.
 - **New third-party logger cap:** add the logger name to `_QUIET_THIRD_PARTY_LOGGERS` in `logging.py`. `config/settings/production.py` adds stricter botocore, boto3, and s3transfer entries on top of these caps; settings must extend the base `loggers`, never replace them.
 - **New span or breadcrumb data key that can hold a URL or SQL value:** extend `scrub_url_data` in `privacy.py`.

@@ -16,6 +16,7 @@ from accounts.resolution import (
     resolve_application_user,
 )
 from authentication.clerk import ClerkSessionVerifier
+from observability.outcomes import Outcome, Reason, Signal, record_outcome
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -42,6 +43,11 @@ class TailTagAuthentication(BaseAuthentication):
         try:
             user = resolve_application_user(identity.subject)
         except ApplicationUserResolutionUnavailable:
+            record_outcome(
+                Signal.AUTHENTICATION_VERIFICATION,
+                Outcome.REJECTED,
+                Reason.USER_RESOLUTION_UNAVAILABLE,
+            )
             raise _ServiceUnavailable() from None
         return user, None
 

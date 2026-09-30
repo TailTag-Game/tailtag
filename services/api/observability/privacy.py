@@ -17,6 +17,8 @@ from django.conf import settings
 from django.urls import URLPattern, URLResolver, get_resolver
 from sentry_sdk.types import Metric
 
+from .outcomes import Outcome, Reason
+
 _LOGGER = logging.getLogger(__name__)
 
 _REDACTED: Final = "[redacted]"
@@ -47,9 +49,8 @@ _HTTP_METHODS: Final = frozenset(
 UNMATCHED_ROUTE: Final = "<unmatched>"
 OTHER_METHOD: Final = "_OTHER"
 _STATUS_CLASSES: Final = frozenset(f"{digit}xx" for digit in range(1, 6))
-# #213 populates the outcome and reason enumerations; until then nothing passes.
-_OUTCOMES: Final[frozenset[str]] = frozenset()
-_REASONS: Final[frozenset[str]] = frozenset()
+_OUTCOMES: Final = frozenset(str(outcome) for outcome in Outcome)
+_REASONS: Final = frozenset(str(reason) for reason in Reason)
 
 # Attributes the SDK attaches on its own and this policy strips by design; they are
 # dropped silently so they do not warn on every process.

@@ -18,6 +18,7 @@ from conventions.models import (
     FursuitCatchSessionEndReason,
 )
 from fursuits.models import Fursuit
+from observability.outcomes import Outcome, Reason, Signal, record_outcome
 from operator_audit.services import OperatorTransition
 from profiles.models import PlayerProfile
 
@@ -81,12 +82,18 @@ def get_effective_fursuit_catch_session_for_activation(
 
     if not activation.is_active or not is_fursuit_activation_eligible(activation):
         return None
+    session = get_unended_fursuit_catch_session_for_activation(activation)
+    if session is None or session.expires_at <= timezone.now():
+        return None
+    return session
+
+
+def get_unended_fursuit_catch_session_for_activation(
+    activation: FursuitActivation,
+) -> FursuitCatchSession | None:
+    """Return an activation's one unended session, expired or not, without locking."""
     return (
-        FursuitCatchSession.objects.filter(
-            activation=activation,
-            ended_at__isnull=True,
-            expires_at__gt=timezone.now(),
-        )
+        FursuitCatchSession.objects.filter(activation=activation, ended_at__isnull=True)
         .order_by("-started_at", "-id")
         .first()
     )
@@ -260,6 +267,9 @@ def _start_fursuit_catch_session(
             started_at=now,
             expires_at=now + FURSUIT_CATCH_SESSION_LIFETIME,
         )
+        transaction.on_commit(
+            lambda: record_outcome(Signal.CATCH_SESSION, Outcome.STARTED)
+        )
         return FursuitCatchSessionState(
             activation=activation, session=session, is_active=True
         )
@@ -360,4 +370,8 @@ def _terminate_locked_session(
         session.ended_at = now
         session.end_reason = live_reason
     session.save(update_fields=("ended_at", "end_reason", "updated_at"))
+    end_reason = Reason(session.end_reason)
+    transaction.on_commit(
+        lambda: record_outcome(Signal.CATCH_SESSION, Outcome.ENDED, end_reason)
+    )
     return True

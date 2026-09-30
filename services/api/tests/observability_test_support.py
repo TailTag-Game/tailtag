@@ -238,3 +238,43 @@ def wsgi_request(
         request_started.connect(close_old_connections)  # pyright: ignore[reportUnknownMemberType]
         request_finished.connect(close_old_connections)  # pyright: ignore[reportUnknownMemberType]
     return int(status[0].split(" ", 1)[0])
+
+
+OUTCOME_METRIC_ATTRIBUTE = "tailtag.outcome"
+REASON_METRIC_ATTRIBUTE = "tailtag.reason"
+
+RecordedOutcome = tuple[str, str, str | None]
+
+
+def recorded_outcomes(
+    logs: JsonLogCapture, transport: CapturingTransport
+) -> list[RecordedOutcome]:
+    """Every domain outcome as `(signal, outcome, reason)`, in emission order.
+
+    Reads both real channels (the stdout JSON lines and the Sentry metrics as
+    sent, after the privacy filter) and asserts they describe the same events, so
+    a dropped attribute, a missing signal, or a log/metric mismatch fails here.
+    """
+    sentry_sdk.flush()
+    from_logs: list[RecordedOutcome] = [
+        (line["event"], line["tailtag_outcome"], line.get("tailtag_reason"))
+        for line in logs.lines()
+        if "tailtag_outcome" in line
+    ]
+    from_metrics: list[RecordedOutcome] = []
+    for metric in transport.metrics():
+        attributes = {
+            key: entry["value"] for key, entry in metric["attributes"].items()
+        }
+        if OUTCOME_METRIC_ATTRIBUTE not in attributes:
+            continue
+        assert (metric["type"], metric["value"]) == ("counter", 1.0)
+        from_metrics.append(
+            (
+                metric["name"],
+                attributes[OUTCOME_METRIC_ATTRIBUTE],
+                attributes.get(REASON_METRIC_ATTRIBUTE),
+            )
+        )
+    assert sorted(from_logs, key=repr) == sorted(from_metrics, key=repr)
+    return from_logs

@@ -11,9 +11,9 @@ observability boundary is in
 request lookup are in [backend logging](backend-logging.md).
 
 These signals describe the service, not the game. A rise in 4xx responses, for
-example, does not say whether catches are failing. Domain outcomes come from
-[#213](https://github.com/TailTag-Game/tailtag/issues/213), and dependency
-health from [#214](https://github.com/TailTag-Game/tailtag/issues/214).
+example, does not say whether catches are failing. Domain outcomes are in
+[backend domain outcomes](backend-domain-outcomes.md), and dependency
+health comes from [#214](https://github.com/TailTag-Game/tailtag/issues/214).
 
 ## Signals and where they live
 

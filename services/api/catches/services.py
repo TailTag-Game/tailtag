@@ -21,6 +21,7 @@ from conventions.models import (
     FursuitCatchSession,
 )
 from fursuits.models import Fursuit
+from observability.outcomes import Reason
 from operator_audit.services import OperatorTransition
 from profiles.models import PlayerProfile
 
@@ -53,7 +54,15 @@ class CatchActiveConventionMismatchError(Exception):
 
 
 class CatchTargetInvalidError(Exception):
-    pass
+    """The target cannot be caught; `reason` is for telemetry and never public.
+
+    The reason is kept out of `args`, `str`, and `repr` so no message or log line
+    can carry a target-state distinction.
+    """
+
+    def __init__(self, reason: Reason) -> None:
+        super().__init__()
+        self.reason = reason
 
 
 class CatchSelfCatchError(Exception):
@@ -66,7 +75,7 @@ def confirm_catch(user: User, *, payload: str) -> CatchConfirmationResult:
     token = parse_catch_credential_payload(payload)
     historical = _discover_historical_credential(token)
     if historical is None:
-        raise CatchTargetInvalidError()
+        raise CatchTargetInvalidError(Reason.CREDENTIAL_UNKNOWN)
 
     credential_id, activation_id, fursuit_id, convention_id, target_owner_id = (
         historical
@@ -144,30 +153,43 @@ def confirm_catch(user: User, *, payload: str) -> CatchConfirmationResult:
         if not catcher_enrollment.is_active:
             raise CatchActiveConventionMismatchError()
 
+        # Ordered over the same conditions as one combined check: the first failing
+        # check only chooses the internal reason, never whether the target is usable.
+        if (
+            credential is None
+            or credential.activation_id != activation_id
+            or credential.token != token
+        ):
+            raise CatchTargetInvalidError(Reason.CREDENTIAL_UNKNOWN)
+        if credential.revoked_at is not None:
+            raise CatchTargetInvalidError(Reason.CREDENTIAL_REVOKED)
+        if convention is None or not convention.is_playable:
+            raise CatchTargetInvalidError(Reason.CONVENTION_NOT_PLAYABLE)
         target_profile = profiles.get(target_owner_id)
         target_enrollment = enrollments.get(target_owner_id)
         if (
             not _profile_is_eligible(target_profile)
             or target_enrollment is None
-            or convention is None
-            or not convention.is_playable
             or fursuit is None
             or not fursuit.is_enabled
             or fursuit.owner_id != target_owner_id
-            or activation is None
+        ):
+            raise CatchTargetInvalidError(Reason.TARGET_INELIGIBLE)
+        if (
+            activation is None
             or activation.fursuit_id != fursuit_id
             or activation.convention_id != convention_id
             or not activation.is_active
-            or credential is None
-            or credential.activation_id != activation_id
-            or credential.token != token
-            or credential.revoked_at is not None
-            or session is None
+        ):
+            raise CatchTargetInvalidError(Reason.ACTIVATION_INACTIVE)
+        if (
+            session is None
             or session.activation_id != activation_id
             or session.ended_at is not None
-            or session.expires_at <= now
         ):
-            raise CatchTargetInvalidError()
+            raise CatchTargetInvalidError(Reason.SESSION_INACTIVE)
+        if session.expires_at <= now:
+            raise CatchTargetInvalidError(Reason.SESSION_EXPIRED)
         if fursuit.owner_id == catcher_id:
             raise CatchSelfCatchError()
 
