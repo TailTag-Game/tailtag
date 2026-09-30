@@ -11,7 +11,6 @@ from unittest.mock import patch
 
 import pytest
 from django.test import Client
-from observability.outcomes import Reason
 from rest_framework.test import APIClient
 
 from catches.models import Catch
@@ -24,6 +23,7 @@ from catches.services import (
     CatchSelfCatchError,
     CatchTargetInvalidError,
 )
+from observability.outcomes import Reason
 from tests.authentication_support import (
     fake_clerk_session_verification,
     force_authenticated_client,
