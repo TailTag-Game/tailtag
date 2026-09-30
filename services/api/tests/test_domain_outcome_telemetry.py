@@ -37,6 +37,7 @@ from authentication import clerk as clerk_adapter
 from authentication import drf as drf_adapter
 from authentication.clerk import CLERK_FAILURE_REASONS
 from catches import views as catch_views
+from conventions import views as convention_views
 from conventions.catch_credential_protocol import CATCH_CREDENTIAL_PAYLOAD_PREFIX
 from conventions.catch_sessions import (
     set_fursuit_catch_session_state,
@@ -437,23 +438,44 @@ def test_catch_confirmation_records_one_outcome_and_the_404_body_never_varies(
 def test_an_unexpected_failure_and_an_anonymous_request_record_no_domain_outcome(
     telemetry: Telemetry, monkeypatch: MonkeyPatch
 ) -> None:
-    """AC-3, AC-9: a 5xx is the request metric's job; an unauthenticated 401 has no outcome."""
+    """AC-3, AC-9: a 5xx is the request metric's job; an unauthenticated 401 has no outcome.
+
+    The resolution view builds its response after the success decision, so a
+    failing projection must not leave a `resolved` outcome behind either.
+    """
     scenario = create_catch_confirmation_scenario()
 
     def fail(*_: object, **__: object) -> object:
         raise RuntimeError("synthetic-unexpected-failure")
 
     monkeypatch.setattr(catch_views, "confirm_catch", fail)
+    monkeypatch.setattr(
+        convention_views, "fursuit_catch_credential_resolution_response_data", fail
+    )
     client = force_authenticated_client(user=scenario.catcher_user)
+    client.raise_request_exception = False  # the resolution view re-raises
 
     failed = client.post(CATCH_PATH, {"payload": scenario.payload}, format="json")
+    resolution_failed = client.post(
+        resolution_path(scenario.convention.pk),
+        {"payload": scenario.payload},
+        format="json",
+    )
     anonymous = Client().post(
         CATCH_PATH, {"payload": scenario.payload}, content_type="application/json"
     )
 
-    assert (failed.status_code, anonymous.status_code) == (500, 401)
+    assert (
+        failed.status_code,
+        resolution_failed.status_code,
+        anonymous.status_code,
+    ) == (
+        500,
+        500,
+        401,
+    )
     assert telemetry.outcomes() == []
-    assert sorted(telemetry.request_status_classes()) == ["4xx", "5xx"]
+    assert sorted(telemetry.request_status_classes()) == ["4xx", "5xx", "5xx"]
 
 
 # --- AC-4, AC-5: credential resolution ---

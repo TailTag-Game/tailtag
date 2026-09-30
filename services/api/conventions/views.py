@@ -288,12 +288,13 @@ class FursuitCatchCredentialResolutionView(APIView):
         except catch_credentials.CatchCredentialNotFoundError as error:
             _record_resolution_rejected(error.reason)
             raise NotFound("Catch credential not found.") from None
-        record_outcome(Signal.CREDENTIAL_RESOLUTION, Outcome.RESOLVED)
-        return Response(
+        response = Response(
             fursuit_catch_credential_resolution_response_data(
                 credential.activation, request=request
             )
         )
+        record_outcome(Signal.CREDENTIAL_RESOLUTION, Outcome.RESOLVED)
+        return response
 
 
 def _record_resolution_rejected(reason: Reason) -> None:

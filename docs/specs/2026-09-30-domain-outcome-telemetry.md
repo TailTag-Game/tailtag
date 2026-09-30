@@ -44,6 +44,16 @@ fault, and replaced the private `_insert_catch` patch with the public
 `catches.views.confirm_catch` seam. The outcome module went from 62 to 56
 cases. The outcome and catch-confirmation API tests (84), format, lint, strict
 Pyright, and Semgrep passed.
+Completed additionally: PR review (#266). CI lint failed on import order that a
+cached local Ruff run had hidden; fixed and verified with an uncached
+`make api-check` (3,434 tests). CodeRabbit found that credential resolution
+recorded `resolved` before building the response, so a projection failure
+counted a success on a 500. `resolved` is now recorded after the response is
+built, matching catch confirmation; the unexpected-failure test failed before
+the fix and passes after it. CodeRabbit's two proposed hardenings (a
+best-effort recorder and runtime value checks) were not adopted: logging
+handlers and the Sentry SDK do not raise into callers, and the enumerations
+are enforced by strict Pyright and the metric privacy filter.
 Pending: Development evidence after merge, recorded in a follow-up
 documentation change as for #212.
 
