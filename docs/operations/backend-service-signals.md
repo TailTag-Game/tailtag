@@ -78,6 +78,9 @@ whatever the client sent.
   acting.
 - `/health/live` and `/health/ready` are never traced. They are frequent and
   fast, and would drown out real requests.
+- `HEAD` and `OPTIONS` requests are never traced, which is the Sentry SDK's
+  default. They are mostly probes, scanners, and preflights. The request metric
+  still counts them under their method.
 - A transaction's spans include SQL queries with parameterized text, for
   example `SELECT … WHERE id = %s`. Parameter values are never sent.
 

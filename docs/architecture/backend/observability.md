@@ -137,7 +137,7 @@ Railway's log query syntax supports custom JSON attribute filters, so operators 
 
 - Transactions are named by route template. A request that matches no route is named `<unmatched>`, never its raw path.
 - Spans for SQL keep parameterized query text and never include parameter values. [#211](https://github.com/TailTag-Game/tailtag/issues/211) decided to keep the query text and remove parameter data in `before_send_transaction`. [#212](https://github.com/TailTag-Game/tailtag/issues/212) proved this on real transactions.
-- Sampling rates are per-environment configuration, not code constants. `SENTRY_TRACES_SAMPLE_RATE` sets the rate; unset means tracing is off. `/health/live` and `/health/ready` are never traced, and the sampler ignores a client's sampling decision.
+- Sampling rates are per-environment configuration, not code constants. `SENTRY_TRACES_SAMPLE_RATE` sets the rate; unset means tracing is off. `/health/live` and `/health/ready` are never traced, `HEAD` and `OPTIONS` requests are never traced (the SDK's Django integration default), and the sampler ignores a client's sampling decision. The request metric counts all of them.
 - Latency percentiles come from transactions. Sentry weights sampled transactions by the inverse sample rate. Counts come from the request metric, which is not sampled.
 
 ## 7. Constraints handed to later issues

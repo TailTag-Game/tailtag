@@ -51,6 +51,10 @@ SPEC, QUALITY, TEST, SCOPE, and SECURITY passed. Two LOW documentation findings
 were fixed: error events from unmatched requests still keep the raw path (a
 pre-existing behavior now listed in the privacy policy's known limitations),
 and this ledger now names D-4 to D-10.
+Completed additionally: PR review (#261). CodeRabbit noted that the SDK's
+Django integration never traces `HEAD` or `OPTIONS`, contrary to AC-2 as
+written. The maintainer kept the SDK default; AC-2 and Decision 5 now state it,
+and the sampling test proves a `HEAD` request is counted but not traced.
 Current: awaiting merge, then Development evidence D-4 to D-10.
 
 ## Problem
@@ -96,6 +100,10 @@ Approved by the maintainer on 2026-09-29.
    otherwise. The request metric still counts health requests, labelled by
    route. The rate comes from `SENTRY_TRACES_SAMPLE_RATE`; unset means tracing
    off. The maintainer sets `1.0` in Development and Staging after merge.
+   `HEAD` and `OPTIONS` requests are not traced either: the SDK's Django
+   integration skips them before the sampler runs, and the maintainer chose to
+   keep that default (2026-09-29, from PR review). They are mostly probes,
+   scanners, and preflights with little latency value.
 6. **Evidence.** Deterministic tests with a capturing Sentry transport gate the
    merge. Development evidence is recorded after merge in a follow-up
    documentation change, and #212 stays open until it is. Staging evidence is
@@ -146,8 +154,10 @@ without echoing the value. Without `SENTRY_DSN`, the SDK stays uninitialized
 whatever the rate.
 
 **AC-2 Sampling.** Requests to `/health/live` and `/health/ready` are never
-traced. Other requests are traced at the configured rate, whatever an incoming
-trace header says about sampling.
+traced. `HEAD` and `OPTIONS` requests are never traced, which is the Sentry
+Django integration's default. Other requests are traced at the configured rate,
+whatever an incoming trace header says about sampling. The request metric
+counts every request either way.
 
 **AC-3 Transaction names.** A request to a matched route produces a transaction
 named by its route template with source `route`, never the raw path. A request

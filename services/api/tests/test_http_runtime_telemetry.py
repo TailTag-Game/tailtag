@@ -96,14 +96,15 @@ def test_invalid_traces_sample_rate_stops_startup_without_echoing_the_value(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("path", "rate", "parent", "traced"),
+    ("method", "path", "rate", "parent", "traced"),
     [
-        ("/health/live", 1.0, None, False),
-        ("/health/ready", 1.0, SAMPLED_PARENT, False),
-        (CONVENTION_PATH, None, None, False),
-        (CONVENTION_PATH, 1.0, None, True),
-        (CONVENTION_PATH, 1.0, UNSAMPLED_PARENT, True),
-        (CONVENTION_PATH, 0.0, SAMPLED_PARENT, False),
+        ("GET", "/health/live", 1.0, None, False),
+        ("GET", "/health/ready", 1.0, SAMPLED_PARENT, False),
+        ("GET", CONVENTION_PATH, None, None, False),
+        ("GET", CONVENTION_PATH, 1.0, None, True),
+        ("GET", CONVENTION_PATH, 1.0, UNSAMPLED_PARENT, True),
+        ("GET", CONVENTION_PATH, 0.0, SAMPLED_PARENT, False),
+        ("HEAD", CONVENTION_PATH, 1.0, None, False),
     ],
     ids=[
         "health-live-never-traced",
@@ -112,19 +113,21 @@ def test_invalid_traces_sample_rate_stops_startup_without_echoing_the_value(
         "traced-at-rate-one",
         "client-cannot-force-off",
         "client-cannot-force-on",
+        "head-counted-not-traced",
     ],
 )
 def test_health_is_never_traced_other_routes_follow_the_rate_and_every_request_is_counted(
-    path: str, rate: float | None, parent: str | None, traced: bool
+    method: str, path: str, rate: float | None, parent: str | None, traced: bool
 ) -> None:
     """AC-1, AC-2, AC-5: the sampler ignores the client's parent decision.
 
+    HEAD and OPTIONS are never traced, as the SDK's Django integration default.
     The request metric is unsampled: exactly one per request for health, traced,
     and untraced requests alike.
     """
     headers = None if parent is None else {"sentry-trace": parent}
     with sentry_capturing(identity(), traces_sample_rate=rate) as transport:
-        wsgi_request(path, headers=headers)
+        wsgi_request(path, method=method, headers=headers)
         sentry_sdk.flush()
 
     assert len(transport.transactions()) == (1 if traced else 0)
