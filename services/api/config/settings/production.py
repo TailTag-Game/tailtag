@@ -7,7 +7,7 @@ from typing import Any
 
 from config.build_identity import get_identity
 from observability.logging import build_logging_config
-from observability.sentry import init_sentry
+from observability.sentry import init_sentry, parse_traces_sample_rate
 
 from .base import *
 from .base import database_from_url
@@ -89,7 +89,13 @@ try:
     _build_identity = get_identity()
 except (ValueError, OSError):
     _build_identity = None
-init_sentry(os.environ.get("SENTRY_DSN"), _build_identity)
+init_sentry(
+    os.environ.get("SENTRY_DSN"),
+    _build_identity,
+    traces_sample_rate=parse_traces_sample_rate(
+        os.environ.get("SENTRY_TRACES_SAMPLE_RATE")
+    ),
+)
 
 SESSION_COOKIE_SECURE = True
 SESSION_COOKIE_HTTPONLY = True

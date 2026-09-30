@@ -7,6 +7,7 @@ import re
 import time
 import uuid
 from collections.abc import Callable
+from typing import Final
 
 import sentry_sdk
 from django.core.signals import request_finished
@@ -14,6 +15,9 @@ from django.http import HttpRequest
 from django.http.response import HttpResponseBase
 
 from .context import railway_request_id_var, request_id_var
+from .privacy import UNMATCHED_ROUTE, normalize_method
+
+REQUEST_METRIC: Final = "tailtag.http.server.requests"
 
 _RAILWAY_REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _logger = logging.getLogger("tailtag.request")
@@ -66,6 +70,7 @@ class RequestCorrelationMiddleware:
                 scope.set_tag("railway_request_id", railway_request_id)
             response = self.get_response(request)
             self._log_completion(request, response, started)
+            self._count_request(request, response)
             return response
 
     @staticmethod
@@ -74,10 +79,23 @@ class RequestCorrelationMiddleware:
     ) -> None:
         extra: dict[str, object] = {
             "event": "tailtag.http.request",
-            "http.request.method": request.method,
-            "http.response.status_code": response.status_code,
+            "http_request_method": request.method,
+            "http_response_status_code": response.status_code,
             "duration_ms": round((time.perf_counter() - started) * 1000, 3),
         }
         if request.resolver_match is not None:
-            extra["http.route"] = request.resolver_match.route
+            extra["http_route"] = request.resolver_match.route
         _logger.info("HTTP request completed", extra=extra)
+
+    @staticmethod
+    def _count_request(request: HttpRequest, response: HttpResponseBase) -> None:
+        route = request.resolver_match.route if request.resolver_match else None
+        sentry_sdk.metrics.count(
+            REQUEST_METRIC,
+            1,
+            attributes={
+                "http.route": route or UNMATCHED_ROUTE,
+                "http.request.method": normalize_method(request.method),
+                "http.response.status_class": f"{response.status_code // 100}xx",
+            },
+        )

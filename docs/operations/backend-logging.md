@@ -37,8 +37,22 @@ Every line is one JSON object.
 | `deployment_id` | Railway deployment ID. |
 | `event` | Named event, for example `tailtag.http.request`. |
 | `stage` | Where an existing catch view failure happened. |
-| `http.request.method`, `http.route`, `http.response.status_code`, `duration_ms` | Request completion details. `http.route` is the URL route template, for example `api/conventions/<int:pk>/`, never the raw path. |
-| `error.type` | Exception class name, when the record carries an exception. |
+| `http_request_method`, `http_route`, `http_response_status_code`, `duration_ms` | Request completion details. `http_route` is the URL route template, for example `api/conventions/<int:pk>/`, never the raw path. It is left out when no route matched. |
+| `error_type` | Exception class name, when the record carries an exception. |
+
+Keys contain no dots, so every key can be used in a Railway `@key:value` filter,
+for example `@http_response_status_code:500` or
+`@http_route:"api/conventions/<int:pk>/"`. Check D-7 of #212 will confirm route
+filtering and its quoting in Development. Until
+[#212](https://github.com/TailTag-Game/tailtag/issues/212), these keys were
+`http.request.method`, `http.route`, `http.response.status_code`, and
+`error.type`, which Railway could not filter.
+
+Gunicorn's own messages, from logger `gunicorn.error`, use the same format and
+carry the build identity fields. They include worker boots, `WORKER TIMEOUT`,
+and `Worker ... was sent SIGKILL! Perhaps out of memory?`. Search
+`@logger:gunicorn.error`. How to read them is in
+[backend service signals](backend-service-signals.md).
 
 A field is left out when its value is unknown. Build identity fields are left
 out when identity is unavailable, and logging keeps working.
@@ -76,8 +90,8 @@ to Sentry. To add a field:
    ([#211](https://github.com/TailTag-Game/tailtag/issues/211)). Never add
    credentials, tokens, request bodies, query strings, presigned URLs, or
    personal data.
-2. Name it with the OpenTelemetry semantic convention name where one exists,
-   otherwise a `tailtag.` prefix.
+2. Name it with the OpenTelemetry semantic convention name, with underscores
+   for dots, where one exists, otherwise a `tailtag_` prefix. Never use a dot.
 3. Add it to the allow-list in `services/api/observability/logging.py`, with a
    test.
 
@@ -97,12 +111,15 @@ Events never include the incoming request's body, query string, or cookies,
 request headers, stack-frame local variables, or user IP.
 Breadcrumbs for outgoing HTTP calls have the query string and fragment removed
 from the called URL. ERROR log lines become Sentry events. INFO and above become
-breadcrumbs. Sentry Logs and tracing are not enabled by #210.
+breadcrumbs. Sentry Logs is not enabled. Tracing is enabled only when
+`SENTRY_TRACES_SAMPLE_RATE` is set; see
+[backend service signals](backend-service-signals.md).
 
 As a backstop, the `message` on stdout, on breadcrumbs, and on Sentry events has
 `Bearer` tokens, JWT-shaped strings, `tailtag:catch:v1:` payloads, and URL query
 strings replaced with `[redacted]`. Records from `botocore`, `boto3`,
-`s3transfer`, `urllib3`, and `django.db.backends` below WARNING are not written.
+`s3transfer`, `urllib3`, `django.db.backends`, and `gunicorn.access` below
+WARNING are not written.
 Neither is a reason to log sensitive values; Semgrep fails CI on interpolated
 log messages and on sensitive-named logger arguments. Details are in the
 [telemetry privacy policy](../architecture/backend/telemetry-privacy.md).

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, cast
+import math
+from typing import Any, Final, cast
 
 import sentry_sdk
 from sentry_sdk.integrations.django import DjangoIntegration
@@ -18,11 +19,31 @@ from .privacy import (
     scrub_event_text,
     scrub_metric,
     scrub_transaction,
+    scrub_transaction_name,
     scrub_url_data,
     strip_query_and_fragment,
 )
 
 _REMOVED_REQUEST_FIELDS = ("query_string", "data", "cookies", "headers")
+_UNTRACED_PATHS: Final = frozenset({"/health/live", "/health/ready"})
+_TRACES_SAMPLE_RATE_VARIABLE: Final = "SENTRY_TRACES_SAMPLE_RATE"
+
+
+def parse_traces_sample_rate(value: str | None) -> float | None:
+    """Parse `SENTRY_TRACES_SAMPLE_RATE`: unset or empty means tracing off.
+
+    A rejected value is never echoed in the error.
+    """
+    if not value:
+        return None
+    message = f"{_TRACES_SAMPLE_RATE_VARIABLE} must be a number from 0 to 1, or unset."
+    try:
+        rate = float(value)
+    except ValueError:
+        raise RuntimeError(message) from None
+    if not math.isfinite(rate) or not 0 <= rate <= 1:
+        raise RuntimeError(message)
+    return rate
 
 
 def _allow_listed(values: object) -> dict[str, Any]:
@@ -65,8 +86,16 @@ def before_breadcrumb(crumb: Breadcrumb, hint: BreadcrumbHint) -> Breadcrumb:
     return crumb
 
 
-def init_sentry(dsn: str | None, identity: Identity | None) -> bool:
-    """Initialize Sentry when a DSN is configured; report whether it was."""
+def init_sentry(
+    dsn: str | None,
+    identity: Identity | None,
+    *,
+    traces_sample_rate: float | None = None,
+) -> bool:
+    """Initialize Sentry when a DSN is configured; report whether it was.
+
+    Tracing is on only when a rate is given; health checks are never traced.
+    """
     if not dsn:
         return False
     source_sha = identity["source_sha"] if identity is not None else None
@@ -78,7 +107,22 @@ def init_sentry(dsn: str | None, identity: Identity | None) -> bool:
     def before_send_transaction(event: Event, hint: Hint) -> Event:
         scrubbed = _scrub_event(event, source_sha)
         scrub_transaction(cast("dict[str, Any]", scrubbed))
+        scrub_transaction_name(cast("dict[str, Any]", scrubbed))
         return scrubbed
+
+    def traces_sampler(sampling_context: dict[str, Any]) -> float:
+        # Only the configured rate applies: an incoming `parent_sampled` is ignored
+        # so a client cannot force tracing on.
+        environ: object = sampling_context.get("wsgi_environ")
+        if isinstance(environ, dict):
+            path = cast("dict[str, Any]", environ).get("PATH_INFO")
+            if path in _UNTRACED_PATHS:
+                return 0
+        return traces_sample_rate or 0.0
+
+    tracing: dict[str, Any] = (
+        {} if traces_sample_rate is None else {"traces_sampler": traces_sampler}
+    )
 
     sentry_sdk.init(
         dsn=dsn,
@@ -95,6 +139,7 @@ def init_sentry(dsn: str | None, identity: Identity | None) -> bool:
         before_send_transaction=before_send_transaction,
         before_send_metric=scrub_metric,
         before_breadcrumb=before_breadcrumb,
+        **tracing,
     )
     if source_sha is None:
         # The SDK guesses a release from SENTRY_RELEASE, git, or CI variables

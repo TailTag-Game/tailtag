@@ -32,11 +32,13 @@ Only these keys pass from a logger call's `extra` to stdout or to Sentry breadcr
 | --- | --- |
 | `event` | Named event, `tailtag.<module>.<event>`. |
 | `stage` | Where a failure happened. |
-| `http.request.method` | HTTP method. |
-| `http.route` | URLconf route template, never the raw path. |
-| `http.response.status_code` | Integer status. |
+| `http_request_method` | HTTP method. |
+| `http_route` | URLconf route template, never the raw path. |
+| `http_response_status_code` | Integer status. |
 | `duration_ms` | Request duration. |
-| `error.type` | Exception class name. |
+| `error_type` | Exception class name. |
+
+Log keys contain no dots, because Railway log search cannot filter on dotted keys ([#212](https://github.com/TailTag-Game/tailtag/issues/212)). Where an OpenTelemetry name exists, the log key is that name with dots replaced by underscores. Sentry span and metric attributes keep the dotted OpenTelemetry names.
 
 The formatter also adds these itself, from request and build context: `timestamp`, `level`, `message`, `logger`, `request_id`, `railway_request_id`, `trace_id`, `span_id`, `environment`, `release`, and `deployment_id`. Anything else passed through `extra`, including Django's attached `request`, is dropped silently.
 
@@ -67,7 +69,7 @@ Each layer covers what the others cannot. No single layer is the whole control.
    | A query string, `?name=value…`, in an absolute or path-relative URL | `?[redacted]` |
 
    It runs on the JSON `message`, breadcrumb messages, and Sentry event text: the message, log-entry message, formatted message and params, and exception values. It does not run on `extra` values or on other event fields such as tags.
-4. **Third-party logger caps.** `botocore`, `boto3`, `s3transfer`, `urllib3`, and `django.db.backends` are pinned at WARNING, so their INFO and DEBUG output, which carries URLs and SQL detail, never reaches stdout even though the root logger stays at INFO.
+4. **Third-party logger caps.** `botocore`, `boto3`, `s3transfer`, `urllib3`, `django.db.backends`, and `gunicorn.access` are pinned at WARNING, so their INFO and DEBUG output, which carries URLs, SQL detail, and client addresses, never reaches stdout or Sentry breadcrumbs even though the root logger stays at INFO. Gunicorn's access log is on because `gunicorn.conf.py` sets `logconfig_dict`; Railway HTTP logs are the access log.
 5. **Sentry hooks**, registered in `init_sentry`:
    - **Errors (`before_send`):** removes request `query_string`, `data`, `cookies`, and `headers`; strips the query string and fragment from `request.url`; allow-lists `extra`; applies the text backstop.
    - **Breadcrumbs (`before_breadcrumb`):** allow-lists logging breadcrumb data; applies the text backstop to messages; for any breadcrumb data, strips the query string and fragment from `url`, `http.url`, and `url.full`, and removes `http.query`, `http.fragment`, and SQL parameter data.
@@ -89,8 +91,8 @@ Every metric passes through `scrub_metric`, the `before_send_metric` hook. It ke
 
 | Key | Bounded value set |
 | --- | --- |
-| `http.request.method` | `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `TRACE`, `CONNECT` |
-| `http.route` | A route template from the project URLconf, as `request.resolver_match.route` yields it, for example `api/conventions/<int:pk>/`. A raw path such as `api/v1/fursuits/42/` is rejected. |
+| `http.request.method` | `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `TRACE`, `CONNECT`, or `_OTHER` for any other method |
+| `http.route` | A route template from the project URLconf, as `request.resolver_match.route` yields it, for example `api/conventions/<int:pk>/`, or `<unmatched>` when no route matched. A raw path such as `api/v1/fursuits/42/` is rejected. |
 | `http.response.status_class` | `1xx`, `2xx`, `3xx`, `4xx`, `5xx` |
 | `tailtag.outcome` | Empty until [#213](https://github.com/TailTag-Game/tailtag/issues/213), so every value is rejected today |
 | `tailtag.reason` | Empty until #213, so every value is rejected today |
@@ -109,11 +111,12 @@ A rejected attribute logs one WARNING per key per process, naming the metric tha
 
 ### Where metrics are emitted
 
-Feature code does not call `sentry_sdk.metrics` directly. The `direct-sentry-metrics` Semgrep rule enforces this outside `services/api/observability/`. Domain outcomes go through the shared module that [#213](https://github.com/TailTag-Game/tailtag/issues/213) creates.
+Feature code does not call `sentry_sdk.metrics` directly. The `direct-sentry-metrics` Semgrep rule enforces this outside `services/api/observability/`. The request metric, `tailtag.http.server.requests`, is emitted by the request correlation middleware ([#212](https://github.com/TailTag-Game/tailtag/issues/212)). Domain outcomes go through the shared module that [#213](https://github.com/TailTag-Game/tailtag/issues/213) creates.
 
 ## 6. SQL spans and query strings
 
-- SQL spans keep **parameterized query text** and never parameter values. `db.params` and `db.query.parameter.*` data are removed.
+- SQL spans keep **parameterized query text** and never parameter values. The SDK does not record parameters unless its `data_collection` option or `record_sql_params` experiment is set, and TailTag sets neither. `db.params` and `db.query.parameter.*` data are also removed, as a second layer.
+- **Transaction events never carry a raw path in their name.** The SDK names a request that matches no route after its raw path, with source `url`. `before_send_transaction` renames every such transaction to `<unmatched>` and removes its `request.url`, because an unmatched path is client-chosen free text.
 - The **query-string allow-list is empty**. Every query string and fragment is stripped from reported URLs, in events, breadcrumbs, and spans. To allow one parameter later, edit the stripping code in `privacy.py` and add a test.
 
 ## 7. Known limitations
@@ -122,14 +125,16 @@ Feature code does not call `sentry_sdk.metrics` directly. The `direct-sentry-met
 - **A bare catch token in free text is not pattern-detectable.** Only the `tailtag:catch:v1:` prefixed payload is matched. A bare 43-character token in a message has no distinguishing shape, so the Semgrep rules, not the text backstop, are the control.
 - **The text backstop covers only its four shapes.** It is a backstop, not a scanner.
 - **The route set is cached per process.** `http.route` values are checked against the URLconf as loaded at first use. Routes added at runtime are not recognized.
-- **Tracing is not yet enabled.** The transaction and span hooks are proven only on synthetic transaction events until [#212](https://github.com/TailTag-Game/tailtag/issues/212) turns tracing on. Re-check real spans then.
-- **Dotted log keys.** #211 adds none. Railway log search cannot filter on dotted keys ([backend logging](../../operations/backend-logging.md#development-evidence)), and #212 decides whether log attributes become nested objects or underscore names.
+- **Paths remain in `request.url` on error events and matched-route transactions.** They keep the request path, without its query string. Matched routes carry only integer IDs, which section 4 allows in protected telemetry.
+- **Error events from unmatched requests keep the raw path.** The unmatched rename runs only on transactions, so an error event raised during a request that matched no route keeps the client's path in its `transaction` name (source `url`) and in `request.url`. One realistic trigger is an invalid `Host` header, which Django reports at ERROR on `django.security.DisallowedHost`; Railway's host-based routing makes that rare. This predates #212. Extending the rename to error events is a follow-up decision.
+- **Unmatched paths reach stdout.** Django's `Not Found: <path>` WARNING line writes an unmatched path to stdout, inside the Railway access boundary.
+- **Client trace headers are continued.** The SDK continues an incoming `sentry-trace` and `baggage` header, so a client can choose the `trace_id` recorded in logs and Sentry. The `request_id` is unaffected, and the sampler ignores the client's sampling decision. Ignoring these headers is [#260](https://github.com/TailTag-Game/tailtag/issues/260).
 
 ## 8. Extending the policy
 
 Every addition needs a test in `services/api/tests/test_telemetry_privacy.py` (or a test next to the feature that adds it) and a review against the prohibited list in section 1.
 
-- **New log field ([#212](https://github.com/TailTag-Game/tailtag/issues/212) and later):** add the key to `ALLOWED_EXTRA_FIELDS` in `services/api/observability/logging.py`. Use an OpenTelemetry semantic-convention name where one exists, otherwise a `tailtag.` prefix. Update the table in section 2 and in [backend logging](../../operations/backend-logging.md).
+- **New log field:** add the key to `ALLOWED_EXTRA_FIELDS` in `services/api/observability/logging.py`. Use an OpenTelemetry semantic-convention name with underscores for dots where one exists, otherwise a `tailtag_` prefix. Never use a dot. Update the table in section 2 and in [backend logging](../../operations/backend-logging.md).
 - **New metric dimension:** add the key and its bounded value set to `_is_bounded` in `services/api/observability/privacy.py`, with the value set as a constant beside `_HTTP_METHODS`. Update the table in section 5. Never add an unbounded key.
 - **Outcome and reason values ([#213](https://github.com/TailTag-Game/tailtag/issues/213)):** populate `_OUTCOMES` and `_REASONS` in `privacy.py`. Each value must be a member of the enumeration in the outcomes module, and the two must not drift.
 - **New text shape:** add a pattern to `_TEXT_REDACTIONS` only for a shape that is unmistakable. Prefer a Semgrep rule for anything ambiguous.

@@ -10,7 +10,11 @@ from io import StringIO
 from typing import Any, TextIO, cast
 
 import sentry_sdk
+from django.core.signals import request_finished, request_started
+from django.core.wsgi import get_wsgi_application
+from django.db import close_old_connections, connection
 from django.http import HttpRequest, HttpResponse
+from django.test import RequestFactory
 from django.urls import URLPattern, path
 from sentry_sdk.envelope import Envelope
 from sentry_sdk.transport import Transport
@@ -23,6 +27,7 @@ FAKE_DSN = "https://public@example.invalid/1"
 SOURCE_SHA = "c070f413eec1518459f1fef21b471642765a54e9"
 DEPLOYMENT_ID = "93de11d6-714f-405a-b931-a9b567d5ec1e"
 FAILURE_MESSAGE = "synthetic-failure-message-must-stay-out-of-stdout"
+SQL_PARAMETER = "synthetic-sql-parameter-must-not-leak"
 BREADCRUMB_EXTRA = "synthetic-breadcrumb-extra-must-be-dropped"
 
 _LOGGER = logging.getLogger("tailtag.test_support")
@@ -37,8 +42,19 @@ def boom_view(request: HttpRequest, item_id: int) -> HttpResponse:
     raise RuntimeError(FAILURE_MESSAGE)
 
 
+def query_view(request: HttpRequest) -> HttpResponse:
+    """Run a real parameterized query whose parameter is a sentinel."""
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT %s", [SQL_PARAMETER])
+        cursor.fetchone()
+    return HttpResponse("queried")
+
+
 # Test-only URLconf: `@override_settings(ROOT_URLCONF="tests.observability_test_support")`.
-urlpatterns: list[URLPattern] = [path("boom/<int:item_id>/", boom_view)]
+urlpatterns: list[URLPattern] = [
+    path("boom/<int:item_id>/", boom_view),
+    path("query/", query_view),
+]
 
 
 class JsonLogCapture:
@@ -118,6 +134,14 @@ class CapturingTransport(Transport):
             if (event := envelope.get_event()) is not None
         ]
 
+    def transactions(self) -> list[dict[str, Any]]:
+        """Transaction events as sent; `events()` returns error events only."""
+        return [
+            cast(dict[str, Any], event)
+            for envelope in self.envelopes
+            if (event := envelope.get_transaction_event()) is not None
+        ]
+
     def metrics(self) -> list[dict[str, Any]]:
         """Metrics as sent: `trace_metric` envelope items carry `{"version": 2, "items": [...]}`.
 
@@ -139,15 +163,21 @@ class CapturingTransport(Transport):
 
 
 @contextmanager
-def sentry_capturing(identity: Identity | None) -> Generator[CapturingTransport]:
+def sentry_capturing(
+    identity: Identity | None, *, traces_sample_rate: float | None = None
+) -> Generator[CapturingTransport]:
     """Initialize Sentry via production code with a capturing transport; always reset.
 
     The fake DSN is unresolvable, and the real transport is replaced (and killed)
-    before any event exists, so no network call can occur.
+    before any event exists, so no network call can occur. Tracing stays off
+    unless a rate is given, as in production.
     """
     transport = CapturingTransport()
     try:
-        assert init_sentry(FAKE_DSN, identity) is True
+        assert (
+            init_sentry(FAKE_DSN, identity, traces_sample_rate=traces_sample_rate)
+            is True
+        )
         client = sentry_sdk.get_client()
         original = client.transport
         client.transport = transport
@@ -177,3 +207,34 @@ def identity(
         "environment": environment,
         "deployment_id": deployment_id,
     }
+
+
+def wsgi_request(
+    path: str, *, method: str = "GET", headers: dict[str, str] | None = None
+) -> int:
+    """Serve one request through Django's real WSGI handler; return its status code.
+
+    Django's test client bypasses `WSGIHandler`, which is where the Sentry SDK
+    starts transactions, so tracing can only be observed through this entry
+    point. Like the test client, it keeps `close_old_connections` from closing
+    the test's connection.
+    """
+    environ = RequestFactory().generic(method, path, headers=headers).environ
+    status: list[str] = []
+
+    def start_response(response_status: str, *_: object) -> None:
+        status.append(response_status)
+
+    handler = get_wsgi_application()
+    request_started.disconnect(close_old_connections)  # pyright: ignore[reportUnknownMemberType]
+    request_finished.disconnect(close_old_connections)  # pyright: ignore[reportUnknownMemberType]
+    try:
+        body = handler(environ, start_response)  # pyright: ignore[reportArgumentType]
+        try:
+            b"".join(body)
+        finally:
+            body.close()  # Sentry finishes the transaction when the body closes.
+    finally:
+        request_started.connect(close_old_connections)  # pyright: ignore[reportUnknownMemberType]
+        request_finished.connect(close_old_connections)  # pyright: ignore[reportUnknownMemberType]
+    return int(status[0].split(" ", 1)[0])
