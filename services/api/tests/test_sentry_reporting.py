@@ -36,10 +36,13 @@ SECRETS = (SECRET_HEADER, SECRET_QUERY, SECRET_BODY, SECRET_COOKIE, BREADCRUMB_E
 
 @pytest.mark.parametrize("dsn", [None, ""])
 def test_without_a_dsn_sentry_stays_uninitialized(dsn: str | None) -> None:
-    """AC-8: local development and tests need no DSN and the API still runs."""
+    """AC-8: local development and tests need no DSN and the API still runs.
+
+    #212 AC-1: a tracing rate does not initialize the SDK without a DSN.
+    """
     reset_sentry()
     try:
-        assert init_sentry(dsn, identity()) is False
+        assert init_sentry(dsn, identity(), traces_sample_rate=1.0) is False
         assert not sentry_sdk.get_client().is_active()
         assert Client().get("/health/live").status_code == 200
     finally:

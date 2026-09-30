@@ -77,6 +77,7 @@ def run_settings_import(
     *,
     inspect_clerk_configuration: bool = False,
     inspect_static_configuration: bool = False,
+    inspect_tracing: bool = False,
     pre_import_patch: str = "",
     capture_improperly_configured: bool = False,
 ) -> subprocess.CompletedProcess[str]:
@@ -105,11 +106,17 @@ def run_settings_import(
         "'media.storage.S3MediaStorage'; "
         "print('production-static-configuration-validated')"
     )
+    tracing_inspection = (
+        "import sentry_sdk; "
+        "print(sentry_sdk.get_client().options.get('traces_sampler') is not None)"
+    )
     command = pre_import_patch + (
         inspection
         if inspect_clerk_configuration
         else static_inspection
         if inspect_static_configuration
+        else "import config.settings.production; " + tracing_inspection
+        if inspect_tracing
         else "import config.settings.production"
     )
     if capture_improperly_configured:
@@ -148,6 +155,41 @@ def test_production_settings_reject_each_missing_required_value(
 
     assert completed.returncode != 0
     assert missing_variable in completed.stderr
+
+
+@pytest.mark.parametrize(
+    ("rate", "tracing_enabled"), [(None, "False"), ("", "False"), ("0.25", "True")]
+)
+def test_production_settings_enable_tracing_only_when_a_sample_rate_is_configured(
+    rate: str | None, tracing_enabled: str
+) -> None:
+    """#212 AC-1: SENTRY_TRACES_SAMPLE_RATE reaches Sentry initialization."""
+    environment = {
+        **VALID_ENVIRONMENT,
+        "SENTRY_DSN": "https://public@example.invalid/1",
+    }
+    if rate is not None:
+        environment["SENTRY_TRACES_SAMPLE_RATE"] = rate
+
+    completed = run_settings_import(environment, inspect_tracing=True)
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip().splitlines()[-1] == tracing_enabled
+
+
+def test_production_settings_reject_invalid_traces_sample_rate_without_echoing_value() -> (
+    None
+):
+    """#212 AC-1: a typo stops startup, even without a DSN, and is never echoed."""
+    invalid_value = "synthetic-invalid-rate-sentinel"
+
+    completed = run_settings_import(
+        {**VALID_ENVIRONMENT, "SENTRY_TRACES_SAMPLE_RATE": invalid_value}
+    )
+
+    assert completed.returncode != 0
+    assert "RuntimeError" in completed.stderr
+    assert invalid_value not in completed.stderr + completed.stdout
 
 
 def test_production_settings_accept_all_required_values() -> None:

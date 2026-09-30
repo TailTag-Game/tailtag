@@ -21,11 +21,11 @@ from .privacy import redact_text
 ALLOWED_EXTRA_FIELDS: Final = (
     "event",
     "stage",
-    "http.request.method",
-    "http.route",
-    "http.response.status_code",
+    "http_request_method",
+    "http_route",
+    "http_response_status_code",
     "duration_ms",
-    "error.type",
+    "error_type",
 )
 
 _QUIET_THIRD_PARTY_LOGGERS: Final = (
@@ -34,6 +34,8 @@ _QUIET_THIRD_PARTY_LOGGERS: Final = (
     "s3transfer",
     "urllib3",
     "django.db.backends",
+    # Enabled by Gunicorn's `logconfig_dict`; carries client IP, raw path, and user agent.
+    "gunicorn.access",
 )
 _CONTEXT_ATTRIBUTE: Final = "_tailtag_context"
 _LEVEL_NAMES: Final = {
@@ -95,7 +97,7 @@ class JsonFormatter(logging.Formatter):
         for key in ALLOWED_EXTRA_FIELDS:
             payload[key] = getattr(record, key, None)
         if record.exc_info is not None and record.exc_info[0] is not None:
-            payload["error.type"] = record.exc_info[0].__name__
+            payload["error_type"] = record.exc_info[0].__name__
         return json.dumps(
             {key: value for key, value in payload.items() if value is not None},
             default=str,
@@ -138,5 +140,9 @@ def build_logging_config() -> dict[str, Any]:
         },
         "root": {"handlers": ["stdout"], "level": "INFO"},
         # Their INFO output carries URLs and request detail that must not reach stdout.
-        "loggers": {name: {"level": "WARNING"} for name in _QUIET_THIRD_PARTY_LOGGERS},
+        "loggers": {
+            **{name: {"level": "WARNING"} for name in _QUIET_THIRD_PARTY_LOGGERS},
+            # Gunicorn's own records (worker timeouts, OOM kills) use the same handler.
+            "gunicorn.error": {"level": "INFO", "handlers": [], "propagate": True},
+        },
     }

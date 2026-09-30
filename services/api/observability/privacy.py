@@ -42,6 +42,10 @@ SDK_METRIC_ATTRIBUTES: Final = frozenset(
 _HTTP_METHODS: Final = frozenset(
     {"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT"}
 )
+# Fixed values for a request that matched no route or used an unknown method, so
+# the request metric never carries a raw path or a client-chosen method.
+UNMATCHED_ROUTE: Final = "<unmatched>"
+OTHER_METHOD: Final = "_OTHER"
 _STATUS_CLASSES: Final = frozenset(f"{digit}xx" for digit in range(1, 6))
 # #213 populates the outcome and reason enumerations; until then nothing passes.
 _OUTCOMES: Final[frozenset[str]] = frozenset()
@@ -54,6 +58,11 @@ _SILENT_STRIP_PREFIXES: Final = ("process.runtime.", "user.")
 
 _warned_rejections: set[str] = set()
 _warned_lock = threading.Lock()
+
+
+def normalize_method(method: str | None) -> str:
+    """Return a known HTTP method, or the fixed `_OTHER` value."""
+    return method if method in _HTTP_METHODS else OTHER_METHOD
 
 
 def redact_text(text: str) -> str:
@@ -137,6 +146,17 @@ def scrub_transaction(event: dict[str, Any]) -> None:
             _scrub_span(span)
 
 
+def scrub_transaction_name(event: dict[str, Any]) -> None:
+    """Rename a raw-path (`url` source) transaction and drop its client-chosen URL."""
+    info = _mapping(event.get("transaction_info"))
+    if info is not None and info.get("source") == "url":
+        event["transaction"] = UNMATCHED_ROUTE
+        info["source"] = "route"
+        request = _mapping(event.get("request"))
+        if request is not None:
+            request.pop("url", None)
+
+
 @cache
 def _route_templates(urlconf: str) -> frozenset[str]:
     """Every route template in the URLconf, as `request.resolver_match.route` yields."""
@@ -158,9 +178,11 @@ def _is_bounded(key: str, value: object) -> bool:
     if not isinstance(value, str):
         return False
     if key == "http.request.method":
-        return value in _HTTP_METHODS
+        return value in _HTTP_METHODS or value == OTHER_METHOD
     if key == "http.route":
-        return value in _route_templates(settings.ROOT_URLCONF)
+        return value == UNMATCHED_ROUTE or value in _route_templates(
+            settings.ROOT_URLCONF
+        )
     if key == "http.response.status_class":
         return value in _STATUS_CLASSES
     if key == "tailtag.outcome":

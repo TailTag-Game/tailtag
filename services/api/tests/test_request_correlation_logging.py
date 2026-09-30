@@ -45,11 +45,11 @@ UNKNOWN_IDENTITY = identity(source_sha=None, environment=None, deployment_id=Non
 ALLOWED_EXTRAS: dict[str, object] = {
     "event": "tailtag.test",
     "stage": "service",
-    "http.request.method": "GET",
-    "http.route": "api/things/<int:pk>/",
-    "http.response.status_code": 204,
+    "http_request_method": "GET",
+    "http_route": "api/things/<int:pk>/",
+    "http_response_status_code": 204,
     "duration_ms": 1.5,
-    "error.type": "ValueError",
+    "error_type": "ValueError",
 }
 
 
@@ -116,15 +116,15 @@ def test_each_request_emits_one_completion_line_with_a_server_generated_id(
     completion = _completion(lines)
     assert completion["event"] == "tailtag.http.request"
     assert completion["level"] == "info"
-    assert completion["http.request.method"] == "GET"
-    assert completion["http.response.status_code"] == response.status_code
+    assert completion["http_request_method"] == "GET"
+    assert completion["http_response_status_code"] == response.status_code
     duration = completion["duration_ms"]
     assert isinstance(duration, (int, float)) and not isinstance(duration, bool)
     assert duration >= 0
     if route is None:
-        assert "http.route" not in completion
+        assert "http_route" not in completion
     else:
-        assert completion["http.route"].lstrip("/") == route
+        assert completion["http_route"].lstrip("/") == route
     request_id = completion["request_id"]
     assert REQUEST_ID_PATTERN.fullmatch(request_id)
     assert request_id != CLIENT_REQUEST_ID
@@ -203,8 +203,8 @@ def test_application_logs_share_the_request_id_and_allow_listed_extras() -> None
     [application] = [line for line in lines if line["logger"] == "catches.views"]
     assert application["level"] == "error"
     assert application["stage"] == "boundary"
-    assert "error.type" not in application
-    assert completion["http.response.status_code"] == 500
+    assert "error_type" not in application
+    assert completion["http_response_status_code"] == 500
     for line in (application, completion):
         assert line["request_id"] == completion["request_id"]
         assert line["railway_request_id"] == RAILWAY_ID
@@ -213,7 +213,10 @@ def test_application_logs_share_the_request_id_and_allow_listed_extras() -> None
 def test_unhandled_view_exception_still_completes_and_stays_out_of_stdout(
     settings: SettingsWrapper,
 ) -> None:
-    """AC-1, AC-3, AC-4, AC-5, AC-7: 500 path completes, clears, and leaks nothing."""
+    """AC-1, AC-3, AC-4, AC-5, AC-7: 500 path completes, clears, and leaks nothing.
+
+    Also #212 AC-7: no stdout key, on the completion or exception record, has a dot.
+    """
     settings.ROOT_URLCONF = BOOM_URLCONF
     with capture_json_stdout() as capture:
         response = Client(raise_request_exception=False).get("/boom/424242/")
@@ -224,8 +227,8 @@ def test_unhandled_view_exception_still_completes_and_stays_out_of_stdout(
     outside = _outside(lines)
     request_lines = [line for line in lines if line is not outside]
     completion = _completion(request_lines)
-    assert completion["http.response.status_code"] == 500
-    assert completion["http.route"].lstrip("/") == "boom/<int:item_id>/"
+    assert completion["http_response_status_code"] == 500
+    assert completion["http_route"].lstrip("/") == "boom/<int:item_id>/"
     assert {line.get("request_id") for line in request_lines} == {
         completion["request_id"]
     }
@@ -233,8 +236,10 @@ def test_unhandled_view_exception_still_completes_and_stays_out_of_stdout(
     # Django attaches `request`/`status_code`/exc_info to its own error record.
     for line in lines:
         assert set(line) <= BASE_KEYS | CONTEXT_KEYS | set(ALLOWED_EXTRAS)
+        # #212 AC-7: Railway log search cannot filter dotted keys.
+        assert not [key for key in line if "." in key]
     assert any(
-        line["logger"] == "django.request" and line.get("error.type") == "RuntimeError"
+        line["logger"] == "django.request" and line.get("error_type") == "RuntimeError"
         for line in request_lines
     )
     assert FAILURE_MESSAGE not in capture.text
@@ -310,7 +315,7 @@ def test_exception_records_write_the_class_name_but_no_message_or_traceback() ->
             logger.exception("failed", stack_info=True)
 
     [line] = out.lines()
-    assert line["error.type"] == "ValueError"
+    assert line["error_type"] == "ValueError"
     for forbidden in (
         "synthetic-inner-secret",
         "synthetic-outer-secret",

@@ -28,13 +28,13 @@ This table maps the #198 operator questions to where each is answered.
 
 | Question | Primary signal | Where |
 | --- | --- | --- |
-| Is TailTag healthy? | Uptime check of `/health/ready`; 5xx rate | Sentry |
+| Is TailTag healthy? | Uptime check of `/health/ready`; 5xx count from `tailtag.http.server.requests` | Sentry |
 | Are catches succeeding? | Catch outcome metric by bounded outcome | Sentry |
-| Are requests slow? | Transaction duration by route template | Sentry; per-request detail in Railway HTTP logs |
+| Are requests slow? | Transaction duration percentiles by route template | Sentry; per-request detail in Railway HTTP logs |
 | Is PostgreSQL degraded? | Readiness failures, database errors, connection-health metrics ([#214](https://github.com/TailTag-Game/tailtag/issues/214)) | Sentry; resource pressure in Railway |
 | Is authentication degraded? | Authentication outcome metric by bounded failure class | Sentry |
 | Are credential, session, or eligibility failures rising? | Domain outcome metrics ([#213](https://github.com/TailTag-Game/tailtag/issues/213)) | Sentry |
-| Is traffic abnormal? | Request throughput by route template | Sentry; raw volume in Railway HTTP logs |
+| Is traffic abnormal? | Request count by route template from `tailtag.http.server.requests` | Sentry; raw volume in Railway HTTP logs |
 | Which build produced this? | `release` and `deployment_id` on every event and log line | Both |
 | What happened to one request? | `request_id` and `trace_id` | Sentry trace; Railway logs filtered by `@request_id` |
 
@@ -105,14 +105,15 @@ Railway's log query syntax supports custom JSON attribute filters, so operators 
 
 - Emit one JSON object per line with `message`, `level`, `logger`, and the correlation fields.
 - Domain events use an `event` field named `tailtag.<module>.<event>`, for example `tailtag.catches.confirmation`.
-- Where an [OpenTelemetry semantic convention](https://opentelemetry.io/docs/specs/semconv/) name exists, use it for the attribute: for example `http.request.method`, `http.route`, `http.response.status_code`, and `error.type`.
-- TailTag-specific attributes use the `tailtag.` prefix.
-- Railway log search cannot filter on keys that contain dots, such as `http.route` or a future `tailtag.outcome`; values containing dots filter normally ([#210 D-1](../../operations/backend-logging.md#development-evidence)). [#211](https://github.com/TailTag-Game/tailtag/issues/211) added no dotted keys. Before adding more, [#212](https://github.com/TailTag-Game/tailtag/issues/212) decides whether log attributes are nested objects or underscore names, after testing nested filtering in Development. Sentry attributes are unaffected.
+- Where an [OpenTelemetry semantic convention](https://opentelemetry.io/docs/specs/semconv/) name exists, use it for Sentry span and metric attributes: for example `http.request.method`, `http.route`, `http.response.status_code`, and `error.type`. TailTag-specific Sentry attributes use the `tailtag.` prefix.
+- Log keys never contain dots, because Railway log search cannot filter on keys that contain dots; values containing dots filter normally ([#210 D-1](../../operations/backend-logging.md#development-evidence)). [#212](https://github.com/TailTag-Game/tailtag/issues/212) chose flat underscore names over nested objects, because underscore keys are proven to filter and nested filtering is undocumented. A log key is the OpenTelemetry name with underscores for dots, for example `http_route` and `error_type`, or uses the `tailtag_` prefix.
+- Gunicorn's `gunicorn.error` records use the same JSON formatter, through `services/api/gunicorn.conf.py`.
 - Logging breadcrumbs attached to Sentry errors follow the same redaction rules as stdout logs. The key allow-list, text redaction, and third-party logger caps are in the [telemetry privacy policy](telemetry-privacy.md).
 
 ### 6.4 Metrics and dimensions
 
 - Record metrics through the Sentry SDK (`count`, `distribution`, `gauge`). Name them `tailtag.<module>.<measure>`.
+- The generic request metric is `tailtag.http.server.requests`, a count of 1 per request with `http.route`, `http.request.method`, and `http.response.status_class`. It is emitted by the request correlation middleware and is not sampled ([#212](https://github.com/TailTag-Game/tailtag/issues/212)).
 - Allowed dimensions are **closed, bounded sets only**:
   - `environment`;
   - `http.route` (the route template, never the raw path);
@@ -134,9 +135,10 @@ Railway's log query syntax supports custom JSON attribute filters, so operators 
 
 ### 6.6 Traces
 
-- Transactions are named by route template.
-- Spans for SQL keep parameterized query text and never include parameter values. [#211](https://github.com/TailTag-Game/tailtag/issues/211) decided to keep the query text and remove parameter data in `before_send_transaction`. Tracing is not enabled yet, so those hooks are proven on synthetic transactions until [#212](https://github.com/TailTag-Game/tailtag/issues/212).
-- Sampling rates are per-environment configuration, not code constants.
+- Transactions are named by route template. A request that matches no route is named `<unmatched>`, never its raw path.
+- Spans for SQL keep parameterized query text and never include parameter values. [#211](https://github.com/TailTag-Game/tailtag/issues/211) decided to keep the query text and remove parameter data in `before_send_transaction`. [#212](https://github.com/TailTag-Game/tailtag/issues/212) proved this on real transactions.
+- Sampling rates are per-environment configuration, not code constants. `SENTRY_TRACES_SAMPLE_RATE` sets the rate; unset means tracing is off. `/health/live` and `/health/ready` are never traced, `HEAD` and `OPTIONS` requests are never traced (the SDK's Django integration default), and the sampler ignores a client's sampling decision. The request metric counts all of them.
+- Latency percentiles come from transactions. Sentry weights sampled transactions by the inverse sample rate. Counts come from the request metric, which is not sampled.
 
 ## 7. Constraints handed to later issues
 
@@ -145,6 +147,7 @@ Railway's log query syntax supports custom JSON attribute filters, so operators 
   - The hooks are `before_send`, `before_send_transaction`, `before_breadcrumb`, and `before_send_metric`. `before_send_span` is needed only if stream mode is adopted.
   - The dimension allow-list above is enforced in code.
   - Later issues extend the allow-lists as described in the policy's extension section.
+- **[#212](https://github.com/TailTag-Game/tailtag/issues/212):** delivered. How to read the generic service signals is in [backend service signals](../../operations/backend-service-signals.md).
 - **[#215](https://github.com/TailTag-Game/tailtag/issues/215):**
   - Set policy across two retention systems.
   - Railway log retention was documented as 7 days on Hobby, 30 on Pro, and up to 90 on Enterprise (reviewed 2026-09-29).
