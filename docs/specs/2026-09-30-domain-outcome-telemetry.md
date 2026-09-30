@@ -54,8 +54,12 @@ the fix and passes after it. CodeRabbit's two proposed hardenings (a
 best-effort recorder and runtime value checks) were not adopted: logging
 handlers and the Sentry SDK do not raise into callers, and the enumerations
 are enforced by strict Pyright and the metric privacy filter.
-Pending: Development evidence after merge, recorded in a follow-up
-documentation change as for #212.
+Completed additionally: implementation merged as `f8eb380` (PR #266).
+Development evidence E-1 to E-5 passed on 2026-09-30 against deployment
+`7d3edb34`, and is recorded in
+[backend domain outcomes](../operations/backend-domain-outcomes.md#development-evidence).
+Follow-ups outside #213: #267 (admin login label) and #268 (post-deploy smoke
+timing).
 
 ## Problem
 
