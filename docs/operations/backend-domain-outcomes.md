@@ -134,6 +134,10 @@ metric.
   and unexpected server errors have no domain outcome.
 - `verifier_misconfigured` still returns 401 to clients, so clients cannot tell
   it from a bad token.
+- Sentry counts can occasionally include a duplicate sample. During Development
+  evidence, one outcome was stored twice with the same trace and timestamp while
+  Railway had one line for it. Treat Railway lines as exact and Sentry counts as
+  close; a single extra count is not a double emission.
 
 ## Adding an outcome or reason
 
@@ -157,3 +161,62 @@ it.
 5. Add a row to the acceptance tests in
    `services/api/tests/test_domain_outcome_telemetry.py` and to the tables in
    this guide.
+
+## Development evidence
+
+Recorded on 2026-09-30 against Development deployment `7d3edb34` of `main` at
+`f8eb380` (the #213 merge). Railway service logs were read through the CLI,
+linked to project `TailTag`, environment `development`, service `api`. Sentry
+metrics and errors were queried through the Sentry API.
+
+Traffic:
+
+- Six unauthenticated `/api/me/` requests: three with a non-bearer
+  `Authorization` header and three with a bearer value that is not a token.
+- One run of a temporary probe that followed the Wave 3 one-off probe security
+  contract ([Wave 3 catching validation](../development/wave-3-catching-validation.md)).
+  It used two synthetic Clerk Development users and fresh, revoked sessions for
+  every request, and printed only stage names and status codes. It reconciled
+  synthetic fixtures through the player APIs (profiles, enrollment in an active
+  synthetic Convention created in Django admin, and one fursuit and activation),
+  then ran the steps below. The probe was reviewed before running and deleted
+  afterwards.
+
+Results:
+
+- **E-1 passed.** User B resolved User A's credential (`resolved`), confirmed
+  the catch (201, `created`), and confirmed again (200, `already_caught`).
+- **E-2 passed.** After User A rotated the credential, resolving the old one
+  returned the unchanged 404 with `credential_resolution` `rejected` /
+  `credential_revoked`. Confirming it as User A, who had not caught the
+  fursuit, returned the unchanged 404 with `catches.confirmation` `rejected` /
+  `credential_revoked`.
+- **E-3 passed.** Starting the session recorded `started`; the owner's stop
+  recorded `ended` / `owner`. Resolving the current credential afterwards
+  recorded `rejected` / `session_inactive`.
+- **E-4 passed.** A User B token used 75 seconds after issue returned 401 and
+  recorded `authentication.verification` `rejected` / `token_expired`. The
+  unauthenticated requests recorded `malformed_header` (3) and `token_invalid`
+  (3).
+- **E-5 passed.**
+  - Railway had exactly one outcome line per step, in order, carrying only the
+    allow-listed keys.
+  - No line in the retrieved deployment logs (241 lines) contained a credential
+    payload, Clerk user or session ID, bearer token, the Clerk secret, a handle,
+    an email, or the synthetic fixture names.
+  - No `Metric attribute rejected` warning appeared.
+  - Sentry grouped every signal by `tailtag.outcome` and `tailtag.reason`, and
+    no Development error events occurred in the window.
+
+Railway filters work on outcome fields, alone or combined:
+`@event:tailtag.catches.confirmation @tailtag_reason:credential_revoked`
+returned exactly the matching line.
+
+The probe's run matched Sentry exactly: nine outcome groups, each counted
+once. Among the earlier unauthenticated requests, Sentry stored one
+`malformed_header` sample twice (same trace and nanosecond timestamp) while
+Railway had one line; see [limits](#limits).
+
+The synthetic fixtures remain in Development for reuse. The validation catch
+was deleted in Django admin afterwards, the catch session was left stopped, and
+every Clerk session the probe created was revoked.
