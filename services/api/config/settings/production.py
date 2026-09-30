@@ -67,9 +67,13 @@ STORAGES = {  # pyright: ignore[reportConstantRedefinition]
     },
 }
 
+_BASE_LOGGING = build_logging_config()
+
 LOGGING: dict[str, Any] = {  # pyright: ignore[reportConstantRedefinition]
-    **build_logging_config(),
+    **_BASE_LOGGING,
+    # Extend, never replace, the base logger caps from the telemetry policy.
     "loggers": {
+        **_BASE_LOGGING["loggers"],
         "botocore": {"handlers": [], "level": "WARNING", "propagate": False},
         "botocore.auth": {
             "handlers": [],

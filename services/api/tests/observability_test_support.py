@@ -31,7 +31,7 @@ _LOGGER.setLevel(logging.INFO)
 
 def boom_view(request: HttpRequest, item_id: int) -> HttpResponse:
     """Log with a non-allow-listed extra, then fail the way an unhandled bug would."""
-    _LOGGER.info(
+    _LOGGER.info(  # nosemgrep: tailtag.logging.sensitive-argument
         "before failure", extra={"token": BREADCRUMB_EXTRA, "stage": "boundary"}
     )
     raise RuntimeError(FAILURE_MESSAGE)
@@ -117,6 +117,19 @@ class CapturingTransport(Transport):
             for envelope in self.envelopes
             if (event := envelope.get_event()) is not None
         ]
+
+    def metrics(self) -> list[dict[str, Any]]:
+        """Metrics as sent: `trace_metric` envelope items carry `{"version": 2, "items": [...]}`.
+
+        Each metric's `attributes` map key to `{"value": ..., "type": ...}`.
+        """
+        sent: list[dict[str, Any]] = []
+        for envelope in self.envelopes:
+            for item in envelope.items:
+                if item.type == "trace_metric":
+                    payload = cast(dict[str, Any], item.payload.json)
+                    sent.extend(payload["items"])
+        return sent
 
     def serialized(self) -> str:
         return "".join(
