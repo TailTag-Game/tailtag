@@ -55,7 +55,13 @@ Completed additionally: PR review (#261). CodeRabbit noted that the SDK's
 Django integration never traces `HEAD` or `OPTIONS`, contrary to AC-2 as
 written. The maintainer kept the SDK default; AC-2 and Decision 5 now state it,
 and the sampling test proves a `HEAD` request is counted but not traced.
-Current: awaiting merge, then Development evidence D-4 to D-10.
+Completed additionally: implementation merged as `8593b60` (PR #261).
+Development evidence D-4 to D-10 passed on 2026-09-30 against deployment
+`2ffd2190` with `SENTRY_TRACES_SAMPLE_RATE=1.0`, and is recorded in the
+[backend service signals](../operations/backend-service-signals.md#development-evidence)
+guide. Monitors accept both a p95 span-duration threshold and a `5xx` count
+threshold on the request metric, so the percentile fallback is not needed.
+Current: complete.
 
 ## Problem
 
@@ -328,7 +334,7 @@ not silent changes to this contract.
 ## Risks
 
 - Sentry's documentation does not say that monitors support span-duration
-  percentiles. D-4 settles it; the issue allows a documented equivalent.
+  percentiles. Resolved by D-4: the monitor builder accepts a p95 threshold.
 - With little traffic, p95/p99 on quiet routes are noisy estimates. At rate
   `1.0` in Development and Staging they are exact for the traffic received.
 - The route allow-list is cached per process (#211), so a route added at

@@ -149,28 +149,44 @@ Metrics carry `sentry.release` but no deployment ID.
 
 ## Development evidence
 
-To be recorded after merge to `main` and after `SENTRY_TRACES_SAMPLE_RATE=1.0`
-is set in Development.
+Recorded on 2026-09-30 against Development deployment `2ffd2190` of `main` at
+`8593b60` (the #212 merge), with `SENTRY_TRACES_SAMPLE_RATE=1.0`. Traffic was
+read-only: 5 each of `/health/live` and `/health/ready`, 25 unauthenticated
+`/api/conventions/<id>/` (401), 10 `/api/schema/`, one `HEAD /api/schema/`,
+3 requests to an unknown path carrying a unique marker, and one authenticated
+`/api/me/` from `make api-auth-smoke`. Sentry was read through its API and the
+monitor builder; Railway logs through the CLI.
 
-- **D-4** Transactions named by route; p50, p95, and p99 for one route in
-  Explore. Whether a monitor accepts a p95 span-duration threshold. If not,
-  percentiles stay on the dashboard, and alerts use counts and the 5xx count.
-- **D-5** `tailtag.http.server.requests` grouped by `http.route` and
-  `http.response.status_class`, and the monitor builder offers a count threshold
-  filtered by status class. Nothing is saved.
-- **D-6** A request to an unknown path appears as `<unmatched>` in transactions
-  and the metric, and no transaction is named by its raw path or carries it as
-  its request URL.
-- **D-7** `@logger:gunicorn.error` returns Gunicorn boot lines as JSON, and an
-  `@http_route` filter returns completion lines, which settles the quoting
-  syntax for route values.
-- **D-8** Requests to `/health/ready` produce no transactions, but appear in
-  `tailtag.http.server.requests` under `http.route` `health/ready` with status
-  class `2xx`.
-- **D-9** A database-backed request produces a transaction whose SQL span shows
-  parameter placeholders and no parameter values.
-- **D-10** Railway service logs contain no plain-text Gunicorn access lines. If
-  an error event occurs in Development before #212 closes, its breadcrumbs
-  contain no `gunicorn.access` lines. There is no safe way to force an error
-  there, so this second part is opportunistic; the Gunicorn access test proves
-  it in-process.
+- **D-4 passed.** Transactions are named by route, for example
+  `/api/conventions/{pk}/` (25; p50 1.6 ms, p95 2.6 ms, p99 2.8 ms) and
+  `/api/schema/` (p50 21.8 ms, p95 64.8 ms). A monitor built from the Explore
+  query kept `p95(span.duration)` and accepted a static threshold. It was not
+  saved; monitors belong to #216, which can alert on p95 latency directly.
+- **D-5 passed.** `tailtag.http.server.requests` groups by `http.route`,
+  `http.request.method`, and `http.response.status_class`, for example
+  `api/conventions/<int:pk>/` `4xx` 25 and `<unmatched>` `4xx` 3. A monitor
+  built from the metric kept a `5xx` filter and accepted a static count
+  threshold. It was not saved.
+- **D-6 passed.** The 3 unknown-path requests appear as `<unmatched>` in
+  transactions and the metric. Their transactions carry no URL, and a Sentry
+  search for the marker returns nothing. The path appears only in Django's
+  `Not Found` WARNING lines in Railway, as the privacy policy allows.
+- **D-7 passed.** `@logger:gunicorn.error` returns the deploy's Gunicorn lines
+  with `environment`, `release`, and `deployment_id`.
+  `@http_route:"api/conventions/<int:pk>/"` returns exactly the 25 completion
+  lines, and so does the unquoted form, so quoting route values is optional.
+- **D-8 passed.** No transactions exist for `/health/live`, `/health/ready`, or
+  the `HEAD` request, and all of them are counted by the request metric.
+- **D-9 passed.** The `/api/me/` transaction's only query is
+  `… WHERE "accounts_user"."clerk_user_id" = %s`: the Clerk user ID, which is
+  prohibited in telemetry, is not sent.
+- **D-10 passed.** The 102 service log lines in the deploy window contain no
+  plain-text Gunicorn access lines. No error event occurred for this build, so
+  there were no breadcrumbs to inspect; the Gunicorn access test covers that
+  path.
+
+The merge first deployed without `SENTRY_TRACES_SAMPLE_RATE` (deployment
+`a819ba17`). That deployment's requests appear in the request metric but not as
+transactions, so metric counts for `api/schema/`, `api/docs/`, and
+`health/identity` exceed their transaction counts by exactly those requests.
+This confirms the metric does not depend on tracing.

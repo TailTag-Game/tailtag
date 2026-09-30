@@ -42,8 +42,8 @@ Every line is one JSON object.
 
 Keys contain no dots, so every key can be used in a Railway `@key:value` filter,
 for example `@http_response_status_code:500` or
-`@http_route:"api/conventions/<int:pk>/"`. Check D-7 of #212 will confirm route
-filtering and its quoting in Development. Until
+`@http_route:"api/conventions/<int:pk>/"`. Quoting route values is optional;
+both forms returned the same lines in #212's Development check D-7. Until
 [#212](https://github.com/TailTag-Game/tailtag/issues/212), these keys were
 `http.request.method`, `http.route`, `http.response.status_code`, and
 `error.type`, which Railway could not filter.
