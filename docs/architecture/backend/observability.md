@@ -126,7 +126,7 @@ Railway's log query syntax supports custom JSON attribute filters, so operators 
 - The `before_send_metric` hook removes every other attribute that is not allow-listed with a bounded value.
 - Internal entity IDs may appear raw in protected logs and span attributes, never as metric attributes, and are never hashed. Clerk user and subject IDs are prohibited in all telemetry. See the [telemetry privacy policy](telemetry-privacy.md#4-entity-ids).
 - Domain outcomes are recorded through **one shared backend module**, named by [#210](https://github.com/TailTag-Game/tailtag/issues/210), that owns the outcome and reason enumerations. It emits the metric and the log event together. Feature code does not call the Sentry metrics API directly. That keeps a future OTLP backend swap confined to this module.
-- [#213](https://github.com/TailTag-Game/tailtag/issues/213) defines the actual outcome and reason values.
+- [#213](https://github.com/TailTag-Game/tailtag/issues/213) delivered this module as `services/api/observability/outcomes.py`. The values and how to read them are in [backend domain outcomes](../../operations/backend-domain-outcomes.md).
 
 ### 6.5 Error reporting
 
@@ -148,6 +148,7 @@ Railway's log query syntax supports custom JSON attribute filters, so operators 
   - The dimension allow-list above is enforced in code.
   - Later issues extend the allow-lists as described in the policy's extension section.
 - **[#212](https://github.com/TailTag-Game/tailtag/issues/212):** delivered. How to read the generic service signals is in [backend service signals](../../operations/backend-service-signals.md).
+- **[#213](https://github.com/TailTag-Game/tailtag/issues/213):** delivered. How to read and extend the domain outcomes is in [backend domain outcomes](../../operations/backend-domain-outcomes.md).
 - **[#215](https://github.com/TailTag-Game/tailtag/issues/215):**
   - Set policy across two retention systems.
   - Railway log retention was documented as 7 days on Hobby, 30 on Pro, and up to 90 on Enterprise (reviewed 2026-09-29).

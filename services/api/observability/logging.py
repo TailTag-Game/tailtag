@@ -20,6 +20,8 @@ from .privacy import redact_text
 # Anything else, including Django's attached `request`, is dropped.
 ALLOWED_EXTRA_FIELDS: Final = (
     "event",
+    "tailtag_outcome",
+    "tailtag_reason",
     "stage",
     "http_request_method",
     "http_route",

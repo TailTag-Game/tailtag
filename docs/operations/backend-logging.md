@@ -39,6 +39,7 @@ Every line is one JSON object.
 | `stage` | Where an existing catch view failure happened. |
 | `http_request_method`, `http_route`, `http_response_status_code`, `duration_ms` | Request completion details. `http_route` is the URL route template, for example `api/conventions/<int:pk>/`, never the raw path. It is left out when no route matched. |
 | `error_type` | Exception class name, when the record carries an exception. |
+| `tailtag_outcome`, `tailtag_reason` | Domain outcome and its reason, on `tailtag.*` outcome events. See [backend domain outcomes](backend-domain-outcomes.md). |
 
 Keys contain no dots, so every key can be used in a Railway `@key:value` filter,
 for example `@http_response_status_code:500` or
@@ -95,9 +96,10 @@ to Sentry. To add a field:
 3. Add it to the allow-list in `services/api/observability/logging.py`, with a
    test.
 
-Domain outcome events and metrics (#213) go in `observability/outcomes.py`,
-which #213 creates. Feature code records outcomes through that module and does
-not call the Sentry SDK directly.
+Domain outcome events and metrics go through `record_outcome` in
+`observability/outcomes.py` ([#213](https://github.com/TailTag-Game/tailtag/issues/213)).
+Feature code does not call the Sentry SDK directly. See
+[backend domain outcomes](backend-domain-outcomes.md).
 
 ## Sentry configuration
 

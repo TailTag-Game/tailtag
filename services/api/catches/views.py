@@ -20,6 +20,7 @@ from rest_framework.exceptions import (
     NotFound,
     ParseError,
     UnsupportedMediaType,
+    ValidationError,
 )
 from rest_framework.negotiation import DefaultContentNegotiation
 from rest_framework.parsers import JSONParser
@@ -37,6 +38,7 @@ from rest_framework.views import APIView
 
 from accounts.models import User
 from conventions.models import Convention
+from observability.outcomes import Outcome, Reason, Signal, record_outcome
 
 from .models import Catch
 from .pagination import CatchHistoryPagination
@@ -185,7 +187,10 @@ class CatchConfirmationView(APIView):
 
     def handle_exception(self, exc: Exception) -> Response:
         if isinstance(exc, (RecursionError, ParseError, UnsupportedMediaType)):
+            _record_confirmation_rejected(Reason.PAYLOAD_INVALID)
             return Response(_INVALID_PAYLOAD, status=status.HTTP_400_BAD_REQUEST)
+        if isinstance(exc, ValidationError):
+            _record_confirmation_rejected(Reason.PAYLOAD_INVALID)
         if isinstance(exc, APIException):
             return super().handle_exception(exc)
         return _unexpected_error(stage="boundary")
@@ -208,24 +213,28 @@ class CatchConfirmationView(APIView):
         except CatchAuthenticationError:
             raise NotAuthenticated() from None
         except CatchParticipationIneligibleError:
+            _record_confirmation_rejected(Reason.CATCHER_INELIGIBLE)
             return _domain_error(
                 "catcher_ineligible",
                 "You are not eligible to catch this target.",
                 status.HTTP_403_FORBIDDEN,
             )
         except CatchActiveConventionMismatchError:
+            _record_confirmation_rejected(Reason.CONVENTION_MISMATCH)
             return _domain_error(
                 "active_convention_mismatch",
                 "Your active convention does not match the catch target.",
                 status.HTTP_409_CONFLICT,
             )
         except CatchSelfCatchError:
+            _record_confirmation_rejected(Reason.SELF_CATCH)
             return _domain_error(
                 "self_catch_not_allowed",
                 "You cannot catch your own fursuit.",
                 status.HTTP_409_CONFLICT,
             )
-        except CatchTargetInvalidError:
+        except CatchTargetInvalidError as error:
+            _record_confirmation_rejected(error.reason)
             return _domain_error(
                 "catch_target_unavailable",
                 "The catch target is unavailable.",
@@ -234,18 +243,20 @@ class CatchConfirmationView(APIView):
         except Exception:  # noqa: BLE001 - all untyped service failures are sanitized.
             return _unexpected_error(stage="service")
 
-        response_status = (
-            status.HTTP_201_CREATED
-            if result.status is CatchConfirmationStatus.CREATED
-            else status.HTTP_200_OK
-        )
+        created = result.status is CatchConfirmationStatus.CREATED
+        response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         try:
-            return Response(
+            response = Response(
                 catch_confirmation_response_data(result, request=request),
                 status=response_status,
             )
         except Exception:  # noqa: BLE001 - projection failures are sanitized.
             return _unexpected_error(stage="projection")
+        record_outcome(
+            Signal.CATCH_CONFIRMATION,
+            Outcome.CREATED if created else Outcome.ALREADY_CAUGHT,
+        )
+        return response
 
 
 class CatchHistoryView(APIView):
@@ -399,6 +410,10 @@ _catch_history_get_kwargs["schema"] = _CatchHistorySchemaWithExplicitOptionalPar
 
 def _user(request: Request) -> User:
     return cast(User, request.user)
+
+
+def _record_confirmation_rejected(reason: Reason) -> None:
+    record_outcome(Signal.CATCH_CONFIRMATION, Outcome.REJECTED, reason)
 
 
 def _domain_error(code: str, detail: str, response_status: int) -> Response:

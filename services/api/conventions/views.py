@@ -15,6 +15,7 @@ from rest_framework.exceptions import (
     NotFound,
     ParseError,
     UnsupportedMediaType,
+    ValidationError,
 )
 from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated
@@ -24,6 +25,7 @@ from rest_framework.views import APIView
 
 from accounts.models import User
 from fursuits.models import Fursuit
+from observability.outcomes import Outcome, Reason, Signal, record_outcome
 
 from . import catch_credentials, catch_sessions, services
 from .models import (
@@ -234,6 +236,8 @@ class FursuitCatchCredentialResolutionView(APIView):
     parser_classes = (JSONParser,)
 
     def handle_exception(self, exc: Exception) -> Response:
+        if isinstance(exc, (ParseError, UnsupportedMediaType, ValidationError)):
+            _record_resolution_rejected(Reason.PAYLOAD_INVALID)
         if isinstance(exc, (ParseError, UnsupportedMediaType)):
             return Response(
                 {
@@ -264,27 +268,37 @@ class FursuitCatchCredentialResolutionView(APIView):
         serializer.is_valid(raise_exception=True)
         convention = Convention.objects.filter(pk=convention_id).first()
         if convention is None:
+            _record_resolution_rejected(Reason.CONVENTION_UNKNOWN)
             raise NotFound() from None
         try:
             services.require_convention_participation_eligible(_user(request))
         except services.ConventionParticipationIneligibleError:
+            _record_resolution_rejected(Reason.CALLER_INELIGIBLE)
             raise PermissionDenied from None
         if not ConventionEnrollment.objects.filter(
             user=_user(request), convention=convention
         ).exists():
+            _record_resolution_rejected(Reason.CALLER_INELIGIBLE)
             raise PermissionDenied from None
         try:
             credential = catch_credentials.resolve_catch_credential(
                 convention_id=convention.pk,
                 payload=serializer.validated_data["payload"],
             )
-        except catch_credentials.CatchCredentialNotFoundError:
+        except catch_credentials.CatchCredentialNotFoundError as error:
+            _record_resolution_rejected(error.reason)
             raise NotFound("Catch credential not found.") from None
-        return Response(
+        response = Response(
             fursuit_catch_credential_resolution_response_data(
                 credential.activation, request=request
             )
         )
+        record_outcome(Signal.CREDENTIAL_RESOLUTION, Outcome.RESOLVED)
+        return response
+
+
+def _record_resolution_rejected(reason: Reason) -> None:
+    record_outcome(Signal.CREDENTIAL_RESOLUTION, Outcome.REJECTED, reason)
 
 
 def _owned_fursuit_or_404(user: User, fursuit_id: int) -> Fursuit:
@@ -556,11 +570,17 @@ class FursuitCatchSessionDetailView(_FursuitActivationAPIView):
         except Convention.DoesNotExist:
             raise NotFound("No convention found matching the given ID.") from None
         except services.ConventionParticipationIneligibleError:
+            _record_start_rejected(Reason.OWNER_INELIGIBLE)
             raise PermissionDenied from None
         except (
             services.ConventionNotEnrolledError,
             services.FursuitActivationNotEligibleError,
-        ):
+        ) as error:
+            _record_start_rejected(
+                Reason.NOT_ENROLLED
+                if isinstance(error, services.ConventionNotEnrolledError)
+                else Reason.ACTIVATION_INELIGIBLE
+            )
             raise serializers.ValidationError(
                 {
                     "is_active": [
@@ -572,6 +592,10 @@ class FursuitCatchSessionDetailView(_FursuitActivationAPIView):
                 }
             ) from None
         return _catch_session_response(state)
+
+
+def _record_start_rejected(reason: Reason) -> None:
+    record_outcome(Signal.CATCH_SESSION, Outcome.START_REJECTED, reason)
 
 
 class ConventionListView(ListAPIViewBase):

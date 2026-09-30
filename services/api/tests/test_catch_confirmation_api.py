@@ -23,6 +23,7 @@ from catches.services import (
     CatchSelfCatchError,
     CatchTargetInvalidError,
 )
+from observability.outcomes import Reason
 from tests.authentication_support import (
     fake_clerk_session_verification,
     force_authenticated_client,
@@ -432,7 +433,7 @@ def test_already_caught_response_preserves_the_service_returned_catch_without_mu
             },
         ),
         (
-            CatchTargetInvalidError(),
+            CatchTargetInvalidError(Reason("credential_unknown")),
             404,
             {
                 "code": "catch_target_unavailable",
@@ -465,7 +466,10 @@ def test_confirmation_maps_each_typed_service_error_to_its_closed_public_respons
 def test_catch_target_unavailable_has_the_privacy_collapsed_http_response() -> None:
     """AC-10 privacy risk: reject target-state distinctions through any public output."""
     authenticated = _authenticated_scenario()
-    with patch("catches.views.confirm_catch", side_effect=CatchTargetInvalidError()):
+    with patch(
+        "catches.views.confirm_catch",
+        side_effect=CatchTargetInvalidError(Reason("credential_unknown")),
+    ):
         response = authenticated.client.post(
             PATH,
             {"payload": authenticated.scenario.payload},

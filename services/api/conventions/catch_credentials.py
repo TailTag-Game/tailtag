@@ -21,6 +21,7 @@ from conventions.models import (
     FursuitCatchCredentialRevocationReason,
 )
 from fursuits.models import Fursuit
+from observability.outcomes import Reason
 from operator_audit.services import OperatorTransition
 from profiles.eligibility import is_participation_eligible
 from profiles.models import PlayerProfile
@@ -30,7 +31,7 @@ from .catch_credential_protocol import (
     CATCH_CREDENTIAL_TOKEN_BYTES,
     CATCH_CREDENTIAL_TOKEN_PATTERN,
 )
-from .catch_sessions import get_effective_fursuit_catch_session_for_activation
+from .catch_sessions import get_unended_fursuit_catch_session_for_activation
 from .services import (
     ConventionParticipationIneligibleError,
     FursuitActivationNotEligibleError,
@@ -50,7 +51,15 @@ class CatchCredentialPayloadInvalidError(Exception):
 
 
 class CatchCredentialNotFoundError(Exception):
-    """A credential cannot currently resolve to a safe catchable preview."""
+    """A credential cannot currently resolve to a safe catchable preview.
+
+    `reason` is for telemetry and never public. It is kept out of `args`, `str`,
+    and `repr` so no message or log line can carry a credential-state distinction.
+    """
+
+    def __init__(self, reason: Reason) -> None:
+        super().__init__()
+        self.reason = reason
 
 
 def format_catch_credential_payload(token: str) -> str:
@@ -77,9 +86,7 @@ def resolve_catch_credential(
     token = parse_catch_credential_payload(payload)
     credential = (
         FursuitCatchCredential.objects.filter(
-            token=token,
-            activation__convention_id=convention_id,
-            revoked_at__isnull=True,
+            token=token, activation__convention_id=convention_id
         )
         .select_related(
             "activation__fursuit",
@@ -89,15 +96,20 @@ def resolve_catch_credential(
         .first()
     )
     if credential is None:
-        raise CatchCredentialNotFoundError()
+        raise CatchCredentialNotFoundError(Reason.CREDENTIAL_UNKNOWN)
+    if credential.revoked_at is not None:
+        raise CatchCredentialNotFoundError(Reason.CREDENTIAL_REVOKED)
 
     activation = credential.activation
-    if (
-        not activation.is_active
-        or not is_fursuit_activation_eligible(activation)
-        or get_effective_fursuit_catch_session_for_activation(activation) is None
-    ):
-        raise CatchCredentialNotFoundError()
+    if not activation.is_active:
+        raise CatchCredentialNotFoundError(Reason.ACTIVATION_INACTIVE)
+    if not is_fursuit_activation_eligible(activation):
+        raise CatchCredentialNotFoundError(Reason.TARGET_INELIGIBLE)
+    session = get_unended_fursuit_catch_session_for_activation(activation)
+    if session is None:
+        raise CatchCredentialNotFoundError(Reason.SESSION_INACTIVE)
+    if session.expires_at <= timezone.now():
+        raise CatchCredentialNotFoundError(Reason.SESSION_EXPIRED)
 
     if not FursuitCatchCredential.objects.filter(
         pk=credential.pk,
@@ -105,7 +117,8 @@ def resolve_catch_credential(
         token=token,
         revoked_at__isnull=True,
     ).exists():
-        raise CatchCredentialNotFoundError()
+        # The row stopped being current after it was read, which only revocation does.
+        raise CatchCredentialNotFoundError(Reason.CREDENTIAL_REVOKED)
     return credential
 
 
