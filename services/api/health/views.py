@@ -62,12 +62,12 @@ def api_health(_: HttpRequest) -> JsonResponse:
         resp = {
             "deployment": build_identity.get_identity()["deployment_id"],
             "database_health": ready(None, "BASIC") and "healthy" or "unhealthy",
-            "http_health": "healthy"  # if the user is seeing this then the webserver is prob working :3
+            "http_health": "healthy",  # if the user is seeing this then the webserver is prob working :3
         }
     except Exception:
         resp = {
             "http_health": "unhealthy",
-            "error": "failed to determine system health due to an unknown error"
+            "error": "failed to determine system health due to an unknown error",
         }
         status = 503
 
