@@ -135,8 +135,8 @@ Check Railway's deployment events and the service's memory graph.
   readiness 5xx alongside rising server errors on other routes points at a
   shared dependency. Dependency detail is in
   [backend dependency health](backend-dependency-health.md#correlating-with-readiness).
-- The Sentry uptime monitor of `/health/ready` is set up in
-  [#216](https://github.com/TailTag-Game/tailtag/issues/216).
+- The Sentry uptime monitor of Staging `/health/ready` is M1 in the
+  [field-beta operations guide](field-beta-operations.md#monitors).
 - The health responses themselves are defined by
   [#203](https://github.com/TailTag-Game/tailtag/issues/203) and are unchanged.
 

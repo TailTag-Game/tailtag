@@ -153,10 +153,9 @@ Railway's log query syntax supports custom JSON attribute filters, so operators 
 - **[#213](https://github.com/TailTag-Game/tailtag/issues/213):** delivered. How to read and extend the domain outcomes is in [backend domain outcomes](../../operations/backend-domain-outcomes.md).
 - **[#214](https://github.com/TailTag-Game/tailtag/issues/214):** delivered. How to read database, storage, Clerk, and runtime dependency health is in [backend dependency health](../../operations/backend-dependency-health.md).
 - **[#215](https://github.com/TailTag-Game/tailtag/issues/215):** delivered. Retention and access rules are in the [telemetry retention and access policy](telemetry-retention-access.md). Evidence preservation and export are in the [evidence preservation runbook](../../operations/telemetry-evidence-preservation.md).
-- **[#216](https://github.com/TailTag-Game/tailtag/issues/216):**
-  - Build one Sentry dashboard, plus monitors built on the errors, spans, and metrics datasets, plus an uptime monitor of `/health/ready`.
-  - The free and Team plans each include one uptime monitor, so plan the environments monitored accordingly.
-  - Chat or webhook alert routing needs a paid plan.
+- **[#216](https://github.com/TailTag-Game/tailtag/issues/216):** delivered for Staging. The dashboard, monitors, thresholds, and response are in the [field-beta operations guide](../../operations/field-beta-operations.md).
+  - The single included uptime monitor watches Staging `/health/ready`. Alerts are email to the observability owner.
+  - The catch payload monitor and the catch and storage widgets wait for Staging to emit those metrics, and are tracked in [#217](https://github.com/TailTag-Game/tailtag/issues/217).
 - **Cost:** no ceiling is set yet. As reviewed on 2026-09-29, Sentry's free plan allowed one user and email alerts, and the Team plan started at $26/month with unlimited users. Every plan includes 5 GB of application metrics.
 
 ## 8. Out of scope

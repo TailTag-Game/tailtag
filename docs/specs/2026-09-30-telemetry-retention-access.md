@@ -28,7 +28,7 @@ parent:
 
 Completed additionally: maintainer approval of owner-only, read-only assistant
 connector access (2026-09-30).
-Current: commit and pull request.
+Completed additionally: merged as `b1d8a7e` (PR #272).
 
 ## Problem
 
