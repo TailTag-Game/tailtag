@@ -10,6 +10,7 @@ depend on them. See `docs/architecture/backend/observability.md`.
 from __future__ import annotations
 
 import logging
+import re
 from enum import StrEnum
 
 import sentry_sdk
@@ -82,7 +83,12 @@ _REJECTED_MARKERS = (
     "authentication failed",
     "no password supplied",
     "no pg_hba.conf entry",
-    "does not exist",
+)
+# Only the server's missing-role and missing-database phrases: libpq also says
+# "does not exist" about local files such as a missing root certificate.
+_REJECTED_PATTERNS = (
+    re.compile(r'\brole "[^\n]*" does not exist'),
+    re.compile(r'\bdatabase "[^\n]*" does not exist'),
 )
 
 _ACCESS_DENIED_CODES = frozenset(
@@ -101,7 +107,9 @@ def classify_database_connection_error(
     message = str(error).lower()
     if any(marker in message for marker in _TOO_MANY_CONNECTIONS_MARKERS):
         return DatabaseConnectionReason.TOO_MANY_CONNECTIONS
-    if any(marker in message for marker in _REJECTED_MARKERS):
+    if any(marker in message for marker in _REJECTED_MARKERS) or any(
+        pattern.search(message) for pattern in _REJECTED_PATTERNS
+    ):
         return DatabaseConnectionReason.REJECTED
     if any(marker in message for marker in _UNREACHABLE_MARKERS):
         return DatabaseConnectionReason.UNREACHABLE

@@ -311,6 +311,14 @@ def test_successful_connection_records_one_attempt_and_duration(
             id="no-pg-hba-entry",
         ),
         pytest.param(
+            f'connection is bad: root certificate file "/{HOST}/root.crt" does not exist\n'
+            "Either provide the file, use the system's trusted roots with "
+            "sslrootcert=system, or change sslmode to disable server certificate "
+            "verification.",
+            "other",
+            id="missing-root-certificate",
+        ),
+        pytest.param(
             f'SSL error: certificate verify failed for "{HOST}" (role {ROLE}, database {DATABASE}, password {PASSWORD})',
             "other",
             id="unrecognized",

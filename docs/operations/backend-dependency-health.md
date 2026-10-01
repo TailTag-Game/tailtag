@@ -202,8 +202,11 @@ with a reason. That reason is the detail readiness deliberately leaves out.
 
 - Readiness 503 with failed connection attempts: PostgreSQL. The reason says
   which kind.
-- Readiness 503 with no failed connection attempts at the same time: the
-  configuration check failed. Readiness does not log which check; compare the
+- Readiness 503 with no failed connection attempts at the same time: either
+  the configuration check failed, or the connection opened (and was recorded
+  as `succeeded`) and `SELECT 1` then failed. Readiness does not log which.
+  If other routes are also returning 5xx with database errors in Sentry,
+  suspect PostgreSQL after the connection opened; otherwise compare the
   environment's variables with the #203 configuration rules.
 - Readiness healthy while storage operations fail: storage is not part of
   readiness. Media uploads and image reads fail while the rest of the API
