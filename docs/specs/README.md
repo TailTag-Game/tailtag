@@ -6,6 +6,7 @@ Small, reversible changes with clear acceptance criteria do not need a spec. Spe
 
 ## Current V0 specifications
 
+- [Field-beta telemetry retention and operator access](2026-09-30-telemetry-retention-access.md) — #215 provider-bounded retention, operator roles, and public-safe evidence preservation
 - [Structured backend logging and request correlation](2026-09-29-structured-logging-request-correlation.md) — #210 frozen log line, request ID, and Sentry hygiene contract
 - [V0 PostgreSQL backup restoration and integrity proof](2026-09-22-v0-postgresql-backup-restore.md) — #207 frozen logical-dump recovery contract
   ([implementation and live-drill plan](2026-09-22-v0-postgresql-backup-restore-implementation-plan.md))

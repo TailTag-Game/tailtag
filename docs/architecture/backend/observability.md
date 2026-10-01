@@ -67,11 +67,11 @@ Sentry uptime monitor ──HTTPS──► /health/ready   (per monitored enviro
 
 ## 5. Access and authentication boundaries
 
-- **Railway logs:** workspace Admin and Member roles can read logs. Deployer cannot. Railway does not document per-environment log restriction.
+- **Railway logs:** workspace Admin and Member roles can read logs. Deployer cannot. Per-environment access control needs Railway committed spend, so Production will be separated by project or workspace instead.
 - **Sentry:** access is granted per project through project teams. Open Membership should be off, so that joining an access-granting team requires approval.
 - **Ingest credential:** the Sentry DSN is runtime configuration held in Railway variables per environment. It is never committed, echoed in logs, or recorded in issues or evidence.
 - **Operator access:** operators use their own named accounts in both tools. Shared accounts are not used.
-- The detailed access policy belongs to [#215](https://github.com/TailTag-Game/tailtag/issues/215).
+- Retention, operator roles, and evidence preservation are in the [telemetry retention and access policy](telemetry-retention-access.md) ([#215](https://github.com/TailTag-Game/tailtag/issues/215)).
 
 ## 6. Instrumentation boundary
 
@@ -152,10 +152,7 @@ Railway's log query syntax supports custom JSON attribute filters, so operators 
 - **[#212](https://github.com/TailTag-Game/tailtag/issues/212):** delivered. How to read the generic service signals is in [backend service signals](../../operations/backend-service-signals.md).
 - **[#213](https://github.com/TailTag-Game/tailtag/issues/213):** delivered. How to read and extend the domain outcomes is in [backend domain outcomes](../../operations/backend-domain-outcomes.md).
 - **[#214](https://github.com/TailTag-Game/tailtag/issues/214):** delivered. How to read database, storage, Clerk, and runtime dependency health is in [backend dependency health](../../operations/backend-dependency-health.md).
-- **[#215](https://github.com/TailTag-Game/tailtag/issues/215):**
-  - Set policy across two retention systems.
-  - Railway log retention was documented as 7 days on Hobby, 30 on Pro, and up to 90 on Enterprise (reviewed 2026-09-29).
-  - Sentry's pricing page and its retention documentation gave different per-plan retention figures at review time. Re-verify retention for errors, spans, and metrics against the chosen plan before setting policy.
+- **[#215](https://github.com/TailTag-Game/tailtag/issues/215):** delivered. Retention and access rules are in the [telemetry retention and access policy](telemetry-retention-access.md). Evidence preservation and export are in the [evidence preservation runbook](../../operations/telemetry-evidence-preservation.md).
 - **[#216](https://github.com/TailTag-Game/tailtag/issues/216):**
   - Build one Sentry dashboard, plus monitors built on the errors, spans, and metrics datasets, plus an uptime monitor of `/health/ready`.
   - The free and Team plans each include one uptime monitor, so plan the environments monitored accordingly.
