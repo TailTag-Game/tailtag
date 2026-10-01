@@ -17,6 +17,12 @@ from django.conf import settings
 from django.urls import URLPattern, URLResolver, get_resolver
 from sentry_sdk.types import Metric
 
+from .dependencies import (
+    DatabaseConnectionReason,
+    DependencyOutcome,
+    RpcMethod,
+    StorageReason,
+)
 from .outcomes import Outcome, Reason
 
 _LOGGER = logging.getLogger(__name__)
@@ -49,8 +55,11 @@ _HTTP_METHODS: Final = frozenset(
 UNMATCHED_ROUTE: Final = "<unmatched>"
 OTHER_METHOD: Final = "_OTHER"
 _STATUS_CLASSES: Final = frozenset(f"{digit}xx" for digit in range(1, 6))
-_OUTCOMES: Final = frozenset(str(outcome) for outcome in Outcome)
-_REASONS: Final = frozenset(str(reason) for reason in Reason)
+_OUTCOMES: Final = frozenset(str(outcome) for outcome in (*Outcome, *DependencyOutcome))
+_REASONS: Final = frozenset(
+    str(reason) for reason in (*Reason, *DatabaseConnectionReason, *StorageReason)
+)
+_RPC_METHODS: Final = frozenset(str(method) for method in RpcMethod)
 
 # Attributes the SDK attaches on its own and this policy strips by design; they are
 # dropped silently so they do not warn on every process.
@@ -190,6 +199,8 @@ def _is_bounded(key: str, value: object) -> bool:
         return value in _OUTCOMES
     if key == "tailtag.reason":
         return value in _REASONS
+    if key == "rpc.method":
+        return value in _RPC_METHODS
     return False
 
 

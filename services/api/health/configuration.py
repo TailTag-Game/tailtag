@@ -16,6 +16,7 @@ from authentication.clerk import ClerkVerificationConfiguration
 from config import build_identity, replacement_target_binding
 from config.settings.clerk import load_clerk_authentication_configuration
 from config.settings.media import S3MediaConfiguration, load_s3_media_configuration
+from observability.postgresql import ENGINE as DATABASE_ENGINE
 
 _CONFIGURATION_ERROR: Final = "Health configuration unavailable"
 _PRODUCTION_SETTINGS: Final = "config.settings.production"
@@ -55,7 +56,7 @@ def validate_configuration() -> None:
 def _validate_database() -> None:
     database = cast(Mapping[str, object], settings.DATABASES["default"])
     if (
-        database.get("ENGINE") != "django.db.backends.postgresql"
+        database.get("ENGINE") != DATABASE_ENGINE
         or not isinstance(database.get("HOST"), str)
         or not database["HOST"]
         or not isinstance(database.get("NAME"), str)

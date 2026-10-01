@@ -62,8 +62,10 @@ def _migrate(environment: str) -> None:
     from django.core import management
     from django.db import connections
 
+    from observability.postgresql import ENGINE
+
     configured = settings.DATABASES["default"]
-    if configured.get("ENGINE") != "django.db.backends.postgresql":
+    if configured.get("ENGINE") != ENGINE:
         raise _GuardFailure
     name, host, port = (configured.get(key) for key in ("NAME", "HOST", "PORT"))
     if (

@@ -31,7 +31,8 @@ This table maps the #198 operator questions to where each is answered.
 | Is TailTag healthy? | Uptime check of `/health/ready`; 5xx count from `tailtag.http.server.requests` | Sentry |
 | Are catches succeeding? | Catch outcome metric by bounded outcome | Sentry |
 | Are requests slow? | Transaction duration percentiles by route template | Sentry; per-request detail in Railway HTTP logs |
-| Is PostgreSQL degraded? | Readiness failures, database errors, connection-health metrics ([#214](https://github.com/TailTag-Game/tailtag/issues/214)) | Sentry; resource pressure in Railway |
+| Is PostgreSQL degraded? | Readiness failures; connection-attempt outcomes, reasons, and duration ([#214](https://github.com/TailTag-Game/tailtag/issues/214)); database spans | Sentry; resource pressure in Railway |
+| Is media storage failing? | Storage operation outcomes and reasons ([#214](https://github.com/TailTag-Game/tailtag/issues/214)) | Sentry |
 | Is authentication degraded? | Authentication outcome metric by bounded failure class | Sentry |
 | Are credential, session, or eligibility failures rising? | Domain outcome metrics ([#213](https://github.com/TailTag-Game/tailtag/issues/213)) | Sentry |
 | Is traffic abnormal? | Request count by route template from `tailtag.http.server.requests` | Sentry; raw volume in Railway HTTP logs |
@@ -119,7 +120,8 @@ Railway's log query syntax supports custom JSON attribute filters, so operators 
   - `http.route` (the route template, never the raw path);
   - `http.request.method`;
   - HTTP status class;
-  - `tailtag.outcome` and `tailtag.reason`, from enumerations defined in code.
+  - `tailtag.outcome` and `tailtag.reason`, from enumerations defined in code;
+  - `rpc.method`, for object storage operations.
 - Never use these as dimensions: user, account, Clerk, fursuit, convention, catch, or session IDs; credentials or tokens; raw paths or query strings; exception messages; or any free text.
 - Build identity (`release`, `deployment_id`) is not a TailTag metric dimension, because every deployment would add new values. It stays on log lines, errors, and spans, and deployment-regression questions use those signals.
 - The SDK attaches `sentry.release` to metrics automatically. [#211](https://github.com/TailTag-Game/tailtag/issues/211) decided to keep it as a narrow exception, alongside `sentry.environment` and `sentry.sdk.*`. TailTag code never adds `release` or `deployment_id` as a dimension.
@@ -149,6 +151,7 @@ Railway's log query syntax supports custom JSON attribute filters, so operators 
   - Later issues extend the allow-lists as described in the policy's extension section.
 - **[#212](https://github.com/TailTag-Game/tailtag/issues/212):** delivered. How to read the generic service signals is in [backend service signals](../../operations/backend-service-signals.md).
 - **[#213](https://github.com/TailTag-Game/tailtag/issues/213):** delivered. How to read and extend the domain outcomes is in [backend domain outcomes](../../operations/backend-domain-outcomes.md).
+- **[#214](https://github.com/TailTag-Game/tailtag/issues/214):** delivered. How to read database, storage, Clerk, and runtime dependency health is in [backend dependency health](../../operations/backend-dependency-health.md).
 - **[#215](https://github.com/TailTag-Game/tailtag/issues/215):**
   - Set policy across two retention systems.
   - Railway log retention was documented as 7 days on Hobby, 30 on Pro, and up to 90 on Enterprise (reviewed 2026-09-29).

@@ -35,10 +35,11 @@ Only these keys pass from a logger call's `extra` to stdout or to Sentry breadcr
 | `http_request_method` | HTTP method. |
 | `http_route` | URLconf route template, never the raw path. |
 | `http_response_status_code` | Integer status. |
-| `duration_ms` | Request duration. |
+| `duration_ms` | Request or database connection-attempt duration. |
 | `error_type` | Exception class name. |
-| `tailtag_outcome` | Domain outcome, from `Outcome` in `observability/outcomes.py`. |
-| `tailtag_reason` | Domain outcome reason, from `Reason` in `observability/outcomes.py`. |
+| `tailtag_outcome` | Domain outcome, from `Outcome` in `observability/outcomes.py`, or dependency outcome, from `DependencyOutcome` in `observability/dependencies.py`. |
+| `tailtag_reason` | Domain outcome reason, from `Reason` in `observability/outcomes.py`, or dependency reason, from `DatabaseConnectionReason` or `StorageReason` in `observability/dependencies.py`. |
+| `rpc_method` | Object storage operation: `PutObject`, `GetObject`, `HeadObject`, or `DeleteObject`. |
 
 Log keys contain no dots, because Railway log search cannot filter on dotted keys ([#212](https://github.com/TailTag-Game/tailtag/issues/212)). Where an OpenTelemetry name exists, the log key is that name with dots replaced by underscores. Sentry span and metric attributes keep the dotted OpenTelemetry names.
 
@@ -96,8 +97,9 @@ Every metric passes through `scrub_metric`, the `before_send_metric` hook. It ke
 | `http.request.method` | `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `TRACE`, `CONNECT`, or `_OTHER` for any other method |
 | `http.route` | A route template from the project URLconf, as `request.resolver_match.route` yields it, for example `api/conventions/<int:pk>/`, or `<unmatched>` when no route matched. A raw path such as `api/v1/fursuits/42/` is rejected. |
 | `http.response.status_class` | `1xx`, `2xx`, `3xx`, `4xx`, `5xx` |
-| `tailtag.outcome` | A value of `Outcome` in `services/api/observability/outcomes.py` ([#213](https://github.com/TailTag-Game/tailtag/issues/213)) |
-| `tailtag.reason` | A value of `Reason` in the same module |
+| `tailtag.outcome` | A value of `Outcome` in `services/api/observability/outcomes.py` ([#213](https://github.com/TailTag-Game/tailtag/issues/213)), or of `DependencyOutcome` in `services/api/observability/dependencies.py` ([#214](https://github.com/TailTag-Game/tailtag/issues/214)) |
+| `tailtag.reason` | A value of `Reason` in `outcomes.py`, or of `DatabaseConnectionReason` or `StorageReason` in `dependencies.py` |
+| `rpc.method` | `PutObject`, `GetObject`, `HeadObject`, `DeleteObject` |
 
 Values must be strings. A non-string value is rejected for every key.
 
@@ -113,7 +115,7 @@ A rejected attribute logs one WARNING per key per process, naming the metric tha
 
 ### Where metrics are emitted
 
-Feature code does not call `sentry_sdk.metrics` directly. The `direct-sentry-metrics` Semgrep rule enforces this outside `services/api/observability/`. The request metric, `tailtag.http.server.requests`, is emitted by the request correlation middleware ([#212](https://github.com/TailTag-Game/tailtag/issues/212)). Domain outcomes go through `record_outcome` in `services/api/observability/outcomes.py` ([#213](https://github.com/TailTag-Game/tailtag/issues/213)); see [backend domain outcomes](../../operations/backend-domain-outcomes.md).
+Feature code does not call `sentry_sdk.metrics` directly. The `direct-sentry-metrics` Semgrep rule enforces this outside `services/api/observability/`. The request metric, `tailtag.http.server.requests`, is emitted by the request correlation middleware ([#212](https://github.com/TailTag-Game/tailtag/issues/212)). Domain outcomes go through `record_outcome` in `services/api/observability/outcomes.py` ([#213](https://github.com/TailTag-Game/tailtag/issues/213)); see [backend domain outcomes](../../operations/backend-domain-outcomes.md). Database connection attempts and object storage operations go through the recorders in `services/api/observability/dependencies.py` ([#214](https://github.com/TailTag-Game/tailtag/issues/214)); see [backend dependency health](../../operations/backend-dependency-health.md).
 
 ## 6. SQL spans and query strings
 
