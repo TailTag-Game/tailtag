@@ -217,8 +217,9 @@ is low, most attempts may be readiness checks.
 
 ## Limits
 
-- Sentry monitors on distribution percentiles are not confirmed. Alert on
-  failure counts first; #216 decides the rest.
+- Alerting uses failure counts (M4 in the
+  [field-beta operations guide](field-beta-operations.md#monitors)). The p95
+  connection time is charted on the dashboard but not alerted on.
 - Connection reasons depend on PostgreSQL's English error text.
 - Failures after a connection opens are not classified here.
 - Pool exhaustion and Clerk availability are not observable in the current

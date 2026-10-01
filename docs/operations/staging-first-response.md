@@ -173,9 +173,12 @@ or assume application rollback restores R2 state.
 deployment/runtime logs alongside canonical liveness and readiness. Correlate
 the time window with known controlled promotions, resets, synthetic rehearsal
 or smoke activity and its task owner. Staging resource metrics/dashboard
-availability has not been substantiated for this runbook; do not assume an
-alert, request-rate chart, or quantitative capacity threshold exists. Record
-that gap for #198 while using the exact-D diagnostic surface that does exist.
+availability has not been substantiated for this runbook. Request rate and
+latency are on the
+[field-beta dashboard](field-beta-operations.md#dashboard), and M3 alerts on
+severe sustained latency, but do not assume a resource alert or quantitative
+capacity threshold exists. Record that gap for #198 while using the exact-D
+diagnostic surface that does exist.
 
 **First safe mitigation and recovery.** Stop only known task-owned synthetic
 traffic under the maintainer's control and pause new rehearsal/acceptance
@@ -186,8 +189,10 @@ health and observed resource behavior before resuming rehearsal.
 
 **Preserve / avoid.** Retain time window, D, Railway resource/status summary,
 health outcome and known synthetic-job identifiers without personal data.
-Do not induce load or terminate services to test response; hand detection and
-alerting gaps to [#198](https://github.com/TailTag-Game/tailtag/issues/198)
+Do not induce load or terminate services to test response. Severe sustained
+latency is alerted by M3 in the
+[field-beta operations guide](field-beta-operations.md#monitors); hand other
+detection and alerting gaps to [#198](https://github.com/TailTag-Game/tailtag/issues/198)
 and simulation gaps to [#199](https://github.com/TailTag-Game/tailtag/issues/199).
 
 ## Elevated catch-confirmation failures
@@ -197,8 +202,10 @@ and exact-D API diagnostics with the current Convention, enrollment,
 activation, fursuit, credential and catch-session state. Use approved
 [Catch administration](catch-administration.md) and the explicit
 [operator inspection permissions](operator-authorization-audit.md#authority-and-inspection-matrix).
-There is no #208 alert or threshold that independently detects an elevated
-rate; a report or available logs initiate this procedure.
+Server errors on catch confirmation are alerted by M5 in the
+[field-beta operations guide](field-beta-operations.md#monitors). An elevated
+rate of player rejections has no alert; the dashboard, a report, or available
+logs initiate this procedure.
 
 **First safe mitigation and recovery.** Pause the affected synthetic catch
 rehearsal and preserve the original attempts. Confirm whether the failure is
@@ -216,7 +223,8 @@ replace a credential arbitrarily, or treat a stale preview as write authority.
 unavailable, preserve the action time and sanitized target class, stop further
 correction or resumption, and escalate to the backend/database owner.
 Application and Railway logs are not audit proof.
-Detection/alerting belongs to [#198](https://github.com/TailTag-Game/tailtag/issues/198).
+Detection and alerting are described in the
+[field-beta operations guide](field-beta-operations.md).
 
 ## Broken convention or configuration state
 
