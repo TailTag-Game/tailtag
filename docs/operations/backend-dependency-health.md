@@ -223,3 +223,58 @@ is low, most attempts may be readiness checks.
 - Failures after a connection opens are not classified here.
 - Pool exhaustion and Clerk availability are not observable in the current
   design; see the revisit notes above.
+
+## Development evidence
+
+Recorded on 2026-10-01 against Development deployment `344ca1f9` of `main` at
+`68f8aca` (the #214 merge). Railway service logs were read through the CLI,
+linked to project `TailTag`, environment `development`, service `api`. Sentry
+metrics and errors were queried through the Sentry API.
+
+Traffic:
+
+- `/health/identity` and `/health/ready` requests, plus the API's normal
+  Development traffic after the deploy.
+- One run of a temporary probe in a one-off shell on the deployed `api`
+  container (`railway ssh`, then `python manage.py shell`), so it ran the
+  merged code with the deployment's own build identity and Sentry
+  configuration. It printed only stage names and exception class names. It
+  stored one synthetic 1×1 PNG under a server-generated key through the
+  configured storage, and deleted it in a `finally` block. It then opened a
+  separate database connection, using the configured settings with a
+  synthetic, nonexistent database name, without touching the default
+  connection. The probe was deleted from the container afterwards. No
+  service was stopped or reconfigured.
+
+Results:
+
+- **E-1 passed.** `/health/identity` reported `source_sha` `68f8aca…`,
+  `environment` `development`, and deployment `344ca1f9`. `/health/ready`
+  returned 200, so the readiness configuration check accepts the TailTag
+  database backend.
+- **E-2 passed.** Sentry recorded five `tailtag.db.connection.attempts` /
+  `succeeded`, each with a `tailtag.db.connection.duration` value between 12
+  and 28 ms, all with release `68f8aca`.
+- **E-3 passed.** Every probe storage stage passed, including byte-equal
+  read-back and confirmed absence after delete. Sentry recorded exactly
+  `PutObject` 1, `HeadObject` 2, `GetObject` 1, and `DeleteObject` 1, all
+  `succeeded`. One `HeadObject` was the absence check after delete, which is a
+  success by design.
+- **E-4 passed.** The separate connection failed with `OperationalError` and
+  Sentry recorded one `tailtag.db.connection.attempts` / `failed` / `rejected`,
+  with a `failed` duration of 23 ms. The WARNING line carried only `event`,
+  `tailtag_outcome`, `tailtag_reason`, `duration_ms`, and the correlation and
+  build fields.
+- **E-5 passed.**
+  - No `Metric attribute rejected` warning and no error-level line appeared in
+    the deployment's Railway logs (19 lines).
+  - Neither those logs nor the probe output contained the database host or
+    password, the bucket, the storage endpoint host, the access key, the
+    synthetic database name, or an object key.
+  - No Development error events occurred in Sentry in the window.
+
+The E-4 WARNING line went to the one-off shell's stdout, not to Railway
+service logs, because Railway collects only the deployed process's output. A
+connection failure on the request path writes the same line to Railway service
+logs. Producing one in Development would require breaking the database
+connection for live traffic, which this evidence does not do.
