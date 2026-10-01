@@ -37,7 +37,16 @@ Remediation verification: the dependency, media storage, media service,
 fursuit media API, and domain outcome suites (181 tests), format, lint, strict
 Pyright, Semgrep on `observability/` and `media/`, `./scripts/doctor.sh`, and
 `git diff --check` passed.
-Pending: commit and pull request; Development evidence after deployment.
+Completed additionally: CodeRabbit review. Two Minor findings were fixed: the
+`rejected` classification matches only the server's missing-role and
+missing-database phrases, so a missing local file such as a root certificate
+stays `other` (with a regression case); and the operations guide notes that a
+readiness 503 with no failed attempt can also mean `SELECT 1` failed after the
+connection opened.
+Completed additionally: implementation merged as `68f8aca` (PR #270).
+Development evidence E-1 to E-5 passed on 2026-10-01 against deployment
+`344ca1f9`, and is recorded in
+[backend dependency health](../operations/backend-dependency-health.md#development-evidence).
 
 ## Problem
 
