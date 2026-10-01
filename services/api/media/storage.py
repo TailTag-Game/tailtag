@@ -10,6 +10,13 @@ from botocore.exceptions import ClientError
 from django.core.files import File
 from django.core.files.storage import Storage
 
+from observability.dependencies import (
+    RpcMethod,
+    StorageReason,
+    classify_storage_error,
+    record_storage_operation,
+)
+
 from .keys import validate_image_key
 
 _READ_URL_EXPIRY_SECONDS = 600
@@ -86,6 +93,26 @@ class S3MediaStorage(Storage):
                 **client_arguments,
             )
 
+    def _call[T](
+        self,
+        method: RpcMethod,
+        operation: Callable[..., T],
+        *,
+        absence_is_success: bool = False,
+        **arguments: object,
+    ) -> T:
+        """Run one network call, record exactly one operation, and re-raise as is."""
+        try:
+            result = operation(**arguments)
+        except Exception as error:
+            reason: StorageReason | None = classify_storage_error(error)
+            if absence_is_success and _is_absence(error):
+                reason = None
+            record_storage_operation(method, reason)
+            raise
+        record_storage_operation(method)
+        return result
+
     def _save(self, name: str, content: DjangoFile[bytes]) -> str:
         key = validate_image_key(name)
         arguments: dict[str, object] = {
@@ -96,7 +123,7 @@ class S3MediaStorage(Storage):
         content_type = getattr(content, "content_type", None)
         if isinstance(content_type, str):
             arguments["ContentType"] = content_type
-        self._client.put_object(**arguments)
+        self._call(RpcMethod.PUT_OBJECT, self._client.put_object, **arguments)
         return key
 
     def save(
@@ -111,29 +138,49 @@ class S3MediaStorage(Storage):
 
     def _open(self, name: str, mode: str = "rb") -> File[bytes]:
         key = validate_image_key(name)
-        response = self._client.get_object(Bucket=self._bucket_name, Key=key)
+        response = self._call(
+            RpcMethod.GET_OBJECT,
+            self._client.get_object,
+            Bucket=self._bucket_name,
+            Key=key,
+        )
         body = response["Body"]
         return File(cast(IO[bytes], body), name=key)
 
     def exists(self, name: str) -> bool:
         key = validate_image_key(name)
         try:
-            self._client.head_object(Bucket=self._bucket_name, Key=key)
+            self._call(
+                RpcMethod.HEAD_OBJECT,
+                self._client.head_object,
+                absence_is_success=True,
+                Bucket=self._bucket_name,
+                Key=key,
+            )
         except ClientError as error:
-            error_code = error.response.get("Error", {}).get("Code")
-            if error_code in _NOT_FOUND_ERROR_CODES:
+            if _is_absence(error):
                 return False
             raise
         return True
 
     def size(self, name: str) -> int:
         key = validate_image_key(name)
-        response = self._client.head_object(Bucket=self._bucket_name, Key=key)
+        response = self._call(
+            RpcMethod.HEAD_OBJECT,
+            self._client.head_object,
+            Bucket=self._bucket_name,
+            Key=key,
+        )
         return cast(int, response["ContentLength"])
 
     def delete(self, name: str) -> None:
         key = validate_image_key(name)
-        self._client.delete_object(Bucket=self._bucket_name, Key=key)
+        self._call(
+            RpcMethod.DELETE_OBJECT,
+            self._client.delete_object,
+            Bucket=self._bucket_name,
+            Key=key,
+        )
 
     def url(self, name: str | None, parameters: Any | None = None) -> str:
         del parameters
@@ -143,6 +190,13 @@ class S3MediaStorage(Storage):
             Params={"Bucket": self._bucket_name, "Key": key},
             ExpiresIn=_READ_URL_EXPIRY_SECONDS,
         )
+
+
+def _is_absence(error: BaseException) -> bool:
+    return (
+        isinstance(error, ClientError)
+        and error.response.get("Error", {}).get("Code") in _NOT_FOUND_ERROR_CODES
+    )
 
 
 def _missing_key() -> str:

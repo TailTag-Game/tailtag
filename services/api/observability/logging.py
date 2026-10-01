@@ -27,6 +27,7 @@ ALLOWED_EXTRA_FIELDS: Final = (
     "http_route",
     "http_response_status_code",
     "duration_ms",
+    "rpc_method",
     "error_type",
 )
 

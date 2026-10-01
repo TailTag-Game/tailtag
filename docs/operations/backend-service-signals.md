@@ -13,7 +13,7 @@ request lookup are in [backend logging](backend-logging.md).
 These signals describe the service, not the game. A rise in 4xx responses, for
 example, does not say whether catches are failing. Domain outcomes are in
 [backend domain outcomes](backend-domain-outcomes.md), and dependency
-health comes from [#214](https://github.com/TailTag-Game/tailtag/issues/214).
+health is in [backend dependency health](backend-dependency-health.md).
 
 ## Signals and where they live
 
@@ -133,8 +133,8 @@ Check Railway's deployment events and the service's memory graph.
 - `/health/ready` is counted in the request metric under `http.route`
   `health/ready`, with status class `2xx` when ready and `5xx` when not. A
   readiness 5xx alongside rising server errors on other routes points at a
-  shared dependency. Dependency detail is
-  [#214](https://github.com/TailTag-Game/tailtag/issues/214).
+  shared dependency. Dependency detail is in
+  [backend dependency health](backend-dependency-health.md#correlating-with-readiness).
 - The Sentry uptime monitor of `/health/ready` is set up in
   [#216](https://github.com/TailTag-Game/tailtag/issues/216).
 - The health responses themselves are defined by

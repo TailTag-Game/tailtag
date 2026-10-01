@@ -20,23 +20,33 @@ class FakeS3Client:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object]]] = []
         self.head_error: BaseException | None = None
+        # Raised by every network operation, for provider-failure contracts.
+        self.error: BaseException | None = None
 
     def put_object(self, **kwargs: object) -> object:
         self.calls.append(("put_object", kwargs))
+        if self.error is not None:
+            raise self.error
         return {}
 
     def get_object(self, **kwargs: object) -> dict[str, object]:
         self.calls.append(("get_object", kwargs))
+        if self.error is not None:
+            raise self.error
         return {"Body": BytesIO(b"stored-content")}
 
     def head_object(self, **kwargs: object) -> dict[str, object]:
         self.calls.append(("head_object", kwargs))
+        if self.error is not None:
+            raise self.error
         if self.head_error is not None:
             raise self.head_error
-        return {}
+        return {"ContentLength": 14}
 
     def delete_object(self, **kwargs: object) -> object:
         self.calls.append(("delete_object", kwargs))
+        if self.error is not None:
+            raise self.error
         return {}
 
     def generate_presigned_url(self, operation: str, **kwargs: object) -> str:

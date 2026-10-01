@@ -39,7 +39,8 @@ Every line is one JSON object.
 | `stage` | Where an existing catch view failure happened. |
 | `http_request_method`, `http_route`, `http_response_status_code`, `duration_ms` | Request completion details. `http_route` is the URL route template, for example `api/conventions/<int:pk>/`, never the raw path. It is left out when no route matched. |
 | `error_type` | Exception class name, when the record carries an exception. |
-| `tailtag_outcome`, `tailtag_reason` | Domain outcome and its reason, on `tailtag.*` outcome events. See [backend domain outcomes](backend-domain-outcomes.md). |
+| `tailtag_outcome`, `tailtag_reason` | Domain or dependency outcome and its reason, on `tailtag.*` outcome events. See [backend domain outcomes](backend-domain-outcomes.md) and [backend dependency health](backend-dependency-health.md). |
+| `rpc_method` | Object storage operation, on failed `tailtag.media.storage.operations` events. |
 
 Keys contain no dots, so every key can be used in a Railway `@key:value` filter,
 for example `@http_response_status_code:500` or

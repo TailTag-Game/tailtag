@@ -20,6 +20,7 @@ from sentry_sdk.envelope import Envelope
 from sentry_sdk.transport import Transport
 
 from config.build_identity import Identity
+from observability.dependencies import DependencySignal
 from observability.logging import JsonFormatter
 from observability.sentry import init_sentry
 
@@ -245,11 +246,15 @@ REASON_METRIC_ATTRIBUTE = "tailtag.reason"
 
 RecordedOutcome = tuple[str, str, str | None]
 
+# Dependency signals share the outcome attribute keys but are not domain outcomes;
+# a test that opens a real connection would otherwise see them here.
+_DEPENDENCY_SIGNALS = frozenset(str(signal) for signal in DependencySignal)
+
 
 def recorded_outcomes(
     logs: JsonLogCapture, transport: CapturingTransport
 ) -> list[RecordedOutcome]:
-    """Every domain outcome as `(signal, outcome, reason)`, in emission order.
+    """Every domain outcome (not dependency signal) as `(signal, outcome, reason)`, in emission order.
 
     Reads both real channels (the stdout JSON lines and the Sentry metrics as
     sent, after the privacy filter) and asserts they describe the same events, so
@@ -259,14 +264,17 @@ def recorded_outcomes(
     from_logs: list[RecordedOutcome] = [
         (line["event"], line["tailtag_outcome"], line.get("tailtag_reason"))
         for line in logs.lines()
-        if "tailtag_outcome" in line
+        if "tailtag_outcome" in line and line["event"] not in _DEPENDENCY_SIGNALS
     ]
     from_metrics: list[RecordedOutcome] = []
     for metric in transport.metrics():
         attributes = {
             key: entry["value"] for key, entry in metric["attributes"].items()
         }
-        if OUTCOME_METRIC_ATTRIBUTE not in attributes:
+        if (
+            OUTCOME_METRIC_ATTRIBUTE not in attributes
+            or metric["name"] in _DEPENDENCY_SIGNALS
+        ):
             continue
         assert (metric["type"], metric["value"]) == ("counter", 1.0)
         from_metrics.append(

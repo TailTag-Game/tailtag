@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from observability.logging import build_logging_config
+from observability.postgresql import ENGINE as DATABASE_ENGINE
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -131,10 +132,14 @@ def database_from_url(database_url: str) -> dict[str, object]:
         raise ValueError(message)
 
     return {
-        "ENGINE": "django.db.backends.postgresql",
+        "ENGINE": DATABASE_ENGINE,
         "NAME": unquote(parsed.path.lstrip("/")),
         "USER": unquote(parsed.username or ""),
         "PASSWORD": unquote(parsed.password or ""),
         "HOST": parsed.hostname,
         "PORT": str(parsed.port or ""),
+        # Bounded well below Gunicorn's 30-second worker timeout, so an
+        # unreachable database raises (and is recorded) instead of the worker
+        # being killed first.
+        "OPTIONS": {"connect_timeout": 5},
     }
