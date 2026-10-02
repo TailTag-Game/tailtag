@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -17,6 +18,8 @@ _STAGING_URL: Final = "https://staging.tailtag.app"
 _IDENTITY_FIELDS: Final = frozenset({"source_sha", "deployment_id", "environment"})
 _SOURCE_SHA: Final = re.compile(r"[0-9a-f]{40}")
 _MAX_RESPONSE_BYTES: Final = 4096
+_DEVELOPMENT_EVENT_DEADLINE_SECONDS: Final = 120
+_DEVELOPMENT_EVENT_RETRY_SECONDS: Final = 5
 
 
 class BackendIdentity(TypedDict):
@@ -154,6 +157,22 @@ def validate_development_candidate_target(expected_sha: str | None) -> BackendId
         raise TargetSafetyError
     if expected_sha is not None and _SOURCE_SHA.fullmatch(expected_sha) is None:
         raise TargetSafetyError
+    if expected_sha is None:
+        return _attempt_development_candidate(origin, None)
+    deadline = time.monotonic() + _DEVELOPMENT_EVENT_DEADLINE_SECONDS
+    while True:
+        try:
+            return _attempt_development_candidate(origin, expected_sha)
+        except TargetSafetyError:
+            if time.monotonic() >= deadline:
+                raise
+        time.sleep(_DEVELOPMENT_EVENT_RETRY_SECONDS)
+
+
+def _attempt_development_candidate(
+    origin: str, expected_sha: str | None
+) -> BackendIdentity:
+    """Make one stable-identity readiness observation of the Development target."""
     first = _validate_identity(
         _fetch_json(f"{origin}/health/identity"), expected_environment="development"
     )
