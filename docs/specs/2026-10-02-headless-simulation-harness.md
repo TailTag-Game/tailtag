@@ -5,6 +5,12 @@ Parent: #199. Decision: [ADR 0008](../adrs/0008-use-asyncio-httpx-for-headless-s
 Staging foundations consumed: #200 (Staging), #201 (`/health/identity`), #203
 (environment safety). Later consumers: #219 to #230.
 
+Amendment (#219, 2026-10-02): the
+[synthetic simulation identity pool](2026-10-02-synthetic-identity-pool.md)
+spec (decision D5) replaces decision 7's strictly sequential phases and A-4's
+single token: SIMULATION receives per-user token providers, refreshed by a
+setup-owned component that runs alongside it. A-10 is unchanged.
+
 ## Status and phase ledger
 
 Execution: STANDARD EXPANDED. Assurance: SECURITY (bearer tokens, target
