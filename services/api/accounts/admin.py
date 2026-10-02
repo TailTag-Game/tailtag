@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from django.contrib import admin
-from django.core.exceptions import PermissionDenied
+from django.contrib.admin.forms import AdminAuthenticationForm
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import HttpRequest, HttpResponse
 
 from .models import User
@@ -14,6 +15,33 @@ if TYPE_CHECKING:
     UserAdminBase = admin.ModelAdmin[User]
 else:
     UserAdminBase = admin.ModelAdmin
+
+
+class OperatorAdminAuthenticationForm(AdminAuthenticationForm):
+    """Admin authentication form that refers to the username field as 'Operator identifier'."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["username"].label = "Operator identifier"
+
+    def get_invalid_login_error(self) -> ValidationError:
+        return ValidationError(
+            self.error_messages["invalid_login"],
+            code="invalid_login",
+            params={"username": "operator identifier"},
+        )
+
+    def confirm_login_allowed(self, user: Any) -> None:
+        super(AdminAuthenticationForm, self).confirm_login_allowed(user)
+        if not user.is_staff:
+            raise ValidationError(
+                self.error_messages["invalid_login"],
+                code="invalid_login",
+                params={"username": "operator identifier"},
+            )
+
+
+admin.site.login_form = OperatorAdminAuthenticationForm
 
 
 @admin.register(User)

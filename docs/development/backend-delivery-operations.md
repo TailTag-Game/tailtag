@@ -109,6 +109,13 @@ validation fails, correct the hidden input and run it again. For database or
 unexpected failures, do not manually alter accounts; retain only sanitized
 failure details and investigate before retrying.
 
+### Admin sign-in
+
+Sign in to Django admin at `/admin/` using the **Operator identifier** (matching
+the bootstrap prompt) and local password established during operator bootstrap.
+The admin login form labels the username field as **Operator identifier**.
+Admin access is restricted to authenticated staff accounts.
+
 ### Static and operator troubleshooting
 
 | Symptom | Boundary and recovery |
