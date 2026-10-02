@@ -146,9 +146,9 @@ Parent-selected defaults, reversible:
 - Setting Railway variables, creating monitors, or any Sentry configuration
   (maintainer actions).
 - Ignoring client-supplied `sentry-trace` and `baggage` headers. The SDK
-  continues an incoming trace, so a client can choose the `trace_id` that
-  appears in logs and Sentry. This predates #212, because the SDK continues
-  propagation context even with tracing off. Tracked in
+  continued an incoming trace, so a client could choose the `trace_id` that
+  appears in logs and Sentry. This predated #212, because the SDK continues
+  propagation context even with tracing off. Resolved in
   [#260](https://github.com/TailTag-Game/tailtag/issues/260).
 
 ## Acceptance Contract
@@ -348,8 +348,3 @@ not silent changes to this contract.
 - Error events raised during an unmatched request keep the client's raw path in
   their `transaction` name and `request.url`; the rename covers transactions
   only. This predates #212.
-- Client-supplied `sentry-trace` and `baggage` headers are continued by the
-  SDK. A client can choose the `trace_id` recorded in logs and Sentry. At rates
-  below `1.0`, the `sample_rand` in `baggage` can also influence which of its
-  requests are sampled. The `request_id` is unaffected. Ignoring those headers
-  is [#260](https://github.com/TailTag-Game/tailtag/issues/260).
