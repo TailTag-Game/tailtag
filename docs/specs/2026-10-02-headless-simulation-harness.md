@@ -15,7 +15,11 @@ Implemented 2026-10-02: tests by an independent author, implementation by an
 independent implementer, then independent review (no BLOCKER or HIGH). Review
 fixes: M-1 the client refuses paths resolving to another origin; M-2 a size-cap
 test; L-1 ignore rules; L-2 container local-host notes; N-1 documented
-`source_sha` output. Not yet run: a live authenticated local or Staging smoke.
+`source_sha` output.
+Live Staging smoke passed (2026-10-02): the maintainer ran `make sim-smoke
+TARGET=staging` with a synthetic user's portal token. Output: `PASS target
+staging source_sha=b1d8a7e0b3a16c8d64c36442f93ebbc70e2a36eb`, then `PASS setup`,
+`PASS simulation`, and `PASS reconciliation`. A live local run was not made.
 
 ## Objective
 
