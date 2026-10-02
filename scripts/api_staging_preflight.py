@@ -164,9 +164,10 @@ def validate_development_candidate_target(expected_sha: str | None) -> BackendId
         try:
             return _attempt_development_candidate(origin, expected_sha)
         except TargetSafetyError:
-            if time.monotonic() >= deadline:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
                 raise
-        time.sleep(_DEVELOPMENT_EVENT_RETRY_SECONDS)
+            time.sleep(min(_DEVELOPMENT_EVENT_RETRY_SECONDS, remaining))
 
 
 def _attempt_development_candidate(

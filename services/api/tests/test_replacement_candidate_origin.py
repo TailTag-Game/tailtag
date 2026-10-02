@@ -825,6 +825,7 @@ def test_development_preflight_rejects_unpinned_action_url_before_transport(
 
 
 _TRANSPORT_FAILURE: Final = object()
+_FETCH_LATENCY_SECONDS: Final = 1.5
 
 
 @pytest.mark.parametrize(
@@ -860,11 +861,15 @@ def test_development_preflight_rejects_unattributed_or_unstable_public_target(
     """D-4/#268: a target that never converges fails only once the deadline passes."""
     _development_preflight_binding(monkeypatch, _development_manifest(tmp_path))
     fetches = 0
+    attempt_starts: list[float] = []
 
     def fetch(_: str) -> object:
         nonlocal fetches
+        if fetches % len(attempt) == 0:
+            attempt_starts.append(fake_clock.elapsed)
         response = attempt[fetches % len(attempt)]
         fetches += 1
+        fake_clock.now += _FETCH_LATENCY_SECONDS
         if response is _TRANSPORT_FAILURE:
             raise preflight.TargetSafetyError("synthetic transport failure")
         return response
@@ -878,9 +883,9 @@ def test_development_preflight_rejects_unattributed_or_unstable_public_target(
     deadline = preflight._DEVELOPMENT_EVENT_DEADLINE_SECONDS
     interval = preflight._DEVELOPMENT_EVENT_RETRY_SECONDS
     assert fake_clock.elapsed >= deadline
-    assert fetches > len(attempt)
-    assert set(fake_clock.sleeps) == {interval}
-    assert len(fake_clock.sleeps) <= deadline / interval + 1
+    assert len(attempt_starts) > 1
+    assert max(attempt_starts) <= deadline
+    assert all(0 < sleep <= interval for sleep in fake_clock.sleeps)
 
 
 def test_development_preflight_event_retries_until_new_deployment_serves_traffic(
