@@ -91,10 +91,10 @@ names the variable. Development and Staging use `1.0` while traffic is low. The
 rate is revisited with retention and cost in
 [#215](https://github.com/TailTag-Game/tailtag/issues/215).
 
-The sampler ignores a client's `sentry-trace` sampling flag, so clients cannot
-turn tracing on or off. The SDK does continue an incoming trace, so a client can
-still choose the `trace_id` of its own requests until
-[#260](https://github.com/TailTag-Game/tailtag/issues/260). Use `request_id`,
+The sampler ignores a client's `sentry-trace` sampling flag, and the API drops
+client `sentry-trace` and `baggage` headers before the SDK sees them
+([#260](https://github.com/TailTag-Game/tailtag/issues/260)). Clients cannot
+choose the `trace_id` of their requests or influence sampling. Use `request_id`,
 which the API always generates, as the authoritative request key.
 
 ## Server errors
