@@ -375,13 +375,25 @@ class Slot:
     run_id: str | None = None
 
 
+OTHER_RUN_ID = "99999999-9999-4999-8999-999999999999"
+
+
 class FakeChannel:
     """In-memory lease table that enforces the launcher's request protocol."""
 
-    def __init__(self, world: World, *, slots: int = 5, fail: set[str] | None = None):
+    def __init__(
+        self,
+        world: World,
+        *,
+        slots: int = 5,
+        fail: set[str] | None = None,
+        reclaim_before_heartbeat: int = 0,
+    ):
         self._world = world
         self.slots: dict[int, Slot] = {i: Slot() for i in range(slots)}
         self.fail = fail or set()
+        # Simulates leases that expired and were taken by another run mid-run.
+        self.reclaim_before_heartbeat = reclaim_before_heartbeat
         self.calls: list[tuple[str, dict[str, object]]] = []
 
     def indexes(self, state: str) -> set[int]:
@@ -417,6 +429,9 @@ class FakeChannel:
                 self.slots[index] = Slot("leased", str(run_id))
             return {"indexes": free[:count]}
         if operation == "heartbeat":
+            mine = [s for s in self.slots.values() if s.run_id == run_id]
+            for slot in mine[: self.reclaim_before_heartbeat]:
+                slot.run_id = OTHER_RUN_ID
             leased = [s for s in self.slots.values() if s.run_id == run_id]
             return {"extended": len(leased)}
         if operation == "release":

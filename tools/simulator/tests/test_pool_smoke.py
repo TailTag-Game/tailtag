@@ -437,3 +437,16 @@ def test_a_failed_release_is_reported_and_the_other_half_still_runs(
     assert len(channel.calls_to("release")) == 1  # attempted even if sessions failed
     if failing == "lease-release":
         assert set(world.ended_sessions) == set(world.opened_sessions)
+
+
+def test_a_lost_lease_stops_the_run_before_the_second_round(world: World) -> None:
+    channel = FakeChannel(world, reclaim_before_heartbeat=1)
+
+    run = smoke(world, channel)
+
+    assert run.code == 1
+    assert run.lines == [*BASE, "FAIL simulation", "PASS release"]
+    assert channel.calls_to("release") == [{"run_id": RUN_ID}]
+    assert len(world.opened_sessions) == 3
+    assert sorted(world.ended_sessions) == sorted(world.opened_sessions)
+    assert not any(kind == "sleep" for kind, _ in world.log)

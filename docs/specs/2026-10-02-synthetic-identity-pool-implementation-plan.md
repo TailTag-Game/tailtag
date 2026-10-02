@@ -24,6 +24,11 @@ Review dispositions not implemented:
 - Whole-change F5 (LOW), deferred: if a quarantine call itself fails, the setup
   line still lists that index and release returns it to the pool. Readmitting an
   available slot is harmless.
+- CodeRabbit (PR #282), deferred: cancellation during ticket redemption, before
+  the session is registered locally, can leave that session untracked. The next
+  allocation revokes all of the identity's active sessions (D5). Rejecting
+  tokens per lease at the API is outside #219; TailTag verification stays offline.
+  The run now fails if a heartbeat does not extend every lease.
 
 ## Design refinements within the approved decisions
 

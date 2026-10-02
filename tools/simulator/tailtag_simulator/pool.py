@@ -476,9 +476,12 @@ async def run_pool_smoke(
             with stage("simulation"):
                 context = PoolSimulationContext(clients)
                 first = await simulate_round(context)
-                await channel.call(
+                beat = await channel.call(
                     "heartbeat", pool, {"run_id": run, "ttl_seconds": LEASE_TTL_SECONDS}
                 )
+                extended = beat.get("extended")
+                if type(extended) is not int or extended != count:
+                    raise StageFailed("simulation")  # a lease was lost mid-run
                 await sleep(TOKEN_WAIT_SECONDS)
                 second = await simulate_round(context)
             emit("PASS simulation")

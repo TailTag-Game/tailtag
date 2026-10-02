@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.utils import timezone
 
 from simulation_pool.models import AVAILABLE, QUARANTINED, PoolSlot
@@ -193,10 +193,16 @@ def status(pool: str, *, now: dt.datetime | None = None) -> PoolStatus:
     """Count slots; an expired lease counts as available."""
     pool = _pool(pool)
     now = now or timezone.now()
-    slots = PoolSlot.objects.filter(pool=pool)
-    quarantined = slots.filter(state=QUARANTINED).count()
-    leased = slots.filter(state=AVAILABLE, lease_expires_at__gt=now).count()
-    total = slots.count()
+    counts = PoolSlot.objects.filter(pool=pool).aggregate(
+        total=Count("pk"),
+        quarantined=Count("pk", filter=Q(state=QUARANTINED)),
+        leased=Count("pk", filter=Q(state=AVAILABLE, lease_expires_at__gt=now)),
+    )
+    total, quarantined, leased = (
+        counts["total"],
+        counts["quarantined"],
+        counts["leased"],
+    )
     return PoolStatus(
         total=total,
         available=total - quarantined - leased,
