@@ -30,14 +30,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     smoke.add_argument("--target", required=True, help="local or staging")
     smoke.add_argument("--base-url", help="local target only; fixed allowlist")
     args = parser.parse_args(argv)
-    return asyncio.run(
-        run_smoke(
-            str(args.target),
-            base_url=None if args.base_url is None else str(args.base_url),
-            prompt_token=_prompt_token,
-            emit=_emit,
+    try:
+        return asyncio.run(
+            run_smoke(
+                str(args.target),
+                base_url=None if args.base_url is None else str(args.base_url),
+                prompt_token=_prompt_token,
+                emit=_emit,
+            )
         )
-    )
+    except KeyboardInterrupt:
+        _emit("FAIL interrupted")
+        return 130
 
 
 if __name__ == "__main__":
