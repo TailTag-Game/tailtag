@@ -8,7 +8,7 @@ import json
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Final, NoReturn, cast
 
 import pytest
@@ -62,6 +62,40 @@ DEVELOPMENT_IDENTITY: Final = {**IDENTITY, "environment": "development"}
 @pytest.fixture
 def preflight() -> ModuleType:
     return importlib.import_module("scripts.api_staging_preflight")
+
+
+class FakeClock:
+    """Controlled monotonic clock whose sleep advances time without waiting."""
+
+    _MAX_SLEEPS: Final = 1000
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+        self.start = self.now
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        assert len(self.sleeps) < self._MAX_SLEEPS, "retry loop did not terminate"
+        self.now += seconds
+
+    @property
+    def elapsed(self) -> float:
+        return self.now - self.start
+
+
+@pytest.fixture
+def fake_clock(preflight: ModuleType, monkeypatch: MonkeyPatch) -> FakeClock:
+    clock = FakeClock()
+    monkeypatch.setattr(
+        preflight,
+        "time",
+        SimpleNamespace(monotonic=clock.monotonic, sleep=clock.sleep),
+    )
+    return clock
 
 
 def _candidate_digest(hostname: str) -> str:
@@ -766,6 +800,7 @@ def test_development_preflight_rejects_unpinned_action_url_before_transport(
     preflight: ModuleType,
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
+    fake_clock: FakeClock,
     configured_url: str | None,
 ) -> None:
     """D-4: the Actions variable can select only the reviewed HTTPS origin."""
@@ -786,10 +821,15 @@ def test_development_preflight_rejects_unpinned_action_url_before_transport(
             DEVELOPMENT_IDENTITY["source_sha"]
         )
     assert calls == []
+    assert fake_clock.sleeps == []
+
+
+_TRANSPORT_FAILURE: Final = object()
+_FETCH_LATENCY_SECONDS: Final = 1.5
 
 
 @pytest.mark.parametrize(
-    "responses",
+    "attempt",
     (
         [{**DEVELOPMENT_IDENTITY, "source_sha": "b" * 40}],
         [{**DEVELOPMENT_IDENTITY, "environment": "staging"}],
@@ -800,6 +840,7 @@ def test_development_preflight_rejects_unpinned_action_url_before_transport(
             {"status": "ok"},
             {**DEVELOPMENT_IDENTITY, "source_sha": "b" * 40},
         ],
+        [_TRANSPORT_FAILURE],
     ),
     ids=(
         "event-sha-mismatch",
@@ -807,22 +848,31 @@ def test_development_preflight_rejects_unpinned_action_url_before_transport(
         "missing-deployment",
         "not-ready",
         "identity-drift",
+        "transport-failure",
     ),
 )
 def test_development_preflight_rejects_unattributed_or_unstable_public_target(
     preflight: ModuleType,
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
-    responses: list[object],
+    fake_clock: FakeClock,
+    attempt: list[object],
 ) -> None:
-    """D-4: status-only health and a SHA-only match cannot establish delivery."""
+    """D-4/#268: a target that never converges fails only once the deadline passes."""
     _development_preflight_binding(monkeypatch, _development_manifest(tmp_path))
-    remaining = list(responses)
-    calls: list[str] = []
+    fetches = 0
+    attempt_starts: list[float] = []
 
-    def fetch(url: str) -> object:
-        calls.append(url)
-        return remaining.pop(0)
+    def fetch(_: str) -> object:
+        nonlocal fetches
+        if fetches % len(attempt) == 0:
+            attempt_starts.append(fake_clock.elapsed)
+        response = attempt[fetches % len(attempt)]
+        fetches += 1
+        fake_clock.now += _FETCH_LATENCY_SECONDS
+        if response is _TRANSPORT_FAILURE:
+            raise preflight.TargetSafetyError("synthetic transport failure")
+        return response
 
     monkeypatch.setattr(preflight, "_fetch_json", fetch)
     with pytest.raises(preflight.TargetSafetyError) as caught:
@@ -830,11 +880,77 @@ def test_development_preflight_rejects_unattributed_or_unstable_public_target(
             DEVELOPMENT_IDENTITY["source_sha"]
         )
     assert SENSITIVE not in str(caught.value)
-    assert len(calls) == len(responses)
+    deadline = preflight._DEVELOPMENT_EVENT_DEADLINE_SECONDS
+    interval = preflight._DEVELOPMENT_EVENT_RETRY_SECONDS
+    assert fake_clock.elapsed >= deadline
+    assert len(attempt_starts) > 1
+    assert max(attempt_starts) <= deadline
+    assert all(0 < sleep <= interval for sleep in fake_clock.sleeps)
+
+
+def test_development_preflight_event_retries_until_new_deployment_serves_traffic(
+    preflight: ModuleType,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+    fake_clock: FakeClock,
+) -> None:
+    """#268: smoke that outruns the Railway traffic switch succeeds once it lands."""
+    _development_preflight_binding(monkeypatch, _development_manifest(tmp_path))
+    old_identity = {**DEVELOPMENT_IDENTITY, "source_sha": "b" * 40}
+    responses: list[object] = [
+        old_identity,
+        old_identity,
+        DEVELOPMENT_IDENTITY,
+        {"status": "ok"},
+        DEVELOPMENT_IDENTITY,
+    ]
+
+    def fetch(_: str) -> object:
+        return responses.pop(0)
+
+    monkeypatch.setattr(preflight, "_fetch_json", fetch)
+    assert (
+        preflight.validate_development_candidate_target(
+            DEVELOPMENT_IDENTITY["source_sha"]
+        )
+        == DEVELOPMENT_IDENTITY
+    )
+    assert responses == []
+    assert fake_clock.sleeps == [preflight._DEVELOPMENT_EVENT_RETRY_SECONDS] * 2
+    assert fake_clock.elapsed < preflight._DEVELOPMENT_EVENT_DEADLINE_SECONDS
+
+
+def test_manual_development_preflight_failure_is_single_attempt_without_retry(
+    preflight: ModuleType,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+    fake_clock: FakeClock,
+) -> None:
+    """#268: manual verification reports current health once instead of waiting."""
+    _development_preflight_binding(monkeypatch, _development_manifest(tmp_path))
+    responses: list[object] = [
+        DEVELOPMENT_IDENTITY,
+        {"status": "ok"},
+        {**DEVELOPMENT_IDENTITY, "source_sha": "b" * 40},
+    ]
+    calls: list[str] = []
+
+    def fetch(url: str) -> object:
+        calls.append(url)
+        return responses[len(calls) - 1]
+
+    monkeypatch.setattr(preflight, "_fetch_json", fetch)
+    with pytest.raises(preflight.TargetSafetyError):
+        preflight.validate_development_candidate_target(None)
+    assert len(calls) == 3
+    assert fake_clock.sleeps == []
 
 
 def test_development_preflight_rejects_redirected_identity_response(
-    preflight: ModuleType, monkeypatch: MonkeyPatch, tmp_path: Path
+    preflight: ModuleType,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+    fake_clock: FakeClock,
 ) -> None:
     """D-4: the pinned origin cannot redirect identity reads elsewhere."""
     _development_preflight_binding(monkeypatch, _development_manifest(tmp_path))
@@ -858,5 +974,8 @@ def test_development_preflight_rejects_redirected_identity_response(
         preflight.validate_development_candidate_target(
             DEVELOPMENT_IDENTITY["source_sha"]
         )
-    assert len(opener.calls) == 1
-    assert opener.calls[0][0].full_url == (DEVELOPMENT_ORIGIN + "/health/identity")
+    assert fake_clock.elapsed >= preflight._DEVELOPMENT_EVENT_DEADLINE_SECONDS
+    assert opener.calls
+    assert {call[0].full_url for call in opener.calls} == {
+        DEVELOPMENT_ORIGIN + "/health/identity"
+    }
