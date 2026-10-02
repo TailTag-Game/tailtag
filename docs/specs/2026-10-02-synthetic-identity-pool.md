@@ -43,6 +43,9 @@ field beta. If that ever changes, D1 and D2 must be re-reviewed and the tooling
 origin removed before any real person signs in, because the Staging secret can
 open a session for any user.
 
+Implementation sequencing:
+[implementation plan](2026-10-02-synthetic-identity-pool-implementation-plan.md).
+
 ## Objective
 
 Provide a durable pool of synthetic Clerk/TailTag identities on Staging that a
@@ -137,10 +140,10 @@ for a smoke, rehearsal, or other non-pool identity.
 ### D2 Staging authorized parties — APPROVED (amends #200)
 
 Staging `CLERK_AUTHORIZED_PARTIES` becomes the ordered exact pair of the hosted
-portal origin and one synthetic tooling origin. The provider-assigned portal
-origin keeps its framed SHA-256 commitment. The TailTag-owned tooling origin is
-pinned as a literal in the Staging readiness check, as Development pins
-`http://localhost:3000` (`services/api/health/configuration.py`). No suffix,
+portal origin and one synthetic tooling origin, both pinned as literals in the
+canonical-phase Staging readiness check (`services/api/health/configuration.py`),
+which already compares the portal origin as a literal. The `staging-next`
+candidate phase is unchanged. No suffix,
 wildcard, or caller-supplied value. Tokens still pass the unchanged verifier
 first.
 
@@ -306,7 +309,8 @@ host. How the #228 external host obtains that channel is open.
 At allocation, SETUP verifies each identity's profile against the V0 invariant
 (handle, display name, and onboarding timestamp all set or all null). A
 never-onboarded identity completes onboarding once through the public
-`PUT /api/profile/` with its own token, using a pool-namespaced handle.
+`PUT /api/profile/` with its own token, using the pool handle `sp_<pool>_<index>`
+(handles allow only lowercase letters, digits, and underscores).
 Profiles then stay onboarded. Leftover run-specific state is reported and the
 identity quarantined; deleting it belongs to #223.
 

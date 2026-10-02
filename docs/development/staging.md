@@ -65,7 +65,11 @@ current hosted Account Portal origin,
 `https://accounts.staging.tailtag.app`, is authorized only for the bootstrap
 authentication validation described here. It is deliberately replaceable when
 real V0 client integration establishes its own semantics; it is not a permanent
-mobile/client architecture decision.
+mobile/client architecture decision. The
+[#219 amendment](../specs/2026-10-02-synthetic-identity-pool.md) adds a second,
+ordered authorized party, `https://simulator.staging.tailtag.app`, used only by
+the simulator identity pool. Removing it disables simulator tokens without
+affecting the portal origin.
 
 Use only synthetic TailTag records, Clerk users, and media. Do not use personal
 data, production data, or ordinary user accounts. Development remains the

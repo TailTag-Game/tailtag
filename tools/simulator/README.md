@@ -3,8 +3,8 @@
 The repository-owned, black-box client for headless acceptance runs and, in later
 issues, convention-scale simulation (#199). It is plain Python asyncio with httpx
 ([ADR 0008](../../docs/adrs/0008-use-asyncio-httpx-for-headless-simulation.md)).
-Today it does one thing: a manually invoked, authenticated `GET /api/me/` smoke
-against a local API or Staging. Design: [spec](../../docs/specs/2026-10-02-headless-simulation-harness.md).
+Today it runs a manually invoked, authenticated `GET /api/me/` smoke against a local
+API or Staging, and manages a Staging synthetic identity pool. Design: [spec](../../docs/specs/2026-10-02-headless-simulation-harness.md).
 
 ## Boundary
 
@@ -15,15 +15,21 @@ against a local API or Staging. Design: [spec](../../docs/specs/2026-10-02-headl
   simulator Semgrep rules (`.semgrep/simulator-rules/`) reject those imports, dynamic
   imports, and mock transports in package code.
 - A run has three phases, each a function that receives only its own context
-  (`tailtag_simulator/phases.py`):
-  - SETUP gets the verified target and the token prompt and returns credentials.
-  - SIMULATION gets only a public API client bound to the verified origin and token.
-    It has no prompt, no setup inputs, and no privileged access. Public API only.
+  (`tailtag_simulator/phases.py`, `pool.py`):
+  - SETUP gets the verified target and the token prompt and returns credentials. In a
+    pool run it also holds the Clerk Staging secret and the lease channel, only while
+    SETUP runs; the secret is never stored.
+  - SIMULATION gets only public API clients bound to the verified origin: one token
+    for `smoke`, or one client per pool identity, each with an opaque token provider
+    that returns only a current ordinary token. It has no prompt, no setup inputs, no
+    lease channel, and no privileged access. Public API only.
   - RECONCILIATION gets only the recorded observations.
-- Privileged access belongs only in SETUP and RECONCILIATION. Identity-pool and
-  fixture setup (#219, #220) extend SETUP; privileged read-only reconciliation (#222)
-  extends RECONCILIATION. Nothing privileged is built yet, and there is no plugin
-  registry.
+- Privileged access belongs only in SETUP and RECONCILIATION. Fixture setup (#220)
+  extends SETUP; privileged read-only reconciliation (#222) extends RECONCILIATION.
+  There is no plugin registry.
+- Pool commands are host-only. The lease channel needs the Railway CLI and the owner
+  manifest, so they run from a maintainer machine through `make`, not in the container
+  image.
 
 ## Targets and safety
 
@@ -48,8 +54,8 @@ against a local API or Staging. Design: [spec](../../docs/specs/2026-10-02-headl
 
 ## Getting a token
 
-The simulator holds no Clerk secret and cannot mint tokens. Automated minting is
-deferred to #219.
+`smoke` holds no Clerk secret and cannot mint tokens. Automated tokens for pool
+identities come from the identity pool below.
 
 - **Staging:** this follows the token handling #217 used against replacement Staging
   (see the [Staging runbook](../../docs/development/staging.md)). Disable clipboard
@@ -87,8 +93,55 @@ also pass `--add-host=host.docker.internal:host-gateway` to `docker run`. No sec
 image. CI (`.github/workflows/simulator.yml`) runs `make sim-check` and `make sim-image`
 with no secrets and no network target.
 
+## Identity pool
+
+A durable pool of synthetic Staging identities that a run leases, uses through the real
+authentication boundary, and releases (#219,
+[spec](../../docs/specs/2026-10-02-synthetic-identity-pool.md)). Pool commands run only
+from a maintainer machine with the Railway CLI, and only against Staging.
+
+```bash
+make sim-pool-provision POOL=p1 SIZE=50   # create missing users and slots; idempotent
+make sim-pool-status POOL=p1              # counts only
+make sim-pool-smoke POOL=p1 COUNT=3       # allocate, GET /api/me/ across a token lifetime, release
+make sim-pool-readmit POOL=p1 INDEX=7     # re-admit a repaired quarantined identity
+```
+
+- **Prerequisites:** canonical Staging readiness requires both authorized parties, so
+  the variable and the code must change together, in this order: merge; stage
+  `CLERK_AUTHORIZED_PARTIES=https://accounts.staging.tailtag.app,https://simulator.staging.tailtag.app`
+  with `--skip-deploys` (applying it without that flag redeploys `main` outside
+  controlled promotion); promote the merged SHA through controlled promotion, which
+  applies the `simulation_pool` migration; confirm readiness; then provision. Roll
+  back the variable and the code together. Provision and `pool-smoke`
+  prompt for the Clerk Staging secret on a hidden TTY (`Clerk Staging secret:`). It is
+  used for SETUP only and is never stored.
+- **Names:** a pool name is 1 to 12 lowercase letters or digits. Index `i` is Clerk
+  external ID `sim-pool-<pool>-<i>` and profile handle `sp_<pool>_<i>`.
+- **Run:** `pool-smoke` leases `COUNT` identities, revokes their leftover sessions,
+  signs each in with a single-use ticket, onboards never-onboarded profiles once through
+  `PUT /api/profile/`, then calls `GET /api/me/` before and after one token lifetime. It
+  always ends the sessions and releases the leases, even after a failure. Output is
+  `PASS`/`FAIL` stage lines and counts only.
+- **Insufficient pool:** if fewer than `COUNT` identities are available, nothing is
+  leased and the run prints `FAIL setup needed=<COUNT> available=<n>`. Check
+  `pool status`, then provision more or readmit.
+- **Quarantine:** an identity whose Clerk user is missing, banned, locked, or unmarked,
+  whose sign-in fails, or whose profile has drifted is quarantined and excluded from
+  allocation. The run releases the rest and prints
+  `FAIL setup quarantined=<i,j,...>` with the indexes in ascending order. To recover,
+  inspect those users in the Clerk Staging dashboard (external ID
+  `sim-pool-<pool>-<i>`), repair or retire each, then run
+  `make sim-pool-readmit POOL=<pool> INDEX=<i>`. Quarantine never deletes anything. If
+  every allocated identity fails, none is quarantined (that points at the environment,
+  not the identities); the run releases all of them and prints a plain `FAIL setup`.
+- **Crashed run:** leases expire after 1800 seconds and become reclaimable. Leftover
+  Clerk sessions are revoked the next time the identity is allocated.
+- **Baseline:** pool identities never enroll in the #204 rehearsal baseline Convention or
+  touch its fursuits. Pool runs call only `/api/me/` and `/api/profile/`.
+
 ## Later issues
 
-Identity pool and fixtures (#219, #220), journeys (#221), privileged reconciliation
+Fixtures (#220), journeys (#221), privileged reconciliation
 (#222), cleanup (#223), scenarios and seeds (#224), personas and traffic (#225, #226),
 guardrail limits (#227), and the execution host (#228).
