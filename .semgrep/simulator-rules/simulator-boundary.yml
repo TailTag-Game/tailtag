@@ -1,0 +1,29 @@
+rules:
+  - id: tailtag.simulator.forbidden-import
+    message: Simulator code must not import backend, database, or Clerk SDK libraries; it reaches the API only over HTTP.
+    languages: [python]
+    severity: ERROR
+    metadata: {owner: tailtag, confidence: HIGH}
+    patterns:
+      - pattern-either:
+          - pattern: import $MODULE
+          - pattern: from $MODULE import $NAME
+      - metavariable-regex:
+          metavariable: $MODULE
+          regex: ^(django|rest_framework|psycopg|psycopg2|asyncpg|sqlalchemy|clerk_backend_api)(\..*)?$
+
+  - id: tailtag.simulator.dynamic-import
+    message: Dynamic imports could bypass the forbidden-import boundary and are not allowed in simulator code.
+    languages: [python]
+    severity: ERROR
+    metadata: {owner: tailtag, confidence: HIGH}
+    pattern-either:
+      - pattern: importlib.import_module(...)
+      - pattern: __import__(...)
+
+  - id: tailtag.simulator.mock-transport
+    message: Mock HTTP transports belong in tests, not in simulator package code.
+    languages: [python]
+    severity: ERROR
+    metadata: {owner: tailtag, confidence: HIGH}
+    pattern: httpx.MockTransport(...)
