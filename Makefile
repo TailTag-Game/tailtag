@@ -72,6 +72,13 @@ override SEMGREP_TARGETS := $(REPOSITORY_ROOT)/services/api \
 	$(CI_RELEVANCE_SCRIPT) \
 	$(SEMGREP_VALIDATOR)
 override SEMGREP := $(SEMGREP_UV) run --locked --no-sync semgrep
+override SIMULATOR_DIRECTORY := tools/simulator
+override SIM_UV := $(UV) --directory $(SIMULATOR_DIRECTORY)
+override SIM_SEMGREP_RULES := $(REPOSITORY_ROOT)/.semgrep/simulator-rules
+override SIM_SEMGREP_TESTS := $(REPOSITORY_ROOT)/.semgrep/simulator-tests
+# Explicit files, not a directory, so untracked new modules are still scanned.
+override SIM_SEMGREP_TARGETS := $(sort $(wildcard $(REPOSITORY_ROOT)/$(SIMULATOR_DIRECTORY)/tailtag_simulator/*.py))
+override SIM_IMAGE := tailtag-simulator:local
 
 define run_django_command
 if [ "$${TAILTAG_DEVCONTAINER:-}" = "1" ]; then \
@@ -84,14 +91,15 @@ fi
 endef
 
 .DEFAULT_GOAL := help
-.NOTPARALLEL: api-check
+.NOTPARALLEL: api-check sim-check
 
 .PHONY: help \
 	api-setup api-run api-semgrep-check api-test api-check api-migrate api-migrations \
 	api-migrations-check api-shell api-smoke api-auth-smoke api-staging-auth-smoke api-replacement-auth-smoke api-media-storage-smoke api-staging-reset api-staging-reset-ssh api-staging-reset-provision api-staging-reset-provision-ssh \
 	api-staging-restore-drill \
 	api-format-check api-lint-check api-type-check api-django-check \
-	api-schema-check api-gunicorn-check
+	api-schema-check api-gunicorn-check \
+	sim-setup sim-check sim-smoke sim-image sim-format-check sim-lint-check sim-type-check sim-test sim-semgrep-check
 
 help: ## List the canonical backend developer commands.
 	@awk 'BEGIN { print "TailTag backend commands:" } /^[a-zA-Z0-9_-]+:.*##/ { target = $$1; sub(/:.*/, "", target); if (target != "help") { description = $$0; sub(/^.*##[[:space:]]*/, "", description); printf "  make %-20s %s\n", target, description } }' $(MAKEFILE_LIST)
@@ -214,3 +222,55 @@ api-gunicorn-check:
 	MEDIA_STORAGE_ACCESS_KEY_ID=ci-not-a-real-access-key \
 	MEDIA_STORAGE_SECRET_ACCESS_KEY=ci-not-a-real-secret-key \
 	$(API_UV) run --locked --no-sync gunicorn config.wsgi:application --check-config
+
+sim-setup: ## Sync locked simulator dependencies.
+	@printf '%s\n' 'Synchronizing locked simulator dependencies...'
+	$(SIM_UV) sync --all-groups --locked
+	$(SEMGREP_UV) sync --locked
+
+sim-check: sim-format-check sim-lint-check sim-type-check sim-test sim-semgrep-check ## Run the complete local simulator validation suite.
+	@printf '%s\n' 'Simulator validation completed.'
+
+sim-smoke: ## Run the manual authenticated smoke: TARGET=local|staging [BASE_URL=...].
+	@test -n "$(TARGET)" || { printf '%s\n' 'TARGET is required: local or staging.' >&2; exit 2; }
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator smoke --target '$(TARGET)' $(if $(BASE_URL),--base-url '$(BASE_URL)')
+
+sim-image: ## Build the simulator container image (tailtag-simulator:local).
+	docker build -t $(SIM_IMAGE) $(SIMULATOR_DIRECTORY)
+
+sim-format-check:
+	@printf '%s\n' 'Checking simulator Ruff formatting...'
+	$(SIM_UV) run --locked --no-sync ruff format --no-cache --check .
+
+sim-lint-check:
+	@printf '%s\n' 'Running simulator Ruff lint...'
+	$(SIM_UV) run --locked --no-sync ruff check --no-cache .
+
+sim-type-check:
+	@printf '%s\n' 'Running simulator strict Pyright...'
+	$(SIM_UV) run --locked --no-sync pyright
+
+sim-test:
+	@printf '%s\n' 'Running simulator tests...'
+	$(SIM_UV) run --locked --no-sync pytest -q -p no:cacheprovider
+
+sim-semgrep-check:
+	@printf '%s\n' 'Testing simulator Semgrep rules...'
+	$(SIM_UV) run --locked --no-sync python $(SEMGREP_VALIDATOR) --rules $(SIM_SEMGREP_RULES) --fixtures $(SIM_SEMGREP_TESTS)
+	SEMGREP_SEND_METRICS=off SEMGREP_ENABLE_VERSION_CHECK=0 SEMGREP_BASELINE_COMMIT= SEMGREP_APP_TOKEN= SEMGREP_RULES= \
+		$(SEMGREP) scan --test \
+		--config $(SIM_SEMGREP_RULES) \
+		--baseline-commit '' \
+		--metrics=off \
+		--disable-version-check \
+		$(SIM_SEMGREP_TESTS)
+	@printf '%s\n' 'Running simulator Semgrep boundary analysis...'
+	SEMGREP_SEND_METRICS=off SEMGREP_ENABLE_VERSION_CHECK=0 SEMGREP_BASELINE_COMMIT= SEMGREP_APP_TOKEN= SEMGREP_RULES= \
+		$(SEMGREP) scan \
+		--config $(SEMGREP_RULES) \
+		--config $(SIM_SEMGREP_RULES) \
+		--baseline-commit '' \
+		--error \
+		--metrics=off \
+		--disable-version-check \
+		$(SIM_SEMGREP_TARGETS)

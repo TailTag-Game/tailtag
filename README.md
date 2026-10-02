@@ -30,6 +30,7 @@ docs/             Architecture and development documentation
 scripts/          Repository automation and developer utilities
 services/api/     TailTag V0 Django API foundation
 apps/mobile/      TailTag V0 Flutter application scaffold
+tools/simulator/  Headless acceptance and simulation harness (#199)
 ```
 
 The listed directories describe the currently implemented repository. Additional

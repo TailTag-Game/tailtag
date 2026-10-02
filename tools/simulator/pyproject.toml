@@ -1,0 +1,30 @@
+[project]
+name = "tailtag-simulator"
+version = "0.1.0"
+description = "TailTag headless acceptance and convention simulation harness"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "httpx>=0.28,<0.29",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16",
+    "pyright>=1.1.411",
+    "pytest>=9.1",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+target-version = "py313"
+
+[tool.pyright]
+pythonVersion = "3.13"
+typeCheckingMode = "strict"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+

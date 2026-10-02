@@ -1,0 +1,56 @@
+name: TailTag Simulator
+
+on:
+  pull_request:
+    paths:
+      - "tools/simulator/**"
+      - ".semgrep/**"
+      - "Makefile"
+      - "scripts/validate_semgrep_contract.py"
+      - ".github/workflows/simulator.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "tools/simulator/**"
+      - ".semgrep/**"
+      - "Makefile"
+      - "scripts/validate_semgrep_contract.py"
+      - ".github/workflows/simulator.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  simulator:
+    name: Simulator checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install locked uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.9.17"
+          enable-cache: true
+
+      - name: Synchronize locked dependencies
+        run: |
+          uv --directory tools/simulator sync --all-groups --locked
+          uv --directory .semgrep sync --locked
+
+      - name: Run canonical simulator validation
+        run: make sim-check
+
+      - name: Build simulator image
+        run: make sim-image
