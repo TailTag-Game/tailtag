@@ -33,6 +33,7 @@ FROZEN_ROOT_HELPERS = frozenset(
         "scripts/api_deployment_identity.py",
         "scripts/api_staging_promote.py",
         "scripts/backend_ci_relevance.py",
+        "scripts/api_sim_fixture_ssh.py",
         "scripts/api_sim_pool_ssh.py",
         "scripts/api_staging_reset.py",
         "scripts/api_staging_reset_ssh.py",

@@ -88,6 +88,56 @@ class LeaseChannel(Protocol):
     ) -> Mapping[str, object]: ...
 
 
+LAUNCHER_ERRORS: Final = (
+    OSError,
+    TimeoutError,
+    UnicodeError,
+    ValueError,
+    RecursionError,
+)
+
+
+async def run_launcher(
+    command: Sequence[str], cwd: Path | None, timeout_seconds: float, request: bytes
+) -> tuple[str, dict[str, object]]:
+    """Run one launcher child and return its `(result, data)`; any deviation raises.
+
+    The request goes on stdin only and the child's stderr is discarded. Only the exact
+    `{"result", "data"}` shape is accepted, and `PASS` must go with exit code 0 and
+    nothing else. Raises one of `LAUNCHER_ERRORS` for every deviation, with no detail.
+    """
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        cwd=cwd,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        output, _ = await asyncio.wait_for(
+            process.communicate(request), timeout_seconds
+        )
+    except BaseException:
+        with suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        await process.wait()
+        raise
+    if len(output) > MAX_LAUNCHER_OUTPUT_BYTES:
+        raise ValueError
+    parsed = json.loads(output)
+    reply = cast(dict[str, object], parsed) if isinstance(parsed, dict) else {}
+    result, data = reply.get("result"), reply.get("data")
+    if (
+        frozenset(reply) != frozenset({"result", "data"})
+        or not isinstance(result, str)
+        or not isinstance(data, dict)
+        or (result == "PASS") != (process.returncode == 0)
+    ):
+        raise ValueError
+    return result, cast(dict[str, object], data)
+
+
 class LauncherChannel:
     """Drives the lease launcher as a subprocess: request on stdin, one JSON on stdout.
 
@@ -114,50 +164,17 @@ class LauncherChannel:
             {"operation": operation, "pool": pool, "arguments": dict(arguments)}
         ).encode()
         try:
-            code, output = await self._run(request)
-            parsed = json.loads(output)
-        except (OSError, TimeoutError, UnicodeError, ValueError, RecursionError):
+            result, fields = await run_launcher(
+                self._command, self._cwd, self._timeout_seconds, request
+            )
+        except LAUNCHER_ERRORS:
             raise LeaseFailed("FAIL_LAUNCHER") from None
-        if not isinstance(parsed, dict):
-            raise LeaseFailed("FAIL_LAUNCHER") from None
-        reply = cast(dict[str, object], parsed)
-        result, data = reply.get("result"), reply.get("data")
-        if (
-            frozenset(reply) != frozenset({"result", "data"})
-            or not isinstance(result, str)
-            or not isinstance(data, dict)
-            or (result == "PASS") != (code == 0)
-        ):
-            raise LeaseFailed("FAIL_LAUNCHER") from None
-        fields = cast(dict[str, object], data)
         if result != "PASS":
             available = fields.get("available")
             raise LeaseFailed(
                 result, available if type(available) is int else None
             ) from None
         return fields
-
-    async def _run(self, request: bytes) -> tuple[int, bytes]:
-        process = await asyncio.create_subprocess_exec(
-            *self._command,
-            cwd=self._cwd,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        try:
-            output, _ = await asyncio.wait_for(
-                process.communicate(request), self._timeout_seconds
-            )
-        except BaseException:
-            with suppress(ProcessLookupError):
-                os.killpg(process.pid, signal.SIGKILL)
-            await process.wait()
-            raise
-        if len(output) > MAX_LAUNCHER_OUTPUT_BYTES:
-            raise ValueError
-        return cast(int, process.returncode), output
 
 
 # -- provisioning and the recovery commands ---------------------------------------------
@@ -318,7 +335,7 @@ def _reconcile(first: Sequence[Reply], second: Sequence[Reply]) -> None:
         raise PhaseFailed
 
 
-async def _release(
+async def release(
     stack: AsyncExitStack, channel: LeaseChannel, pool: str, run_id: str
 ) -> bool:
     """End every Clerk session and release the leases; one half failing never skips the other."""
@@ -334,7 +351,7 @@ async def _release(
     return released
 
 
-class _SetupFailed(Exception):
+class SetupFailed(Exception):
     """SETUP failed; `detail` is the fixed, count-or-index-only suffix of the FAIL line."""
 
     def __init__(self, detail: str = "") -> None:
@@ -343,13 +360,13 @@ class _SetupFailed(Exception):
 
 
 @dataclass
-class _Held:
+class Held:
     """Whether an allocation may have leased slots, so RELEASE must run."""
 
     leases: bool = False
 
 
-async def _setup(
+async def open_identities(
     pool: str,
     count: int,
     run: str,
@@ -357,15 +374,17 @@ async def _setup(
     prompt_secret: Callable[[], str],
     channel: LeaseChannel,
     stack: AsyncExitStack,
-    held: _Held,
+    held: Held,
     origin: str,
     clerk_transport: httpx.AsyncBaseTransport | None,
     api_transport: httpx.AsyncBaseTransport | None,
     clock: Callable[[], float],
-) -> tuple[ApiClient, ...]:
+) -> tuple[tuple[int, ...], tuple[ApiClient, ...]]:
     """The only place the Clerk secret and the admin exist; neither outlives this call.
 
-    Returns the per-identity clients. Their sessions are registered on `stack`.
+    Returns the allocated pool indexes and, in the same order, the per-identity
+    clients. Their sessions are registered on `stack`. Shared by every Staging run
+    that leases identities (#219, #220).
     """
     async with open_admin(prompt_secret(), transport=clerk_transport) as admin:
         await admin.verify_instance()
@@ -382,7 +401,7 @@ async def _setup(
             held.leases = False
             if failure.available is None:
                 raise
-            raise _SetupFailed(
+            raise SetupFailed(
                 f" needed={count} available={failure.available}"
             ) from None
         indexes = allocated.get("indexes")
@@ -412,13 +431,13 @@ async def _setup(
                 bad.append(index)
         if len(bad) == count:
             # Every identity failing points at the environment, not the identities.
-            raise _SetupFailed
+            raise SetupFailed
         for index in bad:
             with suppress(LeaseFailed):
                 await channel.call("quarantine", pool, {"index": index, "run_id": run})
         if bad:
-            raise _SetupFailed(" quarantined=" + ",".join(str(i) for i in sorted(bad)))
-    return tuple(clients)
+            raise SetupFailed(" quarantined=" + ",".join(str(i) for i in sorted(bad)))
+    return tuple(cast(list[int], indexes)), tuple(clients)
 
 
 async def run_pool_smoke(
@@ -441,7 +460,7 @@ async def run_pool_smoke(
     """
     run = run_id or str(uuid.uuid4())
     stack = AsyncExitStack()
-    held = _Held()
+    held = Held()
     code = 1
     try:
         try:
@@ -454,7 +473,7 @@ async def run_pool_smoke(
             emit(f"PASS target staging source_sha={verified.source_sha}")
 
             try:
-                clients = await _setup(
+                _, clients = await open_identities(
                     pool,
                     count,
                     run,
@@ -467,7 +486,7 @@ async def run_pool_smoke(
                     api_transport=api_transport,
                     clock=clock,
                 )
-            except _SetupFailed as failure:
+            except SetupFailed as failure:
                 raise StageFailed(f"setup{failure.detail}") from None
             except Exception:  # noqa: BLE001 - failures become a fixed stage
                 raise StageFailed("setup") from None
@@ -494,7 +513,7 @@ async def run_pool_smoke(
             emit(f"FAIL {failure.stage}")
     finally:
         if held.leases:
-            released = await _release(stack, channel, pool, run)
+            released = await release(stack, channel, pool, run)
             emit("PASS release" if released else "FAIL release")
             if not released:
                 code = 1

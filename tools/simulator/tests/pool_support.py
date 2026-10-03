@@ -12,7 +12,7 @@ import hashlib
 import json
 import re
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Final
 from urllib.parse import parse_qs
@@ -122,6 +122,9 @@ class World:
         default_factory=dict[tuple[int, int], httpx.Response | Exception]
     )
     put_handle_override: dict[int, str] = field(default_factory=dict[int, str])
+    # Extra authenticated TailTag routes (method, path, user index) -> response, for
+    # runs that read more than the pool endpoints (#220). None means "not mine".
+    route: Callable[[str, str, int], httpx.Response | None] | None = None
 
     log: list[tuple[str, str]] = field(default_factory=list[tuple[str, str]])
     stray: list[str] = field(default_factory=list[str])
@@ -331,6 +334,9 @@ class World:
                 "display_name": body["display_name"],
             }
             return self._profile(index)
+        extra = self.route(method, path, index) if self.route is not None else None
+        if extra is not None:
+            return extra
         self.stray.append(f"{method} {path}")
         return httpx.Response(404)
 

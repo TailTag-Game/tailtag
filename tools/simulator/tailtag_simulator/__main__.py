@@ -9,6 +9,7 @@ import warnings
 from collections.abc import Sequence
 from pathlib import Path
 
+from tailtag_simulator.fixtures import FixtureLauncherChannel, run_fixture_smoke
 from tailtag_simulator.pool import (
     LauncherChannel,
     run_pool_smoke,
@@ -20,6 +21,13 @@ from tailtag_simulator.pool import (
 from tailtag_simulator.smoke import run_smoke
 
 LAUNCHER_COMMAND = ["make", "-s", "--no-print-directory", "api-sim-pool-ssh"]
+FIXTURE_LAUNCHER_COMMAND = [
+    "make",
+    "-s",
+    "--no-print-directory",
+    "api-sim-fixture-ssh",
+]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _prompt_hidden(prompt: str) -> str:
@@ -33,7 +41,12 @@ def _prompt_hidden(prompt: str) -> str:
 
 def _launcher() -> LauncherChannel:
     """The pool launcher, from the repository root; only host-side pool commands call it."""
-    return LauncherChannel(LAUNCHER_COMMAND, cwd=Path(__file__).resolve().parents[3])
+    return LauncherChannel(LAUNCHER_COMMAND, cwd=REPOSITORY_ROOT)
+
+
+def _fixture_launcher() -> FixtureLauncherChannel:
+    """The fixture launcher, from the repository root; only the host-side fixture run calls it."""
+    return FixtureLauncherChannel(FIXTURE_LAUNCHER_COMMAND, cwd=REPOSITORY_ROOT)
 
 
 def _prompt_token() -> str:
@@ -63,7 +76,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     readmit.add_argument("--index", required=True, type=int)
     pool_smoke = commands.add_parser("pool-smoke", help="run the pool smoke on Staging")
     pool_smoke.add_argument("--count", required=True, type=int)
-    for each in (provision, status, readmit, pool_smoke):
+    fixture_smoke = commands.add_parser(
+        "fixture-smoke", help="run the fixture smoke on Staging"
+    )
+    fixture_smoke.add_argument("--owners", type=int, default=2)
+    fixture_smoke.add_argument("--fursuits", type=int, default=1)
+    fixture_smoke.add_argument("--catchers", type=int, default=2)
+    for each in (provision, status, readmit, pool_smoke, fixture_smoke):
         each.add_argument("--pool", required=True, type=validate_pool_name)
     args = parser.parse_args(argv)
     for name in ("httpx", "httpcore"):  # their INFO lines carry full request URLs
@@ -77,6 +96,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                     int(args.count),
                     prompt_secret=_prompt_secret,
                     channel=_launcher(),
+                    emit=_emit,
+                )
+            )
+        if args.command == "fixture-smoke":
+            return asyncio.run(
+                run_fixture_smoke(
+                    str(args.pool),
+                    int(args.owners),
+                    int(args.fursuits),
+                    int(args.catchers),
+                    prompt_secret=_prompt_secret,
+                    lease_channel=_launcher(),
+                    fixture_channel=_fixture_launcher(),
                     emit=_emit,
                 )
             )
