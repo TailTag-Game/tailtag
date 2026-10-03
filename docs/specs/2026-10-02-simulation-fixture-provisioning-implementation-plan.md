@@ -9,11 +9,10 @@ fixes interfaces. The spec stays authoritative for behavior.
 Scope: STANDARD EXPANDED. Assurance: SECURITY, DATA INTEGRITY, MIGRATION.
 Completed: refinement (G1 to G13, AC6 amended), reconnaissance, spec and plan
 (approved 2026-10-02), unit A and unit B (tests, implementation, review),
-whole-change review. Current: pull request.
-Pending:
-- maintainer adds fixture images
-- maintainer Staging rollout: controlled promotion with the migration, then
-  `sim-fixture-smoke` (F-14)
+whole-change review, merge as `79a43db` (#285) with one maintainer fixture
+image, and the maintainer Staging proof (F-14, passed 2026-10-03; recorded in the
+spec). Pending: none for #220. The response-size margin at five fursuits per
+owner remains unconfirmed on Staging.
 
 Unit A review dispositions (no BLOCKER, HIGH, or MEDIUM):
 
