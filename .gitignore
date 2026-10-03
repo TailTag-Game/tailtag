@@ -14,3 +14,6 @@
 /scripts/__pycache__/
 /services/api/.media/
 skills-lock.json
+
+# Local ticket refinement notes
+/.refinement/
