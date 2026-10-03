@@ -36,7 +36,12 @@ from tailtag_simulator.fixtures import (
     FixtureChannel,
     run_provisioned,
 )
-from tailtag_simulator.images import gif_bytes, non_image_bytes, oversized_png
+from tailtag_simulator.images import (
+    content_type,
+    gif_bytes,
+    non_image_bytes,
+    oversized_png,
+)
 from tailtag_simulator.phases import ME_PATH
 from tailtag_simulator.pool import PROFILE_PATH, LeaseChannel
 from tailtag_simulator.smoke import stage
@@ -179,11 +184,9 @@ async def _step(
 
 
 def _upload(image: bytes) -> Upload:
-    if image.startswith(b"\x89PNG"):
-        return Upload("image.png", image, "image/png")
-    if image.startswith(b"\xff\xd8"):
-        return Upload("image.jpg", image, "image/jpeg")
-    return Upload("image.webp", image, "image/webp")
+    """A valid image upload; `load_fixture_images` only yields known signatures."""
+    kind = content_type(image) or "application/octet-stream"
+    return Upload(f"image.{kind.rpartition('/')[2]}", image, kind)
 
 
 # -- the run state and the owner calls every journey shares ------------------------

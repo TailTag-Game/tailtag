@@ -61,20 +61,37 @@ def fallback_pngs() -> tuple[bytes, bytes]:
     return _solid_png(200, 60, 60), _solid_png(60, 60, 200)
 
 
-def load_fixture_images(directory: Path) -> tuple[bytes, bytes]:
-    """Images A and B: the first two files of the folder in filename order, cycling.
+def content_type(image: bytes) -> str | None:
+    """The upload content type for a PNG, JPEG, or WebP signature, else None."""
+    if image.startswith(_PNG_SIGNATURE):
+        return "image/png"
+    if image.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if image[:4] == b"RIFF" and image[8:12] == b"WEBP":
+        return "image/webp"
+    return None
 
-    A folder with no image files, or one that cannot be read, gives the generated
-    fallback instead of an error.
+
+def load_fixture_images(directory: Path) -> tuple[bytes, bytes]:
+    """Images A and B: the first two images of the folder in filename order, cycling.
+
+    Only files with an image suffix and a PNG, JPEG, or WebP signature count. A folder
+    with none, or one that cannot be read, gives the generated fallback instead of an
+    error.
     """
     try:
-        files = sorted(
+        paths = sorted(
             path
             for path in directory.iterdir()
             if path.suffix.lower() in _IMAGE_SUFFIXES and path.is_file()
         )
-        if files:
-            return files[0].read_bytes(), files[1 % len(files)].read_bytes()
+        images = [
+            image
+            for image in (path.read_bytes() for path in paths)
+            if content_type(image)
+        ]
+        if images:
+            return images[0], images[1 % len(images)]
     except OSError:
         pass
     return fallback_pngs()

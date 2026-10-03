@@ -7,7 +7,8 @@ Names this file relies on, all in `tailtag_simulator.images` and stdlib-only:
     oversized_png() -> bytes              a valid 5001x5001 1-bit PNG
     fallback_pngs() -> tuple[bytes, bytes]   two distinct small valid PNGs
     load_fixture_images(directory: Path) -> tuple[bytes, bytes]
-        images A and B: the first two files in sorted filename order, cycling, or
+        images A and B: the first two image files (by signature) in sorted filename
+        order, cycling, or
         `fallback_pngs()` when the folder is empty or cannot be read
 """
 
@@ -73,17 +74,22 @@ def test_fallback_images_are_two_distinct_valid_pngs() -> None:
 @pytest.mark.parametrize(
     ("names", "expected"),
     [
-        (["b.png", "c.png", "a.png"], (b"a", b"b")),
-        (["only.png"], (b"o", b"o")),
+        (["b.png", "c.png", "a.png"], ("a", "b")),
+        (["only.png"], ("o", "o")),
+        # "junk.png" has an image suffix but no image signature, so it is skipped
+        (["junk.png", "k.png"], ("k", "k")),
     ],
 )
 def test_fixture_images_come_from_sorted_filenames_cycling(
-    tmp_path: Path, names: list[str], expected: tuple[bytes, bytes]
+    tmp_path: Path, names: list[str], expected: tuple[str, str]
 ) -> None:
     for name in names:
-        (tmp_path / name).write_bytes(name[0].encode())
+        signature = b"" if name.startswith("junk") else PNG_SIGNATURE
+        (tmp_path / name).write_bytes(signature + name[0].encode())
 
-    assert load_fixture_images(tmp_path) == expected
+    assert load_fixture_images(tmp_path) == tuple(
+        PNG_SIGNATURE + letter.encode() for letter in expected
+    )
 
 
 @pytest.mark.parametrize("folder", ["empty", "missing"])

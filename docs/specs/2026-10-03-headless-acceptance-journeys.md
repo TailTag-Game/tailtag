@@ -167,8 +167,9 @@ come from each owner's `GET /api/fursuits/`, sorted by ID.
 
 - **Valid images.** Images A and B come from the committed #220 fixture folder
   `services/api/simulation_fixtures/images/`, in sorted filename order, cycling. The
-  host CLI reads them as plain data. That is not an import. When the folder is empty
-  or unreadable, the CLI falls back to two distinct deterministic PNGs that the
+  host CLI reads them as plain data. That is not an import. Only files with a PNG,
+  JPEG, or WebP signature count, and the upload content type comes from that
+  signature. When the folder has none or is unreadable, the CLI falls back to two distinct deterministic PNGs that the
   simulator generates with the standard library.
 - **Rejection files.** These are generated in the simulator package:
   - a minimal GIF
