@@ -21,6 +21,8 @@ this order:
 4. **Approved:** the full #200 amendment (D1 and D2, with the cookie carrier
    named), the #218 amendment (D5), and the lease table (D7). The acceptance
    contract below is frozen.
+5. **Implemented** in #282 (merged as `194d630`) and **rolled out to Staging
+   on 2026-10-03.** See "Staging rollout" below.
 
 Execution: STANDARD EXPANDED. Assurance: SECURITY (Staging authorized-party
 boundary, Clerk secret handling, session material), DATA INTEGRITY (concurrent
@@ -341,6 +343,34 @@ Pool identities never enroll in the #204 baseline Convention or interact with
 baseline fursuits, and are never registered as reset identities. Run state
 lives only in #220 run Conventions.
 
+## Staging rollout (2026-10-03)
+
+Maintainer-run, in the documented order. Sanitized evidence only.
+
+1. `simulator.staging.tailtag.app` had no A, AAAA, or CNAME record, and no
+   wildcard covered names under `staging.tailtag.app`.
+2. Staging `CLERK_AUTHORIZED_PARTIES` was staged as the ordered pair with
+   `--skip-deploys`.
+3. Controlled promotion of `194d630f9421251547449453ef399308bb32a677` produced
+   deployment `95f535ca-c4b7-4541-8749-56509899e810`
+   ([record](../development/staging-deployments/95f535ca-c4b7-4541-8749-56509899e810.json)).
+   Deployment, `simulation_pool` migration, startup, readiness, identity, and
+   smoke all `SUCCEEDED`; final state `ACTIVE`. Readiness passing under the new
+   code confirms the pair (P-11).
+4. `make sim-pool-provision POOL=p1 SIZE=10` printed
+   `PASS provision created=10`. Staging Clerk accepted the marked users and the
+   `@simulator.staging.tailtag.app` email identifier (P-1, D6).
+5. `make sim-pool-smoke POOL=p1 COUNT=2` passed target, setup, simulation,
+   reconciliation, and release. Staging `/api/me/` accepted tooling-origin
+   tokens, each identity stayed authenticated across more than one token
+   lifetime, and profiles were onboarded (P-3, P-4, P-5).
+6. `make sim-pool-status POOL=p1` printed
+   `PASS status total=10 available=10 leased=0 quarantined=0`.
+
+Follow-ups recorded in the implementation plan's review dispositions remain
+open, chiefly updating the retired-generation pins in
+`scripts/api_staging_auth_smoke.py`.
+
 ## Uncertainty register
 
 | Question | Impact if wrong | Resolution | Status |
@@ -352,7 +382,7 @@ lives only in #220 run Conventions.
 | Will field-beta participants ever sign in to Staging Clerk? | D1 and D2 become unacceptable | Maintainer decision | Resolved: no, field beta gets its own environment |
 | Does Clerk offer scoped Backend API keys? | A narrower secret than the full instance key | Clerk docs | Open |
 | Frontend API refresh rate limits | Caps pool size | Measure before scaling past 1000 | Open |
-| Staging instance's enabled identifiers | Changes D6 identifiers | Inspect Staging Clerk configuration | Open |
+| Staging instance's enabled identifiers | Changes D6 identifiers | Inspect Staging Clerk configuration | Resolved: email identifier accepted at provisioning (2026-10-03) |
 | How #228's external host reaches the privileged lease commands | D7 channel | #228 design | Deferred |
 
 ## Acceptance contract (frozen 2026-10-02)
