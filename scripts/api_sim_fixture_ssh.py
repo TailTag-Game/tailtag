@@ -36,6 +36,10 @@ _COUNT_KEYS: Final = frozenset(
     {"convention", "enrollment", "fursuit", "activation", "quarantined"}
 )
 _RUN_STATUSES: Final = frozenset({"provisioned", "failed"})
+# A provision near the configuration bounds stores up to 250 images remotely, so the
+# SSH call needs more than the shared 30-second default. It stays below the
+# simulator's 180-second launcher limit, leaving room for the preflight calls.
+_SSH_TIMEOUT_SECONDS: Final = 150
 _FAILURE: Final[dict[str, object]] = {"result": "FAIL_LAUNCHER", "data": {}}
 
 # The remote program binds to the deployed code and prints one fixed JSON
@@ -136,6 +140,7 @@ def _execute(request: dict[str, object]) -> dict[str, object]:
             _BOOTSTRAP,
         ],
         input=json.dumps({**request, "identity": identity}, separators=(",", ":")),
+        timeout=_SSH_TIMEOUT_SECONDS,
     )
     if execution.returncode != 0:
         raise ValueError

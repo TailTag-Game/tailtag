@@ -136,12 +136,12 @@ def test_one_pinned_ssh_call_carries_the_request_on_stdin_only(
     exit_code: int,
 ) -> None:
     """F-7/F-8: every fixture result is relayed once; no private data in argv."""
-    executions: list[tuple[list[str], str | None]] = []
+    executions: list[tuple[list[str], str | None, int | None]] = []
 
     def run(
-        arguments: list[str], *, input: str | None = None
+        arguments: list[str], *, input: str | None = None, timeout: int | None = None
     ) -> subprocess.CompletedProcess[str]:
-        executions.append((arguments, input))
+        executions.append((arguments, input, timeout))
         return completed(remote)
 
     calls = install_seams(launcher, monkeypatch, run)
@@ -151,7 +151,9 @@ def test_one_pinned_ssh_call_carries_the_request_on_stdin_only(
     assert code == exit_code
     assert json.loads(output) == remote
     assert calls == ["railway", "preflight", "target", "instance", "run"]
-    ((arguments, stdin_text),) = executions
+    ((arguments, stdin_text, timeout),) = executions
+    # Long enough for a provision at the bounds, within the simulator's 180 s cap.
+    assert timeout == 150
     assert arguments[:-1] == [
         "railway",
         "ssh",
