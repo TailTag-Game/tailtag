@@ -139,16 +139,19 @@ def _validate_staging_phase(source_sha: str | None) -> None:
     else:
         origin = f"https://{_STAGING_HOST}"
     host = origin.removeprefix("https://")
-    expected_party = (
-        "https://accounts.staging-next.tailtag.app"
+    expected_parties = (
+        ("https://accounts.staging-next.tailtag.app",)
         if phase == "candidate"
-        else "https://accounts.staging.tailtag.app"
+        else (
+            "https://accounts.staging.tailtag.app",
+            "https://simulator.staging.tailtag.app",
+        )
     )
     if (
         len(settings.ALLOWED_HOSTS) != 2
         or set(settings.ALLOWED_HOSTS) != {host, _RAILWAY_HEALTHCHECK_HOST}
         or settings.CSRF_TRUSTED_ORIGINS != [origin]
-        or settings.CLERK_AUTHENTICATION.authorized_parties != (expected_party,)
+        or settings.CLERK_AUTHENTICATION.authorized_parties != expected_parties
     ):
         raise ValueError
 

@@ -29,6 +29,7 @@ override STAGING_REGISTRY_RECONCILE_REMOTE_SCRIPT := $(REPOSITORY_ROOT)/scripts/
 override STAGING_EMERGENCY_OPERATOR_SSH_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_emergency_operator_ssh.py
 override STAGING_EMERGENCY_DECOMMISSION_SSH_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_emergency_operator_decommission_ssh.py
 override DEVELOPMENT_DELIVERY_EVENT_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_development_delivery_event.py
+override SIM_POOL_SSH_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_sim_pool_ssh.py
 override STAGING_RESET_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_reset.py
 override STAGING_RESET_SSH_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_reset_ssh.py
 override STAGING_RESTORE_SCRIPT := $(REPOSITORY_ROOT)/scripts/api_staging_restore_drill.py
@@ -64,6 +65,7 @@ override SEMGREP_TARGETS := $(REPOSITORY_ROOT)/services/api \
 	$(STAGING_EMERGENCY_OPERATOR_SSH_SCRIPT) \
 	$(STAGING_EMERGENCY_DECOMMISSION_SSH_SCRIPT) \
 	$(DEVELOPMENT_DELIVERY_EVENT_SCRIPT) \
+	$(SIM_POOL_SSH_SCRIPT) \
 	$(STAGING_RESET_SCRIPT) \
 	$(STAGING_RESET_SSH_SCRIPT) \
 	$(STAGING_RESTORE_SCRIPT) \
@@ -99,7 +101,7 @@ endef
 	api-staging-restore-drill \
 	api-format-check api-lint-check api-type-check api-django-check \
 	api-schema-check api-gunicorn-check \
-	sim-setup sim-check sim-smoke sim-image sim-format-check sim-lint-check sim-type-check sim-test sim-semgrep-check
+	sim-setup sim-check sim-smoke sim-pool-provision sim-pool-status sim-pool-readmit sim-pool-smoke sim-image sim-format-check sim-lint-check sim-type-check sim-test sim-semgrep-check
 
 help: ## List the canonical backend developer commands.
 	@awk 'BEGIN { print "TailTag backend commands:" } /^[a-zA-Z0-9_-]+:.*##/ { target = $$1; sub(/:.*/, "", target); if (target != "help") { description = $$0; sub(/^.*##[[:space:]]*/, "", description); printf "  make %-20s %s\n", target, description } }' $(MAKEFILE_LIST)
@@ -178,6 +180,9 @@ api-staging-reset-provision: ## Provision the Staging reset sentinel after expli
 api-staging-reset-provision-ssh: ## Provision the replacement Staging reset sentinel on the pinned Railway instance.
 	PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_staging_reset_ssh --provision --confirm provision-tailtag-staging-reset
 
+api-sim-pool-ssh: ## Run one synthetic identity pool request (JSON on stdin) through the pinned Staging instance.
+	PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_sim_pool_ssh
+
 api-staging-restore-drill: ## Run the confirmed isolated Staging PostgreSQL backup restore drill.
 	PYTHONPATH="$(REPOSITORY_ROOT):$(REPOSITORY_ROOT)/$(API_DIRECTORY)" $(UV) run --project $(API_DIRECTORY) --locked --no-sync python -m scripts.api_staging_restore_drill --confirm restore-tailtag-staging-backup
 
@@ -191,11 +196,11 @@ api-check: api-format-check api-lint-check api-type-check api-semgrep-check api-
 
 api-format-check:
 	@printf '%s\n' 'Checking Ruff formatting...'
-	$(API_UV) run --locked --no-sync ruff format --check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(REPLACEMENT_AUTH_SMOKE_SCRIPT) $(STAGING_AUTH_SMOKE_SCRIPT) $(ENVIRONMENT_FINGERPRINT_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(DEPLOYMENT_IDENTITY_SCRIPT) $(STAGING_PROMOTION_SCRIPT) $(STAGING_PREFLIGHT_SCRIPT) $(STAGING_OPERATOR_INSPECTOR_SCRIPT) $(STAGING_OPERATOR_MATRIX_SCRIPT) $(STAGING_OPERATOR_MATRIX_SSH_SCRIPT) $(STAGING_FIXTURE_DIAGNOSE_SCRIPT) $(STAGING_MANAGED_AUTH_DIAGNOSE_SCRIPT) $(STAGING_MANAGED_AUTH_DIAGNOSE_SSH_SCRIPT) $(STAGING_MANAGED_OPERATOR_REPLACE_SSH_SCRIPT) $(STAGING_MANAGED_PASSWORD_ROTATE_SSH_SCRIPT) $(STAGING_OPERATOR_INSPECT_SSH_SCRIPT) $(STAGING_OPERATOR_LIFECYCLE_SSH_SCRIPT) $(STAGING_OPERATOR_RESTART_SSH_SCRIPT) $(STAGING_REGISTRY_RECONCILE_SCRIPT) $(STAGING_REGISTRY_RECONCILE_REMOTE_SCRIPT) $(STAGING_EMERGENCY_OPERATOR_SSH_SCRIPT) $(STAGING_EMERGENCY_DECOMMISSION_SSH_SCRIPT) $(DEVELOPMENT_DELIVERY_EVENT_SCRIPT) $(STAGING_RESET_SCRIPT) $(STAGING_RESET_SSH_SCRIPT) $(STAGING_RESTORE_SCRIPT) $(STAGING_RESTORE_INTEGRITY_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
+	$(API_UV) run --locked --no-sync ruff format --check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(REPLACEMENT_AUTH_SMOKE_SCRIPT) $(STAGING_AUTH_SMOKE_SCRIPT) $(ENVIRONMENT_FINGERPRINT_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(DEPLOYMENT_IDENTITY_SCRIPT) $(STAGING_PROMOTION_SCRIPT) $(STAGING_PREFLIGHT_SCRIPT) $(STAGING_OPERATOR_INSPECTOR_SCRIPT) $(STAGING_OPERATOR_MATRIX_SCRIPT) $(STAGING_OPERATOR_MATRIX_SSH_SCRIPT) $(STAGING_FIXTURE_DIAGNOSE_SCRIPT) $(STAGING_MANAGED_AUTH_DIAGNOSE_SCRIPT) $(STAGING_MANAGED_AUTH_DIAGNOSE_SSH_SCRIPT) $(STAGING_MANAGED_OPERATOR_REPLACE_SSH_SCRIPT) $(STAGING_MANAGED_PASSWORD_ROTATE_SSH_SCRIPT) $(STAGING_OPERATOR_INSPECT_SSH_SCRIPT) $(STAGING_OPERATOR_LIFECYCLE_SSH_SCRIPT) $(STAGING_OPERATOR_RESTART_SSH_SCRIPT) $(STAGING_REGISTRY_RECONCILE_SCRIPT) $(STAGING_REGISTRY_RECONCILE_REMOTE_SCRIPT) $(STAGING_EMERGENCY_OPERATOR_SSH_SCRIPT) $(STAGING_EMERGENCY_DECOMMISSION_SSH_SCRIPT) $(DEVELOPMENT_DELIVERY_EVENT_SCRIPT) $(SIM_POOL_SSH_SCRIPT) $(STAGING_RESET_SCRIPT) $(STAGING_RESET_SSH_SCRIPT) $(STAGING_RESTORE_SCRIPT) $(STAGING_RESTORE_INTEGRITY_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
 
 api-lint-check:
 	@printf '%s\n' 'Running Ruff lint...'
-	$(API_UV) run --locked --no-sync ruff check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(REPLACEMENT_AUTH_SMOKE_SCRIPT) $(STAGING_AUTH_SMOKE_SCRIPT) $(ENVIRONMENT_FINGERPRINT_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(DEPLOYMENT_IDENTITY_SCRIPT) $(STAGING_PROMOTION_SCRIPT) $(STAGING_PREFLIGHT_SCRIPT) $(STAGING_OPERATOR_INSPECTOR_SCRIPT) $(STAGING_OPERATOR_MATRIX_SCRIPT) $(STAGING_OPERATOR_MATRIX_SSH_SCRIPT) $(STAGING_FIXTURE_DIAGNOSE_SCRIPT) $(STAGING_MANAGED_AUTH_DIAGNOSE_SCRIPT) $(STAGING_MANAGED_AUTH_DIAGNOSE_SSH_SCRIPT) $(STAGING_MANAGED_OPERATOR_REPLACE_SSH_SCRIPT) $(STAGING_MANAGED_PASSWORD_ROTATE_SSH_SCRIPT) $(STAGING_OPERATOR_INSPECT_SSH_SCRIPT) $(STAGING_OPERATOR_LIFECYCLE_SSH_SCRIPT) $(STAGING_OPERATOR_RESTART_SSH_SCRIPT) $(STAGING_REGISTRY_RECONCILE_SCRIPT) $(STAGING_REGISTRY_RECONCILE_REMOTE_SCRIPT) $(STAGING_EMERGENCY_OPERATOR_SSH_SCRIPT) $(STAGING_EMERGENCY_DECOMMISSION_SSH_SCRIPT) $(DEVELOPMENT_DELIVERY_EVENT_SCRIPT) $(STAGING_RESET_SCRIPT) $(STAGING_RESET_SSH_SCRIPT) $(STAGING_RESTORE_SCRIPT) $(STAGING_RESTORE_INTEGRITY_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
+	$(API_UV) run --locked --no-sync ruff check . $(SMOKE_SCRIPT) $(AUTH_SMOKE_SCRIPT) $(REPLACEMENT_AUTH_SMOKE_SCRIPT) $(STAGING_AUTH_SMOKE_SCRIPT) $(ENVIRONMENT_FINGERPRINT_SCRIPT) $(MEDIA_STORAGE_SMOKE_SCRIPT) $(DEPLOYMENT_IDENTITY_SCRIPT) $(STAGING_PROMOTION_SCRIPT) $(STAGING_PREFLIGHT_SCRIPT) $(STAGING_OPERATOR_INSPECTOR_SCRIPT) $(STAGING_OPERATOR_MATRIX_SCRIPT) $(STAGING_OPERATOR_MATRIX_SSH_SCRIPT) $(STAGING_FIXTURE_DIAGNOSE_SCRIPT) $(STAGING_MANAGED_AUTH_DIAGNOSE_SCRIPT) $(STAGING_MANAGED_AUTH_DIAGNOSE_SSH_SCRIPT) $(STAGING_MANAGED_OPERATOR_REPLACE_SSH_SCRIPT) $(STAGING_MANAGED_PASSWORD_ROTATE_SSH_SCRIPT) $(STAGING_OPERATOR_INSPECT_SSH_SCRIPT) $(STAGING_OPERATOR_LIFECYCLE_SSH_SCRIPT) $(STAGING_OPERATOR_RESTART_SSH_SCRIPT) $(STAGING_REGISTRY_RECONCILE_SCRIPT) $(STAGING_REGISTRY_RECONCILE_REMOTE_SCRIPT) $(STAGING_EMERGENCY_OPERATOR_SSH_SCRIPT) $(STAGING_EMERGENCY_DECOMMISSION_SSH_SCRIPT) $(DEVELOPMENT_DELIVERY_EVENT_SCRIPT) $(SIM_POOL_SSH_SCRIPT) $(STAGING_RESET_SCRIPT) $(STAGING_RESET_SSH_SCRIPT) $(STAGING_RESTORE_SCRIPT) $(STAGING_RESTORE_INTEGRITY_SCRIPT) $(CLERK_DEVELOPMENT_SESSION_SCRIPT) $(CI_RELEVANCE_SCRIPT) $(SEMGREP_VALIDATOR)
 
 api-type-check:
 	@printf '%s\n' 'Running strict Pyright...'
@@ -234,6 +239,22 @@ sim-check: sim-format-check sim-lint-check sim-type-check sim-test sim-semgrep-c
 sim-smoke: ## Run the manual authenticated smoke: TARGET=local|staging [BASE_URL=...].
 	@test -n "$(TARGET)" || { printf '%s\n' 'TARGET is required: local or staging.' >&2; exit 2; }
 	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator smoke --target '$(TARGET)' $(if $(BASE_URL),--base-url '$(BASE_URL)')
+
+sim-pool-provision: ## Provision or expand the Staging identity pool: POOL=name SIZE=n (host only).
+	@test -n "$(POOL)" -a -n "$(SIZE)" || { printf '%s\n' 'POOL and SIZE are required.' >&2; exit 2; }
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator pool provision --pool '$(POOL)' --size '$(SIZE)'
+
+sim-pool-status: ## Show Staging identity pool counts: POOL=name (host only).
+	@test -n "$(POOL)" || { printf '%s\n' 'POOL is required.' >&2; exit 2; }
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator pool status --pool '$(POOL)'
+
+sim-pool-readmit: ## Re-admit a repaired quarantined identity: POOL=name INDEX=n (host only).
+	@test -n "$(POOL)" -a -n "$(INDEX)" || { printf '%s\n' 'POOL and INDEX are required.' >&2; exit 2; }
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator pool readmit --pool '$(POOL)' --index '$(INDEX)'
+
+sim-pool-smoke: ## Run the Staging identity pool smoke: POOL=name COUNT=n (host only).
+	@test -n "$(POOL)" -a -n "$(COUNT)" || { printf '%s\n' 'POOL and COUNT are required.' >&2; exit 2; }
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator pool-smoke --pool '$(POOL)' --count '$(COUNT)'
 
 sim-image: ## Build the simulator container image (tailtag-simulator:local).
 	docker build -t $(SIM_IMAGE) $(SIMULATOR_DIRECTORY)

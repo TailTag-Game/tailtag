@@ -197,7 +197,10 @@ def configured_deployed_settings(clerk_public_key: str) -> dict[str, object]:
         "CSRF_COOKIE_SECURE": True,
         "CLERK_AUTHENTICATION": ClerkVerificationConfiguration(
             jwt_key=clerk_public_key,
-            authorized_parties=("https://accounts.staging.tailtag.app",),
+            authorized_parties=(
+                "https://accounts.staging.tailtag.app",
+                "https://simulator.staging.tailtag.app",
+            ),
         ),
         "MEDIA_STORAGE_CONFIGURATION": DEPLOYED_MEDIA_CONFIGURATION,
         "STORAGES": DEPLOYED_STORAGES,

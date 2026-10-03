@@ -28,6 +28,7 @@ INSTALLED_APPS = [
     "operator_audit.apps.OperatorAuditConfig",
     "profiles.apps.ProfilesConfig",
     "rehearsal.apps.RehearsalConfig",
+    "simulation_pool.apps.SimulationPoolConfig",
 ]
 
 MIDDLEWARE = [

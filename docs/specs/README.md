@@ -6,6 +6,7 @@ Small, reversible changes with clear acceptance criteria do not need a spec. Spe
 
 ## Current V0 specifications
 
+- [Synthetic simulation identity pool](2026-10-02-synthetic-identity-pool.md) — #219 durable Staging synthetic identities, ticket and cookie token path, leases, and #200/#218 amendments
 - [Field-beta observability validation](2026-10-01-field-beta-observability-validation.md) — #217 Staging walkthrough, canary absence check, M6/D6/D7/D10, and #199 signal handoff
 - [Field-beta operations dashboard and alerts](2026-09-30-field-beta-operations-dashboard.md) — #216 Staging Sentry dashboard, sustained count-based monitors, and swap rehearsal
 - [Field-beta telemetry retention and operator access](2026-09-30-telemetry-retention-access.md) — #215 provider-bounded retention, operator roles, and public-safe evidence preservation

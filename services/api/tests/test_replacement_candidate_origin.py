@@ -515,11 +515,41 @@ def test_deployed_staging_readiness_accepts_only_matching_exact_phase_profile(
         ("canonical", {"CSRF_TRUSTED_ORIGINS": [CANONICAL_ORIGIN, CANDIDATE_ORIGIN]}),
         ("candidate", {"CLERK_PARTIES": ("https://accounts.staging.tailtag.app",)}),
         (
+            "candidate",
+            {
+                "CLERK_PARTIES": (
+                    "https://accounts.staging-next.tailtag.app",
+                    "https://simulator.staging.tailtag.app",
+                )
+            },
+        ),
+        (
             "canonical",
             {
                 "CLERK_PARTIES": (
                     "https://accounts.staging.tailtag.app",
                     "https://accounts.staging-next.tailtag.app",
+                )
+            },
+        ),
+        ("canonical", {"CLERK_PARTIES": ("https://accounts.staging.tailtag.app",)}),
+        ("canonical", {"CLERK_PARTIES": ("https://simulator.staging.tailtag.app",)}),
+        (
+            "canonical",
+            {
+                "CLERK_PARTIES": (
+                    "https://simulator.staging.tailtag.app",
+                    "https://accounts.staging.tailtag.app",
+                )
+            },
+        ),
+        (
+            "canonical",
+            {
+                "CLERK_PARTIES": (
+                    "https://accounts.staging.tailtag.app",
+                    "https://simulator.staging.tailtag.app",
+                    "https://simulator.staging-next.tailtag.app",
                 )
             },
         ),
@@ -532,7 +562,12 @@ def test_deployed_staging_readiness_accepts_only_matching_exact_phase_profile(
         "candidate-csrf-swap",
         "extra-csrf",
         "candidate-clerk-swap",
-        "extra-clerk-party",
+        "candidate-rejects-tooling-origin",
+        "canonical-wrong-second-party",
+        "canonical-old-single-party",
+        "canonical-missing-portal-party",
+        "canonical-reordered-parties",
+        "canonical-extra-party",
     ),
 )
 def test_deployed_staging_readiness_denies_phase_swaps_and_extra_origins(
