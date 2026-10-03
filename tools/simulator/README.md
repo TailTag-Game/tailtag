@@ -232,9 +232,14 @@ make sim-fixture-smoke POOL=p1 OWNERS=4 FURSUITS=3 CATCHERS=10
   it used now owns fursuits and enrollments. The next `provision` that includes one
   quarantines it (`FAIL_DIRTY`). A `pool readmit` makes the slot allocatable again but
   does not remove its fixtures, so the identity keeps failing `provision` with
-  `FAIL_DIRTY` until #223 cleanup removes them. Plan a fresh pool or enough spare
-  identities for repeated runs. `pool-smoke` is unaffected, since it
-  never provisions.
+  `FAIL_DIRTY` until #223 cleanup removes them.
+- **Repeated runs on one pool:** a run releases its identities as available, and
+  allocation hands out the lowest available indexes first. The next `fixture-smoke`
+  on the same pool therefore gets those dirty identities back, fails with
+  `FAIL_DIRTY`, and quarantines them. The run after that uses the next fresh
+  indexes. Until #223 lands, expect each repeat to fail once before it passes, or
+  use a separate pool for each run. `pool-smoke` is unaffected, since it never
+  provisions.
 - **Relationship to #204:** the rehearsal baseline stays untouched. A fixture run never
   reads or changes the baseline Convention, its users, its fursuits, or its media key,
   and pool identities stay disjoint from them. Every run fursuit gets its own newly

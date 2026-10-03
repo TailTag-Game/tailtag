@@ -25,9 +25,9 @@ on 2026-10-02, including the design additions above the acceptance contract.
 Progress: refinement, spec, and plan are approved. Unit A (API ledger, provisioning,
 remote entry, relay) is implemented and reviewed. Unit B (simulator fixture channel,
 `fixture-smoke`, Make target, and the
-[simulator README](../../tools/simulator/README.md)) is implemented and awaits review.
-Pending: the whole-change review, the maintainer adding fixture images, and the
-maintainer Staging rollout (F-14, recorded at the end of this spec).
+[simulator README](../../tools/simulator/README.md)) is implemented and reviewed. The
+whole-change review is complete. Pending: the maintainer adding fixture images and
+the maintainer Staging rollout (F-14, recorded at the end of this spec).
 
 ## Objective
 
@@ -238,7 +238,10 @@ failure lines. Four points belong with the design:
 - **Quarantine until #223.** A successful run leaves its fixtures in place. Every
   identity it used is dirty, so the next `provision` quarantines it (`FAIL_DIRTY`)
   until #223 cleanup removes its fixtures. A readmit only makes the slot
-  allocatable again; it does not clear the fixtures.
+  allocatable again; it does not clear the fixtures. Released identities return
+  as available and are allocated lowest index first, so the next run on the same
+  pool fails once with `FAIL_DIRTY` (quarantining them) before a later run uses
+  fresh identities. Use a separate pool per run to avoid that failure.
 - **No heartbeat.** `fixture-smoke` sends no lease heartbeat. It provisions after
   every identity is onboarded and before SIMULATION, and the 1800-second lease covers
   the run, so provisioning's slot locks and lease updates never interleave.

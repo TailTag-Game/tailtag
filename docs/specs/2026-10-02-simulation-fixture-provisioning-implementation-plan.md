@@ -8,10 +8,9 @@ fixes interfaces. The spec stays authoritative for behavior.
 
 Scope: STANDARD EXPANDED. Assurance: SECURITY, DATA INTEGRITY, MIGRATION.
 Completed: refinement (G1 to G13, AC6 amended), reconnaissance, spec and plan
-(approved 2026-10-02), unit A and unit B (tests, implementation, review).
-Current: whole-change review.
+(approved 2026-10-02), unit A and unit B (tests, implementation, review),
+whole-change review. Current: pull request.
 Pending:
-- whole-change review
 - maintainer adds fixture images
 - maintainer Staging rollout: controlled promotion with the migration, then
   `sim-fixture-smoke` (F-14)
@@ -49,6 +48,23 @@ Unit B review dispositions (no BLOCKER, HIGH, or MEDIUM):
 - Not verified until F-14: response size against real Staging photo URLs. The
   estimated worst case is about 2.7 KB of the 4096-byte client cap at five
   fursuits per owner. The F-14 default run uses one.
+
+Whole-change review dispositions (no BLOCKER, HIGH, or MEDIUM):
+
+- LOW-1, fixed: the docs now say that released fixture identities return to the
+  pool as available, so the next run on the same pool fails once with
+  `FAIL_DIRTY` before a later run passes. A separate pool per run avoids it.
+- LOW-2, declined: the CLI does not range-check counts before privileged work.
+  The server rejects out-of-range values with no writes and the leases are
+  released; duplicating the bounds would add a second source of truth.
+- LOW-3, deferred: no single test spans the simulator request and the relay's
+  accepted keys, because they live in separate projects. They agree today.
+- LOW-4, NIT-2, and NIT-3, fixed: stale spec status, the F-3 Semgrep note, and a
+  duplicate pending item.
+- NIT-1, kept: the `/.refinement/` ignore entry was requested by the maintainer.
+- Checked: run Conventions cannot affect #204 reset. Reset touches the baseline
+  Convention only by primary key or fixed name, and its quiescence gate counts
+  database connections, not rows.
 
 ## Review units
 
@@ -123,8 +139,10 @@ Interfaces:
   reads in the spec. RECONCILIATION checks those reads. Release always runs.
 - Simulator output: fixed stage lines, the run ID, and counts (F-8).
 
-Failure modes: SIMULATION reaching the fixture or lease channel (F-3, covered
-structurally by the existing Semgrep boundary rules); leases not released after
+Failure modes: SIMULATION reaching the fixture or lease channel (F-3, covered by
+the `FixtureSimulationContext` type, which holds only API clients, and by the
+run-ordering test; the Semgrep rules only forbid backend, Clerk, dynamic, and
+mock-transport imports); leases not released after
 a provisioning failure; a `FAIL_DIRTY` result not surfaced as a fixed stage
 line; IDs or handles in output (F-8).
 
