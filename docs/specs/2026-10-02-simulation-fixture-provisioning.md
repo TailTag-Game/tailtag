@@ -26,8 +26,9 @@ Progress: refinement, spec, and plan are approved. Unit A (API ledger, provision
 remote entry, relay) is implemented and reviewed. Unit B (simulator fixture channel,
 `fixture-smoke`, Make target, and the
 [simulator README](../../tools/simulator/README.md)) is implemented and reviewed. The
-whole-change review is complete. Pending: the maintainer adding fixture images and
-the maintainer Staging rollout (F-14, recorded at the end of this spec).
+whole-change review is complete. The change merged as `79a43db` (#285) with one
+maintainer-provided fixture image. The maintainer Staging proof (F-14) passed on
+2026-10-03 and is recorded at the end of this spec.
 
 ## Objective
 
@@ -328,6 +329,40 @@ ship in every API image, Production included, and the maintainer accepted that
 
 ## Staging proof record (F-14)
 
-Pending. This is a maintainer step after merge readiness: controlled promotion
-with the migration, then one `make sim-fixture-smoke POOL=<pool>` with the defaults.
-Record its sanitized output (result codes and counts) here.
+**Passed (2026-10-03).** Maintainer-run, in the documented order. Sanitized
+evidence only.
+
+1. The GitHub account was `FinnThePanther` and the Railway account was Finn the
+   Panther. The `api.yml` push run `37144012914` for
+   `79a43db76942b755f67a93f1db0b353e674b4af6` on `main` concluded `success`.
+2. Controlled promotion of `79a43db76942b755f67a93f1db0b353e674b4af6` produced
+   deployment `9a9d0402-468f-4d40-a7c3-2348cfbdbfdf`
+   ([record](../development/staging-deployments/9a9d0402-468f-4d40-a7c3-2348cfbdbfdf.json)).
+   Deployment, `simulation_fixtures` migration, startup, readiness, identity,
+   and smoke all `SUCCEEDED`; final state `ACTIVE`. A separate public
+   `/health/identity` read returned the same source and deployment with
+   environment `staging`.
+3. `make sim-pool-status POOL=p1` printed
+   `PASS status total=10 available=10 leased=0 quarantined=0`.
+4. `make sim-fixture-smoke POOL=p1` with the defaults (2 owners, 1 fursuit each,
+   2 catchers) printed:
+
+   ```text
+   PASS target staging source_sha=79a43db76942b755f67a93f1db0b353e674b4af6
+   RUN run_id=00fddc0a-7f60-4acf-8fd8-9dca501ae323
+   PASS setup identities=4 fursuits=2
+   PASS simulation
+   PASS reconciliation
+   PASS release
+   ```
+
+5. A ledger `status` read for that run through `make -s api-sim-fixture-ssh`
+   returned `PASS` with status `provisioned` and counts convention 1,
+   enrollment 4, fursuit 2, activation 2, matching the run.
+6. `make sim-pool-status POOL=p1` again printed
+   `PASS status total=10 available=10 leased=0 quarantined=0`. The leases were
+   released. The four identities the run used now own its fixtures, so the next
+   fixture run on `p1` quarantines them (`FAIL_DIRTY`) until #223 cleanup.
+
+Not exercised: the response-size margin at five fursuits per owner (this run
+used one).
