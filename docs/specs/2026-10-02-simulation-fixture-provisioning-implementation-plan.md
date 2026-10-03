@@ -8,12 +8,30 @@ fixes interfaces. The spec stays authoritative for behavior.
 
 Scope: STANDARD EXPANDED. Assurance: SECURITY, DATA INTEGRITY, MIGRATION.
 Completed: refinement (G1 to G13, AC6 amended), reconnaissance, spec and plan
-(approved 2026-10-02). Current: unit A. Pending:
-- units A and B, each with independent tests, implementation, and review
+(approved 2026-10-02), unit A (tests, implementation, review). Current: unit B.
+Pending:
+- unit B with independent tests, implementation, and review
 - whole-change review
 - maintainer adds fixture images
 - maintainer Staging rollout: controlled promotion with the migration, then
   `sim-fixture-smoke` (F-14)
+
+Unit A review dispositions (no BLOCKER, HIGH, or MEDIUM):
+
+- LOW-1, documented in unit B: a failure at transaction commit (for example a
+  lost connection) surfaces as `FAIL_BOOTSTRAP`. It writes no failed run and
+  leaves any stored images for #223, because the commit outcome is unknown.
+- LOW-2, fixed: `provision` dropped its `storage` keyword. Fursuit images
+  always use the default media storage, so compensation must too.
+- LOW-3, fixed: four remote test cases that repeated service-level
+  configuration checks were removed.
+- LOW-4, declined: the dirty-identity quarantine loop stops at the first slot
+  whose lease has lapsed. The rest stay dirty and are quarantined by the next
+  provision, so it heals itself.
+- The remote target check and launcher bootstrap are verbatim copies of the
+  pool versions. A future fix to either must be applied to both.
+- Unit B must provision before any heartbeat runs concurrently on the same
+  slots, so that provisioning locks and lease updates never interleave.
 
 ## Review units
 
@@ -30,7 +48,7 @@ Files:
 - tests
 
 Interfaces:
-- `services.provision(pool, run_id, owners, catchers, fursuits_per_owner, *, storage=None) -> ProvisionResult`.
+- `services.provision(pool, run_id, owners, catchers, fursuits_per_owner) -> ProvisionResult`.
   It returns the result code plus counts per kind, and raises nothing for the
   documented failures. The quarantine call for dirty identities commits
   independently of the rolled-back provisioning transaction.
