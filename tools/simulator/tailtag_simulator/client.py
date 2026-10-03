@@ -3,12 +3,12 @@
 import json
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from http.cookiejar import DefaultCookiePolicy
 
 import httpx
 
-MAX_RESPONSE_BYTES = 4096
+MAX_RESPONSE_BYTES = 65536  # a page of presigned image URLs is tens of KB
 REQUEST_TIMEOUT_SECONDS = 10.0
 
 
@@ -24,6 +24,15 @@ class Reply:
     body: object | None
 
 
+@dataclass(frozen=True)
+class Upload:
+    """One file part of a multipart request. The bytes never appear in a repr."""
+
+    filename: str
+    content: bytes = field(repr=False)
+    content_type: str
+
+
 class ApiClient:
     """Client bound to one validated origin, sending a bearer token when it has one.
 
@@ -31,7 +40,8 @@ class ApiClient:
     a refreshed token is always the one sent. A path that resolves to any other origin,
     such as an absolute URL taken from a response, is refused before sending. Redirects
     are never followed and any 3xx is a failure, so a bearer token cannot be sent
-    anywhere but the origin it was bound to. Responses are size-capped.
+    anywhere but the origin it was bound to. Responses are size-capped. JSON, bodiless and
+    multipart requests all go through the one `_send` path, so none escapes these rules.
     """
 
     def __init__(
@@ -43,13 +53,36 @@ class ApiClient:
         self._token_provider = token_provider
 
     async def get(self, path: str) -> Reply:
-        return await self._send("GET", path, None)
+        return await self._send("GET", path)
 
     async def put(self, path: str, body: Mapping[str, object]) -> Reply:
         return await self._send("PUT", path, body)
 
+    async def post(self, path: str, body: Mapping[str, object] | None = None) -> Reply:
+        """POST a JSON body, or no body at all when `body` is None."""
+        return await self._send("POST", path, body)
+
+    async def delete(self, path: str) -> Reply:
+        return await self._send("DELETE", path)
+
+    async def put_multipart(
+        self, path: str, data: Mapping[str, str], files: Mapping[str, Upload]
+    ) -> Reply:
+        return await self._send("PUT", path, data=data, files=files)
+
+    async def post_multipart(
+        self, path: str, data: Mapping[str, str], files: Mapping[str, Upload]
+    ) -> Reply:
+        return await self._send("POST", path, data=data, files=files)
+
     async def _send(
-        self, method: str, path: str, body: Mapping[str, object] | None
+        self,
+        method: str,
+        path: str,
+        body: Mapping[str, object] | None = None,
+        *,
+        data: Mapping[str, str] | None = None,
+        files: Mapping[str, Upload] | None = None,
     ) -> Reply:
         bound = self._client.base_url
         url = self._client.build_request(method, path).url
@@ -58,9 +91,17 @@ class ApiClient:
         headers: dict[str, str] = {}
         if self._token_provider is not None:
             headers["Authorization"] = f"Bearer {await self._token_provider()}"
+        parts = (
+            None
+            if files is None
+            else {
+                key: (upload.filename, upload.content, upload.content_type)
+                for key, upload in files.items()
+            }
+        )
         try:
             async with self._client.stream(
-                method, path, headers=headers, json=body
+                method, path, headers=headers, json=body, data=data, files=parts
             ) as response:
                 if 300 <= response.status_code < 400:
                     raise RequestFailed

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 import httpx
 import pytest
 
+from tailtag_simulator.client import MAX_RESPONSE_BYTES
 from tailtag_simulator.smoke import run_smoke
 
 TOKEN = "hdr_SECRET-1.payload_SECRET-2.sig_SECRET-3"
@@ -247,7 +248,9 @@ IDENTITY_FAILURES: dict[str, tuple[str, list[Responder]]] = {
         "staging",
         [
             lambda: httpx.Response(
-                200, content=json.dumps(identity_body("staging")) + " " * 5000
+                200,
+                content=json.dumps(identity_body("staging"))
+                + " " * (MAX_RESPONSE_BYTES + 1),
             )
         ],
     ),
