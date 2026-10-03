@@ -12,8 +12,10 @@ interfaces. The spec stays authoritative for behavior.
 - **Completed:** refinement (G1 to G12), reconnaissance, the API contract map,
   spec and plan approval (2026-10-03), independent tests, implementation, the
   deterministic gate, and one fresh review (all five verdicts PASS).
-- **Current:** PR.
-- **Pending:** maintainer Staging proof (J-13).
+- **Merged** as `cef8219` (#288), with one CodeRabbit nitpick fixed: upload content
+  types now come from image signatures.
+- **Maintainer Staging proof (J-13):** passed 2026-10-03, recorded in the spec.
+- **Pending:** none for #221.
 
 Review dispositions (no BLOCKER or HIGH):
 

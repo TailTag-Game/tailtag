@@ -22,8 +22,9 @@ The maintainer approved this spec and the
 [implementation plan](2026-10-03-headless-acceptance-journeys-implementation-plan.md)
 on 2026-10-03.
 
-Progress: tests, implementation, and review are complete, and `make sim-check`
-passes. The maintainer Staging proof (J-13) is pending.
+Progress: tests, implementation, and review are complete. The change merged as
+`cef8219` (#288). The maintainer Staging proof (J-13) passed on 2026-10-03 and is
+recorded at the end of this spec.
 
 ## Objective
 
@@ -321,4 +322,43 @@ until #223 or a manual readmit.
 
 ## Staging proof record (J-13)
 
-Pending.
+**Passed (2026-10-03).** Maintainer-run from `main` at `cef8219`. Sanitized evidence
+only.
+
+1. Staging reported `source_sha=79a43db76942b755f67a93f1db0b353e674b4af6`, the #220
+   promotion. No file under `services/api/` changed between that SHA and `cef8219`,
+   so the journeys ran against the current API code. #221 needed no promotion
+   because it changed only the simulator.
+2. `make sim-pool-provision POOL=j1 SIZE=10` printed `PASS provision created=10`.
+3. `make sim-journeys POOL=j1` printed:
+
+   ```text
+   PASS target staging source_sha=79a43db76942b755f67a93f1db0b353e674b4af6
+   RUN run_id=1c47ea72-10be-4789-b244-3c63e5e5f193
+   PASS setup identities=7 fursuits=4
+   PASS journey=unauthenticated
+   PASS journey=catch
+   PASS journey=retry
+   PASS journey=stopped_session
+   PASS journey=stale_credential
+   PASS journey=deactivated
+   PASS journey=self_catch
+   PASS journey=convention_mismatch
+   PASS journey=ineligible_catcher
+   PASS journey=not_owner
+   PASS journey=avatar
+   PASS journey=fursuit_photo
+   PASS journey=image_rejections
+   PASS journeys passed=13
+   PASS release
+   ```
+
+4. The passing `avatar`, `fursuit_photo`, and `image_rejections` journeys confirm
+   the two points the review could not verify from the diff:
+   - Staging serves `https://` presigned image URLs.
+   - httpx multipart uploads work against the API's closed multipart parser.
+
+   The real image validator rejected the generated GIF, non-image bytes, and
+   5001×5001 PNG with the expected messages.
+5. Consequence: pool `j1` now has 7 identities left dirty by run
+   `1c47ea72-10be-4789-b244-3c63e5e5f193` and 3 still clean. They stay dirty until #223 cleanup or a manual readmit.
