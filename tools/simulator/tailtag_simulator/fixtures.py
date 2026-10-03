@@ -15,7 +15,7 @@ import json
 import re
 import time
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
@@ -217,28 +217,36 @@ def reconcile_fixtures(observed: FixtureObservations, fursuits_per_owner: int) -
             raise PhaseFailed
 
 
-async def run_fixture_smoke(
+async def run_provisioned(
     pool: str,
     owners: int,
     fursuits_per_owner: int,
     catchers: int,
+    extra_identities: int,
     *,
     prompt_secret: Callable[[], str],
     lease_channel: LeaseChannel,
     fixture_channel: FixtureChannel,
     emit: Callable[[str], None],
-    clerk_transport: httpx.AsyncBaseTransport | None = None,
-    api_transport: httpx.AsyncBaseTransport | None = None,
-    clock: Callable[[], float] = time.time,
-    run_id: str | None = None,
+    clerk_transport: httpx.AsyncBaseTransport | None,
+    api_transport: httpx.AsyncBaseTransport | None,
+    clock: Callable[[], float],
+    run_id: str | None,
+    simulate_and_reconcile: Callable[[str, tuple[ApiClient, ...]], Awaitable[bool]],
 ) -> int:
-    """Run the fixture smoke on Staging and return the exit code: 0 only if all passed.
+    """The Staging run both fixture commands share: target, lease, provision, release.
 
-    Once an allocation might have leased slots, RELEASE always runs, even after a
-    failure or an interrupt. The fixtures themselves stay in place for #222 and #223.
+    Leases `owners + catchers + extra_identities` identities and provisions only the
+    first `owners + catchers`; the extra ones stay onboarded but unprovisioned. Once
+    SETUP passes, `simulate_and_reconcile` gets the verified origin and every identity's
+    client, in lease order, and reports whether it passed. A `StageFailed` it raises
+    prints its fixed stage line. Once an allocation might have leased slots, RELEASE
+    always runs, even after a failure or an interrupt. The fixtures themselves stay in
+    place for #222 and #223. The exit code is 0 only if everything passed.
     """
     run = run_id or str(uuid.uuid4())
-    count = owners + catchers
+    provisioned = owners + catchers
+    count = provisioned + extra_identities
     stack = AsyncExitStack()
     held = Held()
     code = 1
@@ -274,7 +282,7 @@ async def run_fixture_smoke(
                         "pool": pool,
                         "run_id": run,
                         "owners": list(indexes[:owners]),
-                        "catchers": list(indexes[owners:]),
+                        "catchers": list(indexes[owners:provisioned]),
                         "fursuits_per_owner": fursuits_per_owner,
                     },
                 )
@@ -293,16 +301,8 @@ async def run_fixture_smoke(
                 f"PASS setup identities={count} fursuits={owners * fursuits_per_owner}"
             )
 
-            with stage("simulation"):
-                observed = await simulate_fixtures(
-                    FixtureSimulationContext(clients[:owners], clients[owners:])
-                )
-            emit("PASS simulation")
-
-            with stage("reconciliation"):
-                reconcile_fixtures(observed, fursuits_per_owner)
-            emit("PASS reconciliation")
-            code = 0
+            if await simulate_and_reconcile(resolved.origin, clients):
+                code = 0
         except StageFailed as failure:
             emit(f"FAIL {failure.stage}")
     finally:
@@ -314,3 +314,52 @@ async def run_fixture_smoke(
         else:
             await stack.aclose()
     return code
+
+
+async def run_fixture_smoke(
+    pool: str,
+    owners: int,
+    fursuits_per_owner: int,
+    catchers: int,
+    *,
+    prompt_secret: Callable[[], str],
+    lease_channel: LeaseChannel,
+    fixture_channel: FixtureChannel,
+    emit: Callable[[str], None],
+    clerk_transport: httpx.AsyncBaseTransport | None = None,
+    api_transport: httpx.AsyncBaseTransport | None = None,
+    clock: Callable[[], float] = time.time,
+    run_id: str | None = None,
+) -> int:
+    """Run the fixture smoke on Staging and return the exit code: 0 only if all passed."""
+
+    async def simulate_and_reconcile(
+        _origin: str, clients: tuple[ApiClient, ...]
+    ) -> bool:
+        with stage("simulation"):
+            observed = await simulate_fixtures(
+                FixtureSimulationContext(clients[:owners], clients[owners:])
+            )
+        emit("PASS simulation")
+
+        with stage("reconciliation"):
+            reconcile_fixtures(observed, fursuits_per_owner)
+        emit("PASS reconciliation")
+        return True
+
+    return await run_provisioned(
+        pool,
+        owners,
+        fursuits_per_owner,
+        catchers,
+        0,
+        prompt_secret=prompt_secret,
+        lease_channel=lease_channel,
+        fixture_channel=fixture_channel,
+        emit=emit,
+        clerk_transport=clerk_transport,
+        api_transport=api_transport,
+        clock=clock,
+        run_id=run_id,
+        simulate_and_reconcile=simulate_and_reconcile,
+    )

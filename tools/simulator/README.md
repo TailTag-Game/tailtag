@@ -4,8 +4,8 @@ The repository-owned, black-box client for headless acceptance runs and, in late
 issues, convention-scale simulation (#199). It is plain Python asyncio with httpx
 ([ADR 0008](../../docs/adrs/0008-use-asyncio-httpx-for-headless-simulation.md)).
 Today it runs a manually invoked, authenticated `GET /api/me/` smoke against a local
-API or Staging, manages a Staging synthetic identity pool, and provisions per-run
-simulation fixtures on Staging. Design: [spec](../../docs/specs/2026-10-02-headless-simulation-harness.md).
+API or Staging, manages a Staging synthetic identity pool, provisions per-run
+simulation fixtures on Staging, and runs the 13 V0 acceptance journeys against them. Design: [spec](../../docs/specs/2026-10-02-headless-simulation-harness.md).
 
 ## Boundary
 
@@ -21,7 +21,7 @@ simulation fixtures on Staging. Design: [spec](../../docs/specs/2026-10-02-headl
     pool run it also holds the Clerk Staging secret and the lease channel, only while
     SETUP runs; the secret is never stored.
   - SIMULATION gets only public API clients bound to the verified origin: one token
-    for `smoke`, or one client per pool identity (`pool-smoke`, `fixture-smoke`), each with an opaque token provider
+    for `smoke`, or one client per pool identity (`pool-smoke`, `fixture-smoke`, `journeys`), each with an opaque token provider
     that returns only a current ordinary token. It has no prompt, no setup inputs, no
     lease channel, and no privileged access. Public API only.
   - RECONCILIATION gets only the recorded observations.
@@ -44,7 +44,7 @@ simulation fixtures on Staging. Design: [spec](../../docs/specs/2026-10-02-headl
   and a canonical UUID `deployment_id`. Local requires `environment` and
   `deployment_id` to be null. Anything else fails closed.
 - Redirects are never followed and any redirect is a failure. Responses are read with
-  a 4096-byte cap and a 10-second timeout.
+  a 65536-byte cap (a page of presigned image URLs is tens of KB) and a 10-second timeout.
 - Output is fixed stage lines (`PASS target <name>`, `PASS setup`, `PASS simulation`,
   `PASS reconciliation`, or `FAIL <stage>`). `PASS target` also shows the verified
   public `source_sha` when the API reports one. Tokens, other response content, and
@@ -146,7 +146,7 @@ make sim-pool-readmit POOL=p1 INDEX=7     # re-admit a repaired quarantined iden
 `fixture-smoke` gives one run its own synthetic Convention, enrollments, photo-bearing
 fursuits, and activations on Staging, then proves them through public reads (#220,
 [spec](../../docs/specs/2026-10-02-simulation-fixture-provisioning.md)). It is the
-host-only Staging proof and the template that journeys (#221) extend. Like the pool
+host-only Staging proof and the template that the journeys below extend. Like the pool
 commands it runs only from a maintainer machine with the Railway CLI, only against
 Staging.
 
@@ -245,10 +245,63 @@ make sim-fixture-smoke POOL=p1 OWNERS=4 FURSUITS=3 CATCHERS=10
   and pool identities stay disjoint from them. Every run fursuit gets its own newly
   stored image.
 - **Not created here:** no catch sessions, catch credentials, or avatars. Those are
-  fursuiter behavior that SIMULATION and journeys (#221) perform through the public API.
+  fursuiter behavior that the journeys perform through the public API.
+
+## Journeys
+
+`journeys` proves the implemented V0 gameplay and image contract end to end through the
+real Clerk authentication boundary and the public API only (#221,
+[spec](../../docs/specs/2026-10-03-headless-acceptance-journeys.md)). It is host-only
+and Staging-only, like `fixture-smoke`, and has nothing to configure.
+
+```bash
+make sim-journeys POOL=p1
+```
+
+- **Prerequisites:** the [pool](#identity-pool) and [fixture](#simulation-fixtures)
+  prerequisites, plus 7 clean identities. The run leases 7 and provisions the first 6
+  through the fixture channel (2 owners with 2 fursuits each, 4 catchers); the 7th is
+  an onboarded outsider with no enrollment. Identities from an earlier fixture or
+  journeys run are dirty, so use a fresh pool or enough fresh indexes for each run.
+- **Journeys, in order:** `unauthenticated` (no token and a malformed bearer get 401),
+  `catch` (session, credential, resolve, confirm, history), `retry` (a repeat confirm
+  is `already_caught` with the same catch, also after the session stops),
+  `stopped_session`, `stale_credential` (a rotated credential stops working),
+  `deactivated`, `self_catch`, `convention_mismatch` (the catcher's active Convention is
+  cleared, then restored even if the check fails), `ineligible_catcher`, `not_owner`
+  (404), `avatar`, `fursuit_photo`, and `image_rejections` (GIF, non-image bytes, and a
+  5001x5001 PNG are each rejected with 400). Each journey arms the state it needs through
+  idempotent owner calls and stops at its first failed step; the rest still run.
+- **Images:** valid images come from `services/api/simulation_fixtures/images/` in
+  filename order, or two generated PNGs when that folder has none. Only leased
+  identities' avatars and the fursuit that `fursuit_photo` creates are changed; #220
+  fixture photos never are. No image URL is fetched.
+- **Output:** fixed lines only, after the [fixture-smoke](#simulation-fixtures) target,
+  `RUN` and `PASS setup identities=7 fursuits=4` lines:
+
+  ```text
+  PASS journey=<name>
+  FAIL journey=<name> step=<step> expected=<status>/<code> observed=<status>/<code>
+  PASS journeys passed=13        (or FAIL journeys failed=<n>)
+  PASS release
+  ```
+
+  `<code>` is a confirm outcome, a domain error code, an image rejection name, `-` when
+  none is expected, or `other`. `observed` is `<status>/shape` when the status matched
+  but the body did not, and `error` when there was no response (timeout, size cap,
+  redirect). Setup and release failures print the `fixture-smoke` lines. Tokens,
+  payloads, URLs, names, IDs, and body text are never printed. The exit code is 0 only
+  if setup, every journey, and release passed.
+- **Quarantine consequence:** the run leaves catches, sessions, rotated credentials, one
+  deactivated activation, the created fursuit and its photos, and stored-then-cleared
+  avatars. Every identity it used is dirty, so the next `provision` that includes one
+  quarantines it exactly as after `fixture-smoke`, until #223 cleanup.
+- **Covered only by API tests:** the 12 hour session expiry, the 10 MiB upload limit,
+  and concurrent confirmation are not exercised over the network. They are covered by
+  API pytest.
 
 ## Later issues
 
-Journeys (#221), privileged reconciliation
+Privileged reconciliation
 (#222), cleanup (#223), scenarios and seeds (#224), personas and traffic (#225, #226),
 guardrail limits (#227), and the execution host (#228).
