@@ -22,6 +22,13 @@ The maintainer approved this spec and the
 [implementation plan](2026-10-02-simulation-fixture-provisioning-implementation-plan.md)
 on 2026-10-02, including the design additions above the acceptance contract.
 
+Progress: refinement, spec, and plan are approved. Unit A (API ledger, provisioning,
+remote entry, relay) is implemented and reviewed. Unit B (simulator fixture channel,
+`fixture-smoke`, Make target, and the
+[simulator README](../../tools/simulator/README.md)) is implemented and awaits review.
+Pending: the whole-change review, the maintainer adding fixture images, and the
+maintainer Staging rollout (F-14, recorded at the end of this spec).
+
 ## Objective
 
 Give a simulation run its own synthetic Convention, enrollments,
@@ -200,7 +207,8 @@ This is the host-only Staging proof for F-14 and the template #221 will extend.
     activated in that Convention.
 - **Release:** leases are released even after a failure. Fixtures stay in
   place. Each identity used is now dirty and is quarantined the next time it is
-  provisioned, until #223 cleanup or a maintainer readmit.
+  provisioned, until #223 cleanup removes its fixtures. A readmit alone does not
+  clear them.
 
 Make target: `sim-fixture-smoke POOL=<p> OWNERS=<n> FURSUITS=<k> CATCHERS=<m>`.
 The defaults are 2, 1, and 2.
@@ -213,6 +221,27 @@ The defaults are 2, 1, and 2.
   read later) by run ID.
 - #223 owns deleting run objects and their images, closing run Conventions, and
   readmitting identities.
+
+### Operating notes
+
+The [simulator README](../../tools/simulator/README.md) holds the full operator
+documentation (F-13): invocation and defaults, the result-code table, and the
+failure lines. Four points belong with the design:
+
+- **`status` for an unknown run.** `status(run_id)` returns `FAIL_RUN_UNKNOWN` with
+  no data when the run ID has no ledger row. It is the only operation that returns it.
+- **Commit-time failure.** If the final commit of `provision` fails (for example, a
+  lost connection), the outcome is unknown. The launcher surfaces it as
+  `FAIL_BOOTSTRAP`, no `failed` run is written, and the images stored during the
+  attempt are not deleted, because the rows may have committed. #223 reconciles
+  them. A `status` call for the run ID shows whether the run committed.
+- **Quarantine until #223.** A successful run leaves its fixtures in place. Every
+  identity it used is dirty, so the next `provision` quarantines it (`FAIL_DIRTY`)
+  until #223 cleanup removes its fixtures. A readmit only makes the slot
+  allocatable again; it does not clear the fixtures.
+- **No heartbeat.** `fixture-smoke` sends no lease heartbeat. It provisions after
+  every identity is onboarded and before SIMULATION, and the 1800-second lease covers
+  the run, so provisioning's slot locks and lease updates never interleave.
 
 ## Acceptance contract (frozen)
 
@@ -293,3 +322,9 @@ ship in every API image, Production included, and the maintainer accepted that
 - Changes to the #204 baseline or to #219 lease semantics.
 - New public API or product behavior, `run_id` columns on domain tables, a
   local or Development relay, and Production.
+
+## Staging proof record (F-14)
+
+Pending. This is a maintainer step after merge readiness: controlled promotion
+with the migration, then one `make sim-fixture-smoke POOL=<pool>` with the defaults.
+Record its sanitized output (result codes and counts) here.

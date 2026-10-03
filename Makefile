@@ -103,7 +103,7 @@ endef
 	api-staging-restore-drill \
 	api-format-check api-lint-check api-type-check api-django-check \
 	api-schema-check api-gunicorn-check \
-	sim-setup sim-check sim-smoke sim-pool-provision sim-pool-status sim-pool-readmit sim-pool-smoke sim-image sim-format-check sim-lint-check sim-type-check sim-test sim-semgrep-check
+	sim-setup sim-check sim-smoke sim-pool-provision sim-pool-status sim-pool-readmit sim-pool-smoke sim-fixture-smoke sim-image sim-format-check sim-lint-check sim-type-check sim-test sim-semgrep-check
 
 help: ## List the canonical backend developer commands.
 	@awk 'BEGIN { print "TailTag backend commands:" } /^[a-zA-Z0-9_-]+:.*##/ { target = $$1; sub(/:.*/, "", target); if (target != "help") { description = $$0; sub(/^.*##[[:space:]]*/, "", description); printf "  make %-20s %s\n", target, description } }' $(MAKEFILE_LIST)
@@ -260,6 +260,10 @@ sim-pool-readmit: ## Re-admit a repaired quarantined identity: POOL=name INDEX=n
 sim-pool-smoke: ## Run the Staging identity pool smoke: POOL=name COUNT=n (host only).
 	@test -n "$(POOL)" -a -n "$(COUNT)" || { printf '%s\n' 'POOL and COUNT are required.' >&2; exit 2; }
 	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator pool-smoke --pool '$(POOL)' --count '$(COUNT)'
+
+sim-fixture-smoke: ## Run the Staging fixture smoke: POOL=name [OWNERS=n FURSUITS=k CATCHERS=m] (host only).
+	@test -n "$(POOL)" || { printf '%s\n' 'POOL is required.' >&2; exit 2; }
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator fixture-smoke --pool '$(POOL)' $(if $(OWNERS),--owners '$(OWNERS)') $(if $(FURSUITS),--fursuits '$(FURSUITS)') $(if $(CATCHERS),--catchers '$(CATCHERS)')
 
 sim-image: ## Build the simulator container image (tailtag-simulator:local).
 	docker build -t $(SIM_IMAGE) $(SIMULATOR_DIRECTORY)

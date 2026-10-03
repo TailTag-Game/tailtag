@@ -8,9 +8,9 @@ fixes interfaces. The spec stays authoritative for behavior.
 
 Scope: STANDARD EXPANDED. Assurance: SECURITY, DATA INTEGRITY, MIGRATION.
 Completed: refinement (G1 to G13, AC6 amended), reconnaissance, spec and plan
-(approved 2026-10-02), unit A (tests, implementation, review). Current: unit B.
+(approved 2026-10-02), unit A and unit B (tests, implementation, review).
+Current: whole-change review.
 Pending:
-- unit B with independent tests, implementation, and review
 - whole-change review
 - maintainer adds fixture images
 - maintainer Staging rollout: controlled promotion with the migration, then
@@ -18,8 +18,9 @@ Pending:
 
 Unit A review dispositions (no BLOCKER, HIGH, or MEDIUM):
 
-- LOW-1, documented in unit B: a failure at transaction commit (for example a
-  lost connection) surfaces as `FAIL_BOOTSTRAP`. It writes no failed run and
+- LOW-1, documented in the simulator README and the spec's operating notes: a
+  failure at transaction commit (for example a lost connection) surfaces as
+  `FAIL_BOOTSTRAP`. It writes no failed run and
   leaves any stored images for #223, because the commit outcome is unknown.
 - LOW-2, fixed: `provision` dropped its `storage` keyword. Fursuit images
   always use the default media storage, so compensation must too.
@@ -31,7 +32,23 @@ Unit A review dispositions (no BLOCKER, HIGH, or MEDIUM):
 - The remote target check and launcher bootstrap are verbatim copies of the
   pool versions. A future fix to either must be applied to both.
 - Unit B must provision before any heartbeat runs concurrently on the same
-  slots, so that provisioning locks and lease updates never interleave.
+  slots, so that provisioning locks and lease updates never interleave. Done:
+  `fixture-smoke` provisions before SIMULATION and sends no heartbeat.
+
+Unit B review dispositions (no BLOCKER, HIGH, or MEDIUM):
+
+- LOW-1, fixed: the docs said a maintainer readmit makes a used identity usable
+  for fixtures again. A readmit only makes the slot allocatable. The identity
+  still owns its run fixtures and keeps failing with `FAIL_DIRTY` until #223
+  cleanup.
+- LOW-2, fixed: a test now proves a malformed relay failure code becomes
+  `FAIL_LAUNCHER` rather than reaching output.
+- LOW-3, fixed: a test now proves reconciliation rejects an extra fursuit, so
+  the count check is exact.
+- LOW-4, fixed: `run_fixture_smoke` dropped an unused `sleep` parameter.
+- Not verified until F-14: response size against real Staging photo URLs. The
+  estimated worst case is about 2.7 KB of the 4096-byte client cap at five
+  fursuits per owner. The F-14 default run uses one.
 
 ## Review units
 
