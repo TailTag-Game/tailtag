@@ -23,8 +23,10 @@ interfaces. The spec stays authoritative for behavior.
     - U2 fixed M-1 (`FAIL_BOOTSTRAP` is passed through) and N-1 (README).
       L-1 was accepted and recorded in the spec.
   - the whole-change review, with no BLOCKER, HIGH or MEDIUM findings
-- **Pending:** the PR (once the maintainer asks) and the maintainer Staging proof
-  (R-14).
+- **Merged** as `cbe5c93` (#290).
+- **Maintainer Staging proof (R-14):** passed 2026-10-03 (deployment `6224c4da`, run
+  `80d64256`, pool `r1`), and is recorded in the spec.
+- **Pending:** none for #222.
 - **Deferred:**
   - Promote the four private `simulation_fixtures.services` names that
     `inspection.py` imports (U1 L2).
