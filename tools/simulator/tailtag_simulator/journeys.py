@@ -17,6 +17,7 @@ URLs, names, IDs and other body text are never written.
 """
 
 import time
+import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
@@ -44,12 +45,19 @@ from tailtag_simulator.images import (
 )
 from tailtag_simulator.phases import ME_PATH
 from tailtag_simulator.pool import PROFILE_PATH, LeaseChannel
+from tailtag_simulator.reconciliation import (
+    HISTORY_PATH,
+    Expectations,
+    InspectionChannel,
+    Role,
+    reconcile_run,
+    reconciliation_lines,
+)
 from tailtag_simulator.smoke import stage
 
 MALFORMED_TOKEN: Final = "not-a-token"
 FURSUIT_NAME: Final = "Sim journey"
 CONFIRM_PATH: Final = "/api/catches/confirm/"
-HISTORY_PATH: Final = "/api/catches/"
 AVATAR_PATH: Final = "/api/profile/avatar/"
 
 _OWNERS: Final = 2
@@ -100,6 +108,16 @@ class JourneyResult:
     failed_step: str | None
     expected: str | None  # "<status>/<code>"
     observed: str | None  # "<status>/<code>", "<status>/shape" or "error"
+
+
+@dataclass(frozen=True)
+class JourneyRun:
+    """What SIMULATION leaves for RECONCILIATION: the results and what was expected."""
+
+    results: tuple[JourneyResult, ...]
+    expectations: Expectations
+    convention: int  # 0 when no journey learned it
+    created_fursuit: int | None  # the fursuit `fursuit_photo` created, if it did
 
 
 class _StepFailed(Exception):
@@ -199,6 +217,7 @@ class _Run:
     fursuits: dict[int, list[int]] = field(default_factory=dict[int, list[int]])
     catch_id: int = 0  # set once journey `catch` has created the catch
     created: int = 0  # the fursuit journey `fursuit_photo` created
+    expectations: Expectations = field(default_factory=Expectations)
 
     async def convention_id(self) -> int:
         if not self.convention:
@@ -227,6 +246,13 @@ class _Run:
         convention = await self.convention_id()
         fursuit = await self.fursuit(owner, position)
         return f"/api/conventions/{convention}/fursuit-activations/{fursuit}/"
+
+    def confirm(
+        self, role: Role, client: ApiClient, fursuit: int, payload: str
+    ) -> Awaitable[Reply]:
+        """Confirm a catch, recording the attempted pair first."""
+        self.expectations.attempt(role, fursuit)
+        return client.post(CONFIRM_PATH, {"payload": payload})
 
     async def resolve_path(self) -> str:
         return (
@@ -263,10 +289,6 @@ async def _stop(owner: ApiClient, activation: str) -> None:
         200,
         shape=lambda b: _get(b, "is_active") is False,
     )
-
-
-def _confirm(client: ApiClient, payload: str) -> Awaitable[Reply]:
-    return client.post(CONFIRM_PATH, {"payload": payload})
 
 
 async def _only_catch(client: ApiClient, run: _Run, catch: int, fursuit: int) -> None:
@@ -309,24 +331,29 @@ async def _catch(run: _Run) -> None:
         200,
         shape=lambda b: _get(b, "convention_id") == convention,
     )
+    fursuit = await run.fursuit(0, 0)
     body = await _step(
         "confirm",
-        _confirm(catcher, payload),
+        run.confirm(Role.CATCHER0, catcher, fursuit, payload),
         201,
         "created",
         shape=lambda b: _number(b, "catch", "id") > 0,
     )
     run.catch_id = _number(body, "catch", "id")
-    await _only_catch(catcher, run, run.catch_id, await run.fursuit(0, 0))
+    run.expectations.created(
+        Role.CATCHER0, fursuit, run.catch_id, _text(body, "catch", "caught_at")
+    )
+    await _only_catch(catcher, run, run.catch_id, fursuit)
 
 
 async def _retry(run: _Run) -> None:
     owner, catcher = run.context.owners[0], run.context.catchers[0]
     activation = await run.activation(0, 0)
     payload = await _arm(owner, activation)
+    fursuit = await run.fursuit(0, 0)
     body = await _step(
         "confirm",
-        _confirm(catcher, payload),
+        run.confirm(Role.CATCHER0, catcher, fursuit, payload),
         200,
         "already_caught",
         shape=lambda b: (
@@ -335,15 +362,21 @@ async def _retry(run: _Run) -> None:
         ),
     )
     catch = _number(body, "catch", "id")
+    run.expectations.confirmed(
+        Role.CATCHER0, fursuit, catch, _text(body, "catch", "caught_at")
+    )
     await _stop(owner, activation)
-    await _step(
+    body = await _step(
         "confirm_stopped",
-        _confirm(catcher, payload),
+        run.confirm(Role.CATCHER0, catcher, fursuit, payload),
         200,
         "already_caught",
         shape=lambda b: _number(b, "catch", "id") == catch,
     )
-    await _only_catch(catcher, run, catch, await run.fursuit(0, 0))
+    run.expectations.confirmed(
+        Role.CATCHER0, fursuit, catch, _text(body, "catch", "caught_at")
+    )
+    await _only_catch(catcher, run, catch, fursuit)
 
 
 async def _stopped_session(run: _Run) -> None:
@@ -351,7 +384,12 @@ async def _stopped_session(run: _Run) -> None:
     activation = await run.activation(0, 1)
     payload = await _arm(owner, activation)
     await _stop(owner, activation)
-    await _step("confirm", _confirm(catcher, payload), 404, "catch_target_unavailable")
+    await _step(
+        "confirm",
+        run.confirm(Role.CATCHER1, catcher, await run.fursuit(0, 1), payload),
+        404,
+        "catch_target_unavailable",
+    )
 
 
 async def _stale_credential(run: _Run) -> None:
@@ -365,7 +403,12 @@ async def _stale_credential(run: _Run) -> None:
         shape=lambda b: bool(_text(b, "payload")) and _text(b, "payload") != old,
     )
     new = _text(body, "payload")
-    await _step("confirm_old", _confirm(catcher, old), 404, "catch_target_unavailable")
+    await _step(
+        "confirm_old",
+        run.confirm(Role.CATCHER1, catcher, await run.fursuit(1, 0), old),
+        404,
+        "catch_target_unavailable",
+    )
     convention = await run.convention_id()
     await _step(
         "resolve_new",
@@ -385,13 +428,23 @@ async def _deactivated(run: _Run) -> None:
         200,
         shape=lambda b: _get(b, "is_active") is False,
     )
-    await _step("confirm", _confirm(catcher, payload), 404, "catch_target_unavailable")
+    await _step(
+        "confirm",
+        run.confirm(Role.CATCHER2, catcher, await run.fursuit(1, 1), payload),
+        404,
+        "catch_target_unavailable",
+    )
 
 
 async def _self_catch(run: _Run) -> None:
     owner = run.context.owners[1]
     payload = await _arm(owner, await run.activation(1, 0))
-    await _step("confirm", _confirm(owner, payload), 409, "self_catch_not_allowed")
+    await _step(
+        "confirm",
+        run.confirm(Role.OWNER1, owner, await run.fursuit(1, 0), payload),
+        409,
+        "self_catch_not_allowed",
+    )
 
 
 async def _convention_mismatch(run: _Run) -> None:
@@ -402,7 +455,10 @@ async def _convention_mismatch(run: _Run) -> None:
     try:
         await _step("leave", catcher.delete(ACTIVE_PATH), 204)
         await _step(
-            "confirm", _confirm(catcher, payload), 409, "active_convention_mismatch"
+            "confirm",
+            run.confirm(Role.CATCHER3, catcher, await run.fursuit(1, 0), payload),
+            409,
+            "active_convention_mismatch",
         )
     except _StepFailed as failed:
         first = failed
@@ -419,7 +475,12 @@ async def _convention_mismatch(run: _Run) -> None:
 async def _ineligible_catcher(run: _Run) -> None:
     payload = await _arm(run.context.owners[1], await run.activation(1, 0))
     await _step(
-        "confirm", _confirm(run.context.outsider, payload), 403, "catcher_ineligible"
+        "confirm",
+        run.confirm(
+            Role.OUTSIDER, run.context.outsider, await run.fursuit(1, 0), payload
+        ),
+        403,
+        "catcher_ineligible",
     )
 
 
@@ -524,11 +585,12 @@ JOURNEY_NAMES: Final = tuple(name for name, _ in _JOURNEYS)
 # -- SIMULATION, RECONCILIATION and the run ----------------------------------------
 
 
-async def simulate_journeys(context: JourneyContext) -> tuple[JourneyResult, ...]:
+async def simulate_journeys(context: JourneyContext) -> JourneyRun:
     """Run every journey in order; one failing never stops the next."""
     run = _Run(context)
     results: list[JourneyResult] = []
     for name, journey in _JOURNEYS:
+        run.expectations.begin(name)
         try:
             await journey(run)
         except _StepFailed as failed:
@@ -537,7 +599,9 @@ async def simulate_journeys(context: JourneyContext) -> tuple[JourneyResult, ...
             )
         else:
             results.append(JourneyResult(name, None, None, None))
-    return tuple(results)
+    return JourneyRun(
+        tuple(results), run.expectations, run.convention, run.created or None
+    )
 
 
 def journey_lines(results: Sequence[JourneyResult]) -> list[str]:
@@ -567,19 +631,26 @@ async def run_journeys(
     prompt_secret: Callable[[], str],
     lease_channel: LeaseChannel,
     fixture_channel: FixtureChannel,
+    inspection_channel: InspectionChannel,
     emit: Callable[[str], None],
     clerk_transport: httpx.AsyncBaseTransport | None = None,
     api_transport: httpx.AsyncBaseTransport | None = None,
     clock: Callable[[], float] = time.time,
     run_id: str | None = None,
 ) -> int:
-    """Run the 13 journeys on Staging and return the exit code: 0 only if all passed.
+    """Run the 13 journeys on Staging, reconcile them, and return the exit code.
 
-    Release always runs once leases may be held. Everything the run leaves behind
-    belongs to its pool identities or its own Convention, for #222 and #223.
+    The exit code is 0 only if every stage, journey and reconciliation passed.
+    RECONCILIATION runs after the journey lines and before release, and release always
+    runs once leases may be held. Everything the run leaves behind belongs to its pool
+    identities or its own Convention, for #223.
     """
 
-    async def journeys(origin: str, clients: tuple[ApiClient, ...]) -> bool:
+    run = run_id or str(uuid.uuid4())  # reconciliation names the run to `inspect`
+
+    async def journeys(
+        origin: str, clients: tuple[ApiClient, ...], indexes: tuple[int, ...]
+    ) -> bool:
         with stage("simulation"):
             async with AsyncExitStack() as stack:
                 anonymous = await stack.enter_async_context(
@@ -588,7 +659,7 @@ async def run_journeys(
                 malformed = await stack.enter_async_context(
                     open_client(origin, token=MALFORMED_TOKEN, transport=api_transport)
                 )
-                results = await simulate_journeys(
+                simulated = await simulate_journeys(
                     JourneyContext(
                         owners=(clients[0], clients[1]),
                         catchers=(clients[2], clients[3], clients[4], clients[5]),
@@ -598,9 +669,24 @@ async def run_journeys(
                         images=images,
                     )
                 )
-        for line in journey_lines(results):
+        for line in journey_lines(simulated.results):
             emit(line)
-        return all(result.failed_step is None for result in results)
+        with stage("reconciliation"):
+            reconciled = await reconcile_run(
+                simulated.expectations,
+                dict(zip(Role, clients, strict=True)),
+                dict(zip(Role, indexes, strict=True)),
+                inspection_channel,
+                pool=pool,
+                run_id=run,
+                convention=simulated.convention,
+                created_fursuit=simulated.created_fursuit,
+            )
+        for line in reconciliation_lines(reconciled):
+            emit(line)
+        return reconciled.passed and all(
+            result.failed_step is None for result in simulated.results
+        )
 
     return await run_provisioned(
         pool,
@@ -615,6 +701,6 @@ async def run_journeys(
         clerk_transport=clerk_transport,
         api_transport=api_transport,
         clock=clock,
-        run_id=run_id,
+        run_id=run,
         simulate_and_reconcile=journeys,
     )

@@ -45,7 +45,7 @@ def _response(result: str, data: _Data | None = None) -> dict[str, object]:
     return {"result": result, "data": data or {}}
 
 
-def _target_matches(
+def target_matches(
     identity: Mapping[str, object],
     runtime_identity: Mapping[str, object],
     environ: Mapping[str, str],
@@ -81,7 +81,7 @@ def execute(
     typed_identity = cast(Mapping[str, object], identity)
     if frozenset(typed_identity) != _IDENTITY_KEYS:
         return _response("FAIL_REQUEST")
-    if not _target_matches(typed_identity, runtime_identity, environ):
+    if not target_matches(typed_identity, runtime_identity, environ):
         return _response("FAIL_TARGET")
     operation = fields.get("operation")
     arguments = fields.get("arguments")

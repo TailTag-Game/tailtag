@@ -10,7 +10,12 @@ Output lines are fixed by these tests (after the #220 target, RUN and setup line
     PASS journey=<name>
     FAIL journey=<name> step=<step> expected=<status>/<code> observed=<status>/<code>
     PASS journeys passed=13 | FAIL journeys failed=<n>
+    PASS reconciliation checks=14 | FAIL reconciliation ... (see test_reconciliation)
     PASS release
+
+Reconciliation of a correct run is asserted here; what it reports for each kind of
+fault is in test_reconciliation. The broken-API cases below assert only the journey
+and release lines.
 """
 
 import asyncio
@@ -25,7 +30,7 @@ from typing import Any, Final
 import journey_support
 import pool_support
 import pytest
-from fixture_support import ACTIVE_PATH, FakeFixtureChannel
+from fixture_support import ACTIVE_PATH, CONVENTION_ID, FakeFixtureChannel
 from journey_support import (
     AVATAR_PATH,
     CONFIRM_PATH,
@@ -41,10 +46,24 @@ from journey_support import (
     path_for,
 )
 from pool_support import POOL, RUN_ID, SECRET, SHA, FakeChannel, Slot
+from reconciliation_support import (
+    RECONCILIATION_LEAKS,
+    Corrupt,
+    FakeInspectionChannel,
+)
 
-from tailtag_simulator.__main__ import REPOSITORY_ROOT, main
+from tailtag_simulator.__main__ import (
+    INSPECTION_LAUNCHER_COMMAND,
+    REPOSITORY_ROOT,
+    main,
+)
 from tailtag_simulator.fixtures import FixtureFailed
 from tailtag_simulator.journeys import JOURNEY_NAMES, JourneyImages, run_journeys
+from tailtag_simulator.reconciliation import (
+    InspectionFailed,
+    InspectionLauncherChannel,
+    Role,
+)
 
 world = pool_support.world  # the shared fixtures
 journey_world = journey_support.journey_world
@@ -75,6 +94,31 @@ BASE = [
     f"RUN run_id={RUN_ID}",
     "PASS setup identities=7 fursuits=4",
 ]
+CHECKS: Final = (
+    "inspect",
+    "contamination",
+    "duplicate",
+    "missing",
+    "unexpected",
+    "catch_id",
+    "caught_at",
+    "provenance",
+    "window",
+    "history",
+    "count",
+    "fixture_photo",
+    "created_fursuit",
+    "avatar",
+)
+ROLES: Final = (
+    "owner0",
+    "owner1",
+    "catcher0",
+    "catcher1",
+    "catcher2",
+    "catcher3",
+    "outsider",
+)
 CODE = (
     "(created|already_caught|catcher_ineligible|active_convention_mismatch"
     "|self_catch_not_allowed|catch_target_unavailable"
@@ -88,6 +132,12 @@ FIXED_LINES = re.compile(
     rf"|FAIL journey=({'|'.join(NAMES)}) step=[a-z_]+ expected=\d{{3}}/{CODE}"
     rf" observed=(\d{{3}}/({CODE[1:-1]}|other|shape)|error)"
     r"|PASS journeys passed=13|FAIL journeys failed=\d+"
+    r"|PASS reconciliation checks=14"
+    r"|FAIL reconciliation result=(FAIL_LEASE|FAIL_RUN_UNKNOWN|FAIL_LIMIT"
+    r"|FAIL_REQUEST|FAIL_TARGET|FAIL_BOOTSTRAP|FAIL_LAUNCHER)"
+    rf"|FAIL reconciliation check=({'|'.join(CHECKS)}) journey=({'|'.join(NAMES)}|-)"
+    rf" role=({'|'.join(ROLES)}|-) expected=\d observed=\d"
+    r"|FAIL reconciliation discrepancies=\d"
     r"|PASS release"
     r"|FAIL setup result=FAIL_[A-Z_]+"
 )
@@ -98,6 +148,7 @@ class Rig:
     world: JourneyWorld
     leases: FakeChannel
     fixtures: FakeFixtureChannel
+    inspection: FakeInspectionChannel
 
 
 @dataclass
@@ -106,14 +157,21 @@ class Run:
     lines: list[str]
 
 
-def make_rig(world: JourneyWorld, *, fail: Exception | None = None) -> Rig:
+def make_rig(
+    world: JourneyWorld,
+    *,
+    fail: Exception | None = None,
+    corrupt: Corrupt | None = None,
+    inspection_fail: InspectionFailed | None = None,
+) -> Rig:
     leases = FakeChannel(world, slots=8)
     leases.slots[0] = Slot("quarantined")
     fixtures = FakeFixtureChannel(world, leases, world.gameplay.state, fail=fail)
-    return Rig(world, leases, fixtures)
+    inspection = FakeInspectionChannel(world, corrupt=corrupt, fail=inspection_fail)
+    return Rig(world, leases, fixtures, inspection)
 
 
-def journeys(rig: Rig) -> Run:
+def journeys(rig: Rig, run_id: str | None = RUN_ID) -> Run:
     world = rig.world
     lines: list[str] = []
 
@@ -128,25 +186,27 @@ def journeys(rig: Rig) -> Run:
             prompt_secret=lambda: SECRET,
             lease_channel=rig.leases,
             fixture_channel=rig.fixtures,
+            inspection_channel=rig.inspection,
             emit=emit,
             clerk_transport=world.clerk_transport,
             api_transport=world.api_transport,
             clock=world.clock,
-            run_id=RUN_ID,
+            run_id=run_id,
         )
     )
     return Run(code, lines)
 
 
-def assert_released(rig: Rig) -> None:
+def assert_released(rig: Rig, run_id: str = RUN_ID) -> None:
     assert rig.leases.indexes("leased") == set()
-    assert rig.leases.calls_to("release") == [{"run_id": RUN_ID}]
+    assert rig.leases.calls_to("release") == [{"run_id": run_id}]
     assert set(rig.world.ended_sessions) == set(rig.world.opened_sessions)
 
 
 def assert_only_fixed_output(run: Run) -> None:
     assert all(FIXED_LINES.fullmatch(line) for line in run.lines), run.lines
-    assert not any(leak in "\n".join(run.lines) for leak in JOURNEY_LEAKS)
+    text = "\n".join(run.lines)
+    assert not any(leak in text for leak in (*JOURNEY_LEAKS, *RECONCILIATION_LEAKS))
 
 
 @pytest.fixture
@@ -163,35 +223,43 @@ def test_journeys_run_in_the_documented_order() -> None:
 
 
 def test_a_correct_api_passes_all_journeys_with_only_fixed_output(
-    happy: tuple[Rig, Run],
+    journey_world: JourneyWorld,
 ) -> None:
-    rig, run = happy
+    # No run id is given, so the one the run generates must reach every channel.
+    rig = make_rig(journey_world)
+    run = journeys(rig, run_id=None)
+    run_id = run.lines[1].removeprefix("RUN run_id=")
 
     assert run.code == 0
+    assert run_id != RUN_ID
     assert run.lines == [
-        *BASE,
+        *BASE[:1],
+        f"RUN run_id={run_id}",
+        *BASE[2:],
         *[f"PASS journey={name}" for name in NAMES],
         "PASS journeys passed=13",
+        "PASS reconciliation checks=14",
         "PASS release",
     ]
     assert_only_fixed_output(run)
     # Seven identities are leased; only the first six are provisioned.
     assert rig.leases.calls_to("allocate") == [
-        {"run_id": RUN_ID, "count": 7, "ttl_seconds": 1800}
+        {"run_id": run_id, "count": 7, "ttl_seconds": 1800}
     ]
     assert rig.fixtures.calls == [
         (
             "provision",
             {
                 "pool": POOL,
-                "run_id": RUN_ID,
+                "run_id": run_id,
                 "owners": [O1, O2],
                 "catchers": [C1, C2, C3, C4],
                 "fursuits_per_owner": 2,
             },
         )
     ]
-    assert_released(rig)
+    assert [(pool, run) for pool, run, _ in rig.inspection.calls] == [(POOL, run_id)]
+    assert_released(rig, run_id)
     # Only the two unauthenticated probes are ever turned away.
     assert rig.world.stray == ["unauthenticated GET /api/me/"] * 2
 
@@ -308,7 +376,7 @@ def test_a_wrong_outcome_fails_only_its_journey_at_its_step_and_leaks_nothing(
         f"FAIL journey={journey} step={step} expected={expected} observed={observed}"
     )
     assert run.code == 1
-    assert run.lines == [
+    assert [line for line in run.lines if " reconciliation " not in line] == [
         *BASE,
         *[failed if name == journey else f"PASS journey={name}" for name in NAMES],
         "FAIL journeys failed=1",
@@ -375,7 +443,7 @@ def test_each_request_carries_the_identity_the_journey_assigns_and_nothing_privi
     # Owners control sessions and credentials; catchers resolve and read history.
     assert who("GET", path_for(F1A, CREDENTIAL)) == {O1}
     assert who("POST", RESOLVE_PATH) <= {C1, C2, C3, C4}
-    assert who("GET", HISTORY_PATH) == {C1}
+    assert who("GET", HISTORY_PATH) == {O1, O2, C1, C2, C3, C4, OUTSIDER}
     assert who("POST", CONFIRM_PATH) == {O2, C1, C2, C3, C4, OUTSIDER}
     # No lease, fixture or Clerk admin call falls between provisioning and release.
     log = world.log
@@ -383,6 +451,42 @@ def test_each_request_carries_the_identity_the_journey_assigns_and_nothing_privi
     assert [
         d.split()[0] for k, d in after if k in ("channel", "fixture", "backend")
     ] == ["release"]
+
+    # RECONCILIATION (#222) starts once the journeys have reported. Its only public
+    # calls are one history read per role (catcher0's two journey reads precede its
+    # own), and it calls `inspect` exactly once, between the journeys and the release.
+    finished = log.index(("emit", "PASS journeys passed=13"))
+    inspections = [at for at, entry in enumerate(log) if entry[0] == "inspection"]
+    released = next(
+        at
+        for at, (k, d) in enumerate(log)
+        if k == "channel" and d.startswith("release")
+    )
+    reconciling = log[finished + 1 :]
+    assert len(inspections) == 1
+    assert finished < inspections[0] < released
+    assert sorted(d for k, d in reconciling if k == "api") == sorted(
+        f"GET {HISTORY_PATH} {index}" for index in (O1, O2, C1, C2, C3, C4, OUTSIDER)
+    )
+    assert [
+        (request.url.path, dict(request.url.params))
+        for request in world.api_requests[-7:]
+    ] == [(HISTORY_PATH, {"convention_id": str(CONVENTION_ID), "page_size": "100"})] * 7
+    assert rig.inspection.calls == [
+        (
+            POOL,
+            RUN_ID,
+            {
+                Role.OWNER0: O1,
+                Role.OWNER1: O2,
+                Role.CATCHER0: C1,
+                Role.CATCHER1: C2,
+                Role.CATCHER2: C3,
+                Role.CATCHER3: C4,
+                Role.OUTSIDER: OUTSIDER,
+            },
+        )
+    ]
 
 
 # -- FM5: image writes touch only run-owned records ---------------------------------
@@ -418,6 +522,7 @@ def test_a_failed_provision_prints_no_journey_lines_and_still_releases(
     assert run.lines == [*BASE[:2], "FAIL setup result=FAIL_LEASE", "PASS release"]
     assert_only_fixed_output(run)
     assert_released(rig)
+    assert rig.inspection.calls == []
     assert {p for _, p, _ in journey_world.gameplay.requests} <= {
         "/api/me/",
         "/api/profile/",
@@ -456,6 +561,8 @@ def test_cli_passes_the_pool_and_the_committed_fixture_images_through(
 
     (arguments,) = seen
     assert arguments["pool"] == POOL
+    assert isinstance(arguments["inspection_channel"], InspectionLauncherChannel)
+    assert INSPECTION_LAUNCHER_COMMAND[-1] == "api-sim-inspect-ssh"
     assert arguments["images"] == JourneyImages(
         valid_a=files[0].read_bytes(), valid_b=files[1 % len(files)].read_bytes()
     )
