@@ -30,6 +30,10 @@ Assurance:
 Implementation plan:
 [simulation reconciliation implementation plan](2026-10-03-simulation-reconciliation-implementation-plan.md).
 
+Progress: tests, implementation, and reviews are complete. The change merged as
+`cbe5c93` (#290). The maintainer Staging proof (R-14) passed on 2026-10-03 and is
+recorded at the end of this spec.
+
 ## Objective
 
 After a `sim-journeys` run, prove that three views of the run agree:
@@ -454,4 +458,58 @@ updating the simulator and the relay together.
 
 ## Staging proof record (R-14)
 
-Pending.
+**Passed (2026-10-03).** This was a maintainer-run proof from `main` at `cbe5c93`.
+Only sanitized evidence is recorded here.
+
+1. **Promotion.** Controlled promotion of
+   `cbe5c939f970f7a3733acd5263ae1b0e15079d7d` produced deployment
+   `6224c4da-f056-4eb3-ae79-fe7507d05153`
+   ([record](../development/staging-deployments/6224c4da-f056-4eb3-ae79-fe7507d05153.json)).
+   - It was accepted against main validation run `37158550399`, attempt 1.
+   - The deployment, migration, startup, readiness, identity, and smoke outcomes
+     all SUCCEEDED, and the final state was ACTIVE.
+   - Promotion was required because #222 adds `inspection_remote` under
+     `services/api/`.
+2. **Pool.** The run used a fresh pool, `r1`, provisioned for this proof with
+   `make sim-pool-provision POOL=r1 SIZE=10`.
+3. **Run.** `make sim-journeys POOL=r1` printed:
+
+   ```text
+   PASS target staging source_sha=cbe5c939f970f7a3733acd5263ae1b0e15079d7d
+   RUN run_id=80d64256-cfc1-4bec-abd0-2b440fc156f6
+   PASS setup identities=7 fursuits=4
+   PASS journey=unauthenticated
+   PASS journey=catch
+   PASS journey=retry
+   PASS journey=stopped_session
+   PASS journey=stale_credential
+   PASS journey=deactivated
+   PASS journey=self_catch
+   PASS journey=convention_mismatch
+   PASS journey=ineligible_catcher
+   PASS journey=not_owner
+   PASS journey=avatar
+   PASS journey=fursuit_photo
+   PASS journey=image_rejections
+   PASS journeys passed=13
+   PASS reconciliation checks=14
+   PASS release
+   ```
+
+4. **What the pass confirms.** A passing reconciliation confirms the points the
+   reviews could not verify from the diff:
+   - The pinned `railway ssh` relay reached `inspection_remote` on the promoted
+     build. It finished within the default relay timeout while all 7 leases were
+     still live.
+   - Real Staging data passed the relay's exact output schema.
+   - App and database clocks agreed closely enough for the `window` check.
+   - On a correct run, every check passed:
+     - the persisted Catch rows, the confirm responses, and all 7 identities'
+       histories agreed
+     - fixture photos were unchanged
+     - exactly the one journey-created fursuit was found
+     - no avatars remained
+     - no contamination was reported
+5. **Consequence.** Pool `r1` now has 7 identities that run
+   `80d64256-cfc1-4bec-abd0-2b440fc156f6` left dirty, and 3 still clean. They stay
+   dirty until #223 cleanup or a manual readmit.
