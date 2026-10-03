@@ -20,6 +20,7 @@ from tailtag_simulator.pool import (
     run_status,
     validate_pool_name,
 )
+from tailtag_simulator.reconciliation import InspectionLauncherChannel
 from tailtag_simulator.smoke import run_smoke
 
 LAUNCHER_COMMAND = ["make", "-s", "--no-print-directory", "api-sim-pool-ssh"]
@@ -28,6 +29,12 @@ FIXTURE_LAUNCHER_COMMAND = [
     "-s",
     "--no-print-directory",
     "api-sim-fixture-ssh",
+]
+INSPECTION_LAUNCHER_COMMAND = [
+    "make",
+    "-s",
+    "--no-print-directory",
+    "api-sim-inspect-ssh",
 ]
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 FIXTURE_IMAGES = REPOSITORY_ROOT / "services/api/simulation_fixtures/images"
@@ -50,6 +57,11 @@ def _launcher() -> LauncherChannel:
 def _fixture_launcher() -> FixtureLauncherChannel:
     """The fixture launcher, from the repository root; only the host-side fixture run calls it."""
     return FixtureLauncherChannel(FIXTURE_LAUNCHER_COMMAND, cwd=REPOSITORY_ROOT)
+
+
+def _inspection_launcher() -> InspectionLauncherChannel:
+    """The inspection launcher, from the repository root; only journeys reconciliation calls it."""
+    return InspectionLauncherChannel(INSPECTION_LAUNCHER_COMMAND, cwd=REPOSITORY_ROOT)
 
 
 def _prompt_token() -> str:
@@ -127,6 +139,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     prompt_secret=_prompt_secret,
                     lease_channel=_launcher(),
                     fixture_channel=_fixture_launcher(),
+                    inspection_channel=_inspection_launcher(),
                     emit=_emit,
                 )
             )

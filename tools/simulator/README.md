@@ -24,7 +24,9 @@ simulation fixtures on Staging, and runs the 13 V0 acceptance journeys against t
     for `smoke`, or one client per pool identity (`pool-smoke`, `fixture-smoke`, `journeys`), each with an opaque token provider
     that returns only a current ordinary token. It has no prompt, no setup inputs, no
     lease channel, and no privileged access. Public API only.
-  - RECONCILIATION gets only the recorded observations.
+  - RECONCILIATION gets only the recorded observations. For `journeys` (#222) it gets
+    three things: the expectations, the role-to-client and role-to-index maps (the
+    clients only for history reads), and the read-only inspection channel.
 - Privileged access belongs only in SETUP and RECONCILIATION. Fixture setup (#220)
   extends SETUP; privileged read-only reconciliation (#222) extends RECONCILIATION.
   There is no plugin registry.
@@ -283,6 +285,7 @@ make sim-journeys POOL=p1
   PASS journey=<name>
   FAIL journey=<name> step=<step> expected=<status>/<code> observed=<status>/<code>
   PASS journeys passed=13        (or FAIL journeys failed=<n>)
+  <reconciliation lines>         (see Reconciliation)
   PASS release
   ```
 
@@ -291,7 +294,7 @@ make sim-journeys POOL=p1
   but the body did not, and `error` when there was no response (timeout, size cap,
   redirect). Setup and release failures print the `fixture-smoke` lines. Tokens,
   payloads, URLs, names, IDs, and body text are never printed. The exit code is 0 only
-  if setup, every journey, and release passed.
+  if setup, every journey, reconciliation, and release passed.
 - **Quarantine consequence:** the run leaves catches, sessions, rotated credentials, one
   deactivated activation, the created fursuit and its photos, and stored-then-cleared
   avatars. Every identity it used is dirty, so the next `provision` that includes one
@@ -300,8 +303,40 @@ make sim-journeys POOL=p1
   and concurrent confirmation are not exercised over the network. They are covered by
   API pytest.
 
+## Reconciliation
+
+After the journeys, `journeys` proves that the simulator's expected state, the Catch
+rows on Staging and each run identity's public catch history agree (#222,
+[spec](../../docs/specs/2026-10-03-simulation-reconciliation.md)). It runs inside
+`make sim-journeys` once SETUP has passed, whether the journeys passed or failed, and
+always before the leases are released.
+
+- **What is checked:** the journeys record every confirm they attempt, and the
+  `catch` and `retry` journeys record what the API reported. One read-only `inspect`
+  call, relayed over SSH to the pinned Staging instance (`make api-sim-inspect-ssh`),
+  returns the run's Catch rows, fursuits and avatars from the database. Each of the 7
+  identities also reads its own `GET /api/catches/` history. The comparison fails on:
+  `contamination`, `duplicate`, `missing`, `unexpected`, `catch_id`, `caught_at`,
+  `provenance`, `window`, `history`, `count`, `fixture_photo`, `created_fursuit`, and
+  `avatar`. The world is closed: a catch no journey accounts for is a discrepancy.
+- **Output:** fixed lines after the journey lines and before `PASS release`. IDs,
+  pool indexes, timestamps, URLs and bodies are never printed:
+
+  ```text
+  PASS reconciliation checks=14
+  FAIL reconciliation result=<FAIL_*>                       (inspect itself failed)
+  FAIL reconciliation check=<check> journey=<name|-> role=<role|-> expected=<n> observed=<n>
+  FAIL reconciliation discrepancies=<n>
+  ```
+
+  If the run Convention is unknown and catcher0 cannot read it, the run prints
+  `FAIL reconciliation`. The exit code is 0 only if setup, every journey,
+  reconciliation and release passed.
+- **Prerequisites:** unchanged from [Journeys](#journeys), plus one more SSH call
+  through the same Railway CLI access. `inspect` only reads, so nothing else needs to
+  be provisioned or promoted by hand beyond the merged code.
+
 ## Later issues
 
-Privileged reconciliation
-(#222), cleanup (#223), scenarios and seeds (#224), personas and traffic (#225, #226),
+Cleanup (#223), scenarios and seeds (#224), personas and traffic (#225, #226),
 guardrail limits (#227), and the execution host (#228).

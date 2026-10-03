@@ -232,14 +232,16 @@ async def run_provisioned(
     api_transport: httpx.AsyncBaseTransport | None,
     clock: Callable[[], float],
     run_id: str | None,
-    simulate_and_reconcile: Callable[[str, tuple[ApiClient, ...]], Awaitable[bool]],
+    simulate_and_reconcile: Callable[
+        [str, tuple[ApiClient, ...], tuple[int, ...]], Awaitable[bool]
+    ],
 ) -> int:
     """The Staging run both fixture commands share: target, lease, provision, release.
 
     Leases `owners + catchers + extra_identities` identities and provisions only the
     first `owners + catchers`; the extra ones stay onboarded but unprovisioned. Once
-    SETUP passes, `simulate_and_reconcile` gets the verified origin and every identity's
-    client, in lease order, and reports whether it passed. A `StageFailed` it raises
+    SETUP passes, `simulate_and_reconcile` gets the verified origin, every identity's
+    client and every leased pool index, in lease order, and reports whether it passed. A `StageFailed` it raises
     prints its fixed stage line. Once an allocation might have leased slots, RELEASE
     always runs, even after a failure or an interrupt. The fixtures themselves stay in
     place for #222 and #223. The exit code is 0 only if everything passed.
@@ -301,7 +303,7 @@ async def run_provisioned(
                 f"PASS setup identities={count} fursuits={owners * fursuits_per_owner}"
             )
 
-            if await simulate_and_reconcile(resolved.origin, clients):
+            if await simulate_and_reconcile(resolved.origin, clients, indexes):
                 code = 0
         except StageFailed as failure:
             emit(f"FAIL {failure.stage}")
@@ -334,7 +336,7 @@ async def run_fixture_smoke(
     """Run the fixture smoke on Staging and return the exit code: 0 only if all passed."""
 
     async def simulate_and_reconcile(
-        _origin: str, clients: tuple[ApiClient, ...]
+        _origin: str, clients: tuple[ApiClient, ...], _indexes: tuple[int, ...]
     ) -> bool:
         with stage("simulation"):
             observed = await simulate_fixtures(
