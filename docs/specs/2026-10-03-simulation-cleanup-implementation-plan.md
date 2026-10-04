@@ -26,7 +26,11 @@ authoritative for behavior.
       (README retain-reason wording).
   - the whole-change review, with no BLOCKER, HIGH or MEDIUM findings. Its three LOW
     and NIT documentation corrections were applied.
-- **Pending:** PR, merge, and the C-16 maintainer Staging proof.
+- **Merged** as `b20355c` (#292).
+- **Maintainer Staging proof (C-16):** passed 2026-10-04 (deployment `5dd8353e`,
+  runs `8ca8c7f5` and `1db7405c`, pool `r1`), and is recorded in the spec. All three
+  runs from before #223 are cleaned.
+- **Pending:** none for #223.
 - **Deferred:**
   - Reuse `simulation_pool.services` quarantine and readmit in `cleanup.py` (U1 L2).
   - Add a test for an unresolvable legacy handle (U1 L3).
