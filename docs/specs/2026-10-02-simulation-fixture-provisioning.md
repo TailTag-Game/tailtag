@@ -209,7 +209,8 @@ This is the host-only Staging proof for F-14 and the template #221 will extend.
 - **Release:** leases are released even after a failure. Fixtures stay in
   place. Each identity used is now dirty and is quarantined the next time it is
   provisioned, until #223 cleanup removes its fixtures. A readmit alone does not
-  clear them.
+  clear them. *Since #223, a passing run cleans itself and a failing run is retained
+  until `sim-cleanup`; see the [simulation cleanup spec](2026-10-03-simulation-cleanup.md).*
 
 Make target: `sim-fixture-smoke POOL=<p> OWNERS=<n> FURSUITS=<k> CATCHERS=<m>`.
 The defaults are 2, 1, and 2.
@@ -242,7 +243,9 @@ failure lines. Four points belong with the design:
   allocatable again; it does not clear the fixtures. Released identities return
   as available and are allocated lowest index first, so the next run on the same
   pool fails once with `FAIL_DIRTY` (quarantining them) before a later run uses
-  fresh identities. Use a separate pool per run to avoid that failure.
+  fresh identities. Use a separate pool per run to avoid that failure. *Since #223,
+  a passing run cleans its identities, so this no longer applies to it; see the
+  [simulation cleanup spec](2026-10-03-simulation-cleanup.md).*
 - **No heartbeat.** `fixture-smoke` sends no lease heartbeat. It provisions after
   every identity is onboarded and before SIMULATION, and the 1800-second lease covers
   the run, so provisioning's slot locks and lease updates never interleave.

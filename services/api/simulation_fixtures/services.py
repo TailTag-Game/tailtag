@@ -11,7 +11,7 @@ import datetime as dt
 import logging
 import re
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Final, cast
 
@@ -36,6 +36,7 @@ from simulation_fixtures.models import (
     FURSUIT,
     KINDS,
     PROVISIONED,
+    FixtureIdentity,
     FixtureObject,
     FixtureRun,
 )
@@ -49,6 +50,7 @@ _POOL = re.compile(r"[a-z0-9]{1,12}")
 _MAX_INDEX: Final = 2**31 - 1  # PoolSlot.index is a PositiveIntegerField.
 _OWNERS: Final = (1, 50)
 _CATCHERS: Final = (1, 200)
+_EXTRAS: Final = (0, 10)
 _FURSUITS_PER_OWNER: Final = (1, 5)
 
 # Service-defined rejections of the requested state; anything else is an error.
@@ -108,10 +110,14 @@ def _run_id(value: object) -> str:
 
 def _indexes(value: object, bounds: tuple[int, int]) -> list[int]:
     items = (
-        list(cast(Sequence[object], value)) if isinstance(value, (list, tuple)) else []
+        list(cast(Sequence[object], value))
+        if isinstance(value, (list, tuple))
+        else None
     )
-    if not bounds[0] <= len(items) <= bounds[1] or not all(
-        type(item) is int and 0 <= item <= _MAX_INDEX for item in items
+    if (
+        items is None
+        or not bounds[0] <= len(items) <= bounds[1]
+        or not all(type(item) is int and 0 <= item <= _MAX_INDEX for item in items)
     ):
         raise ValueError("indexes invalid")
     return cast(list[int], items)
@@ -123,12 +129,14 @@ def _validated(
     owners: object,
     catchers: object,
     fursuits_per_owner: object,
-) -> tuple[str, str, list[int], list[int], int]:
+    extras: object,
+) -> tuple[str, str, list[int], list[int], int, list[int]]:
     if not isinstance(pool, str) or _POOL.fullmatch(pool) is None:
         raise ValueError("pool invalid")
     owner_indexes = _indexes(owners, _OWNERS)
     catcher_indexes = _indexes(catchers, _CATCHERS)
-    combined = owner_indexes + catcher_indexes
+    extra_indexes = _indexes(extras, _EXTRAS)
+    combined = owner_indexes + catcher_indexes + extra_indexes
     if len(set(combined)) != len(combined):
         raise ValueError("indexes overlap")
     if (
@@ -136,7 +144,14 @@ def _validated(
         or not _FURSUITS_PER_OWNER[0] <= fursuits_per_owner <= _FURSUITS_PER_OWNER[1]
     ):
         raise ValueError("fursuits_per_owner invalid")
-    return pool, _run_id(run_id), owner_indexes, catcher_indexes, fursuits_per_owner
+    return (
+        pool,
+        _run_id(run_id),
+        owner_indexes,
+        catcher_indexes,
+        fursuits_per_owner,
+        extra_indexes,
+    )
 
 
 def provision(
@@ -145,22 +160,31 @@ def provision(
     owners: Sequence[int],
     catchers: Sequence[int],
     fursuits_per_owner: int,
+    extras: Sequence[int] = (),
 ) -> ProvisionResult:
     """Create the run's Convention, enrollments, fursuits, and activations.
 
-    Everything is written in one transaction. A failure after creation starts
-    rolls it back, deletes the images it stored, and records a ``failed`` run.
+    ``extras`` are leased identities that get no state; they are bound, dirty-checked
+    and recorded like owners and catchers. Everything is written in one transaction.
+    A failure after creation starts rolls it back, deletes the images it stored, and
+    records a ``failed`` run.
     """
     try:
-        pool, run_id, owner_indexes, catcher_indexes, fursuits_per_owner = _validated(
-            pool, run_id, owners, catchers, fursuits_per_owner
-        )
+        (
+            pool,
+            run_id,
+            owner_indexes,
+            catcher_indexes,
+            fursuits_per_owner,
+            extra_indexes,
+        ) = _validated(pool, run_id, owners, catchers, fursuits_per_owner, extras)
     except ValueError:
         return ProvisionResult("FAIL_REQUEST")
     stored_keys: list[str] = []
     try:
         with transaction.atomic():
-            users = _bind_identities(pool, run_id, owner_indexes + catcher_indexes)
+            leased = owner_indexes + catcher_indexes + extra_indexes
+            users = _bind_identities(pool, run_id, leased)
             try:
                 counts = _create(
                     pool,
@@ -169,6 +193,7 @@ def provision(
                     [users[index] for index in catcher_indexes],
                     fursuits_per_owner,
                     stored_keys,
+                    leased,
                 )
             except Exception as error:  # noqa: BLE001 - classified after rollback.
                 raise _CreationFailed(error) from None
@@ -241,6 +266,14 @@ def _bind_identities(pool: str, run_id: str, indexes: list[int]) -> dict[int, Us
     if any(f"sp_{pool}_{index}" not in profiles for index in indexes):
         raise _Rejected("FAIL_LEASE")
     users = {index: profiles[f"sp_{pool}_{index}"].user for index in indexes}
+    dirty = dirty_indexes(users)
+    if dirty:
+        raise _Rejected("FAIL_DIRTY", dirty)
+    return users
+
+
+def dirty_indexes(users: Mapping[int, User]) -> list[int]:
+    """The indexes whose identity owns or has made anything a run could leave."""
     # Catch sessions belong to the identity's fursuits, so owning none rules them out.
     user_ids = [user.pk for user in users.values()]
     dirty_ids = (
@@ -265,10 +298,7 @@ def _bind_identities(pool: str, run_id: str, indexes: list[int]) -> dict[int, Us
             )
         )
     )
-    dirty = sorted(index for index, user in users.items() if user.pk in dirty_ids)
-    if dirty:
-        raise _Rejected("FAIL_DIRTY", dirty)
-    return users
+    return sorted(index for index, user in users.items() if user.pk in dirty_ids)
 
 
 def _create(
@@ -278,6 +308,7 @@ def _create(
     catchers: list[User],
     fursuits_per_owner: int,
     stored_keys: list[str],
+    leased: list[int],
 ) -> dict[str, int]:
     """Create the run state and its ledger; record each stored image key at once."""
     today = dt.datetime.now(dt.UTC).date()
@@ -321,6 +352,9 @@ def _create(
         for owner, fursuit in fursuits
     ]
     run = FixtureRun.objects.create(run_id=run_id, pool=pool, status=PROVISIONED)
+    FixtureIdentity.objects.bulk_create(
+        [FixtureIdentity(run=run, index=index) for index in leased]
+    )
     FixtureObject.objects.bulk_create(
         [
             FixtureObject(run=run, kind=CONVENTION, object_id=convention.pk),

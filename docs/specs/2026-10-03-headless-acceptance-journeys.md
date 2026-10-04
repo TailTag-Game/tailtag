@@ -243,7 +243,9 @@ untouched. The objects a journey run adds are outside the #220 ledger:
 
 All of them belong to the run's pool identities or the run Convention, so #222 and
 #223 can find them through the ledger's identities and Convention. Every identity
-the run used is dirty until #223 or a manual readmit.
+the run used is dirty until #223 or a manual readmit. *Since #223, a passing run cleans
+itself and a failing run is retained; see the
+[simulation cleanup spec](2026-10-03-simulation-cleanup.md).*
 
 ## Acceptance contract (frozen)
 
@@ -307,7 +309,8 @@ the run used is dirty until #223 or a manual readmit.
 
 TWO-WAY DOOR. The change is simulator-only, with no API, schema, or migration change.
 Rolling back means reverting the commit. The data a Staging run leaves behind stays
-until #223 or a manual readmit.
+until #223 or a manual readmit. *Since #223, a passing run cleans itself; see the
+[simulation cleanup spec](2026-10-03-simulation-cleanup.md).*
 
 ## Non-goals
 

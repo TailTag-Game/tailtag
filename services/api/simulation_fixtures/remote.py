@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Final, cast
 
-from simulation_fixtures import services
+from simulation_fixtures import cleanup, services
 
 _IDENTITY_KEYS: Final = frozenset({"source_sha", "deployment_id", "environment"})
 _REQUEST_KEYS: Final = frozenset({"operation", "identity", "arguments"})
@@ -21,6 +21,7 @@ def _provision(arguments: Mapping[str, object]) -> tuple[str, _Data]:
         cast(list[int], arguments["owners"]),
         cast(list[int], arguments["catchers"]),
         cast(int, arguments["fursuits_per_owner"]),
+        cast(list[int], arguments["extras"]),
     )
     return outcome.result, dict(outcome.counts)
 
@@ -32,12 +33,44 @@ def _status(arguments: Mapping[str, object]) -> tuple[str, _Data]:
     return "PASS", {"status": report.status, "counts": dict(report.counts)}
 
 
+def _cleanup(arguments: Mapping[str, object]) -> tuple[str, _Data]:
+    outcome = cleanup.cleanup(
+        cast(str, arguments["pool"]), cast(str, arguments["run_id"])
+    )
+    return outcome.result, dict(outcome.data)
+
+
+def _retain(arguments: Mapping[str, object]) -> tuple[str, _Data]:
+    outcome = cleanup.retain(
+        cast(str, arguments["pool"]),
+        cast(str, arguments["run_id"]),
+        cast(str, arguments["reason"]),
+    )
+    return outcome.result, dict(outcome.data)
+
+
+def _retained(_arguments: Mapping[str, object]) -> tuple[str, _Data]:
+    outcome = cleanup.retained()
+    return outcome.result, dict(outcome.data)
+
+
+def _retained_counts(_arguments: Mapping[str, object]) -> tuple[str, _Data]:
+    outcome = cleanup.retained_counts()
+    return outcome.result, dict(outcome.data)
+
+
 _OPERATIONS: Final[dict[str, tuple[frozenset[str], _Operation]]] = {
     "provision": (
-        frozenset({"pool", "run_id", "owners", "catchers", "fursuits_per_owner"}),
+        frozenset(
+            {"pool", "run_id", "owners", "catchers", "fursuits_per_owner", "extras"}
+        ),
         _provision,
     ),
     "status": (frozenset({"run_id"}), _status),
+    "cleanup": (frozenset({"pool", "run_id"}), _cleanup),
+    "retain": (frozenset({"pool", "run_id", "reason"}), _retain),
+    "retained": (frozenset[str](), _retained),
+    "retained_counts": (frozenset[str](), _retained_counts),
 }
 
 

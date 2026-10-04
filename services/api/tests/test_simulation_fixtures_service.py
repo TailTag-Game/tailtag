@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from django.apps import apps
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import IntegrityError, transaction
@@ -186,6 +187,10 @@ def test_five_fursuits_per_owner_for_single_owner_and_catcher_is_accepted() -> N
         {"pool": "a" * 13},
         {"pool": "a-b"},
         {"pool": ""},
+        {"extras": [0]},
+        {"extras": [3]},
+        {"extras": [5, 5]},
+        {"extras": list(range(10, 21))},
     ),
     ids=(
         "no-owners",
@@ -204,6 +209,10 @@ def test_five_fursuits_per_owner_for_single_owner_and_catcher_is_accepted() -> N
         "pool-too-long",
         "pool-with-punctuation",
         "pool-empty",
+        "extra-overlaps-an-owner",
+        "extra-overlaps-a-catcher",
+        "duplicate-extra",
+        "too-many-extras",
     ),
 )
 def test_invalid_configuration_is_rejected_before_any_write(
@@ -377,6 +386,64 @@ def test_dirty_identity_is_quarantined_and_nothing_else_is_written(
         for slot in PoolSlot.objects.order_by("index").values()
         if slot["index"] not in dirty_indexes
     ] == clean_slots
+
+
+@pytest.mark.parametrize(
+    ("extras", "recorded"),
+    (([], {0, 1, 2, 3}), ([4, 5], {0, 1, 2, 3, 4, 5})),
+    ids=("none", "two-extras"),
+)
+def test_every_leased_index_is_recorded_and_extras_get_no_state(
+    extras: list[int], recorded: set[int]
+) -> None:
+    """C-1: owners, catchers and extras are ledgered; extras gain no enrollment."""
+    lease_pool(POOL, RUN_A, 6)
+
+    result = provision(extras=extras)
+
+    assert result == services.ProvisionResult(
+        "PASS", {"convention": 1, "enrollment": 4, "fursuit": 4, "activation": 4}
+    )
+    identity = apps.get_model("simulation_fixtures", "FixtureIdentity")
+    indexes = list(
+        identity.objects.filter(run__run_id=RUN_A).values_list("index", flat=True)
+    )
+    assert sorted(indexes) == sorted(recorded)
+    assert ConventionEnrollment.objects.count() == 4
+
+
+def test_dirty_extra_is_quarantined_and_nothing_else_is_written() -> None:
+    """C-1: an extra is dirty-checked like owners and catchers (the #220 gap)."""
+    users = lease_pool(POOL, RUN_A, 5)
+    _own_a_fursuit(users[4])
+    before = world(slots=False)
+
+    result = provision(extras=[4])
+
+    assert (result.result, result.counts) == ("FAIL_DIRTY", {"quarantined": 1})
+    assert world(slots=False) == before
+    states = {s.index: (s.state, s.run_id) for s in PoolSlot.objects.all()}
+    assert states[4] == ("quarantined", None)
+    assert all(states[i] == ("available", RUN_A) for i in range(4))
+
+
+@pytest.mark.parametrize(
+    "break_slot", (_lease_elsewhere, _expire), ids=("leased-elsewhere", "expired")
+)
+def test_extra_not_leased_to_this_run_fails_the_lease_without_writes(
+    break_slot: Callable[[PoolSlot], None],
+) -> None:
+    """C-1: an extra must be leased to the run, like every other identity."""
+    lease_pool(POOL, RUN_A, 5)
+    slot = PoolSlot.objects.get(pool=POOL, index=4)
+    break_slot(slot)
+    slot.save()
+    before = world()
+
+    result = provision(extras=[4])
+
+    assert result.result == "FAIL_LEASE"
+    assert world() == before
 
 
 def test_runs_with_distinct_identities_share_nothing_and_run_ids_are_single_use() -> (

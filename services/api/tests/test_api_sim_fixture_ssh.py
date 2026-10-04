@@ -48,6 +48,20 @@ CALLER_REQUEST = {
     },
 }
 COUNTS = {"convention": 1, "enrollment": 3, "fursuit": 2, "activation": 2}
+CLEANUP_COUNTS = {
+    **COUNTS,
+    "catch": 1,
+    "session": 1,
+    "credential": 2,
+    "image": 4,
+    "readmitted": 5,
+}
+LISTED_RUN = {
+    "run_id": SECRET_RUN_ID,
+    "pool": "alpha",
+    "reason": "journeys",
+    "age_days": 3,
+}
 
 
 @pytest.fixture
@@ -114,6 +128,20 @@ def invoke(launcher: ModuleType, request: object | str) -> tuple[int, str]:
             0,
         ),
         ({"result": "FAIL_DIRTY", "data": {"quarantined": 2}}, 1),
+        ({"result": "PASS", "data": CLEANUP_COUNTS}, 0),
+        ({"result": "PASS", "data": {"quarantined": 4}}, 0),
+        (
+            {
+                "result": "PASS",
+                "data": {
+                    "runs": [LISTED_RUN, {**LISTED_RUN, "reason": "unfinished"}],
+                    "retained": 1,
+                    "unfinished": 1,
+                },
+            },
+            0,
+        ),
+        ({"result": "PASS", "data": {"runs": [], "retained": 0, "unfinished": 0}}, 0),
         *(
             ({"result": code, "data": {}}, 1)
             for code in (
@@ -125,6 +153,10 @@ def invoke(launcher: ModuleType, request: object | str) -> tuple[int, str]:
                 "FAIL_ERROR",
                 "FAIL_RUN_UNKNOWN",
                 "FAIL_BOOTSTRAP",
+                "FAIL_ATTRIBUTION",
+                "FAIL_STORAGE",
+                "FAIL_VERIFY",
+                "FAIL_LIMIT",
             )
         ),
     ),
@@ -225,6 +257,33 @@ def test_failed_guard_stops_before_ssh_with_only_the_fixed_failure(
         completed(
             {"result": "PASS", "data": {"status": "provisioned", "counts": "private"}}
         ),
+        completed({"result": "FAIL_RETAINED_LIMIT", "data": {}}),
+        *(
+            completed(
+                {
+                    "result": "PASS",
+                    "data": {"runs": runs, "retained": 1, "unfinished": 0},
+                }
+            )
+            for runs in (
+                "private",
+                [{**LISTED_RUN, "handle": "private"}],
+                [{k: v for k, v in LISTED_RUN.items() if k != "pool"}],
+                [{**LISTED_RUN, "run_id": "private"}],
+                [{**LISTED_RUN, "pool": "Private-Pool"}],
+                [{**LISTED_RUN, "reason": "private"}],
+                [{**LISTED_RUN, "age_days": -1}],
+                [{**LISTED_RUN, "age_days": True}],
+                [{**LISTED_RUN, "age_days": "private"}],
+                ["private"],
+            )
+        ),
+        completed(
+            {
+                "result": "PASS",
+                "data": {"runs": [], "retained": "private", "unfinished": 0},
+            }
+        ),
         subprocess.TimeoutExpired(cmd="railway", timeout=1),
     ),
     ids=(
@@ -238,6 +297,18 @@ def test_failed_guard_stops_before_ssh_with_only_the_fixed_failure(
         "string-count",
         "string-in-nested-counts",
         "counts-not-an-object",
+        "simulator-only-result-code",
+        "runs-not-a-list",
+        "run-entry-extra-key",
+        "run-entry-missing-key",
+        "run-id-not-a-uuid",
+        "run-pool-malformed",
+        "run-reason-unknown",
+        "run-age-negative",
+        "run-age-boolean",
+        "run-age-string",
+        "run-entry-not-an-object",
+        "retained-count-string",
         "timeout",
     ),
 )

@@ -10,7 +10,13 @@ Stage lines are fixed by these tests:
     PASS target staging source_sha=<sha>
     RUN run_id=<uuid>
     PASS setup identities=<owners+catchers> fursuits=<owners*per owner>
-    PASS simulation | PASS reconciliation | PASS release
+    WARN retained=<n> unfinished=<m>              (after RUN, only when either is above 0)
+    PASS simulation | PASS reconciliation
+    PASS cleanup convention=.. enrollment=.. fursuit=.. activation=.. catch=..
+        session=.. credential=.. image=..         (one line; only after a passing run)
+    RETAIN reason=<reason> quarantined=<n> | FAIL retain   (instead of cleanup, see
+                                                           test_run_lifecycle)
+    PASS release
     FAIL setup result=<CODE> [quarantined=<n>]    (provision refused or failed)
     FAIL setup needed=<n> available=<m>           (#219 setup, unchanged)
     FAIL setup quarantined=<i,j,...>              (#219 setup, unchanged)
@@ -34,6 +40,7 @@ import pytest
 from fixture_support import (
     ACTIVATIONS_PATH,
     ACTIVE_PATH,
+    CLEANUP_LINE,
     FURSUITS_PATH,
     LEAK_SENTINELS,
     OTHER_CONVENTION_ID,
@@ -71,7 +78,12 @@ FIXED_LINES = re.compile(
     r"|RUN run_id=[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}"
     r"|PASS setup identities=\d+ fursuits=\d+"
     r"|PASS (simulation|reconciliation|release)"
-    r"|FAIL (target|simulation|reconciliation|release)"
+    r"|PASS cleanup( (convention|enrollment|fursuit|activation|catch|session"
+    r"|credential|image)=\d+){8}"
+    r"|WARN retained=\d+ unfinished=\d+"
+    r"|RETAIN reason=(journeys|reconciliation|cleanup|interrupted) quarantined=\d+"
+    r"|FAIL (target|simulation|reconciliation|release|retain)"
+    r"|FAIL cleanup result=FAIL_[A-Z_]+"
     r"|FAIL setup( needed=\d+ available=\d+"
     r"| quarantined=\d+(,\d+)*"
     r"| result=FAIL_[A-Z_]+( quarantined=\d+)?)?"
@@ -186,23 +198,22 @@ def test_successful_run_provisions_once_reads_publicly_and_reports_only_fixed_li
         *BASE,
         "PASS simulation",
         "PASS reconciliation",
+        CLEANUP_LINE,
         "PASS release",
     ]
     assert_only_fixed_output(run)
     assert rig.leases.calls_to("allocate") == [
         {"run_id": RUN_ID, "count": OWNERS + CATCHERS, "ttl_seconds": 1800}
     ]
-    assert rig.fixtures.calls == [
-        (
-            "provision",
-            {
-                "pool": POOL,
-                "run_id": RUN_ID,
-                "owners": OWNER_INDEXES,
-                "catchers": CATCHER_INDEXES,
-                "fursuits_per_owner": PER_OWNER,
-            },
-        )
+    assert rig.fixtures.calls_to("provision") == [
+        {
+            "pool": POOL,
+            "run_id": RUN_ID,
+            "owners": OWNER_INDEXES,
+            "catchers": CATCHER_INDEXES,
+            "fursuits_per_owner": PER_OWNER,
+            "extras": [],
+        }
     ]
     assert_released(rig)
     assert rig.leases.calls_to("quarantine") == []
@@ -243,16 +254,17 @@ def test_provision_follows_onboarding_and_nothing_privileged_runs_during_simulat
     )
     # SETUP: allocate, open and onboard every identity, then provision once.
     assert allocate < max(onboarding) < provision < first
-    assert kinds.count("fixture") == 1
+    assert log.count(("fixture", "provision")) == 1
     # The Clerk secret exists only before provisioning: no admin call, prompt or
     # privileged call of any kind falls between the first and the last public read.
     assert max(i for i, k in enumerate(kinds) if k == "backend") < provision
     assert {kinds[i] for i in range(first, last + 1)} <= {"api", "frontend"}
-    # Afterwards only the release runs; any heartbeat must follow provisioning.
+    # Afterwards only the cleanup and the release run; any heartbeat must follow
+    # provisioning.
     after = [
         (k, d) for k, d in log[last + 1 :] if k in ("channel", "fixture", "backend")
     ]
-    assert [d.split()[0] for _, d in after] == ["release"]
+    assert [d.split()[0] for _, d in after] == ["cleanup", "release"]
     assert all(
         i > provision
         for i, (k, d) in enumerate(log)
@@ -306,7 +318,7 @@ def test_a_failed_identity_setup_never_provisions_and_releases_what_it_leased(
 
     assert run.code == 1
     assert run.lines == [TARGET_LINE, RUN_LINE, failure, *(["PASS release"] * released)]
-    assert rig.fixtures.calls == []
+    assert rig.fixtures.calls_to("provision") == []
     assert rig.leases.indexes("quarantined") == quarantined
     assert rig.leases.indexes("leased") == set()
     assert len(rig.leases.calls_to("release")) == int(released)
@@ -351,7 +363,7 @@ def test_a_failed_provision_reports_one_fixed_line_and_still_releases_the_leases
     assert run.code == 1
     assert run.lines == [TARGET_LINE, RUN_LINE, line, "PASS release"]
     assert_only_fixed_output(run)
-    assert len(rig.fixtures.calls) == 1
+    assert len(rig.fixtures.calls_to("provision")) == 1
     assert_released(rig)
     assert public_reads(world) == set()
     # A dirty identity was already quarantined by the relay; the simulator does not
@@ -437,7 +449,15 @@ def test_provisioned_state_that_does_not_match_fails_and_still_releases(
 
     failed = "FAIL reconciliation" if passed else "FAIL simulation"
     assert run.code == 1
-    assert run.lines == [*BASE, *passed, failed, "PASS release"]
+    # The run is retained, not cleaned (reasons are pinned in test_run_lifecycle).
+    retained = [line for line in run.lines if line.startswith("RETAIN ")]
+    assert len(retained) == 1 and not any("cleanup" in x for x in run.lines)
+    assert [line for line in run.lines if line not in retained] == [
+        *BASE,
+        *passed,
+        failed,
+        "PASS release",
+    ]
     assert_only_fixed_output(run)
     assert_released(rig)
 
@@ -454,6 +474,7 @@ def test_a_failed_release_is_reported_after_a_run_that_otherwise_passed(
         *BASE,
         "PASS simulation",
         "PASS reconciliation",
+        CLEANUP_LINE,
         "FAIL release",
     ]
     assert len(rig.leases.calls_to("release")) == 1

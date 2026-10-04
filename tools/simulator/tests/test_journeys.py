@@ -11,6 +11,7 @@ Output lines are fixed by these tests (after the #220 target, RUN and setup line
     FAIL journey=<name> step=<step> expected=<status>/<code> observed=<status>/<code>
     PASS journeys passed=13 | FAIL journeys failed=<n>
     PASS reconciliation checks=14 | FAIL reconciliation ... (see test_reconciliation)
+    PASS cleanup ... | RETAIN reason=<reason> quarantined=<n> (see test_run_lifecycle)
     PASS release
 
 Reconciliation of a correct run is asserted here; what it reports for each kind of
@@ -30,7 +31,12 @@ from typing import Any, Final
 import journey_support
 import pool_support
 import pytest
-from fixture_support import ACTIVE_PATH, CONVENTION_ID, FakeFixtureChannel
+from fixture_support import (
+    ACTIVE_PATH,
+    CLEANUP_LINE,
+    CONVENTION_ID,
+    FakeFixtureChannel,
+)
 from journey_support import (
     AVATAR_PATH,
     CONFIRM_PATH,
@@ -139,6 +145,9 @@ FIXED_LINES = re.compile(
     rf" role=({'|'.join(ROLES)}|-) expected=\d observed=\d"
     r"|FAIL reconciliation discrepancies=\d"
     r"|PASS release"
+    r"|PASS cleanup( (convention|enrollment|fursuit|activation|catch|session"
+    r"|credential|image)=\d+){8}"
+    r"|RETAIN reason=(journeys|reconciliation|cleanup|interrupted) quarantined=\d+"
     r"|FAIL setup result=FAIL_[A-Z_]+"
 )
 
@@ -239,6 +248,7 @@ def test_a_correct_api_passes_all_journeys_with_only_fixed_output(
         *[f"PASS journey={name}" for name in NAMES],
         "PASS journeys passed=13",
         "PASS reconciliation checks=14",
+        CLEANUP_LINE,
         "PASS release",
     ]
     assert_only_fixed_output(run)
@@ -246,17 +256,15 @@ def test_a_correct_api_passes_all_journeys_with_only_fixed_output(
     assert rig.leases.calls_to("allocate") == [
         {"run_id": run_id, "count": 7, "ttl_seconds": 1800}
     ]
-    assert rig.fixtures.calls == [
-        (
-            "provision",
-            {
-                "pool": POOL,
-                "run_id": run_id,
-                "owners": [O1, O2],
-                "catchers": [C1, C2, C3, C4],
-                "fursuits_per_owner": 2,
-            },
-        )
+    assert rig.fixtures.calls_to("provision") == [
+        {
+            "pool": POOL,
+            "run_id": run_id,
+            "owners": [O1, O2],
+            "catchers": [C1, C2, C3, C4],
+            "fursuits_per_owner": 2,
+            "extras": [OUTSIDER],
+        }
     ]
     assert [(pool, run) for pool, run, _ in rig.inspection.calls] == [(POOL, run_id)]
     assert_released(rig, run_id)
@@ -380,6 +388,7 @@ def test_a_wrong_outcome_fails_only_its_journey_at_its_step_and_leaks_nothing(
         *BASE,
         *[failed if name == journey else f"PASS journey={name}" for name in NAMES],
         "FAIL journeys failed=1",
+        "RETAIN reason=journeys quarantined=7",
         "PASS release",
     ]
     assert_only_fixed_output(run)
@@ -445,12 +454,13 @@ def test_each_request_carries_the_identity_the_journey_assigns_and_nothing_privi
     assert who("POST", RESOLVE_PATH) <= {C1, C2, C3, C4}
     assert who("GET", HISTORY_PATH) == {O1, O2, C1, C2, C3, C4, OUTSIDER}
     assert who("POST", CONFIRM_PATH) == {O2, C1, C2, C3, C4, OUTSIDER}
-    # No lease, fixture or Clerk admin call falls between provisioning and release.
+    # No lease, fixture or Clerk admin call falls between provisioning and release,
+    # except the one cleanup that follows reconciliation.
     log = world.log
     after = log[log.index(("fixture", "provision")) + 1 :]
     assert [
         d.split()[0] for k, d in after if k in ("channel", "fixture", "backend")
-    ] == ["release"]
+    ] == ["cleanup", "release"]
 
     # RECONCILIATION (#222) starts once the journeys have reported. Its only public
     # calls are one history read per role (catcher0's two journey reads precede its

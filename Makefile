@@ -105,7 +105,7 @@ endef
 	api-staging-restore-drill \
 	api-format-check api-lint-check api-type-check api-django-check \
 	api-schema-check api-gunicorn-check \
-	sim-setup sim-check sim-smoke sim-pool-provision sim-pool-status sim-pool-readmit sim-pool-smoke sim-fixture-smoke sim-journeys sim-image sim-format-check sim-lint-check sim-type-check sim-test sim-semgrep-check
+	sim-setup sim-check sim-smoke sim-pool-provision sim-pool-status sim-pool-readmit sim-pool-smoke sim-fixture-smoke sim-journeys sim-cleanup sim-retained sim-image sim-format-check sim-lint-check sim-type-check sim-test sim-semgrep-check
 
 help: ## List the canonical backend developer commands.
 	@awk 'BEGIN { print "TailTag backend commands:" } /^[a-zA-Z0-9_-]+:.*##/ { target = $$1; sub(/:.*/, "", target); if (target != "help") { description = $$0; sub(/^.*##[[:space:]]*/, "", description); printf "  make %-20s %s\n", target, description } }' $(MAKEFILE_LIST)
@@ -273,6 +273,13 @@ sim-fixture-smoke: ## Run the Staging fixture smoke: POOL=name [OWNERS=n FURSUIT
 sim-journeys: ## Run the Staging acceptance journeys: POOL=name (host only; leases 7 identities).
 	@test -n "$(POOL)" || { printf '%s\n' 'POOL is required.' >&2; exit 2; }
 	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator journeys --pool '$(POOL)'
+
+sim-cleanup: ## Clean one Staging simulation run and readmit its identities: POOL=name RUN_ID=id (host only).
+	@test -n "$(POOL)" -a -n "$(RUN_ID)" || { printf '%s\n' 'POOL and RUN_ID are required.' >&2; exit 2; }
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator cleanup --pool '$(POOL)' --run-id '$(RUN_ID)'
+
+sim-retained: ## List retained and unfinished Staging simulation runs (host only).
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator retained
 
 sim-image: ## Build the simulator container image (tailtag-simulator:local).
 	docker build -t $(SIM_IMAGE) $(SIMULATOR_DIRECTORY)
