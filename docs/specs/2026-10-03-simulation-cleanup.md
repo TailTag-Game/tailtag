@@ -4,6 +4,10 @@ Issue: #223 (parent #199). Refinement: approved 2026-10-03 (decisions G1 to G13,
 recommendations). Builds on #219 (identity pool), #220 (fixture ledger), #221 (journeys)
 and #222 (reconciliation). Related: #204 (global Staging reset), #224 (run reports).
 
+Progress: tests, implementation and reviews are complete. The change merged as
+`b20355c` (#292). The maintainer Staging proof (C-16) passed on 2026-10-04 and is
+recorded at the end of this spec.
+
 ## Summary
 
 A Staging simulation run leaves state behind:
@@ -275,6 +279,99 @@ explicit guard.
   - `sim-retained` before and after
 
   The sanitized lines are recorded here.
+
+## Staging proof record (C-16)
+
+**Passed (2026-10-04).** This was a maintainer-run proof from `main` at `b20355c`.
+Only sanitized evidence is recorded here.
+
+1. **Promotion.** Controlled promotion of
+   `b20355cb2459a7ad6ea118511c1429aa94d53547` produced deployment
+   `5dd8353e-b28d-4336-90d1-6b46bb6a1e7d`
+   ([record](../development/staging-deployments/5dd8353e-b28d-4336-90d1-6b46bb6a1e7d.json)).
+   - It was accepted against main validation run `37185777098`, attempt 1.
+   - The deployment, migration, startup, readiness, identity and smoke outcomes all
+     SUCCEEDED, and the final state was ACTIVE.
+   - Promotion was required because #223 adds migration `simulation_fixtures.0002`
+     and new fixture operations.
+2. **Before.** `make sim-pool-status POOL=r1` printed
+   `PASS status total=10 available=10 leased=0 quarantined=0`. `make sim-retained`
+   listed exactly the three runs from before #223, each as `unfinished`:
+
+   ```text
+   RETAINED run_id=00fddc0a-7f60-4acf-8fd8-9dca501ae323 pool=p1 reason=unfinished age_days=0
+   RETAINED run_id=1c47ea72-10be-4789-b244-3c63e5e5f193 pool=j1 reason=unfinished age_days=0
+   RETAINED run_id=80d64256-cfc1-4bec-abd0-2b440fc156f6 pool=r1 reason=unfinished age_days=0
+   PASS retained retained=0 unfinished=3
+   ```
+
+3. **Cleanup of a run from before #223.**
+   `make sim-cleanup POOL=r1 RUN_ID=80d64256-cfc1-4bec-abd0-2b440fc156f6` (the #222
+   R-14 run) printed:
+
+   ```text
+   PASS cleanup convention=1 enrollment=6 fursuit=5 activation=4 catch=1 session=4 credential=5 image=5 readmitted=0
+   ```
+
+   `make sim-retained` then printed `PASS retained retained=0 unfinished=2`, with the
+   `r1` run gone.
+4. **First passing run.** `make sim-journeys POOL=r1` printed:
+
+   ```text
+   PASS target staging source_sha=b20355cb2459a7ad6ea118511c1429aa94d53547
+   RUN run_id=8ca8c7f5-d82d-472e-8c06-e555a8db9f73
+   WARN retained=0 unfinished=2
+   PASS setup identities=7 fursuits=4
+   PASS journey=unauthenticated
+   PASS journey=catch
+   PASS journey=retry
+   PASS journey=stopped_session
+   PASS journey=stale_credential
+   PASS journey=deactivated
+   PASS journey=self_catch
+   PASS journey=convention_mismatch
+   PASS journey=ineligible_catcher
+   PASS journey=not_owner
+   PASS journey=avatar
+   PASS journey=fursuit_photo
+   PASS journey=image_rejections
+   PASS journeys passed=13
+   PASS reconciliation checks=14
+   PASS cleanup convention=1 enrollment=6 fursuit=5 activation=4 catch=1 session=4 credential=5 image=5
+   PASS release
+   ```
+
+5. **Second run on the same pool.** `make sim-journeys POOL=r1` printed the same lines
+   with `RUN run_id=1db7405c-df40-44e8-8093-005a2ae5dc98`. SETUP passed on the
+   identities the first run had just used and cleaned, with no `FAIL_DIRTY`.
+6. **After.** `make sim-pool-status POOL=r1` printed
+   `PASS status total=10 available=10 leased=0 quarantined=0`. `make sim-retained`
+   printed `PASS retained retained=0 unfinished=2`, so neither journeys run was left
+   behind.
+7. **Remaining older runs.** The maintainer then cleaned the other two:
+
+   ```text
+   PASS cleanup convention=1 enrollment=4 fursuit=2 activation=2 catch=0 session=0 credential=0 image=2 readmitted=0
+   PASS cleanup convention=1 enrollment=6 fursuit=5 activation=4 catch=1 session=4 credential=5 image=5 readmitted=0
+   ```
+
+   These are `p1` run `00fddc0a-7f60-4acf-8fd8-9dca501ae323` and `j1` run
+   `1c47ea72-10be-4789-b244-3c63e5e5f193`.
+8. **What the pass confirms.**
+   - The fixture relay reached `cleanup`, `retained_counts` and `retained` on the
+     promoted build, within its timeout, and real data passed its output validation.
+   - Attribution accepted real run state, both recorded (`FixtureIdentity`) and
+     derived from ledger enrollments for runs from before #223. Nothing was refused.
+   - Real S3 storage reported every deleted image as gone (`image=5` per journeys
+     run).
+   - A passing run cleans itself: two successive runs on one pool both passed SETUP,
+     and the pool ended with 10 available and 0 quarantined.
+9. **Not exercised on Staging.**
+   - Every cleanup printed `readmitted=0`, because no slot had been quarantined: older
+     runs released their slots as available. Readmitting quarantined slots is
+     covered by API tests only.
+   - No run failed, so RETAIN did not run on Staging. Its behavior is covered by
+     simulator and API tests.
 
 ## Out of scope
 
