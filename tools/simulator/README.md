@@ -5,7 +5,8 @@ issues, convention-scale simulation (#199). It is plain Python asyncio with http
 ([ADR 0008](../../docs/adrs/0008-use-asyncio-httpx-for-headless-simulation.md)).
 Today it runs a manually invoked, authenticated `GET /api/me/` smoke against a local
 API or Staging, manages a Staging synthetic identity pool, provisions per-run
-simulation fixtures on Staging, and runs the 13 V0 acceptance journeys against them. Design: [spec](../../docs/specs/2026-10-02-headless-simulation-harness.md).
+simulation fixtures on Staging, runs the 13 V0 acceptance journeys against them, and
+cleans up or retains each run's state. Design: [spec](../../docs/specs/2026-10-02-headless-simulation-harness.md).
 
 ## Boundary
 
@@ -27,9 +28,10 @@ simulation fixtures on Staging, and runs the 13 V0 acceptance journeys against t
   - RECONCILIATION gets only the recorded observations. For `journeys` (#222) it gets
     three things: the expectations, the role-to-client and role-to-index maps (the
     clients only for history reads), and the read-only inspection channel.
-- Privileged access belongs only in SETUP and RECONCILIATION. Fixture setup (#220)
-  extends SETUP; privileged read-only reconciliation (#222) extends RECONCILIATION.
-  There is no plugin registry.
+- Privileged access belongs only in SETUP, RECONCILIATION and the run's final CLEANUP or
+  RETAIN. Fixture setup (#220) extends SETUP; privileged read-only reconciliation (#222)
+  extends RECONCILIATION; cleanup and retention (#223) run after RECONCILIATION, once
+  SIMULATION has finished. There is no plugin registry.
 - Pool and fixture commands are host-only. The lease and fixture channels need the
   Railway CLI and the owner manifest, so they run from a maintainer machine through
   `make`, not in the container image.
@@ -185,17 +187,21 @@ make sim-fixture-smoke POOL=p1 OWNERS=4 FURSUITS=3 CATCHERS=10
   PASS setup identities=<owners+catchers> fursuits=<owners*per owner>
   PASS simulation
   PASS reconciliation
+  PASS cleanup <counts>
   PASS release
   ```
 
-  Database IDs, Clerk IDs, handles, media keys, photo URLs, tokens, and secrets are
-  never printed. The exit code is 0 only if every line passed.
+  `PASS cleanup` and the lifecycle lines around it are described under
+  [Run lifecycle](#run-lifecycle). Database IDs, Clerk IDs, handles, media keys, photo
+  URLs, tokens, and secrets are never printed. The exit code is 0 only if every line
+  passed.
 - **Failures:** provisioning refusals print one line and the run still releases its
   leases: `FAIL setup result=<CODE>`, with ` quarantined=<n>` after `FAIL_DIRTY`.
   A shortfall or unusable identity prints the pool smoke's `FAIL setup needed=... available=...`
   or `FAIL setup quarantined=<i,j,...>`; any other setup error prints a plain
   `FAIL setup`. Public reads that cannot complete print `FAIL simulation`; state that does not
-  match prints `FAIL reconciliation`; leases that cannot be released print
+  match prints `FAIL reconciliation` (and the run is retained, see
+  [Run lifecycle](#run-lifecycle)); leases that cannot be released print
   `FAIL release`.
 
 | Result | Meaning |
@@ -215,39 +221,128 @@ make sim-fixture-smoke POOL=p1 OWNERS=4 FURSUITS=3 CATCHERS=10
 - **Commit-time failure:** if the final transaction commit itself fails (for example,
   a lost connection), the outcome is unknown. The relay returns `FAIL_BOOTSTRAP`,
   writes no `failed` run, and does not delete the images it stored, so the rows may
-  or may not exist and stored images may remain for #223 to reconcile. Check `status`
+  or may not exist and stored images may remain as unattributable
+  [orphans](#limitations). Check `status`
   for the run ID before assuming either way.
 - **Ledger and hand-off:** every created object (Convention, enrollments, fursuits
   with their media keys, activations) gets one `FixtureObject` row under a
-  `FixtureRun` keyed by run ID. #222 (reconciliation) and #223 (cleanup) find a run's
-  objects through that ledger. Today only `status` reads it, and it returns the run
-  status and counts per kind, never IDs or keys. There is no CLI wrapper; send the
+  `FixtureRun` keyed by run ID. Reconciliation (#222) and cleanup (#223) find a run's
+  objects through that ledger. `status` returns the run status and counts per kind,
+  never IDs or keys. There is no CLI wrapper; send the
   request to the launcher on stdin from the repository root:
 
   ```bash
   printf '{"operation":"status","arguments":{"run_id":"<run id>"}}' | make -s api-sim-fixture-ssh
   ```
 
-  An unknown run ID returns `FAIL_RUN_UNKNOWN`. #223 owns deleting a run's objects and
-  images, closing its Convention, and readmitting its identities.
-- **Quarantine consequence:** fixtures stay in place after the run, so every identity
-  it used now owns fursuits and enrollments. The next `provision` that includes one
-  quarantines it (`FAIL_DIRTY`). A `pool readmit` makes the slot allocatable again but
-  does not remove its fixtures, so the identity keeps failing `provision` with
-  `FAIL_DIRTY` until #223 cleanup removes them.
-- **Repeated runs on one pool:** a run releases its identities as available, and
-  allocation hands out the lowest available indexes first. The next `fixture-smoke`
-  on the same pool therefore gets those dirty identities back, fails with
-  `FAIL_DIRTY`, and quarantines them. The run after that uses the next fresh
-  indexes. Until #223 lands, expect each repeat to fail once before it passes, or
-  use a separate pool for each run. `pool-smoke` is unaffected, since it never
-  provisions.
+  An unknown run ID returns `FAIL_RUN_UNKNOWN`.
+- **Cleanup:** a passing run deletes its own state, and a failing run is retained. See
+  [Run lifecycle](#run-lifecycle).
+- **Repeated runs on one pool:** a passing run cleans its identities and releases them
+  clean, so the next run on the same pool provisions them again. A failing run
+  quarantines its identities and keeps its state until `sim-cleanup` readmits them. A
+  `pool readmit` makes a slot allocatable again but does not remove its fixtures, so
+  an identity that still owns state fails `provision` with `FAIL_DIRTY`.
 - **Relationship to #204:** the rehearsal baseline stays untouched. A fixture run never
   reads or changes the baseline Convention, its users, its fursuits, or its media key,
   and pool identities stay disjoint from them. Every run fursuit gets its own newly
   stored image.
 - **Not created here:** no catch sessions, catch credentials, or avatars. Those are
   fursuiter behavior that the journeys perform through the public API.
+
+## Run lifecycle
+
+`fixture-smoke` and `journeys` share one lifecycle (#223,
+[spec](../../docs/specs/2026-10-03-simulation-cleanup.md)). A passing run cleans itself.
+A failing run is retained so the state can be investigated, and a maintainer cleans it
+later.
+
+```text
+PASS cleanup convention=<n> enrollment=<n> fursuit=<n> activation=<n> catch=<n> session=<n> credential=<n> image=<n>
+FAIL cleanup result=<CODE>
+RETAIN reason=<reason> quarantined=<n>
+FAIL retain
+WARN retained=<n> unfinished=<m>
+```
+
+- **CLEANUP** runs after RECONCILIATION and before RELEASE, only when setup, every
+  journey and reconciliation passed. It goes through the fixture channel while every
+  slot is still leased, deletes exactly the run's state (its Convention, enrollments,
+  fursuits, activations, catches, catch sessions and credentials, and its images),
+  verifies that every identity is clean again; RELEASE then frees the slots. Pool users and
+  profiles survive. Cleanup refuses and changes nothing when the state is not provably
+  the run's own (`FAIL_ATTRIBUTION`), which includes anything touching the #204
+  baseline.
+- **RETAIN** runs once provision has passed and the run did not pass: it quarantines
+  the run's slots and keeps all state in place. The ledger row becomes `retained` with
+  one reason: `journeys` (a journey failed and reconciliation completed, including a
+  mismatch or a failed `inspect`), `reconciliation` (a mismatch or failed `inspect`
+  with every journey passing, or a reconciliation stage error such as an unknown
+  Convention),
+  `cleanup` (CLEANUP failed), or `interrupted` (any other exception or an interrupt, including a failed fixture-smoke
+  SIMULATION). A failed retain prints `FAIL retain`. RELEASE still ends the Clerk
+  sessions and runs last. A setup failure before provision passes behaves as before:
+  nothing is cleaned or retained.
+- **Cap:** before leasing anything, the run asks which runs are retained or
+  unfinished. At 5 or more retained runs it prints `FAIL setup
+  result=FAIL_RETAINED_LIMIT` and leases nothing, so clean some with `sim-cleanup`
+  first. When any run is retained or unfinished below the cap, it prints the `WARN`
+  line and goes on. An unfinished run is a crashed run, or one from before #223, that
+  has no live lease.
+- **Report:** the run's fixed stdout lines, starting at `RUN run_id=`, are its report;
+  capture them. The ledger row keeps its status, reason, counts and times. A report
+  file is #224's.
+
+### Maintainer commands
+
+```bash
+make sim-retained                          # list retained and unfinished runs
+make sim-cleanup POOL=p1 RUN_ID=<run id>   # clean one run and readmit its identities
+```
+
+Both are host-only, need no Clerk secret and no API target, and exit 0 only after a
+`PASS` line.
+
+```text
+RETAINED run_id=<id> pool=<p> reason=<reason|unfinished> age_days=<d>    (one per run)
+PASS retained retained=<n> unfinished=<m>
+PASS cleanup <the eight counts> readmitted=<n>
+FAIL retained result=<CODE>
+FAIL cleanup result=<CODE>
+```
+
+`sim-cleanup` works on a `retained` or `provisioned` run (not one that is `cleaned` or
+`failed`). It readmits the run's quarantined slots, and clears expired leases,
+only after the cleanup verified clean; it never readmits after a failed one. A
+`FAIL_STORAGE` run can be re-run and resumes at the image phase.
+
+| Result | Meaning |
+| --- | --- |
+| `FAIL_ATTRIBUTION` | Cleanup refused and changed nothing: the run is already cleaned or failed or in another pool, a slot is leased to another run, state exists outside the run Convention, an image key is shared or is the #204 key, or an identity cannot be resolved. |
+| `FAIL_RUN_UNKNOWN` | The run ID has no ledger row. |
+| `FAIL_STORAGE` | Rows are deleted but an image object is not confirmed gone. Re-run `sim-cleanup`. |
+| `FAIL_VERIFY` | An identity is still dirty or a row still references the run Convention. Nothing is readmitted. |
+| `FAIL_ERROR` | An unexpected error. Anything not yet committed rolled back; rerun `sim-cleanup`. |
+| `FAIL_LIMIT` | `retained` only: more than 100 runs to list. |
+| `FAIL_RETAINED_LIMIT` | In a run: 5 or more runs are retained, so nothing is leased. |
+
+### Cleaning runs from before #223
+
+A run from before #223 recorded no identities, so `sim-cleanup` derives them from the
+run's enrollments and cleans under the same rules; an identity that cannot be resolved
+is `FAIL_ATTRIBUTION`. Such runs appear in `sim-retained` as `unfinished`. Their
+outsider slot (the 7th identity of a `journeys` run) was never recorded and is not
+readmitted by cleanup: readmit it with `make sim-pool-readmit POOL=<pool> INDEX=<i>`.
+
+### Limitations
+
+- **Orphan images:** some stored images cannot be attributed to a run, and are logged
+  but never deleted: objects a domain service failed to delete after replacing or
+  removing an image, and images stored by a `provision` whose commit outcome was
+  unknown (`FAIL_BOOTSTRAP`).
+- **Hard crash:** if the process dies before RETAIN, the run's slots keep their leases
+  until they expire (1800 seconds). It then shows as `unfinished`, and the next
+  `provision` still quarantines any dirty identity.
 
 ## Journeys
 
@@ -263,8 +358,9 @@ make sim-journeys POOL=p1
 - **Prerequisites:** the [pool](#identity-pool) and [fixture](#simulation-fixtures)
   prerequisites, plus 7 clean identities. The run leases 7 and provisions the first 6
   through the fixture channel (2 owners with 2 fursuits each, 4 catchers); the 7th is
-  an onboarded outsider with no enrollment. Identities from an earlier fixture or
-  journeys run are dirty, so use a fresh pool or enough fresh indexes for each run.
+  an onboarded outsider with no enrollment, passed to `provision` as an extra and
+  checked clean. Identities left by a retained or pre-#223 run are dirty until
+  `sim-cleanup` cleans them.
 - **Journeys, in order:** `unauthenticated` (no token and a malformed bearer get 401),
   `catch` (session, credential, resolve, confirm, history), `retry` (a repeat confirm
   is `already_caught` with the same catch, also after the session stops),
@@ -286,6 +382,7 @@ make sim-journeys POOL=p1
   FAIL journey=<name> step=<step> expected=<status>/<code> observed=<status>/<code>
   PASS journeys passed=13        (or FAIL journeys failed=<n>)
   <reconciliation lines>         (see Reconciliation)
+  PASS cleanup <counts>          (or RETAIN reason=<reason> quarantined=<n>; see Run lifecycle)
   PASS release
   ```
 
@@ -294,11 +391,11 @@ make sim-journeys POOL=p1
   but the body did not, and `error` when there was no response (timeout, size cap,
   redirect). Setup and release failures print the `fixture-smoke` lines. Tokens,
   payloads, URLs, names, IDs, and body text are never printed. The exit code is 0 only
-  if setup, every journey, reconciliation, and release passed.
-- **Quarantine consequence:** the run leaves catches, sessions, rotated credentials, one
+  if setup, every journey, reconciliation, cleanup, and release passed.
+- **Cleanup consequence:** the run leaves catches, sessions, rotated credentials, one
   deactivated activation, the created fursuit and its photos, and stored-then-cleared
-  avatars. Every identity it used is dirty, so the next `provision` that includes one
-  quarantines it exactly as after `fixture-smoke`, until #223 cleanup.
+  avatars. A passing run [cleans](#run-lifecycle) all of it and its identities are
+  clean again; a failing run is retained with them quarantined.
 - **Covered only by API tests:** the 12 hour session expiry, the 10 MiB upload limit,
   and concurrent confirmation are not exercised over the network. They are covered by
   API pytest.
@@ -330,13 +427,15 @@ always before the leases are released.
   ```
 
   If the run Convention is unknown and catcher0 cannot read it, the run prints
-  `FAIL reconciliation`. The exit code is 0 only if setup, every journey,
-  reconciliation and release passed.
+  `FAIL reconciliation`. A failed reconciliation retains the run (reason
+  `reconciliation`, or `journeys` if a journey failed and reconciliation still
+  completed). The exit code is 0 only if setup, every journey, reconciliation, cleanup
+  and release passed.
 - **Prerequisites:** unchanged from [Journeys](#journeys), plus one more SSH call
   through the same Railway CLI access. `inspect` only reads, so nothing else needs to
   be provisioned or promoted by hand beyond the merged code.
 
 ## Later issues
 
-Cleanup (#223), scenarios and seeds (#224), personas and traffic (#225, #226),
-guardrail limits (#227), and the execution host (#228).
+Scenarios, seeds and run reports (#224), personas and traffic (#225, #226), guardrail
+limits (#227), and the execution host (#228).

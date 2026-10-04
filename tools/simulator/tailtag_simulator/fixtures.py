@@ -19,7 +19,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Protocol, cast
+from typing import Final, Literal, Protocol, cast
 
 import httpx
 
@@ -105,6 +105,41 @@ class FixtureLauncherChannel:
             result,
             quarantined if type(quarantined) is int and quarantined >= 0 else None,
         ) from None
+
+
+# -- cleanup and retention replies (#223) ------------------------------------------
+
+CLEANUP_KINDS: Final = (
+    "convention",
+    "enrollment",
+    "fursuit",
+    "activation",
+    "catch",
+    "session",
+    "credential",
+    "image",
+)
+RETENTION_CAP: Final = 5
+MAX_RETAINED_RUNS: Final = 100
+RETAINED_REASONS: Final = frozenset(
+    {"journeys", "reconciliation", "cleanup", "interrupted", "unfinished"}
+)
+
+# Why a failed run is retained; `pass` means the callback found nothing wrong.
+Outcome = Literal["pass", "journeys", "reconciliation", "cleanup", "interrupted"]
+
+
+def count_of(data: Mapping[str, object], key: str) -> int:
+    """A non-negative int the channel reported, or FAIL_LAUNCHER for anything else."""
+    value = data.get(key)
+    if type(value) is not int or value < 0:
+        raise FixtureFailed("FAIL_LAUNCHER")
+    return value
+
+
+def cleanup_counts(data: Mapping[str, object]) -> str:
+    """The eight deleted-object counts of a passing `cleanup`, in fixed order."""
+    return " ".join(f"{kind}={count_of(data, kind)}" for kind in CLEANUP_KINDS)
 
 
 # -- the fixture smoke run ---------------------------------------------------------
@@ -217,6 +252,58 @@ def reconcile_fixtures(observed: FixtureObservations, fursuits_per_owner: int) -
             raise PhaseFailed
 
 
+async def _check_retained(channel: FixtureChannel, emit: Callable[[str], None]) -> None:
+    """Refuse a run at the retained cap, and warn when anything is retained or unfinished."""
+    try:
+        data = await channel.call("retained", {})
+        retained, unfinished = count_of(data, "retained"), count_of(data, "unfinished")
+    except FixtureFailed as failure:
+        raise StageFailed(f"setup result={failure.result}") from None
+    except Exception:  # noqa: BLE001 - failures become a fixed stage
+        raise StageFailed("setup") from None
+    if retained >= RETENTION_CAP:
+        raise StageFailed("setup result=FAIL_RETAINED_LIMIT")
+    if retained or unfinished:
+        emit(f"WARN retained={retained} unfinished={unfinished}")
+
+
+async def _clean(
+    channel: FixtureChannel, pool: str, run: str, emit: Callable[[str], None]
+) -> bool:
+    """CLEANUP: delete the run's state and print the counts; False after a fixed FAIL line."""
+    try:
+        data = await channel.call("cleanup", {"pool": pool, "run_id": run})
+        counts = cleanup_counts(data)
+    except FixtureFailed as failure:
+        emit(f"FAIL cleanup result={failure.result}")
+        return False
+    except Exception:  # noqa: BLE001 - failures become a fixed line
+        emit("FAIL cleanup result=FAIL_ERROR")
+        return False
+    emit(f"PASS cleanup {counts}")
+    return True
+
+
+async def _retain(
+    channel: FixtureChannel,
+    pool: str,
+    run: str,
+    reason: str,
+    emit: Callable[[str], None],
+) -> bool:
+    """RETAIN: quarantine the run's slots and keep its state; False after FAIL retain."""
+    try:
+        data = await channel.call(
+            "retain", {"pool": pool, "run_id": run, "reason": reason}
+        )
+        quarantined = count_of(data, "quarantined")
+    except Exception:  # noqa: BLE001 - failures become a fixed line
+        emit("FAIL retain")
+        return False
+    emit(f"RETAIN reason={reason} quarantined={quarantined}")
+    return True
+
+
 async def run_provisioned(
     pool: str,
     owners: int,
@@ -233,18 +320,24 @@ async def run_provisioned(
     clock: Callable[[], float],
     run_id: str | None,
     simulate_and_reconcile: Callable[
-        [str, tuple[ApiClient, ...], tuple[int, ...]], Awaitable[bool]
+        [str, tuple[ApiClient, ...], tuple[int, ...]],
+        Awaitable[Literal["pass", "journeys", "reconciliation"]],
     ],
 ) -> int:
-    """The Staging run both fixture commands share: target, lease, provision, release.
+    """The Staging run both fixture commands share: target, lease, provision, clean, release.
 
-    Leases `owners + catchers + extra_identities` identities and provisions only the
-    first `owners + catchers`; the extra ones stay onboarded but unprovisioned. Once
-    SETUP passes, `simulate_and_reconcile` gets the verified origin, every identity's
-    client and every leased pool index, in lease order, and reports whether it passed. A `StageFailed` it raises
-    prints its fixed stage line. Once an allocation might have leased slots, RELEASE
-    always runs, even after a failure or an interrupt. The fixtures themselves stay in
-    place for #222 and #223. The exit code is 0 only if everything passed.
+    Before leasing, the run refuses at the retained cap and warns when anything is
+    retained or unfinished. It leases `owners + catchers + extra_identities` identities
+    and provisions the first `owners + catchers`; the rest are passed to `provision` as
+    extras. Once SETUP passes, `simulate_and_reconcile` gets the verified origin, every
+    identity's client and every leased pool index, in lease order, and reports `pass` or
+    which part failed; a `StageFailed` it raises prints its fixed stage line.
+
+    Once provision has passed, a `pass` outcome runs CLEANUP and anything else (a
+    failure, a CLEANUP failure, any exception or an interrupt) runs RETAIN, which keeps
+    the run's state and quarantines its slots. Once an allocation might have leased
+    slots, RELEASE always runs last, even after a failure or an interrupt. The exit code
+    is 0 only if everything passed.
     """
     run = run_id or str(uuid.uuid4())
     provisioned = owners + catchers
@@ -252,6 +345,7 @@ async def run_provisioned(
     stack = AsyncExitStack()
     held = Held()
     code = 1
+    outcome: Outcome | None = None  # None until provision has passed
     try:
         try:
             with stage("target"):
@@ -262,6 +356,7 @@ async def run_provisioned(
                     verified = await verify_target(probe, resolved)
             emit(f"PASS target staging source_sha={verified.source_sha}")
             emit(f"RUN run_id={run}")
+            await _check_retained(fixture_channel, emit)
 
             try:
                 indexes, clients = await open_identities(
@@ -286,6 +381,7 @@ async def run_provisioned(
                         "owners": list(indexes[:owners]),
                         "catchers": list(indexes[owners:provisioned]),
                         "fursuits_per_owner": fursuits_per_owner,
+                        "extras": list(indexes[provisioned:]),
                     },
                 )
             except SetupFailed as failure:
@@ -303,18 +399,39 @@ async def run_provisioned(
                 f"PASS setup identities={count} fursuits={owners * fursuits_per_owner}"
             )
 
-            if await simulate_and_reconcile(resolved.origin, clients, indexes):
-                code = 0
+            outcome = "interrupted"  # unless the run reports otherwise
+            try:
+                outcome = await simulate_and_reconcile(
+                    resolved.origin, clients, indexes
+                )
+            except StageFailed as failure:
+                if failure.stage.split()[0] == "reconciliation":
+                    outcome = "reconciliation"
+                raise
+            if outcome == "pass":
+                outcome = (
+                    "interrupted"  # an interrupt during CLEANUP is not a failure of it
+                )
+                if await _clean(fixture_channel, pool, run, emit):
+                    outcome, code = "pass", 0
+                else:
+                    outcome = "cleanup"
         except StageFailed as failure:
             emit(f"FAIL {failure.stage}")
     finally:
-        if held.leases:
-            released = await release(stack, lease_channel, pool, run)
-            emit("PASS release" if released else "FAIL release")
-            if not released:
+        try:
+            if outcome not in (None, "pass") and not await _retain(
+                fixture_channel, pool, run, str(outcome), emit
+            ):
                 code = 1
-        else:
-            await stack.aclose()
+        finally:  # RELEASE runs even if RETAIN is interrupted
+            if held.leases:
+                released = await release(stack, lease_channel, pool, run)
+                emit("PASS release" if released else "FAIL release")
+                if not released:
+                    code = 1
+            else:
+                await stack.aclose()
     return code
 
 
@@ -337,7 +454,7 @@ async def run_fixture_smoke(
 
     async def simulate_and_reconcile(
         _origin: str, clients: tuple[ApiClient, ...], _indexes: tuple[int, ...]
-    ) -> bool:
+    ) -> Literal["pass"]:
         with stage("simulation"):
             observed = await simulate_fixtures(
                 FixtureSimulationContext(clients[:owners], clients[owners:])
@@ -347,7 +464,7 @@ async def run_fixture_smoke(
         with stage("reconciliation"):
             reconcile_fixtures(observed, fursuits_per_owner)
         emit("PASS reconciliation")
-        return True
+        return "pass"
 
     return await run_provisioned(
         pool,

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
+import uuid
 from collections.abc import Mapping, Sequence
 from typing import Final, TextIO, cast
 
@@ -30,12 +32,34 @@ _RESULTS: Final = frozenset(
         "FAIL_ERROR",
         "FAIL_RUN_UNKNOWN",
         "FAIL_BOOTSTRAP",
+        "FAIL_ATTRIBUTION",
+        "FAIL_STORAGE",
+        "FAIL_VERIFY",
+        "FAIL_LIMIT",
     }
 )
 _COUNT_KEYS: Final = frozenset(
-    {"convention", "enrollment", "fursuit", "activation", "quarantined"}
+    {
+        "convention",
+        "enrollment",
+        "fursuit",
+        "activation",
+        "quarantined",
+        "catch",
+        "session",
+        "credential",
+        "image",
+        "readmitted",
+        "retained",
+        "unfinished",
+    }
 )
-_RUN_STATUSES: Final = frozenset({"provisioned", "failed"})
+_RUN_STATUSES: Final = frozenset({"provisioned", "failed", "retained", "cleaned"})
+_LISTED_REASONS: Final = frozenset(
+    {"journeys", "reconciliation", "cleanup", "interrupted", "unfinished"}
+)
+_LISTED_RUN_KEYS: Final = frozenset({"run_id", "pool", "reason", "age_days"})
+_POOL: Final = re.compile(r"[a-z0-9]{1,12}")
 # A provision near the configuration bounds stores up to 250 images remotely, so the
 # SSH call needs more than the shared 30-second default. It stays below the
 # simulator's 180-second launcher limit, leaving room for the preflight calls.
@@ -87,12 +111,44 @@ def _counts(value: object) -> bool:
     )
 
 
+def _is_uuid(value: object) -> bool:
+    try:
+        return isinstance(value, str) and str(uuid.UUID(value)) == value
+    except ValueError:
+        return False
+
+
+def _listed_run(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    run = cast(Mapping[object, object], value)
+    pool, reason, age = run.get("pool"), run.get("reason"), run.get("age_days")
+    return (
+        frozenset(run) == _LISTED_RUN_KEYS
+        and _is_uuid(run["run_id"])
+        and isinstance(pool, str)
+        and _POOL.fullmatch(pool) is not None
+        and isinstance(reason, str)
+        and reason in _LISTED_REASONS
+        and type(age) is int
+        and age >= 0
+    )
+
+
+def _runs(value: object) -> bool:
+    return isinstance(value, list) and all(
+        _listed_run(run) for run in cast(list[object], value)
+    )
+
+
 def _data_is_valid(data: Mapping[object, object]) -> bool:
     for key, value in data.items():
         if key == "status":
             valid = isinstance(value, str) and value in _RUN_STATUSES
         elif key == "counts":
             valid = _counts(value)
+        elif key == "runs":
+            valid = _runs(value)
         else:
             valid = key in _COUNT_KEYS and type(value) is int
         if not valid:

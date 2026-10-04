@@ -3,7 +3,8 @@
 Builds on pool_support. The only new substitutes are the fixture channel (a fake
 speaking the relay's request protocol, backed by the same lease table) and the
 public reads that provisioned state would serve (`FixtureState`, installed as the
-World's extra authenticated route). Response shapes follow the real serializers:
+World's extra authenticated route). The channel speaks all four operations: `provision`,
+`retained`, `cleanup` and `retain` (#223, frozen wire shapes in the implementation plan). Response shapes follow the real serializers:
 `GET /api/conventions/active/`, `GET /api/fursuits/` and
 `GET /api/conventions/<id>/fursuit-activations/`.
 """
@@ -29,8 +30,30 @@ ACTIVATIONS_PATH: Final = f"/api/conventions/{CONVENTION_ID}/fursuit-activations
 LEAK_SENTINELS: Final = ("SENTINEL", "media.example", "Sim Fursuit", "sp_", "Sim p1")
 
 _ACTIVATIONS: Final = re.compile(r"/api/conventions/(\d+)/fursuit-activations/")
-_ARGUMENT_NAMES: Final = frozenset(
-    {"pool", "run_id", "owners", "catchers", "fursuits_per_owner"}
+_PROVISION_ARGUMENTS: Final = frozenset(
+    {"pool", "run_id", "owners", "catchers", "fursuits_per_owner", "extras"}
+)
+RETAIN_REASONS: Final = frozenset(
+    {"journeys", "reconciliation", "cleanup", "interrupted"}
+)
+
+# What `cleanup` returns on PASS, in an order that is not the printed order.
+CLEANUP_DATA: Final[dict[str, object]] = {
+    "readmitted": 9,
+    "image": 8,
+    "credential": 7,
+    "session": 6,
+    "catch": 5,
+    "activation": 4,
+    "fursuit": 3,
+    "enrollment": 2,
+    "convention": 1,
+}
+
+# The in-run CLEANUP line for `CLEANUP_DATA`: fixed key order, `readmitted` not printed.
+CLEANUP_LINE: Final = (
+    "PASS cleanup convention=1 enrollment=2 fursuit=3 activation=4"
+    " catch=5 session=6 credential=7 image=8"
 )
 
 
@@ -131,11 +154,17 @@ class FixtureState:
 class FakeFixtureChannel:
     """In-memory relay: enforces the request protocol, the lease binding and F-5.
 
-    A `provision` succeeds only for exactly the right argument names, indexes that are
-    leased to the run and onboarded, like the real service. On success it populates
-    `state` (then lets `tamper` break it). `fail` makes every call fail instead; a
-    FAIL_DIRTY quarantines that many of the requested slots server-side first, as the
-    real service does.
+    A `provision` succeeds only for exactly the right argument names and indexes that
+    are leased to the run and onboarded (owners, catchers and extras), like the real
+    service. On success it populates `state` (then lets `tamper` break it). `fail` makes
+    `provision` fail instead; a FAIL_DIRTY quarantines that many of the requested slots
+    server-side first, as the real service does.
+
+    `retained` answers the cap query with `(retained, unfinished)` counts. `cleanup`
+    answers `CLEANUP_DATA` and `retain` quarantines every slot still leased to the run,
+    answering how many, as the real service does. `ops_fail` makes one of those
+    operations fail instead. `leased_during` records which slots were leased at the
+    moment of each call.
     """
 
     def __init__(
@@ -146,28 +175,79 @@ class FakeFixtureChannel:
         *,
         fail: Exception | None = None,
         tamper: Callable[[FixtureState], None] | None = None,
+        retained: tuple[int, int] = (0, 0),
+        ops_fail: Mapping[str, BaseException] | None = None,
     ) -> None:
         self._world = world
         self._leases = leases
         self.state = state
         self._fail = fail
         self._tamper = tamper
+        self._retained = retained
+        self._ops_fail = dict(ops_fail or {})
         self.calls: list[tuple[str, dict[str, object]]] = []
+        self.leased_during: list[tuple[str, set[int]]] = []
+
+    @property
+    def operations(self) -> list[str]:
+        return [operation for operation, _ in self.calls]
+
+    def calls_to(self, operation: str) -> list[dict[str, object]]:
+        return [args for op, args in self.calls if op == operation]
 
     async def call(
         self, operation: str, arguments: Mapping[str, object]
     ) -> dict[str, object]:
         args = dict(arguments)
         self.calls.append((operation, args))
+        self.leased_during.append((operation, self._leases.indexes("leased")))
         self._world.note("fixture", operation)
+        if operation == "provision":
+            return self._provision(args)
+        if operation in self._ops_fail:
+            raise self._ops_fail[operation]
+        run_id = args.get("run_id")
+        if operation == "retained" and args == {}:
+            return {
+                "runs": [],
+                "retained": self._retained[0],
+                "unfinished": self._retained[1],
+            }
+        if (
+            operation in ("cleanup", "retain")
+            and isinstance(run_id, str)
+            and args["pool"] == POOL
+            and str(uuid.UUID(run_id)) == run_id
+        ):
+            if operation == "cleanup" and frozenset(args) == frozenset(
+                {"pool", "run_id"}
+            ):
+                return dict(CLEANUP_DATA)
+            if (
+                operation == "retain"
+                and frozenset(args) == frozenset({"pool", "run_id", "reason"})
+                and args["reason"] in RETAIN_REASONS
+            ):
+                mine = [
+                    slot
+                    for slot in self._leases.slots.values()
+                    if slot.state == "leased" and slot.run_id == run_id
+                ]
+                for slot in mine:
+                    slot.state, slot.run_id = "quarantined", None
+                return {"quarantined": len(mine)}
+        raise FixtureFailed("FAIL_REQUEST")
+
+    def _provision(self, args: dict[str, object]) -> dict[str, object]:
         owners, catchers = args.get("owners"), args.get("catchers")
+        extras = args.get("extras")
         per_owner, run_id = args.get("fursuits_per_owner"), args.get("run_id")
         if (
-            operation != "provision"
-            or frozenset(args) != _ARGUMENT_NAMES
+            frozenset(args) != _PROVISION_ARGUMENTS
             or args["pool"] != POOL
             or not isinstance(owners, list)
             or not isinstance(catchers, list)
+            or not isinstance(extras, list)
             or type(per_owner) is not int
             or not isinstance(run_id, str)
             or str(uuid.UUID(run_id)) != run_id
@@ -175,7 +255,8 @@ class FakeFixtureChannel:
             raise FixtureFailed("FAIL_REQUEST")
         owner_indexes = [int(str(i)) for i in cast(list[object], owners)]
         catcher_indexes = [int(str(i)) for i in cast(list[object], catchers)]
-        requested = [*owner_indexes, *catcher_indexes]
+        extra_indexes = [int(str(i)) for i in cast(list[object], extras)]
+        requested = [*owner_indexes, *catcher_indexes, *extra_indexes]
         if self._fail is not None:
             if isinstance(self._fail, FixtureFailed) and self._fail.quarantined:
                 for index in requested[: self._fail.quarantined]:
@@ -197,7 +278,7 @@ class FakeFixtureChannel:
             self._tamper(self.state)
         return {
             "convention": 1,
-            "enrollment": len(requested),
+            "enrollment": len(owner_indexes) + len(catcher_indexes),
             "fursuit": len(owner_indexes) * per_owner,
             "activation": len(owner_indexes) * per_owner,
         }

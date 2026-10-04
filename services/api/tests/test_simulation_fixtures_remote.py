@@ -33,6 +33,7 @@ PROVISION_ARGUMENTS: dict[str, object] = {
     "owners": [0, 1],
     "catchers": [2],
     "fursuits_per_owner": 1,
+    "extras": [],
 }
 COUNTS = {"convention": 1, "enrollment": 3, "fursuit": 2, "activation": 2}
 
@@ -76,6 +77,67 @@ def test_provision_and_status_return_fixed_shapes_without_identifying_data() -> 
     }
     text = json.dumps([provisioned, status])
     assert json.loads(text) == [provisioned, status]
+    for private in ("sp_", "images/", RUN_A, POOL):
+        assert private not in text
+
+
+def test_cleanup_lifecycle_operations_return_fixed_shapes() -> None:
+    """C-14: retain, retained and cleanup answer with codes, counts and listed runs only."""
+    lease_pool(POOL, RUN_A, 4)
+    cleanup_arguments = {"pool": POOL, "run_id": RUN_A}
+    retain_arguments = {**cleanup_arguments, "reason": "journeys"}
+    assert execute(provision_request(extras=[3]))["result"] == "PASS"
+    empty: dict[str, object] = {
+        "result": "PASS",
+        "data": {"runs": [], "retained": 0, "unfinished": 0},
+    }
+
+    live = execute(request("retained"))
+    retained = execute(request("retain", retain_arguments))
+    listed = execute(request("retained"))
+    cleaned = execute(request("cleanup", cleanup_arguments))
+    again = execute(request("cleanup", cleanup_arguments))
+    retain_after = execute(request("retain", retain_arguments))
+    unknown_cleanup = execute(
+        request("cleanup", {**cleanup_arguments, "run_id": OTHER_RUN})
+    )
+    unknown_retain = execute(
+        request("retain", {**retain_arguments, "run_id": OTHER_RUN})
+    )
+    after = execute(request("retained"))
+
+    assert live == empty  # a run holding live leases is neither retained nor unfinished
+    assert retained == {"result": "PASS", "data": {"quarantined": 4}}
+    assert listed == {
+        "result": "PASS",
+        "data": {
+            "runs": [
+                {"run_id": RUN_A, "pool": POOL, "reason": "journeys", "age_days": 0}
+            ],
+            "retained": 1,
+            "unfinished": 0,
+        },
+    }
+    assert cleaned == {
+        "result": "PASS",
+        "data": {
+            "convention": 1,
+            "enrollment": 3,
+            "fursuit": 2,
+            "activation": 2,
+            "catch": 0,
+            "session": 0,
+            "credential": 0,
+            "image": 2,
+            "readmitted": 4,
+        },
+    }
+    assert again == retain_after == {"result": "FAIL_ATTRIBUTION", "data": {}}
+    assert (
+        unknown_cleanup == unknown_retain == {"result": "FAIL_RUN_UNKNOWN", "data": {}}
+    )
+    assert after == empty
+    text = json.dumps([retained, cleaned, again])
     for private in ("sp_", "images/", RUN_A, POOL):
         assert private not in text
 
@@ -147,9 +209,12 @@ def test_each_failure_has_a_fixed_code_and_no_detail(
     (
         provision_request(),
         request("status", {"run_id": RUN_A}),
+        request("cleanup", {"pool": POOL, "run_id": RUN_A}),
+        request("retain", {"pool": POOL, "run_id": RUN_A, "reason": "journeys"}),
+        request("retained"),
         request("drop_table", {"unexpected": 1}),
     ),
-    ids=("provision", "status", "malformed-operation"),
+    ids=("provision", "status", "cleanup", "retain", "retained", "malformed-operation"),
 )
 def test_target_mismatch_is_refused_before_validation_or_database_access(
     payload: dict[str, object],
@@ -208,6 +273,22 @@ def _without(key: str) -> dict[str, object]:
         provision_request(fursuits_per_owner="1"),
         provision_request(fursuits_per_owner=True),
         provision_request(pool=7),
+        request(
+            "provision",
+            {k: v for k, v in PROVISION_ARGUMENTS.items() if k != "extras"},
+        ),
+        provision_request(extras="3"),
+        provision_request(extras=[True]),
+        provision_request(extras=[0]),
+        provision_request(extras=list(range(10, 21))),
+        request("cleanup", {"pool": POOL}),
+        request("cleanup", {"pool": POOL, "run_id": RUN_A, "extra": 1}),
+        request("cleanup", {"pool": POOL, "run_id": RUN_A.upper()}),
+        request("cleanup", {"pool": "Alpha", "run_id": RUN_A}),
+        request("retain", {"pool": POOL, "run_id": RUN_A}),
+        request("retain", {"pool": POOL, "run_id": RUN_A, "reason": "other"}),
+        request("retain", {"pool": POOL, "run_id": RUN_A, "reason": 7}),
+        request("retained", {"pool": POOL}),
     ),
     ids=(
         "request-not-an-object",
@@ -230,6 +311,19 @@ def _without(key: str) -> dict[str, object]:
         "fursuits-string",
         "fursuits-boolean",
         "pool-not-a-string",
+        "provision-missing-extras",
+        "extras-not-a-list",
+        "extras-boolean-index",
+        "extras-overlap-an-owner",
+        "too-many-extras",
+        "cleanup-missing-run-id",
+        "cleanup-extra-argument",
+        "cleanup-run-id-not-canonical",
+        "cleanup-pool-invalid",
+        "retain-missing-reason",
+        "retain-unknown-reason",
+        "retain-reason-not-a-string",
+        "retained-takes-no-arguments",
     ),
 )
 def test_malformed_requests_fail_closed_without_changing_state(

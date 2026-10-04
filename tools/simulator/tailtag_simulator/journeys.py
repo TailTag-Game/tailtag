@@ -21,7 +21,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
-from typing import Final, cast
+from typing import Final, Literal, cast
 
 import httpx
 
@@ -642,15 +642,17 @@ async def run_journeys(
 
     The exit code is 0 only if every stage, journey and reconciliation passed.
     RECONCILIATION runs after the journey lines and before release, and release always
-    runs once leases may be held. Everything the run leaves behind belongs to its pool
-    identities or its own Convention, for #223.
+    runs once leases may be held. A passing run cleans up after itself, and a failing one
+    is retained for investigation (#223); the callback tells the shared run which part
+    failed. When reconciliation completes, a failed journey is reported as `journeys`
+    even if reconciliation also failed; a reconciliation stage error is `reconciliation`.
     """
 
     run = run_id or str(uuid.uuid4())  # reconciliation names the run to `inspect`
 
     async def journeys(
         origin: str, clients: tuple[ApiClient, ...], indexes: tuple[int, ...]
-    ) -> bool:
+    ) -> Literal["pass", "journeys", "reconciliation"]:
         with stage("simulation"):
             async with AsyncExitStack() as stack:
                 anonymous = await stack.enter_async_context(
@@ -684,9 +686,9 @@ async def run_journeys(
             )
         for line in reconciliation_lines(reconciled):
             emit(line)
-        return reconciled.passed and all(
-            result.failed_step is None for result in simulated.results
-        )
+        if any(result.failed_step is not None for result in simulated.results):
+            return "journeys"
+        return "pass" if reconciled.passed else "reconciliation"
 
     return await run_provisioned(
         pool,

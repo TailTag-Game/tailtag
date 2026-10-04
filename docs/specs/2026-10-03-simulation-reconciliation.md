@@ -70,6 +70,8 @@ Paths are under `services/api/` unless noted.
   The unprovisioned outsider passed the same lease, but `provision` never checks it.
   The pool smoke and readmit flows never create catches, so in practice the outsider
   is clean too. R-3 handles this by treating any outsider catch as a discrepancy.
+  *Since #223, `provision` also dirty-checks the outsider, and a passing run cleans
+  itself; see the [simulation cleanup spec](2026-10-03-simulation-cleanup.md).*
 - **Run attribution.**
   - `FixtureRun(run_id)` records `created_at`.
   - `FixtureObject` records the run's Convention, enrollments, fursuits (with

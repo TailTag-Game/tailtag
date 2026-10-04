@@ -5,10 +5,12 @@ import asyncio
 import getpass
 import logging
 import sys
+import uuid
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
 
+from tailtag_simulator.cleanup import run_cleanup, run_retained
 from tailtag_simulator.fixtures import FixtureLauncherChannel, run_fixture_smoke
 from tailtag_simulator.images import load_fixture_images
 from tailtag_simulator.journeys import JourneyImages, run_journeys
@@ -64,6 +66,13 @@ def _inspection_launcher() -> InspectionLauncherChannel:
     return InspectionLauncherChannel(INSPECTION_LAUNCHER_COMMAND, cwd=REPOSITORY_ROOT)
 
 
+def _run_id(value: str) -> str:
+    """A canonical lowercase UUID, as the ledger records it."""
+    if str(uuid.UUID(value)) != value:
+        raise ValueError("invalid run id")
+    return value
+
+
 def _prompt_token() -> str:
     return _prompt_hidden("Session token:")
 
@@ -100,7 +109,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     journeys = commands.add_parser(
         "journeys", help="run the acceptance journeys on Staging"
     )
-    for each in (provision, status, readmit, pool_smoke, fixture_smoke, journeys):
+    cleanup = commands.add_parser(
+        "cleanup", help="clean one run's Staging state and readmit its identities"
+    )
+    cleanup.add_argument("--run-id", required=True, type=_run_id)
+    commands.add_parser("retained", help="list retained and unfinished runs")
+    for each in (
+        provision,
+        status,
+        readmit,
+        pool_smoke,
+        fixture_smoke,
+        journeys,
+        cleanup,
+    ):
         each.add_argument("--pool", required=True, type=validate_pool_name)
     args = parser.parse_args(argv)
     for name in ("httpx", "httpcore"):  # their INFO lines carry full request URLs
@@ -143,6 +165,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                     emit=_emit,
                 )
             )
+        if args.command == "cleanup":
+            return asyncio.run(
+                run_cleanup(
+                    str(args.pool),
+                    str(args.run_id),
+                    channel=_fixture_launcher(),
+                    emit=_emit,
+                )
+            )
+        if args.command == "retained":
+            return asyncio.run(run_retained(channel=_fixture_launcher(), emit=_emit))
         if args.command == "pool":
             if args.pool_command == "provision":
                 return asyncio.run(

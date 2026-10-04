@@ -353,6 +353,7 @@ def test_a_catch_whose_response_was_wrong_is_at_most_one_row_not_missing(
         ],
         "FAIL journeys failed=1",
         "PASS reconciliation checks=14",
+        "RETAIN reason=journeys quarantined=7",
         "PASS release",
     ]
     assert_only_fixed_output(run)
@@ -459,6 +460,7 @@ def test_a_failed_inspection_fails_the_run_with_a_known_code_and_still_releases(
     assert run.lines == [
         *PASSED,
         f"FAIL reconciliation result={printed}",
+        "RETAIN reason=reconciliation quarantined=7",
         "PASS release",
     ]
     assert_only_fixed_output(run)
