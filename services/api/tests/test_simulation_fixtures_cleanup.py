@@ -11,6 +11,8 @@ returns a frozen dataclass with ``result: str`` and ``data: dict[str, object]``
   the eight deletion counts (not ``readmitted``), and a resumed call reports them
   again from there.
 * ``retain(pool, run_id, reason)``. PASS data is ``{"quarantined": n}``.
+* ``retained_counts(*, now=None)``: PASS data is exactly ``{"retained": n, "unfinished": m}``
+  (no listing, no limit).
 * ``retained(*, now=None)``. PASS data is ``{"runs": [{"run_id", "pool", "reason",
   "age_days"}, ...], "retained": n, "unfinished": m}`` (a list of plain dicts),
   retained runs first, then oldest first within each group.
@@ -663,6 +665,25 @@ def test_retained_lists_up_to_one_hundred_runs_then_fails_the_limit() -> None:
     add(1)
     over = cleanup.retained()
     assert (over.result, over.data) == ("FAIL_LIMIT", {})
+
+
+def test_retained_counts_answers_past_the_listing_limit_without_listing() -> None:
+    """C-11: the pre-run cap check still gets true counts when `retained` is refused."""
+    FixtureRun.objects.bulk_create(
+        [
+            FixtureRun(
+                run_id=str(uuid.uuid4()),
+                pool=POOL,
+                status=RETAINED if index < 3 else PROVISIONED,
+                reason="journeys" if index < 3 else None,
+            )
+            for index in range(101)
+        ]
+    )
+
+    assert cleanup.retained().result == "FAIL_LIMIT"
+    counts = cleanup.retained_counts()
+    assert (counts.result, counts.data) == ("PASS", {"retained": 3, "unfinished": 98})
 
 
 # --- C-2: ledger constraints ----------------------------------------------

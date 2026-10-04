@@ -255,7 +255,7 @@ def reconcile_fixtures(observed: FixtureObservations, fursuits_per_owner: int) -
 async def _check_retained(channel: FixtureChannel, emit: Callable[[str], None]) -> None:
     """Refuse a run at the retained cap, and warn when anything is retained or unfinished."""
     try:
-        data = await channel.call("retained", {})
+        data = await channel.call("retained_counts", {})
         retained, unfinished = count_of(data, "retained"), count_of(data, "unfinished")
     except FixtureFailed as failure:
         raise StageFailed(f"setup result={failure.result}") from None

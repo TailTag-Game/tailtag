@@ -3,8 +3,9 @@
 Builds on pool_support. The only new substitutes are the fixture channel (a fake
 speaking the relay's request protocol, backed by the same lease table) and the
 public reads that provisioned state would serve (`FixtureState`, installed as the
-World's extra authenticated route). The channel speaks all four operations: `provision`,
-`retained`, `cleanup` and `retain` (#223, frozen wire shapes in the implementation plan). Response shapes follow the real serializers:
+World's extra authenticated route). The channel speaks all five operations: `provision`,
+`retained`, `retained_counts`, `cleanup` and `retain` (#223, frozen wire shapes in the
+implementation plan). Response shapes follow the real serializers:
 `GET /api/conventions/active/`, `GET /api/fursuits/` and
 `GET /api/conventions/<id>/fursuit-activations/`.
 """
@@ -160,7 +161,8 @@ class FakeFixtureChannel:
     `provision` fail instead; a FAIL_DIRTY quarantines that many of the requested slots
     server-side first, as the real service does.
 
-    `retained` answers the cap query with `(retained, unfinished)` counts. `cleanup`
+    `retained_counts` answers the cap query with `(retained, unfinished)` counts only;
+    `retained` lists and, like the real service, fails FAIL_LIMIT above 100 runs. `cleanup`
     answers `CLEANUP_DATA` and `retain` quarantines every slot still leased to the run,
     answering how many, as the real service does. `ops_fail` makes one of those
     operations fail instead. `leased_during` records which slots were leased at the
@@ -207,7 +209,11 @@ class FakeFixtureChannel:
         if operation in self._ops_fail:
             raise self._ops_fail[operation]
         run_id = args.get("run_id")
+        if operation == "retained_counts" and args == {}:
+            return {"retained": self._retained[0], "unfinished": self._retained[1]}
         if operation == "retained" and args == {}:
+            if sum(self._retained) > 100:
+                raise FixtureFailed("FAIL_LIMIT")
             return {
                 "runs": [],
                 "retained": self._retained[0],

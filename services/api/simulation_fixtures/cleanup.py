@@ -3,7 +3,7 @@
 ``cleanup`` deletes exactly the state a run's provisioned identities own, under a
 closed-world attribution rule, and refuses with no writes when anything is
 ambiguous. ``retain`` keeps a failed run's state and quarantines its slots, and
-``retained`` lists the runs that are still clutter. Failures are fixed result
+``retained`` lists the runs that are still clutter and ``retained_counts`` counts them. Failures are fixed result
 codes: no IDs, image keys, or handles reach a result or a log message.
 """
 
@@ -456,7 +456,10 @@ def retained(*, now: dt.datetime | None = None) -> Outcome:
     return _guarded(lambda: _retained(now or timezone.now()))
 
 
-def _retained(now: dt.datetime) -> Outcome:
+def _retained_querysets(
+    now: dt.datetime,
+) -> tuple[QuerySet[FixtureRun], QuerySet[FixtureRun]]:
+    """The retained runs and the unfinished runs: the one classification both use."""
     leased = PoolSlot.objects.filter(
         pool=OuterRef("run__pool"),
         index=OuterRef("index"),
@@ -465,10 +468,14 @@ def _retained(now: dt.datetime) -> Outcome:
         lease_expires_at__gt=now,
     )
     live = FixtureIdentity.objects.filter(run=OuterRef("pk")).filter(Exists(leased))
-    retained_runs = FixtureRun.objects.filter(status=RETAINED)
-    unfinished_runs = FixtureRun.objects.filter(status=PROVISIONED).filter(
-        ~Exists(live)
+    return (
+        FixtureRun.objects.filter(status=RETAINED),
+        FixtureRun.objects.filter(status=PROVISIONED).filter(~Exists(live)),
     )
+
+
+def _retained(now: dt.datetime) -> Outcome:
+    retained_runs, unfinished_runs = _retained_querysets(now)
     total = retained_runs.count(), unfinished_runs.count()
     if sum(total) > MAX_LISTED:
         return Outcome("FAIL_LIMIT")
@@ -478,3 +485,16 @@ def _retained(now: dt.datetime) -> Outcome:
         for run in queryset.order_by("created_at", "pk")
     ]
     return Outcome("PASS", {"runs": runs, "retained": total[0], "unfinished": total[1]})
+
+
+def retained_counts(*, now: dt.datetime | None = None) -> Outcome:
+    """Count retained and unfinished runs without listing them or applying the limit."""
+    return _guarded(lambda: _retained_counts(now or timezone.now()))
+
+
+def _retained_counts(now: dt.datetime) -> Outcome:
+    retained_runs, unfinished_runs = _retained_querysets(now)
+    return Outcome(
+        "PASS",
+        {"retained": retained_runs.count(), "unfinished": unfinished_runs.count()},
+    )

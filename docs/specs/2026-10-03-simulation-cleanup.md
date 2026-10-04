@@ -59,6 +59,7 @@ exactly as it does today. The read-only inspection relay is unchanged.
 | `cleanup` | `pool`, `run_id` | `convention`, `enrollment`, `fursuit`, `activation`, `catch`, `session`, `credential`, `image`, `readmitted` (ints) |
 | `retain` | `pool`, `run_id`, `reason` | `quarantined` (int) |
 | `retained` | none | `runs`: at most 100 objects `{run_id, pool, reason, age_days}`; `retained` (int); `unfinished` (int) |
+| `retained_counts` | none | `retained` (int); `unfinished` (int), with no listing and no limit |
 
 ### Attribution rule (G4)
 
@@ -129,7 +130,8 @@ extra is quarantined with `FAIL_DIRTY`, as owners and catchers already are.
 
 `run_provisioned` (shared by `sim-journeys` and `sim-fixture-smoke`) changes as follows:
 
-- **Before leasing.** Call `retained`:
+- **Before leasing.** Call `retained_counts`, which has no listing limit, so a
+  backlog of unfinished runs cannot block a run:
   - When `retained` is 5 or more, print `FAIL setup result=FAIL_RETAINED_LIMIT` and
     lease nothing.
   - When either count is above zero, print `WARN retained=<n> unfinished=<m>`.
@@ -242,6 +244,7 @@ explicit guard.
 - **C-11 Clutter bound** (AC11, G8).
   - `retained` lists retained and unfinished runs, up to 100. A larger list returns
     `FAIL_LIMIT`.
+  - The pre-run check uses `retained_counts`, which returns both counts with no limit.
   - Each `sim-journeys` and `sim-fixture-smoke` run prints the `WARN` line when either
     count is above zero.
   - The run refuses with `FAIL_RETAINED_LIMIT`, before leasing anything, once 5 or more

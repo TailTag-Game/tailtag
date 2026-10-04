@@ -289,6 +289,8 @@ WARN retained=<n> unfinished=<m>
   first. When any run is retained or unfinished below the cap, it prints the `WARN`
   line and goes on. An unfinished run is a crashed run, or one from before #223, that
   has no live lease.
+  The check uses counts only, so a large unfinished backlog never blocks runs;
+  `sim-retained` still fails with `FAIL_LIMIT` above 100 listed runs.
 - **Report:** the run's fixed stdout lines, starting at `RUN run_id=`, are its report;
   capture them. The ledger row keeps its status, reason, counts and times. A report
   file is #224's.

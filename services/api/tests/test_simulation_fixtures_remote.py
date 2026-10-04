@@ -82,7 +82,7 @@ def test_provision_and_status_return_fixed_shapes_without_identifying_data() -> 
 
 
 def test_cleanup_lifecycle_operations_return_fixed_shapes() -> None:
-    """C-14: retain, retained and cleanup answer with codes, counts and listed runs only."""
+    """C-14: retain, retained, retained_counts and cleanup answer with codes, counts and listed runs only."""
     lease_pool(POOL, RUN_A, 4)
     cleanup_arguments = {"pool": POOL, "run_id": RUN_A}
     retain_arguments = {**cleanup_arguments, "reason": "journeys"}
@@ -95,6 +95,7 @@ def test_cleanup_lifecycle_operations_return_fixed_shapes() -> None:
     live = execute(request("retained"))
     retained = execute(request("retain", retain_arguments))
     listed = execute(request("retained"))
+    counts = execute(request("retained_counts"))
     cleaned = execute(request("cleanup", cleanup_arguments))
     again = execute(request("cleanup", cleanup_arguments))
     retain_after = execute(request("retain", retain_arguments))
@@ -118,6 +119,7 @@ def test_cleanup_lifecycle_operations_return_fixed_shapes() -> None:
             "unfinished": 0,
         },
     }
+    assert counts == {"result": "PASS", "data": {"retained": 1, "unfinished": 0}}
     assert cleaned == {
         "result": "PASS",
         "data": {
@@ -212,9 +214,18 @@ def test_each_failure_has_a_fixed_code_and_no_detail(
         request("cleanup", {"pool": POOL, "run_id": RUN_A}),
         request("retain", {"pool": POOL, "run_id": RUN_A, "reason": "journeys"}),
         request("retained"),
+        request("retained_counts"),
         request("drop_table", {"unexpected": 1}),
     ),
-    ids=("provision", "status", "cleanup", "retain", "retained", "malformed-operation"),
+    ids=(
+        "provision",
+        "status",
+        "cleanup",
+        "retain",
+        "retained",
+        "retained-counts",
+        "malformed-operation",
+    ),
 )
 def test_target_mismatch_is_refused_before_validation_or_database_access(
     payload: dict[str, object],
@@ -289,6 +300,7 @@ def _without(key: str) -> dict[str, object]:
         request("retain", {"pool": POOL, "run_id": RUN_A, "reason": "other"}),
         request("retain", {"pool": POOL, "run_id": RUN_A, "reason": 7}),
         request("retained", {"pool": POOL}),
+        request("retained_counts", {"pool": POOL}),
     ),
     ids=(
         "request-not-an-object",
@@ -324,6 +336,7 @@ def _without(key: str) -> dict[str, object]:
         "retain-unknown-reason",
         "retain-reason-not-a-string",
         "retained-takes-no-arguments",
+        "retained-counts-takes-no-arguments",
     ),
 )
 def test_malformed_requests_fail_closed_without_changing_state(

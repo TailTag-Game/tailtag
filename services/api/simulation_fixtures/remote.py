@@ -54,6 +54,11 @@ def _retained(_arguments: Mapping[str, object]) -> tuple[str, _Data]:
     return outcome.result, dict(outcome.data)
 
 
+def _retained_counts(_arguments: Mapping[str, object]) -> tuple[str, _Data]:
+    outcome = cleanup.retained_counts()
+    return outcome.result, dict(outcome.data)
+
+
 _OPERATIONS: Final[dict[str, tuple[frozenset[str], _Operation]]] = {
     "provision": (
         frozenset(
@@ -65,6 +70,7 @@ _OPERATIONS: Final[dict[str, tuple[frozenset[str], _Operation]]] = {
     "cleanup": (frozenset({"pool", "run_id"}), _cleanup),
     "retain": (frozenset({"pool", "run_id", "reason"}), _retain),
     "retained": (frozenset[str](), _retained),
+    "retained_counts": (frozenset[str](), _retained_counts),
 }
 
 

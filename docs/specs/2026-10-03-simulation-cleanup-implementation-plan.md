@@ -31,8 +31,8 @@ authoritative for behavior.
   - Reuse `simulation_pool.services` quarantine and readmit in `cleanup.py` (U1 L2).
   - Add a test for an unresolvable legacy handle (U1 L3).
   - Add simulator-side malformed-reply leak tests (U2 LOW-3).
-  - Address `FAIL_LIMIT` counting unlimited `unfinished` runs. Above 100 it blocks both
-    runs and `sim-retained`; check the count before the proof (whole-change LOW).
+  - `sim-retained` still returns `FAIL_LIMIT` above 100 listed runs. Runs are no longer
+    blocked, because the pre-run check uses `retained_counts` (CodeRabbit on #292).
   - Extract a shared core for the near-copy SSH relays (carried over from #222).
 
 ## Change surface
@@ -76,6 +76,10 @@ All requests are `{"operation", "arguments"}`. All responses are `{"result", "da
     first, then oldest first. Each entry is `{run_id, pool, reason, age_days}`, and
     `reason` is a retained reason or `unfinished`.
   - **Failures:** `FAIL_LIMIT` when there are more than 100 runs.
+
+- **`retained_counts` arguments:** `{}`. **PASS data:** `{retained, unfinished}`,
+  with no limit. The pre-run cap check uses it instead of `retained`. Added after
+  CodeRabbit review on #292.
 
 The relay keeps the existing result set and adds `FAIL_ATTRIBUTION`, `FAIL_STORAGE`,
 `FAIL_VERIFY` and `FAIL_LIMIT`. It validates the data shape per key. Each entry in `runs`

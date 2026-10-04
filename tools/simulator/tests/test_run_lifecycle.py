@@ -2,7 +2,7 @@
 
 Both commands share `fixtures.run_provisioned`, so every test here runs against both.
 Boundaries substituted: Clerk and TailTag HTTP, the lease channel, the fixture channel
-(now also answering `retained`, `cleanup` and `retain`), the inspection channel, the
+(now also answering `retained_counts`, `retained`, `cleanup` and `retain`), the inspection channel, the
 secret prompt and time. The run, its outcome tracking, CLEANUP, RETAIN and RELEASE are
 real.
 
@@ -19,7 +19,8 @@ Contract pinned here (the spec fixes the line shapes; these tests fix the rest):
     FAIL retain                            the retain call failed
     PASS release | FAIL release            always last, as before
 
-Fixture channel calls, in order: `retained {}`, `provision {..., extras}`, then either
+Fixture channel calls, in order: `retained_counts {}` (counts only, so it never hits the
+100-run listing limit), `provision {..., extras}`, then either
 `cleanup {pool, run_id}` (pass) or `retain {pool, run_id, reason}` (anything else).
 `extras` is every leased index beyond owners and catchers: the outsider for journeys,
 none for the fixture smoke.
@@ -231,8 +232,8 @@ def test_a_passing_run_cleans_up_while_still_leased_before_release_and_never_ret
     assert run.lines[:3] == rig.base
     assert run.lines[-2:] == [CLEANUP_LINE, "PASS release"]
     assert not [x for x in run.lines if x.startswith(("WARN", "RETAIN", "FAIL"))]
-    assert rig.fixtures.operations == ["retained", "provision", "cleanup"]
-    assert rig.fixtures.calls_to("retained") == [{}]
+    assert rig.fixtures.operations == ["retained_counts", "provision", "cleanup"]
+    assert rig.fixtures.calls_to("retained_counts") == [{}]
     (provision,) = rig.fixtures.calls_to("provision")
     assert provision["extras"] == rig.extras
     assert rig.fixtures.calls_to("cleanup") == [{"pool": POOL, "run_id": RUN_ID}]
@@ -246,7 +247,7 @@ def test_a_passing_run_cleans_up_while_still_leased_before_release_and_never_ret
         if kind_ == "channel" and detail.startswith("allocate")
     )
     cleaned = position(rig, ("fixture", "cleanup"))
-    assert position(rig, ("fixture", "retained")) < allocate
+    assert position(rig, ("fixture", "retained_counts")) < allocate
     assert cleaned < position(rig, ("emit", CLEANUP_LINE)) < release_position(rig)
     assert_released(rig)
     assert rig.leases.indexes("quarantined") == {0}
@@ -288,7 +289,7 @@ def test_a_failing_run_is_retained_with_its_reason_not_cleaned_and_still_release
     assert run.code != 0
     cleanup_failed = case.startswith("cleanup_")
     assert rig.fixtures.operations == [
-        "retained",
+        "retained_counts",
         "provision",
         *["cleanup"] * cleanup_failed,
         "retain",
@@ -341,7 +342,12 @@ def test_an_interrupt_during_cleanup_retains_the_run_as_interrupted_and_releases
     run = rig.run()
 
     assert run.code != 0
-    assert rig.fixtures.operations == ["retained", "provision", "cleanup", "retain"]
+    assert rig.fixtures.operations == [
+        "retained_counts",
+        "provision",
+        "cleanup",
+        "retain",
+    ]
     assert rig.fixtures.calls_to("retain") == [
         {"pool": POOL, "run_id": RUN_ID, "reason": "interrupted"}
     ]
@@ -386,8 +392,8 @@ def _unusable_identity(request: pytest.FixtureRequest, kind: str) -> Rig:
 
 
 SETUP_FAILURES: Final = {
-    "provision-refused": (_dirty_provision, ["retained", "provision"]),
-    "identity-unusable": (_unusable_identity, ["retained"]),
+    "provision-refused": (_dirty_provision, ["retained_counts", "provision"]),
+    "identity-unusable": (_unusable_identity, ["retained_counts"]),
 }
 
 
@@ -431,7 +437,7 @@ def test_a_run_at_the_retained_cap_leases_nothing_and_never_touches_clerk(
     assert run.lines[:2] == rig.base[:2]
     assert run.lines[-1] == "FAIL setup result=FAIL_RETAINED_LIMIT"
     assert set(run.lines[2:-1]) <= {f"WARN retained={counts[0]} unfinished={counts[1]}"}
-    assert rig.fixtures.operations == ["retained"]
+    assert rig.fixtures.operations == ["retained_counts"]
     assert rig.leases.calls == []
     assert run.prompts == 0
     assert rig.world.kinds("backend", "frontend") == []
@@ -446,6 +452,8 @@ def test_a_run_at_the_retained_cap_leases_nothing_and_never_touches_clerk(
         ((1, 0), "WARN retained=1 unfinished=0"),
         ((0, 3), "WARN retained=0 unfinished=3"),
         ((4, 2), "WARN retained=4 unfinished=2"),
+        # More unfinished runs than `retained` can list: only the counts-only query works.
+        ((0, 150), "WARN retained=0 unfinished=150"),
     ],
 )
 def test_the_warn_line_appears_only_when_something_is_retained_or_unfinished(
@@ -465,4 +473,4 @@ def test_the_warn_line_appears_only_when_something_is_retained_or_unfinished(
     assert [x for x in run.lines if x.startswith("WARN")] == (
         [warning] if warning else []
     )
-    assert rig.fixtures.operations == ["retained", "provision", "cleanup"]
+    assert rig.fixtures.operations == ["retained_counts", "provision", "cleanup"]
