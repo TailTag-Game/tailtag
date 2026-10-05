@@ -55,6 +55,7 @@ def _ignored(path: Path) -> bool:
             for part in path.parts
         )
         or path.suffix == ".md"
+        or path.name == ".DS_Store"
     )
 
 

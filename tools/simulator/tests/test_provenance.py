@@ -159,6 +159,13 @@ def test_docs_tests_caches_and_output_changes_do_not_dirty_execution_inputs(
     reports = source_repo / "tools/simulator/reports"
     reports.mkdir()
     (reports / "run.json").write_text("output")
+    # Finder metadata is neither an importable module nor a supported fixture
+    # image input; its ignored presence must not relabel otherwise clean source.
+    for directory in (
+        source_repo / "tools/simulator/tailtag_simulator",
+        source_repo / "services/api/simulation_fixtures/images",
+    ):
+        (directory / ".DS_Store").write_bytes(b"Finder metadata")
     assert load_source(source_repo)["provenance"] == "clean"
 
 
