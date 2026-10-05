@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Callable
+from importlib.machinery import EXTENSION_SUFFIXES
 from pathlib import Path
 from typing import Any
 
@@ -97,6 +98,11 @@ def test_clean_git_source_reports_full_sha_and_locked_dependency_identity(
         "namespace_module",
         "namespace_bytecode",
         "package_bytecode",
+        "host_sourceless_package",
+        "host_extension",
+        "host_dangling_package",
+        "namespace_extension",
+        "initializer_extension",
     ],
 )
 def test_changed_or_untracked_runtime_inputs_cannot_claim_a_clean_git_identity(
@@ -138,6 +144,22 @@ def test_changed_or_untracked_runtime_inputs_cannot_claim_a_clean_git_identity(
             "package_bytecode": "scripts/__init__.pyc",
         }[change]
         (source_repo / relative).write_bytes(b"SENTINEL_namespace_loader_input")
+    elif change == "host_sourceless_package":
+        shadow = source_repo / "scripts/api_staging_preflight"
+        shadow.mkdir()
+        (shadow / "__init__.pyc").write_bytes(b"SENTINEL_package_loader_input")
+    elif change == "host_extension":
+        shadow = source_repo / f"scripts/api_sim_fixture_ssh{EXTENSION_SUFFIXES[0]}"
+        shadow.write_bytes(b"SENTINEL_native_loader_input")
+    elif change == "host_dangling_package":
+        (source_repo / "scripts/api_staging_reset_ssh").symlink_to(
+            tmp_path / "SENTINEL-missing-package", target_is_directory=True
+        )
+    elif change in {"namespace_extension", "initializer_extension"}:
+        stem = "scripts" if change == "namespace_extension" else "scripts/__init__"
+        (source_repo / f"{stem}{EXTENSION_SUFFIXES[0]}").write_bytes(
+            b"SENTINEL_namespace_native_loader_input"
+        )
     else:
         secret = tmp_path / "SENTINEL-private-source"
         secret.write_text("private bytes")
@@ -153,6 +175,9 @@ def test_docs_tests_caches_and_output_changes_do_not_dirty_execution_inputs(
 ) -> None:
     (source_repo / "README.md").write_text("Edited documentation")
     (source_repo / "tools/simulator/tests/test_fixture.py").write_text("Edited tests")
+    (source_repo / "scripts/api_sim_inspect_ssh.md").write_text(
+        "Host launcher documentation is not an import loader."
+    )
     cache = source_repo / "tools/simulator/tailtag_simulator/__pycache__"
     cache.mkdir()
     (cache / "smoke.cpython-313.pyc").write_bytes(b"cache")

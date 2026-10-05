@@ -23,6 +23,7 @@ from typing import Final, Literal, Protocol, cast
 
 import httpx
 
+from tailtag_simulator import limits
 from tailtag_simulator.client import ApiClient, Reply, open_client
 from tailtag_simulator.phases import PhaseFailed
 from tailtag_simulator.pool import (
@@ -120,7 +121,7 @@ CLEANUP_KINDS: Final = (
     "credential",
     "image",
 )
-RETENTION_CAP: Final = 5
+RETENTION_CAP: Final = limits.RETENTION_CAP
 MAX_RETAINED_RUNS: Final = 100
 RETAINED_REASONS: Final = frozenset(
     {"journeys", "reconciliation", "cleanup", "interrupted", "unfinished"}

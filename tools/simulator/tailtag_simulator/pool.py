@@ -25,6 +25,7 @@ from typing import Final, Protocol, cast
 
 import httpx
 
+from tailtag_simulator import limits
 from tailtag_simulator.clerk import (
     ClerkAdmin,
     ClerkFailed,
@@ -43,13 +44,13 @@ from tailtag_simulator.reports import RunReport
 from tailtag_simulator.smoke import StageFailed, attribute, stage
 from tailtag_simulator.targets import resolve_target, verify_target
 
-LEASE_TTL_SECONDS: Final = 1800
+LEASE_TTL_SECONDS: Final = limits.LEASE_TTL_SECONDS
 MAX_POOL_SIZE: Final = 1000
 # One ordinary token lives 60 seconds; waiting one second longer forces a refresh.
 TOKEN_WAIT_SECONDS: Final = 61.0
 PROFILE_PATH: Final = "/api/profile/"
 
-LAUNCHER_TIMEOUT_SECONDS: Final = 180
+LAUNCHER_TIMEOUT_SECONDS: Final = limits.LAUNCHER_TIMEOUT_SECONDS
 MAX_LAUNCHER_OUTPUT_BYTES: Final = 65536
 
 _POOL_NAME: Final = re.compile(r"[a-z0-9]{1,12}")

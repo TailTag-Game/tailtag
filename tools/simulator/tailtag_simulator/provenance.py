@@ -7,6 +7,7 @@ import platform
 import re
 import subprocess
 import tempfile
+from importlib.machinery import all_suffixes
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, cast
@@ -32,10 +33,9 @@ HOST_FILES = {
     "services/api/uv.lock",
 }
 HOST_OPTIONAL_FILES = {
-    "scripts/__init__.py",
-    "scripts/__init__.pyc",
-    "scripts.py",
-    "scripts.pyc",
+    stem + suffix
+    for stem in ("scripts/__init__", "scripts")
+    for suffix in all_suffixes()
 }
 SHA = re.compile(r"[0-9a-f]{40}")
 DIGEST = re.compile(r"[0-9a-f]{64}")
@@ -163,6 +163,19 @@ def _host(root: Path) -> tuple[str, dict[str, bytes]]:
         path = root / name
         if (path.exists() or path.is_symlink()) and name not in names:
             raise SourceRejected()
+    # Packages and alternate supported loaders can take precedence over verified
+    # launcher source. Reject them even when ignored or dangling symlinks.
+    for name in HOST_FILES:
+        if not name.startswith("scripts/") or not name.endswith(".py"):
+            continue
+        path = root / name
+        package = path.with_suffix("")
+        if package.is_dir() or package.is_symlink():
+            raise SourceRejected()
+        for suffix in all_suffixes():
+            sibling = path.with_suffix(suffix)
+            if sibling != path and (sibling.exists() or sibling.is_symlink()):
+                raise SourceRejected()
     return sha, approved
 
 

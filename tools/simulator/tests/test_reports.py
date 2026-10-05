@@ -11,7 +11,7 @@ import socket
 import subprocess
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from report_support import (
@@ -27,6 +27,9 @@ from report_support import (
 )
 
 from tailtag_simulator.__main__ import main
+from tailtag_simulator.client import MAX_RESPONSE_BYTES, REQUEST_TIMEOUT_SECONDS
+from tailtag_simulator.fixtures import RETENTION_CAP
+from tailtag_simulator.pool import LAUNCHER_TIMEOUT_SECONDS, LEASE_TTL_SECONDS
 from tailtag_simulator.reports import (
     ReportFailed,
     RunReport,
@@ -283,15 +286,38 @@ def test_smoke_catalog_matches_the_independent_descriptor_contract() -> None:
     assert resolved["descriptor_digest"] == expected["descriptor_digest"]
 
 
-@pytest.mark.parametrize("change", ["edit", "remove", "shallow"])
+@pytest.mark.parametrize(
+    "change", ["edit", "remove", "shallow", "historical_duplicate", "dotfile_removed"]
+)
 def test_committed_scenario_history_cannot_be_changed_removed_or_unverified(
     tmp_path: Path, change: str
 ) -> None:
     value = literal_report()["scenario"]
     entry = {**value["descriptor"], "descriptor_digest": value["descriptor_digest"]}
     relative = "tools/simulator/tailtag_simulator/scenarios/smoke-v1.json"
-    root = repository(tmp_path / "repo", {relative: json.dumps(entry)})
-    validate_catalog(root)
+    canonical_entry = json.dumps(entry)
+    historical_entry = canonical_entry
+    if change == "historical_duplicate":
+        # Last-wins parsing yields exactly the canonical current entry, hiding
+        # an ambiguous earlier descriptor unless historical blobs are strict.
+        historical_entry = canonical_entry.replace(
+            '"id": "smoke"', '"id": "SENTINEL-ambiguous", "id": "smoke"', 1
+        )
+    files: dict[str, str | bytes] = {relative: historical_entry}
+    dotfile = str(Path(relative).with_name(".json"))
+    if change == "dotfile_removed":
+        files[dotfile] = canonical_entry
+    root = repository(tmp_path / "repo", files)
+    if change == "historical_duplicate":
+        (root / relative).write_text(canonical_entry)
+        commit(root, "Canonical current descriptor after ambiguous historical JSON")
+    elif change == "dotfile_removed":
+        # Current *.json glob includes this name; its history must remain in
+        # the same scope even though Path('.json').suffix is empty.
+        (root / dotfile).unlink()
+        commit(root, "Remove literal dot-json artifact while preserving valid smoke")
+    else:
+        validate_catalog(root)
     if change == "remove":
         (root / relative).unlink()
     elif change == "edit":
@@ -304,7 +330,7 @@ def test_committed_scenario_history_cannot_be_changed_removed_or_unverified(
         ).hexdigest()
         (root / relative).write_text(json.dumps(entry))
         commit(root, "Changed historical descriptor despite matching digest")
-    else:
+    elif change == "shallow":
         (root / "README.md").write_text("Second fixture commit")
         commit(root, "Second fixture commit")
         shallow = tmp_path / "shallow"
@@ -312,6 +338,52 @@ def test_committed_scenario_history_cannot_be_changed_removed_or_unverified(
         root = shallow
     with pytest.raises(ScenarioRejected):
         validate_catalog(root)
+
+
+def test_nested_historical_json_cannot_collide_with_the_flat_catalog(
+    tmp_path: Path,
+) -> None:
+    value = literal_report()["scenario"]
+    entry = {**value["descriptor"], "descriptor_digest": value["descriptor_digest"]}
+    directory = "tools/simulator/tailtag_simulator/scenarios"
+    nested = f"{directory}/archive/smoke-v1.json"
+    root = repository(
+        tmp_path / "repo",
+        {
+            f"{directory}/smoke-v1.json": json.dumps(entry),
+            nested: '{"SENTINEL": "unrelated nested artifact"}',
+        },
+    )
+    (root / nested).unlink()
+    commit(root, "Remove unrelated nested artifact while preserving flat catalog")
+    validate_catalog(root)
+
+
+def test_published_limits_match_runtime_owners_and_literal_report_meanings(
+    tmp_path: Path,
+) -> None:
+    report = RunReport(tmp_path, "fixture-smoke", config={"pool": "p1"}, run_id=RUN_ID)
+    limits = cast(dict[str, dict[str, object]], load_report(report.path)["limits"])
+    expected = json.loads((DATA.parent / "report-v1-journeys.json").read_text())[
+        "limits"
+    ]
+    assert limits == expected
+    assert {
+        name: limits[name]["value"]
+        for name in (
+            "response_bytes",
+            "request_timeout",
+            "lease_ttl",
+            "launcher_timeout",
+            "retained_runs",
+        )
+    } == {
+        "response_bytes": MAX_RESPONSE_BYTES,
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
+        "lease_ttl": LEASE_TTL_SECONDS,
+        "launcher_timeout": LAUNCHER_TIMEOUT_SECONDS,
+        "retained_runs": RETENTION_CAP,
+    }
 
 
 def test_constructor_persists_running_evidence_before_any_lifecycle_work(

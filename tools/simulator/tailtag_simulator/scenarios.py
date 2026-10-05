@@ -221,10 +221,13 @@ def validate_catalog(root: Path | None = None) -> None:
                 for name in _git(
                     root, "ls-tree", "-r", "--name-only", sha, "--", RELATIVE
                 ).splitlines():
-                    if not name.endswith(".json"):
+                    path = Path(name)
+                    if not name.endswith(".json") or path.parent != Path(RELATIVE):
                         continue
-                    value = json.loads(_git(root, "show", f"{sha}:{name}"))
-                    filename = Path(name).name
+                    value = json.loads(
+                        _git(root, "show", f"{sha}:{name}"), object_pairs_hook=_pairs
+                    )
+                    filename = path.name
                     if filename in historical and historical[filename] != value:
                         raise ScenarioRejected
                     historical[filename] = value

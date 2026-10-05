@@ -89,8 +89,8 @@ make sim-smoke TARGET=local         # optional BASE_URL=http://localhost:8000
 make sim-smoke TARGET=staging
 make sim-image                      # clean-source build of tailtag-simulator:local
 mkdir -p tools/simulator/reports
-# The mount must be writable by the image's tailtag user.
-docker run --rm -it -v "$PWD/tools/simulator/reports:/reports" tailtag-simulator:local smoke --target local --base-url http://host.docker.internal:8000 --report-dir /reports
+# Use your host UID/GID so mounted reports remain writable and readable.
+docker run --rm -it --user "$(id -u):$(id -g)" -v "$PWD/tools/simulator/reports:/reports" tailtag-simulator:local smoke --target local --base-url http://host.docker.internal:8000 --report-dir /reports
 ```
 
 The container needs `-it` so the hidden prompt has a TTY. For the local target, the

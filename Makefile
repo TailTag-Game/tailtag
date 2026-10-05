@@ -285,7 +285,7 @@ sim-image: ## Build the simulator container image from verified clean source.
 	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator.provenance build --root '$(CURDIR)' --tag '$(SIM_IMAGE)'
 
 sim-catalog-check: ## Validate scenario descriptors and their Git history.
-	$(SIM_UV) run --locked --no-sync python -c 'from pathlib import Path; from tailtag_simulator.scenarios import validate_catalog; validate_catalog(Path("$(CURDIR)"))'
+	$(SIM_UV) run --locked --no-sync python -c 'import sys; from pathlib import Path; from tailtag_simulator.scenarios import validate_catalog; validate_catalog(Path(sys.argv[1]))' '$(subst ','"'"',$(CURDIR))'
 
 sim-report-validate: ## Validate an existing report offline: REPORT=path.
 	@test -n "$(REPORT)" || { printf '%s\n' 'REPORT is required.' >&2; exit 2; }

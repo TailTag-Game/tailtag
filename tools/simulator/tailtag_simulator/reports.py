@@ -13,6 +13,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from tailtag_simulator.limits import (
+    LAUNCHER_TIMEOUT_SECONDS,
+    LEASE_TTL_SECONDS,
+    MAX_RESPONSE_BYTES,
+    REQUEST_TIMEOUT_SECONDS,
+    RETENTION_CAP,
+)
 from tailtag_simulator.scenarios import (
     JOURNEYS,
     ScenarioRejected,
@@ -256,22 +263,22 @@ def _limits(scenario: str) -> dict[str, object]:
     pool = scenario != "smoke"
     fixture = scenario in ("fixture-smoke", "journeys")
     definitions = {
-        "response_bytes": (65536, None, "bytes", "per_response"),
-        "request_timeout": (10.0, None, "seconds", "per_request"),
+        "response_bytes": (MAX_RESPONSE_BYTES, None, "bytes", "per_response"),
+        "request_timeout": (REQUEST_TIMEOUT_SECONDS, None, "seconds", "per_request"),
         "lease_ttl": (
-            1800 if pool else None,
+            LEASE_TTL_SECONDS if pool else None,
             None if pool else "not_applicable",
             "seconds",
             "lease",
         ),
         "launcher_timeout": (
-            180 if pool else None,
+            LAUNCHER_TIMEOUT_SECONDS if pool else None,
             None if pool else "not_applicable",
             "seconds",
             "per_launcher",
         ),
         "retained_runs": (
-            5 if fixture else None,
+            RETENTION_CAP if fixture else None,
             None if fixture else "not_applicable",
             "runs",
             "before_allocation",
