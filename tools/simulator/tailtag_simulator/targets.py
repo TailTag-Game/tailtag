@@ -37,6 +37,15 @@ class VerifiedTarget:
 
     target: Target
     source_sha: str | None
+    deployment_id: str | None = None
+    environment: str | None = None
+
+    def identity(self) -> dict[str, object]:
+        return {
+            "source_sha": self.source_sha,
+            "deployment_id": self.deployment_id,
+            "environment": self.environment,
+        }
 
 
 def resolve_target(name: str, base_url: str | None) -> Target:
@@ -96,4 +105,9 @@ async def verify_target(client: ApiClient, target: Target) -> VerifiedTarget:
     if first != second:
         raise TargetRejected
     source_sha = first["source_sha"]
-    return VerifiedTarget(target, source_sha if isinstance(source_sha, str) else None)
+    return VerifiedTarget(
+        target,
+        source_sha if isinstance(source_sha, str) else None,
+        cast(str | None, first["deployment_id"]),
+        cast(str | None, first["environment"]),
+    )

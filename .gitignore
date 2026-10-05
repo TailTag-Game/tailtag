@@ -17,3 +17,6 @@ skills-lock.json
 
 # Local ticket refinement notes
 /.refinement/
+
+# Local simulation run evidence
+/tools/simulator/reports/

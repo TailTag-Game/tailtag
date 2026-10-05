@@ -105,7 +105,7 @@ endef
 	api-staging-restore-drill \
 	api-format-check api-lint-check api-type-check api-django-check \
 	api-schema-check api-gunicorn-check \
-	sim-setup sim-check sim-smoke sim-pool-provision sim-pool-status sim-pool-readmit sim-pool-smoke sim-fixture-smoke sim-journeys sim-cleanup sim-retained sim-image sim-format-check sim-lint-check sim-type-check sim-test sim-semgrep-check
+	sim-setup sim-check sim-smoke sim-pool-provision sim-pool-status sim-pool-readmit sim-pool-smoke sim-fixture-smoke sim-journeys sim-cleanup sim-retained sim-image sim-catalog-check sim-report-validate sim-format-check sim-lint-check sim-type-check sim-test sim-semgrep-check
 
 help: ## List the canonical backend developer commands.
 	@awk 'BEGIN { print "TailTag backend commands:" } /^[a-zA-Z0-9_-]+:.*##/ { target = $$1; sub(/:.*/, "", target); if (target != "help") { description = $$0; sub(/^.*##[[:space:]]*/, "", description); printf "  make %-20s %s\n", target, description } }' $(MAKEFILE_LIST)
@@ -243,12 +243,12 @@ sim-setup: ## Sync locked simulator dependencies.
 	$(SIM_UV) sync --all-groups --locked
 	$(SEMGREP_UV) sync --locked
 
-sim-check: sim-format-check sim-lint-check sim-type-check sim-test sim-semgrep-check ## Run the complete local simulator validation suite.
+sim-check: sim-catalog-check sim-format-check sim-lint-check sim-type-check sim-test sim-semgrep-check ## Run the complete local simulator validation suite.
 	@printf '%s\n' 'Simulator validation completed.'
 
 sim-smoke: ## Run the manual authenticated smoke: TARGET=local|staging [BASE_URL=...].
 	@test -n "$(TARGET)" || { printf '%s\n' 'TARGET is required: local or staging.' >&2; exit 2; }
-	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator smoke --target '$(TARGET)' $(if $(BASE_URL),--base-url '$(BASE_URL)')
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator smoke --target '$(TARGET)' $(if $(BASE_URL),--base-url '$(BASE_URL)') $(if $(VERSION),--scenario-version '$(VERSION)') $(if $(SEED),--seed '$(SEED)') $(if $(REPORT_DIR),--report-dir '$(REPORT_DIR)')
 
 sim-pool-provision: ## Provision or expand the Staging identity pool: POOL=name SIZE=n (host only).
 	@test -n "$(POOL)" -a -n "$(SIZE)" || { printf '%s\n' 'POOL and SIZE are required.' >&2; exit 2; }
@@ -264,15 +264,15 @@ sim-pool-readmit: ## Re-admit a repaired quarantined identity: POOL=name INDEX=n
 
 sim-pool-smoke: ## Run the Staging identity pool smoke: POOL=name COUNT=n (host only).
 	@test -n "$(POOL)" -a -n "$(COUNT)" || { printf '%s\n' 'POOL and COUNT are required.' >&2; exit 2; }
-	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator pool-smoke --pool '$(POOL)' --count '$(COUNT)'
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator pool-smoke --pool '$(POOL)' --count '$(COUNT)' $(if $(VERSION),--scenario-version '$(VERSION)') $(if $(SEED),--seed '$(SEED)') $(if $(REPORT_DIR),--report-dir '$(REPORT_DIR)')
 
 sim-fixture-smoke: ## Run the Staging fixture smoke: POOL=name [OWNERS=n FURSUITS=k CATCHERS=m] (host only).
 	@test -n "$(POOL)" || { printf '%s\n' 'POOL is required.' >&2; exit 2; }
-	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator fixture-smoke --pool '$(POOL)' $(if $(OWNERS),--owners '$(OWNERS)') $(if $(FURSUITS),--fursuits '$(FURSUITS)') $(if $(CATCHERS),--catchers '$(CATCHERS)')
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator fixture-smoke --pool '$(POOL)' $(if $(OWNERS),--owners '$(OWNERS)') $(if $(FURSUITS),--fursuits '$(FURSUITS)') $(if $(CATCHERS),--catchers '$(CATCHERS)') $(if $(VERSION),--scenario-version '$(VERSION)') $(if $(SEED),--seed '$(SEED)') $(if $(REPORT_DIR),--report-dir '$(REPORT_DIR)')
 
 sim-journeys: ## Run the Staging acceptance journeys: POOL=name (host only; leases 7 identities).
 	@test -n "$(POOL)" || { printf '%s\n' 'POOL is required.' >&2; exit 2; }
-	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator journeys --pool '$(POOL)'
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator journeys --pool '$(POOL)' $(if $(VERSION),--scenario-version '$(VERSION)') $(if $(SEED),--seed '$(SEED)') $(if $(REPORT_DIR),--report-dir '$(REPORT_DIR)')
 
 sim-cleanup: ## Clean one Staging simulation run and readmit its identities: POOL=name RUN_ID=id (host only).
 	@test -n "$(POOL)" -a -n "$(RUN_ID)" || { printf '%s\n' 'POOL and RUN_ID are required.' >&2; exit 2; }
@@ -281,8 +281,15 @@ sim-cleanup: ## Clean one Staging simulation run and readmit its identities: POO
 sim-retained: ## List retained and unfinished Staging simulation runs (host only).
 	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator retained
 
-sim-image: ## Build the simulator container image (tailtag-simulator:local).
-	docker build -t $(SIM_IMAGE) $(SIMULATOR_DIRECTORY)
+sim-image: ## Build the simulator container image from verified clean source.
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator.provenance build --root '$(CURDIR)' --tag '$(SIM_IMAGE)'
+
+sim-catalog-check: ## Validate scenario descriptors and their Git history.
+	$(SIM_UV) run --locked --no-sync python -c 'from pathlib import Path; from tailtag_simulator.scenarios import validate_catalog; validate_catalog(Path("$(CURDIR)"))'
+
+sim-report-validate: ## Validate an existing report offline: REPORT=path.
+	@test -n "$(REPORT)" || { printf '%s\n' 'REPORT is required.' >&2; exit 2; }
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator report validate '$(REPORT)'
 
 sim-format-check:
 	@printf '%s\n' 'Checking simulator Ruff formatting...'

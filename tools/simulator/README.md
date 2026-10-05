@@ -84,11 +84,13 @@ Run from the repository root.
 
 ```bash
 make sim-setup                      # sync locked dependencies
-make sim-check                      # format, lint, strict Pyright, tests, Semgrep
+make sim-check                      # catalog/history, format, lint, Pyright, tests, Semgrep
 make sim-smoke TARGET=local         # optional BASE_URL=http://localhost:8000
 make sim-smoke TARGET=staging
-make sim-image                      # build tailtag-simulator:local
-docker run --rm -it tailtag-simulator:local smoke --target local --base-url http://host.docker.internal:8000
+make sim-image                      # clean-source build of tailtag-simulator:local
+mkdir -p tools/simulator/reports
+# The mount must be writable by the image's tailtag user.
+docker run --rm -it -v "$PWD/tools/simulator/reports:/reports" tailtag-simulator:local smoke --target local --base-url http://host.docker.internal:8000 --report-dir /reports
 ```
 
 The container needs `-it` so the hidden prompt has a TTY. For the local target, the
@@ -291,9 +293,9 @@ WARN retained=<n> unfinished=<m>
   has no live lease.
   The check uses counts only, so a large unfinished backlog never blocks runs;
   `sim-retained` still fails with `FAIL_LIMIT` above 100 listed runs.
-- **Report:** the run's fixed stdout lines, starting at `RUN run_id=`, are its report;
-  capture them. The ledger row keeps its status, reason, counts and times. A report
-  file is #224's.
+- **Report:** each execution creates a durable JSON report using the same run UUID
+  as the lease and fixture ledger. Capture fixed stdout alongside it; the ledger
+  keeps backend status, retention reason, counts and times. See [Run reports](#run-reports).
 
 ### Maintainer commands
 
@@ -437,7 +439,112 @@ always before the leases are released.
   through the same Railway CLI access. `inspect` only reads, so nothing else needs to
   be provisioned or promoted by hand beyond the merged code.
 
+## Run reports
+
+All four execution commands (`smoke`, `pool-smoke`, `fixture-smoke`, `journeys`)
+create one UUID-named UTF-8 JSON file. Pool administration, retained listing and
+standalone cleanup do not create simulation reports. Host output defaults to
+`tools/simulator/reports/` (Git ignored); containers default to `/reports`. Mount
+that directory to keep reports after `docker run --rm`. A custom output directory
+must be writable and should be outside version control. Reports are never
+implicitly deleted or uploaded; operators control retention and export.
+
+```bash
+make sim-journeys POOL=demo VERSION=1 SEED=0 REPORT_DIR=/tmp/tailtag-reports
+make sim-report-validate REPORT=/tmp/tailtag-reports/<run-uuid>.json
+# Equivalent offline validation from the simulator project:
+uv run --locked --no-sync python -m tailtag_simulator report validate /path/to/report.json
+```
+
+CLI options are `--scenario-version`, `--seed`, and `--report-dir`. Version 1 is
+supported for each current command. The integer seed is recorded but unused:
+these workloads make no random choices. There are no new personas, traffic ramps,
+request/duration/concurrency ceilings or performance measurements. Existing request,
+response, launcher, lease and retention limits are recorded with their units and
+actual enforcement scopes.
+
+Report schema changes require a new `schema_version`, independently of scenario
+versions. Supported older reports retain their original contract and meaning;
+unsupported versions are rejected offline without conversion or reinterpretation.
+
+Schema version 1 is strict: unknown fields, duplicate keys, invalid measurements,
+unsupported versions, unsafe configuration and malformed files fail offline with
+only `FAIL report`; valid files print only `PASS report`. Validation performs no
+backend or provider requests. The [frozen design](../../docs/specs/2026-10-05-simulation-scenarios-run-reports.md)
+and [literal schema-v1 example](tests/data/report-v1-smoke.json) describe the exact
+nested fields. Reports contain scenario descriptor/digest, resolved configuration,
+simulator/dependency identity, starting/final backend identity, population, operation
+profile, scoped limits, UTC timestamps and monotonic durations, lifecycle phases,
+correctness, sanitized result summaries and outcome/fixed failure code. Journey
+items carry only approved names and pass/fail. Reconciliation `checks.count` means
+checks performed; `checks.items` contains discrepancies only, so a successful
+journeys report records 14 checks and an empty list. An inspection failure records
+only the one inspection check reached. Cleanup records the eight
+object-kind counts and the readmitted count.
+
+Every unavailable measurement has a null value and a bounded reason:
+`not_observed`, `not_applicable` or `not_implemented`. Throughput, latency percentiles,
+resource context and load ramp are unavailable, rather than guessed. Reports never
+contain credentials, provider/user/session IDs, fixture/database IDs, pool indexes,
+handles, cookies, image/media URLs, raw payloads, exception text or launcher/Git
+stderr. Synthetic pool names, logical roles, bounded counts and validated public
+source/deployment identity are permitted. Review exported reports as operational
+run evidence and store them under the team's retention policy.
+
+The initial running file is reserved before source verification and any external
+work. Dirty, unknown or missing simulator source prevents execution and leaves a
+sanitized failed artifact when storage works. `make sim-image` uses the provenance
+builder to validate clean source and copy approved inputs into a temporary context
+with build-time metadata. Runtime SHA environment variables cannot relabel an image.
+An initial report write failure prevents provenance and network calls. Later snapshot
+failures preserve the last complete file, set a failure flag and prevent a passing
+exit. Fixture runs retain state with the existing `interrupted` reason when report
+persistence or final attribution fails before cleanup; the JSON failure identifies
+`report` or `attribution` precisely. Resource release still runs.
+
+Correctness is independent of attribution, cleanup, retention and release. A workload
+can be correct while its overall run fails. After successful workload/reconciliation,
+all four reported commands observe the backend identity again; changed or unverifiable
+identity prevents passing attribution, and fixture cleanup is gated by it. Interrupts
+finalize after resource obligations. A hard process crash or machine failure may leave
+a valid running snapshot with unreached/incomplete phases; no handler can guarantee a
+final report or release in that case. Use the existing retained/cleanup commands for
+backend recovery. An unavailable output disk can also leave only the last snapshot.
+
+### Scenario versions and reproduction
+
+Descriptors live in `tailtag_simulator/scenarios/<id>-v<version>.json` and are embedded
+with a canonical SHA-256 digest. Committed versions cannot be changed or removed;
+`make sim-catalog-check` checks structure, digests and available Git history, and
+fails on shallow history. CI fetches full history. Review semantic workload changes
+and create a new version when role/operation order, assumptions, waits, population
+meaning, configuration meaning or backend contract interpretation changes. Changing
+allowed count values, a seed that remains unused, or behavior-preserving source code
+does not alone change scenario version. Source identity preserves executable history.
+
+To reproduce an equivalent workload, retain the report and:
+
+1. Check out its full `source.simulator_sha.value` in a clean checkout with full
+   history, then run `make sim-setup` for that revision's locked Python environment.
+   Compare the reported runtime and dependency-lock identity.
+2. Read the embedded descriptor and digest, scenario ID/version, seed and resolved
+   configuration. Use those same effective inputs with the corresponding command;
+   do not substitute newer defaults.
+3. Prepare fresh synthetic credentials and a clean compatible fixture/pool state
+   using the existing maintainer procedures. Secrets are supplied only at hidden
+   prompts. Old credentials or fixture IDs cannot be recovered from a report.
+4. Provide a backend implementing the declared `tailtag-public-v0` API contract.
+   Backend revisions can differ if their behavior remains compatible; review that
+   compatibility and keep both identity observations as attribution evidence.
+   Reports do not pin, redeploy or automatically launch a backend.
+5. Run manually, validate the new artifact offline and compare workload inputs and
+   correctness. Time, UUID, fresh credentials, deployment identity and durations
+   will differ. This is workload equivalence, not a promise of identical timings,
+   database rows or every runtime detail.
+
+No command automatically checks out a revision or launches a reproduction.
+
 ## Later issues
 
-Scenarios, seeds and run reports (#224), personas and traffic (#225, #226), guardrail
+Personas and traffic (#225, #226), guardrail
 limits (#227), and the execution host (#228).

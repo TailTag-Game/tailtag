@@ -115,6 +115,8 @@ class World:
     )
     sign_in_rejected: set[int] = field(default_factory=set[int])
     end_fails: bool = False
+    end_interrupt: BaseException | None = None
+    identity_reply: Callable[[], httpx.Response] | None = None
     identity_environment: str | None = "staging"
     me_ids: dict[int, object] = field(default_factory=dict[int, object])
     # (index, 0-based /api/me/ request number) -> response or exception to raise
@@ -265,6 +267,8 @@ class World:
         if method == "POST" and match:
             sid, action = match.groups()
             if action == "end":
+                if self.end_interrupt is not None:
+                    raise self.end_interrupt
                 if self.end_fails:
                     return httpx.Response(500, text="boom")
                 self.ended_sessions.append(sid)
@@ -293,6 +297,8 @@ class World:
         if path == "/health/identity":
             self.note("api", f"{method} {path}")
             self.api_calls.append((method, path, None))
+            if self.identity_reply is not None:
+                return self.identity_reply()
             return httpx.Response(
                 200,
                 json={

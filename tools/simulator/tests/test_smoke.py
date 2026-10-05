@@ -9,11 +9,14 @@ import json
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import httpx
 import pytest
+from report_support import read_report, recorder
 
 from tailtag_simulator.client import MAX_RESPONSE_BYTES
+from tailtag_simulator.reports import RunReport
 from tailtag_simulator.smoke import run_smoke
 
 TOKEN = "hdr_SECRET-1.payload_SECRET-2.sig_SECRET-3"
@@ -102,6 +105,7 @@ def run(
     *,
     base_url: str | None = None,
     token: str | Exception = TOKEN,
+    report: RunReport | None = None,
 ) -> Outcome:
     lines: list[str] = []
     prompts: list[None] = []
@@ -119,6 +123,7 @@ def run(
             prompt_token=prompt_token,
             emit=lines.append,
             transport=httpx.MockTransport(server.handle),
+            **({"report": report} if report is not None else {}),
         )
     )
     return Outcome(code, lines, len(prompts), server.requests)
@@ -425,3 +430,77 @@ def test_redirects_fail_and_are_never_followed(case: str) -> None:
     assert_failed_closed(outcome)
     assert {origin_of(r.url) for r in outcome.requests} == {STAGING_ORIGIN}
     assert all(not r.url.path.endswith("x") for r in outcome.requests)
+
+
+@pytest.mark.parametrize("target", ["staging", "local"])
+def test_reported_smoke_persists_verified_end_identity_without_changing_workload(
+    tmp_path: Path, target: str
+) -> None:
+    report = recorder(tmp_path, config={"target": target})
+    server = healthy(target)
+    initial_requests: list[str] = []
+    handle = server.handle
+
+    def observed_handle(request: httpx.Request) -> httpx.Response:
+        initial_requests.append(read_report(report.path)["outcome"])
+        return handle(request)
+
+    server.handle = observed_handle
+    outcome = run(target, server, report=report)
+    value = read_report(report.path)
+    assert outcome.code == 0 and value["outcome"] == "passed"
+    assert value["correctness"] == "passed"
+    assert value["scenario"]["id"] == "smoke"
+    assert value["scenario"]["consumes_randomness"] is False
+    assert value["target"]["starting"] == {
+        "value": identity_body(target),
+        "reason": None,
+    }
+    assert value["target"]["final"] == {"value": identity_body(target), "reason": None}
+    assert value["target"]["attribution"] == "verified"
+    assert initial_requests[0] == "running"
+    assert [request.url.path for request in outcome.requests][:4] == [
+        IDENTITY_PATH
+    ] * 2 + [ME_PATH] * 2
+    assert all(
+        request.url.path == IDENTITY_PATH and "authorization" not in request.headers
+        for request in outcome.requests[4:]
+    )
+    assert len(outcome.requests) > 4
+    assert outcome.prompts == 1
+    assert_no_leak(outcome)
+    text = report.path.read_text()
+    assert not any(secret in text for secret in (TOKEN, BODY_MARKER, str(USER_ID)))
+    assert value["limits"]["request_timeout"] == {
+        "value": 10.0,
+        "reason": None,
+        "unit": "seconds",
+        "scope": "per_request",
+    }
+
+
+@pytest.mark.parametrize("failure", ["target", "setup", "reconciliation"])
+def test_reported_smoke_preserves_reached_evidence_and_sanitizes_failures(
+    tmp_path: Path, failure: str
+) -> None:
+    report = recorder(tmp_path)
+    server = healthy("staging")
+    token: str | Exception = TOKEN
+    if failure == "target":
+        server.identity = [
+            identity_response(identity_body("staging", environment="production"))
+        ]
+    elif failure == "setup":
+        token = RuntimeError("SENTINEL-private-token-error")
+    else:
+        server.me = [me_ok(), me_ok(USER_ID + 1)]
+    outcome = run("staging", server, token=token, report=report)
+    value = read_report(report.path)
+    assert outcome.code != 0 and value["outcome"] == "failed"
+    assert value["phases"][failure]["status"] == "failed"
+    assert value["correctness"] == (
+        "failed" if failure == "reconciliation" else "not_observed"
+    )
+    assert value["target"]["final"] == {"value": None, "reason": "not_observed"}
+    assert "SENTINEL" not in report.path.read_text()
+    assert value["phases"]["release"]["status"] == "not_applicable"

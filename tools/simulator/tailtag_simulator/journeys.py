@@ -47,12 +47,14 @@ from tailtag_simulator.phases import ME_PATH
 from tailtag_simulator.pool import PROFILE_PATH, LeaseChannel
 from tailtag_simulator.reconciliation import (
     HISTORY_PATH,
+    Check,
     Expectations,
     InspectionChannel,
     Role,
     reconcile_run,
     reconciliation_lines,
 )
+from tailtag_simulator.reports import RunReport
 from tailtag_simulator.smoke import stage
 
 MALFORMED_TOKEN: Final = "not-a-token"
@@ -637,6 +639,7 @@ async def run_journeys(
     api_transport: httpx.AsyncBaseTransport | None = None,
     clock: Callable[[], float] = time.time,
     run_id: str | None = None,
+    report: RunReport | None = None,
 ) -> int:
     """Run the 13 journeys on Staging, reconcile them, and return the exit code.
 
@@ -648,12 +651,14 @@ async def run_journeys(
     even if reconciliation also failed; a reconciliation stage error is `reconciliation`.
     """
 
-    run = run_id or str(uuid.uuid4())  # reconciliation names the run to `inspect`
+    run = (
+        report.run_id if report is not None else run_id or str(uuid.uuid4())
+    )  # reconciliation names the run to `inspect`
 
     async def journeys(
         origin: str, clients: tuple[ApiClient, ...], indexes: tuple[int, ...]
     ) -> Literal["pass", "journeys", "reconciliation"]:
-        with stage("simulation"):
+        with stage("simulation", report):
             async with AsyncExitStack() as stack:
                 anonymous = await stack.enter_async_context(
                     open_client(origin, transport=api_transport)
@@ -671,9 +676,27 @@ async def run_journeys(
                         images=images,
                     )
                 )
+        if report is not None:
+            failed = sum(result.failed_step is not None for result in simulated.results)
+            report.record_results(
+                journeys={
+                    "items": [
+                        {
+                            "name": result.name,
+                            "status": "passed"
+                            if result.failed_step is None
+                            else "failed",
+                        }
+                        for result in simulated.results
+                    ],
+                    "passed": len(simulated.results) - failed,
+                    "failed": failed,
+                    "reason": None,
+                }
+            )
         for line in journey_lines(simulated.results):
             emit(line)
-        with stage("reconciliation"):
+        with stage("reconciliation", report):
             reconciled = await reconcile_run(
                 simulated.expectations,
                 dict(zip(Role, clients, strict=True)),
@@ -683,6 +706,23 @@ async def run_journeys(
                 run_id=run,
                 convention=simulated.convention,
                 created_fursuit=simulated.created_fursuit,
+            )
+        if report is not None:
+            report.record_results(
+                checks={
+                    "items": [
+                        {
+                            "check": d.check.value,
+                            "journey": d.journey,
+                            "role": d.role.value if d.role is not None else None,
+                            "expected": d.expected,
+                            "observed": d.observed,
+                        }
+                        for d in reconciled.discrepancies
+                    ],
+                    "count": 1 if reconciled.inspect_result is not None else len(Check),
+                    "reason": None,
+                }
             )
         for line in reconciliation_lines(reconciled):
             emit(line)
@@ -704,5 +744,6 @@ async def run_journeys(
         api_transport=api_transport,
         clock=clock,
         run_id=run,
+        report=report,
         simulate_and_reconcile=journeys,
     )

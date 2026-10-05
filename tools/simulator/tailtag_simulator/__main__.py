@@ -22,7 +22,10 @@ from tailtag_simulator.pool import (
     run_status,
     validate_pool_name,
 )
+from tailtag_simulator.provenance import SourceRejected, load_source
 from tailtag_simulator.reconciliation import InspectionLauncherChannel
+from tailtag_simulator.reports import ReportFailed, RunReport, load_report
+from tailtag_simulator.scenarios import ScenarioRejected
 from tailtag_simulator.smoke import run_smoke
 
 LAUNCHER_COMMAND = ["make", "-s", "--no-print-directory", "api-sim-pool-ssh"]
@@ -38,7 +41,20 @@ INSPECTION_LAUNCHER_COMMAND = [
     "--no-print-directory",
     "api-sim-inspect-ssh",
 ]
-REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _repository_root() -> Path:
+    parents = Path(__file__).resolve().parents
+    for parent in parents:
+        if (parent / ".git").exists():
+            return parent
+    for parent in parents:
+        if (parent / "source.json").is_file():
+            return parent
+    return Path("/app")
+
+
+REPOSITORY_ROOT = _repository_root()
 FIXTURE_IMAGES = REPOSITORY_ROOT / "services/api/simulation_fixtures/images"
 
 
@@ -124,47 +140,37 @@ def main(argv: Sequence[str] | None = None) -> int:
         cleanup,
     ):
         each.add_argument("--pool", required=True, type=validate_pool_name)
+    report_command = commands.add_parser("report", help="validate a report offline")
+    report_commands = report_command.add_subparsers(
+        dest="report_command", required=True
+    )
+    report_validate = report_commands.add_parser("validate")
+    report_validate.add_argument("path", type=Path)
+    for execution in (smoke, pool_smoke, fixture_smoke, journeys):
+        execution.add_argument("--scenario-version", type=int, default=1)
+        execution.add_argument("--seed", type=int, default=0)
+        execution.add_argument(
+            "--report-dir",
+            type=Path,
+            default=(
+                REPOSITORY_ROOT / "tools/simulator/reports"
+                if (REPOSITORY_ROOT / ".git").exists()
+                else Path("/reports")
+            ),
+        )
     args = parser.parse_args(argv)
     for name in ("httpx", "httpcore"):  # their INFO lines carry full request URLs
         logging.getLogger(name).setLevel(logging.WARNING)
         logging.getLogger(name).propagate = False
+    if args.command == "report":
+        try:
+            load_report(args.path)
+        except ReportFailed:
+            _emit("FAIL report")
+            return 1
+        _emit("PASS report")
+        return 0
     try:
-        if args.command == "pool-smoke":
-            return asyncio.run(
-                run_pool_smoke(
-                    str(args.pool),
-                    int(args.count),
-                    prompt_secret=_prompt_secret,
-                    channel=_launcher(),
-                    emit=_emit,
-                )
-            )
-        if args.command == "fixture-smoke":
-            return asyncio.run(
-                run_fixture_smoke(
-                    str(args.pool),
-                    int(args.owners),
-                    int(args.fursuits),
-                    int(args.catchers),
-                    prompt_secret=_prompt_secret,
-                    lease_channel=_launcher(),
-                    fixture_channel=_fixture_launcher(),
-                    emit=_emit,
-                )
-            )
-        if args.command == "journeys":
-            valid_a, valid_b = load_fixture_images(FIXTURE_IMAGES)
-            return asyncio.run(
-                run_journeys(
-                    str(args.pool),
-                    images=JourneyImages(valid_a=valid_a, valid_b=valid_b),
-                    prompt_secret=_prompt_secret,
-                    lease_channel=_launcher(),
-                    fixture_channel=_fixture_launcher(),
-                    inspection_channel=_inspection_launcher(),
-                    emit=_emit,
-                )
-            )
         if args.command == "cleanup":
             return asyncio.run(
                 run_cleanup(
@@ -196,17 +202,112 @@ def main(argv: Sequence[str] | None = None) -> int:
                     str(args.pool), int(args.index), channel=_launcher(), emit=_emit
                 )
             )
-        return asyncio.run(
-            run_smoke(
-                str(args.target),
-                base_url=None if args.base_url is None else str(args.base_url),
-                prompt_token=_prompt_token,
-                emit=_emit,
-            )
-        )
+        return asyncio.run(_execute(args))
     except KeyboardInterrupt:
         _emit("FAIL interrupted")
         return 130
+
+
+async def _execute(args: argparse.Namespace) -> int:
+    """Create durable evidence and establish provenance before executing a command."""
+    report: RunReport | None = None
+    if args.command in {"smoke", "pool-smoke", "fixture-smoke", "journeys"}:
+        config: dict[str, object] = {"target": "staging", "base_url": None}
+        if args.command == "smoke":
+            config.update(target=args.target, base_url=args.base_url)
+        else:
+            config["pool"] = args.pool
+        if args.command == "pool-smoke":
+            config["count"] = args.count
+        elif args.command == "fixture-smoke":
+            config.update(
+                owners=args.owners, fursuits=args.fursuits, catchers=args.catchers
+            )
+        try:
+            report = RunReport(
+                args.report_dir,
+                args.command,
+                scenario_version=args.scenario_version,
+                seed=args.seed,
+                config=config,
+            )
+        except (ReportFailed, ScenarioRejected):
+            _emit("FAIL report")
+            return 1
+        report.begin("provenance")
+        try:
+            source = load_source(REPOSITORY_ROOT)
+        except SourceRejected:
+            report.end("provenance", "failed", "FAIL_PROVENANCE")
+            _emit("FAIL provenance")
+            return report.finish(1)
+        except BaseException:
+            report.end("provenance", "interrupted", "FAIL_INTERRUPTED")
+            report.finish(130)
+            raise
+        report.record_source(source)
+        report.end("provenance", "passed")
+        if report.write_failed:
+            _emit("FAIL report")
+            return report.finish(1)
+    if args.command == "pool-smoke":
+        return await run_pool_smoke(
+            str(args.pool),
+            int(args.count),
+            prompt_secret=_prompt_secret,
+            channel=_launcher(),
+            emit=_emit,
+            report=report,
+        )
+    if args.command == "fixture-smoke":
+        return await run_fixture_smoke(
+            str(args.pool),
+            int(args.owners),
+            int(args.fursuits),
+            int(args.catchers),
+            prompt_secret=_prompt_secret,
+            lease_channel=_launcher(),
+            fixture_channel=_fixture_launcher(),
+            emit=_emit,
+            report=report,
+        )
+    if args.command == "journeys":
+        try:
+            valid_a, valid_b = load_fixture_images(FIXTURE_IMAGES)
+        except BaseException as failure:
+            if report is not None:
+                report.begin("setup")
+                report.end(
+                    "setup",
+                    "failed" if isinstance(failure, Exception) else "interrupted",
+                    "FAIL_SETUP"
+                    if isinstance(failure, Exception)
+                    else "FAIL_INTERRUPTED",
+                )
+                code = report.finish(1 if isinstance(failure, Exception) else 130)
+            else:
+                code = 1
+            if not isinstance(failure, Exception):
+                raise
+            _emit("FAIL setup")
+            return code
+        return await run_journeys(
+            str(args.pool),
+            images=JourneyImages(valid_a=valid_a, valid_b=valid_b),
+            prompt_secret=_prompt_secret,
+            lease_channel=_launcher(),
+            fixture_channel=_fixture_launcher(),
+            inspection_channel=_inspection_launcher(),
+            emit=_emit,
+            report=report,
+        )
+    return await run_smoke(
+        str(args.target),
+        base_url=None if args.base_url is None else str(args.base_url),
+        prompt_token=_prompt_token,
+        emit=_emit,
+        report=report,
+    )
 
 
 if __name__ == "__main__":

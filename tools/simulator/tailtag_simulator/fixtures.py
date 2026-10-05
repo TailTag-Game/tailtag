@@ -35,7 +35,8 @@ from tailtag_simulator.pool import (
     release,
     run_launcher,
 )
-from tailtag_simulator.smoke import StageFailed, stage
+from tailtag_simulator.reports import RunReport
+from tailtag_simulator.smoke import StageFailed, attribute, stage
 from tailtag_simulator.targets import resolve_target, verify_target
 
 ACTIVE_PATH: Final = "/api/conventions/active/"
@@ -268,12 +269,26 @@ async def _check_retained(channel: FixtureChannel, emit: Callable[[str], None]) 
 
 
 async def _clean(
-    channel: FixtureChannel, pool: str, run: str, emit: Callable[[str], None]
+    channel: FixtureChannel,
+    pool: str,
+    run: str,
+    emit: Callable[[str], None],
+    report: RunReport | None = None,
 ) -> bool:
     """CLEANUP: delete the run's state and print the counts; False after a fixed FAIL line."""
     try:
         data = await channel.call("cleanup", {"pool": pool, "run_id": run})
         counts = cleanup_counts(data)
+        if report is not None:
+            report.record_results(
+                cleanup={
+                    "value": {
+                        kind: count_of(data, kind)
+                        for kind in (*CLEANUP_KINDS, "readmitted")
+                    },
+                    "reason": None,
+                }
+            )
     except FixtureFailed as failure:
         emit(f"FAIL cleanup result={failure.result}")
         return False
@@ -319,6 +334,7 @@ async def run_provisioned(
     api_transport: httpx.AsyncBaseTransport | None,
     clock: Callable[[], float],
     run_id: str | None,
+    report: RunReport | None = None,
     simulate_and_reconcile: Callable[
         [str, tuple[ApiClient, ...], tuple[int, ...]],
         Awaitable[Literal["pass", "journeys", "reconciliation"]],
@@ -339,7 +355,7 @@ async def run_provisioned(
     slots, RELEASE always runs last, even after a failure or an interrupt. The exit code
     is 0 only if everything passed.
     """
-    run = run_id or str(uuid.uuid4())
+    run = report.run_id if report is not None else run_id or str(uuid.uuid4())
     provisioned = owners + catchers
     count = provisioned + extra_identities
     stack = AsyncExitStack()
@@ -348,12 +364,17 @@ async def run_provisioned(
     outcome: Outcome | None = None  # None until provision has passed
     try:
         try:
-            with stage("target"):
+            with stage("target", report):
                 resolved = resolve_target("staging", None)
                 async with open_client(
                     resolved.origin, transport=api_transport
                 ) as probe:
                     verified = await verify_target(probe, resolved)
+            if report is not None:
+                report.record_target(
+                    resolved.name, resolved.origin, verified.identity()
+                )
+                report.begin("setup")
             emit(f"PASS target staging source_sha={verified.source_sha}")
             emit(f"RUN run_id={run}")
             await _check_retained(fixture_channel, emit)
@@ -395,6 +416,8 @@ async def run_provisioned(
                 raise StageFailed(f"setup result={failure.result}{suffix}") from None
             except Exception:  # noqa: BLE001 - failures become a fixed stage
                 raise StageFailed("setup") from None
+            if report is not None:
+                report.end("setup", "passed")
             emit(
                 f"PASS setup identities={count} fursuits={owners * fursuits_per_owner}"
             )
@@ -408,30 +431,82 @@ async def run_provisioned(
                 if failure.stage.split()[0] == "reconciliation":
                     outcome = "reconciliation"
                 raise
+            if report is not None:
+                report.set_correctness("passed" if outcome == "pass" else "failed")
+                if outcome == "pass":
+                    outcome = "interrupted"
+                    await attribute(verified, report, api_transport)
+                    if not report.write_failed:
+                        outcome = "pass"
             if outcome == "pass":
                 outcome = (
                     "interrupted"  # an interrupt during CLEANUP is not a failure of it
                 )
-                if await _clean(fixture_channel, pool, run, emit):
+                if report is not None:
+                    report.begin("cleanup")
+                    if report.write_failed:
+                        report.end("cleanup", "failed", "FAIL_REPORT")
+                        raise StageFailed("report")
+                cleaned = await _clean(fixture_channel, pool, run, emit, report)
+                if report is not None:
+                    report.end(
+                        "cleanup",
+                        "passed" if cleaned else "failed",
+                        None if cleaned else "FAIL_CLEANUP",
+                    )
+                if cleaned:
                     outcome, code = "pass", 0
                 else:
                     outcome = "cleanup"
         except StageFailed as failure:
+            if report is not None and failure.stage.split()[0] == "setup":
+                report.end("setup", "failed", "FAIL_SETUP")
             emit(f"FAIL {failure.stage}")
+    except BaseException:
+        code = 130
+        raise
     finally:
         try:
-            if outcome not in (None, "pass") and not await _retain(
-                fixture_channel, pool, run, str(outcome), emit
-            ):
-                code = 1
-        finally:  # RELEASE runs even if RETAIN is interrupted
-            if held.leases:
-                released = await release(stack, lease_channel, pool, run)
-                emit("PASS release" if released else "FAIL release")
-                if not released:
-                    code = 1
-            else:
-                await stack.aclose()
+            try:
+                if outcome not in (None, "pass"):
+                    if report is not None:
+                        report.begin("retention")
+                    retained = await _retain(
+                        fixture_channel, pool, run, str(outcome), emit
+                    )
+                    if report is not None:
+                        report.end(
+                            "retention",
+                            "passed" if retained else "failed",
+                            None if retained else "FAIL_RETAIN",
+                        )
+                    if not retained:
+                        code = 1
+            finally:  # RELEASE runs even if RETAIN is interrupted
+                if held.leases:
+                    if report is not None:
+                        report.begin("release")
+                    try:
+                        released = await release(stack, lease_channel, pool, run)
+                    except BaseException:
+                        code = 130
+                        if report is not None:
+                            report.end("release", "interrupted", "FAIL_INTERRUPTED")
+                        raise
+                    emit("PASS release" if released else "FAIL release")
+                    if report is not None:
+                        report.end(
+                            "release",
+                            "passed" if released else "failed",
+                            None if released else "FAIL_RELEASE",
+                        )
+                    if not released:
+                        code = 1
+                else:
+                    await stack.aclose()
+        finally:
+            if report is not None:
+                code = report.finish(code)
     return code
 
 
@@ -449,19 +524,20 @@ async def run_fixture_smoke(
     api_transport: httpx.AsyncBaseTransport | None = None,
     clock: Callable[[], float] = time.time,
     run_id: str | None = None,
+    report: RunReport | None = None,
 ) -> int:
     """Run the fixture smoke on Staging and return the exit code: 0 only if all passed."""
 
     async def simulate_and_reconcile(
         _origin: str, clients: tuple[ApiClient, ...], _indexes: tuple[int, ...]
     ) -> Literal["pass"]:
-        with stage("simulation"):
+        with stage("simulation", report):
             observed = await simulate_fixtures(
                 FixtureSimulationContext(clients[:owners], clients[owners:])
             )
         emit("PASS simulation")
 
-        with stage("reconciliation"):
+        with stage("reconciliation", report):
             reconcile_fixtures(observed, fursuits_per_owner)
         emit("PASS reconciliation")
         return "pass"
@@ -480,5 +556,6 @@ async def run_fixture_smoke(
         api_transport=api_transport,
         clock=clock,
         run_id=run_id,
+        report=report,
         simulate_and_reconcile=simulate_and_reconcile,
     )

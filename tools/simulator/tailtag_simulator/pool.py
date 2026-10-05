@@ -39,7 +39,8 @@ from tailtag_simulator.phases import (
     ReconciliationContext,
     reconcile,
 )
-from tailtag_simulator.smoke import StageFailed, stage
+from tailtag_simulator.reports import RunReport
+from tailtag_simulator.smoke import StageFailed, attribute, stage
 from tailtag_simulator.targets import resolve_target, verify_target
 
 LEASE_TTL_SECONDS: Final = 1800
@@ -340,14 +341,21 @@ async def release(
 ) -> bool:
     """End every Clerk session and release the leases; one half failing never skips the other."""
     released = True
+    interruption: BaseException | None = None
     try:
         await stack.aclose()
-    except Exception:  # noqa: BLE001 - reported as a fixed release failure
+    except BaseException as failure:  # noqa: BLE001 - attempt both obligations before propagating interruption
         released = False
+        if not isinstance(failure, Exception):
+            interruption = failure
     try:
         await channel.call("release", pool, {"run_id": run_id})
-    except LeaseFailed:
+    except BaseException as failure:  # noqa: BLE001 - attempt both obligations before propagating interruption
         released = False
+        if not isinstance(failure, Exception):
+            interruption = failure
+    if interruption is not None:
+        raise interruption
     return released
 
 
@@ -452,24 +460,30 @@ async def run_pool_smoke(
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     clock: Callable[[], float] = time.time,
     run_id: str | None = None,
+    report: RunReport | None = None,
 ) -> int:
     """Run the pool smoke on Staging and return the exit code: 0 only if all passed.
 
     Once an allocation might have leased slots, RELEASE always runs, even after a
     failure or an interrupt.
     """
-    run = run_id or str(uuid.uuid4())
+    run = report.run_id if report is not None else run_id or str(uuid.uuid4())
     stack = AsyncExitStack()
     held = Held()
     code = 1
     try:
         try:
-            with stage("target"):
+            with stage("target", report):
                 resolved = resolve_target("staging", None)
                 async with open_client(
                     resolved.origin, transport=api_transport
                 ) as probe:
                     verified = await verify_target(probe, resolved)
+            if report is not None:
+                report.record_target(
+                    resolved.name, resolved.origin, verified.identity()
+                )
+                report.begin("setup")
             emit(f"PASS target staging source_sha={verified.source_sha}")
 
             try:
@@ -490,9 +504,11 @@ async def run_pool_smoke(
                 raise StageFailed(f"setup{failure.detail}") from None
             except Exception:  # noqa: BLE001 - failures become a fixed stage
                 raise StageFailed("setup") from None
+            if report is not None:
+                report.end("setup", "passed")
             emit(f"PASS setup identities={count}")
 
-            with stage("simulation"):
+            with stage("simulation", report):
                 context = PoolSimulationContext(clients)
                 first = await simulate_round(context)
                 beat = await channel.call(
@@ -505,18 +521,44 @@ async def run_pool_smoke(
                 second = await simulate_round(context)
             emit("PASS simulation")
 
-            with stage("reconciliation"):
+            with stage("reconciliation", report):
                 _reconcile(first, second)
             emit("PASS reconciliation")
+            if report is not None:
+                report.set_correctness("passed")
+                await attribute(verified, report, api_transport)
             code = 0
         except StageFailed as failure:
+            if report is not None and failure.stage.split()[0] == "setup":
+                report.end("setup", "failed", "FAIL_SETUP")
             emit(f"FAIL {failure.stage}")
+    except BaseException:
+        code = 130
+        raise
     finally:
-        if held.leases:
-            released = await release(stack, channel, pool, run)
-            emit("PASS release" if released else "FAIL release")
-            if not released:
-                code = 1
-        else:
-            await stack.aclose()
+        try:
+            if held.leases:
+                if report is not None:
+                    report.begin("release")
+                try:
+                    released = await release(stack, channel, pool, run)
+                except BaseException:
+                    code = 130
+                    if report is not None:
+                        report.end("release", "interrupted", "FAIL_INTERRUPTED")
+                    raise
+                emit("PASS release" if released else "FAIL release")
+                if report is not None:
+                    report.end(
+                        "release",
+                        "passed" if released else "failed",
+                        None if released else "FAIL_RELEASE",
+                    )
+                if not released:
+                    code = 1
+            else:
+                await stack.aclose()
+        finally:
+            if report is not None:
+                code = report.finish(code)
     return code
