@@ -11,6 +11,7 @@ import re
 import typing
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 import httpx
 import pool_support
@@ -27,9 +28,11 @@ from pool_support import (
     onboarded,
     user_json,
 )
+from report_support import read_report, recorder
 
 from tailtag_simulator.client import ApiClient
 from tailtag_simulator.pool import PoolSimulationContext, run_pool_smoke
+from tailtag_simulator.reports import RunReport
 
 world = pool_support.world  # the shared fixture
 
@@ -56,6 +59,7 @@ def smoke(
     count: int = 3,
     run_id: str | None = RUN_ID,
     cancel_in_sleep: bool = False,
+    report: RunReport | None = None,
 ) -> Run:
     prompts: list[str] = []
 
@@ -88,6 +92,7 @@ def smoke(
             sleep=sleep,
             clock=world.clock,
             run_id=run_id,
+            **({"report": report} if report is not None else {}),
         )
     )
     return Run(code, lines, len(prompts))
@@ -450,3 +455,64 @@ def test_a_lost_lease_stops_the_run_before_the_second_round(world: World) -> Non
     assert len(world.opened_sessions) == 3
     assert sorted(world.ended_sessions) == sorted(world.opened_sessions)
     assert not any(kind == "sleep" for kind, _ in world.log)
+
+
+@pytest.mark.parametrize(
+    "failure", [None, "session-end", "lease-release", "interrupted"]
+)
+def test_reported_pool_smoke_keeps_workload_counts_waits_and_correctness_separate_from_release(
+    tmp_path: Path, world: World, failure: str | None
+) -> None:
+    report = recorder(tmp_path, "pool-smoke", config={"pool": POOL, "count": 3})
+    world.end_fails = failure == "session-end"
+    channel = FakeChannel(
+        world, fail={"release"} if failure == "lease-release" else None
+    )
+    if failure == "interrupted":
+        with pytest.raises(asyncio.CancelledError):
+            smoke(world, channel, cancel_in_sleep=True, report=report)
+    else:
+        run = smoke(world, channel, report=report)
+        assert run.code == (0 if failure is None else 1)
+    value = read_report(report.path)
+    assert value["outcome"] == (
+        "passed"
+        if failure is None
+        else "interrupted"
+        if failure == "interrupted"
+        else "failed"
+    )
+    assert value["correctness"] == (
+        "not_observed" if failure == "interrupted" else "passed"
+    )
+    assert (
+        value["run_id"]
+        == channel.calls_to("allocate")[0]["run_id"]
+        == channel.calls_to("release")[0]["run_id"]
+    )
+    assert value["scenario"]["configuration"]["count"] == 3
+    assert value["population"]["identities"] == 3
+    assert value["profile"]["waits_seconds"] == [61.0]
+    assert value["limits"]["lease_ttl"] == {
+        "value": 1800,
+        "reason": None,
+        "unit": "seconds",
+        "scope": "lease",
+    }
+    assert (
+        "user_SECRET" not in report.path.read_text()
+        and SECRET not in report.path.read_text()
+    )
+    if failure == "interrupted":
+        assert value["phases"]["simulation"]["status"] == "interrupted"
+        assert value["phases"]["release"]["status"] == "passed"
+        assert_released(world, channel)
+    else:
+        assert (
+            value["target"]["final"]["value"]["deployment_id"]
+            == pool_support.DEPLOYMENT_ID
+        )
+        assert value["target"]["attribution"] == "verified"
+        assert value["phases"]["release"]["status"] == (
+            "passed" if failure is None else "failed"
+        )

@@ -26,7 +26,7 @@ import socket
 import subprocess
 from dataclasses import dataclass
 from types import CoroutineType
-from typing import Any, Final
+from typing import Any, Final, cast
 
 import journey_support
 import pool_support
@@ -59,15 +59,16 @@ from reconciliation_support import (
 )
 
 from tailtag_simulator.__main__ import (
+    FIXTURE_IMAGES,
     INSPECTION_LAUNCHER_COMMAND,
     REPOSITORY_ROOT,
     main,
 )
 from tailtag_simulator.fixtures import FixtureFailed
+from tailtag_simulator.images import load_fixture_images
 from tailtag_simulator.journeys import JOURNEY_NAMES, JourneyImages, run_journeys
 from tailtag_simulator.reconciliation import (
     InspectionFailed,
-    InspectionLauncherChannel,
     Role,
 )
 
@@ -543,12 +544,14 @@ def test_a_failed_provision_prints_no_journey_lines_and_still_releases(
 
 
 def _capture_run(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
-    """Stub asyncio.run; record the arguments the unstarted coroutine was built with."""
+    """Capture parsed command inputs without entering the async execution gate."""
     seen: list[dict[str, Any]] = []
 
     def run(coroutine: CoroutineType[Any, Any, int]) -> int:
         assert coroutine.cr_frame is not None
-        seen.append(dict(coroutine.cr_frame.f_locals))
+        seen.append(
+            dict(cast(dict[str, Any], vars(coroutine.cr_frame.f_locals["args"])))
+        )
         coroutine.close()
         return 0
 
@@ -556,7 +559,7 @@ def _capture_run(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     return seen
 
 
-def test_cli_passes_the_pool_and_the_committed_fixture_images_through(
+def test_cli_passes_the_pool_and_resolves_committed_fixture_image_inputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     folder = REPOSITORY_ROOT / "services/api/simulation_fixtures/images"
@@ -571,10 +574,15 @@ def test_cli_passes_the_pool_and_the_committed_fixture_images_through(
 
     (arguments,) = seen
     assert arguments["pool"] == POOL
-    assert isinstance(arguments["inspection_channel"], InspectionLauncherChannel)
+    assert arguments["command"] == "journeys"
+    assert arguments["scenario_version"] == 1 and arguments["seed"] == 0
     assert INSPECTION_LAUNCHER_COMMAND[-1] == "api-sim-inspect-ssh"
-    assert arguments["images"] == JourneyImages(
-        valid_a=files[0].read_bytes(), valid_b=files[1 % len(files)].read_bytes()
+    # Input loading and channels are created inside the execution coroutine now;
+    # exercise the actual committed image input reader, while existing journey and
+    # reconciliation rigs prove image/inspection behavior at their public seams.
+    assert load_fixture_images(FIXTURE_IMAGES) == (
+        files[0].read_bytes(),
+        files[1 % len(files)].read_bytes(),
     )
 
 

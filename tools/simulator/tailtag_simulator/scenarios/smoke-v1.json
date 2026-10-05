@@ -1,0 +1,31 @@
+{
+  "id": "smoke",
+  "version": 1,
+  "api_contract": "tailtag-public-v0",
+  "consumes_randomness": false,
+  "roles": [
+    "player"
+  ],
+  "operations": [
+    "identity_preflight",
+    "token_setup",
+    "me_first",
+    "me_second",
+    "identity_final"
+  ],
+  "assumptions": [
+    "same_authenticated_identity"
+  ],
+  "waits_seconds": [],
+  "configuration": {
+    "defaults": {
+      "target": "staging",
+      "base_url": null
+    },
+    "parameters": {
+      "target": "target",
+      "base_url": "local_origin"
+    }
+  },
+  "descriptor_digest": "5c3dee69eac3e82acf3bd8acce73a3427d42db2424d6481f5a1e6b100467dd21"
+}

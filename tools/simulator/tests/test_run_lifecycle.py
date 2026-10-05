@@ -32,10 +32,14 @@ not pinned: the spec does not say which reason it gets.
 """
 
 import asyncio
+import json
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Final
 
+import httpx
 import journey_support
 import pool_support
 import pytest
@@ -48,10 +52,12 @@ from fixture_support import (
 from journey_support import VALID_A, VALID_B
 from pool_support import POOL, RUN_ID, SECRET, SHA, FakeChannel, Slot, World
 from reconciliation_support import FakeInspectionChannel, edit
+from report_support import read_report, recorder
 
 from tailtag_simulator.fixtures import FixtureFailed, run_fixture_smoke
 from tailtag_simulator.journeys import JourneyImages, run_journeys
 from tailtag_simulator.reconciliation import InspectionFailed
+from tailtag_simulator.reports import RunReport
 
 world = pool_support.world  # the shared fixtures
 journey_world = journey_support.journey_world
@@ -97,6 +103,7 @@ def build(
     retained: tuple[int, int] = (0, 0),
     ops_fail: dict[str, BaseException] | None = None,
     provision_fail: Exception | None = None,
+    report: RunReport | None = None,
 ) -> Rig:
     """A rig for `smoke` or `journeys`, with at most one injected `scenario`.
 
@@ -164,6 +171,8 @@ def build(
             "clock": the_world.clock,
             "run_id": RUN_ID,
         }
+        if report is not None:
+            common["report"] = report
         if is_journeys:
             coroutine = run_journeys(
                 POOL,
@@ -474,3 +483,253 @@ def test_the_warn_line_appears_only_when_something_is_retained_or_unfinished(
         [warning] if warning else []
     )
     assert rig.fixtures.operations == ["retained_counts", "provision", "cleanup"]
+
+
+def report_for(tmp_path: Path, kind: str) -> RunReport:
+    return recorder(
+        tmp_path,
+        "journeys" if kind == "journeys" else "fixture-smoke",
+        config={"pool": POOL}
+        if kind == "journeys"
+        else {"pool": POOL, "owners": 2, "fursuits": 2, "catchers": 2},
+    )
+
+
+@pytest.mark.parametrize(
+    ("kind", "case"),
+    [
+        (kind, case)
+        for kind in KINDS
+        for case in [
+            None,
+            "setup",
+            "reconcile_error",
+            "cleanup_FAIL_STORAGE",
+            "retain",
+            "release",
+            "interrupt",
+        ]
+    ]
+    + [("journeys", "journeys_fail")],
+)
+def test_durable_fixture_reports_record_actual_lifecycle_and_exclude_internal_identities(
+    tmp_path: Path, request: pytest.FixtureRequest, kind: str, case: str | None
+) -> None:
+    report = report_for(tmp_path, kind)
+    rig = build(
+        kind,
+        request,
+        report=report,
+        scenario="reconcile_error"
+        if case == "retain"
+        else case
+        if case not in {"setup", "release"}
+        else None,
+        provision_fail=FixtureFailed("FAIL_DIRTY", 1) if case == "setup" else None,
+        ops_fail={"retain": FixtureFailed("FAIL_ERROR")} if case == "retain" else None,
+    )
+    if case == "release":
+        rig.leases.fail.add("release")
+    run = rig.run()
+    value = read_report(report.path)
+    assert run.code == 0 if case is None else run.code != 0
+    assert value["outcome"] == (
+        "passed" if case is None else "interrupted" if case == "interrupt" else "failed"
+    )
+    assert value["correctness"] == (
+        "passed"
+        if case in {None, "cleanup_FAIL_STORAGE", "release"}
+        else "not_observed"
+        if case in {"setup", "interrupt"}
+        else "failed"
+    )
+    assert value["run_id"] == RUN_ID
+    for _operation, arguments in rig.leases.calls:
+        if "run_id" in arguments:
+            assert arguments["run_id"] == value["run_id"]
+    for _operation, arguments in rig.fixtures.calls:
+        if "run_id" in arguments:
+            assert arguments["run_id"] == value["run_id"]
+    assert value["population"]["identities"] == (7 if kind == "journeys" else 4)
+    assert value["population"]["fixtures"]["fursuits"] == 4
+    assert (
+        value["target"]["starting"]["value"]["deployment_id"]
+        == pool_support.DEPLOYMENT_ID
+    )
+    if case in {None, "cleanup_FAIL_STORAGE", "release"}:
+        assert value["target"]["attribution"] == "verified"
+        assert (
+            value["target"]["final"]["value"]["deployment_id"]
+            == pool_support.DEPLOYMENT_ID
+        )
+    if case == "setup":
+        assert value["phases"]["setup"]["status"] == "failed"
+        assert value["phases"]["simulation"]["status"] == "not_reached"
+        assert value["phases"]["cleanup"]["status"] == "not_reached"
+    elif case == "cleanup_FAIL_STORAGE":
+        assert value["phases"]["cleanup"]["status"] == "failed"
+        assert value["phases"]["retention"]["status"] == "passed"
+    elif case == "retain":
+        assert value["phases"]["retention"]["status"] == "failed"
+    elif case == "release":
+        assert value["phases"]["release"]["status"] == "failed"
+    if case != "release":
+        assert value["phases"]["release"]["status"] == "passed"
+        assert_released(rig)
+    raw = report.path.read_text()
+    assert not any(
+        marker in raw
+        for marker in (SECRET, "user_SECRET", "SENTINEL", "COOKIE", "TICKET", "sess_")
+    )
+    if case == "reconcile_error" and kind == "journeys":
+        assert value["results"]["checks"]["count"] == 1
+        assert len(value["results"]["checks"]["items"]) == 1
+        assert value["results"]["checks"]["items"][0]["check"] == "inspect"
+    if case == "journeys_fail":
+        assert value["results"]["journeys"]["failed"] == 1
+        assert {
+            item["name"]
+            for item in value["results"]["journeys"]["items"]
+            if item["status"] == "failed"
+        } == {"catch"}
+        assert rig.fixtures.calls_to("retain") == [
+            {"pool": POOL, "run_id": RUN_ID, "reason": "journeys"}
+        ]
+    if case is None and kind == "journeys":
+        assert value["results"]["journeys"]["passed"] == 13
+        assert value["results"]["journeys"]["failed"] == 0
+        assert value["results"]["checks"]["count"] == 14
+        assert len(value["results"]["journeys"]["items"]) == 13
+    if case is None:
+        assert value["results"]["cleanup"]["reason"] is None
+        assert "readmitted" in value["results"]["cleanup"]["value"]
+
+
+@both_commands
+@pytest.mark.parametrize(
+    "change", ["source_sha", "deployment_id", "environment", "unavailable"]
+)
+def test_final_identity_uncertainty_is_observed_before_cleanup_and_retains_evidence(
+    tmp_path: Path,
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+    change: str,
+) -> None:
+    report = report_for(tmp_path, kind)
+    rig = build(kind, request, report=report)
+    observations: list[list[str]] = []
+
+    def identity() -> httpx.Response:
+        observations.append(list(rig.fixtures.operations))
+        body = {
+            "source_sha": SHA,
+            "deployment_id": pool_support.DEPLOYMENT_ID,
+            "environment": "staging",
+        }
+        if len(observations) > 2:
+            assert "cleanup" not in rig.fixtures.operations
+            if change == "unavailable":
+                raise httpx.ConnectError("SENTINEL-private-identity-error")
+            body[change] = {
+                "source_sha": "f" * 40,
+                "deployment_id": "99999999-9999-4999-8999-999999999999",
+                "environment": "production",
+            }[change]
+        return httpx.Response(200, json=body)
+
+    rig.world.identity_reply = identity
+    run = rig.run()
+    value = read_report(report.path)
+    assert run.code != 0 and value["outcome"] != "passed"
+    assert value["correctness"] == "passed"
+    assert value["target"]["starting"]["value"] == {
+        "source_sha": SHA,
+        "deployment_id": pool_support.DEPLOYMENT_ID,
+        "environment": "staging",
+    }
+    assert value["target"]["attribution"] == "unverified"
+    assert value["phases"]["attribution"]["status"] == "failed"
+    assert len(observations) > 2
+    assert rig.fixtures.calls_to("cleanup") == []
+    assert rig.fixtures.calls_to("retain") == [
+        {"pool": POOL, "run_id": RUN_ID, "reason": "interrupted"}
+    ]
+    assert_released(rig)
+    assert "SENTINEL" not in report.path.read_text()
+
+
+@both_commands
+@pytest.mark.parametrize("fault_stage", ["after_provision", "cleanup_start"])
+def test_snapshot_failure_after_provision_prevents_cleanup_and_still_retains_and_releases(
+    tmp_path: Path,
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+    fault_stage: str,
+) -> None:
+    report = report_for(tmp_path, kind)
+    rig = build(kind, request, report=report)
+    original = os.replace
+    faults: list[int] = []
+
+    def replace(source: Any, destination: Any, *args: Any, **kwargs: Any) -> None:
+        at_boundary = "provision" in rig.fixtures.operations
+        if fault_stage == "cleanup_start" and Path(destination) == report.path:
+            snapshot = json.loads(Path(source).read_text())
+            at_boundary = snapshot["phases"]["cleanup"]["status"] == "running"
+        if Path(destination) == report.path and at_boundary and not faults:
+            faults.append(1)
+            raise OSError("SENTINEL-storage-secret")
+        original(source, destination, *args, **kwargs)
+
+    monkeypatch.setattr(os, "replace", replace)
+    run = rig.run()
+    assert faults and report.write_failed
+    assert run.code != 0
+    assert rig.fixtures.calls_to("cleanup") == []
+    assert rig.fixtures.calls_to("retain") == [
+        {"pool": POOL, "run_id": RUN_ID, "reason": "interrupted"}
+    ]
+    assert_released(rig)
+    value = read_report(report.path)
+    assert value["outcome"] != "passed"
+    if fault_stage == "cleanup_start":
+        assert value["failure"] == {"stage": "report", "code": "FAIL_REPORT"}
+    assert "SENTINEL" not in report.path.read_text()
+
+
+@both_commands
+@pytest.mark.parametrize("boundary", ["session_end", "lease_release"])
+def test_interrupted_release_attempts_the_other_resource_obligation_and_finalizes_report(
+    tmp_path: Path,
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+    boundary: str,
+) -> None:
+    report = report_for(tmp_path, kind)
+    rig = build(kind, request, report=report)
+    if boundary == "lease_release":
+        original_call = rig.leases.call
+
+        async def call(operation: str, pool: str, arguments: Any) -> Any:
+            if operation == "release":
+                rig.leases.calls.append((operation, dict(arguments)))
+                raise asyncio.CancelledError
+            return await original_call(operation, pool, arguments)
+
+        monkeypatch.setattr(rig.leases, "call", call)
+    else:
+        rig.world.end_interrupt = asyncio.CancelledError()
+    run = rig.run()
+    value = read_report(report.path)
+    assert run.code == INTERRUPTED
+    assert value["outcome"] == "interrupted"
+    assert value["correctness"] == "passed"
+    assert value["phases"]["release"]["status"] == "interrupted"
+    assert rig.leases.calls_to("release") == [{"run_id": RUN_ID}]
+    if boundary == "lease_release":
+        assert set(rig.world.ended_sessions) == set(rig.world.opened_sessions)
+    else:
+        assert rig.leases.indexes("leased") == set()

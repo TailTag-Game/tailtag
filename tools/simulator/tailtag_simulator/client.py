@@ -8,8 +8,10 @@ from http.cookiejar import DefaultCookiePolicy
 
 import httpx
 
-MAX_RESPONSE_BYTES = 65536  # a page of presigned image URLs is tens of KB
-REQUEST_TIMEOUT_SECONDS = 10.0
+from tailtag_simulator import limits
+
+MAX_RESPONSE_BYTES = limits.MAX_RESPONSE_BYTES
+REQUEST_TIMEOUT_SECONDS = limits.REQUEST_TIMEOUT_SECONDS
 
 
 class RequestFailed(Exception):

@@ -32,7 +32,7 @@ import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import CoroutineType
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pool_support
@@ -485,12 +485,14 @@ def test_a_failed_release_is_reported_after_a_run_that_otherwise_passed(
 
 
 def _capture_run(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
-    """Stub asyncio.run; record the arguments the unstarted coroutine was built with."""
+    """Capture parsed command inputs without entering the async execution gate."""
     seen: list[dict[str, Any]] = []
 
     def run(coroutine: CoroutineType[Any, Any, int]) -> int:
         assert coroutine.cr_frame is not None
-        seen.append(dict(coroutine.cr_frame.f_locals))
+        seen.append(
+            dict(cast(dict[str, Any], vars(coroutine.cr_frame.f_locals["args"])))
+        )
         coroutine.close()
         return 0
 
@@ -523,7 +525,7 @@ def test_cli_passes_the_pool_and_counts_through_with_documented_defaults(
     assert (
         arguments["pool"],
         arguments["owners"],
-        arguments["fursuits_per_owner"],
+        arguments["fursuits"],
         arguments["catchers"],
     ) == (POOL, *expected)
     for logger in loggers:
