@@ -12,9 +12,10 @@ https://github.com/TailTag-Game/tailtag/issues/224#issuecomment-5997094427
   all three implementations and fresh unit reviews, authoritative `make sim-check`
   (607 tests; Ruff/strict Pyright/catalog/Semgrep pass, zero findings), doctor,
   actual Docker build/runtime/persistence proof, offline CLI negative proof.
-- Current: implementation complete; all unit and whole-change verdicts PASS.
-  Maintainer authorized commit, push and pull-request handoff.
-- Pending: none within approved local implementation scope.
+- Current: PR #295 includes the CodeRabbit corrections; final simulator validation
+  passed 617 tests. Independent correction-unit and whole-change reviews passed.
+  The maintainer live Staging acceptance and reproduction proof below passed.
+- Pending: maintainer review and merge of PR #295; no live verification gap remains.
 - Environment: full access restored after the temporary identity/network stop.
   Root verified `FinnThePanther` before resuming and before doctor. Docker is reachable.
   Image assurance uses a disposable clean Git snapshot with verified Finn identity;
@@ -289,7 +290,7 @@ Baseline `make sim-check`: 422 tests passed, Ruff/Pyright passed, three Semgrep
 rule fixtures passed, 15 rules scanned 13 production files with zero findings.
 Full transcript: `.refinement/224-baseline.log`.
 
-## Final verification and acceptance evidence
+## Initial automated verification and acceptance evidence
 
 - `make sim-check`: 607 tests passed; catalog/history, Ruff format/lint, strict
   project Pyright (zero errors), three Semgrep fixtures and 15 rules on 16
@@ -337,3 +338,75 @@ evidence must support it, even if attribution, cleanup or release makes the over
 run fail. Two new mutation partitions protect this boundary. All final reviews
 report PASS with no remaining findings; successful authenticated live-backend
 execution remains outside this verification run.
+
+
+## Maintainer live Staging acceptance — 2026-10-05
+
+**PASS.** The maintainer ran all four commands and reproduced `journeys` from clean
+simulator revision `1e56a29a379f1ec3a0ecc22645005dfa3bd4d586`. This supplements the
+initial automated/container evidence above and closes its live-backend gap.
+No promotion was needed: the existing backend included all required pool, fixture,
+reconciliation and cleanup operations.
+
+- Staging source: `b20355cb2459a7ad6ea118511c1429aa94d53547`.
+- Deployment: `5dd8353e-b28d-4336-90d1-6b46bb6a1e7d`.
+- Fresh canonical preflight passed. Each saved report contains that same source,
+  deployment and Staging environment in both starting and final observations;
+  attribution is `verified`. These observations do not prove continuous stability.
+- Runtime: Python `3.13.14`, httpx `0.28.1`; simulator dependency-lock SHA-256
+  `c218b2fb441f1016746c100f4b28899b0422585980e934cad5abd76a277dba9f`.
+- All commands used scenario version `1` and seed `224`, recorded as unused.
+- Reports span `2026-10-05T23:12:05.122397Z` to `2026-10-05T23:21:35.730258Z`.
+
+### Commands and outcomes
+
+From the repository root, after `make sim-setup`, `make sim-catalog-check`, and
+credential-free Staging preflight, the maintainer used `r1` and one fresh ignored
+report directory. Secrets were supplied only at hidden prompts.
+
+```bash
+make sim-smoke TARGET=staging VERSION=1 SEED=224 REPORT_DIR="$SIM224_REPORT_DIR/smoke"
+make sim-pool-smoke POOL=r1 COUNT=3 VERSION=1 SEED=224 REPORT_DIR="$SIM224_REPORT_DIR/pool-smoke"
+make sim-fixture-smoke POOL=r1 OWNERS=2 FURSUITS=1 CATCHERS=2 VERSION=1 SEED=224 REPORT_DIR="$SIM224_REPORT_DIR/fixture-smoke"
+make sim-journeys POOL=r1 VERSION=1 SEED=224 REPORT_DIR="$SIM224_REPORT_DIR/journeys"
+make sim-journeys POOL=r1 VERSION=1 SEED=224 REPORT_DIR="$SIM224_REPORT_DIR/reproduction"
+```
+
+- `smoke`: setup, workload and reconciliation passed.
+- `pool-smoke`: three identities; setup, workload, reconciliation and release passed.
+- `fixture-smoke`: four identities and two fixture fursuits; cleanup reported
+  convention=1, enrollment=4, fursuit=2, activation=2, catch=0, session=0,
+  credential=0, image=2. Release passed.
+- Both `journeys` runs: seven identities and four fixture fursuits; all 13 journeys
+  passed, 14 reconciliation checks completed with no discrepancies, cleanup and
+  release passed. Each cleanup reported convention=1, enrollment=6, fursuit=5,
+  activation=4, catch=1, session=4, credential=5, image=5.
+- All five reports passed the strict offline `load_report` validator and had
+  outcome/correctness `passed`, clean simulator provenance, expected source SHA,
+  version/seed and verified attribution. Five run UUIDs were distinct.
+- Original and reproduced journeys matched scenario descriptor/digest/configuration,
+  source/runtime identity, population, operation profile and limits. Fresh fixtures
+  and credentials were used; UUIDs and timestamps/durations differed as expected.
+- Before and after: `r1` total=10, available=10, leased=0, quarantined=0;
+  retained=0, unfinished=0. Working tree was clean afterward.
+
+### Retained report evidence
+
+The operator retained the five JSON artifacts under the Git-ignored directory
+`tools/simulator/reports/224-live-20261005T231122Z/`, one scenario subdirectory per
+row below. The SHA-256 digests bind this acceptance record to the original bytes;
+raw JSON is retained by the operator and is not committed here.
+
+| Command / evidence | Run UUID | Report SHA-256 |
+| --- | --- | --- |
+| smoke | `ccb0be6b-008c-4c22-a60e-e5195ceaff5d` | `c632ba2dd6ca8629bbea46e29da7788629666a29ac78b3cb9b220924a147b56a` |
+| pool-smoke | `d6b08e60-4fb8-4a65-92cb-a856aaee3dc2` | `6405b8a5c02c0dfb11bb9055a0d80930cd6b4d432921777738be25048ece85d7` |
+| fixture-smoke | `4a4f0efe-6394-4e30-8f2f-a9a0365b4ded` | `060ad264ab4af5672cbc10d1b45ed14dba78b6b673d0d8225bc962b8b9b43522` |
+| journeys | `e5b3be24-96ca-44fe-8ce3-b5c510b72e9a` | `8f19c848489dbbbfb066582ac58b5fd5c925929aa91feafb97dd8ed2fe988306` |
+| reproduction | `2902538c-6065-48cf-bcbe-7691c150c086` | `20346ebee44cf9dcd6ac5298632d7b2dcf4cf8c18badc83fc6902e325c3aad19` |
+
+This closes successful live workload, final attribution, fixture cleanup/release,
+report serialization and meaningful reproduction evidence for #224. Live failures,
+interruptions, deployment drift and storage faults were not injected; their distinct
+negative behavior remains covered by the automated suite and prior container proof.
+PR review/merge remains a separate gate; no issue or review thread was closed.
