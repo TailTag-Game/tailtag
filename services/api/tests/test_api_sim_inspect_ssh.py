@@ -392,3 +392,35 @@ def test_bad_caller_request_fails_before_any_provider_call(
     assert code != 0
     assert json.loads(output) == FAILURE
     assert calls == []
+
+
+def test_population_operation_survives_the_pinned_stdin_relay(
+    launcher: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#225 AC15: the host relay must carry versioned, variable-role inspection."""
+    request = {
+        "operation": "inspect-population-v1",
+        "arguments": {
+            "pool": SECRET_POOL,
+            "run_id": SECRET_RUN_ID,
+            "identities": {"owner0": 5, **{f"attendee{n}": 10 + n for n in range(5)}},
+        },
+    }
+    sent: list[object] = []
+
+    def run(
+        arguments: list[str], *, input: str | None = None, **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        assert input is not None
+        sent.append(json.loads(input))
+        assert all(
+            SECRET_POOL not in part and SECRET_RUN_ID not in part for part in arguments
+        )
+        return completed({"result": "PASS", "data": EMPTY_DATA})
+
+    install_seams(launcher, monkeypatch, run)
+    code, output = invoke(launcher, request)
+
+    assert code == 0
+    assert json.loads(output) == {"result": "PASS", "data": EMPTY_DATA}
+    assert sent == [{**request, "identity": IDENTITY}]

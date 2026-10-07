@@ -26,7 +26,7 @@ def execute(
     """Run one inspection after proving this is the named Staging API.
 
     The request identity is checked against the runtime before anything else is
-    validated or any database access happens. The only operation is ``inspect``.
+    validated or any database access happens. Both supported operations share the same target guard.
     """
     if not isinstance(request, Mapping):
         return _response("FAIL_REQUEST")
@@ -42,13 +42,18 @@ def execute(
     arguments = fields.get("arguments")
     if (
         frozenset(fields) != _REQUEST_KEYS
-        or fields["operation"] != "inspect"
+        or fields["operation"] not in ("inspect", "inspect-population-v1")
         or not isinstance(arguments, Mapping)
         or frozenset(cast(Mapping[str, object], arguments)) != _ARGUMENT_KEYS
     ):
         return _response("FAIL_REQUEST")
     typed_arguments = cast(Mapping[str, object], arguments)
-    outcome = inspection.inspect(
+    operation = (
+        inspection.inspect_population
+        if fields["operation"] == "inspect-population-v1"
+        else inspection.inspect
+    )
+    outcome = operation(
         cast(str, typed_arguments["pool"]),
         cast(str, typed_arguments["run_id"]),
         cast(Mapping[str, int], typed_arguments["identities"]),

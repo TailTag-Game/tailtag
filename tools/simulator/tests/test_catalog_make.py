@@ -55,3 +55,65 @@ def test_catalog_make_treats_quoted_checkout_root_as_data(tmp_path: Path) -> Non
     # must not pass: the selected checkout's current descriptor is now absent.
     (root / descriptor).unlink()
     assert run().returncode != 0
+
+
+def test_convention_make_passes_bounded_config_and_report_paths_as_arguments(
+    tmp_path: Path,
+) -> None:
+    checkout = Path(__file__).parents[3]
+    adapter = tmp_path / "uv-adapter"
+    output = tmp_path / "arguments.json"
+    adapter.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "with open(os.environ['SIM_TEST_ARGUMENTS'], 'w') as stream:\n"
+        "    json.dump(sys.argv[1:], stream)\n"
+    )
+    adapter.chmod(0o755)
+    config = tmp_path / "config space.json"
+    report_dir = tmp_path / "reports space"
+    config.write_text('{"casual":2}')
+    result = subprocess.run(
+        [
+            "make",
+            "--no-print-directory",
+            "sim-convention",
+            f"UV={adapter}",
+            "POOL=p1",
+            "FAMILY=baseline",
+            f"CONFIG={config}",
+            "VERSION=1",
+            "SEED=-42",
+            f"REPORT_DIR={report_dir}",
+        ],
+        cwd=checkout,
+        env={**os.environ, "SIM_TEST_ARGUMENTS": str(output)},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(output.read_text()) == [
+        "--directory",
+        "tools/simulator",
+        "run",
+        "--locked",
+        "--no-sync",
+        "python",
+        "-m",
+        "tailtag_simulator",
+        "convention",
+        "--pool",
+        "p1",
+        "--family",
+        "baseline",
+        "--config",
+        str(config),
+        "--scenario-version",
+        "1",
+        "--seed",
+        "-42",
+        "--report-dir",
+        str(report_dir),
+    ]

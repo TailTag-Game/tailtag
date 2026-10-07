@@ -11,6 +11,7 @@ and result code; no database ID, handle, media key, token, secret or response te
 ever written.
 """
 
+import asyncio
 import json
 import re
 import time
@@ -320,6 +321,56 @@ async def _retain(
     return True
 
 
+class _Renewal:
+    """Run-owned renewal; only orchestration can see the privileged channel."""
+
+    def __init__(self, channel: LeaseChannel) -> None:
+        self.channel = channel
+        self.worker: asyncio.Task[int] | None = None
+        self.timer: asyncio.Task[None] | None = None
+        self.failed = False
+
+    async def call(
+        self, operation: str, pool: str, arguments: Mapping[str, object]
+    ) -> Mapping[str, object]:
+        data = await self.channel.call(operation, pool, arguments)
+        if operation == "allocate":
+            self.timer = asyncio.create_task(self._renew(pool, arguments))
+        return data
+
+    async def _renew(self, pool: str, allocation: Mapping[str, object]) -> None:
+        try:
+            while True:
+                await asyncio.sleep(60)
+                data = await self.channel.call(
+                    "heartbeat",
+                    pool,
+                    {
+                        "run_id": allocation["run_id"],
+                        "ttl_seconds": limits.LEASE_TTL_SECONDS,
+                    },
+                )
+                if (
+                    type(data.get("extended")) is not int
+                    or data["extended"] != allocation["count"]
+                ):
+                    raise FixtureFailed("FAIL_LEASE")
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - never expose launcher details
+            self.failed = True
+            if self.worker is not None:
+                self.worker.cancel()
+
+    async def stop(self) -> None:
+        if self.timer is not None:
+            self.timer.cancel()
+            try:
+                await self.timer
+            except asyncio.CancelledError:
+                pass
+
+
 async def run_provisioned(
     pool: str,
     owners: int,
@@ -336,6 +387,8 @@ async def run_provisioned(
     clock: Callable[[], float],
     run_id: str | None,
     report: RunReport | None = None,
+    renew_leases: bool = False,
+    _renewal: _Renewal | None = None,
     simulate_and_reconcile: Callable[
         [str, tuple[ApiClient, ...], tuple[int, ...]],
         Awaitable[Literal["pass", "journeys", "reconciliation"]],
@@ -356,6 +409,44 @@ async def run_provisioned(
     slots, RELEASE always runs last, even after a failure or an interrupt. The exit code
     is 0 only if everything passed.
     """
+    if renew_leases:
+        renewal = _Renewal(lease_channel)
+        renewal.worker = asyncio.create_task(
+            run_provisioned(
+                pool,
+                owners,
+                fursuits_per_owner,
+                catchers,
+                extra_identities,
+                prompt_secret=prompt_secret,
+                lease_channel=renewal,
+                fixture_channel=fixture_channel,
+                emit=emit,
+                clerk_transport=clerk_transport,
+                api_transport=api_transport,
+                clock=clock,
+                run_id=run_id,
+                report=report,
+                simulate_and_reconcile=simulate_and_reconcile,
+                _renewal=renewal,
+            )
+        )
+        try:
+            return await renewal.worker
+        except asyncio.CancelledError:
+            if renewal.failed:
+                emit("FAIL lease result=FAIL_LEASE")
+                return 1
+            raise
+        finally:
+            # Await work acknowledgement before the caller may finalize anything.
+            if not renewal.worker.done():
+                renewal.worker.cancel()
+            try:
+                await renewal.worker
+            except asyncio.CancelledError:
+                pass
+            await renewal.stop()
     run = report.run_id if report is not None else run_id or str(uuid.uuid4())
     provisioned = owners + catchers
     count = provisioned + extra_identities
@@ -417,6 +508,9 @@ async def run_provisioned(
                 raise StageFailed(f"setup result={failure.result}{suffix}") from None
             except Exception:  # noqa: BLE001 - failures become a fixed stage
                 raise StageFailed("setup") from None
+            outcome = (
+                "interrupted"  # successful provision must retain even if report fails
+            )
             if report is not None:
                 report.end("setup", "passed")
             emit(
@@ -467,6 +561,8 @@ async def run_provisioned(
         code = 130
         raise
     finally:
+        if _renewal is not None:
+            await _renewal.stop()
         try:
             try:
                 if outcome not in (None, "pass"):

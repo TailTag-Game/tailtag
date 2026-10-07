@@ -8,6 +8,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
 
+from tailtag_simulator.behavior_config import (
+    DEFAULTS,
+    FAMILIES,
+    PERSONAS,
+    resolve_behavior_config,
+)
 from tailtag_simulator.targets import LOCAL_ORIGINS
 
 
@@ -27,7 +33,13 @@ def canonical(value: object) -> bytes:
 
 CATALOG = Path(__file__).with_name("scenarios")
 RELATIVE = "tools/simulator/tailtag_simulator/scenarios"
-IDS = ("smoke", "pool-smoke", "fixture-smoke", "journeys")
+IDS = (
+    "smoke",
+    "pool-smoke",
+    "fixture-smoke",
+    "journeys",
+    *(f"convention-{family}" for family in FAMILIES),
+)
 JOURNEYS = (
     "unauthenticated",
     "catch",
@@ -87,10 +99,9 @@ def _entry(path: Path) -> dict[str, Any]:
     if value["descriptor_digest"] != hashlib.sha256(canonical(descriptor)).hexdigest():
         raise ScenarioRejected
     # Current supported descriptors are closed contracts, including nested labels.
-    if (
-        value["api_contract"] != "tailtag-public-v0"
-        or value["consumes_randomness"] is not False
-    ):
+    if value["api_contract"] != "tailtag-public-v0" or value[
+        "consumes_randomness"
+    ] is not value["id"].startswith("convention-"):
         raise ScenarioRejected
     if path.name != f"{value['id']}-v{value['version']}.json":
         raise ScenarioRejected
@@ -102,6 +113,63 @@ def _entry(path: Path) -> dict[str, Any]:
         raise ScenarioRejected
     config = cast(dict[str, Any], raw_config)
     defaults, parameters = config["defaults"], config["parameters"]
+    if value["id"].startswith("convention-"):
+        family = value["id"].removeprefix("convention-")
+        expected_defaults = {
+            **DEFAULTS,
+            "family": family,
+            "cycles": 3 if family == "soak" else 1,
+        }
+        macro = dict(
+            zip(
+                FAMILIES,
+                (
+                    "round_robin_collect",
+                    "grouped_collect",
+                    "hotspot_collect",
+                    "retry_collect",
+                    "repeated_collect_cycles",
+                ),
+                strict=True,
+            )
+        )[family]
+        expected_profile = {
+            "roles": list(PERSONAS),
+            "operations": [
+                "identity_preflight",
+                "retention_preflight",
+                "lease",
+                "token_setup",
+                "provision",
+                "context",
+                "owner_cycle",
+                macro,
+                "owner_stop",
+                "reconciliation",
+                "identity_final",
+                "cleanup",
+                "retain_on_failure",
+                "release",
+            ],
+            "assumptions": [
+                "synthetic_population",
+                "isolated_convention",
+                "run_owned_fursuits",
+                "public_api_only",
+                "separate_owner_attendee",
+                "finite_cycles",
+                f"family_{family.replace('-', '_')}",
+            ],
+            "waits_seconds": [],
+        }
+        if canonical(defaults) != canonical(expected_defaults) or parameters != {
+            key: key for key in DEFAULTS
+        }:
+            raise ScenarioRejected
+        for key, expected_value in expected_profile.items():
+            if canonical(value[key]) != canonical(expected_value):
+                raise ScenarioRejected
+        return value
     base = {"target": "staging", "base_url": None}
     extras = {
         "smoke": {},
@@ -255,6 +323,17 @@ def resolve_scenario(
         if not required <= set(config):
             raise ScenarioRejected
         effective = {**defaults, **config}
+        if command.startswith("convention-"):
+            effective = resolve_behavior_config(effective)
+            if effective["family"] != command.removeprefix("convention-"):
+                raise ScenarioRejected
+            return {
+                "id": command,
+                "version": version,
+                "descriptor": descriptor,
+                "descriptor_digest": entry["descriptor_digest"],
+                "configuration": effective,
+            }
         if effective["target"] not in ("staging", "local"):
             raise ScenarioRejected
         if command != "smoke" and effective["target"] != "staging":

@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from tailtag_simulator import reports_v2
 from tailtag_simulator.limits import (
     LAUNCHER_TIMEOUT_SECONDS,
     LEASE_TTL_SECONDS,
@@ -235,6 +236,8 @@ def _target(value: object, config: Mapping[str, object]) -> None:
 
 
 def _population(scenario: str, config: dict[str, Any]) -> dict[str, object]:
+    if scenario.startswith("convention-"):
+        return reports_v2.population(config)
     owners = config.get("owners", 2 if scenario == "journeys" else 0)
     fursuits = config.get("fursuits", 2 if scenario == "journeys" else 0)
     catchers = config.get("catchers", 4 if scenario == "journeys" else 0)
@@ -261,7 +264,9 @@ def _population(scenario: str, config: dict[str, Any]) -> dict[str, object]:
 
 def _limits(scenario: str) -> dict[str, object]:
     pool = scenario != "smoke"
-    fixture = scenario in ("fixture-smoke", "journeys")
+    fixture = scenario in ("fixture-smoke", "journeys") or scenario.startswith(
+        "convention-"
+    )
     definitions = {
         "response_bytes": (MAX_RESPONSE_BYTES, None, "bytes", "per_response"),
         "request_timeout": (REQUEST_TIMEOUT_SECONDS, None, "seconds", "per_request"),
@@ -383,7 +388,7 @@ def _validate_report(
         )
         _require(
             type(report["schema_version"]) is int
-            and report["schema_version"] == 1
+            and report["schema_version"] in (1, 2)
             and _uuid(report["run_id"])
         )
         scenario = _object(
@@ -398,9 +403,13 @@ def _validate_report(
                 "configuration",
             },
         )
+        v2 = isinstance(scenario["id"], str) and scenario["id"].startswith(
+            "convention-"
+        )
+        _require(report["schema_version"] == (2 if v2 else 1))
         _require(
             type(scenario["seed"]) is int
-            and scenario["consumes_randomness"] is False
+            and scenario["consumes_randomness"] is v2
             and isinstance(scenario["configuration"], dict)
         )
         config = cast(dict[str, Any], scenario["configuration"])
@@ -436,6 +445,19 @@ def _validate_report(
                 "operations": resolved["descriptor"]["operations"],
                 "waits_seconds": resolved["descriptor"]["waits_seconds"],
                 "load_ramp": unavailable("not_implemented"),
+                **(
+                    {
+                        k: unavailable("not_implemented")
+                        for k in (
+                            "concurrency",
+                            "arrival_timing",
+                            "network_injection",
+                            "elapsed_time_soak",
+                        )
+                    }
+                    if v2
+                    else {}
+                ),
             }
         )
         phases = _object(report["phases"], set(STAGES))
@@ -501,7 +523,12 @@ def _validate_report(
         if phases["attribution"]["status"] == "passed":
             _require(report["target"]["attribution"] == "verified")
         _require(report["correctness"] in ("passed", "failed", "not_observed"))
-        _results(report["results"], scenario["id"])
+        if v2:
+            reports_v2.results(
+                report["results"], config, successful=report["correctness"] == "passed"
+            )
+        else:
+            _results(report["results"], scenario["id"])
         if report["correctness"] == "passed":
             _require(report["source"]["provenance"] == "clean")
             _require(report["target"]["starting"]["value"] is not None)
@@ -593,10 +620,10 @@ def _validate_report(
                 )
             )
             _require(
-                not report["results"]["journeys"]["failed"]
+                (v2 or not report["results"]["journeys"]["failed"])
                 and not report["results"]["checks"]["items"]
             )
-            if scenario["id"] in ("fixture-smoke", "journeys"):
+            if v2 or scenario["id"] in ("fixture-smoke", "journeys"):
                 _require(report["results"]["cleanup"]["value"] is not None)
         elif report["outcome"] in ("failed", "interrupted"):
             _require(report["failure"] is not None)
@@ -680,10 +707,11 @@ class RunReport:
             if scenario_id == "smoke"
             else ({"cleanup", "retention"} if scenario_id == "pool-smoke" else set())
         )
+        v2 = scenario_id.startswith("convention-")
         self._value: dict[str, Any] = {
-            "schema_version": 1,
+            "schema_version": 2 if v2 else 1,
             "run_id": self._run_id,
-            "scenario": {**resolved, "seed": seed, "consumes_randomness": False},
+            "scenario": {**resolved, "seed": seed, "consumes_randomness": v2},
             "source": {
                 "simulator_sha": unavailable(),
                 "provenance": "unknown",
@@ -760,6 +788,23 @@ class RunReport:
             "outcome": "running",
             "failure": None,
         }
+        if v2:
+            self._value["profile"].update(
+                {
+                    k: unavailable("not_implemented")
+                    for k in (
+                        "concurrency",
+                        "arrival_timing",
+                        "network_injection",
+                        "elapsed_time_soak",
+                    )
+                }
+            )
+            self._value["results"] = {
+                "behavior": {"items": {}, "failure": None, "reason": "not_observed"},
+                "checks": {"items": [], "count": 0, "reason": "not_observed"},
+                "cleanup": unavailable(),
+            }
         validate_report(self._value)
         reserved = False
         try:
@@ -873,6 +918,22 @@ class RunReport:
         ):
             if value is not None:
                 results[name] = dict(value)
+        self._update("results", results)
+
+    def record_behavior(
+        self, summaries: Mapping[str, object], failure: str | None
+    ) -> None:
+        results = copy.deepcopy(self._value["results"])
+        results["behavior"] = {
+            "items": dict(summaries),
+            "failure": failure,
+            "reason": None,
+        }
+        self._update("results", results)
+
+    def record_population_checks(self, checks: Mapping[str, object]) -> None:
+        results = copy.deepcopy(self._value["results"])
+        results["checks"] = dict(checks)
         self._update("results", results)
 
     def begin(self, stage: str) -> None:

@@ -3,14 +3,18 @@
 import argparse
 import asyncio
 import getpass
+import json
 import logging
 import sys
 import uuid
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 
+from tailtag_simulator.behavior_config import resolve_behavior_config
 from tailtag_simulator.cleanup import run_cleanup, run_retained
+from tailtag_simulator.convention import run_convention
 from tailtag_simulator.fixtures import FixtureLauncherChannel, run_fixture_smoke
 from tailtag_simulator.images import load_fixture_images
 from tailtag_simulator.journeys import JourneyImages, run_journeys
@@ -21,6 +25,9 @@ from tailtag_simulator.pool import (
     run_readmit,
     run_status,
     validate_pool_name,
+)
+from tailtag_simulator.population_reconciliation import (
+    PopulationInspectionLauncherChannel,
 )
 from tailtag_simulator.provenance import SourceRejected, load_source
 from tailtag_simulator.reconciliation import InspectionLauncherChannel
@@ -125,6 +132,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     journeys = commands.add_parser(
         "journeys", help="run the acceptance journeys on Staging"
     )
+    convention = commands.add_parser(
+        "convention", help="run a finite convention population on Staging"
+    )
+    convention.add_argument(
+        "--family",
+        required=True,
+        choices=("baseline", "post-event", "hotspot", "retry", "soak"),
+    )
+    convention.add_argument("--config", type=Path)
     cleanup = commands.add_parser(
         "cleanup", help="clean one run's Staging state and readmit its identities"
     )
@@ -137,6 +153,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         pool_smoke,
         fixture_smoke,
         journeys,
+        convention,
         cleanup,
     ):
         each.add_argument("--pool", required=True, type=validate_pool_name)
@@ -146,7 +163,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     report_validate = report_commands.add_parser("validate")
     report_validate.add_argument("path", type=Path)
-    for execution in (smoke, pool_smoke, fixture_smoke, journeys):
+    for execution in (smoke, pool_smoke, fixture_smoke, journeys, convention):
         execution.add_argument("--scenario-version", type=int, default=1)
         execution.add_argument("--seed", type=int, default=0)
         execution.add_argument(
@@ -208,11 +225,47 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 130
 
 
+def _behavior_file(path: Path) -> dict[str, object]:
+    """Bounded JSON with no duplicate keys or unapproved routing overrides."""
+
+    def pairs(items: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in items:
+            if key in result:
+                raise ScenarioRejected
+            result[key] = value
+        return result
+
+    try:
+        with path.open("rb") as handle:
+            raw = handle.read(65537)
+        if len(raw) > 65536:
+            raise ScenarioRejected
+        value = json.loads(raw, object_pairs_hook=pairs)
+        if not isinstance(value, dict) or set(cast(dict[str, object], value)) & {
+            "pool",
+            "target",
+            "base_url",
+            "family",
+        }:
+            raise ScenarioRejected
+        return cast(dict[str, object], value)
+    except (OSError, ValueError, RecursionError):
+        raise ScenarioRejected from None
+
+
 async def _execute(args: argparse.Namespace) -> int:
     """Create durable evidence and establish provenance before executing a command."""
     report: RunReport | None = None
-    if args.command in {"smoke", "pool-smoke", "fixture-smoke", "journeys"}:
-        config: dict[str, object] = {"target": "staging", "base_url": None}
+    config: dict[str, object] = {}
+    if args.command in {
+        "smoke",
+        "pool-smoke",
+        "fixture-smoke",
+        "journeys",
+        "convention",
+    }:
+        config = {"target": "staging", "base_url": None}
         if args.command == "smoke":
             config.update(target=args.target, base_url=args.base_url)
         else:
@@ -223,10 +276,22 @@ async def _execute(args: argparse.Namespace) -> int:
             config.update(
                 owners=args.owners, fursuits=args.fursuits, catchers=args.catchers
             )
+        if args.command == "convention":
+            try:
+                config.update(
+                    _behavior_file(args.config) if args.config is not None else {}
+                )
+                config["family"] = args.family
+                config = resolve_behavior_config(config)
+            except (ScenarioRejected, ValueError):
+                _emit("FAIL configuration")
+                return 1
         try:
             report = RunReport(
                 args.report_dir,
-                args.command,
+                "convention-" + args.family
+                if args.command == "convention"
+                else args.command,
                 scenario_version=args.scenario_version,
                 seed=args.seed,
                 config=config,
@@ -250,6 +315,20 @@ async def _execute(args: argparse.Namespace) -> int:
         if report.write_failed:
             _emit("FAIL report")
             return report.finish(1)
+    if args.command == "convention":
+        return await run_convention(
+            str(args.pool),
+            config=config,
+            seed=args.seed,
+            prompt_secret=_prompt_secret,
+            lease_channel=_launcher(),
+            fixture_channel=_fixture_launcher(),
+            inspection_channel=PopulationInspectionLauncherChannel(
+                INSPECTION_LAUNCHER_COMMAND, cwd=REPOSITORY_ROOT
+            ),
+            emit=_emit,
+            report=report,
+        )
     if args.command == "pool-smoke":
         return await run_pool_smoke(
             str(args.pool),
