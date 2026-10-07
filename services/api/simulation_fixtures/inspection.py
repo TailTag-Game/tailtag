@@ -96,6 +96,47 @@ def inspect(pool: str, run_id: str, identities: Mapping[str, int]) -> Inspection
         return _read(pool, run_id, sorted(by_role.values()))
 
 
+def _population_validated(
+    pool: object, run_id: object, identities: object
+) -> tuple[str, str, dict[str, int]]:
+    if not isinstance(identities, Mapping):
+        raise TypeError
+    indexes = dict(cast(Mapping[str, object], identities))
+    owners = len(set(indexes).intersection(f"owner{n}" for n in range(50)))
+    attendees = len(indexes) - owners
+    labels = {f"owner{n}" for n in range(owners)} | {
+        f"attendee{n}" for n in range(attendees)
+    }
+    if (
+        not isinstance(pool, str)
+        or _POOL.fullmatch(pool) is None
+        or not 1 <= owners <= 50
+        or not 1 <= attendees <= 200
+        or set(indexes) != labels
+        or not all(
+            type(index) is int and 0 <= index <= _MAX_INDEX
+            for index in indexes.values()
+        )
+        or len(set(indexes.values())) != len(indexes)
+    ):
+        raise ValueError("request invalid")
+    return pool, _run_id(run_id), cast(dict[str, int], indexes)
+
+
+def inspect_population(
+    pool: str, run_id: str, identities: Mapping[str, int]
+) -> InspectionOutcome:
+    """Inspect a bounded owner/attendee population using the existing read scope."""
+    try:
+        pool, run_id, indexes = _population_validated(pool, run_id, identities)
+    except (TypeError, ValueError):
+        return InspectionOutcome("FAIL_REQUEST")
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute("SET TRANSACTION READ ONLY")
+        return _read(pool, run_id, sorted(indexes.values()))
+
+
 def _read(pool: str, run_id: str, indexes: list[int]) -> InspectionOutcome:
     slots = {
         slot.index: slot

@@ -11,7 +11,7 @@ import dataclasses
 import datetime as dt
 import json
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from django.db import InternalError, connection
@@ -572,6 +572,166 @@ def test_record_caps_and_the_output_fits_the_launcher_limit(
     assert len(payload["fursuits"]) == fursuit_count  # pyright: ignore[reportUnknownArgumentType]
     relayed = json.dumps(response, sort_keys=True) + "\n"
     assert len(relayed.encode()) <= RELAY_LIMIT_BYTES
+
+
+# #225 AC15: the population operation shares the real read-only query while its
+# role schema supports five or more attendees rather than the fixed journey roles.
+POPULATION_INDEXES = {
+    "owner0": 5,
+    "owner1": 3,
+    **{f"attendee{n}": index for n, index in enumerate((8, 4, 9, 6, 7))},
+}
+
+
+def inspect_population(
+    identities: Mapping[str, int] = POPULATION_INDEXES,
+) -> inspection.InspectionOutcome:
+    return inspection.inspect_population(POOL, RUN_A, identities)
+
+
+def test_population_inspection_reads_variable_roles_and_preserves_state() -> None:
+    run = seed_run()
+    # Relabel the fifth leased slot as a population attendee. The shared read scope
+    # identifies its actual pool slot, rather than a fixed journey role enum.
+    catch = run_catch(run, "outsider", "owner1", 1)
+    before = world()
+
+    response = execute(
+        request(
+            "inspect-population-v1",
+            {"pool": POOL, "run_id": RUN_A, "identities": POPULATION_INDEXES},
+        )
+    )
+
+    assert response == {
+        "result": "PASS",
+        "data": data([record(catch, catcher=7, owner=3)]),
+    }
+    assert world() == before
+
+
+@pytest.mark.parametrize(
+    "identities",
+    [
+        {"owner0": 5},
+        {"attendee0": 7},
+        {"owner1": 5, "attendee0": 7},
+        {"owner0": 5, "attendee1": 7},
+        {"owner00": 5, "attendee0": 7},
+        {"owner0": 5, "attendee0": 7, "outsider": 8},
+        {"owner0": 5, "attendee0": 5},
+        {"owner0": True, "attendee0": 7},
+        {**{f"owner{n}": n for n in range(51)}, "attendee0": 100},
+        {"owner0": 999, **{f"attendee{n}": n for n in range(201)}},
+    ],
+    ids=(
+        "no-attendee",
+        "no-owner",
+        "owner-gap",
+        "attendee-gap",
+        "noncanonical-label",
+        "foreign-role",
+        "duplicate-slot",
+        "boolean-slot",
+        "over-owner-cap",
+        "over-attendee-cap",
+    ),
+)
+def test_population_schema_rejects_unsafe_actor_maps_before_database_access(
+    identities: Mapping[str, int], django_assert_num_queries: Any
+) -> None:
+    with django_assert_num_queries(0):
+        outcome = inspect_population(identities)
+
+    assert outcome == inspection.InspectionOutcome("FAIL_REQUEST", {})
+
+
+@pytest.mark.parametrize("lease_fault", ["expired", "foreign-run"])
+def test_population_inspection_checks_the_last_attendees_live_lease(
+    lease_fault: str,
+) -> None:
+    seed_run()
+    slot = PoolSlot.objects.get(pool=POOL, index=POPULATION_INDEXES["attendee4"])
+    if lease_fault == "expired":
+        slot.lease_expires_at = timezone.now() - dt.timedelta(seconds=1)
+    else:
+        slot.run_id = RUN_B
+    slot.save()
+
+    assert inspect_population() == inspection.InspectionOutcome("FAIL_LEASE", {})
+
+
+def test_population_inspection_really_runs_inside_a_postgresql_read_only_transaction() -> (
+    None
+):
+    seed_run()
+    table = connection.ops.quote_name(PoolSlot._meta.db_table)  # pyright: ignore[reportPrivateUsage]
+
+    def write_after_read_only(
+        execute: Callable[..., Any], sql: str, params: Any, many: bool, context: Any
+    ) -> Any:
+        result = execute(sql, params, many, context)
+        if sql.strip().rstrip(";").upper() == "SET TRANSACTION READ ONLY":
+            execute(f"UPDATE {table} SET updated_at = now()", None, False, context)
+        return result
+
+    with (
+        connection.execute_wrapper(write_after_read_only),
+        pytest.raises(InternalError, match="read-only"),
+    ):
+        inspect_population()
+
+
+@pytest.mark.parametrize("catch_count", [200, 201])
+def test_population_operation_retains_the_authoritative_catch_cap(
+    catch_count: int,
+) -> None:
+    run = seed_run()
+    targets = Fursuit.objects.bulk_create(
+        [
+            Fursuit(owner=run.users["owner0"], name=f"Bulk {n}", photo_key=PHOTO_KEY)
+            for n in range(200)
+        ]
+    )
+    if catch_count == 201:
+        targets.append(run.fursuits["owner0"][0])
+    activation = run.activations[run.fursuits["owner0"][0].pk]
+    session = create_catch_session(activation=activation)
+    Catch.objects.bulk_create(
+        [
+            Catch(
+                catcher_user=run.users["outsider"],
+                fursuit=target,
+                convention=run.convention,
+                activation=activation,
+                catch_session=session,
+            )
+            for target in targets
+        ]
+    )
+
+    outcome = inspect_population()
+
+    if catch_count == 201:
+        assert outcome == inspection.InspectionOutcome("FAIL_LIMIT", {})
+    else:
+        assert outcome.result == "PASS"
+        assert len(cast(list[object], outcome.data["catches"])) == 200
+
+
+def test_population_target_guard_precedes_database_reads(
+    django_assert_num_queries: Any,
+) -> None:
+    payload = request(
+        "inspect-population-v1",
+        {"pool": POOL, "run_id": RUN_A, "identities": POPULATION_INDEXES},
+    )
+    with django_assert_num_queries(0):
+        response = execute(
+            payload, runtime_identity={**IDENTITY, "source_sha": "b" * 40}
+        )
+
+    assert response == {"result": "FAIL_TARGET", "data": {}}
 
 
 def request(

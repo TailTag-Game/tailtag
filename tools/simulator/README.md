@@ -439,9 +439,69 @@ always before the leases are released.
   through the same Railway CLI access. `inspect` only reads, so nothing else needs to
   be provisioned or promoted by hand beyond the merged code.
 
+## Convention populations
+
+Convention scenarios execute finite, stateful public API behavior on Staging.
+Owners remain separate from casual, active, heavy and retry-prone attendees.
+Normal and popular owners contribute configurable target weights. The families
+are `baseline` (round-robin visits), `post-event` (grouped collection), `hotspot`
+(one popular target), `retry` (first confirmations followed by duplicates), and
+`soak` (finite repeated cycles over the same catch pairs).
+
+```bash
+make sim-convention POOL=p1 FAMILY=baseline SEED=42
+make sim-convention POOL=p1 FAMILY=soak CONFIG=/path/to/population.json REPORT_DIR=/path/to/reports
+# From tools/simulator:
+uv run --locked --no-sync python -m tailtag_simulator convention --pool p1 --family retry --config /path/to/population.json --seed 42
+```
+
+The optional JSON object accepts behavioral parameters only. Example:
+
+```json
+{"casual":2,"active":1,"heavy":1,"retry_prone":2,"normal_owners":1,"popular_owners":1,"fursuits":2,"cycles":1}
+```
+
+Defaults are one of each persona, four fursuits per owner, budgets 1/3/8/3,
+extra confirmations 0/0/0/2, history cadences 0/3/1/1 and target weights 1/4.
+Cadence zero means completion history only. Default soak has three cycles;
+other families have one. `activation_break` optionally deactivates between cycles.
+The resolved configuration is recorded, and per-actor seeded choices use stable
+logical ordinals. Backend IDs and run UUIDs do not affect target selection.
+
+Synthetic limits are 1–50 owners, 1–200 attendees, 1–5 fursuits per owner,
+1–200 target budgets, 0–10 extra confirmations, 0–200 history cadence,
+1–100 target weights and 1–100 finite cycles. At most 200 distinct catches can
+be requested. Zero-count personas are allowed when aggregate populations and
+family requirements remain valid. Hotspot requires a popular owner; retry requires
+a retry-prone attendee. Exhausted target budgets are reported without looping.
+Unknown/duplicate keys, oversized JSON, boolean counts and routing overrides
+(`pool`, `family`, `target`, `base_url`) fail before external work.
+
+Orchestration renews every allocated lease independently every 60 seconds with a
+30-minute TTL, starting during identity setup. Loss or count mismatch cancels and
+awaits work before finalization. Provisioned failures retain fixtures; successful
+runs clean up; release and session closure run last. Public behavior receives only
+public clients. Read-only population inspection compares all actors' authoritative
+state and complete histories before cleanup.
+
+Convention reports use schema version 2, with six persona summaries and bounded
+actor discrepancies. `completed` counts successful target visits, `created` first
+catches, `already_caught` revisits and duplicates, `retries` extra confirmations,
+`cycles` completed actor-cycles, and `unused_budget` unmet distinct-target budget
+once per run. Owner completion counts armed fursuit sessions per cycle. Trace,
+credentials, runtime IDs and raw responses are not persisted. The [literal v2
+example](tests/data/report-v2-convention.json) and [approved design](../../docs/specs/2026-10-06-convention-virtual-users.md)
+provide the exact contract. Both report versions validate offline.
+
+Concurrency, arrival timing, traffic ramps, network failure injection, elapsed-time
+soak and performance measurements remain unavailable (`not_implemented`). These
+families establish behavioral evidence; they do not establish load capacity.
+Live acceptance requires five small family proofs after separately approved
+publication and Staging promotion; local boundary tests do not complete that gate.
+
 ## Run reports
 
-All four execution commands (`smoke`, `pool-smoke`, `fixture-smoke`, `journeys`)
+All five execution commands (`smoke`, `pool-smoke`, `fixture-smoke`, `journeys`, `convention`)
 create one UUID-named UTF-8 JSON file. Pool administration, retained listing and
 standalone cleanup do not create simulation reports. Host output defaults to
 `tools/simulator/reports/` (Git ignored); containers default to `/reports`. Mount
@@ -457,9 +517,9 @@ uv run --locked --no-sync python -m tailtag_simulator report validate /path/to/r
 ```
 
 CLI options are `--scenario-version`, `--seed`, and `--report-dir`. Version 1 is
-supported for each current command. The integer seed is recorded but unused:
-these workloads make no random choices. There are no new personas, traffic ramps,
-request/duration/concurrency ceilings or performance measurements. Existing request,
+supported for each current command. Convention workloads consume the recorded integer
+seed; the four legacy workloads record it without making random choices. There are
+no traffic ramps, request/duration/concurrency ceilings or performance measurements. Existing request,
 response, launcher, lease and retention limits are recorded with their units and
 actual enforcement scopes.
 
@@ -467,7 +527,7 @@ Report schema changes require a new `schema_version`, independently of scenario
 versions. Supported older reports retain their original contract and meaning;
 unsupported versions are rejected offline without conversion or reinterpretation.
 
-Schema version 1 is strict: unknown fields, duplicate keys, invalid measurements,
+Schema versions 1 and 2 are strict: unknown fields, duplicate keys, invalid measurements,
 unsupported versions, unsafe configuration and malformed files fail offline with
 only `FAIL report`; valid files print only `PASS report`. Validation performs no
 backend or provider requests. The [frozen design](../../docs/specs/2026-10-05-simulation-scenarios-run-reports.md)
@@ -507,7 +567,7 @@ persistence or final attribution fails before cleanup; the JSON failure identifi
 
 Correctness is independent of attribution, cleanup, retention and release. A workload
 can be correct while its overall run fails. After successful workload/reconciliation,
-all four reported commands observe the backend identity again; changed or unverifiable
+all five reported commands observe the backend identity again; changed or unverifiable
 identity prevents passing attribution, and fixture cleanup is gated by it. Interrupts
 finalize after resource obligations. A hard process crash or machine failure may leave
 a valid running snapshot with unreached/incomplete phases; no handler can guarantee a

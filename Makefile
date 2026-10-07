@@ -105,7 +105,7 @@ endef
 	api-staging-restore-drill \
 	api-format-check api-lint-check api-type-check api-django-check \
 	api-schema-check api-gunicorn-check \
-	sim-setup sim-check sim-smoke sim-pool-provision sim-pool-status sim-pool-readmit sim-pool-smoke sim-fixture-smoke sim-journeys sim-cleanup sim-retained sim-image sim-catalog-check sim-report-validate sim-format-check sim-lint-check sim-type-check sim-test sim-semgrep-check
+	sim-setup sim-check sim-smoke sim-pool-provision sim-pool-status sim-pool-readmit sim-pool-smoke sim-fixture-smoke sim-journeys sim-convention sim-cleanup sim-retained sim-image sim-catalog-check sim-report-validate sim-format-check sim-lint-check sim-type-check sim-test sim-semgrep-check
 
 help: ## List the canonical backend developer commands.
 	@awk 'BEGIN { print "TailTag backend commands:" } /^[a-zA-Z0-9_-]+:.*##/ { target = $$1; sub(/:.*/, "", target); if (target != "help") { description = $$0; sub(/^.*##[[:space:]]*/, "", description); printf "  make %-20s %s\n", target, description } }' $(MAKEFILE_LIST)
@@ -273,6 +273,9 @@ sim-fixture-smoke: ## Run the Staging fixture smoke: POOL=name [OWNERS=n FURSUIT
 sim-journeys: ## Run the Staging acceptance journeys: POOL=name (host only; leases 7 identities).
 	@test -n "$(POOL)" || { printf '%s\n' 'POOL is required.' >&2; exit 2; }
 	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator journeys --pool '$(POOL)' $(if $(VERSION),--scenario-version '$(VERSION)') $(if $(SEED),--seed '$(SEED)') $(if $(REPORT_DIR),--report-dir '$(REPORT_DIR)')
+
+sim-convention: ## Run a finite convention population: POOL=name FAMILY=baseline [CONFIG=path VERSION=1 SEED=0 REPORT_DIR=path].
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator convention --pool '$(subst ','"'"',$(POOL))' --family '$(subst ','"'"',$(FAMILY))' $(if $(CONFIG),--config '$(subst ','"'"',$(CONFIG))') $(if $(VERSION),--scenario-version '$(subst ','"'"',$(VERSION))') $(if $(SEED),--seed '$(subst ','"'"',$(SEED))') $(if $(REPORT_DIR),--report-dir '$(subst ','"'"',$(REPORT_DIR))')
 
 sim-cleanup: ## Clean one Staging simulation run and readmit its identities: POOL=name RUN_ID=id (host only).
 	@test -n "$(POOL)" -a -n "$(RUN_ID)" || { printf '%s\n' 'POOL and RUN_ID are required.' >&2; exit 2; }

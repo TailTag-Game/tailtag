@@ -37,6 +37,30 @@ from tailtag_simulator.fixtures import (
     FixtureChannel,
     run_provisioned,
 )
+from tailtag_simulator.gameplay import (
+    StepFailed as _StepFailed,
+)
+from tailtag_simulator.gameplay import (
+    arm_session as _arm,
+)
+from tailtag_simulator.gameplay import (
+    get_value as _get,
+)
+from tailtag_simulator.gameplay import (
+    list_items as _items,
+)
+from tailtag_simulator.gameplay import (
+    positive_number as _number,
+)
+from tailtag_simulator.gameplay import (
+    step as _step,
+)
+from tailtag_simulator.gameplay import (
+    stop_session as _stop,
+)
+from tailtag_simulator.gameplay import (
+    text_value as _text,
+)
 from tailtag_simulator.images import (
     content_type,
     gif_bytes,
@@ -66,24 +90,6 @@ _OWNERS: Final = 2
 _FURSUITS_PER_OWNER: Final = 2
 _CATCHERS: Final = 4
 _OUTSIDERS: Final = 1
-
-_CODES: Final = frozenset(
-    {
-        "created",
-        "already_caught",
-        "catcher_ineligible",
-        "active_convention_mismatch",
-        "self_catch_not_allowed",
-        "catch_target_unavailable",
-    }
-)
-# The API's image rejections carry no code: the exact message is the identity.
-_IMAGE_CODES: Final = {
-    "Upload a JPEG, PNG, or static WebP image.": "unsupported_format",
-    "Upload a valid image.": "invalid_image",
-    "The photo dimensions are too large.": "too_many_pixels",
-}
-_CODE_FIELDS: Final = ("outcome", "code", "photo", "avatar")
 
 
 @dataclass(frozen=True)
@@ -122,35 +128,6 @@ class JourneyRun:
     created_fursuit: int | None  # the fursuit `fursuit_photo` created, if it did
 
 
-class _StepFailed(Exception):
-    def __init__(self, step: str, expected: str, observed: str) -> None:
-        super().__init__(step)
-        self.step = step
-        self.expected = expected
-        self.observed = observed
-
-
-# -- reading replies ---------------------------------------------------------------
-
-
-def _get(value: object, *keys: str) -> object:
-    for key in keys:
-        if not isinstance(value, dict):
-            return None
-        value = cast(dict[str, object], value).get(key)
-    return value
-
-
-def _text(body: object, *keys: str) -> str:
-    value = _get(body, *keys)
-    return value if isinstance(value, str) else ""
-
-
-def _number(body: object, *keys: str) -> int:
-    value = _get(body, *keys)
-    return value if type(value) is int and value > 0 else 0
-
-
 def _https(body: object, key: str) -> bool:
     return _text(body, key).startswith("https://") and len(_text(body, key)) > 8
 
@@ -158,49 +135,6 @@ def _https(body: object, key: str) -> bool:
 def _is_null(body: object, key: str) -> bool:
     """The key is present and null (not merely absent)."""
     return isinstance(body, dict) and cast(dict[str, object], body).get(key, 0) is None
-
-
-def _items(value: object) -> list[object]:
-    return cast(list[object], value) if isinstance(value, list) else []
-
-
-def _observed_code(body: object) -> str:
-    """A code from the allowlist, else `other` when the body has a code field, else `-`."""
-    for key in ("outcome", "code"):
-        value = _get(body, key)
-        if isinstance(value, str) and value in _CODES:
-            return value
-    for key in ("photo", "avatar"):
-        messages = _items(_get(body, key))
-        if len(messages) == 1 and isinstance(messages[0], str):
-            known = _IMAGE_CODES.get(messages[0])
-            if known is not None:
-                return known
-    if any(_get(body, key) is not None for key in _CODE_FIELDS):
-        return "other"
-    return "-"
-
-
-async def _step(
-    name: str,
-    sending: Awaitable[Reply],
-    status: int,
-    code: str = "-",
-    *,
-    shape: Callable[[object], bool] = lambda _body: True,
-) -> object:
-    """Await one request; fail the journey unless status, code and shape all match."""
-    expected = f"{status}/{code}"
-    try:
-        reply = await sending
-    except Exception:  # noqa: BLE001 - any send failure, a token refresh included, is "error"
-        raise _StepFailed(name, expected, "error") from None
-    observed = _observed_code(reply.body)
-    if reply.status != status or observed != code:
-        raise _StepFailed(name, expected, f"{reply.status}/{observed}")
-    if not shape(reply.body):
-        raise _StepFailed(name, expected, f"{reply.status}/shape")
-    return reply.body
 
 
 def _upload(image: bytes) -> Upload:
@@ -265,32 +199,6 @@ class _Run:
 def _fursuit_ids(body: object) -> list[int]:
     ids = [_number(item, "id") for item in _items(body)]
     return sorted(ids) if all(ids) else []
-
-
-async def _arm(owner: ApiClient, activation: str) -> str:
-    """Start the fursuit's catch session and read its credential; return the payload."""
-    await _step(
-        "session",
-        owner.put(f"{activation}catch-session/", {"is_active": True}),
-        200,
-        shape=lambda b: _get(b, "is_active") is True,
-    )
-    body = await _step(
-        "credential",
-        owner.get(f"{activation}catch-credential/"),
-        200,
-        shape=lambda b: bool(_text(b, "payload")),
-    )
-    return _text(body, "payload")
-
-
-async def _stop(owner: ApiClient, activation: str) -> None:
-    await _step(
-        "stop",
-        owner.put(f"{activation}catch-session/", {"is_active": False}),
-        200,
-        shape=lambda b: _get(b, "is_active") is False,
-    )
 
 
 async def _only_catch(client: ApiClient, run: _Run, catch: int, fursuit: int) -> None:
