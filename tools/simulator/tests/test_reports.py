@@ -19,6 +19,8 @@ from report_support import (
     RUN_ID,
     ReportClock,
     commit,
+    disposable_catalog,
+    fault_descriptor,
     git,
     literal_report,
     read_report,
@@ -444,6 +446,35 @@ def test_failed_atomic_snapshot_preserves_last_document_blocks_success_and_remov
     assert report.path.read_bytes() == prior
     assert read_report(report.path)["outcome"] == "running"
     assert set(tmp_path.iterdir()) == {report.path}
+
+
+@pytest.mark.parametrize("fault", ["missing", "invalid", "changed"])
+def test_catalog_fault_after_admission_preserves_snapshot_and_stays_failed_after_recovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    catalog = disposable_catalog(tmp_path, monkeypatch)
+    descriptor = catalog / "smoke-v1.json"
+    original = descriptor.read_bytes()
+    report = recorder(tmp_path / "reports")
+    prior = report.path.read_bytes()
+    fault_descriptor(descriptor, fault)
+
+    with pytest.raises(ReportFailed) as failure:
+        load_report(report.path)
+    assert "SENTINEL" not in str(failure.value) + repr(failure.value)
+    report.begin("target")
+    report.end("target", "passed")
+    assert report.write_failed
+    assert report.path.read_bytes() == prior
+
+    descriptor.write_bytes(original)
+    assert read_report(report.path)["outcome"] == "running"
+    assert report.finish(0) == 1
+    assert report.write_failed
+    value = read_report(report.path)
+    assert value["outcome"] == "failed"
+    assert value["failure"] == {"stage": "report", "code": "FAIL_REPORT"}
+    assert "SENTINEL" not in report.path.read_text()
 
 
 def test_elapsed_time_uses_monotonic_clock_when_utc_clock_moves_backwards(

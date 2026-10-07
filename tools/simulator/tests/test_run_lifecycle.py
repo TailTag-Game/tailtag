@@ -52,7 +52,7 @@ from fixture_support import (
 from journey_support import VALID_A, VALID_B
 from pool_support import POOL, RUN_ID, SECRET, SHA, FakeChannel, Slot, World
 from reconciliation_support import FakeInspectionChannel, edit
-from report_support import read_report, recorder
+from report_support import disposable_catalog, fault_descriptor, read_report, recorder
 
 from tailtag_simulator.fixtures import FixtureFailed, run_fixture_smoke
 from tailtag_simulator.journeys import JourneyImages, run_journeys
@@ -697,6 +697,81 @@ def test_snapshot_failure_after_provision_prevents_cleanup_and_still_retains_and
     if fault_stage == "cleanup_start":
         assert value["failure"] == {"stage": "report", "code": "FAIL_REPORT"}
     assert "SENTINEL" not in report.path.read_text()
+
+
+@pytest.mark.parametrize(
+    ("kind", "boundary", "fault"),
+    [
+        ("smoke", "simulation", "invalid"),
+        ("journeys", "simulation", "missing"),
+        ("smoke", "after_cleanup", "invalid"),
+    ],
+)
+def test_catalog_fault_cannot_skip_fixture_retention_or_release(
+    tmp_path: Path,
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+    boundary: str,
+    fault: str,
+) -> None:
+    catalog = disposable_catalog(tmp_path, monkeypatch)
+    descriptor = (
+        catalog / f"{'journeys' if kind == 'journeys' else 'fixture-smoke'}-v1.json"
+    )
+    original = descriptor.read_bytes()
+    report = report_for(tmp_path / "reports", kind)
+    rig = build(kind, request, report=report)
+    snapshots: list[bytes] = []
+
+    def damage_catalog() -> None:
+        if not snapshots:
+            snapshots.append(report.path.read_bytes())
+            fault_descriptor(descriptor, fault)
+
+    if boundary == "simulation":
+        route = rig.world.route
+        assert route is not None
+
+        def read(method: str, path: str, index: int) -> httpx.Response | None:
+            damage_catalog()
+            return route(method, path, index)
+
+        rig.world.route = read
+    else:
+        call = rig.fixtures.call
+
+        async def cleanup(operation: str, arguments: Any) -> dict[str, object]:
+            value = await call(operation, arguments)
+            if operation == "cleanup":
+                damage_catalog()
+            return value
+
+        monkeypatch.setattr(rig.fixtures, "call", cleanup)
+
+    try:
+        run = rig.run()
+        assert snapshots and report.write_failed
+        assert run.code != 0
+        assert report.path.read_bytes() == snapshots[0]
+        assert_released(rig)
+        if boundary == "simulation":
+            assert rig.fixtures.calls_to("cleanup") == []
+            assert rig.fixtures.calls_to("retain") == [
+                {"pool": POOL, "run_id": RUN_ID, "reason": "interrupted"}
+            ]
+            assert rig.run_indexes <= rig.leases.indexes("quarantined")
+            assert position(rig, ("fixture", "retain")) < release_position(rig)
+        else:
+            assert rig.fixtures.calls_to("cleanup") == [
+                {"pool": POOL, "run_id": RUN_ID}
+            ]
+            assert rig.fixtures.calls_to("retain") == []
+            assert position(rig, ("fixture", "cleanup")) < release_position(rig)
+        assert "SENTINEL" not in "\n".join(run.lines) + report.path.read_text()
+    finally:
+        descriptor.write_bytes(original)
+    assert read_report(report.path)["outcome"] == "running"
 
 
 @both_commands

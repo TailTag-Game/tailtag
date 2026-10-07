@@ -28,7 +28,7 @@ from pool_support import (
     onboarded,
     user_json,
 )
-from report_support import read_report, recorder
+from report_support import disposable_catalog, fault_descriptor, read_report, recorder
 
 from tailtag_simulator.client import ApiClient
 from tailtag_simulator.pool import PoolSimulationContext, run_pool_smoke
@@ -109,6 +109,46 @@ def assert_released(world: World, channel: FakeChannel) -> None:
     assert channel.indexes("leased") == set()
     assert set(world.ended_sessions) == set(world.opened_sessions)
     assert len(world.ended_sessions) == len(world.opened_sessions)
+
+
+def test_changed_catalog_after_workload_cannot_skip_pool_session_and_lease_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, world: World
+) -> None:
+    catalog = disposable_catalog(tmp_path, monkeypatch)
+    descriptor = catalog / "pool-smoke-v1.json"
+    original = descriptor.read_bytes()
+    report = recorder(
+        tmp_path / "reports", "pool-smoke", config={"pool": POOL, "count": 3}
+    )
+    channel = FakeChannel(world)
+    snapshots: list[bytes] = []
+
+    def identity() -> httpx.Response:
+        if ("emit", "PASS reconciliation") in world.log and not snapshots:
+            snapshots.append(report.path.read_bytes())
+            fault_descriptor(descriptor, "changed")
+        return httpx.Response(
+            200,
+            json={
+                "source_sha": SHA,
+                "deployment_id": pool_support.DEPLOYMENT_ID,
+                "environment": "staging",
+            },
+        )
+
+    world.identity_reply = identity
+    try:
+        run = smoke(world, channel, report=report)
+        assert snapshots and report.write_failed
+        assert run.code != 0
+        assert report.path.read_bytes() == snapshots[0]
+        assert len(world.opened_sessions) == 3
+        assert_released(world, channel)
+        assert channel.calls_to("release") == [{"run_id": RUN_ID}]
+        assert "SENTINEL" not in "\n".join(run.lines) + report.path.read_text()
+    finally:
+        descriptor.write_bytes(original)
+    assert read_report(report.path)["outcome"] == "running"
 
 
 # -- the happy path ------------------------------------------------------------
