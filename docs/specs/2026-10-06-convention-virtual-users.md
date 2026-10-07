@@ -16,9 +16,10 @@ review followups; the integrated simulator and five-family offline proofs pass.
 Final whole-change verdicts all PASS, with no unresolved local findings.
 Scope and resource audits are complete. PR #297 merged as `f906ae5`; the maintainer
 subsequently authorized and performed Staging promotion and attempted live proof.
-Promotion succeeded; the first baseline run exposed a simulator confirmation
-contract mismatch. Current: focused correction; five passing live proofs remain
-pending. See the dated acceptance attempt below.
+The confirmation correction merged in PR #298. Its exact-SHA Staging promotion
+and all five live family report contracts passed. Final pool/retention readback
+matches the clean baseline. AC17 is verified; current: evidence review and
+documentation publication. See the dated acceptance records below.
 No Astra trigger.
 Two-way door: additive simulator/internal read-only tooling; no migration/gameplay
 change. Revert code; preserve old report interpretation. Publication is authorized;
@@ -434,3 +435,66 @@ The API's confirmation target is identified by `tailtag_id`; the external test
 fake had accepted the extra request field and returned a richer fursuit object.
 Correcting this boundary preserves the existing API and correctness contract.
 AC17 remains incomplete until all five user-operated live family proofs pass.
+
+## Successful user-operated Staging acceptance — 2026-10-07
+
+The maintainer restarted acceptance from merged simulator/backend revision
+`e8aedd0d2b4e0e0787edf6bcafc7fbcbb95d4902`, including the confirmation correction.
+The [new exact-SHA promotion receipt](../development/staging-deployments/9359c0a2-4915-42cd-9994-521ce7bc740e.json)
+records successful push validation `37700837033`, all required promotion gates
+`SUCCEEDED`, and deployment `9359c0a2-4915-42cd-9994-521ce7bc740e` active at declaration.
+The earlier promotion attempt while validation was pending produced no candidate
+receipt; this later successful receipt is the accepted promotion proof.
+
+Before the new workloads, the maintainer cleaned only failed run
+`a769c264-c8f2-49ad-aceb-c792b57d5e65`: one Convention, six enrollments, eight
+fursuits/activations/sessions/credentials/images, zero catches, six identities
+readmitted. Pre-run pool `p1` had total10/available10/leased0/quarantined0;
+retained0/unfinished0. The failed report remains historical evidence.
+
+All five families ran version1/seed225 with one actor per persona, six identities
+and eight fursuits. Baseline/post-event/hotspot/retry used one cycle; soak used
+three finite cycles. Reports cover 2026-10-07T23:32:40.662851Z through
+2026-10-07T23:40:12.249038Z. Each report passed strict offline `load_report`
+validation with outcome/correctness passed, no failure, all eight applicable phases
+passed, no retention, and 14 reconciliation checks with no discrepancies.
+Starting and final target observations match the exact promoted source/deployment,
+with attribution verified; simulator provenance is clean at the same merged SHA.
+These observations establish the recorded run boundaries, not continuous stability.
+
+| Family | Created catches | Already caught | Explicit retries | Cycles | Checks |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| baseline | 15 | 6 | 6 | 1 | 14 |
+| post-event | 15 | 6 | 6 | 1 | 14 |
+| hotspot | 4 | 2 | 2 | 1 | 14 |
+| retry | 15 | 6 | 6 | 1 | 14 |
+| soak | 15 | 48 | 18 | 3 | 14 |
+
+Every run deleted one Convention, six enrollments and eight fursuits, activations,
+credentials and images. Catch deletion counts match created catches above.
+Session cleanup was eight per single-cycle family and 24 for soak. All runs
+recorded successful lease release and verified final deployment attribution.
+
+Runtime was Python3.13.14/httpx0.28.1, with dependency-lock SHA-256
+`c218b2fb441f1016746c100f4b28899b0422585980e934cad5abd76a277dba9f`.
+The operator retained raw reports in the Git-ignored directory
+`tools/simulator/reports/225-live-20261007T233240Z/`. Digests below bind this
+record to the original report bytes; no credentials or raw responses are included.
+
+| Family | Run UUID | Report SHA-256 |
+| --- | --- | --- |
+| baseline | `70c696b6-6450-4acf-af00-17b633cf1cc9` | `e9ca69910f2f784bef73e76c977793246e52b6f6ccd2c42c260450c6f2772973` |
+| post-event | `f8a31c8f-ddb7-4e64-a3ee-a8b37817c4c2` | `a77943f17fbdbaf99a8f3a8d64b1babc53b3b92b46481d079f234db1420addfe` |
+| hotspot | `65ffa928-8c0c-4781-800f-f7e6ad970f18` | `02ee66b0f0586f3b5b449ee17d6b6d7a22cc4bdd9a3a41e6a27af623f72ba781` |
+| retry | `8bff3038-e4c1-4c30-b47b-d9d21992e1e9` | `87ee9a361ac85ae84799088d7ff88f4b1991098f9e8d2d6de5bf1f406b6ee2dd` |
+| soak | `5623412d-95af-47a7-8a14-620a93acc26a` | `5272aa27344155b62815dd0f9db97bb0a7986d259cf6d5439bb1655e6d751c9b` |
+
+Final maintainer readback matched the clean pre-run baseline: pool `p1`
+total10/available10/leased0/quarantined0, retained0/unfinished0. All five live
+family report contracts and resource finalization pass. Together with the merged
+offline protection and repository validation, this completes AC17's acceptance
+evidence. Tracker closeout and documentation review/merge remain separate steps.
+Timing/concurrency/network injection and performance/load readiness remain outside
+this acceptance. No negative live failure or deployment-drift injection was run.
+The maintainer operated live commands; agents validated artifacts and recorded
+sanitized evidence without accessing the Clerk secret or executing live writes.
