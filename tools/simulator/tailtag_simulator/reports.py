@@ -983,6 +983,24 @@ class RunReport:
         del self._starts[stage]
         self._snapshot()
 
+    def record_lease_failure(self) -> None:
+        """Classify renewal cancellation before retention and finalization."""
+        _require(not self._finished)
+        phases = copy.deepcopy(self._value["phases"])
+        for phase in phases.values():
+            if phase["status"] == "interrupted":
+                # The stage adapter already closed this phase; preserve its timing.
+                phase.update(status="failed", code="FAIL_LEASE")
+        candidate = {**self._value, "phases": phases}
+        failure = candidate["failure"]
+        if failure is not None and failure["code"] == "FAIL_INTERRUPTED":
+            candidate["failure"] = {"stage": failure["stage"], "code": "FAIL_LEASE"}
+        _validate_report(candidate, self._admitted_scenario)
+        self._value = candidate
+        self._snapshot()
+        for stage in tuple(self._starts):
+            self.end(stage, "failed", "FAIL_LEASE")
+
     def finish(self, exit_code: int) -> int:
         _require(type(exit_code) is int)
         if self._finished:

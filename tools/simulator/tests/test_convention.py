@@ -159,7 +159,7 @@ def test_renewal_loss_or_interruption_awaits_worker_before_finalization(
                 except asyncio.CancelledError:
                     pass
 
-    assert asyncio.run(exercise()) != 0
+    result = asyncio.run(exercise())
     assert not [path for path in blocked.after_cancel if not path.endswith("/end")]
     assert "cleanup" not in run.fixtures.operations
     if stage == "setup":
@@ -168,7 +168,17 @@ def test_renewal_loss_or_interruption_awaits_worker_before_finalization(
         assert run.fixtures.operations[-1] == "retain"
     assert_finalized(run)
     value = read_report(run.report.path)
-    assert value["outcome"] in {"failed", "interrupted"}
+    if failure == "interrupt":
+        assert result is None  # Operator cancellation must propagate.
+        status, code = "interrupted", "FAIL_INTERRUPTED"
+    else:
+        assert result == 1
+        status, code = "failed", "FAIL_LEASE"
+        assert "FAIL lease result=FAIL_LEASE" in run.lines
+    assert value["outcome"] == status
+    assert value["failure"] == {"stage": stage, "code": code}
+    assert value["phases"][stage]["status"] == status
+    assert value["phases"][stage]["code"] == code
 
 
 BAD_CONFIGS = [

@@ -188,9 +188,11 @@ Orchestration wraps population work/reconciliation in a task and independently
 renews leases every60s (30min TTL), including setup after leasing and before fixture
 writes/read-only inspection. Heartbeat on orchestration channel only; validate
 renewed count equals all allocated identities; failure cancels/awaits worker before
-retain/release and produces nonzero. Start/stop renewal safely within run_provisioned
-opt-in path, legacy calls unchanged. No detached task survives release. Config/cap
-validation before setup; reporting exceptions cannot bypass finalization.
+retain/release and produces nonzero. Renewal loss records the affected phase as
+failed with `FAIL_LEASE` and the report outcome as failed; operator cancellation
+remains interrupted with `FAIL_INTERRUPTED`. Start/stop renewal safely within
+run_provisioned opt-in path, legacy calls unchanged. No detached task survives
+release. Config/cap validation before setup; reporting exceptions cannot bypass finalization.
 
 U3 owns reports.py, focused reports_v2.py if needed, convention.py, fixtures.py,
 __main__.py, Makefile, README and CI only if changed-surface coverage requires it.

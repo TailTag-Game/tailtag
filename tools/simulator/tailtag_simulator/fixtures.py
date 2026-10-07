@@ -557,6 +557,14 @@ async def run_provisioned(
             if report is not None and failure.stage.split()[0] == "setup":
                 report.end("setup", "failed", "FAIL_SETUP")
             emit(f"FAIL {failure.stage}")
+    except asyncio.CancelledError:
+        if _renewal is not None and _renewal.failed:
+            code = 1
+            if report is not None:
+                report.record_lease_failure()
+        else:
+            code = 130
+        raise
     except BaseException:
         code = 130
         raise
