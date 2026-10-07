@@ -354,6 +354,12 @@ def _results(value: object, scenario: str) -> None:
 
 def validate_report(value: object) -> dict[str, object]:
     """Validate the entire external v1 document, returning an isolated copy."""
+    return _validate_report(value)
+
+
+def _validate_report(
+    value: object, admitted_scenario: Mapping[str, Any] | None = None
+) -> dict[str, object]:
     try:
         report = _object(
             value,
@@ -398,9 +404,13 @@ def validate_report(value: object) -> dict[str, object]:
             and isinstance(scenario["configuration"], dict)
         )
         config = cast(dict[str, Any], scenario["configuration"])
-        resolved = cast(
-            dict[str, Any],
-            resolve_scenario(scenario["id"], scenario["version"], config),
+        resolved = (
+            admitted_scenario
+            if admitted_scenario is not None
+            else cast(
+                dict[str, Any],
+                resolve_scenario(scenario["id"], scenario["version"], config),
+            )
         )
         _require(
             all(
@@ -661,6 +671,9 @@ class RunReport:
             )
         except ScenarioRejected:
             raise ReportFailed from None
+        # Keep candidate validation independent of later catalog failures. Only
+        # guarded persistence rechecks disk, so reporting cannot bypass release.
+        self._admitted_scenario = copy.deepcopy(resolved)
         configuration = resolved["configuration"]
         inapplicable: set[str] = (
             {"cleanup", "retention", "release"}
@@ -812,7 +825,7 @@ class RunReport:
     def _update(self, section: str, value: object) -> None:
         _require(not self._finished)
         candidate = {**self._value, section: copy.deepcopy(value)}
-        validate_report(candidate)
+        _validate_report(candidate, self._admitted_scenario)
         self._value = candidate
         self._snapshot()
 
@@ -904,7 +917,7 @@ class RunReport:
                     else "FAIL_" + ("RETAIN" if stage == "retention" else stage.upper())
                 ),
             }
-        validate_report(candidate)
+        _validate_report(candidate, self._admitted_scenario)
         self._value = candidate
         del self._starts[stage]
         self._snapshot()
@@ -933,7 +946,7 @@ class RunReport:
         )
         if value["outcome"] == "passed":
             try:
-                validate_report(value)
+                _validate_report(value, self._admitted_scenario)
             except ReportFailed:
                 value["outcome"] = "failed"
                 value["failure"] = {"stage": "attribution", "code": "FAIL_ATTRIBUTION"}

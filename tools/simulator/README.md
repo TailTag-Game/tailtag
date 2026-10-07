@@ -496,9 +496,12 @@ work. Dirty, unknown or missing simulator source prevents execution and leaves a
 sanitized failed artifact when storage works. `make sim-image` uses the provenance
 builder to validate clean source and copy approved inputs into a temporary context
 with build-time metadata. Runtime SHA environment variables cannot relabel an image.
-An initial report write failure prevents provenance and network calls. Later snapshot
-failures preserve the last complete file, set a failure flag and prevent a passing
-exit. Fixture runs retain state with the existing `interrupted` reason when report
+An initial report write failure prevents provenance and network calls. Recorder
+updates validate against an isolated copy of the scenario admitted at run start.
+Snapshot persistence and offline validation still check the versioned catalog.
+Later snapshot failures, including missing or invalid catalog descriptors, preserve
+the last complete file, set a sticky failure flag and prevent a passing exit.
+Fixture runs retain state with the existing `interrupted` reason when report
 persistence or final attribution fails before cleanup; the JSON failure identifies
 `report` or `attribution` precisely. Resource release still runs.
 
@@ -509,7 +512,10 @@ identity prevents passing attribution, and fixture cleanup is gated by it. Inter
 finalize after resource obligations. A hard process crash or machine failure may leave
 a valid running snapshot with unreached/incomplete phases; no handler can guarantee a
 final report or release in that case. Use the existing retained/cleanup commands for
-backend recovery. An unavailable output disk can also leave only the last snapshot.
+backend recovery. An unavailable output disk or damaged catalog can also leave only
+the last snapshot. Validate retained reports from their recorded simulator revision
+with its intact versioned catalog; repairing storage or the catalog does not erase a
+report failure already observed during the run.
 
 ### Scenario versions and reproduction
 

@@ -1,11 +1,17 @@
 """#224 independent fixtures: literal JSON, clocks and disposable real Git only."""
 
+import hashlib
 import json
 import os
+import shutil
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
+
+import pytest
+
+from tailtag_simulator import scenarios
 
 if TYPE_CHECKING:
     from tailtag_simulator.reports import RunReport
@@ -102,3 +108,31 @@ def read_report(path: Path) -> dict[str, Any]:
     from tailtag_simulator.reports import load_report
 
     return cast(dict[str, Any], load_report(path))
+
+
+def disposable_catalog(root: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Fault injection owns a copy, never the repository's published descriptors."""
+    catalog = root / "catalog"
+    shutil.copytree(scenarios.CATALOG, catalog)
+    monkeypatch.setattr(scenarios, "CATALOG", catalog)
+    return catalog
+
+
+def fault_descriptor(path: Path, fault: str) -> None:
+    if fault == "missing":
+        path.unlink()
+    elif fault == "invalid":
+        path.write_text("{SENTINEL-private-descriptor", encoding="utf-8")
+    elif fault == "changed":
+        entry = json.loads(path.read_text(encoding="utf-8"))
+        # Parseable, digest-consistent JSON still violates the admitted contract.
+        entry["roles"] = ["SENTINEL-private-role"]
+        descriptor = {k: v for k, v in entry.items() if k != "descriptor_digest"}
+        entry["descriptor_digest"] = hashlib.sha256(
+            json.dumps(
+                descriptor, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode("utf-8")
+        ).hexdigest()
+        path.write_text(json.dumps(entry), encoding="utf-8")
+    else:
+        raise AssertionError(f"Unsupported test fault: {fault}")

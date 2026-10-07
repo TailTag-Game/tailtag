@@ -15,7 +15,9 @@ https://github.com/TailTag-Game/tailtag/issues/224#issuecomment-5997094427
 - Current: PR #295 includes the CodeRabbit corrections; final simulator validation
   passed 617 tests. Independent correction-unit and whole-change reviews passed.
   The maintainer live Staging acceptance and reproduction proof below passed.
-- Pending: maintainer review and merge of PR #295; no live verification gap remains.
+- PR #295 merged as `a025878`; issue #224 is Closed/Done. A post-merge recorder
+  validation failure can bypass resource finalization; the focused follow-up below
+  addresses refined AC8 and original AC5's remaining reliability gap.
 - Environment: full access restored after the temporary identity/network stop.
   Root verified `FinnThePanther` before resuming and before doctor. Docker is reachable.
   Image assurance uses a disposable clean Git snapshot with verified Finn identity;
@@ -410,3 +412,49 @@ report serialization and meaningful reproduction evidence for #224. Live failure
 interruptions, deployment drift and storage faults were not injected; their distinct
 negative behavior remains covered by the automated suite and prior container proof.
 PR review/merge remains a separate gate; no issue or review thread was closed.
+
+## Post-merge report finalization follow-up — 2026-10-06
+
+After PR #295 merged, a retained CodeRabbit concern was confirmed: recorder phase
+updates re-resolved descriptors from disk before entering guarded persistence.
+A missing, invalid or changed descriptor could raise `ReportFailed` before fixture
+retention/quarantine, session revocation or lease release. This left refined AC8
+and original AC5's broader report-stability criterion unchecked.
+
+The recorder now keeps an isolated copy of the resolved scenario admitted at
+construction. One shared validator checks recorder candidates against that admitted
+contract, while public offline validation and guarded snapshot persistence continue
+checking the supported versioned catalog. Unsafe adapters still fail validation.
+Later catalog failures set the existing sticky persistence-failure flag, preserve
+the last complete snapshot and prevent a successful exit without vetoing resource
+obligations. Initial admission remains fail closed before external work. No workload,
+schema/version, backend, migration or deployment behavior changes.
+
+Verification for this focused ADW STANDARD COMPACT reliability/data-integrity unit:
+
+- Independent Test Author: seven new cases failed against the original recorder;
+  existing unsafe-adapter cases passed. Temporary catalog copies isolate faults
+  from the published descriptors.
+- After implementation, all seven cases passed. They cover missing/malformed/
+  digest-consistent changed descriptors, sticky failure after catalog recovery,
+  fixture retention/quarantine before release, release after successful cleanup,
+  the separate pool-runner release path, preserved snapshots and sanitized evidence.
+- `make sim-check`: 624 tests passed; catalog/history, Ruff format/lint, strict
+  Pyright (zero errors), three Semgrep fixtures and 15 rules on 17 production
+  modules passed with zero findings.
+- `./scripts/doctor.sh`: repository and GitHub authentication checks passed;
+  the required Docker-daemon check failed because the daemon was unavailable.
+  The optional Dev Container CLI was absent. These tests use filesystem and
+  external-provider boundary rigs and require no Docker or live Staging access.
+- Fresh independent review: SPEC, QUALITY, TEST, SCOPE, RELIABILITY, DATA INTEGRITY
+  and TEST ADEQUACY passed with no findings. Full environment readiness could not
+  be verified because the Docker daemon was unavailable.
+- Logs: `.refinement/224-finalization-red.log`,
+  `.refinement/224-finalization-green.log`,
+  `.refinement/224-finalization-sim-check.log` and
+  `.refinement/224-finalization-doctor.log`.
+
+The follow-up is reversible by reverting its focused recorder/test/documentation
+change. Live provider failure injection and deployment are outside this proof.
+The remaining issue checkboxes await review and merge of the follow-up PR; no
+CodeRabbit comment is replied to or resolved by this work.
