@@ -149,14 +149,13 @@ async def simulate_population(
                 "confirm",
                 actor.client.post(
                     "/api/catches/confirm/",
-                    {"convention_id": convention, "payload": target.payload},
+                    {"payload": target.payload},
                 ),
                 200 if previous else 201,
                 "already_caught" if previous else "created",
                 shape=lambda b: (
                     positive_number(b, "catch", "id") > 0
                     and positive_number(b, "catch", "convention_id") == convention
-                    and positive_number(b, "catch", "fursuit", "id") == target.id
                     and text_value(b, "catch", "fursuit", "tailtag_id")
                     == target.tailtag
                     and bool(text_value(b, "catch", "caught_at"))

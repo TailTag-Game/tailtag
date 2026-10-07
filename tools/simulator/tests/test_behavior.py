@@ -439,6 +439,7 @@ def test_exhaustion_finishes_once_and_soak_revisits_the_plan_after_activation_br
         "ambiguous-positive",
         "wrong-status",
         "wrong-target",
+        "wrong-confirm-target",
         "nonconvergent",
         "wrong-history",
     ],
@@ -467,7 +468,7 @@ def test_unexpected_outcome_stops_collection_and_preserves_partial_expectations(
             and path.endswith("/catch-session/")
             and body == {"is_active": False}
         ), "failure must stop all future modeled actions"
-    if fault in {"ambiguous-positive", "wrong-status"}:
+    if fault in {"ambiguous-positive", "wrong-status", "wrong-confirm-target"}:
         assert len(confirmations) == 1
         assert len(result.expectations.attempts) == 1
         assert result.expectations.made == {}
