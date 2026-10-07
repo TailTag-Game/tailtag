@@ -28,6 +28,10 @@ def complete_public_reply(
         201,
     }:
         body["catch"]["convention_id"] = CONVENTION_ID
+        fursuit = body["catch"]["fursuit"]
+        body["catch"]["fursuit"] = {
+            key: fursuit[key] for key in ("tailtag_id", "name", "photo_url")
+        }
     if request.url.path == "/api/catches/" and response.status_code == 200:
         for row in body["results"]:
             row["convention"] = {
@@ -111,6 +115,16 @@ class PopulationWorld:
         actor = next(actor for actor, slot in self.indexes.items() if slot == index)
         body: dict[str, Any] = json.loads(request.content) if request.content else {}
         self.requests.append((actor, method, path, body))
+        # The canonical serializer rejects extra fields before the catch service
+        # runs, including the simulator's former convention ID.
+        if (
+            path == "/api/catches/confirm/"
+            and method == "POST"
+            and (set(body) != {"payload"} or not isinstance(body["payload"], str))
+        ):
+            return httpx.Response(
+                400, json={"payload": ["Invalid catch credential payload."]}
+            )
         if path == "/api/me/" and method == "GET":
             return httpx.Response(200, json={"id": self.id_offset + 1000 + index})
         # Reactivation gives the next cycle a new credential, as the real API does.
@@ -136,6 +150,14 @@ class PopulationWorld:
                 self.failure_at = len(self.requests) - 1
                 return httpx.Response(200, json=changed)
             if path == "/api/catches/confirm/":
+                if self.fault == "wrong-confirm-target":
+                    self.failed = True
+                    self.failure_at = len(self.requests) - 1
+                    changed = json.loads(response.content)
+                    changed["catch"]["fursuit"]["tailtag_id"] = (
+                        "00000000-0000-0000-0000-000000009999"
+                    )
+                    return httpx.Response(response.status_code, json=changed)
                 if self.fault == "ambiguous-positive":
                     self.failed = True
                     self.failure_at = len(self.requests) - 1

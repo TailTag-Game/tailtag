@@ -14,9 +14,11 @@ production corrections where needed. Final `make sim-check`: 788 tests PASS;
 The whole-change HIGH ownership finding has passed affected U1/U2 independent
 review followups; the integrated simulator and five-family offline proofs pass.
 Final whole-change verdicts all PASS, with no unresolved local findings.
-Scope and resource audits are complete. Current: authorized PR publication.
-The maintainer authorized commit, push and PR creation after local review.
-Pending: separately approved Staging promotion and live proof.
+Scope and resource audits are complete. PR #297 merged as `f906ae5`; the maintainer
+subsequently authorized and performed Staging promotion and attempted live proof.
+Promotion succeeded; the first baseline run exposed a simulator confirmation
+contract mismatch. Current: focused correction; five passing live proofs remain
+pending. See the dated acceptance attempt below.
 No Astra trigger.
 Two-way door: additive simulator/internal read-only tooling; no migration/gameplay
 change. Revert code; preserve old report interpretation. Publication is authorized;
@@ -407,3 +409,28 @@ regressions, rather than another global prose rule. Fake state rebinding now pre
 unique ownership, and the clock boundary regression protects actual token refresh.
 A broader shipping retrospective belongs after the remaining live acceptance phase;
 no unrelated repository guidance or infrastructure was added for these one-off lessons.
+
+## User-operated Staging acceptance attempt — 2026-10-07
+
+The maintainer promoted merged source `f906ae50f063ba2063202524062a4f091df21968`
+through the reviewed exact-SHA command. The [promotion receipt](../development/staging-deployments/fcd30d53-b5b0-4d7f-8680-d469138ba5dd.json)
+records successful push validation run `37699051353`, all promotion gates
+`SUCCEEDED`, and exact deployment `fcd30d53-b5b0-4d7f-8680-d469138ba5dd` active
+at declaration. This is a point-in-time promotion proof.
+
+Baseline seed225/version1 run `a769c264-c8f2-49ad-aceb-c792b57d5e65` used clean
+simulator source matching the promoted SHA and reached six identities/eight
+fursuits. Reconciliation passed 14 checks, but the first attendee's confirmation
+failed before a catch was created. The run retained its fixtures and quarantined
+six identities; lease release passed. Final attribution and cleanup were not
+reached. The family loop stopped; no other family passed live acceptance.
+
+The strict schema-v2 report validates and remains in the ignored directory
+`tools/simulator/reports/225-live-20261007T230332Z/baseline/`. Its SHA-256 is
+`3302bb2ada21eb431f231cfb84403d730cdbeb1298aa279f7742a88f680c5d5b`.
+The simulator sent an unsupported `convention_id` alongside the confirmation
+`payload`, and required a numeric fursuit ID absent from the canonical response.
+The API's confirmation target is identified by `tailtag_id`; the external test
+fake had accepted the extra request field and returned a richer fursuit object.
+Correcting this boundary preserves the existing API and correctness contract.
+AC17 remains incomplete until all five user-operated live family proofs pass.
