@@ -31,7 +31,7 @@ import httpx
 import journey_support
 import pool_support
 import pytest
-from journey_support import Catch, JourneyWorld, failure
+from journey_support import Catch, Gameplay, JourneyWorld, failure
 from pool_support import POOL, RUN_ID
 from reconciliation_support import (
     FOREIGN_CATCH,
@@ -43,9 +43,11 @@ from reconciliation_support import (
     edit,
     edit_catch,
 )
+from report_support import read_report, recorder
 from test_journeys import (
     BASE,
     C1,
+    C2,
     C3,
     C4,
     F1B,
@@ -60,12 +62,17 @@ from test_journeys import (
     make_rig,
 )
 
+from tailtag_simulator.client import open_client
+from tailtag_simulator.gameplay import IntegrityFailed
 from tailtag_simulator.reconciliation import (
     Check,
+    Expectations,
     InspectionFailed,
     InspectionLauncherChannel,
     Role,
+    reconcile_run,
 )
+from tailtag_simulator.safety import SafetyAborted, SafetyRuntime
 
 world = pool_support.world  # the shared fixtures
 journey_world = journey_support.journey_world
@@ -307,21 +314,30 @@ def test_every_check_but_inspect_has_a_case() -> None:
 
 @pytest.mark.parametrize("case", CASES)
 def test_each_check_reports_exactly_its_discrepancy_and_fails_the_run(
-    monkeypatch: pytest.MonkeyPatch, journey_world: JourneyWorld, case: str
+    monkeypatch: pytest.MonkeyPatch,
+    journey_world: JourneyWorld,
+    case: str,
+    tmp_path: Path,
 ) -> None:
     setup, corrupt, line = CASES[case]
     if setup is not None:
         setup(monkeypatch, journey_world)
     rig = make_rig(journey_world, corrupt=corrupt)
 
-    run = journeys(rig)
+    report = recorder(tmp_path, "journeys", config={"pool": POOL})
+    run = journeys(rig, report=report)
+    value = read_report(report.path)
+    assert value["outcome"] == "aborted"
+    assert value["safety"]["abort"]["reason"] == "correctness"
 
     assert run.code == 1
     assert [x for x in run.lines if " reconciliation " in x] == [
         f"FAIL reconciliation {line}",
         "FAIL reconciliation discrepancies=1",
     ]
-    assert run.lines[-1] == "PASS release"
+    assert [line for line in run.lines if not line.startswith("FAIL safety reason=")][
+        -1
+    ] == "PASS release"
     assert_only_fixed_output(run)
     assert_released(rig)
 
@@ -342,20 +358,18 @@ def test_a_catch_whose_response_was_wrong_is_at_most_one_row_not_missing(
     run = journeys(rig)
 
     assert run.code == 1
-    assert run.lines == [
+    assert [
+        line for line in run.lines if not line.startswith("FAIL safety reason=")
+    ] == [
         *BASE,
-        *[
-            "FAIL journey=catch step=confirm expected=201/created"
-            " observed=200/already_caught"
-            if name == "catch"
-            else f"PASS journey={name}"
-            for name in NAMES
-        ],
+        "PASS journey=unauthenticated",
+        "FAIL journey=catch step=confirm expected=201/created observed=200/already_caught",
         "FAIL journeys failed=1",
         "PASS reconciliation checks=14",
         "RETAIN reason=journeys quarantined=7",
         "PASS release",
     ]
+    assert "FAIL safety reason=correctness" in run.lines
     assert_only_fixed_output(run)
     assert_released(rig)
 
@@ -384,17 +398,21 @@ def test_discrepancies_are_ordered_by_check_then_journey_then_role(
     monkeypatch: pytest.MonkeyPatch, journey_world: JourneyWorld
 ) -> None:
     gameplay = journey_world.gameplay
-    # No journey makes these two; catcher2's is stored first.
-    _preseed((C3, F1B), (O1, F2A))(monkeypatch, journey_world)
-    gameplay.break_rule("stale_credential")  # catcher1's catch, journey 5
-    original = gameplay.confirm
 
-    def confirm(index: int) -> httpx.Response:
-        if index == O2:  # owner1's own catch, journey 7
-            gameplay.break_rule("self_catch")
-        return original(index)
+    # Inject stored/API-consistent anomalies at the external reconciliation boundary.
+    # Gameplay completes normally; both named forbidden pairs remain observable
+    # without continuing workload after an integrity abort.
+    def persist(g: Gameplay) -> None:
+        g.catches.extend(
+            [
+                Catch(8001, C3, F1B),
+                Catch(8002, O1, F2A),
+                Catch(8003, O2, F2A),
+                Catch(8004, C2, F2A),
+            ]
+        )
 
-    monkeypatch.setattr(gameplay, "confirm", confirm)
+    change_reconciliation_history(monkeypatch, gameplay, before=persist)
     rig = make_rig(
         journey_world,
         corrupt=chain(
@@ -450,11 +468,18 @@ def test_discrepancies_are_ordered_by_check_then_journey_then_role(
     ],
 )
 def test_a_failed_inspection_fails_the_run_with_a_known_code_and_still_releases(
-    journey_world: JourneyWorld, raised: str, printed: str
+    journey_world: JourneyWorld,
+    raised: str,
+    printed: str,
+    tmp_path: Path,
 ) -> None:
     rig = make_rig(journey_world, inspection_fail=InspectionFailed(raised))
 
-    run = journeys(rig)
+    report = recorder(tmp_path, "journeys", config={"pool": POOL})
+    run = journeys(rig, report=report)
+    value = read_report(report.path)
+    assert value["outcome"] == "failed"
+    assert value["safety"]["abort"] is None
 
     assert run.code == 1
     assert run.lines == [
@@ -468,6 +493,98 @@ def test_a_failed_inspection_fails_the_run_with_a_known_code_and_still_releases(
 
 
 # -- the launcher channel (see test_fixture_channel for the shared launcher rules) --
+
+
+@pytest.mark.parametrize("status", [503, 201])
+def test_reconciliation_history_distinguishes_provider_failure_from_success_violation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    journey_world: JourneyWorld,
+    status: int,
+) -> None:
+    gameplay = journey_world.gameplay
+    original = gameplay.history
+
+    def history(index: int) -> httpx.Response:
+        assert gameplay.request is not None
+        if "page_size" in gameplay.request.url.params:
+            response = original(index)
+            return httpx.Response(status, content=response.content)
+        return original(index)
+
+    monkeypatch.setattr(gameplay, "history", history)
+    rig = make_rig(journey_world)
+    report = recorder(tmp_path, "journeys", config={"pool": POOL})
+    run = journeys(rig, report=report)
+    value = read_report(report.path)
+    assert run.code != 0
+    assert value["outcome"] == ("failed" if status == 503 else "aborted")
+    if status == 503:
+        assert value["safety"]["abort"] is None
+    else:
+        assert value["safety"]["abort"]["reason"] == "correctness"
+        assert "FAIL reconciliation" in run.lines
+        assert any(
+            line.startswith("FAIL reconciliation check=history ") for line in run.lines
+        )
+    assert any(line.startswith("FAIL reconciliation") for line in run.lines)
+    assert_only_fixed_output(run)
+    assert_released(rig)
+
+
+@pytest.mark.parametrize("status", [200, 201, 503])
+def test_reconciliation_fallback_classifies_actual_success_independently(
+    journey_world: JourneyWorld, status: int
+) -> None:
+    runtime = SafetyRuntime({})
+    requests: list[str] = []
+    rig = make_rig(journey_world)
+
+    async def probe() -> dict[str, object]:
+        return {
+            "source_sha": pool_support.SHA,
+            "deployment_id": pool_support.DEPLOYMENT_ID,
+            "environment": "staging",
+        }
+
+    runtime.bind_probe(probe)
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        return httpx.Response(
+            status,
+            json={"enrollment": {"convention": {"id": 1}}} if status == 201 else {},
+        )
+
+    async def execute() -> None:
+        with runtime.scope():
+            await runtime.check_target()
+            with runtime.phase("reconciliation"):
+                async with open_client(
+                    "https://staging.tailtag.app",
+                    transport=httpx.MockTransport(respond),
+                ) as client:
+                    with pytest.raises(
+                        (ValueError, KeyError, IntegrityFailed, SafetyAborted)
+                    ):
+                        await runtime.run_phase(
+                            reconcile_run(
+                                Expectations(),
+                                {role: client for role in Role},
+                                {role: index for index, role in enumerate(Role)},
+                                rig.inspection,
+                                pool=POOL,
+                                run_id=RUN_ID,
+                                convention=0,
+                                created_fursuit=None,
+                            )
+                        )
+
+    asyncio.run(execute())
+    assert requests == ["/api/conventions/active/"]
+    assert not rig.inspection.calls
+    assert runtime.abort_reason == (None if status == 503 else "correctness")
+
 
 IDENTITIES = {
     Role.OWNER0: 1,

@@ -16,8 +16,15 @@ from tailtag_simulator.behavior import (
     prepare_population,
 )
 from tailtag_simulator.behavior_config import PERSONAS
-from tailtag_simulator.client import ApiClient, Reply, Upload
+from tailtag_simulator.client import (
+    ApiClient,
+    Reply,
+    RequestFailed,
+    TransportFailed,
+    Upload,
+)
 from tailtag_simulator.gameplay import (
+    IntegrityFailed,
     StepFailed,
     arm_session,
     get_value,
@@ -136,7 +143,7 @@ async def simulate_traffic_population(
 
     def require(valid: bool) -> None:
         if not valid:
-            raise StepFailed("traffic", "valid", "shape")
+            raise IntegrityFailed("traffic", "valid", "shape")
 
     def activation(target: _Target) -> str:
         return f"/api/conventions/{convention}/fursuit-activations/{target.id}/"
@@ -192,9 +199,11 @@ async def simulate_traffic_population(
             summaries[actor.persona]["expected_rejections"] += 1
             return
         # Concurrent duplicates and lost replies can observe already_caught first.
-        require(
-            reply.status in (200, 201) and (previous is None or reply.status == 200)
-        )
+        if reply.status not in (200, 201):
+            if 200 <= reply.status < 300:
+                raise IntegrityFailed("confirm", "200/201", str(reply.status))
+            raise StepFailed("confirm", "200/201", str(reply.status))
+        require(previous is None or reply.status == 200)
         body = await step(
             "confirm",
             _reply(reply),
@@ -377,9 +386,16 @@ async def simulate_traffic_population(
             failed = True
             summaries[actor.persona]["exhausted"] += 1
             return False
-        except Exception:  # noqa: BLE001 - protected failures have fixed diagnostics
+        except TransportFailed:
             failed = True
+            return False
+        except (IntegrityFailed, RequestFailed):
+            failed = True
+            IntegrityFailed("traffic", "valid", "error")
             runtime.stop("correctness")
+            return False
+        except Exception:  # noqa: BLE001 - ordinary rejection/transport failures
+            failed = True
             return False
 
     try:
@@ -434,10 +450,15 @@ async def simulate_traffic_population(
                 expectations, convention, False, summaries, "FAIL_SIMULATION", ()
             )
         ) from None
-    except Exception:  # noqa: BLE001 - no response/error/identity details escape
+    except TransportFailed:
+        failed = True
+    except (IntegrityFailed, RequestFailed):
+        IntegrityFailed("traffic", "valid", "error")
         failed = True
         if runtime.snapshot()["stop_reason"] is None:
             runtime.stop("correctness")
+    except Exception:  # noqa: BLE001 - ordinary rejection/transport failures
+        failed = True
     snapshot = runtime.snapshot()
     passed = (
         not failed and snapshot["stop_reason"] is None and not snapshot["unresolved"]

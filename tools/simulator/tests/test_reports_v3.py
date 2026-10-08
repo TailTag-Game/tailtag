@@ -7,6 +7,7 @@ from typing import Any, cast
 import pytest
 from convention_support import CONFIG
 from report_support import RUN_ID, commit, literal_report, read_report, repository
+from safety_report_support import literal_safety
 
 from tailtag_simulator.reports import ReportFailed, RunReport, validate_report
 from tailtag_simulator.scenarios import (
@@ -80,6 +81,7 @@ def successful_report(root: Path) -> dict[str, Any]:
     # catalog/config/limits originate from the real recorder, never a fake validator.
     for key in ("schema_version", "scenario", "profile", "limits", "population"):
         value[key] = initial[key]
+    value["safety"] = literal_safety()
     value["results"]["traffic"] = {"value": traffic_snapshot(), "reason": None}
     # Traffic summaries are observations, not the legacy fixed cycle equations.
     value["results"]["behavior"]["items"]["casual"].update(
@@ -97,7 +99,7 @@ def test_v3_recorder_preserves_resolved_profiles_and_observed_traffic(
 ) -> None:
     report = traffic_report(tmp_path)
     before = read_report(report.path)
-    assert before["schema_version"] == 3
+    assert before["schema_version"] == 4
     assert before["scenario"]["version"] == 2
     assert before["results"]["traffic"] == {"value": None, "reason": "not_observed"}
     assert set(before["profile"]) == {"operations", "traffic", "failure", "retry"}
@@ -151,7 +153,7 @@ def test_v3_recorder_preserves_resolved_profiles_and_observed_traffic(
         "value": traffic_snapshot(),
         "reason": None,
     }
-    assert set(before) == set(literal_report())
+    assert set(before) == set(literal_report()) | {"safety"}
     for old in (
         "report-v1-smoke.json",
         "report-v1-journeys.json",
@@ -331,3 +333,11 @@ def test_v3_metadata_and_correctness_labels_cannot_be_tampered(
     with pytest.raises(ReportFailed) as failure:
         validate_report(value)
     assert "SENTINEL" not in str(failure.value) + repr(failure.value)
+
+
+def test_historical_schema3_retains_traffic_evidence_meaning(tmp_path: Path) -> None:
+    value = successful_report(tmp_path)
+    historical = {key: item for key, item in value.items() if key != "safety"}
+    historical["schema_version"] = 3
+    assert validate_report(historical) == historical
+    assert historical["results"]["traffic"]["value"] == traffic_snapshot()

@@ -5,10 +5,10 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Literal, Protocol, cast
 
 from tailtag_simulator.client import ApiClient
-from tailtag_simulator.gameplay import HistoryEntry, read_history
+from tailtag_simulator.gameplay import HistoryEntry, IntegrityFailed, read_history
 from tailtag_simulator.pool import (
     LAUNCHER_ERRORS,
     LAUNCHER_TIMEOUT_SECONDS,
@@ -20,6 +20,7 @@ from tailtag_simulator.reconciliation import (
     Made,
     _inspection,  # pyright: ignore[reportPrivateUsage]
 )
+from tailtag_simulator.safety import SafetyAborted, active_runtime
 
 
 @dataclass
@@ -62,22 +63,26 @@ class PopulationInspectionLauncherChannel:
     async def inspect(
         self, pool: str, run_id: str, identities: Mapping[str, int]
     ) -> Mapping[str, object]:
-        request = json.dumps(
-            {
-                "operation": "inspect-population-v1",
-                "arguments": {
-                    "pool": pool,
-                    "run_id": run_id,
-                    "identities": dict(identities),
-                },
-            }
-        ).encode()
+        envelope: dict[str, object] = {
+            "operation": "inspect-population-v1",
+            "arguments": {
+                "pool": pool,
+                "run_id": run_id,
+                "identities": dict(identities),
+            },
+        }
+        runtime = active_runtime()
+        if runtime is not None:
+            envelope["expected_identity"] = await runtime.privileged_identity()
+        request = json.dumps(envelope).encode()
         try:
             result, data = await run_launcher(
                 self._command, self._cwd, self._timeout_seconds, request
             )
         except LAUNCHER_ERRORS:
             raise InspectionFailed("FAIL_LAUNCHER") from None
+        if result == "FAIL_TARGET" and runtime is not None:
+            runtime.abort("identity_mismatch")
         if result != "PASS":
             raise InspectionFailed(result)
         return data
@@ -95,6 +100,7 @@ class PopulationDiscrepancy:
 class PopulationReconciliationResult:
     discrepancies: tuple[PopulationDiscrepancy, ...]
     count: int
+    integrity_failed: bool = False
 
     @property
     def passed(self) -> bool:
@@ -140,15 +146,37 @@ async def reconcile_population(
 ) -> PopulationReconciliationResult:
     """Compare persisted rows, confirm facts and every actor's complete public history."""
     found: list[PopulationDiscrepancy] = []
+    integrity = False
 
-    def add(check: Check, actor: str | None, expected: int, observed: int) -> None:
+    def add(
+        check: Check,
+        actor: str | None,
+        expected: int,
+        observed: int,
+        *,
+        actual: bool = True,
+    ) -> None:
+        nonlocal integrity
+        integrity = integrity or actual
         found.append(PopulationDiscrepancy(check.value, actor, expected, observed))
 
     histories: dict[str, tuple[HistoryEntry, ...] | None] = {}
     for actor in indexes:
         try:
             histories[actor] = await read_history(clients[actor], convention)
-        except Exception:  # noqa: BLE001 - unreadable history fails correctness
+        except SafetyAborted:
+            raise
+        except IntegrityFailed:
+            runtime = active_runtime()
+            if runtime is not None and not bool(
+                cast(Mapping[str, object], runtime.snapshot()["finalization"])[
+                    "started"
+                ]
+            ):
+                raise
+            integrity = True
+            histories[actor] = None
+        except Exception:  # noqa: BLE001 - unavailable history fails the run without asserting corruption
             histories[actor] = None
     try:
         inspected = _inspection(await channel.inspect(pool, run_id, indexes))
@@ -161,6 +189,8 @@ async def reconcile_population(
             )
         ):
             raise InspectionFailed("FAIL_LAUNCHER")
+    except SafetyAborted:
+        raise
     except Exception:  # noqa: BLE001 - inspection boundary must fail closed
         return PopulationReconciliationResult(
             (PopulationDiscrepancy("inspect", None, 1, 0),), 1
@@ -224,7 +254,7 @@ async def reconcile_population(
             or expected == "required"
             and pair not in expectations.made
         ):
-            add(Check.INSPECT, pair[0], 1, 0)
+            add(Check.INSPECT, pair[0], 1, 0, actual=False)
     for pair in expectations.made:
         if pair not in pairs:
             add(Check.MISSING, pair[0], 1, 0)
@@ -239,9 +269,17 @@ async def reconcile_population(
             (row.catch_id, row.fursuit, row.caught_at) for row in history or ()
         )
         if history is None or listed != stored:
-            add(Check.HISTORY, actor, len(stored), len(listed))
+            add(
+                Check.HISTORY,
+                actor,
+                len(stored),
+                len(listed),
+                actual=history is not None,
+            )
         if history is None or len(history) != len(stored):
-            add(Check.COUNT, actor, len(stored), len(listed))
+            add(
+                Check.COUNT, actor, len(stored), len(listed), actual=history is not None
+            )
     if not inspected.fixture_photos_unchanged:
         add(Check.FIXTURE_PHOTO, None, 1, 0)
     if inspected.fursuits:
@@ -257,4 +295,5 @@ async def reconcile_population(
             )
         ),
         len(Check),
+        integrity_failed=integrity,
     )

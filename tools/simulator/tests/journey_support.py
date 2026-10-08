@@ -491,7 +491,10 @@ class JourneyWorld(World):
             identity = int(str(jwt_claims(bearer)["sub"]).removeprefix("user_SECRET"))
         except (IndexError, KeyError, ValueError):
             identity = None
-        if request.url.host == API_HOST and request.url.path != "/health/identity":
+        if request.url.host == API_HOST and request.url.path not in {
+            "/health/identity",
+            "/health/ready",
+        }:
             self.gameplay.requests.append((request.method, request.url.path, identity))
         self.gameplay.request = request
         if self.gameplay.broken == "unauthenticated" and bearer == "not-a-token":

@@ -484,7 +484,7 @@ runs clean up; release and session closure run last. Public behavior receives on
 public clients. Read-only population inspection compares all actors' authoritative
 state and complete histories before cleanup.
 
-Version-1 convention reports use schema version 2, with six persona summaries and bounded
+Historical version-1 convention reports use schema version 2, with six persona summaries and bounded
 actor discrepancies. `completed` counts successful target visits, `created` first
 catches, `already_caught` revisits and duplicates, `retries` extra confirmations,
 `cycles` completed actor-cycles, and `unused_budget` unmet distinct-target budget
@@ -503,7 +503,9 @@ publication and Staging promotion; local boundary tests do not complete that gat
 ### Opt-in convention traffic (version 2)
 
 Use `VERSION=2` or `--scenario-version 2` to select concurrent, stateful traffic
-and schema-3 reports. Omitting it preserves version-1 execution and schema 2.
+with the historical schema-3 traffic fields. Omitting it preserves version-1
+execution semantics. Guarded execution now writes schema 4 for both versions,
+wrapping their existing results with the shared safety evidence.
 The five new recipes are additive: distributed arrivals (`baseline`), a
 concentrated release (`post-event`), overlapping confirmations on one target
 (`hotspot`), selected client effects (`retry`), and elapsed-time repeated journeys
@@ -556,7 +558,7 @@ Natural expiration requires explicit duration/limits sufficient for the real
 12-hour lifetime. Its long live proof is deferred to #230; no server clock changes
 or database writes are used.
 
-Schema 3 records resolved profiles, configured ceilings, an intended-plan digest,
+Historical schema 3 records resolved profiles, configured ceilings, an intended-plan digest,
 bounded offered/admitted/skipped/completed timing buckets, peaks, lag, actual
 generation/drain duration, and failure/retry/rejection/uncertainty counts.
 Correctness and workload completion are separate: a safety stop or unresolved
@@ -592,7 +594,8 @@ uv run --locked --no-sync python -m tailtag_simulator report validate /path/to/r
 CLI options are `--scenario-version`, `--seed`, and `--report-dir`. Version 1 is
 supported for each current command. Convention workloads consume the recorded integer
 seed; the four legacy workloads record it without making random choices. There are
-no traffic ramps or workload ceilings in version 1. Version 2 adds the bounded
+no scenario-specific traffic ramps or traffic budgets in version 1. Shared safety
+ceilings apply to every command and supported version. Version 2 adds the bounded
 traffic evidence described above; performance percentiles and SLOs remain deferred. Existing request,
 response, launcher, lease and retention limits are recorded with their units and
 actual enforcement scopes.
@@ -635,9 +638,12 @@ updates validate against an isolated copy of the scenario admitted at run start.
 Snapshot persistence and offline validation still check the versioned catalog.
 Later snapshot failures, including missing or invalid catalog descriptors, preserve
 the last complete file, set a sticky failure flag and prevent a passing exit.
-Fixture runs retain state with the existing `interrupted` reason when report
-persistence or final attribution fails before cleanup; the JSON failure identifies
-`report` or `attribution` precisely. Resource release still runs.
+Report-persistence failures prevent passing and permit bounded retention/release
+only after fresh readiness and the pinned deployment are verified. Final identity
+uncertainty prohibits further TailTag operations and records unfinished state for
+manual recovery. Independently verified Clerk closure remains bounded by the
+finalization reserve. The last durable snapshot may precede a persistence failure;
+fixed operator output and the nonzero exit remain evidence of that failure.
 
 Correctness is independent of attribution, cleanup, retention and release. A workload
 can be correct while its overall run fails. After successful workload/reconciliation,
@@ -688,3 +694,71 @@ No command automatically checks out a revision or launches a reproduction.
 
 Personas and traffic (#225, #226), guardrail
 limits (#227), and the execution host (#228).
+
+## Runtime safety and operator stop
+
+Every execution command (`smoke`, `pool-smoke`, `fixture-smoke`, `journeys`, and
+both convention versions) uses the shared safety runtime, even without a report.
+Staging checks identity, readiness, and identity before phases and privileged
+operations, pins the deployment for the run, and polls every 10 seconds. Local
+smoke remains available only through explicit `--target local` and its allow-list.
+One unavailable periodic probe pauses new traffic; a second aborts. A changed or
+malformed identity aborts immediately.
+
+Use `--safety-config path.json` or `SAFETY_CONFIG=path.json` with the corresponding
+Make target. The bounded JSON object accepts only the following fields; omitted
+fields keep their defaults. Duplicate/unknown keys, nonfinite values, and values
+outside allowed bounds fail before credentials or external work.
+
+| Field | Default | Maximum |
+| --- | ---: | ---: |
+| `requests` | 10000 | 1000000 |
+| `seconds` | 900 | 86400 |
+| `in_flight` | 10 | 250 |
+| `population` | 250 | 250 |
+| `final_requests` | 1000 | 5000 |
+| `final_seconds` | 600 | 1800 |
+| `poll_seconds` | 10 | 30 (minimum 5) |
+| `error_window_seconds` | 10 | finite positive |
+| `error_min_samples` | 20 | positive integer |
+| `error_percent` | 50 | 100 |
+| `error_windows` | 2 | positive integer |
+
+Public HTTP attempts include setup, probes, actual retries, and normal
+reconciliation. Injected never-sent attempts remain in the separate traffic
+budget. Probes have one reserved request slot, so the combined concurrency bound
+is `in_flight + 1`. Finalization has one shared time/request reserve for the entire
+recovery, without resetting it between operations. Clerk and launcher operations
+consume elapsed time and retain their individual bounds. Genuine workload 5xx
+and transport failures trigger catastrophic abort after two qualifying,
+non-overlapping windows; expected rejections and injected failures do not count
+as catastrophic errors. These settings are initial safety policy, not SLOs.
+
+Convention execution requires supervision. `--unattended` (or `UNATTENDED=1` with
+`make sim-convention`) refuses execution. Automated resource monitoring is
+reported as unavailable. The operator observes Railway/Sentry evidence and can
+request `resource_saturation` by sending **SIGUSR1 to the Python run process**:
+
+```sh
+kill -USR1 <python-run-pid>
+```
+
+Identify the specific `python -m tailtag_simulator ...` process in the supervised
+terminal/process listing. Do not signal the Make parent or another run. The CLI
+installs the handler for execution and restores it on exit. The signal latches a
+sanitized abort reason, cancels and awaits owned traffic, and writes schema-4
+report evidence. Record the relevant Railway/Sentry observation separately;
+the signal itself does not measure saturation. Ctrl-C retains interruption
+semantics. Every safety abort exits nonzero.
+
+Correctness/ceiling aborts permit bounded read-only diagnostics and
+retention/release after readiness and the same deployment are verified.
+Readiness/error/saturation aborts skip reconciliation and allow recovery only
+when the pinned target recovers. Identity mismatch prohibits further TailTag
+HTTP or privileged operations: owned local resources and independently verified
+Clerk sessions are closed within the reserve; leases/state may require manual
+recovery. Skipped, failed, or uncertain finalization is reported explicitly.
+Failed setup can leave bad or unverified identities pending quarantine. Release
+requires acknowledged quarantine; uncertain quarantine holds leases for manual
+recovery. Cancellation does not prove a previously sent mutation rolled back. Historical
+report schemas 1–3 remain valid; guarded execution writes schema 4.

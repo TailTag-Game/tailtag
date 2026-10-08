@@ -34,6 +34,7 @@ LOCAL_ORIGINS = [
 ]
 
 IDENTITY_PATH = "/health/identity"
+READY_PATH = "/health/ready"
 ME_PATH = "/api/me/"
 
 Responder = Callable[[], httpx.Response]
@@ -80,6 +81,8 @@ class Server:
         self.requests.append(request)
         if origin_of(request.url) == EVIL:
             return httpx.Response(200, json=me_body())
+        if request.url.path == READY_PATH:
+            return httpx.Response(200, json={"status": "ok"})
         script = {IDENTITY_PATH: self.identity, ME_PATH: self.me}.get(request.url.path)
         if script is None:
             return httpx.Response(404, text=BODY_MARKER)
@@ -123,7 +126,7 @@ def run(
             prompt_token=prompt_token,
             emit=lines.append,
             transport=httpx.MockTransport(server.handle),
-            **({"report": report} if report is not None else {}),
+            report=report,
         )
     )
     return Outcome(code, lines, len(prompts), server.requests)
@@ -161,12 +164,23 @@ def test_happy_path_authenticates_only_after_identity_and_only_on_me(
     outcome = run(target, server, base_url=base_url)
 
     assert outcome.code == 0
-    assert [r.url.path for r in outcome.requests] == [IDENTITY_PATH] * 2 + [ME_PATH] * 2
+    gate = (
+        [IDENTITY_PATH, READY_PATH, IDENTITY_PATH]
+        if target == "staging"
+        else [IDENTITY_PATH] * 2
+    )
+    assert [r.url.path for r in outcome.requests[: len(gate)]] == gate
+    assert [r.url.path for r in outcome.authorized()] == [ME_PATH] * 2
     assert {origin_of(r.url) for r in outcome.requests} == {origin}
     assert all(r.method == "GET" for r in outcome.requests)
-    assert [r.headers.get("authorization") for r in outcome.requests] == [None] * 2 + [
-        f"Bearer {TOKEN}"
-    ] * 2
+    assert all(
+        r.headers["authorization"] == f"Bearer {TOKEN}" for r in outcome.authorized()
+    )
+    assert all(
+        r.url.path in {IDENTITY_PATH, READY_PATH}
+        for r in outcome.requests
+        if "authorization" not in r.headers
+    )
     assert outcome.prompts == 1
     assert outcome.lines
     assert not any("FAIL" in line for line in outcome.lines)
@@ -382,7 +396,15 @@ def test_reconciliation_fails_unless_both_me_reads_agree_on_a_positive_id(
 ) -> None:
     server = Server(identity=[identity_ok("staging")], me=ME_FAILURES[case])
 
-    assert_failed_closed(run("staging", server))
+    outcome = run("staging", server)
+    assert_failed_closed(outcome)
+    if case in {"bool-id", "created-status"}:
+        assert len(outcome.authorized()) == 1, (
+            "invalid successful reply admitted another workload request"
+        )
+        assert "FAIL safety reason=correctness" in outcome.lines
+    if case in {"unauthorized", "server-error", "second-unauthorized"}:
+        assert not any(line.startswith("FAIL safety reason=") for line in outcome.lines)
 
 
 def redirect(status: int, location: str) -> Responder:
@@ -459,14 +481,20 @@ def test_reported_smoke_persists_verified_end_identity_without_changing_workload
     assert value["target"]["final"] == {"value": identity_body(target), "reason": None}
     assert value["target"]["attribution"] == "verified"
     assert initial_requests[0] == "running"
-    assert [request.url.path for request in outcome.requests][:4] == [
-        IDENTITY_PATH
-    ] * 2 + [ME_PATH] * 2
-    assert all(
-        request.url.path == IDENTITY_PATH and "authorization" not in request.headers
-        for request in outcome.requests[4:]
+    assert [request.url.path for request in outcome.authorized()] == [ME_PATH] * 2
+    last_workload = max(
+        index
+        for index, request in enumerate(outcome.requests)
+        if request.url.path == ME_PATH
     )
-    assert len(outcome.requests) > 4
+    assert all(
+        request.url.path in {IDENTITY_PATH, READY_PATH}
+        and "authorization" not in request.headers
+        for request in outcome.requests[last_workload + 1 :]
+    )
+    assert len(outcome.requests[last_workload + 1 :]) >= (
+        3 if target == "staging" else 2
+    )
     assert outcome.prompts == 1
     assert_no_leak(outcome)
     text = report.path.read_text()
@@ -496,8 +524,21 @@ def test_reported_smoke_preserves_reached_evidence_and_sanitizes_failures(
         server.me = [me_ok(), me_ok(USER_ID + 1)]
     outcome = run("staging", server, token=token, report=report)
     value = read_report(report.path)
-    assert outcome.code != 0 and value["outcome"] == "failed"
-    assert value["phases"][failure]["status"] == "failed"
+    assert outcome.code != 0 and value["outcome"] == (
+        "aborted" if failure in {"target", "reconciliation"} else "failed"
+    )
+    reached_stage = "simulation" if failure == "reconciliation" else failure
+    assert value["phases"][reached_stage]["status"] == (
+        "not_reached" if failure == "target" else "failed"
+    )
+    if failure == "reconciliation":
+        # Both profile successes are validated in the first workload stage.
+        assert value["phases"]["reconciliation"]["status"] == "not_reached"
+        assert value["safety"]["abort"]["reason"] == "correctness"
+    if failure == "target":
+        assert value["safety"]["preflight"]["failed"] == 1
+        assert value["safety"]["abort"]["reason"] == "identity_mismatch"
+        assert outcome.prompts == 0 and outcome.authorized() == []
     assert value["correctness"] == (
         "failed" if failure == "reconciliation" else "not_observed"
     )

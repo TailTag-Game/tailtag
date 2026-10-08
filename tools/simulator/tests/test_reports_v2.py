@@ -42,7 +42,7 @@ def test_v2_recorder_persists_safe_behavior_checks_and_resolved_assumptions(
         config=value["scenario"]["configuration"],
     )
     initial = load_report(report.path)
-    assert initial["schema_version"] == 2
+    assert initial["schema_version"] == 4
     assert initial["population"] == value["population"]
     assert initial["profile"] == value["profile"]
     report.record_behavior(value["results"]["behavior"]["items"], None)

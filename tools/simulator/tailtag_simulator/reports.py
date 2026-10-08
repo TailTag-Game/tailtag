@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from tailtag_simulator import reports_v2, reports_v3
+from tailtag_simulator import reports_v2, reports_v3, reports_v4
 from tailtag_simulator.limits import (
     LAUNCHER_TIMEOUT_SECONDS,
     LEASE_TTL_SECONDS,
@@ -21,6 +21,7 @@ from tailtag_simulator.limits import (
     REQUEST_TIMEOUT_SECONDS,
     RETENTION_CAP,
 )
+from tailtag_simulator.safety import SafetyRuntime
 from tailtag_simulator.scenarios import (
     JOURNEYS,
     ScenarioRejected,
@@ -366,6 +367,14 @@ def _validate_report(
     value: object, admitted_scenario: Mapping[str, Any] | None = None
 ) -> dict[str, object]:
     try:
+        if isinstance(value, dict):
+            candidate = cast(dict[str, Any], value)
+            value = candidate
+            if (
+                type(candidate.get("schema_version")) is int
+                and candidate["schema_version"] == 4
+            ):
+                return reports_v4.validate(candidate, admitted_scenario)
         report = _object(
             value,
             {
@@ -685,7 +694,7 @@ def utc_now() -> datetime:
 
 
 class RunReport:
-    """Recorder with validated adapters; persistence failures never skip release."""
+    """Recorder with durable safety evidence and historical scenario adapters."""
 
     def __init__(
         self,
@@ -698,6 +707,7 @@ class RunReport:
         run_id: str | None = None,
         wall_clock: Callable[[], datetime] = utc_now,
         monotonic: Callable[[], float] = time.monotonic,
+        safety_policy: Mapping[str, object] | None = None,
     ) -> None:
         self._clock, self._monotonic = wall_clock, monotonic
         self._run_id = run_id if run_id is not None else str(uuid.uuid4())
@@ -724,7 +734,10 @@ class RunReport:
         )
         v2 = scenario_id.startswith("convention-")
         self._value: dict[str, Any] = {
-            "schema_version": 3 if v2 and scenario_version == 2 else 2 if v2 else 1,
+            "schema_version": 4,
+            "safety": SafetyRuntime(
+                {} if safety_policy is None else safety_policy
+            ).snapshot(),
             "run_id": self._run_id,
             "scenario": {**resolved, "seed": seed, "consumes_randomness": v2},
             "source": {
@@ -862,7 +875,10 @@ class RunReport:
         return self._value["correctness"]
 
     def record_traffic(self, snapshot: Mapping[str, object]) -> None:
-        _require(self._value["schema_version"] == 3)
+        _require(
+            self._value["scenario"]["id"].startswith("convention-")
+            and self.scenario_version == 2
+        )
         results = copy.deepcopy(self._value["results"])
         results["traffic"] = observed(copy.deepcopy(dict(snapshot)))
         self._update("results", results)
@@ -879,6 +895,7 @@ class RunReport:
 
     def _snapshot(self, *, initial: bool = False) -> None:
         temporary: Path | None = None
+        self._last_write_failed = False
         try:
             data = canonical(validate_report(self._value))
             _require(len(data) <= 1024 * 1024)
@@ -892,7 +909,7 @@ class RunReport:
                 os.fsync(stream.fileno())
             os.replace(temporary, self._path)
         except (OSError, ReportFailed):
-            self.write_failed = True
+            self.write_failed = self._last_write_failed = True
             if initial:
                 raise ReportFailed from None
         finally:
@@ -900,7 +917,7 @@ class RunReport:
                 try:
                     temporary.unlink(missing_ok=True)
                 except OSError:
-                    self.write_failed = True
+                    self.write_failed = self._last_write_failed = True
                     if initial:
                         raise ReportFailed from None
 
@@ -910,6 +927,17 @@ class RunReport:
         _validate_report(candidate, self._admitted_scenario)
         self._value = candidate
         self._snapshot()
+
+    def record_safety(self, snapshot: Mapping[str, object]) -> None:
+        """Persist validated runtime evidence; the observer aborts on write failure."""
+        prior_abort = self._value["safety"]["abort"]
+        _require(snapshot.get("policy") == self._value["safety"]["policy"])
+        _require(prior_abort is None or snapshot.get("abort") == prior_abort)
+        self._update("safety", dict(snapshot))
+        if self._last_write_failed or (
+            self.write_failed and snapshot.get("abort") is None
+        ):
+            raise ReportFailed
 
     def record_source(self, source: Mapping[str, object]) -> None:
         self._update("source", dict(source))
@@ -1055,8 +1083,11 @@ class RunReport:
         interrupted = exit_code == 130 or any(
             p["status"] == "interrupted" for p in value["phases"].values()
         )
+        aborted = value["safety"]["abort"] is not None
         value["outcome"] = (
-            "interrupted"
+            "aborted"
+            if aborted
+            else "interrupted"
             if interrupted
             else ("failed" if exit_code or value["failure"] else "passed")
         )

@@ -291,11 +291,19 @@ def test_a_failing_run_is_retained_with_its_reason_not_cleaned_and_still_release
     request: pytest.FixtureRequest, kind: str, case: str
 ) -> None:
     reason, _ = OUTCOMES[case]
+    if kind == "smoke" and case == "reconcile_error":
+        # The missing fixture is observed by successful simulation reads and
+        # immediately aborts before the historical reconciliation stage.
+        reason = "journeys"
     rig = build(kind, request, scenario=case)
 
     run = rig.run()
 
     assert run.code != 0
+    if kind == "smoke" and case == "reconcile_error":
+        assert "FAIL simulation" in run.lines
+        assert "PASS simulation" not in run.lines
+        assert "FAIL safety reason=correctness" in run.lines
     cleanup_failed = case.startswith("cleanup_")
     assert rig.fixtures.operations == [
         "retained_counts",
@@ -307,13 +315,19 @@ def test_a_failing_run_is_retained_with_its_reason_not_cleaned_and_still_release
         {"pool": POOL, "run_id": RUN_ID, "reason": reason}
     ]
     assert run.lines[:3] == rig.base
-    assert run.lines[-2:] == [
+    lifecycle_lines = [
+        line for line in run.lines if not line.startswith("FAIL safety reason=")
+    ]
+    assert lifecycle_lines[-2:] == [
         f"RETAIN reason={reason} quarantined={len(rig.run_indexes)}",
         "PASS release",
     ]
     assert not [x for x in run.lines if x.startswith("PASS cleanup")]
     if cleanup_failed:
-        assert run.lines[-3] == f"FAIL cleanup result={case.removeprefix('cleanup_')}"
+        assert (
+            lifecycle_lines[-3]
+            == f"FAIL cleanup result={case.removeprefix('cleanup_')}"
+        )
     else:
         assert not [x for x in run.lines if x.startswith("FAIL cleanup")]
     # RETAIN quarantines the live slots, so it must come before release frees them.
@@ -336,7 +350,9 @@ def test_a_failed_retain_is_reported_without_detail_and_release_still_runs(
     run = rig.run()
 
     assert run.code != 0
-    assert run.lines[-2:] == ["FAIL retain", "PASS release"]
+    assert [line for line in run.lines if not line.startswith("FAIL safety reason=")][
+        -2:
+    ] == ["FAIL retain", "PASS release"]
     assert not [x for x in run.lines if x.startswith("RETAIN")]
     assert rig.fixtures.operations[-1] == "retain"
     assert_released(rig)
@@ -383,7 +399,9 @@ def test_an_interrupt_during_retain_still_ends_sessions_and_releases_the_leases(
 
     assert run.code != 0
     assert rig.fixtures.operations[-1] == "retain"
-    assert run.lines[-1] == "PASS release"
+    assert [line for line in run.lines if not line.startswith("FAIL safety reason=")][
+        -1
+    ] == "PASS release"
     assert_released(rig)
 
 
@@ -420,7 +438,9 @@ def test_a_setup_failure_neither_cleans_nor_retains_and_still_releases(
     assert rig.fixtures.operations == operations
     assert run.lines[:2] == rig.base[:2]
     assert run.lines[-2].startswith("FAIL setup")
-    assert run.lines[-1] == "PASS release"
+    assert [line for line in run.lines if not line.startswith("FAIL safety reason=")][
+        -1
+    ] == "PASS release"
     assert not [
         x
         for x in run.lines
@@ -450,7 +470,10 @@ def test_a_run_at_the_retained_cap_leases_nothing_and_never_touches_clerk(
     assert rig.leases.calls == []
     assert run.prompts == 0
     assert rig.world.kinds("backend", "frontend") == []
-    assert {call[1:] for call in rig.world.api_calls} == {("/health/identity", None)}
+    assert {call[1:] for call in rig.world.api_calls} == {
+        ("/health/identity", None),
+        ("/health/ready", None),
+    }
 
 
 @both_commands
@@ -534,7 +557,14 @@ def test_durable_fixture_reports_record_actual_lifecycle_and_exclude_internal_id
     value = read_report(report.path)
     assert run.code == 0 if case is None else run.code != 0
     assert value["outcome"] == (
-        "passed" if case is None else "interrupted" if case == "interrupt" else "failed"
+        "passed"
+        if case is None
+        else "interrupted"
+        if case == "interrupt"
+        else "aborted"
+        if case == "journeys_fail"
+        or (kind == "smoke" and case in {"reconcile_error", "retain"})
+        else "failed"
     )
     assert value["correctness"] == (
         "passed"
@@ -609,7 +639,7 @@ def test_durable_fixture_reports_record_actual_lifecycle_and_exclude_internal_id
 @pytest.mark.parametrize(
     "change", ["source_sha", "deployment_id", "environment", "unavailable"]
 )
-def test_final_identity_uncertainty_is_observed_before_cleanup_and_retains_evidence(
+def test_final_identity_uncertainty_denies_backend_recovery_and_preserves_manual_evidence(
     tmp_path: Path,
     request: pytest.FixtureRequest,
     monkeypatch: pytest.MonkeyPatch,
@@ -627,7 +657,10 @@ def test_final_identity_uncertainty_is_observed_before_cleanup_and_retains_evide
             "deployment_id": pool_support.DEPLOYMENT_ID,
             "environment": "staging",
         }
-        if len(observations) > 2:
+        if any(
+            kind == "emit" and line.startswith("PASS reconciliation")
+            for kind, line in rig.world.log
+        ):
             assert "cleanup" not in rig.fixtures.operations
             if change == "unavailable":
                 raise httpx.ConnectError("SENTINEL-private-identity-error")
@@ -649,13 +682,18 @@ def test_final_identity_uncertainty_is_observed_before_cleanup_and_retains_evide
         "environment": "staging",
     }
     assert value["target"]["attribution"] == "unverified"
-    assert value["phases"]["attribution"]["status"] == "failed"
+    assert value["phases"]["attribution"]["status"] == "not_reached"
+    assert value["safety"]["preflight"]["failed"] >= 1
     assert len(observations) > 2
     assert rig.fixtures.calls_to("cleanup") == []
-    assert rig.fixtures.calls_to("retain") == [
-        {"pool": POOL, "run_id": RUN_ID, "reason": "interrupted"}
-    ]
-    assert_released(rig)
+    assert rig.fixtures.calls_to("retain") == []
+    assert rig.leases.calls_to("release") == []
+    assert rig.leases.indexes("leased") == rig.run_indexes
+    assert set(rig.world.ended_sessions) == set(rig.world.opened_sessions)
+    assert value["outcome"] == "aborted"
+    assert value["safety"]["abort"]["reason"] == (
+        "readiness" if change == "unavailable" else "identity_mismatch"
+    )
     assert "SENTINEL" not in report.path.read_text()
 
 

@@ -26,7 +26,8 @@ import httpx
 
 from tailtag_simulator import limits
 from tailtag_simulator.client import ApiClient, Reply, open_client
-from tailtag_simulator.phases import PhaseFailed
+from tailtag_simulator.lifecycle import run_guarded
+from tailtag_simulator.phases import PhaseFailed, RejectedResponse
 from tailtag_simulator.pool import (
     LAUNCHER_ERRORS,
     LAUNCHER_TIMEOUT_SECONDS,
@@ -38,7 +39,8 @@ from tailtag_simulator.pool import (
     run_launcher,
 )
 from tailtag_simulator.reports import RunReport
-from tailtag_simulator.smoke import StageFailed, attribute, stage
+from tailtag_simulator.safety import SafetyAborted, SafetyRuntime, active_runtime
+from tailtag_simulator.smoke import StageFailed, attribute, guarded_stage
 from tailtag_simulator.targets import resolve_target, verify_target
 
 ACTIVE_PATH: Final = "/api/conventions/active/"
@@ -90,15 +92,22 @@ class FixtureLauncherChannel:
     async def call(
         self, operation: str, arguments: Mapping[str, object]
     ) -> Mapping[str, object]:
-        request = json.dumps(
-            {"operation": operation, "arguments": dict(arguments)}
-        ).encode()
+        envelope: dict[str, object] = {
+            "operation": operation,
+            "arguments": dict(arguments),
+        }
+        runtime = active_runtime()
+        if runtime is not None:
+            envelope["expected_identity"] = await runtime.privileged_identity()
+        request = json.dumps(envelope).encode()
         try:
             result, data = await run_launcher(
                 self._command, self._cwd, self._timeout_seconds, request
             )
         except LAUNCHER_ERRORS:
             raise FixtureFailed("FAIL_LAUNCHER") from None
+        if result == "FAIL_TARGET" and runtime is not None:
+            runtime.abort("identity_mismatch")
         if result == "PASS":
             return data
         if _RESULT.fullmatch(result) is None:
@@ -171,7 +180,9 @@ class FixtureObservations:
 
 def _body(reply: Reply) -> object:
     if reply.status != 200:
-        raise PhaseFailed
+        if 200 <= reply.status < 300:
+            raise PhaseFailed
+        raise RejectedResponse
     return reply.body
 
 
@@ -196,22 +207,98 @@ def _convention_id(reply: Reply) -> int:
     return _positive_int(convention.get("id"))
 
 
+def _fixture_fursuits(reply: Reply) -> set[int]:
+    listed = _body(reply)
+    if not isinstance(listed, list):
+        raise PhaseFailed
+    ids: set[int] = set()
+    for item in cast(list[object], listed):
+        fursuit = _object(item)
+        photo = fursuit.get("photo_url")
+        identity = _positive_int(fursuit.get("id"))
+        if (
+            fursuit.get("is_enabled") is not True
+            or not isinstance(photo, str)
+            or not photo
+            or identity in ids
+        ):
+            raise PhaseFailed
+        ids.add(identity)
+    return ids
+
+
+def _fixture_activations(reply: Reply, ids: set[int] | None, convention: int) -> None:
+    activated = _body(reply)
+    if not isinstance(activated, list):
+        raise PhaseFailed
+    observed: set[int] = set()
+    for item in cast(list[object], activated):
+        entry = _object(item)
+        identity = _positive_int(entry.get("fursuit_id"))
+        if (
+            entry.get("is_active") is not True
+            or _positive_int(entry.get("convention_id")) != convention
+            or identity in observed
+        ):
+            raise PhaseFailed
+        observed.add(identity)
+    if ids is not None and observed != ids:
+        raise PhaseFailed
+
+
+def _observe_fixture(check: Callable[[], object]) -> None:
+    try:
+        check()
+    except RejectedResponse:
+        return
+    except PhaseFailed:
+        runtime = active_runtime()
+        if runtime is not None:
+            runtime.abort("correctness")
+        raise
+
+
 async def simulate_fixtures(context: FixtureSimulationContext) -> FixtureObservations:
-    """Public reads only: every identity reads its active Convention; owners read more."""
+    """Validate successful reads before admitting the next public request."""
     owners: list[OwnerReads] = []
+    convention: int | None = None
+
+    def observe_active(reply: Reply) -> None:
+        nonlocal convention
+        seen = _convention_id(reply)
+        if convention is not None and seen != convention:
+            raise PhaseFailed
+        convention = seen
+
     for client in context.owners:
         active = await client.get(ACTIVE_PATH)
+        _observe_fixture(lambda active=active: observe_active(active))
         fursuits = await client.get(FURSUITS_PATH)
+        _observe_fixture(lambda fursuits=fursuits: _fixture_fursuits(fursuits))
         try:
-            path = f"/api/conventions/{_convention_id(active)}/fursuit-activations/"
-        except PhaseFailed:
+            current = _convention_id(active)
+        except RejectedResponse:
             owners.append(OwnerReads(active, fursuits, None))
             continue
-        owners.append(OwnerReads(active, fursuits, await client.get(path)))
-    return FixtureObservations(
-        tuple(owners),
-        tuple([await client.get(ACTIVE_PATH) for client in context.catchers]),
-    )
+        activations = await client.get(
+            f"/api/conventions/{current}/fursuit-activations/"
+        )
+        _observe_fixture(
+            lambda activations=activations, fursuits=fursuits, current=current: (
+                _fixture_activations(
+                    activations,
+                    _fixture_fursuits(fursuits) if fursuits.status == 200 else None,
+                    current,
+                )
+            )
+        )
+        owners.append(OwnerReads(active, fursuits, activations))
+    catchers: list[Reply] = []
+    for client in context.catchers:
+        reply = await client.get(ACTIVE_PATH)
+        _observe_fixture(lambda reply=reply: observe_active(reply))
+        catchers.append(reply)
+    return FixtureObservations(tuple(owners), tuple(catchers))
 
 
 def reconcile_fixtures(observed: FixtureObservations, fursuits_per_owner: int) -> None:
@@ -224,35 +311,10 @@ def reconcile_fixtures(observed: FixtureObservations, fursuits_per_owner: int) -
     for reads in observed.owners:
         if reads.activations is None:
             raise PhaseFailed
-        listed = _body(reads.fursuits)
-        if not isinstance(listed, list):
+        ids = _fixture_fursuits(reads.fursuits)
+        if len(ids) != fursuits_per_owner:
             raise PhaseFailed
-        ids: set[int] = set()
-        for item in cast(list[object], listed):
-            fursuit = _object(item)
-            photo = fursuit.get("photo_url")
-            if (
-                fursuit.get("is_enabled") is not True
-                or not isinstance(photo, str)
-                or not photo
-            ):
-                raise PhaseFailed
-            ids.add(_positive_int(fursuit.get("id")))
-        activated = _body(reads.activations)
-        if len(ids) != fursuits_per_owner or not isinstance(activated, list):
-            raise PhaseFailed
-        entries = [_object(item) for item in cast(list[object], activated)]
-        if (
-            len(entries) != len(ids)
-            or {
-                entry.get("fursuit_id")
-                for entry in entries
-                if entry.get("is_active") is True
-                and entry.get("convention_id") == convention_id
-            }
-            != ids
-        ):
-            raise PhaseFailed
+        _fixture_activations(reads.activations, ids, convention_id)
 
 
 async def _check_retained(channel: FixtureChannel, emit: Callable[[str], None]) -> None:
@@ -276,6 +338,7 @@ async def _clean(
     run: str,
     emit: Callable[[str], None],
     report: RunReport | None = None,
+    safety: SafetyRuntime | None = None,
 ) -> bool:
     """CLEANUP: delete the run's state and print the counts; False after a fixed FAIL line."""
     try:
@@ -314,6 +377,9 @@ async def _retain(
             "retain", {"pool": pool, "run_id": run, "reason": reason}
         )
         quarantined = count_of(data, "quarantined")
+    except KeyboardInterrupt:
+        # Child tasks transport interruption as cancellation so asyncio can join recovery.
+        raise asyncio.CancelledError from None
     except Exception:  # noqa: BLE001 - failures become a fixed line
         emit("FAIL retain")
         return False
@@ -387,6 +453,8 @@ async def run_provisioned(
     clock: Callable[[], float],
     run_id: str | None,
     report: RunReport | None = None,
+    safety: SafetyRuntime | None = None,
+    reconcile_partial: Callable[[], Awaitable[None]] | None = None,
     renew_leases: bool = False,
     _renewal: _Renewal | None = None,
     simulate_and_reconcile: Callable[
@@ -409,6 +477,41 @@ async def run_provisioned(
     slots, RELEASE always runs last, even after a failure or an interrupt. The exit code
     is 0 only if everything passed.
     """
+    runtime = (
+        safety
+        or active_runtime()
+        or SafetyRuntime({}, observe=report.record_safety if report else None)
+    )
+    if active_runtime() is not runtime:
+        return await run_guarded(
+            lambda: run_provisioned(
+                pool,
+                owners,
+                fursuits_per_owner,
+                catchers,
+                extra_identities,
+                prompt_secret=prompt_secret,
+                lease_channel=lease_channel,
+                fixture_channel=fixture_channel,
+                emit=emit,
+                clerk_transport=clerk_transport,
+                api_transport=api_transport,
+                clock=clock,
+                run_id=run_id,
+                report=report,
+                safety=runtime,
+                simulate_and_reconcile=simulate_and_reconcile,
+                reconcile_partial=reconcile_partial,
+                renew_leases=renew_leases,
+            ),
+            safety=runtime,
+            target="staging",
+            base_url=None,
+            population=owners + catchers + extra_identities,
+            transport=api_transport,
+            report=report,
+            emit=emit,
+        )
     if renew_leases:
         renewal = _Renewal(lease_channel)
         renewal.worker = asyncio.create_task(
@@ -429,6 +532,8 @@ async def run_provisioned(
                 report=report,
                 simulate_and_reconcile=simulate_and_reconcile,
                 _renewal=renewal,
+                safety=runtime,
+                reconcile_partial=reconcile_partial,
             )
         )
         try:
@@ -453,10 +558,13 @@ async def run_provisioned(
     stack = AsyncExitStack()
     held = Held()
     code = 1
-    outcome: Outcome | None = None  # None until provision has passed
+    outcome: Outcome | None = (
+        None  # Set before provisioning can commit, even without acknowledgement.
+    )
+    indexes: tuple[int, ...] = ()
     try:
         try:
-            with stage("target", report):
+            async with guarded_stage("target", report):
                 resolved = resolve_target("staging", None)
                 async with open_client(
                     resolved.origin, transport=api_transport
@@ -469,37 +577,44 @@ async def run_provisioned(
                 report.begin("setup")
             emit(f"PASS target staging source_sha={verified.source_sha}")
             emit(f"RUN run_id={run}")
+            await runtime.check_target()
             await _check_retained(fixture_channel, emit)
 
             try:
-                indexes, clients = await open_identities(
-                    pool,
-                    count,
-                    run,
-                    prompt_secret=prompt_secret,
-                    channel=lease_channel,
-                    stack=stack,
-                    held=held,
-                    origin=resolved.origin,
-                    clerk_transport=clerk_transport,
-                    api_transport=api_transport,
-                    clock=clock,
-                )
-                # Every identity is onboarded and the Clerk secret is gone: provision.
-                await fixture_channel.call(
-                    "provision",
-                    {
-                        "pool": pool,
-                        "run_id": run,
-                        "owners": list(indexes[:owners]),
-                        "catchers": list(indexes[owners:provisioned]),
-                        "fursuits_per_owner": fursuits_per_owner,
-                        "extras": list(indexes[provisioned:]),
-                    },
-                )
+                with runtime.phase("setup"):
+                    indexes, clients = await open_identities(
+                        pool,
+                        count,
+                        run,
+                        prompt_secret=prompt_secret,
+                        channel=lease_channel,
+                        stack=stack,
+                        held=held,
+                        origin=resolved.origin,
+                        clerk_transport=clerk_transport,
+                        api_transport=api_transport,
+                        clock=clock,
+                    )
+                    # A sent provision may commit even if its acknowledgement is lost.
+                    outcome = "interrupted"
+                    await fixture_channel.call(
+                        "provision",
+                        {
+                            "pool": pool,
+                            "run_id": run,
+                            "owners": list(indexes[:owners]),
+                            "catchers": list(indexes[owners:provisioned]),
+                            "fursuits_per_owner": fursuits_per_owner,
+                            "extras": list(indexes[provisioned:]),
+                        },
+                    )
+            except SafetyAborted:
+                raise
             except SetupFailed as failure:
                 raise StageFailed(f"setup{failure.detail}") from None
             except FixtureFailed as failure:
+                if failure.result in {"FAIL_DIRTY", "FAIL_LEASE", "FAIL_INVARIANT"}:
+                    outcome = None  # Definitive rejection/transactional rollback created no fixture state.
                 suffix = (
                     ""
                     if failure.quarantined is None
@@ -543,7 +658,9 @@ async def run_provisioned(
                     if report.write_failed:
                         report.end("cleanup", "failed", "FAIL_REPORT")
                         raise StageFailed("report")
-                cleaned = await _clean(fixture_channel, pool, run, emit, report)
+                await runtime.check_target()
+                with runtime.phase("cleanup"):
+                    cleaned = await _clean(fixture_channel, pool, run, emit, report)
                 if report is not None:
                     report.end(
                         "cleanup",
@@ -570,49 +687,114 @@ async def run_provisioned(
         code = 130
         raise
     finally:
-        if _renewal is not None:
-            await _renewal.stop()
-        try:
+
+        async def finalize() -> None:
+            nonlocal code, outcome
+            if report is not None and report.write_failed:
+                runtime.abort("report_failure", emit=False)
+            if runtime.abort_reason == "correctness" and outcome == "interrupted":
+                outcome = "journeys"
+            if _renewal is not None:
+                await _renewal.stop()
+            await runtime.stop_monitor()
+            allowed = await runtime.begin_finalization()
+            release_safe = True
             try:
-                if outcome not in (None, "pass"):
-                    if report is not None:
-                        report.begin("retention")
-                    retained = await _retain(
-                        fixture_channel, pool, run, str(outcome), emit
-                    )
-                    if report is not None:
-                        report.end(
-                            "retention",
-                            "passed" if retained else "failed",
-                            None if retained else "FAIL_RETAIN",
-                        )
-                    if not retained:
-                        code = 1
-            finally:  # RELEASE runs even if RETAIN is interrupted
-                if held.leases:
-                    if report is not None:
-                        report.begin("release")
-                    try:
-                        released = await release(stack, lease_channel, pool, run)
-                    except BaseException:
-                        code = 130
+                if runtime.abort_reason is not None:
+                    code = 1
+                    if runtime.can_reconcile() and reconcile_partial is not None:
+                        try:
+                            with runtime.phase("reconciliation"):
+                                await runtime.check_target()
+                                await runtime.run_phase(reconcile_partial())
+                            runtime.record_finalization("reconciliation", "passed")
+                        except Exception:  # noqa: BLE001 - bounded diagnostic failure
+                            runtime.record_finalization("reconciliation", "failed")
+                    else:
+                        runtime.record_finalization("reconciliation", "skipped")
+                try:
+                    if outcome not in (None, "pass"):
+                        if not allowed:
+                            runtime.record_finalization("retention", "skipped")
+                        else:
+                            if report is not None:
+                                report.begin("retention")
+                            try:
+                                with runtime.phase("retention"):
+                                    await runtime.check_target()
+                                    retained = await runtime.run_phase(
+                                        _retain(
+                                            fixture_channel,
+                                            pool,
+                                            run,
+                                            str(outcome),
+                                            emit,
+                                        )
+                                    )
+                            except SafetyAborted:
+                                retained = False
+                            runtime.record_finalization(
+                                "retention", "passed" if retained else "uncertain"
+                            )
+                            if report is not None:
+                                report.end(
+                                    "retention",
+                                    "passed" if retained else "failed",
+                                    None if retained else "FAIL_RETAIN",
+                                )
+                            if not retained:
+                                code = 1
+                                # Quarantine independently before releasing possibly live fixture identities.
+                                for index in indexes:
+                                    try:
+                                        with runtime.phase("retention"):
+                                            await runtime.check_target()
+                                            await runtime.run_phase(
+                                                lease_channel.call(
+                                                    "quarantine",
+                                                    pool,
+                                                    {"index": index, "run_id": run},
+                                                )
+                                            )
+                                    except Exception:  # noqa: BLE001 - uncertain quarantine must not readmit leases
+                                        release_safe = False
+                                if not indexes:
+                                    release_safe = False
+                finally:
+                    if held.leases:
                         if report is not None:
-                            report.end("release", "interrupted", "FAIL_INTERRUPTED")
-                        raise
-                    emit("PASS release" if released else "FAIL release")
-                    if report is not None:
-                        report.end(
-                            "release",
-                            "passed" if released else "failed",
-                            None if released else "FAIL_RELEASE",
+                            report.begin("release")
+                        released = await release(
+                            stack,
+                            lease_channel,
+                            pool,
+                            run,
+                            permit_release=release_safe,
+                            quarantine_indexes=held.quarantine_indexes,
                         )
-                    if not released:
-                        code = 1
-                else:
-                    await stack.aclose()
-        finally:
-            if report is not None:
-                code = report.finish(code)
+                        emit("PASS release" if released else "FAIL release")
+                        if report is not None:
+                            report.end(
+                                "release",
+                                "passed" if released else "failed",
+                                None if released else "FAIL_RELEASE",
+                            )
+                        if not released:
+                            code = 1
+                    else:
+                        await runtime.run_closure(stack.aclose())
+                        runtime.record_finalization("clerk_closure", "passed")
+            finally:
+                if report is not None:
+                    report.record_safety(runtime.snapshot())
+
+        finalizer = asyncio.create_task(finalize())
+        try:
+            await asyncio.shield(finalizer)
+        except asyncio.CancelledError:
+            await finalizer
+            raise
+
     return code
 
 
@@ -631,19 +813,20 @@ async def run_fixture_smoke(
     clock: Callable[[], float] = time.time,
     run_id: str | None = None,
     report: RunReport | None = None,
+    safety: SafetyRuntime | None = None,
 ) -> int:
     """Run the fixture smoke on Staging and return the exit code: 0 only if all passed."""
 
     async def simulate_and_reconcile(
         _origin: str, clients: tuple[ApiClient, ...], _indexes: tuple[int, ...]
     ) -> Literal["pass"]:
-        with stage("simulation", report):
+        async with guarded_stage("simulation", report):
             observed = await simulate_fixtures(
                 FixtureSimulationContext(clients[:owners], clients[owners:])
             )
         emit("PASS simulation")
 
-        with stage("reconciliation", report):
+        async with guarded_stage("reconciliation", report):
             reconcile_fixtures(observed, fursuits_per_owner)
         emit("PASS reconciliation")
         return "pass"
@@ -664,4 +847,5 @@ async def run_fixture_smoke(
         run_id=run_id,
         report=report,
         simulate_and_reconcile=simulate_and_reconcile,
+        safety=safety,
     )

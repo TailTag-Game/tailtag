@@ -47,7 +47,7 @@ def test_population_orchestration_records_variable_actors_and_cleans_before_rele
 
     assert asyncio.run(exercise()) == 0
     value = read_report(run.report.path)
-    assert value["schema_version"] == 2
+    assert value["schema_version"] == 4
     assert value["outcome"] == value["correctness"] == "passed"
     assert value["results"]["behavior"]["items"]["casual"]["actors"] == 2
     assert value["results"]["behavior"]["items"]["retry_prone"]["retries"] == 12
@@ -58,7 +58,9 @@ def test_population_orchestration_records_variable_actors_and_cleans_before_rele
     assert_finalized(run)
 
 
-@pytest.mark.parametrize("fault", ["ambiguous-positive", "inspection", "storage"])
+@pytest.mark.parametrize(
+    "fault", ["ambiguous-positive", "inspection", "actor-and-inspection", "storage"]
+)
 def test_failed_population_reconciles_when_usable_retains_and_releases(
     tmp_path: Path,
     world: pool_support.World,
@@ -67,11 +69,11 @@ def test_failed_population_reconciles_when_usable_retains_and_releases(
 ) -> None:
     del world
     run = rig(tmp_path)
-    if fault == "inspection":
+    if fault in {"inspection", "actor-and-inspection"}:
         run.inspection.corrupt = True
-    elif fault == "ambiguous-positive":
-        run.population.fault = fault
-    else:
+    if fault in {"ambiguous-positive", "actor-and-inspection"}:
+        run.population.fault = "ambiguous-positive"
+    if fault == "storage":
         # Failure at a real filesystem boundary after allocation/provision.
         original = os.replace
 
@@ -84,13 +86,22 @@ def test_failed_population_reconciles_when_usable_retains_and_releases(
     assert asyncio.run(run.run()) != 0
     assert run.fixtures.operations[-1] == "retain"
     assert "cleanup" not in run.fixtures.operations
-    assert run.inspection.calls
+    if fault == "storage":
+        assert not run.inspection.calls
+        assert "FAIL safety reason=report_failure" in run.lines
+        assert not any(line.startswith("PASS reconciliation") for line in run.lines)
+    else:
+        assert run.inspection.calls
     assert_finalized(run)
     if fault != "storage":
         value = read_report(run.report.path)
-        assert value["outcome"] == "failed"
+        assert value["outcome"] == (
+            "aborted" if fault in {"inspection", "actor-and-inspection"} else "failed"
+        )
+        if fault in {"inspection", "actor-and-inspection"}:
+            assert value["safety"]["abort"]["reason"] == "correctness"
         assert value["correctness"] == "failed"
-        if fault == "ambiguous-positive":
+        if fault in {"ambiguous-positive", "actor-and-inspection"}:
             assert value["results"]["behavior"]["failure"] == "FAIL_SIMULATION"
             assert len(run.population.gameplay.catches) == 1
 
@@ -160,7 +171,12 @@ def test_renewal_loss_or_interruption_awaits_worker_before_finalization(
                     pass
 
     result = asyncio.run(exercise())
-    assert not [path for path in blocked.after_cancel if not path.endswith("/end")]
+    assert not [
+        path
+        for path in blocked.after_cancel
+        if not path.endswith("/end")
+        and path not in {"/health/identity", "/health/ready"}
+    ]
     assert "cleanup" not in run.fixtures.operations
     if stage == "setup":
         assert run.fixtures.operations == ["retained_counts"]

@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Final, cast
 
 from tailtag_simulator.client import ApiClient, Reply
+from tailtag_simulator.safety import active_runtime
 from tailtag_simulator.targets import VerifiedTarget
 
 ME_PATH: Final = "/api/me/"
@@ -30,6 +31,10 @@ _TOKEN: Final = re.compile(r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){2}")
 
 class PhaseFailed(Exception):
     """A phase did not meet its contract. Carries no detail by design."""
+
+
+class RejectedResponse(PhaseFailed):
+    """An ordinary rejected HTTP result, without evidence of an integrity violation."""
 
 
 @dataclass(frozen=True)
@@ -66,11 +71,35 @@ def setup(context: SetupContext) -> Credentials:
     return Credentials(token)
 
 
+def observe_identity(reply: Reply) -> int | None:
+    """Stop immediately when an actual successful identity reply violates its shape."""
+    if reply.status != 200 and not 200 <= reply.status < 300:
+        return None
+    try:
+        reconcile(ReconciliationContext(Observations((reply,))))
+    except PhaseFailed:
+        runtime = active_runtime()
+        if runtime is not None:
+            runtime.abort("correctness")
+        raise
+    return cast(int, cast(dict[str, object], reply.body)["id"])
+
+
 async def simulate(context: SimulationContext) -> Observations:
     """Make the two public `GET /api/me/` requests and record what came back."""
     replies: list[Reply] = []
+    identity: int | None = None
     for _ in range(ME_REQUESTS):
-        replies.append(await context.client.get(ME_PATH))
+        reply = await context.client.get(ME_PATH)
+        replies.append(reply)
+        observed = observe_identity(reply)
+        if observed is not None:
+            if identity is not None and observed != identity:
+                runtime = active_runtime()
+                if runtime is not None:
+                    runtime.abort("correctness")
+                raise PhaseFailed
+            identity = observed
     return Observations(tuple(replies))
 
 
@@ -79,7 +108,11 @@ def reconcile(context: ReconciliationContext) -> None:
     ids: set[int] = set()
     for reply in context.observations.replies:
         body = reply.body
-        if reply.status != 200 or not isinstance(body, dict):
+        if reply.status != 200:
+            if 200 <= reply.status < 300:
+                raise PhaseFailed
+            raise RejectedResponse
+        if not isinstance(body, dict):
             raise PhaseFailed
         user_id = cast(dict[str, object], body).get("id")
         if not isinstance(user_id, int) or isinstance(user_id, bool) or user_id <= 0:

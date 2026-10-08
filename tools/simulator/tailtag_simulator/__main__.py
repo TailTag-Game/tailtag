@@ -5,6 +5,7 @@ import asyncio
 import getpass
 import json
 import logging
+import signal
 import sys
 import uuid
 import warnings
@@ -32,6 +33,7 @@ from tailtag_simulator.population_reconciliation import (
 from tailtag_simulator.provenance import SourceRejected, load_source
 from tailtag_simulator.reconciliation import InspectionLauncherChannel
 from tailtag_simulator.reports import ReportFailed, RunReport, load_report
+from tailtag_simulator.safety import SafetyRuntime, resolve_safety_policy
 from tailtag_simulator.scenarios import ScenarioRejected
 from tailtag_simulator.smoke import run_smoke
 from tailtag_simulator.traffic_config import resolve_traffic_config
@@ -142,6 +144,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         choices=("baseline", "post-event", "hotspot", "retry", "soak"),
     )
     convention.add_argument("--config", type=Path)
+    convention.add_argument("--unattended", action="store_true")
     cleanup = commands.add_parser(
         "cleanup", help="clean one run's Staging state and readmit its identities"
     )
@@ -165,6 +168,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     report_validate = report_commands.add_parser("validate")
     report_validate.add_argument("path", type=Path)
     for execution in (smoke, pool_smoke, fixture_smoke, journeys, convention):
+        execution.add_argument("--safety-config", type=Path)
         execution.add_argument("--scenario-version", type=int, default=1)
         execution.add_argument("--seed", type=int, default=0)
         execution.add_argument(
@@ -257,6 +261,15 @@ def _behavior_file(path: Path) -> dict[str, object]:
 
 async def _execute(args: argparse.Namespace) -> int:
     """Create durable evidence and establish provenance before executing a command."""
+    try:
+        if args.command == "convention" and args.unattended:
+            raise ValueError
+        policy = resolve_safety_policy(
+            _behavior_file(args.safety_config) if args.safety_config is not None else {}
+        )
+    except (ScenarioRejected, ValueError):
+        _emit("FAIL configuration")
+        return 1
     report: RunReport | None = None
     config: dict[str, object] = {}
     if args.command in {
@@ -300,6 +313,7 @@ async def _execute(args: argparse.Namespace) -> int:
                 scenario_version=args.scenario_version,
                 seed=args.seed,
                 config=config,
+                safety_policy=policy,
             )
         except (ReportFailed, ScenarioRejected):
             _emit("FAIL report")
@@ -320,6 +334,28 @@ async def _execute(args: argparse.Namespace) -> int:
         if report.write_failed:
             _emit("FAIL report")
             return report.finish(1)
+    safety = SafetyRuntime(policy, observe=report.record_safety if report else None)
+    previous = signal.getsignal(signal.SIGUSR1)
+
+    def stop(_signum: int, _frame: object) -> None:
+        try:
+            safety.abort("resource_saturation")
+        except Exception:  # noqa: BLE001, S110 - report failure remains latched
+            pass
+
+    signal.signal(signal.SIGUSR1, stop)
+    try:
+        return await _dispatch(args, config, report, safety)
+    finally:
+        signal.signal(signal.SIGUSR1, previous)
+
+
+async def _dispatch(
+    args: argparse.Namespace,
+    config: dict[str, object],
+    report: RunReport | None,
+    safety: SafetyRuntime,
+) -> int:
     if args.command == "convention":
         return await run_convention(
             str(args.pool),
@@ -334,6 +370,7 @@ async def _execute(args: argparse.Namespace) -> int:
             ),
             emit=_emit,
             report=report,
+            safety=safety,
         )
     if args.command == "pool-smoke":
         return await run_pool_smoke(
@@ -343,6 +380,7 @@ async def _execute(args: argparse.Namespace) -> int:
             channel=_launcher(),
             emit=_emit,
             report=report,
+            safety=safety,
         )
     if args.command == "fixture-smoke":
         return await run_fixture_smoke(
@@ -355,6 +393,7 @@ async def _execute(args: argparse.Namespace) -> int:
             fixture_channel=_fixture_launcher(),
             emit=_emit,
             report=report,
+            safety=safety,
         )
     if args.command == "journeys":
         try:
@@ -385,6 +424,7 @@ async def _execute(args: argparse.Namespace) -> int:
             inspection_channel=_inspection_launcher(),
             emit=_emit,
             report=report,
+            safety=safety,
         )
     return await run_smoke(
         str(args.target),
@@ -392,6 +432,7 @@ async def _execute(args: argparse.Namespace) -> int:
         prompt_token=_prompt_token,
         emit=_emit,
         report=report,
+        safety=safety,
     )
 
 

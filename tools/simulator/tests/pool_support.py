@@ -34,7 +34,9 @@ DEPLOYMENT_ID: Final = "223e4567-e89b-42d3-a456-426614174000"
 BACKEND_HOST: Final = "api.clerk.com"
 FRONTEND_HOST: Final = "clerk.staging.tailtag.app"
 API_HOST: Final = "staging.tailtag.app"
-ALLOWED_API_PATHS: Final = frozenset({"/health/identity", "/api/me/", "/api/profile/"})
+ALLOWED_API_PATHS: Final = frozenset(
+    {"/health/identity", "/health/ready", "/api/me/", "/api/profile/"}
+)
 
 # Far in the future, so a session that is not handed the injected clock sees every
 # fake token as fresh and visibly fails to refresh.
@@ -294,6 +296,10 @@ class World:
         if request.url.host != API_HOST:
             self.stray.append(f"{request.url.host}{path}")
             return httpx.Response(404)
+        if path == "/health/ready":
+            self.note("api", f"{method} {path}")
+            self.api_calls.append((method, path, None))
+            return httpx.Response(200, json={"status": "ok"})
         if path == "/health/identity":
             self.note("api", f"{method} {path}")
             self.api_calls.append((method, path, None))

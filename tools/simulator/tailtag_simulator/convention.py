@@ -7,7 +7,12 @@ from typing import Literal, cast
 
 import httpx
 
-from tailtag_simulator.behavior import PopulationContext, simulate_population
+from tailtag_simulator.behavior import (
+    PopulationCancelled,
+    PopulationContext,
+    PopulationRun,
+    simulate_population,
+)
 from tailtag_simulator.behavior_config import resolve_behavior_config
 from tailtag_simulator.client import ApiClient
 from tailtag_simulator.fixtures import FixtureChannel, run_provisioned
@@ -18,8 +23,9 @@ from tailtag_simulator.population_reconciliation import (
     reconcile_population,
 )
 from tailtag_simulator.reports import ReportFailed, RunReport
+from tailtag_simulator.safety import SafetyRuntime, active_runtime
 from tailtag_simulator.scenarios import ScenarioRejected
-from tailtag_simulator.smoke import StageFailed, stage
+from tailtag_simulator.smoke import StageFailed, guarded_stage
 from tailtag_simulator.traffic import Clock, TrafficRuntime
 from tailtag_simulator.traffic_behavior import (
     TrafficCancelled,
@@ -47,6 +53,7 @@ async def run_convention(
     clock: Callable[[], float] = time.time,
     run_id: str | None = None,
     report: RunReport | None = None,
+    safety: SafetyRuntime | None = None,
 ) -> int:
     try:
         if type(scenario_version) is not int or scenario_version not in (1, 2):
@@ -67,27 +74,90 @@ async def run_convention(
     )
     run = report.run_id if report is not None else run_id or str(uuid.uuid4())
 
+    partial: PopulationRun | None = None
+    recovery_clients: tuple[ApiClient, ...] = ()
+    recovery_indexes: tuple[int, ...] = ()
+    reconciliation_state: Literal["not_observed", "passed", "failed"] = "not_observed"
+
+    async def reconcile_partial() -> None:
+        if reconciliation_state != "not_observed":
+            if reconciliation_state == "failed":
+                raise StageFailed("reconciliation")
+            return
+        if partial is None:
+            return
+        labels = tuple(f"owner{n}" for n in range(owners)) + tuple(
+            f"attendee{n}" for n in range(attendees)
+        )
+        checked = await reconcile_population(
+            partial.expectations,
+            dict(zip(labels, recovery_clients, strict=True)),
+            dict(zip(labels, recovery_indexes, strict=True)),
+            inspection_channel,
+            pool=pool,
+            run_id=run,
+            convention=partial.convention,
+        )
+
+        if report is not None:
+            report.record_population_checks(
+                {
+                    "items": [
+                        {
+                            "check": d.check,
+                            "actor": d.actor,
+                            "expected": d.expected,
+                            "observed": d.observed,
+                        }
+                        for d in checked.discrepancies
+                    ],
+                    "count": checked.count,
+                    "reason": None,
+                }
+            )
+        for line in population_reconciliation_lines(checked):
+            emit(line)
+
+        if not checked.passed:
+            if checked.integrity_failed:
+                safety_runtime = active_runtime()
+                if safety_runtime is not None:
+                    safety_runtime.abort("correctness")
+            raise StageFailed("reconciliation")
+
     async def population(
         origin: str,
         clients: tuple[ApiClient, ...],
         indexes: tuple[int, ...],
     ) -> Literal["pass", "journeys", "reconciliation"]:
+        nonlocal partial, recovery_clients, recovery_indexes, reconciliation_state
         del origin
+        recovery_clients, recovery_indexes = clients, indexes
         context = PopulationContext(clients[:owners], clients[owners:])
         runtime = (
             TrafficRuntime(normalized, clock=traffic_clock)
             if scenario_version == 2
             else None
         )
-        with stage("simulation", report):
+        async with guarded_stage("simulation", report):
             if runtime is None:
-                simulated = await simulate_population(context, normalized, seed)
+                try:
+                    simulated = await simulate_population(context, normalized, seed)
+                except PopulationCancelled as cancellation:
+                    partial = cancellation.population
+                    if report is not None:
+                        try:
+                            report.record_behavior(partial.summaries, partial.failure)
+                        except ReportFailed:
+                            pass  # Durable report failure cannot prevent recovery.
+                    raise
             else:
                 try:
                     traffic_run = await simulate_traffic_population(
                         context, normalized, seed, clock=traffic_clock, runtime=runtime
                     )
                 except TrafficCancelled as cancellation:
+                    partial = cancellation.population
                     if report is not None:
                         try:
                             report.record_behavior(
@@ -99,6 +169,7 @@ async def run_convention(
                             pass  # Persistence cannot prevent cancellation/finalization.
                     raise
                 simulated = traffic_run.population
+        partial = simulated
         report_failed = False
         if report is not None:
             try:
@@ -110,7 +181,7 @@ async def run_convention(
         labels = tuple(f"owner{n}" for n in range(owners)) + tuple(
             f"attendee{n}" for n in range(attendees)
         )
-        with stage("reconciliation", report):
+        async with guarded_stage("reconciliation", report):
             checked = await reconcile_population(
                 simulated.expectations,
                 dict(zip(labels, clients, strict=True)),
@@ -120,6 +191,7 @@ async def run_convention(
                 run_id=run,
                 convention=simulated.convention,
             )
+        reconciliation_state = "passed" if checked.passed else "failed"
         if report is not None:
             try:
                 report.record_population_checks(
@@ -143,6 +215,11 @@ async def run_convention(
                 report_failed = True
         for line in population_reconciliation_lines(checked):
             emit(line)
+        if checked.integrity_failed:
+            safety_runtime = active_runtime()
+            if safety_runtime is not None:
+                safety_runtime.abort("correctness")
+            return "reconciliation"
         if report_failed:
             raise StageFailed("report")
         traffic = runtime.snapshot() if runtime is not None else None
@@ -173,6 +250,8 @@ async def run_convention(
         clock=clock,
         run_id=run,
         report=report,
+        safety=safety,
         simulate_and_reconcile=population,
         renew_leases=True,
+        reconcile_partial=reconcile_partial,
     )
