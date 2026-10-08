@@ -11,9 +11,19 @@ from tailtag_simulator.behavior_config import (
     resolve_behavior_config,
 )
 
+BUCKET_TOLERANCE = 1e-9
+
 
 def _invalid() -> ValueError:
     return ValueError("invalid traffic configuration")
+
+
+def traffic_bucket_count(duration: float, width: float) -> int:
+    """Keep decimal boundary noise from adding an empty terminal bucket."""
+    ratio = duration / width
+    if not math.isfinite(ratio):
+        raise _invalid()
+    return max(1, math.ceil(ratio - BUCKET_TOLERANCE))
 
 
 def _number(value: object, low: float, high: float, *, integer: bool = False) -> float:
@@ -126,8 +136,7 @@ def resolve_traffic_config(config: Mapping[str, object]) -> dict[str, object]:
                 else 1000000,
                 integer=traffic["mode"] == "active",
             )
-    bucket_count = duration / width
-    if duration > generation or not math.isfinite(bucket_count) or bucket_count > 1000:
+    if duration > generation or traffic_bucket_count(duration, width) > 1000:
         raise _invalid()
     bursts = traffic["bursts"]
     if not isinstance(bursts, list) or len(cast(list[object], bursts)) > 100:

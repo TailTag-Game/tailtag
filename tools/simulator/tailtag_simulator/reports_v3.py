@@ -1,8 +1,10 @@
 """Closed observed traffic evidence; lifecycle validation stays in reports."""
 
+import math
 from typing import Any, cast
 
 from tailtag_simulator import reports_v2
+from tailtag_simulator.traffic_config import BUCKET_TOLERANCE, traffic_bucket_count
 
 COUNTERS = {
     "offered",
@@ -113,22 +115,26 @@ def results(
     ):
         _require(snapshot[key] <= config["limits"][ceiling])
     raw_buckets = snapshot["buckets"]
-    _require(
-        isinstance(raw_buckets, list) and len(cast(list[object], raw_buckets)) <= 1000
-    )
     totals = dict.fromkeys(BUCKET_COUNTS, 0)
     previous = -1.0
     width = config["traffic"]["bucket_seconds"]
     duration = sum(
         segment["duration_seconds"] for segment in config["traffic"]["segments"]
     )
+    expected_count = traffic_bucket_count(duration, width)
+    _require(
+        isinstance(raw_buckets, list)
+        and len(cast(list[object], raw_buckets)) <= expected_count
+    )
     for raw in cast(list[object], raw_buckets):
         bucket = _object(raw, BUCKET_COUNTS | {"at_seconds"})
         at = bucket["at_seconds"]
+        _require(_number(at) and previous < at <= duration + BUCKET_TOLERANCE)
+        position = at / width
         _require(
-            _number(at)
-            and previous < at < duration
-            and abs(at / width - round(at / width)) < 1e-9
+            math.isfinite(position)
+            and abs(position - round(position)) < BUCKET_TOLERANCE
+            and round(position) < expected_count
         )
         previous = at
         _require(all(_count(bucket[k]) for k in BUCKET_COUNTS))

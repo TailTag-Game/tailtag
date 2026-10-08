@@ -16,7 +16,10 @@ import httpx
 from tailtag_simulator.behavior_config import PERSONAS
 from tailtag_simulator.client import Reply
 from tailtag_simulator.limits import REQUEST_TIMEOUT_SECONDS
-from tailtag_simulator.traffic_config import resolve_traffic_config
+from tailtag_simulator.traffic_config import (
+    resolve_traffic_config,
+    traffic_bucket_count,
+)
 
 
 @dataclass(frozen=True)
@@ -260,7 +263,7 @@ async def run_schedule(
             "skipped": 0,
             "completed": 0,
         }
-        for index in range(math.ceil(duration / width))
+        for index in range(traffic_bucket_count(duration, width))
     ]
     runtime.bind_seed(seed)
     actors = list(range(sum(cast(int, resolved[k]) for k in PERSONAS[:4])))
