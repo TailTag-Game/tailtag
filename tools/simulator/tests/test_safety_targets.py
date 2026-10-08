@@ -1,11 +1,14 @@
 """#227 AC10: credential-free Staging identity/readiness/stability transcript."""
 
 import asyncio
+from typing import cast
 
 import httpx
 import pytest
+from traffic_support import ManualClock
 
 from tailtag_simulator.client import open_client
+from tailtag_simulator.safety import SafetyRuntime
 from tailtag_simulator.targets import TargetRejected, resolve_target, verify_target
 
 ORIGIN = "https://staging.tailtag.app"
@@ -54,3 +57,75 @@ def test_staging_phase_gate_requires_stable_identity_around_readiness(
     assert seen == ["/health/identity", "/health/ready"] + (
         [] if failure in {"unready", "malformed-ready"} else ["/health/identity"]
     )
+
+
+@pytest.mark.parametrize("status", [408, 429])
+@pytest.mark.parametrize("path", ["/health/identity", "/health/ready"])
+def test_transient_health_http_pauses_admission_until_next_healthy_probe(
+    status: int, path: str
+) -> None:
+    """Real target classification must retain periodic pause/resume semantics."""
+
+    async def execute() -> None:
+        time = ManualClock()
+        runtime = SafetyRuntime({}, monotonic=lambda: time.now, sleep=time.sleep)
+        unavailable = False
+        sent: list[str] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            sent.append(request.url.path)
+            if unavailable and request.url.path == path:
+                return httpx.Response(status, json={"status": "unavailable"})
+            return httpx.Response(
+                200,
+                json=IDENTITY
+                if request.url.path == "/health/identity"
+                else {"status": "ok"}
+                if request.url.path == "/health/ready"
+                else {},
+            )
+
+        async with open_client(
+            ORIGIN, transport=httpx.MockTransport(respond)
+        ) as client:
+
+            async def probe() -> dict[str, object]:
+                return (
+                    await verify_target(client, resolve_target("staging", None))
+                ).identity()
+
+            runtime.bind_probe(probe)
+            with runtime.scope(), runtime.phase("simulation"):
+                await runtime.check_target()
+                await runtime.start_monitor()
+                request: asyncio.Task[object] | None = None
+                try:
+                    unavailable = True
+                    await time.settle()
+                    await time.advance(10)
+                    for _ in range(5):
+                        await time.settle()
+                    probes = cast(dict[str, object], runtime.snapshot()["probes"])
+                    assert runtime.abort_reason is None
+                    assert probes["paused"] is True
+                    assert probes["last"] == "unavailable"
+                    request = asyncio.create_task(client.get("/business"))
+                    await time.settle()
+                    assert "/business" not in sent
+                    unavailable = False
+                    await time.advance(10)
+                    await asyncio.wait_for(request, timeout=3)
+                    probes = cast(dict[str, object], runtime.snapshot()["probes"])
+                    assert probes["paused"] is False
+                    assert probes["consecutive_failures"] == 0
+                    assert runtime.abort_reason is None
+                    assert sent.count("/business") == 1
+                finally:
+                    if request is not None:
+                        if not request.done():
+                            request.cancel()
+                        await asyncio.gather(request, return_exceptions=True)
+                    await runtime.stop_monitor()
+        assert not time.waiters
+
+    asyncio.run(execute())

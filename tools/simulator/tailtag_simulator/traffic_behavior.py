@@ -35,6 +35,7 @@ from tailtag_simulator.gameplay import (
 )
 from tailtag_simulator.population_reconciliation import PopulationExpectations
 from tailtag_simulator.reconciliation import Made
+from tailtag_simulator.safety import active_runtime
 from tailtag_simulator.traffic import Clock, Entry, TrafficRuntime, run_schedule
 from tailtag_simulator.traffic_effects import RetryExhausted, TrafficEffects
 
@@ -391,7 +392,9 @@ async def simulate_traffic_population(
             return False
         except (IntegrityFailed, RequestFailed):
             failed = True
-            IntegrityFailed("traffic", "valid", "error")
+            safety = active_runtime()
+            if safety is not None:
+                safety.abort("correctness")
             runtime.stop("correctness")
             return False
         except Exception:  # noqa: BLE001 - ordinary rejection/transport failures
@@ -453,7 +456,9 @@ async def simulate_traffic_population(
     except TransportFailed:
         failed = True
     except (IntegrityFailed, RequestFailed):
-        IntegrityFailed("traffic", "valid", "error")
+        safety = active_runtime()
+        if safety is not None:
+            safety.abort("correctness")
         failed = True
         if runtime.snapshot()["stop_reason"] is None:
             runtime.stop("correctness")

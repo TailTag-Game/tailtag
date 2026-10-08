@@ -12,6 +12,7 @@ from traffic_behavior_support import (
 )
 
 from tailtag_simulator.reconciliation import Made
+from tailtag_simulator.safety import SafetyRuntime
 
 
 def confirmations(world: TrafficWorld) -> list[tuple[str, Mapping[str, object]]]:
@@ -251,9 +252,11 @@ def test_presend_confirm_failure_never_sends_and_leaves_owner_bootstrap_uninject
     assert not result.population.expectations.made
 
 
+@pytest.mark.parametrize("guarded", [False, True])
 @pytest.mark.parametrize("fault", ["malformed", "wrong-target", "redirect", "oversize"])
 def test_correctness_and_client_protection_errors_stop_without_retry(
     fault: str,
+    guarded: bool,
 ) -> None:
     config = config_for(
         actors=2,
@@ -270,7 +273,10 @@ def test_correctness_and_client_protection_errors_stop_without_retry(
     else:
         world.protected_fault = fault
 
-    result, _compared = run_traffic(world, config)
+    runtime = SafetyRuntime({}) if guarded else None
+    result, _compared = run_traffic(world, config, safety=runtime)
+    if runtime is not None:
+        assert runtime.abort_reason == "correctness"
 
     assert not result.population.passed
     assert result.traffic["stop_reason"] is not None

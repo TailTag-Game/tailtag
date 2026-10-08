@@ -64,7 +64,8 @@ class SafetyRuntime:
     def __init__(self, policy: Mapping[str, object], *,
                  monotonic: Callable[[], float] = time.monotonic,
                  sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
-                 observe: Callable[[Mapping[str, object]], None] | None = None): ...
+                 observe: Callable[[Mapping[str, object]], None] | None = None,
+                 persist: Callable[[Mapping[str, object]], None] | None = None): ...
     def scope(self): ...  # synchronous context manager, context-local binding
     def phase(self, name: str): ...  # context-local HTTP classification
     def control(self): ...  # reserved probe slot, genuine request counting
@@ -190,10 +191,19 @@ do not accept arbitrary extras or turn abort into pass in that projection.
 Safety policy is outside immutable scenario configuration. Traffic's historical
 stop vocabulary stays unchanged; detailed abort cause belongs to safety evidence.
 
-Add `RunReport.record_safety(snapshot: Mapping[str, object]) -> None` and optional
-`safety_policy` construction argument. Runtime observation updates durable
-snapshots, with persistence failure stopping further workload. Final safety stops
-emit `outcome=aborted`/nonzero; Ctrl-C emits interrupted/130; preflight failure or
+Add `RunReport.cache_safety(snapshot: Mapping[str, object]) -> None`,
+`RunReport.record_safety(snapshot: Mapping[str, object]) -> None`, and optional
+`safety_policy` construction argument. Cache updates validate bounded, private
+evidence and copy mutable input without disk writes. Report-owned runtimes bind
+`observe=report.cache_safety` and `persist=report.record_safety`; existing custom
+observers retain their mapping-only callback. Admission, release,
+and outcome observations update the cache. Phase entry/exit, explicit target
+checks, existing monitor ticks, aborts, and finalization records persist the
+latest evidence; report finalization flushes the latest cache. Abort evidence is
+immediately durable. Cache validation and persistence failure stop further
+workload and latch report failure without replacing the first abort cause.
+A crash between checkpoints can lose the latest request observations. Final
+safety stops emit `outcome=aborted`/nonzero; Ctrl-C emits interrupted/130; preflight failure or
 ordinary actor failure cannot pass. Historical reports keep their old semantics.
 No raw exception/response/credential values reach reports or stdout.
 
@@ -210,8 +220,11 @@ never gains privileged channel handles. Stop monitor before bounded finalization
 
 CLI: every execution command gets `--safety-config PATH` (closed bounded JSON
 policy); convention gets `--unattended` (reject before external work). `SIGUSR1`
-on the run process requests fixed `resource_saturation`. Document how an operator
-signals that specific process and reads Railway/Sentry evidence. This does not
+on the run process requests fixed `resource_saturation`. Register it with the
+running event loop so a signal wakes an idle selector and performs report writes
+in an ordinary callback; teardown removes it and restores the prior process
+handler. Document how an operator signals that specific process and reads
+Railway/Sentry evidence. This does not
 introduce a control server, host provisioning, metric ingestion, or PID registry.
 Forward corresponding `SAFETY_CONFIG`/`UNATTENDED` make arguments safely.
 

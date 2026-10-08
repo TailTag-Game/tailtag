@@ -928,15 +928,26 @@ class RunReport:
         self._value = candidate
         self._snapshot()
 
+    def cache_safety(self, snapshot: Mapping[str, object]) -> None:
+        """Validate and copy bounded runtime evidence without writing to disk."""
+        try:
+            _require(not self._finished)
+            prior_abort = self._value["safety"]["abort"]
+            _require(snapshot.get("policy") == self._value["safety"]["policy"])
+            _require(prior_abort is None or snapshot.get("abort") == prior_abort)
+            candidate = {**self._value, "safety": copy.deepcopy(dict(snapshot))}
+            _validate_report(candidate, self._admitted_scenario)
+            self._value = candidate
+            _require(not self.write_failed or snapshot.get("abort") is not None)
+        except ReportFailed:
+            self.write_failed = True
+            raise
+
     def record_safety(self, snapshot: Mapping[str, object]) -> None:
-        """Persist validated runtime evidence; the observer aborts on write failure."""
-        prior_abort = self._value["safety"]["abort"]
-        _require(snapshot.get("policy") == self._value["safety"]["policy"])
-        _require(prior_abort is None or snapshot.get("abort") == prior_abort)
-        self._update("safety", dict(snapshot))
-        if self._last_write_failed or (
-            self.write_failed and snapshot.get("abort") is None
-        ):
+        """Persist cached runtime evidence; failures stop further workload."""
+        self.cache_safety(snapshot)
+        self._snapshot()
+        if self._last_write_failed:
             raise ReportFailed
 
     def record_source(self, source: Mapping[str, object]) -> None:

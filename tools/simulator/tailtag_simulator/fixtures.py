@@ -480,7 +480,11 @@ async def run_provisioned(
     runtime = (
         safety
         or active_runtime()
-        or SafetyRuntime({}, observe=report.record_safety if report else None)
+        or SafetyRuntime(
+            {},
+            observe=report.cache_safety if report else None,
+            persist=report.record_safety if report else None,
+        )
     )
     if active_runtime() is not runtime:
         return await run_guarded(
@@ -661,16 +665,17 @@ async def run_provisioned(
                 await runtime.check_target()
                 with runtime.phase("cleanup"):
                     cleaned = await _clean(fixture_channel, pool, run, emit, report)
+                    # Preserve acknowledged cleanup before the exit checkpoint can fail.
+                    if cleaned:
+                        outcome, code = "pass", 0
+                    else:
+                        outcome = "cleanup"
                 if report is not None:
                     report.end(
                         "cleanup",
                         "passed" if cleaned else "failed",
                         None if cleaned else "FAIL_CLEANUP",
                     )
-                if cleaned:
-                    outcome, code = "pass", 0
-                else:
-                    outcome = "cleanup"
         except StageFailed as failure:
             if report is not None and failure.stage.split()[0] == "setup":
                 report.end("setup", "failed", "FAIL_SETUP")

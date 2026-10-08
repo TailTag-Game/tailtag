@@ -82,7 +82,7 @@ async def _read_identity(client: ApiClient, target: Target) -> dict[str, object]
         raise TargetUnavailable from None
     except RequestFailed:
         raise TargetRejected from None
-    if reply.status >= 500:
+    if reply.status in (408, 429) or reply.status >= 500:
         raise TargetUnavailable
     body = reply.body
     if reply.status != 200 or not isinstance(body, dict):

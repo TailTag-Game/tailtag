@@ -702,8 +702,10 @@ both convention versions) uses the shared safety runtime, even without a report.
 Staging checks identity, readiness, and identity before phases and privileged
 operations, pins the deployment for the run, and polls every 10 seconds. Local
 smoke remains available only through explicit `--target local` and its allow-list.
-One unavailable periodic probe pauses new traffic; a second aborts. A changed or
-malformed identity aborts immediately.
+One unavailable periodic probe pauses new traffic; a second aborts. HTTP 408/429
+identity responses are unavailable, and every non-200 readiness response is
+unavailable. A healthy next probe resumes traffic. A changed or malformed
+identity aborts immediately.
 
 Use `--safety-config path.json` or `SAFETY_CONFIG=path.json` with the corresponding
 Make target. The bounded JSON object accepts only the following fields; omitted
@@ -745,11 +747,22 @@ kill -USR1 <python-run-pid>
 
 Identify the specific `python -m tailtag_simulator ...` process in the supervised
 terminal/process listing. Do not signal the Make parent or another run. The CLI
-installs the handler for execution and restores it on exit. The signal latches a
+registers the handler with the running event loop, waking idle execution, and
+removes it and restores the previous process handler on exit. The signal latches a
 sanitized abort reason, cancels and awaits owned traffic, and writes schema-4
 report evidence. Record the relevant Railway/Sentry observation separately;
 the signal itself does not measure saturation. Ctrl-C retains interruption
 semantics. Every safety abort exits nonzero.
+
+Request admission, release, and outcome counts update validated in-memory
+safety evidence without disk writes. Phase transitions, target checks, monitor
+ticks, aborts, and finalization records persist the latest evidence; report
+finalization flushes the latest cache. Abort evidence is persisted immediately.
+A process crash between checkpoints can leave recent request counts absent from
+the last durable snapshot. Cache validation or persistence failure stops further
+workload and leaves a nonzero report. The prior Staging exercise remains
+historical evidence at source `578ebc0a377549289a92efc59a37dacf0b9ca00e`; these
+follow-up changes have deterministic regression proof and were not rerun live.
 
 Correctness/ceiling aborts permit bounded read-only diagnostics and
 retention/release after readiness and the same deployment are verified.

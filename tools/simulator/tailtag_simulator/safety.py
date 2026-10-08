@@ -169,9 +169,11 @@ class SafetyRuntime:
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         observe: Callable[[Mapping[str, object]], None] | None = None,
+        persist: Callable[[Mapping[str, object]], None] | None = None,
     ) -> None:
         self.policy = resolve_safety_policy(policy)
         self._now, self._sleep, self._observe = monotonic, sleep, observe
+        self._persist = persist
         self._started = monotonic()
         self._final_start: float | None = None
         self._identity: dict[str, object] | None = None
@@ -251,9 +253,13 @@ class SafetyRuntime:
         if name == "simulation" and self._window_start is None:
             self._window_start = self._now()
         try:
+            self._emit()
             yield
         finally:
-            _PHASE.reset(token)
+            try:
+                self._emit()
+            finally:
+                _PHASE.reset(token)
 
     @contextmanager
     def control(self) -> Generator[None]:
@@ -301,14 +307,23 @@ class SafetyRuntime:
         self.abort(reason)
         raise SafetyAborted(self.abort_reason or reason)
 
-    def _emit(self) -> None:
-        if self._observe is None:
-            return
+    def _emit(self, *, persist: bool = True) -> None:
         try:
-            self._observe(self.snapshot())
+            if self._observe is not None:
+                self._observe(self.snapshot())
+            if persist and self._persist is not None:
+                self._persist(self.snapshot())
         except Exception:  # noqa: BLE001 - boundary fails closed without external details
             recovering = self._final_start is not None and self.abort_reason is not None
             self.abort("report_failure", emit=False)
+            # Best effort records the first abort even when only cache validation failed.
+            # Do not recurse when the report boundary itself remains unavailable.
+            for callback in (self._observe, self._persist):
+                try:
+                    if callback is not None:
+                        callback(self.snapshot())
+                except Exception:  # noqa: BLE001, S110 - original failure stays latched
+                    pass
             if not recovering:
                 raise SafetyAborted(self.abort_reason or "report_failure") from None
 
@@ -505,14 +520,14 @@ class SafetyRuntime:
                 _count(budget[key + "_peak"]), _count(budget[key + "_active"])
             )
             active = True
-            self._emit()
+            self._emit(persist=False)
             yield start_send
         finally:
             if active:
                 budget[key + "_active"] = _count(budget[key + "_active"]) - 1
             active = False
             semaphore.release()
-            self._emit()
+            self._emit(persist=False)
 
     def _close_windows(self) -> None:
         if self._window_start is None:
@@ -563,7 +578,7 @@ class SafetyRuntime:
         self._close_windows()
         self._errors["current_completed"] += 1
         self._errors["current_catastrophic"] += int(catastrophic)
-        self._emit()
+        self._emit(persist=False)
 
     def observed_reply(self, status: int) -> None:
         self._outcome(500 <= status <= 599)
@@ -661,6 +676,8 @@ class SafetyRuntime:
                     if self.abort_reason is None and self._now() >= next_probe:
                         await self._check(periodic=True)
                         next_probe = self._now() + self._number("poll_seconds")
+                    else:
+                        self._emit()
             except SafetyAborted:
                 pass
             except asyncio.CancelledError:

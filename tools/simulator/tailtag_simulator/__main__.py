@@ -334,19 +334,25 @@ async def _execute(args: argparse.Namespace) -> int:
         if report.write_failed:
             _emit("FAIL report")
             return report.finish(1)
-    safety = SafetyRuntime(policy, observe=report.record_safety if report else None)
+    safety = SafetyRuntime(
+        policy,
+        observe=report.cache_safety if report else None,
+        persist=report.record_safety if report else None,
+    )
+    loop = asyncio.get_running_loop()
     previous = signal.getsignal(signal.SIGUSR1)
 
-    def stop(_signum: int, _frame: object) -> None:
+    def stop() -> None:
         try:
             safety.abort("resource_saturation")
         except Exception:  # noqa: BLE001, S110 - report failure remains latched
             pass
 
-    signal.signal(signal.SIGUSR1, stop)
+    loop.add_signal_handler(signal.SIGUSR1, stop)
     try:
         return await _dispatch(args, config, report, safety)
     finally:
+        loop.remove_signal_handler(signal.SIGUSR1)
         signal.signal(signal.SIGUSR1, previous)
 
 

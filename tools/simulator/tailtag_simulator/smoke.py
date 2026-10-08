@@ -114,7 +114,11 @@ async def run_smoke(
     runtime = (
         safety
         or active_runtime()
-        or SafetyRuntime({}, observe=report.record_safety if report else None)
+        or SafetyRuntime(
+            {},
+            observe=report.cache_safety if report else None,
+            persist=report.record_safety if report else None,
+        )
     )
     if active_runtime() is not runtime:
         return await run_guarded(

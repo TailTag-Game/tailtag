@@ -534,6 +534,8 @@ def test_cli_operator_signal_stops_owned_http_and_restores_signal_handler(
     import importlib
     import os
     import signal
+    import threading
+    import time
 
     from tailtag_simulator import __main__ as command
 
@@ -587,14 +589,22 @@ def test_cli_operator_signal_stops_owned_http_and_restores_signal_handler(
 
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
-    previous = signal.getsignal(signal.SIGUSR1)
+    original_handler = signal.getsignal(signal.SIGUSR1)
+
+    def previous(_signum: int, _frame: object) -> None:
+        # A failed install must never deliver SIGUSR1 to its process-killing default.
+        pass
+
+    signal.signal(signal.SIGUSR1, previous)
     acknowledged = False
+    delivered: list[float] = []
+    sender: threading.Thread | None = None
     sent: list[str] = []
 
     async def serve(
         _transport: httpx.AsyncHTTPTransport, request: httpx.Request
     ) -> httpx.Response:
-        nonlocal acknowledged
+        nonlocal acknowledged, sender
         sent.append(request.url.path)
         if request.url.path == "/health/identity":
             return httpx.Response(
@@ -611,18 +621,38 @@ def test_cli_operator_signal_stops_owned_http_and_restores_signal_handler(
         assert signal.getsignal(signal.SIGUSR1) != previous, (
             "CLI never installed operator signal handler"
         )
-        # Guard above makes pre-implementation red safe even when SIGUSR1 defaults to kill.
-        os.kill(os.getpid(), signal.SIGUSR1)
+
+        def send_while_idle() -> None:
+            # Let all runnable HTTP/race tasks settle into the selector first.
+            time.sleep(0.1)
+            delivered.append(time.monotonic())
+            os.kill(os.getpid(), signal.SIGUSR1)
+
+        sender = threading.Thread(target=send_while_idle)
+        sender.start()
         try:
-            await asyncio.Event().wait()
+            # The long timer bounds red without accidentally supplying the wakeup.
+            await asyncio.wait_for(asyncio.Event().wait(), timeout=5)
         finally:
             acknowledged = True
         return httpx.Response(200, json={"id": 1})
 
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", serve)
     reports = tmp_path / "reports"
-    assert main(["smoke", "--target", "staging", "--report-dir", str(reports)]) != 0
-    assert signal.getsignal(signal.SIGUSR1) == previous
+    try:
+        assert main(["smoke", "--target", "staging", "--report-dir", str(reports)]) != 0
+        finished = time.monotonic()
+        assert signal.getsignal(signal.SIGUSR1) is previous
+        assert delivered and finished - delivered[0] < 1, (
+            "operator stop waited for the idle selector watchdog"
+        )
+    finally:
+        try:
+            if sender is not None:
+                sender.join(timeout=1)
+                assert not sender.is_alive()
+        finally:
+            signal.signal(signal.SIGUSR1, original_handler)
     assert acknowledged
     values = list(reports.rglob("*.json"))
     assert len(values) == 1

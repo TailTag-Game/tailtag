@@ -10,6 +10,7 @@ import httpx
 import pytest
 from report_support import RUN_ID, literal_report, read_report
 from safety_report_support import POLICY, literal_safety
+from traffic_support import ManualClock
 
 from tailtag_simulator.client import open_client
 from tailtag_simulator.reports import ReportFailed, RunReport, validate_report
@@ -177,7 +178,9 @@ def test_safety_persistence_failure_latches_abort_before_more_http(
 
     async def execute() -> None:
         nonlocal armed
-        runtime = SafetyRuntime(POLICY, observe=report.record_safety)
+        runtime = SafetyRuntime(
+            POLICY, observe=report.cache_safety, persist=report.record_safety
+        )
 
         async def probe() -> dict[str, object]:
             return dict(literal_safety()["target"]["identity"])
@@ -186,6 +189,9 @@ def test_safety_persistence_failure_latches_abort_before_more_http(
         with runtime.scope():
             await runtime.check_target()
             armed = True
+            # Hot request updates are cached; an explicit probe is a durable boundary.
+            with pytest.raises(SafetyAborted):
+                await runtime.check_target()
             async with open_client(
                 "https://staging.tailtag.app",
                 transport=httpx.MockTransport(
@@ -231,3 +237,156 @@ def test_terminal_abort_evidence_cannot_be_reported_as_ordinary_failure(
     value["outcome"] = "failed"
     with pytest.raises(ReportFailed):
         validate_report(value)
+
+
+def test_hot_http_caches_evidence_until_phase_tick_abort_or_finish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Durability checkpoints retain latest evidence without hotpath disk writes."""
+    time = ManualClock()
+    policy = {**POLICY, "error_window_seconds": 5}
+    report = RunReport(
+        tmp_path,
+        "smoke",
+        config={"target": "staging"},
+        run_id=RUN_ID,
+        safety_policy=policy,
+    )
+    writes: list[str] = []
+    original_fsync, original_replace = os.fsync, os.replace
+
+    def fsync(fd: int) -> None:
+        writes.append("fsync")
+        original_fsync(fd)
+
+    def replace(source: Any, destination: Any) -> None:
+        writes.append("replace")
+        original_replace(source, destination)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    monkeypatch.setattr(os, "replace", replace)
+
+    async def execute() -> None:
+        runtime = SafetyRuntime(
+            policy,
+            monotonic=lambda: time.now,
+            sleep=time.sleep,
+            observe=report.cache_safety,
+            persist=report.record_safety,
+        )
+
+        async def probe() -> dict[str, object]:
+            return dict(literal_safety()["target"]["identity"])
+
+        runtime.bind_probe(probe)
+        entered, released = asyncio.Event(), asyncio.Event()
+
+        async def respond(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/blocked":
+                entered.set()
+                await released.wait()
+            return httpx.Response(
+                503 if request.url.path == "/unavailable" else 200, json={}
+            )
+
+        with runtime.scope():
+            await runtime.check_target()
+            assert read_report(report.path)["safety"]["preflight"]["passed"] == 1
+            async with open_client(
+                "https://staging.tailtag.app", transport=httpx.MockTransport(respond)
+            ) as client:
+                with runtime.phase("simulation"):
+                    checkpoint = len(writes)
+                    await client.get("/ok")
+                    await client.get("/unavailable")
+                    assert len(writes) == checkpoint
+                    assert (
+                        read_report(report.path)["safety"]["execution"]["requests"] == 0
+                    )
+                persisted = read_report(report.path)["safety"]
+                assert persisted["execution"]["requests"] == 2
+                assert persisted["execution"]["ordinary_active"] == 0
+                assert persisted["errors"]["current_completed"] == 2
+                assert persisted["errors"]["current_catastrophic"] == 1
+
+                with runtime.phase("simulation"):
+                    await runtime.start_monitor()
+                    blocked = asyncio.create_task(client.get("/blocked"))
+                    try:
+                        await asyncio.wait_for(entered.wait(), timeout=3)
+                        await time.settle()
+                        checkpoint = len(writes)
+                        await time.advance(5)  # Before the ten-second identity poll.
+                        assert len(writes) > checkpoint
+                        persisted = read_report(report.path)["safety"]
+                        assert persisted["probes"]["checks"] == 0
+                        assert persisted["execution"]["requests"] == 3
+                        assert persisted["execution"]["ordinary_active"] == 1
+                        assert persisted["errors"]["last_completed"] == 2
+                        assert persisted["errors"]["last_catastrophic"] == 1
+                        checkpoint = len(writes)
+                        released.set()
+                        await asyncio.wait_for(blocked, timeout=3)
+                        assert len(writes) == checkpoint
+                        runtime.abort("resource_saturation")
+                        persisted = read_report(report.path)["safety"]
+                        assert persisted["abort"] == {
+                            "reason": "resource_saturation",
+                            "elapsed_seconds": 5.0,
+                        }
+                        assert persisted["execution"]["ordinary_active"] == 0
+                        assert persisted["errors"]["current_completed"] == 1
+                    finally:
+                        if not blocked.done():
+                            blocked.cancel()
+                        await asyncio.gather(blocked, return_exceptions=True)
+                        await runtime.stop_monitor()
+                assert await runtime.begin_finalization()
+                with runtime.phase("finalization"):
+                    await client.get("/retain")
+                    runtime.record_finalization("retention", "passed")
+                    persisted = read_report(report.path)["safety"]
+                    assert persisted["finalization"]["retention"] == "passed"
+                    assert persisted["finalization"]["requests"] == 1
+                # After the phase checkpoint, finish must flush this latest cache.
+                checkpoint = len(writes)
+                await client.get("/closure")
+                assert len(writes) == checkpoint
+                assert (
+                    read_report(report.path)["safety"]["finalization"]["requests"] == 1
+                )
+                assert report.finish(0) != 0
+                persisted = read_report(report.path)["safety"]
+                assert persisted["finalization"]["requests"] == 2
+                assert persisted["finalization"]["ordinary_active"] == 0
+                assert persisted["errors"]["current_completed"] == 1
+        assert not time.waiters
+
+    asyncio.run(execute())
+    assert writes.count("fsync") == writes.count("replace") > 0
+    assert read_report(report.path)["outcome"] == "aborted"
+    assert not list(tmp_path.glob(".snapshot-*"))
+
+
+def test_invalid_cached_safety_latches_failure_and_preserves_last_valid_evidence(
+    tmp_path: Path,
+) -> None:
+    report = RunReport(
+        tmp_path,
+        "smoke",
+        config={"target": "staging"},
+        run_id=RUN_ID,
+        safety_policy=POLICY,
+    )
+    report.cache_safety(literal_safety())
+    invalid = literal_safety()
+    invalid["execution"]["SENTINEL-secret"] = "private-provider-ID"
+    with pytest.raises(ReportFailed):
+        report.cache_safety(invalid)
+    assert report.write_failed
+    assert report.finish(0) != 0
+    value = read_report(report.path)
+    assert value["outcome"] == "failed"
+    assert value["failure"] == {"stage": "report", "code": "FAIL_REPORT"}
+    assert value["safety"] == literal_safety()
+    assert "SENTINEL" not in report.path.read_text()
