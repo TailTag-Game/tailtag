@@ -18,6 +18,10 @@ class RequestFailed(Exception):
     """A request did not complete as a plain, bounded, non-redirect response."""
 
 
+class TransportFailed(RequestFailed):
+    """A genuine transport failure, without external error details."""
+
+
 @dataclass(frozen=True)
 class Reply:
     """One observed response: the status and the parsed JSON body, if it had one."""
@@ -114,7 +118,7 @@ class ApiClient:
                         raise RequestFailed
                 status = response.status_code
         except httpx.HTTPError:
-            raise RequestFailed from None
+            raise TransportFailed from None
         try:
             parsed: object | None = json.loads(raw)
         except (RecursionError, UnicodeError, ValueError):

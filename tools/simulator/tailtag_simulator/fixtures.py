@@ -527,7 +527,8 @@ async def run_provisioned(
                     outcome = "reconciliation"
                 raise
             if report is not None:
-                report.set_correctness("passed" if outcome == "pass" else "failed")
+                if report.scenario_version != 2 or report.correctness == "not_observed":
+                    report.set_correctness("passed" if outcome == "pass" else "failed")
                 if outcome == "pass":
                     outcome = "interrupted"
                     await attribute(verified, report, api_transport)

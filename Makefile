@@ -274,7 +274,7 @@ sim-journeys: ## Run the Staging acceptance journeys: POOL=name (host only; leas
 	@test -n "$(POOL)" || { printf '%s\n' 'POOL is required.' >&2; exit 2; }
 	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator journeys --pool '$(POOL)' $(if $(VERSION),--scenario-version '$(VERSION)') $(if $(SEED),--seed '$(SEED)') $(if $(REPORT_DIR),--report-dir '$(REPORT_DIR)')
 
-sim-convention: ## Run a finite convention population: POOL=name FAMILY=baseline [CONFIG=path VERSION=1 SEED=0 REPORT_DIR=path].
+sim-convention: ## Run convention workloads: POOL=name FAMILY=baseline [CONFIG=path VERSION=1|2 SEED=0 REPORT_DIR=path].
 	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator convention --pool '$(subst ','"'"',$(POOL))' --family '$(subst ','"'"',$(FAMILY))' $(if $(CONFIG),--config '$(subst ','"'"',$(CONFIG))') $(if $(VERSION),--scenario-version '$(subst ','"'"',$(VERSION))') $(if $(SEED),--seed '$(subst ','"'"',$(SEED))') $(if $(REPORT_DIR),--report-dir '$(subst ','"'"',$(REPORT_DIR))')
 
 sim-cleanup: ## Clean one Staging simulation run and readmit its identities: POOL=name RUN_ID=id (host only).
