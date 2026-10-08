@@ -13,8 +13,11 @@ execution-choice prompts; local implementation is already authorized.
 
 AC13 ceilings, AC12 polling/deadline, AC16 error windows are frozen in the design.
 Preserve public-only SIMULATION, exact Staging/local policy, bounded inspection,
-existing retries/workload budgets, closed sanitized report validation. No live
-traffic/deployment/commit/push/merge authorization; no automated metric ingestion.
+existing retries/workload budgets, closed sanitized report validation. External
+actions require separate authorization; no automated metric ingestion.
+Subsequent user authorization covered the source commit, bounded Staging proof,
+two-identity provisioning, one normal retry, and PR publication. Deployment and
+merge remain unauthorized.
 
 ## U1 — Safety core and protected HTTP/target boundary
 
@@ -68,6 +71,7 @@ traffic/deployment/commit/push/merge authorization; no automated metric ingestio
   stop/remove task-owned disposable resources, restore engine state if started.
 - [x] AC coverage/review/evidence ledger updated. Prepare concrete small Staging
   normal/operator-stop proof with bounded configuration and recovery steps;
-  the separately explicit AC25 live authorization/evidence gate remains open.
+  the separately explicit AC25 live gate passed; see the
+  [Staging proof](2026-10-08-simulation-runtime-guardrails-staging-proof.md).
 
 No implementation or external success claim is permitted without fresh evidence.

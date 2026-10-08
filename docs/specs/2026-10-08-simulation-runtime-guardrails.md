@@ -284,10 +284,13 @@ failure mode/review finding. No product/backend time change or live chaos.
 - Completed final gate: canonical simulator/backend checks, doctor, diff/scope
   audit, fresh whole-change review, AC1–24 evidence accounting and cleanup.
   No implementation edits or local validation remain.
-- Current: local implementation ready on the focused branch, uncommitted.
-  AC25 is the separately authorized live integration gate; issue closeout remains open.
+- Current: implementation committed as `578ebc0a377549289a92efc59a37dacf0b9ca00e`.
+  AC25 passed through separately authorized bounded Staging execution; final proof
+  is recorded in [the Staging proof](2026-10-08-simulation-runtime-guardrails-staging-proof.md).
 - Resources: disposable task database removed, originally stopped OrbStack engine
   restored to stopped. No task-owned server/container/watch process remains.
-- Pending: AC25 small Staging normal/operator-stop proof package is ready, but live
-  execution requires its separately explicit authorization and approved clean
-  source provenance. No commit, push, deployment, merge or live traffic performed.
+  Staging has two intentionally reusable synthetic pool identities, both available,
+  zero leased/quarantined identities and zero retained/unfinished runs. All owned
+  Terminal windows and processes are closed.
+- Publication: user authorized committing the final proof, pushing the focused
+  branch and opening a ready-for-review PR. No deployment or merge authorized.
