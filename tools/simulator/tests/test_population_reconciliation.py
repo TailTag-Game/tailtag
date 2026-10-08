@@ -12,7 +12,7 @@ import sys
 from collections.abc import Mapping
 from contextlib import AsyncExitStack
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 import pytest
@@ -373,3 +373,51 @@ def test_population_launcher_sanitizes_unknown_provider_failure(tmp_path: Path) 
 
     assert caught.value.result == "FAIL_LAUNCHER"
     assert "SENTINEL" not in repr(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("expectation", "persisted", "known", "passed", "check"),
+    [
+        ("required", 1, True, True, None),
+        ("required", 1, False, False, "inspect"),
+        ("forbidden", 0, False, True, None),
+        ("forbidden", 1, False, False, "unexpected"),
+        ("unresolved", 0, False, False, "inspect"),
+        ("unresolved", 1, False, False, "inspect"),
+    ],
+    ids=[
+        "required-canonical",
+        "required-needs-observation",
+        "forbidden-empty",
+        "forbidden-attempt-is-not-permission",
+        "unresolved-empty-never-passes",
+        "unresolved-commit-never-passes",
+    ],
+)
+def test_explicit_pair_expectations_never_authorize_negative_or_unobserved_writes(
+    expectation: Literal["required", "forbidden", "unresolved"],
+    persisted: int,
+    known: bool,
+    passed: bool,
+    check: str | None,
+) -> None:
+    """#226 AC20–22: generic attempts cannot grant negative writes or hide doubt."""
+    expected = PopulationExpectations()
+    pair = ("attendee4", 8001)
+    expected.attempts.add(pair)
+    # Deliberately assign to the approved additive seam: the legacy comparator
+    # executes and fails behaviorally when it ignores the new expectation.
+    expected.pairs = {pair: expectation}
+    if known:
+        expected.made[pair] = Made(7001, AT)
+    data = copy.deepcopy(DATA)
+    data["catches"] = [{**ROW, "id": 7001 + n} for n in range(persisted)]
+
+    result, actors = reconcile(data, expectations=expected)
+
+    assert result.passed is passed
+    assert actors == set(INDEXES)
+    if check is not None:
+        assert check in {item.check for item in result.discrepancies}
+    output = "\n".join(population_reconciliation_lines(result))
+    assert not any(secret in output for secret in ("7001", "8001", AT, "SENTINEL"))

@@ -20,6 +20,14 @@ from tailtag_simulator.population_reconciliation import (
 from tailtag_simulator.reports import ReportFailed, RunReport
 from tailtag_simulator.scenarios import ScenarioRejected
 from tailtag_simulator.smoke import StageFailed, stage
+from tailtag_simulator.traffic import Clock, TrafficRuntime
+from tailtag_simulator.traffic_behavior import (
+    TrafficCancelled,
+    simulate_traffic_population,
+)
+from tailtag_simulator.traffic_config import resolve_traffic_config
+
+_DEFAULT_TRAFFIC_CLOCK = Clock()
 
 
 async def run_convention(
@@ -27,6 +35,8 @@ async def run_convention(
     *,
     config: Mapping[str, object],
     seed: int,
+    scenario_version: int = 1,
+    traffic_clock: Clock = _DEFAULT_TRAFFIC_CLOCK,
     prompt_secret: Callable[[], str],
     lease_channel: LeaseChannel,
     fixture_channel: FixtureChannel,
@@ -39,7 +49,11 @@ async def run_convention(
     report: RunReport | None = None,
 ) -> int:
     try:
-        normalized = resolve_behavior_config(config)
+        if type(scenario_version) is not int or scenario_version not in (1, 2):
+            raise ScenarioRejected
+        normalized = (
+            resolve_traffic_config if scenario_version == 2 else resolve_behavior_config
+        )(config)
         if normalized["pool"] != pool or type(seed) is not int:
             raise ScenarioRejected
     except (ScenarioRejected, ValueError):
@@ -59,14 +73,38 @@ async def run_convention(
         indexes: tuple[int, ...],
     ) -> Literal["pass", "journeys", "reconciliation"]:
         del origin
+        context = PopulationContext(clients[:owners], clients[owners:])
+        runtime = (
+            TrafficRuntime(normalized, clock=traffic_clock)
+            if scenario_version == 2
+            else None
+        )
         with stage("simulation", report):
-            simulated = await simulate_population(
-                PopulationContext(clients[:owners], clients[owners:]), normalized, seed
-            )
+            if runtime is None:
+                simulated = await simulate_population(context, normalized, seed)
+            else:
+                try:
+                    traffic_run = await simulate_traffic_population(
+                        context, normalized, seed, clock=traffic_clock, runtime=runtime
+                    )
+                except TrafficCancelled as cancellation:
+                    if report is not None:
+                        try:
+                            report.record_behavior(
+                                cancellation.population.summaries,
+                                cancellation.population.failure,
+                            )
+                            report.record_traffic(runtime.snapshot())
+                        except ReportFailed:
+                            pass  # Persistence cannot prevent cancellation/finalization.
+                    raise
+                simulated = traffic_run.population
         report_failed = False
         if report is not None:
             try:
                 report.record_behavior(simulated.summaries, simulated.failure)
+                if runtime is not None:
+                    report.record_traffic(runtime.snapshot())
             except ReportFailed:
                 report_failed = True
         labels = tuple(f"owner{n}" for n in range(owners)) + tuple(
@@ -99,13 +137,23 @@ async def run_convention(
                         "reason": None,
                     }
                 )
+                if runtime is not None:
+                    report.set_correctness("passed" if checked.passed else "failed")
             except ReportFailed:
                 report_failed = True
         for line in population_reconciliation_lines(checked):
             emit(line)
         if report_failed:
             raise StageFailed("report")
-        if not simulated.passed:
+        traffic = runtime.snapshot() if runtime is not None else None
+        if not simulated.passed or (
+            traffic is not None
+            and (
+                traffic["stop_reason"] is not None
+                or traffic["exhausted"]
+                or traffic["unresolved"]
+            )
+        ):
             emit("FAIL simulation result=FAIL_SIMULATION")
             return "journeys"
         return "pass" if checked.passed else "reconciliation"

@@ -15,6 +15,7 @@ from tailtag_simulator.behavior_config import (
     resolve_behavior_config,
 )
 from tailtag_simulator.targets import LOCAL_ORIGINS
+from tailtag_simulator.traffic_config import resolve_traffic_config
 
 
 class ScenarioRejected(Exception):
@@ -92,7 +93,8 @@ def _entry(path: Path) -> dict[str, Any]:
         set(value) != expected
         or value["id"] not in IDS
         or type(value["version"]) is not int
-        or value["version"] != 1
+        or value["version"] not in (1, 2)
+        or (value["version"] == 2 and not value["id"].startswith("convention-"))
     ):
         raise ScenarioRejected
     descriptor = {k: v for k, v in value.items() if k != "descriptor_digest"}
@@ -120,6 +122,10 @@ def _entry(path: Path) -> dict[str, Any]:
             "family": family,
             "cycles": 3 if family == "soak" else 1,
         }
+        if value["version"] == 2:
+            expected_defaults.update(
+                {key: {} for key in ("traffic", "failure", "retry", "limits")}
+            )
         macro = dict(
             zip(
                 FAMILIES,
@@ -143,7 +149,7 @@ def _entry(path: Path) -> dict[str, Any]:
                 "provision",
                 "context",
                 "owner_cycle",
-                macro,
+                "traffic_schedule" if value["version"] == 2 else macro,
                 "owner_stop",
                 "reconciliation",
                 "identity_final",
@@ -157,13 +163,13 @@ def _entry(path: Path) -> dict[str, Any]:
                 "run_owned_fursuits",
                 "public_api_only",
                 "separate_owner_attendee",
-                "finite_cycles",
+                "bounded_generation" if value["version"] == 2 else "finite_cycles",
                 f"family_{family.replace('-', '_')}",
             ],
             "waits_seconds": [],
         }
         if canonical(defaults) != canonical(expected_defaults) or parameters != {
-            key: key for key in DEFAULTS
+            key: key for key in expected_defaults
         }:
             raise ScenarioRejected
         for key, expected_value in expected_profile.items():
@@ -310,7 +316,7 @@ def resolve_scenario(
     command: str, version: int, config: Mapping[str, object]
 ) -> dict[str, object]:
     try:
-        if command not in IDS or type(version) is not int or version != 1:
+        if command not in IDS or type(version) is not int or version not in (1, 2):
             raise ScenarioRejected
         entry = _entry(CATALOG / f"{command}-v{version}.json")
         descriptor = {k: v for k, v in entry.items() if k != "descriptor_digest"}
@@ -324,7 +330,9 @@ def resolve_scenario(
             raise ScenarioRejected
         effective = {**defaults, **config}
         if command.startswith("convention-"):
-            effective = resolve_behavior_config(effective)
+            effective = (
+                resolve_traffic_config if version == 2 else resolve_behavior_config
+            )(effective)
             if effective["family"] != command.removeprefix("convention-"):
                 raise ScenarioRejected
             return {

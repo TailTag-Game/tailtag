@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from tailtag_simulator import reports_v2
+from tailtag_simulator import reports_v2, reports_v3
 from tailtag_simulator.limits import (
     LAUNCHER_TIMEOUT_SECONDS,
     LEASE_TTL_SECONDS,
@@ -388,7 +388,7 @@ def _validate_report(
         )
         _require(
             type(report["schema_version"]) is int
-            and report["schema_version"] in (1, 2)
+            and report["schema_version"] in (1, 2, 3)
             and _uuid(report["run_id"])
         )
         scenario = _object(
@@ -406,7 +406,8 @@ def _validate_report(
         v2 = isinstance(scenario["id"], str) and scenario["id"].startswith(
             "convention-"
         )
-        _require(report["schema_version"] == (2 if v2 else 1))
+        v3 = v2 and scenario["version"] == 2
+        _require(report["schema_version"] == (3 if v3 else 2 if v2 else 1))
         _require(
             type(scenario["seed"]) is int
             and scenario["consumes_randomness"] is v2
@@ -438,27 +439,34 @@ def _validate_report(
             canonical(report["population"])
             == canonical(_population(scenario["id"], config))
         )
-        _require(canonical(report["limits"]) == canonical(_limits(scenario["id"])))
+        expected_limits = _limits(scenario["id"])
+        if v3:
+            expected_limits = reports_v3.limits(expected_limits, config)
+        _require(canonical(report["limits"]) == canonical(expected_limits))
         _require(
-            report["profile"]
-            == {
-                "operations": resolved["descriptor"]["operations"],
-                "waits_seconds": resolved["descriptor"]["waits_seconds"],
-                "load_ramp": unavailable("not_implemented"),
-                **(
-                    {
-                        k: unavailable("not_implemented")
-                        for k in (
-                            "concurrency",
-                            "arrival_timing",
-                            "network_injection",
-                            "elapsed_time_soak",
-                        )
-                    }
-                    if v2
-                    else {}
-                ),
-            }
+            (canonical(report["profile"]) if v3 else report["profile"])
+            == (
+                canonical(reports_v3.profile(resolved["descriptor"], config))
+                if v3
+                else {
+                    "operations": resolved["descriptor"]["operations"],
+                    "waits_seconds": resolved["descriptor"]["waits_seconds"],
+                    "load_ramp": unavailable("not_implemented"),
+                    **(
+                        {
+                            k: unavailable("not_implemented")
+                            for k in (
+                                "concurrency",
+                                "arrival_timing",
+                                "network_injection",
+                                "elapsed_time_soak",
+                            )
+                        }
+                        if v2
+                        else {}
+                    ),
+                }
+            )
         )
         phases = _object(report["phases"], set(STAGES))
         inapplicable: set[str] = (
@@ -523,7 +531,14 @@ def _validate_report(
         if phases["attribution"]["status"] == "passed":
             _require(report["target"]["attribution"] == "verified")
         _require(report["correctness"] in ("passed", "failed", "not_observed"))
-        if v2:
+        if v3:
+            reports_v3.results(
+                report["results"],
+                config,
+                successful=report["outcome"] == "passed",
+                correct=report["correctness"] == "passed",
+            )
+        elif v2:
             reports_v2.results(
                 report["results"], config, successful=report["correctness"] == "passed"
             )
@@ -539,7 +554,7 @@ def _validate_report(
                         "provenance",
                         "target",
                         "setup",
-                        "simulation",
+                        *(("simulation",) if not v3 else ()),
                         "reconciliation",
                     )
                 )
@@ -709,7 +724,7 @@ class RunReport:
         )
         v2 = scenario_id.startswith("convention-")
         self._value: dict[str, Any] = {
-            "schema_version": 2 if v2 else 1,
+            "schema_version": 3 if v2 and scenario_version == 2 else 2 if v2 else 1,
             "run_id": self._run_id,
             "scenario": {**resolved, "seed": seed, "consumes_randomness": v2},
             "source": {
@@ -805,6 +820,14 @@ class RunReport:
                 "checks": {"items": [], "count": 0, "reason": "not_observed"},
                 "cleanup": unavailable(),
             }
+        if v2 and scenario_version == 2:
+            self._value["profile"] = reports_v3.profile(
+                resolved["descriptor"], configuration
+            )
+            self._value["limits"] = reports_v3.limits(
+                _limits(scenario_id), configuration
+            )
+            self._value["results"]["traffic"] = unavailable()
         validate_report(self._value)
         reserved = False
         try:
@@ -829,6 +852,20 @@ class RunReport:
     @property
     def run_id(self) -> str:
         return self._run_id
+
+    @property
+    def scenario_version(self) -> int:
+        return self._value["scenario"]["version"]
+
+    @property
+    def correctness(self) -> str:
+        return self._value["correctness"]
+
+    def record_traffic(self, snapshot: Mapping[str, object]) -> None:
+        _require(self._value["schema_version"] == 3)
+        results = copy.deepcopy(self._value["results"])
+        results["traffic"] = observed(copy.deepcopy(dict(snapshot)))
+        self._update("results", results)
 
     def _wall(self) -> str:
         value = self._clock()

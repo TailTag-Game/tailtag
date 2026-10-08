@@ -34,6 +34,7 @@ from tailtag_simulator.reconciliation import InspectionLauncherChannel
 from tailtag_simulator.reports import ReportFailed, RunReport, load_report
 from tailtag_simulator.scenarios import ScenarioRejected
 from tailtag_simulator.smoke import run_smoke
+from tailtag_simulator.traffic_config import resolve_traffic_config
 
 LAUNCHER_COMMAND = ["make", "-s", "--no-print-directory", "api-sim-pool-ssh"]
 FIXTURE_LAUNCHER_COMMAND = [
@@ -282,7 +283,11 @@ async def _execute(args: argparse.Namespace) -> int:
                     _behavior_file(args.config) if args.config is not None else {}
                 )
                 config["family"] = args.family
-                config = resolve_behavior_config(config)
+                config = (
+                    resolve_traffic_config
+                    if args.scenario_version == 2
+                    else resolve_behavior_config
+                )(config)
             except (ScenarioRejected, ValueError):
                 _emit("FAIL configuration")
                 return 1
@@ -320,6 +325,7 @@ async def _execute(args: argparse.Namespace) -> int:
             str(args.pool),
             config=config,
             seed=args.seed,
+            scenario_version=args.scenario_version,
             prompt_secret=_prompt_secret,
             lease_channel=_launcher(),
             fixture_channel=_fixture_launcher(),

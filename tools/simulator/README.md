@@ -484,20 +484,93 @@ runs clean up; release and session closure run last. Public behavior receives on
 public clients. Read-only population inspection compares all actors' authoritative
 state and complete histories before cleanup.
 
-Convention reports use schema version 2, with six persona summaries and bounded
+Version-1 convention reports use schema version 2, with six persona summaries and bounded
 actor discrepancies. `completed` counts successful target visits, `created` first
 catches, `already_caught` revisits and duplicates, `retries` extra confirmations,
 `cycles` completed actor-cycles, and `unused_budget` unmet distinct-target budget
 once per run. Owner completion counts armed fursuit sessions per cycle. Trace,
 credentials, runtime IDs and raw responses are not persisted. The [literal v2
 example](tests/data/report-v2-convention.json) and [approved design](../../docs/specs/2026-10-06-convention-virtual-users.md)
-provide the exact contract. Both report versions validate offline.
+provide the exact historical contract. All supported report versions validate offline.
 
-Concurrency, arrival timing, traffic ramps, network failure injection, elapsed-time
-soak and performance measurements remain unavailable (`not_implemented`). These
+Version 1 records concurrency, arrival timing, traffic ramps, network failure
+injection and elapsed-time soak as unavailable (`not_implemented`). Performance
+measurements remain deferred for all versions. These
 families establish behavioral evidence; they do not establish load capacity.
 Live acceptance requires five small family proofs after separately approved
 publication and Staging promotion; local boundary tests do not complete that gate.
+
+### Opt-in convention traffic (version 2)
+
+Use `VERSION=2` or `--scenario-version 2` to select concurrent, stateful traffic
+and schema-3 reports. Omitting it preserves version-1 execution and schema 2.
+The five new recipes are additive: distributed arrivals (`baseline`), a
+concentrated release (`post-event`), overlapping confirmations on one target
+(`hotspot`), selected client effects (`retry`), and elapsed-time repeated journeys
+(`soak`). All population and timing defaults are synthetic assumptions.
+
+```bash
+make sim-convention POOL=p1 FAMILY=baseline VERSION=2 CONFIG=/path/to/traffic.json SEED=42
+```
+
+A bounded JSON configuration can combine configurable persona counts, target
+budgets, extra-confirmation repeats and target weights with `traffic`, `failure`,
+`retry`, and `limits`. Version 2 uses elapsed traffic to control actor reentry
+and reads completion history after every entry. Its `cycles`, `activation_break`,
+and `*_history` fields are fixed compatibility metadata: `cycles` is 3 for soak
+and 1 for other families, `activation_break` is false, and `casual_history`,
+`active_history`, `heavy_history`, and `retry_history` are 0, 3, 1, and 1,
+respectively. Nondefault values are rejected before external work. Version 1
+retains its configurable cycles, activation breaks and history cadence.
+For example:
+
+```json
+{
+  "traffic": {
+    "mode": "arrivals",
+    "segments": [{"duration_seconds": 2, "start": 0, "end": 4}],
+    "bursts": [{"at_seconds": 1, "count": 2}],
+    "think_seconds": 0.05
+  },
+  "failure": {"operations": ["confirm"], "lost_response_rate": 0.1},
+  "retry": {"attempts": 3, "base_seconds": 0.25, "cap_seconds": 2},
+  "limits": {"attempts": 5000, "active": 10, "in_flight": 10,
+             "generation_seconds": 300, "drain_seconds": 15}
+}
+```
+
+Active mode uses integral segment targets bounded by attendees and the active
+ceiling. Arrivals that cannot be admitted are counted and skipped without a
+backlog. Actors preserve state between entries; ordinary journeys for one actor
+never overlap. The explicit hotspot duplicate experiment sends bounded overlapping
+real confirmations. Soak revisits bounded pairs; all historical fixture and
+200-distinct-catch inspection bounds still apply.
+
+Effects cover selected reads, resolution and confirmation: pre-send delay/failure,
+real response delay, and concealed lost/timeout-like responses. They never fabricate
+backend replies or affect setup, authentication refresh, inspection or cleanup.
+Retries reuse confirmation payloads; exhausted retries fail the workload even when
+persisted correctness passes. `domain_case` selects `none`, `stale`, `stopped` or
+`expired`; `recover_existing` separates canonical recovery from forbidden creation.
+Natural expiration requires explicit duration/limits sufficient for the real
+12-hour lifetime. Its long live proof is deferred to #230; no server clock changes
+or database writes are used.
+
+Schema 3 records resolved profiles, configured ceilings, an intended-plan digest,
+bounded offered/admitted/skipped/completed timing buckets, peaks, lag, actual
+generation/drain duration, and failure/retry/rejection/uncertainty counts.
+Correctness and workload completion are separate: a safety stop or unresolved
+submission cannot produce a passed run. Failed/interrupted runs retain fixtures
+and release leases after task-owned work ends. Reports omit raw credentials,
+identities, payloads, response bodies and unbounded traces. The seed and recorded
+configuration reproduce intended choices/timing/effects with the same source and
+runtime; actual network timing and completion ordering may differ.
+
+These commands execute Staging work and require separate live-execution
+authorization. Small Staging family/failure proof remains an explicit gate;
+convention-scale readiness, latency/SLO analysis and the long expiration proof
+are deferred. The [implementation contract](../../docs/specs/2026-10-07-convention-traffic.md)
+defines the complete closed parameter and evidence shapes.
 
 ## Run reports
 
@@ -519,7 +592,8 @@ uv run --locked --no-sync python -m tailtag_simulator report validate /path/to/r
 CLI options are `--scenario-version`, `--seed`, and `--report-dir`. Version 1 is
 supported for each current command. Convention workloads consume the recorded integer
 seed; the four legacy workloads record it without making random choices. There are
-no traffic ramps, request/duration/concurrency ceilings or performance measurements. Existing request,
+no traffic ramps or workload ceilings in version 1. Version 2 adds the bounded
+traffic evidence described above; performance percentiles and SLOs remain deferred. Existing request,
 response, launcher, lease and retention limits are recorded with their units and
 actual enforcement scopes.
 
@@ -527,7 +601,7 @@ Report schema changes require a new `schema_version`, independently of scenario
 versions. Supported older reports retain their original contract and meaning;
 unsupported versions are rejected offline without conversion or reinterpretation.
 
-Schema versions 1 and 2 are strict: unknown fields, duplicate keys, invalid measurements,
+Schema versions 1, 2 and 3 are strict: unknown fields, duplicate keys, invalid measurements,
 unsupported versions, unsafe configuration and malformed files fail offline with
 only `FAIL report`; valid files print only `PASS report`. Validation performs no
 backend or provider requests. The [frozen design](../../docs/specs/2026-10-05-simulation-scenarios-run-reports.md)

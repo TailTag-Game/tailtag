@@ -88,6 +88,8 @@ async def step(
     expected = f"{status}/{code}"
     try:
         reply = await sending
+    except StepFailed:
+        raise
     except Exception:  # noqa: BLE001 - any send failure, a token refresh included, is "error"
         raise StepFailed(name, expected, "error") from None
     observed = _observed_code(reply.body)
@@ -102,14 +104,21 @@ async def step(
     return reply.body
 
 
-async def arm_session(owner: ApiClient, activation: str) -> str:
+async def arm_session(
+    owner: ApiClient,
+    activation: str,
+    *,
+    observed_session: Callable[[object], None] | None = None,
+) -> str:
     """Start the fursuit's catch session and read its credential; return the payload."""
-    await step(
+    session = await step(
         "session",
         owner.put(f"{activation}catch-session/", {"is_active": True}),
         200,
         shape=lambda b: get_value(b, "is_active") is True,
     )
+    if observed_session is not None:
+        observed_session(session)
     body = await step(
         "credential",
         owner.get(f"{activation}catch-credential/"),

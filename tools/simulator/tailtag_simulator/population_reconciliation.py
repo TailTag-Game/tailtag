@@ -5,7 +5,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 from tailtag_simulator.client import ApiClient
 from tailtag_simulator.gameplay import HistoryEntry, read_history
@@ -24,6 +24,13 @@ from tailtag_simulator.reconciliation import (
 
 @dataclass
 class PopulationExpectations:
+    pairs: dict[tuple[str, int], Literal["required", "forbidden", "unresolved"]] = (
+        field(
+            default_factory=dict[
+                tuple[str, int], Literal["required", "forbidden", "unresolved"]
+            ]
+        )
+    )
     target_owners: dict[int, str] = field(default_factory=dict[int, str])
     attempts: set[tuple[str, int]] = field(default_factory=set[tuple[str, int]])
     made: dict[tuple[str, int], Made] = field(
@@ -189,7 +196,14 @@ async def reconcile_population(
         made = expectations.made.get(pair)
         if len(positions) > 1:
             add(Check.DUPLICATE, actor, 1, len(positions))
-        if pair not in expectations.attempts and made is None:
+        explicit = expectations.pairs.get(pair)
+        if (
+            expectations.pairs
+            and (explicit == "forbidden" or explicit is None)
+            or not expectations.pairs
+            and pair not in expectations.attempts
+            and made is None
+        ):
             add(Check.UNEXPECTED, actor, 0, len(positions))
         for position in positions:
             row = inspected.catches[position]
@@ -204,6 +218,13 @@ async def reconcile_population(
                 add(Check.PROVENANCE, actor, 1, 0)
             if not row.in_window:
                 add(Check.WINDOW, actor, 1, 0)
+    for pair, expected in expectations.pairs.items():
+        if (
+            expected == "unresolved"
+            or expected == "required"
+            and pair not in expectations.made
+        ):
+            add(Check.INSPECT, pair[0], 1, 0)
     for pair in expectations.made:
         if pair not in pairs:
             add(Check.MISSING, pair[0], 1, 0)
