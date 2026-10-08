@@ -1,7 +1,9 @@
 """#226 U2: real traffic engine/client/comparator; external HTTP/time only."""
 
 from collections.abc import Mapping
+from typing import cast
 
+import httpx
 import pytest
 from traffic_behavior_support import (
     AT,
@@ -12,7 +14,7 @@ from traffic_behavior_support import (
 )
 
 from tailtag_simulator.reconciliation import Made
-from tailtag_simulator.safety import SafetyRuntime
+from tailtag_simulator.safety import SafetyRuntime, active_runtime
 
 
 def confirmations(world: TrafficWorld) -> list[tuple[str, Mapping[str, object]]]:
@@ -301,6 +303,72 @@ def test_retry_exhaustion_keeps_uncertainty_and_allows_other_actors_to_finish() 
     assert len([a for a, _b in confirmations(world) if a == "attendee1"]) == 1
     assert result.population.expectations.made == {("attendee1", 100): Made(7001, AT)}
     assert len(world.gameplay.catches) == 1
+
+
+@pytest.mark.parametrize("boundary", ["preparation", "arrival"])
+@pytest.mark.parametrize(
+    ("reason", "stop_reason"),
+    [("correctness", "correctness"), ("resource_saturation", "external")],
+)
+def test_shared_safety_abort_stops_future_offers_and_joins_traffic(
+    boundary: str, reason: str, stop_reason: str
+) -> None:
+    config = config_for(
+        actors=2,
+        traffic={
+            "segments": [{"duration_seconds": 2, "start": 0, "end": 0}],
+            "bursts": [{"at_seconds": 0.01, "count": 1}, {"at_seconds": 1, "count": 1}],
+            "think_seconds": 0,
+            "max_entries": 2,
+        },
+    )
+    guarded_sends: list[tuple[str, str]] = []
+    sends_at_abort = 0
+
+    class AbortingWorld(TrafficWorld):
+        async def send(self, request: httpx.Request) -> httpx.Response:
+            nonlocal sends_at_abort
+            guarded = active_runtime() is safety
+            actor = request.headers["Authorization"].removeprefix("Bearer ")
+            path = request.url.path
+            if guarded:
+                guarded_sends.append((actor, path))
+            response = await super().send(request)
+            if (
+                guarded
+                and safety.abort_reason is None
+                and (
+                    (
+                        boundary == "preparation"
+                        and actor == "owner0"
+                        and path == "/api/me/"
+                    )
+                    or (
+                        boundary == "arrival"
+                        and path.endswith("/catch-credentials/resolve/")
+                    )
+                )
+            ):
+                # The external response boundary simulates an operator/resource
+                # signal while keeping the real client, guard and scheduler.
+                safety.abort(reason)
+                sends_at_abort = len(guarded_sends)
+            return response
+
+    world = AbortingWorld(config)
+    safety = SafetyRuntime({}, monotonic=lambda: world.time.now, sleep=world.time.sleep)
+    result, _compared = run_traffic(world, config, safety=safety, check_joined=True)
+
+    expected_offers = 0 if boundary == "preparation" else 1
+    assert result.traffic["offered"] == result.traffic["admitted"] == expected_offers
+    assert result.traffic["stop_reason"] == stop_reason
+    assert not result.population.passed
+    assert safety.abort_reason == reason
+    assert sends_at_abort > 0 and len(guarded_sends) == sends_at_abort
+    assert (
+        cast(dict[str, object], safety.snapshot()["execution"])["ordinary_active"] == 0
+    )
+    assert world.gameplay.catches == []
 
 
 def test_shared_target_expiration_allows_each_actor_to_establish_then_recover() -> None:

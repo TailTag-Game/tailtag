@@ -8,7 +8,7 @@ import pytest
 from traffic_support import ManualClock
 
 from tailtag_simulator.client import open_client
-from tailtag_simulator.safety import SafetyRuntime
+from tailtag_simulator.safety import SafetyAborted, SafetyRuntime
 from tailtag_simulator.targets import TargetRejected, resolve_target, verify_target
 
 ORIGIN = "https://staging.tailtag.app"
@@ -125,6 +125,72 @@ def test_transient_health_http_pauses_admission_until_next_healthy_probe(
                         if not request.done():
                             request.cancel()
                         await asyncio.gather(request, return_exceptions=True)
+                    await runtime.stop_monitor()
+        assert not time.waiters
+
+    asyncio.run(execute())
+
+
+def test_readiness_redirect_is_terminal_and_cannot_resume_after_healthy_probe() -> None:
+    async def execute() -> None:
+        time = ManualClock()
+        runtime = SafetyRuntime({}, monotonic=lambda: time.now, sleep=time.sleep)
+        redirect = False
+        sent: list[str] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            assert "authorization" not in request.headers
+            sent.append(str(request.url))
+            if redirect and request.url.path == "/health/ready":
+                return httpx.Response(
+                    307, headers={"location": "https://evil.test/ready"}
+                )
+            return httpx.Response(
+                200,
+                json=IDENTITY
+                if request.url.path == "/health/identity"
+                else {"status": "ok"},
+            )
+
+        async with open_client(
+            ORIGIN, transport=httpx.MockTransport(respond)
+        ) as client:
+
+            async def probe() -> dict[str, object]:
+                return (
+                    await verify_target(client, resolve_target("staging", None))
+                ).identity()
+
+            runtime.bind_probe(probe)
+            with runtime.scope(), runtime.phase("simulation"):
+                await runtime.check_target()
+                await runtime.start_monitor()
+                try:
+                    redirect = True
+                    await time.settle()
+                    await time.advance(10)
+                    for _ in range(5):
+                        await time.settle()
+                    assert runtime.abort_reason == "identity_mismatch"
+                    probes = cast(dict[str, object], runtime.snapshot()["probes"])
+                    assert probes["failed"] == 1
+                    assert probes["last"] == "invalid"
+                    assert sent == [
+                        f"{ORIGIN}/health/identity",
+                        f"{ORIGIN}/health/ready",
+                        f"{ORIGIN}/health/identity",
+                        f"{ORIGIN}/health/identity",
+                        f"{ORIGIN}/health/ready",
+                    ]
+                    redirect = False
+                    await time.advance(10)
+                    with pytest.raises(SafetyAborted):
+                        await runtime.check_target()
+                    with pytest.raises(SafetyAborted):
+                        await client.get("/business")
+                    assert runtime.abort_reason == "identity_mismatch"
+                    assert len(sent) == 5
+                finally:
                     await runtime.stop_monitor()
         assert not time.waiters
 

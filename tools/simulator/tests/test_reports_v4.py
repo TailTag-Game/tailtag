@@ -384,6 +384,12 @@ def test_invalid_cached_safety_latches_failure_and_preserves_last_valid_evidence
     with pytest.raises(ReportFailed):
         report.cache_safety(invalid)
     assert report.write_failed
+    later = literal_safety()
+    later["execution"]["requests"] = 5
+    # Valid evidence is rejected because recorder failure is already latched.
+    validate_report({**literal_report(), "schema_version": 4, "safety": later})
+    with pytest.raises(ReportFailed):
+        report.cache_safety(later)
     assert report.finish(0) != 0
     value = read_report(report.path)
     assert value["outcome"] == "failed"

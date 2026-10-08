@@ -937,8 +937,8 @@ class RunReport:
             _require(prior_abort is None or snapshot.get("abort") == prior_abort)
             candidate = {**self._value, "safety": copy.deepcopy(dict(snapshot))}
             _validate_report(candidate, self._admitted_scenario)
-            self._value = candidate
             _require(not self.write_failed or snapshot.get("abort") is not None)
+            self._value = candidate
         except ReportFailed:
             self.write_failed = True
             raise

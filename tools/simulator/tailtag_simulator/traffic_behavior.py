@@ -35,7 +35,7 @@ from tailtag_simulator.gameplay import (
 )
 from tailtag_simulator.population_reconciliation import PopulationExpectations
 from tailtag_simulator.reconciliation import Made
-from tailtag_simulator.safety import active_runtime
+from tailtag_simulator.safety import SafetyAborted, active_runtime
 from tailtag_simulator.traffic import Clock, Entry, TrafficRuntime, run_schedule
 from tailtag_simulator.traffic_effects import RetryExhausted, TrafficEffects
 
@@ -383,6 +383,12 @@ async def simulate_traffic_population(
             summaries[actor.persona]["history_reads"] += 1
             summaries[actor.persona]["cycles"] += 1
             return True
+        except SafetyAborted as safety_failure:
+            failed = True
+            runtime.stop(
+                "correctness" if safety_failure.reason == "correctness" else "external"
+            )
+            return False
         except RetryExhausted:
             failed = True
             summaries[actor.persona]["exhausted"] += 1
@@ -453,6 +459,11 @@ async def simulate_traffic_population(
                 expectations, convention, False, summaries, "FAIL_SIMULATION", ()
             )
         ) from None
+    except SafetyAborted as safety_failure:
+        failed = True
+        runtime.stop(
+            "correctness" if safety_failure.reason == "correctness" else "external"
+        )
     except TransportFailed:
         failed = True
     except (IntegrityFailed, RequestFailed):
