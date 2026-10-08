@@ -248,7 +248,7 @@ sim-check: sim-catalog-check sim-format-check sim-lint-check sim-type-check sim-
 
 sim-smoke: ## Run the manual authenticated smoke: TARGET=local|staging [BASE_URL=...].
 	@test -n "$(TARGET)" || { printf '%s\n' 'TARGET is required: local or staging.' >&2; exit 2; }
-	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator smoke --target '$(TARGET)' $(if $(BASE_URL),--base-url '$(BASE_URL)') $(if $(VERSION),--scenario-version '$(VERSION)') $(if $(SEED),--seed '$(SEED)') $(if $(REPORT_DIR),--report-dir '$(REPORT_DIR)')
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator smoke --target '$(TARGET)' $(if $(BASE_URL),--base-url '$(BASE_URL)') $(if $(VERSION),--scenario-version '$(VERSION)') $(if $(SEED),--seed '$(SEED)') $(if $(REPORT_DIR),--report-dir '$(REPORT_DIR)') $(if $(SAFETY_CONFIG),--safety-config '$(subst ','"'"',$(SAFETY_CONFIG))')
 
 sim-pool-provision: ## Provision or expand the Staging identity pool: POOL=name SIZE=n (host only).
 	@test -n "$(POOL)" -a -n "$(SIZE)" || { printf '%s\n' 'POOL and SIZE are required.' >&2; exit 2; }
@@ -264,18 +264,18 @@ sim-pool-readmit: ## Re-admit a repaired quarantined identity: POOL=name INDEX=n
 
 sim-pool-smoke: ## Run the Staging identity pool smoke: POOL=name COUNT=n (host only).
 	@test -n "$(POOL)" -a -n "$(COUNT)" || { printf '%s\n' 'POOL and COUNT are required.' >&2; exit 2; }
-	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator pool-smoke --pool '$(POOL)' --count '$(COUNT)' $(if $(VERSION),--scenario-version '$(VERSION)') $(if $(SEED),--seed '$(SEED)') $(if $(REPORT_DIR),--report-dir '$(REPORT_DIR)')
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator pool-smoke --pool '$(POOL)' --count '$(COUNT)' $(if $(VERSION),--scenario-version '$(VERSION)') $(if $(SEED),--seed '$(SEED)') $(if $(REPORT_DIR),--report-dir '$(REPORT_DIR)') $(if $(SAFETY_CONFIG),--safety-config '$(subst ','"'"',$(SAFETY_CONFIG))')
 
 sim-fixture-smoke: ## Run the Staging fixture smoke: POOL=name [OWNERS=n FURSUITS=k CATCHERS=m] (host only).
 	@test -n "$(POOL)" || { printf '%s\n' 'POOL is required.' >&2; exit 2; }
-	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator fixture-smoke --pool '$(POOL)' $(if $(OWNERS),--owners '$(OWNERS)') $(if $(FURSUITS),--fursuits '$(FURSUITS)') $(if $(CATCHERS),--catchers '$(CATCHERS)') $(if $(VERSION),--scenario-version '$(VERSION)') $(if $(SEED),--seed '$(SEED)') $(if $(REPORT_DIR),--report-dir '$(REPORT_DIR)')
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator fixture-smoke --pool '$(POOL)' $(if $(OWNERS),--owners '$(OWNERS)') $(if $(FURSUITS),--fursuits '$(FURSUITS)') $(if $(CATCHERS),--catchers '$(CATCHERS)') $(if $(VERSION),--scenario-version '$(VERSION)') $(if $(SEED),--seed '$(SEED)') $(if $(REPORT_DIR),--report-dir '$(REPORT_DIR)') $(if $(SAFETY_CONFIG),--safety-config '$(subst ','"'"',$(SAFETY_CONFIG))')
 
 sim-journeys: ## Run the Staging acceptance journeys: POOL=name (host only; leases 7 identities).
 	@test -n "$(POOL)" || { printf '%s\n' 'POOL is required.' >&2; exit 2; }
-	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator journeys --pool '$(POOL)' $(if $(VERSION),--scenario-version '$(VERSION)') $(if $(SEED),--seed '$(SEED)') $(if $(REPORT_DIR),--report-dir '$(REPORT_DIR)')
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator journeys --pool '$(POOL)' $(if $(VERSION),--scenario-version '$(VERSION)') $(if $(SEED),--seed '$(SEED)') $(if $(REPORT_DIR),--report-dir '$(REPORT_DIR)') $(if $(SAFETY_CONFIG),--safety-config '$(subst ','"'"',$(SAFETY_CONFIG))')
 
 sim-convention: ## Run convention workloads: POOL=name FAMILY=baseline [CONFIG=path VERSION=1|2 SEED=0 REPORT_DIR=path].
-	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator convention --pool '$(subst ','"'"',$(POOL))' --family '$(subst ','"'"',$(FAMILY))' $(if $(CONFIG),--config '$(subst ','"'"',$(CONFIG))') $(if $(VERSION),--scenario-version '$(subst ','"'"',$(VERSION))') $(if $(SEED),--seed '$(subst ','"'"',$(SEED))') $(if $(REPORT_DIR),--report-dir '$(subst ','"'"',$(REPORT_DIR))')
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator convention --pool '$(subst ','"'"',$(POOL))' --family '$(subst ','"'"',$(FAMILY))' $(if $(CONFIG),--config '$(subst ','"'"',$(CONFIG))') $(if $(VERSION),--scenario-version '$(subst ','"'"',$(VERSION))') $(if $(SEED),--seed '$(subst ','"'"',$(SEED))') $(if $(REPORT_DIR),--report-dir '$(subst ','"'"',$(REPORT_DIR))') $(if $(SAFETY_CONFIG),--safety-config '$(subst ','"'"',$(SAFETY_CONFIG))') $(if $(filter 1 true yes,$(UNATTENDED)),--unattended)
 
 sim-cleanup: ## Clean one Staging simulation run and readmit its identities: POOL=name RUN_ID=id (host only).
 	@test -n "$(POOL)" -a -n "$(RUN_ID)" || { printf '%s\n' 'POOL and RUN_ID are required.' >&2; exit 2; }

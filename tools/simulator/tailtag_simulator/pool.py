@@ -33,15 +33,18 @@ from tailtag_simulator.clerk import (
     open_session,
 )
 from tailtag_simulator.client import ApiClient, Reply, open_client
+from tailtag_simulator.lifecycle import run_guarded
 from tailtag_simulator.phases import (
     ME_PATH,
     Observations,
     PhaseFailed,
     ReconciliationContext,
+    observe_identity,
     reconcile,
 )
 from tailtag_simulator.reports import RunReport
-from tailtag_simulator.smoke import StageFailed, attribute, stage
+from tailtag_simulator.safety import SafetyAborted, SafetyRuntime, active_runtime
+from tailtag_simulator.smoke import StageFailed, attribute, guarded_stage
 from tailtag_simulator.targets import resolve_target, verify_target
 
 LEASE_TTL_SECONDS: Final = limits.LEASE_TTL_SECONDS
@@ -162,15 +165,23 @@ class LauncherChannel:
     async def call(
         self, operation: str, pool: str, arguments: Mapping[str, object]
     ) -> Mapping[str, object]:
-        request = json.dumps(
-            {"operation": operation, "pool": pool, "arguments": dict(arguments)}
-        ).encode()
+        envelope: dict[str, object] = {
+            "operation": operation,
+            "pool": pool,
+            "arguments": dict(arguments),
+        }
+        runtime = active_runtime()
+        if runtime is not None:
+            envelope["expected_identity"] = await runtime.privileged_identity()
+        request = json.dumps(envelope).encode()
         try:
             result, fields = await run_launcher(
                 self._command, self._cwd, self._timeout_seconds, request
             )
         except LAUNCHER_ERRORS:
             raise LeaseFailed("FAIL_LAUNCHER") from None
+        if result == "FAIL_TARGET" and runtime is not None:
+            runtime.abort("identity_mismatch")
         if result != "PASS":
             available = fields.get("available")
             raise LeaseFailed(
@@ -272,12 +283,28 @@ class PoolSimulationContext:
 
 async def simulate_round(context: PoolSimulationContext) -> tuple[Reply, ...]:
     """One public `GET /api/me/` per identity, recorded as it came back."""
-    return tuple([await client.get(ME_PATH) for client in context.clients])
+    replies: list[Reply] = []
+    identities: set[int] = set()
+    for client in context.clients:
+        reply = await client.get(ME_PATH)
+        replies.append(reply)
+        identity = observe_identity(reply)
+        if identity is not None:
+            if identity in identities:
+                runtime = active_runtime()
+                if runtime is not None:
+                    runtime.abort("correctness")
+                raise PhaseFailed
+            identities.add(identity)
+    return tuple(replies)
 
 
 def _profile(reply: Reply) -> tuple[object, object, object]:
     raw = reply.body
     if reply.status != 200 or not isinstance(raw, dict):
+        runtime = active_runtime()
+        if runtime is not None and 200 <= reply.status < 300:
+            runtime.abort("correctness")
         raise PhaseFailed
     body = cast(dict[str, object], raw)
     return body.get("handle"), body.get("display_name"), body.get("onboarding_complete")
@@ -292,6 +319,9 @@ async def _ensure_profile(client: ApiClient, pool: str, index: int) -> None:
             await client.put(PROFILE_PATH, {"handle": handle, "display_name": name})
         )
     if current[:2] != (handle, name) or current[2] is not True:
+        runtime = active_runtime()
+        if runtime is not None:
+            runtime.abort("correctness")
         raise PhaseFailed
 
 
@@ -338,21 +368,84 @@ def _reconcile(first: Sequence[Reply], second: Sequence[Reply]) -> None:
 
 
 async def release(
-    stack: AsyncExitStack, channel: LeaseChannel, pool: str, run_id: str
+    stack: AsyncExitStack,
+    channel: LeaseChannel,
+    pool: str,
+    run_id: str,
+    *,
+    permit_release: bool = True,
+    quarantine_indexes: Sequence[int] = (),
 ) -> bool:
-    """End every Clerk session and release the leases; one half failing never skips the other."""
+    """Close owned Clerk sessions and release only a freshly allowed pinned target."""
+    runtime = active_runtime()
     released = True
     interruption: BaseException | None = None
     try:
-        await stack.aclose()
-    except BaseException as failure:  # noqa: BLE001 - attempt both obligations before propagating interruption
+        if runtime is None:
+            await stack.aclose()
+        else:
+            await runtime.run_closure(stack.aclose())
+            runtime.record_finalization("clerk_closure", "passed")
+    except BaseException as failure:  # noqa: BLE001 - complete both obligations before propagating cancellation
         released = False
+        if runtime is not None:
+            runtime.record_finalization("clerk_closure", "uncertain")
         if not isinstance(failure, Exception):
             interruption = failure
     try:
-        await channel.call("release", pool, {"run_id": run_id})
-    except BaseException as failure:  # noqa: BLE001 - attempt both obligations before propagating interruption
+        if quarantine_indexes:
+            quarantined = True
+            if runtime is not None and not bool(
+                cast(dict[str, object], runtime.snapshot()["finalization"])["allowed"]
+            ):
+                quarantined = False
+            else:
+                for index in quarantine_indexes:
+                    try:
+                        if runtime is None:
+                            await channel.call(
+                                "quarantine", pool, {"index": index, "run_id": run_id}
+                            )
+                        else:
+                            with runtime.phase("retention"):
+                                await runtime.check_target()
+                                await runtime.run_phase(
+                                    channel.call(
+                                        "quarantine",
+                                        pool,
+                                        {"index": index, "run_id": run_id},
+                                    )
+                                )
+                    except Exception:  # noqa: BLE001 - an unacknowledged quarantine must keep its lease
+                        quarantined = False
+            permit_release = permit_release and quarantined
+            if runtime is not None:
+                runtime.record_finalization(
+                    "retention", "passed" if quarantined else "uncertain"
+                )
+        if not permit_release or (
+            runtime is not None
+            and not bool(
+                cast(dict[str, object], runtime.snapshot()["finalization"])["allowed"]
+            )
+        ):
+            if runtime is not None:
+                runtime.record_finalization("release", "skipped")
+            released = False
+        else:
+            if runtime is None:
+                await channel.call("release", pool, {"run_id": run_id})
+            else:
+                with runtime.phase("release"):
+                    await runtime.check_target()
+                    await runtime.run_phase(
+                        channel.call("release", pool, {"run_id": run_id})
+                    )
+                runtime.record_finalization("release", "passed")
+    except BaseException as failure:  # noqa: BLE001 - complete both obligations before propagating cancellation
         released = False
+        if runtime is not None:
+            runtime.record_finalization("release", "uncertain")
         if not isinstance(failure, Exception):
             interruption = failure
     if interruption is not None:
@@ -373,6 +466,7 @@ class Held:
     """Whether an allocation may have leased slots, so RELEASE must run."""
 
     leases: bool = False
+    quarantine_indexes: tuple[int, ...] = ()
 
 
 async def open_identities(
@@ -422,7 +516,7 @@ async def open_identities(
             raise PhaseFailed
         clients: list[ApiClient] = []
         bad: list[int] = []
-        for index in cast(list[int], indexes):
+        for position, index in enumerate(cast(list[int], indexes)):
             try:
                 clients.append(
                     await _open_identity(
@@ -438,13 +532,32 @@ async def open_identities(
                 )
             except Exception:  # noqa: BLE001 - quarantined below
                 bad.append(index)
-        if len(bad) == count:
+                runtime = active_runtime()
+                if runtime is not None and runtime.abort_reason is not None:
+                    bad.extend(cast(list[int], indexes)[position + 1 :])
+                    break
+        runtime = active_runtime()
+        if len(bad) == count and (runtime is None or runtime.abort_reason is None):
             # Every identity failing points at the environment, not the identities.
             raise SetupFailed
-        for index in bad:
-            with suppress(LeaseFailed):
-                await channel.call("quarantine", pool, {"index": index, "run_id": run})
+        held.quarantine_indexes = tuple(bad)
+        if runtime is None or runtime.abort_reason is None:
+            for index in bad:
+                try:
+                    await channel.call(
+                        "quarantine", pool, {"index": index, "run_id": run}
+                    )
+                except LeaseFailed:
+                    continue
+                held.quarantine_indexes = tuple(
+                    pending for pending in held.quarantine_indexes if pending != index
+                )
         if bad:
+            if held.quarantine_indexes:
+                raise SetupFailed(
+                    " pending_quarantine="
+                    + ",".join(str(i) for i in sorted(held.quarantine_indexes))
+                )
             raise SetupFailed(" quarantined=" + ",".join(str(i) for i in sorted(bad)))
     return tuple(cast(list[int], indexes)), tuple(clients)
 
@@ -462,19 +575,53 @@ async def run_pool_smoke(
     clock: Callable[[], float] = time.time,
     run_id: str | None = None,
     report: RunReport | None = None,
+    safety: SafetyRuntime | None = None,
 ) -> int:
     """Run the pool smoke on Staging and return the exit code: 0 only if all passed.
 
     Once an allocation might have leased slots, RELEASE always runs, even after a
     failure or an interrupt.
     """
+    runtime = (
+        safety
+        or active_runtime()
+        or SafetyRuntime(
+            {},
+            observe=report.cache_safety if report else None,
+            persist=report.record_safety if report else None,
+        )
+    )
+    if active_runtime() is not runtime:
+        return await run_guarded(
+            lambda: run_pool_smoke(
+                pool,
+                count,
+                prompt_secret=prompt_secret,
+                channel=channel,
+                emit=emit,
+                clerk_transport=clerk_transport,
+                api_transport=api_transport,
+                sleep=sleep,
+                clock=clock,
+                run_id=run_id,
+                report=report,
+                safety=runtime,
+            ),
+            safety=runtime,
+            target="staging",
+            base_url=None,
+            population=count,
+            transport=api_transport,
+            report=report,
+            emit=emit,
+        )
     run = report.run_id if report is not None else run_id or str(uuid.uuid4())
     stack = AsyncExitStack()
     held = Held()
     code = 1
     try:
         try:
-            with stage("target", report):
+            async with guarded_stage("target", report):
                 resolved = resolve_target("staging", None)
                 async with open_client(
                     resolved.origin, transport=api_transport
@@ -488,19 +635,23 @@ async def run_pool_smoke(
             emit(f"PASS target staging source_sha={verified.source_sha}")
 
             try:
-                _, clients = await open_identities(
-                    pool,
-                    count,
-                    run,
-                    prompt_secret=prompt_secret,
-                    channel=channel,
-                    stack=stack,
-                    held=held,
-                    origin=resolved.origin,
-                    clerk_transport=clerk_transport,
-                    api_transport=api_transport,
-                    clock=clock,
-                )
+                await runtime.check_target()
+                with runtime.phase("setup"):
+                    _, clients = await open_identities(
+                        pool,
+                        count,
+                        run,
+                        prompt_secret=prompt_secret,
+                        channel=channel,
+                        stack=stack,
+                        held=held,
+                        origin=resolved.origin,
+                        clerk_transport=clerk_transport,
+                        api_transport=api_transport,
+                        clock=clock,
+                    )
+            except SafetyAborted:
+                raise
             except SetupFailed as failure:
                 raise StageFailed(f"setup{failure.detail}") from None
             except Exception:  # noqa: BLE001 - failures become a fixed stage
@@ -509,7 +660,7 @@ async def run_pool_smoke(
                 report.end("setup", "passed")
             emit(f"PASS setup identities={count}")
 
-            with stage("simulation", report):
+            async with guarded_stage("simulation", report):
                 context = PoolSimulationContext(clients)
                 first = await simulate_round(context)
                 beat = await channel.call(
@@ -522,7 +673,7 @@ async def run_pool_smoke(
                 second = await simulate_round(context)
             emit("PASS simulation")
 
-            with stage("reconciliation", report):
+            async with guarded_stage("reconciliation", report):
                 _reconcile(first, second)
             emit("PASS reconciliation")
             if report is not None:
@@ -537,29 +688,51 @@ async def run_pool_smoke(
         code = 130
         raise
     finally:
-        try:
-            if held.leases:
-                if report is not None:
-                    report.begin("release")
-                try:
-                    released = await release(stack, channel, pool, run)
-                except BaseException:
-                    code = 130
+
+        async def finalize() -> None:
+            nonlocal code
+            if report is not None and report.write_failed:
+                runtime.abort("report_failure", emit=False)
+            await runtime.stop_monitor()
+            await runtime.begin_finalization()
+            try:
+                if held.leases:
                     if report is not None:
-                        report.end("release", "interrupted", "FAIL_INTERRUPTED")
-                    raise
-                emit("PASS release" if released else "FAIL release")
+                        report.begin("release")
+                    try:
+                        released = await release(
+                            stack,
+                            channel,
+                            pool,
+                            run,
+                            quarantine_indexes=held.quarantine_indexes,
+                        )
+                    except BaseException:
+                        code = 130
+                        if report is not None:
+                            report.end("release", "interrupted", "FAIL_INTERRUPTED")
+                        raise
+                    emit("PASS release" if released else "FAIL release")
+                    if report is not None:
+                        report.end(
+                            "release",
+                            "passed" if released else "failed",
+                            None if released else "FAIL_RELEASE",
+                        )
+                    if not released:
+                        code = 1
+                else:
+                    await runtime.run_closure(stack.aclose())
+                    runtime.record_finalization("clerk_closure", "passed")
+            finally:
                 if report is not None:
-                    report.end(
-                        "release",
-                        "passed" if released else "failed",
-                        None if released else "FAIL_RELEASE",
-                    )
-                if not released:
-                    code = 1
-            else:
-                await stack.aclose()
-        finally:
-            if report is not None:
-                code = report.finish(code)
+                    report.record_safety(runtime.snapshot())
+
+        finalizer = asyncio.create_task(finalize())
+        try:
+            await asyncio.shield(finalizer)
+        except asyncio.CancelledError:
+            await finalizer
+            raise
+
     return code

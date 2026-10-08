@@ -90,7 +90,9 @@ def finalized(run: Rig) -> None:
         assert secret not in evidence
 
 
-@pytest.mark.parametrize("fault", [None, "inspection", "attempts"])
+@pytest.mark.parametrize(
+    "fault", [None, "inspection", "attempts", "unexpected-success"]
+)
 def test_v2_workload_evidence_drives_cleanup_or_retention_and_always_releases(
     tmp_path: Path,
     world: pool_support.World,
@@ -100,18 +102,40 @@ def test_v2_workload_evidence_drives_cleanup_or_retention_and_always_releases(
     # Enough for discovery and owner preparation; finite admission must then
     # stop the multi-persona gameplay workload while comparison remains usable.
     config = configuration(attempts=64 if fault == "attempts" else 5000)
+    if fault == "unexpected-success":
+        # Observe the first response before another actor is offered. Requests
+        # already in flight before an invalid response need no retroactive denial.
+        config["traffic"] = {
+            "segments": [{"duration_seconds": 0.2, "start": 0, "end": 0}],
+            "bursts": [
+                {"at_seconds": 0.01, "count": 1},
+                {"at_seconds": 0.1, "count": 1},
+            ],
+            "think_seconds": 0,
+        }
     run = traffic_rig(tmp_path, config)
     run.inspection.corrupt = fault == "inspection"
 
+    async def respond(request: httpx.Request) -> httpx.Response:
+        response = await run.world.api_transport.handle_async_request(request)
+        if (
+            fault == "unexpected-success"
+            and request.url.path == "/api/catches/confirm/"
+        ):
+            return httpx.Response(204)
+        return response
+
     async def exercise() -> int:
         before = asyncio.all_tasks()
-        code = await asyncio.wait_for(execute(run, config), 3)
+        code = await asyncio.wait_for(
+            execute(run, config, api_transport=httpx.MockTransport(respond)), 3
+        )
         assert asyncio.all_tasks() - before == set()
         return code
 
     code = asyncio.run(exercise())
     value = read_report(run.report.path)
-    assert value["schema_version"] == 3
+    assert value["schema_version"] == 4
     assert value["scenario"]["version"] == 2
     traffic = value["results"]["traffic"]
     assert traffic["reason"] is None
@@ -126,7 +150,22 @@ def test_v2_workload_evidence_drives_cleanup_or_retention_and_always_releases(
         assert run.fixtures.operations == ["retained_counts", "provision", "cleanup"]
     else:
         assert code == 1
-        assert value["outcome"] == "failed"
+        assert value["outcome"] == (
+            "aborted" if fault in {"inspection", "unexpected-success"} else "failed"
+        )
+        if fault in {"inspection", "unexpected-success"}:
+            assert value["safety"]["abort"]["reason"] == "correctness"
+        if fault == "unexpected-success":
+            assert (
+                len(
+                    [
+                        request
+                        for request in run.population.requests
+                        if request[2] == "/api/catches/confirm/"
+                    ]
+                )
+                == 1
+            )
         assert run.fixtures.operations[-1] == "retain"
         assert "cleanup" not in run.fixtures.operations
         if fault == "attempts":
@@ -176,7 +215,12 @@ def test_v2_cancelled_pending_real_confirmation_is_joined_before_retention_and_r
                     pass
 
     asyncio.run(exercise())
-    assert not [path for path in blocked.after_cancel if not path.endswith("/end")]
+    assert not [
+        path
+        for path in blocked.after_cancel
+        if not path.endswith("/end")
+        and path not in {"/health/identity", "/health/ready"}
+    ]
     assert "cleanup" not in run.fixtures.operations
     assert run.fixtures.operations[-1] == "retain"
     value = read_report(run.report.path)
@@ -270,7 +314,7 @@ def test_cli_explicit_v2_creates_schema3_before_source_failure(
     paths = list(root.rglob("*.json"))
     assert len(paths) == 1
     value = read_report(paths[0])
-    assert value["schema_version"] == 3
+    assert value["schema_version"] == 4
     assert value["scenario"]["version"] == 2
     assert value["failure"] == {"stage": "provenance", "code": "FAIL_PROVENANCE"}
 
@@ -382,7 +426,7 @@ def test_successful_cli_v2_forwards_version_to_real_runner(
     paths = list(root.rglob("*.json"))
     assert len(paths) == 1
     value = read_report(paths[0])
-    assert value["schema_version"] == 3
+    assert value["schema_version"] == 4
     assert value["scenario"]["version"] == 2
     assert value["outcome"] == value["correctness"] == "passed"
     assert value["results"]["traffic"]["value"]["offered"] == 6

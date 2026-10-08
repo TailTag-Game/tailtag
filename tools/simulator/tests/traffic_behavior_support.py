@@ -4,7 +4,7 @@ import asyncio
 import heapq
 import json
 from collections.abc import Mapping
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, nullcontext
 from datetime import UTC, datetime
 from typing import Any
 
@@ -17,6 +17,7 @@ from tailtag_simulator.population_reconciliation import (
     PopulationReconciliationResult,
     reconcile_population,
 )
+from tailtag_simulator.safety import SafetyRuntime
 from tailtag_simulator.traffic import Clock
 from tailtag_simulator.traffic_behavior import (
     TrafficPopulationRun,
@@ -223,6 +224,7 @@ def run_traffic(
     *,
     seed: int = 728,
     check_joined: bool = False,
+    safety: SafetyRuntime | None = None,
 ) -> tuple[TrafficPopulationRun, PopulationReconciliationResult]:
     async def execute() -> tuple[TrafficPopulationRun, PopulationReconciliationResult]:
         driver = asyncio.create_task(world.time.drive())
@@ -247,12 +249,13 @@ def run_traffic(
                     ),
                 )
                 previous_tasks = set(asyncio.all_tasks())
-                result = await asyncio.wait_for(
-                    simulate_traffic_population(
-                        context, config, seed, clock=world.time.clock
-                    ),
-                    timeout=5,
-                )
+                with safety.scope() if safety is not None else nullcontext():
+                    result = await asyncio.wait_for(
+                        simulate_traffic_population(
+                            context, config, seed, clock=world.time.clock
+                        ),
+                        timeout=5,
+                    )
                 if check_joined:
                     assert set(asyncio.all_tasks()) <= previous_tasks
                 compared = await reconcile_population(

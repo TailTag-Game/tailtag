@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from typing import Final, cast
 from urllib.parse import parse_qsl, urlsplit
 
-from tailtag_simulator.client import ApiClient, Reply
+from tailtag_simulator.client import ApiClient, Reply, RequestFailed, TransportFailed
+from tailtag_simulator.safety import SafetyAborted, active_runtime
 
 _CODES: Final = frozenset(
     {
@@ -32,6 +33,16 @@ class StepFailed(Exception):
         self.step = step
         self.expected = expected
         self.observed = observed
+
+
+class IntegrityFailed(StepFailed):
+    """Observed success-contract or persisted-integrity violation."""
+
+    def __init__(self, step: str, expected: str, observed: str) -> None:
+        super().__init__(step, expected, observed)
+        runtime = active_runtime()
+        if runtime is not None:
+            runtime.abort("correctness")
 
 
 # -- reading replies ---------------------------------------------------------------
@@ -88,19 +99,25 @@ async def step(
     expected = f"{status}/{code}"
     try:
         reply = await sending
-    except StepFailed:
+    except (StepFailed, SafetyAborted):
         raise
+    except TransportFailed:
+        raise StepFailed(name, expected, "error") from None
+    except RequestFailed:
+        raise IntegrityFailed(name, expected, "error") from None
     except Exception:  # noqa: BLE001 - any send failure, a token refresh included, is "error"
         raise StepFailed(name, expected, "error") from None
     observed = _observed_code(reply.body)
     if reply.status != status or observed != code:
-        raise StepFailed(name, expected, f"{reply.status}/{observed}")
+        failure = IntegrityFailed if 200 <= reply.status < 300 else StepFailed
+        raise failure(name, expected, f"{reply.status}/{observed}")
     try:
         valid = shape(reply.body)
     except Exception:  # noqa: BLE001 - malformed bodies have fixed diagnostics
         valid = False
     if not valid:
-        raise StepFailed(name, expected, f"{reply.status}/shape")
+        failure = IntegrityFailed if 200 <= reply.status < 300 else StepFailed
+        raise failure(name, expected, f"{reply.status}/shape")
     return reply.body
 
 
@@ -175,9 +192,9 @@ async def read_history(client: ApiClient, convention: int) -> tuple[HistoryEntry
     ids: set[int] = set()
     targets: set[int] = set()
     count: int | None = None
+    if type(convention) is not int or convention <= 0:
+        raise StepFailed("history", "known convention", "not_observed")
     try:
-        if type(convention) is not int or convention <= 0:
-            raise ValueError
         for page in range(1, 11):
             path = f"/api/catches/?convention_id={convention}&page_size=20&page={page}"
             body = await step("history", client.get(path), 200)
@@ -216,8 +233,8 @@ async def read_history(client: ApiClient, convention: int) -> tuple[HistoryEntry
             if not items or len(rows) >= count:
                 raise ValueError
             _next_page(next_, client, convention, page)
-    except StepFailed:
+    except (StepFailed, SafetyAborted):
         raise
     except Exception:  # noqa: BLE001 - all parsing failures have fixed diagnostics
-        raise StepFailed("history", "200/-", "200/shape") from None
-    raise StepFailed("history", "200/-", "200/shape")
+        raise IntegrityFailed("history", "200/-", "200/shape") from None
+    raise IntegrityFailed("history", "200/-", "200/shape")

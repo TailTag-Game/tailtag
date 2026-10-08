@@ -92,7 +92,7 @@ def smoke(
             sleep=sleep,
             clock=world.clock,
             run_id=run_id,
-            **({"report": report} if report is not None else {}),
+            report=report,
         )
     )
     return Run(code, lines, len(prompts))
@@ -273,7 +273,11 @@ def test_unverified_target_fails_before_any_prompt_lease_or_clerk_call(
 
     run = smoke(world, channel)
 
-    assert (run.code, run.lines, run.prompts) == (1, ["FAIL target"], 0)
+    assert (run.code, run.lines, run.prompts) == (
+        1,
+        ["FAIL safety reason=identity_mismatch"],
+        0,
+    )
     assert channel.calls == []
     assert world.kinds("backend", "frontend", "prompt") == []
 
@@ -294,10 +298,16 @@ def test_shortfall_leases_nothing_and_does_no_identity_work(
         set(),
     )
     assert world.tickets == [] and world.opened_sessions == []
-    assert world.kinds("api", "frontend") == [
+    observed = world.kinds("api", "frontend")
+    assert observed[:3] == [
         ("api", "GET /health/identity"),
+        ("api", "GET /health/ready"),
         ("api", "GET /health/identity"),
     ]
+    assert all(
+        kind == "api" and path in {"GET /health/identity", "GET /health/ready"}
+        for kind, path in observed
+    )
 
 
 # -- identity failures are quarantined, the rest released (P-5, P-6, P-8a) ----------
@@ -348,8 +358,8 @@ SETUP_FAILURES: dict[str, tuple[Callable[[World], None], set[int], bool]] = {
     "unmarked-user": (_unmarked, {1}, False),
     "banned-user": (_banned, {1}, False),
     "sign-in-rejected": (_sign_in_rejected, {1}, True),
-    "profile-handle-drift": (_handle_drift, {1}, True),
-    "onboarding-yields-another-handle": (_put_returns_other_handle, {1}, True),
+    "profile-handle-drift": (_handle_drift, {1, 2}, True),
+    "onboarding-yields-another-handle": (_put_returns_other_handle, {1, 2}, True),
     "several-bad-identities": (_two_bad, {1, 2}, False),
 }
 
@@ -367,10 +377,13 @@ def test_a_broken_identity_is_quarantined_and_the_run_stops_after_releasing(
 
     assert run.code == 1
     quarantined = ",".join(str(i) for i in sorted(bad))
+    integrity = case in {"profile-handle-drift", "onboarding-yields-another-handle"}
+    setup_label = "pending_quarantine" if integrity else "quarantined"
     assert run.lines == [
         TARGET_LINE,
-        f"FAIL setup quarantined={quarantined}",
+        f"FAIL setup {setup_label}={quarantined}",
         "PASS release",
+        *(["FAIL safety reason=correctness"] if integrity else []),
     ]
     assert channel.indexes("quarantined") == bad
     assert {c["index"] for c in channel.calls_to("quarantine")} == bad
@@ -381,6 +394,10 @@ def test_a_broken_identity_is_quarantined_and_the_run_stops_after_releasing(
     assert [d for _, d in world.kinds("api") if "/api/me/" in d] == []
     # P-8a: no ticket for a missing, unmarked or banned user.
     assert (bool(bad & set(world.tickets))) is ticket_expected
+    if integrity:
+        assert not any(
+            path == "/api/profile/" and index == 2 for _, path, index in world.api_calls
+        )
     # P-5: a drifted profile is never overwritten.
     assert 1 not in world.puts or case == "onboarding-yields-another-handle"
 
@@ -429,7 +446,7 @@ SIMULATION_FAILURES: dict[str, tuple[Callable[[World], None], list[str]]] = {
     ),
     "two-identities-share-an-id": (
         lambda w: w.me_ids.update({1: 1000}),
-        ["PASS simulation", "FAIL reconciliation"],
+        ["FAIL simulation"],
     ),
     "unauthorized-reply": (
         lambda w: w.me_override.update({(2, 0): httpx.Response(401, json={})}),
@@ -437,7 +454,7 @@ SIMULATION_FAILURES: dict[str, tuple[Callable[[World], None], list[str]]] = {
     ),
     "boolean-id": (
         lambda w: w.me_ids.update({0: True}),
-        ["PASS simulation", "FAIL reconciliation"],
+        ["FAIL simulation"],
     ),
 }
 
@@ -454,7 +471,13 @@ def test_leases_and_sessions_are_released_after_a_failed_simulation_or_reconcili
     run = smoke(world, channel)
 
     assert run.code == 1
-    assert run.lines == [*BASE, *expected, "PASS release"]
+    summary = (
+        ["FAIL safety reason=correctness"]
+        if case
+        in {"id-changes-between-requests", "two-identities-share-an-id", "boolean-id"}
+        else []
+    )
+    assert run.lines == [*BASE, *expected, "PASS release", *summary]
     assert_released(world, channel)
     assert len(world.opened_sessions) == 3
     assert channel.calls_to("release") == [{"run_id": RUN_ID}]

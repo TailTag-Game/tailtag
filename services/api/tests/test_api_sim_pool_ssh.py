@@ -313,3 +313,49 @@ def test_remote_bootstrap_prints_exactly_one_fixed_json_line(
         "data": {},
     }
     assert completed_process.stderr == ""
+
+
+@pytest.mark.parametrize(
+    "pin", ["matching", "changed-sha", "changed-deployment", "malformed"]
+)
+def test_expected_run_identity_is_checked_before_ssh_and_stripped_from_remote_wire(
+    launcher: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    pin: str,
+) -> None:
+    """#227 AC11: a valid new Staging deployment cannot silently replace the run target."""
+    expected: dict[str, object] = dict(IDENTITY)
+    if pin == "changed-sha":
+        expected["source_sha"] = "b" * 40
+    elif pin == "changed-deployment":
+        expected["deployment_id"] = "22222222-2222-4222-8222-222222222222"
+    elif pin == "malformed":
+        expected["SENTINEL-secret"] = "private"
+    sent: list[object] = []
+
+    def run(
+        arguments: list[str],
+        *,
+        input: str | None = None,
+        **_kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        assert input is not None
+        sent.append(json.loads(input))
+        return completed({"result": "PASS", "data": {"indexes": [0, 1]}})
+
+    calls = install_seams(launcher, monkeypatch, run)
+    code, output = invoke(launcher, {**CALLER_REQUEST, "expected_identity": expected})
+    if pin == "matching":
+        assert code == 0
+        assert json.loads(output) == {"result": "PASS", "data": {"indexes": [0, 1]}}
+        assert sent == [{**CALLER_REQUEST, "identity": IDENTITY}]
+    else:
+        assert code != 0
+        assert sent == []
+        assert json.loads(output) == {
+            "result": "FAIL_LAUNCHER" if pin == "malformed" else "FAIL_TARGET",
+            "data": {},
+        }
+        if pin == "malformed":
+            assert calls == []
+    assert "SENTINEL" not in output

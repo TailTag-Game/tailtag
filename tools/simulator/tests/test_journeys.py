@@ -71,6 +71,7 @@ from tailtag_simulator.reconciliation import (
     InspectionFailed,
     Role,
 )
+from tailtag_simulator.reports import RunReport
 
 world = pool_support.world  # the shared fixtures
 journey_world = journey_support.journey_world
@@ -144,12 +145,15 @@ FIXED_LINES = re.compile(
     r"|FAIL_REQUEST|FAIL_TARGET|FAIL_BOOTSTRAP|FAIL_LAUNCHER)"
     rf"|FAIL reconciliation check=({'|'.join(CHECKS)}) journey=({'|'.join(NAMES)}|-)"
     rf" role=({'|'.join(ROLES)}|-) expected=\d observed=\d"
-    r"|FAIL reconciliation discrepancies=\d"
+    r"|FAIL reconciliation discrepancies=\d+"
+    r"|FAIL reconciliation"
     r"|PASS release"
     r"|PASS cleanup( (convention|enrollment|fursuit|activation|catch|session"
     r"|credential|image)=\d+){8}"
     r"|RETAIN reason=(journeys|reconciliation|cleanup|interrupted) quarantined=\d+"
     r"|FAIL setup result=FAIL_[A-Z_]+"
+    r"|FAIL setup (quarantined|pending_quarantine)=\d+(,\d+)*"
+    r"|FAIL safety reason=(identity_mismatch|readiness|catastrophic_errors|request_ceiling|duration_ceiling|population_ceiling|correctness|resource_saturation|report_failure)"
 )
 
 
@@ -181,7 +185,9 @@ def make_rig(
     return Rig(world, leases, fixtures, inspection)
 
 
-def journeys(rig: Rig, run_id: str | None = RUN_ID) -> Run:
+def journeys(
+    rig: Rig, run_id: str | None = RUN_ID, *, report: RunReport | None = None
+) -> Run:
     world = rig.world
     lines: list[str] = []
 
@@ -202,6 +208,7 @@ def journeys(rig: Rig, run_id: str | None = RUN_ID) -> Run:
             api_transport=world.api_transport,
             clock=world.clock,
             run_id=run_id,
+            report=report,
         )
     )
     return Run(code, lines)
@@ -214,7 +221,8 @@ def assert_released(rig: Rig, run_id: str = RUN_ID) -> None:
 
 
 def assert_only_fixed_output(run: Run) -> None:
-    assert all(FIXED_LINES.fullmatch(line) for line in run.lines), run.lines
+    unexpected = [line for line in run.lines if not FIXED_LINES.fullmatch(line)]
+    assert not unexpected, unexpected
     text = "\n".join(run.lines)
     assert not any(leak in text for leak in (*JOURNEY_LEAKS, *RECONCILIATION_LEAKS))
 
@@ -374,7 +382,7 @@ def test_the_set_of_failure_cases_covers_every_journey() -> None:
 
 
 @pytest.mark.parametrize("case", BREAKS)
-def test_a_wrong_outcome_fails_only_its_journey_at_its_step_and_leaks_nothing(
+def test_wrong_outcome_stops_on_integrity_failure_and_preserves_sanitized_journey_diagnostics(
     journey_world: JourneyWorld, case: str
 ) -> None:
     rule, journey, step, expected, observed = BREAKS[case]
@@ -385,18 +393,32 @@ def test_a_wrong_outcome_fails_only_its_journey_at_its_step_and_leaks_nothing(
         f"FAIL journey={journey} step={step} expected={expected} observed={observed}"
     )
     assert run.code == 1
-    assert [line for line in run.lines if " reconciliation " not in line] == [
-        *BASE,
-        *[failed if name == journey else f"PASS journey={name}" for name in NAMES],
-        "FAIL journeys failed=1",
-        "RETAIN reason=journeys quarantined=7",
-        "PASS release",
-    ]
+    integrity = observed.startswith(("200/", "201/")) or rule == "avatar_redirect"
+    if integrity:
+        assert [
+            line
+            for line in run.lines
+            if line.startswith(("PASS journey=", "FAIL journey="))
+        ] == [
+            *[f"PASS journey={name}" for name in NAMES[: NAMES.index(journey)]],
+            failed,
+        ]
+        assert "FAIL safety reason=correctness" in run.lines
+        assert "RETAIN reason=journeys quarantined=7" in run.lines
+        assert "PASS release" in run.lines
+    else:
+        assert [line for line in run.lines if " reconciliation " not in line] == [
+            *BASE,
+            *[failed if name == journey else f"PASS journey={name}" for name in NAMES],
+            "FAIL journeys failed=1",
+            "RETAIN reason=journeys quarantined=7",
+            "PASS release",
+        ]
     assert_only_fixed_output(run)
     assert_released(rig)
 
 
-def test_the_convention_restore_is_sent_even_when_the_mismatch_check_fails(
+def test_integrity_abort_denies_further_convention_restore_workload(
     journey_world: JourneyWorld,
 ) -> None:
     _, run = run_broken(journey_world, "convention_mismatch")
@@ -410,7 +432,7 @@ def test_the_convention_restore_is_sent_even_when_the_mismatch_check_fails(
         for method, path, identity in journey_world.gameplay.requests
         if path == ACTIVE_PATH and method != "GET"
     ]
-    assert sent == [("DELETE", C4), ("PUT", C4)]
+    assert sent == [("DELETE", C4)]
 
 
 # -- FM4: only public clients with the assigned identities ----------------------------
@@ -476,12 +498,16 @@ def test_each_request_carries_the_identity_the_journey_assigns_and_nothing_privi
     reconciling = log[finished + 1 :]
     assert len(inspections) == 1
     assert finished < inspections[0] < released
-    assert sorted(d for k, d in reconciling if k == "api") == sorted(
+    assert sorted(
+        d for k, d in reconciling if k == "api" and not d.startswith("GET /health/")
+    ) == sorted(
         f"GET {HISTORY_PATH} {index}" for index in (O1, O2, C1, C2, C3, C4, OUTSIDER)
     )
     assert [
         (request.url.path, dict(request.url.params))
-        for request in world.api_requests[-7:]
+        for request in [
+            r for r in world.api_requests if not r.url.path.startswith("/health/")
+        ][-7:]
     ] == [(HISTORY_PATH, {"convention_id": str(CONVENTION_ID), "page_size": "100"})] * 7
     assert rig.inspection.calls == [
         (

@@ -1,5 +1,6 @@
 """Finite public-API convention behavior, independent of orchestration channels."""
 
+import asyncio
 import hashlib
 import random
 from collections.abc import Callable, Mapping
@@ -9,7 +10,7 @@ from typing import cast
 from tailtag_simulator.behavior_config import PERSONAS
 from tailtag_simulator.client import ApiClient
 from tailtag_simulator.gameplay import (
-    StepFailed,
+    IntegrityFailed,
     arm_session,
     get_value,
     list_items,
@@ -37,6 +38,12 @@ class PopulationRun:
     summaries: dict[str, dict[str, int]]
     failure: str | None
     trace: tuple[tuple[str, str, str], ...]
+
+
+class PopulationCancelled(asyncio.CancelledError):
+    def __init__(self, population: PopulationRun) -> None:
+        super().__init__()
+        self.population = population
 
 
 @dataclass
@@ -72,7 +79,7 @@ async def prepare_population(
 
     def require(valid: bool) -> None:
         if not valid:
-            raise StepFailed("population", "valid", "shape")
+            raise IntegrityFailed("population", "valid", "shape")
 
     convention = 0
     require(len(context.owners) == number("normal_owners") + number("popular_owners"))
@@ -261,7 +268,7 @@ async def simulate_population(
 
     def require(valid: bool) -> None:
         if not valid:
-            raise StepFailed("population", "valid", "shape")
+            raise IntegrityFailed("population", "valid", "shape")
 
     async def history(actor: _Actor) -> None:
         action(actor.label, actor.persona, "history")
@@ -419,6 +426,17 @@ async def simulate_population(
                             shape=lambda b: get_value(b, "is_active") is False,
                         )
                 summaries[persona]["cycles"] += 1
+    except asyncio.CancelledError:
+        raise PopulationCancelled(
+            PopulationRun(
+                expectations,
+                convention,
+                False,
+                summaries,
+                "FAIL_SIMULATION",
+                tuple(trace),
+            )
+        ) from None
     except Exception:  # noqa: BLE001 - no external error or response details escape
         return PopulationRun(
             expectations, convention, False, summaries, "FAIL_SIMULATION", tuple(trace)

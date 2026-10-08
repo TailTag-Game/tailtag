@@ -8,6 +8,7 @@ import sys
 from collections.abc import Mapping, Sequence
 from typing import Final, TextIO, cast
 
+from scripts import api_staging_preflight as _staging_preflight
 from scripts import api_staging_reset_ssh as _reset_ssh
 
 _target_ids = _reset_ssh._target_ids  # pyright: ignore[reportPrivateUsage]
@@ -77,8 +78,12 @@ def _caller_request(stdin: TextIO) -> dict[str, object]:
     if not isinstance(value, dict):
         raise TypeError
     request = cast(dict[str, object], value)
-    if frozenset(request) != _REQUEST_KEYS:
+    if frozenset(request) not in (_REQUEST_KEYS, _REQUEST_KEYS | {"expected_identity"}):
         raise ValueError
+    if "expected_identity" in request:
+        _staging_preflight._validate_identity(  # pyright: ignore[reportPrivateUsage]
+            request["expected_identity"]
+        )
     return request
 
 
@@ -157,6 +162,11 @@ def _validated_output(raw: str) -> dict[str, object]:
 def _execute(request: dict[str, object]) -> dict[str, object]:
     _railway_identity()
     identity = _preflight()
+    if "expected_identity" in request and request["expected_identity"] != identity:
+        return {"result": "FAIL_TARGET", "data": {}}
+    remote_request = {
+        key: value for key, value in request.items() if key != "expected_identity"
+    }
     project_id, environment_id, service_id, _ = _target_ids()
     instance = _active_instance(identity)
     execution = _run(
@@ -177,7 +187,9 @@ def _execute(request: dict[str, object]) -> dict[str, object]:
             "-c",
             _BOOTSTRAP,
         ],
-        input=json.dumps({**request, "identity": identity}, separators=(",", ":")),
+        input=json.dumps(
+            {**remote_request, "identity": identity}, separators=(",", ":")
+        ),
     )
     if execution.returncode != 0:
         raise ValueError

@@ -94,7 +94,7 @@ class Rig:
         )
 
 
-def rig(root: Path) -> Rig:
+def rig(root: Path, *, safety_policy: Mapping[str, object] | None = None) -> Rig:
     from tailtag_simulator.behavior_config import resolve_behavior_config
 
     config = resolve_behavior_config(CONFIG)
@@ -113,6 +113,7 @@ def rig(root: Path) -> Rig:
         run_id=RUN_ID,
         wall_clock=evidence_clock.wall_clock,
         monotonic=evidence_clock.monotonic,
+        safety_policy=safety_policy,
     )
     report.record_source(literal_report()["source"])
     report.begin("provenance")

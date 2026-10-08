@@ -5,7 +5,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Final, cast
 
-from tailtag_simulator.client import ApiClient
+from tailtag_simulator.client import ApiClient, RequestFailed, TransportFailed
+from tailtag_simulator.safety import ProbeInvalid, ProbeUnavailable
 
 STAGING_ORIGIN: Final = "https://staging.tailtag.app"
 LOCAL_ORIGINS: Final = (
@@ -19,8 +20,12 @@ _IDENTITY_FIELDS: Final = frozenset({"source_sha", "deployment_id", "environment
 _SOURCE_SHA: Final = re.compile(r"[0-9a-f]{40}")
 
 
-class TargetRejected(Exception):
+class TargetRejected(ProbeInvalid):
     """The target name, origin, or reported identity is not an allowed target."""
+
+
+class TargetUnavailable(TargetRejected, ProbeUnavailable):
+    """A valid target did not provide readiness or an available response."""
 
 
 @dataclass(frozen=True)
@@ -71,7 +76,14 @@ def _is_source_sha(value: object) -> bool:
 
 
 async def _read_identity(client: ApiClient, target: Target) -> dict[str, object]:
-    reply = await client.get(IDENTITY_PATH)
+    try:
+        reply = await client.get(IDENTITY_PATH)
+    except TransportFailed:
+        raise TargetUnavailable from None
+    except RequestFailed:
+        raise TargetRejected from None
+    if reply.status in (408, 429) or reply.status >= 500:
+        raise TargetUnavailable
     body = reply.body
     if reply.status != 200 or not isinstance(body, dict):
         raise TargetRejected
@@ -100,7 +112,22 @@ async def _read_identity(client: ApiClient, target: Target) -> dict[str, object]
 
 async def verify_target(client: ApiClient, target: Target) -> VerifiedTarget:
     """Require two agreeing, expected identity reads before any token is involved."""
+    if target != resolve_target(
+        target.name, target.origin if target.name == "local" else None
+    ):
+        raise TargetRejected
     first = await _read_identity(client, target)
+    if target.name == "staging":
+        try:
+            ready = await client.get("/health/ready")
+        except TransportFailed:
+            raise TargetUnavailable from None
+        except RequestFailed:
+            raise TargetRejected from None
+        if ready.status != 200:
+            raise TargetUnavailable
+        if ready.body != {"status": "ok"}:
+            raise TargetRejected
     second = await _read_identity(client, target)
     if first != second:
         raise TargetRejected

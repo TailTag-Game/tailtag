@@ -9,6 +9,7 @@ from http.cookiejar import DefaultCookiePolicy
 import httpx
 
 from tailtag_simulator import limits
+from tailtag_simulator.safety import active_runtime
 
 MAX_RESPONSE_BYTES = limits.MAX_RESPONSE_BYTES
 REQUEST_TIMEOUT_SECONDS = limits.REQUEST_TIMEOUT_SECONDS
@@ -105,20 +106,41 @@ class ApiClient:
                 for key, upload in files.items()
             }
         )
-        try:
-            async with self._client.stream(
-                method, path, headers=headers, json=body, data=data, files=parts
-            ) as response:
-                if 300 <= response.status_code < 400:
-                    raise RequestFailed
-                raw = bytearray()
-                async for chunk in response.aiter_bytes():
-                    raw.extend(chunk)
-                    if len(raw) > MAX_RESPONSE_BYTES:
+        runtime = active_runtime()
+        start_send: Callable[[], None] | None = None
+
+        async def send() -> tuple[int, bytearray]:
+            status: int | None = None
+            transport_failed = False
+            try:
+                if start_send is not None:
+                    start_send()
+                async with self._client.stream(
+                    method, path, headers=headers, json=body, data=data, files=parts
+                ) as response:
+                    status = response.status_code
+                    if 300 <= response.status_code < 400:
                         raise RequestFailed
-                status = response.status_code
-        except httpx.HTTPError:
-            raise TransportFailed from None
+                    raw = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        raw.extend(chunk)
+                        if len(raw) > MAX_RESPONSE_BYTES:
+                            raise RequestFailed
+                    return response.status_code, raw
+            except httpx.HTTPError:
+                transport_failed = True
+                if runtime is not None:
+                    runtime.observed_transport_failure()
+                raise TransportFailed from None
+            finally:
+                if runtime is not None and status is not None and not transport_failed:
+                    runtime.observed_reply(status)
+
+        if runtime is None:
+            status, raw = await send()
+        else:
+            async with runtime.request() as start_send:
+                status, raw = await runtime.run_phase(send())
         try:
             parsed: object | None = json.loads(raw)
         except (RecursionError, UnicodeError, ValueError):

@@ -17,13 +17,15 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Final, Protocol, cast
 
-from tailtag_simulator.client import ApiClient
+from tailtag_simulator.client import ApiClient, RequestFailed, TransportFailed
 from tailtag_simulator.fixtures import ACTIVE_PATH
+from tailtag_simulator.gameplay import IntegrityFailed
 from tailtag_simulator.pool import (
     LAUNCHER_ERRORS,
     LAUNCHER_TIMEOUT_SECONDS,
     run_launcher,
 )
+from tailtag_simulator.safety import SafetyAborted, active_runtime
 
 HISTORY_PATH: Final = "/api/catches/"
 HISTORY_PAGE_SIZE: Final = 100
@@ -162,24 +164,26 @@ class InspectionLauncherChannel:
     async def inspect(
         self, pool: str, run_id: str, identities: Mapping[Role, int]
     ) -> Mapping[str, object]:
-        request = json.dumps(
-            {
-                "operation": "inspect",
-                "arguments": {
-                    "pool": pool,
-                    "run_id": run_id,
-                    "identities": {
-                        role.value: index for role, index in identities.items()
-                    },
-                },
-            }
-        ).encode()
+        envelope: dict[str, object] = {
+            "operation": "inspect",
+            "arguments": {
+                "pool": pool,
+                "run_id": run_id,
+                "identities": {role.value: index for role, index in identities.items()},
+            },
+        }
+        runtime = active_runtime()
+        if runtime is not None:
+            envelope["expected_identity"] = await runtime.privileged_identity()
+        request = json.dumps(envelope).encode()
         try:
             result, data = await run_launcher(
                 self._command, self._cwd, self._timeout_seconds, request
             )
         except LAUNCHER_ERRORS:
             raise InspectionFailed("FAIL_LAUNCHER") from None
+        if result == "FAIL_TARGET" and runtime is not None:
+            runtime.abort("identity_mismatch")
         if result == "PASS":
             return data
         raise InspectionFailed(result) from None
@@ -203,6 +207,7 @@ class ReconciliationResult:
 
     discrepancies: tuple[Discrepancy, ...]
     inspect_result: str | None = None
+    integrity_failed: bool = False
 
     @property
     def passed(self) -> bool:
@@ -254,6 +259,7 @@ class _History:
 
     count: int | None
     rows: tuple[tuple[int, int, str], ...] | None  # (id, fursuit id, caught_at)
+    integrity_failed: bool = False
 
 
 def _object(value: object) -> dict[str, object]:
@@ -326,10 +332,23 @@ async def _history(client: ApiClient, convention: int) -> _History:
     path = f"{HISTORY_PATH}?convention_id={convention}&page_size={HISTORY_PAGE_SIZE}"
     try:
         reply = await client.get(path)
+    except SafetyAborted:
+        raise
+    except TransportFailed:
+        return _History(None, None)
+    except RequestFailed:
+        raise IntegrityFailed("history", "200/-", "error") from None
+    except Exception:  # noqa: BLE001 - unavailable history remains ordinary failed evidence
+        return _History(None, None)
+    if reply.status != 200 and not 200 <= reply.status < 300:
+        return _History(None, None)
+    try:
         if reply.status != 200:
-            return _History(None, None)
+            raise ValueError
         body = _object(reply.body)
         count = body.get("catch_count")
+        if type(count) is not int or count < 0:
+            raise ValueError
         rows = tuple(
             (
                 _int(_object(item)["id"]),
@@ -338,18 +357,31 @@ async def _history(client: ApiClient, convention: int) -> _History:
             )
             for item in _list(body["results"])
         )
-    except Exception:  # noqa: BLE001 - an unreadable history is a discrepancy, not a crash
-        return _History(None, None)
-    return _History(count if type(count) is int else None, rows)
+    except Exception:  # noqa: BLE001 - malformed actual success is observed integrity evidence
+        failure = IntegrityFailed("history", "200/-", f"{reply.status}/shape")
+        runtime = active_runtime()
+        if runtime is not None and not bool(
+            cast(Mapping[str, object], runtime.snapshot()["finalization"])["started"]
+        ):
+            raise failure from None
+        return _History(None, None, integrity_failed=True)
+    return _History(count, rows)
 
 
 async def _active_convention(client: ApiClient) -> int:
     """The run Convention as catcher0 sees it; any failure raises (fail closed)."""
     reply = await client.get(ACTIVE_PATH)
-    enrollment = _object(_object(reply.body)["enrollment"])
-    convention = _int(_object(enrollment["convention"])["id"])
-    if reply.status != 200 or convention <= 0:
+    if not 200 <= reply.status < 300:
         raise ValueError
+    try:
+        if reply.status != 200:
+            raise ValueError
+        enrollment = _object(_object(reply.body)["enrollment"])
+        convention = _int(_object(enrollment["convention"])["id"])
+        if convention <= 0:
+            raise ValueError
+    except (KeyError, TypeError, ValueError):
+        raise IntegrityFailed("active", "200/-", f"{reply.status}/shape") from None
     return convention
 
 
@@ -504,9 +536,13 @@ async def reconcile_run(
         return ReconciliationResult(
             (Discrepancy(Check.INSPECT, None, None, 1, 0),), failed.result
         )
-    return ReconciliationResult(
-        _sorted(
-            _compare(expectations, indexes, inspected, histories, created_fursuit),
-            expectations,
-        )
+    discrepancies = _sorted(
+        _compare(expectations, indexes, inspected, histories, created_fursuit),
+        expectations,
     )
+    integrity = any(history.integrity_failed for history in histories.values()) or any(
+        item.check not in (Check.HISTORY, Check.COUNT)
+        or (item.role is not None and histories[item.role].rows is not None)
+        for item in discrepancies
+    )
+    return ReconciliationResult(discrepancies, integrity_failed=integrity)

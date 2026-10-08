@@ -19,7 +19,8 @@ Stage lines are fixed by these tests:
     PASS release
     FAIL setup result=<CODE> [quarantined=<n>]    (provision refused or failed)
     FAIL setup needed=<n> available=<m>           (#219 setup, unchanged)
-    FAIL setup quarantined=<i,j,...>              (#219 setup, unchanged)
+    FAIL setup quarantined=<i,j,...>              (acknowledged quarantine)
+    FAIL setup pending_quarantine=<i,j,...>       (deferred recovery not yet acknowledged)
     FAIL simulation | FAIL reconciliation | FAIL release
 """
 
@@ -83,9 +84,10 @@ FIXED_LINES = re.compile(
     r"|WARN retained=\d+ unfinished=\d+"
     r"|RETAIN reason=(journeys|reconciliation|cleanup|interrupted) quarantined=\d+"
     r"|FAIL (target|simulation|reconciliation|release|retain)"
+    r"|FAIL safety reason=correctness"
     r"|FAIL cleanup result=FAIL_[A-Z_]+"
     r"|FAIL setup( needed=\d+ available=\d+"
-    r"| quarantined=\d+(,\d+)*"
+    r"| (quarantined|pending_quarantine)=\d+(,\d+)*"
     r"| result=FAIL_[A-Z_]+( quarantined=\d+)?)?"
 )
 PUBLIC_READS = (ACTIVE_PATH, FURSUITS_PATH, ACTIVATIONS_PATH)
@@ -287,7 +289,11 @@ def test_an_unverified_target_fails_before_any_prompt_lease_or_provision(
 
     run = smoke(rig)
 
-    assert (run.code, run.lines, run.prompts) == (1, ["FAIL target"], 0)
+    assert (run.code, run.lines, run.prompts) == (
+        1,
+        ["FAIL safety reason=identity_mismatch"],
+        0,
+    )
     assert rig.leases.calls == [] and rig.fixtures.calls == []
 
 
@@ -361,14 +367,26 @@ def test_a_failed_provision_reports_one_fixed_line_and_still_releases_the_leases
     run = smoke(rig)
 
     assert run.code == 1
-    assert run.lines == [TARGET_LINE, RUN_LINE, line, "PASS release"]
+    uncertain = case in {"launcher", "unexpected-exception"}
+    assert run.lines == [
+        TARGET_LINE,
+        RUN_LINE,
+        line,
+        *(["RETAIN reason=interrupted quarantined=4"] if uncertain else []),
+        "PASS release",
+    ]
     assert_only_fixed_output(run)
     assert len(rig.fixtures.calls_to("provision")) == 1
     assert_released(rig)
     assert public_reads(world) == set()
-    # A dirty identity was already quarantined by the relay; the simulator does not
-    # quarantine again, and the rest of the run's slots go back to the pool.
+    # Explicit refusal/rollback frees unaffected identities. Unknown reply
+    # failures cannot prove that the remote mutation did not commit.
     assert rig.leases.calls_to("quarantine") == []
+    if uncertain:
+        assert rig.fixtures.operations[-1] == "retain"
+        quarantined = {0, 1, 2, 3, 4}
+    else:
+        assert "retain" not in rig.fixtures.operations
     assert rig.leases.indexes("quarantined") == quarantined
     assert rig.leases.indexes("free") == set(range(6)) - quarantined
 
@@ -420,21 +438,44 @@ def _read_unreachable(state: FixtureState) -> None:
     state.reply_override[("GET", ACTIVE_PATH, 3)] = httpx.ConnectError("x")
 
 
+def _malformed_fursuit_id(state: FixtureState) -> None:
+    state.fursuits[1][0]["id"] = True
+
+
+def _unavailable_fursuits_and_malformed_activations(state: FixtureState) -> None:
+    state.reply_override[("GET", FURSUITS_PATH, 1)] = httpx.Response(503, json={})
+    state.reply_override[("GET", ACTIVATIONS_PATH, 1)] = httpx.Response(
+        200, json={"bad": "shape"}
+    )
+
+
+def _unexpected_fursuit_success_status(state: FixtureState) -> None:
+    state.reply_override[("GET", FURSUITS_PATH, 1)] = httpx.Response(
+        201, json=state.fursuits[1]
+    )
+
+
 MISMATCHES: dict[str, tuple[Callable[[FixtureState], None], list[str]]] = {
-    "catcher-sees-another-convention": (_different_convention, ["PASS simulation"]),
-    "catcher-has-no-active-convention": (_no_active_convention, ["PASS simulation"]),
-    "owner-is-missing-a-fursuit": (_missing_fursuit, ["PASS simulation"]),
-    "owner-has-an-extra-fursuit": (_extra_fursuit, ["PASS simulation"]),
-    "fursuit-is-disabled": (_disabled_fursuit, ["PASS simulation"]),
-    "fursuit-has-no-photo": (_fursuit_without_photo, ["PASS simulation"]),
-    "fursuit-has-no-activation": (_missing_activation, ["PASS simulation"]),
-    "activation-is-inactive": (_inactive_activation, ["PASS simulation"]),
+    "catcher-sees-another-convention": (_different_convention, []),
+    "catcher-has-no-active-convention": (_no_active_convention, []),
+    "owner-is-missing-a-fursuit": (_missing_fursuit, []),
+    "owner-has-an-extra-fursuit": (_extra_fursuit, []),
+    "fursuit-is-disabled": (_disabled_fursuit, []),
+    "fursuit-has-no-photo": (_fursuit_without_photo, []),
+    "fursuit-has-no-activation": (_missing_activation, []),
+    "activation-is-inactive": (_inactive_activation, []),
     "activation-is-in-another-convention": (
         _activation_in_another_convention,
-        ["PASS simulation"],
+        [],
     ),
     "read-is-rejected": (_fursuit_read_rejected, ["PASS simulation"]),
     "read-cannot-complete": (_read_unreachable, []),
+    "malformed-fursuit-id": (_malformed_fursuit_id, []),
+    "unavailable-fursuits-malformed-activations": (
+        _unavailable_fursuits_and_malformed_activations,
+        [],
+    ),
+    "unexpected-fursuit-success-status": (_unexpected_fursuit_success_status, []),
 }
 
 
@@ -447,16 +488,31 @@ def test_provisioned_state_that_does_not_match_fails_and_still_releases(
 
     run = smoke(rig)
 
+    if case in {"malformed-fursuit-id", "unexpected-fursuit-success-status"}:
+        assert len([call for call in world.api_calls if call[1] == FURSUITS_PATH]) == 1
+        assert not any(call[1] == ACTIVATIONS_PATH for call in world.api_calls)
+    if case == "unavailable-fursuits-malformed-activations":
+        assert public_reads(world) == {
+            ("GET", ACTIVE_PATH, 1),
+            ("GET", FURSUITS_PATH, 1),
+            ("GET", ACTIVATIONS_PATH, 1),
+        }
     failed = "FAIL reconciliation" if passed else "FAIL simulation"
     assert run.code == 1
     # The run is retained, not cleaned (reasons are pinned in test_run_lifecycle).
     retained = [line for line in run.lines if line.startswith("RETAIN ")]
     assert len(retained) == 1 and not any("cleanup" in x for x in run.lines)
+    summary = (
+        []
+        if case in {"read-is-rejected", "read-cannot-complete"}
+        else ["FAIL safety reason=correctness"]
+    )
     assert [line for line in run.lines if line not in retained] == [
         *BASE,
         *passed,
         failed,
         "PASS release",
+        *summary,
     ]
     assert_only_fixed_output(run)
     assert_released(rig)

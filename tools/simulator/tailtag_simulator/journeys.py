@@ -37,6 +37,7 @@ from tailtag_simulator.fixtures import (
     FixtureChannel,
     run_provisioned,
 )
+from tailtag_simulator.gameplay import IntegrityFailed
 from tailtag_simulator.gameplay import (
     StepFailed as _StepFailed,
 )
@@ -79,7 +80,8 @@ from tailtag_simulator.reconciliation import (
     reconciliation_lines,
 )
 from tailtag_simulator.reports import RunReport
-from tailtag_simulator.smoke import stage
+from tailtag_simulator.safety import SafetyRuntime, active_runtime
+from tailtag_simulator.smoke import StageFailed, guarded_stage
 
 MALFORMED_TOKEN: Final = "not-a-token"
 FURSUIT_NAME: Final = "Sim journey"
@@ -190,6 +192,15 @@ class _Run:
         self.expectations.attempt(role, fursuit)
         return client.post(CONFIRM_PATH, {"payload": payload})
 
+    def confirmed(self, role: Role, fursuit: int, catch: int, caught_at: str) -> None:
+        self.expectations.confirmed(role, fursuit, catch, caught_at)
+        previous = self.expectations.made.get((role, fursuit))
+        if previous is not None and (previous.catch_id, previous.caught_at) != (
+            catch,
+            caught_at,
+        ):
+            raise IntegrityFailed("confirm", "canonical", "changed")
+
     async def resolve_path(self) -> str:
         return (
             f"/api/conventions/{await self.convention_id()}/catch-credentials/resolve/"
@@ -247,7 +258,9 @@ async def _catch(run: _Run) -> None:
         run.confirm(Role.CATCHER0, catcher, fursuit, payload),
         201,
         "created",
-        shape=lambda b: _number(b, "catch", "id") > 0,
+        shape=lambda b: (
+            _number(b, "catch", "id") > 0 and bool(_text(b, "catch", "caught_at"))
+        ),
     )
     run.catch_id = _number(body, "catch", "id")
     run.expectations.created(
@@ -272,9 +285,7 @@ async def _retry(run: _Run) -> None:
         ),
     )
     catch = _number(body, "catch", "id")
-    run.expectations.confirmed(
-        Role.CATCHER0, fursuit, catch, _text(body, "catch", "caught_at")
-    )
+    run.confirmed(Role.CATCHER0, fursuit, catch, _text(body, "catch", "caught_at"))
     await _stop(owner, activation)
     body = await _step(
         "confirm_stopped",
@@ -283,9 +294,7 @@ async def _retry(run: _Run) -> None:
         "already_caught",
         shape=lambda b: _number(b, "catch", "id") == catch,
     )
-    run.expectations.confirmed(
-        Role.CATCHER0, fursuit, catch, _text(body, "catch", "caught_at")
-    )
+    run.confirmed(Role.CATCHER0, fursuit, catch, _text(body, "catch", "caught_at"))
     await _only_catch(catcher, run, catch, fursuit)
 
 
@@ -372,7 +381,10 @@ async def _convention_mismatch(run: _Run) -> None:
         )
     except _StepFailed as failed:
         first = failed
-    try:  # the restore runs even when the check failed
+    runtime = active_runtime()
+    if first is not None and runtime is not None and runtime.abort_reason is not None:
+        raise first
+    try:  # restore ordinary failures while safety still permits workload
         await _step(
             "restore", catcher.put(ACTIVE_PATH, {"convention_id": convention}), 200
         )
@@ -495,23 +507,30 @@ JOURNEY_NAMES: Final = tuple(name for name, _ in _JOURNEYS)
 # -- SIMULATION, RECONCILIATION and the run ----------------------------------------
 
 
-async def simulate_journeys(context: JourneyContext) -> JourneyRun:
+async def simulate_journeys(
+    context: JourneyContext, *, partial: Callable[[JourneyRun], None] | None = None
+) -> JourneyRun:
     """Run every journey in order; one failing never stops the next."""
     run = _Run(context)
     results: list[JourneyResult] = []
-    for name, journey in _JOURNEYS:
-        run.expectations.begin(name)
-        try:
-            await journey(run)
-        except _StepFailed as failed:
-            results.append(
-                JourneyResult(name, failed.step, failed.expected, failed.observed)
-            )
-        else:
-            results.append(JourneyResult(name, None, None, None))
-    return JourneyRun(
-        tuple(results), run.expectations, run.convention, run.created or None
-    )
+    try:
+        for name, journey in _JOURNEYS:
+            run.expectations.begin(name)
+            try:
+                await journey(run)
+            except _StepFailed as failed:
+                results.append(
+                    JourneyResult(name, failed.step, failed.expected, failed.observed)
+                )
+            else:
+                results.append(JourneyResult(name, None, None, None))
+    finally:
+        observed = JourneyRun(
+            tuple(results), run.expectations, run.convention, run.created or None
+        )
+        if partial is not None:
+            partial(observed)
+    return observed
 
 
 def journey_lines(results: Sequence[JourneyResult]) -> list[str]:
@@ -548,6 +567,7 @@ async def run_journeys(
     clock: Callable[[], float] = time.time,
     run_id: str | None = None,
     report: RunReport | None = None,
+    safety: SafetyRuntime | None = None,
 ) -> int:
     """Run the 13 journeys on Staging, reconcile them, and return the exit code.
 
@@ -563,58 +583,55 @@ async def run_journeys(
         report.run_id if report is not None else run_id or str(uuid.uuid4())
     )  # reconciliation names the run to `inspect`
 
-    async def journeys(
-        origin: str, clients: tuple[ApiClient, ...], indexes: tuple[int, ...]
-    ) -> Literal["pass", "journeys", "reconciliation"]:
-        with stage("simulation", report):
-            async with AsyncExitStack() as stack:
-                anonymous = await stack.enter_async_context(
-                    open_client(origin, transport=api_transport)
+    partial: JourneyRun | None = None
+    recovery_clients: tuple[ApiClient, ...] = ()
+    recovery_indexes: tuple[int, ...] = ()
+    reconciliation_state: Literal["not_observed", "passed", "failed"] = "not_observed"
+
+    def preserve(value: JourneyRun) -> None:
+        nonlocal partial
+        partial = value
+        runtime = active_runtime()
+        if runtime is not None and runtime.abort_reason is not None:
+            for line in journey_lines(value.results):
+                emit(line)
+            if report is not None:
+                failed = sum(result.failed_step is not None for result in value.results)
+                report.record_results(
+                    journeys={
+                        "items": [
+                            {
+                                "name": result.name,
+                                "status": "passed"
+                                if result.failed_step is None
+                                else "failed",
+                            }
+                            for result in value.results
+                        ],
+                        "passed": len(value.results) - failed,
+                        "failed": failed,
+                        "reason": None,
+                    }
                 )
-                malformed = await stack.enter_async_context(
-                    open_client(origin, token=MALFORMED_TOKEN, transport=api_transport)
-                )
-                simulated = await simulate_journeys(
-                    JourneyContext(
-                        owners=(clients[0], clients[1]),
-                        catchers=(clients[2], clients[3], clients[4], clients[5]),
-                        outsider=clients[6],
-                        anonymous=anonymous,
-                        malformed=malformed,
-                        images=images,
-                    )
-                )
-        if report is not None:
-            failed = sum(result.failed_step is not None for result in simulated.results)
-            report.record_results(
-                journeys={
-                    "items": [
-                        {
-                            "name": result.name,
-                            "status": "passed"
-                            if result.failed_step is None
-                            else "failed",
-                        }
-                        for result in simulated.results
-                    ],
-                    "passed": len(simulated.results) - failed,
-                    "failed": failed,
-                    "reason": None,
-                }
-            )
-        for line in journey_lines(simulated.results):
-            emit(line)
-        with stage("reconciliation", report):
-            reconciled = await reconcile_run(
-                simulated.expectations,
-                dict(zip(Role, clients, strict=True)),
-                dict(zip(Role, indexes, strict=True)),
-                inspection_channel,
-                pool=pool,
-                run_id=run,
-                convention=simulated.convention,
-                created_fursuit=simulated.created_fursuit,
-            )
+
+    async def reconcile_partial() -> None:
+        if reconciliation_state != "not_observed":
+            if reconciliation_state == "failed":
+                raise StageFailed("reconciliation")
+            return
+        if partial is None:
+            return
+        reconciled = await reconcile_run(
+            partial.expectations,
+            dict(zip(Role, recovery_clients, strict=True)),
+            dict(zip(Role, recovery_indexes, strict=True)),
+            inspection_channel,
+            pool=pool,
+            run_id=run,
+            convention=partial.convention,
+            created_fursuit=partial.created_fursuit,
+        )
+
         if report is not None:
             report.record_results(
                 checks={
@@ -634,6 +651,95 @@ async def run_journeys(
             )
         for line in reconciliation_lines(reconciled):
             emit(line)
+
+        if not reconciled.passed:
+            if reconciled.integrity_failed:
+                safety_runtime = active_runtime()
+                if safety_runtime is not None:
+                    safety_runtime.abort("correctness")
+            raise StageFailed("reconciliation")
+
+    async def journeys(
+        origin: str, clients: tuple[ApiClient, ...], indexes: tuple[int, ...]
+    ) -> Literal["pass", "journeys", "reconciliation"]:
+        nonlocal recovery_clients, recovery_indexes, reconciliation_state
+        recovery_clients, recovery_indexes = clients, indexes
+        async with guarded_stage("simulation", report), AsyncExitStack() as stack:
+            anonymous = await stack.enter_async_context(
+                open_client(origin, transport=api_transport)
+            )
+            malformed = await stack.enter_async_context(
+                open_client(origin, token=MALFORMED_TOKEN, transport=api_transport)
+            )
+            simulated = await simulate_journeys(
+                JourneyContext(
+                    owners=(clients[0], clients[1]),
+                    catchers=(clients[2], clients[3], clients[4], clients[5]),
+                    outsider=clients[6],
+                    anonymous=anonymous,
+                    malformed=malformed,
+                    images=images,
+                ),
+                partial=preserve,
+            )
+        if report is not None:
+            failed = sum(result.failed_step is not None for result in simulated.results)
+            report.record_results(
+                journeys={
+                    "items": [
+                        {
+                            "name": result.name,
+                            "status": "passed"
+                            if result.failed_step is None
+                            else "failed",
+                        }
+                        for result in simulated.results
+                    ],
+                    "passed": len(simulated.results) - failed,
+                    "failed": failed,
+                    "reason": None,
+                }
+            )
+        runtime = active_runtime()
+        if runtime is None or runtime.abort_reason is None:
+            for line in journey_lines(simulated.results):
+                emit(line)
+        async with guarded_stage("reconciliation", report):
+            reconciled = await reconcile_run(
+                simulated.expectations,
+                dict(zip(Role, clients, strict=True)),
+                dict(zip(Role, indexes, strict=True)),
+                inspection_channel,
+                pool=pool,
+                run_id=run,
+                convention=simulated.convention,
+                created_fursuit=simulated.created_fursuit,
+            )
+        reconciliation_state = "passed" if reconciled.passed else "failed"
+        if report is not None:
+            report.record_results(
+                checks={
+                    "items": [
+                        {
+                            "check": d.check.value,
+                            "journey": d.journey,
+                            "role": d.role.value if d.role is not None else None,
+                            "expected": d.expected,
+                            "observed": d.observed,
+                        }
+                        for d in reconciled.discrepancies
+                    ],
+                    "count": 1 if reconciled.inspect_result is not None else len(Check),
+                    "reason": None,
+                }
+            )
+        for line in reconciliation_lines(reconciled):
+            emit(line)
+        if reconciled.integrity_failed:
+            safety_runtime = active_runtime()
+            if safety_runtime is not None:
+                safety_runtime.abort("correctness")
+            return "reconciliation"
         if any(result.failed_step is not None for result in simulated.results):
             return "journeys"
         return "pass" if reconciled.passed else "reconciliation"
@@ -653,5 +759,7 @@ async def run_journeys(
         clock=clock,
         run_id=run,
         report=report,
+        safety=safety,
         simulate_and_reconcile=journeys,
+        reconcile_partial=reconcile_partial,
     )
