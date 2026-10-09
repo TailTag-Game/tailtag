@@ -144,9 +144,8 @@ class RunArtifacts:
         ):
             _reject()
 
-    def finalize(
-        self, evidence: Mapping[str, object], recovery_receipt: object = None
-    ) -> None:
+    def record_completion(self, evidence: Mapping[str, object]) -> None:
+        """Validate and durably record completion without settling recovery."""
         self.check_budget()
         if evidence.get("run_id") != self.manifest["run_id"]:
             _reject()
@@ -183,6 +182,12 @@ class RunArtifacts:
                 "evidence": dict(evidence),
             },
         )
+        self.check_budget()
+
+    def finalize(
+        self, evidence: Mapping[str, object], recovery_receipt: object = None
+    ) -> None:
+        self.record_completion(evidence)
         trusted = _receipt(recovery_receipt, self.manifest)
         _write(self.base / "control" / "recovery.json", trusted)
         self.check_budget()

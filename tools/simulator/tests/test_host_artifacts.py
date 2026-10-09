@@ -19,7 +19,7 @@ from test_host_protocol import manifest as launch_manifest
 from test_reports_v3 import successful_report
 
 from tailtag_simulator.host_artifacts import admit_run, resolve_recovery
-from tailtag_simulator.reports import validate_report
+from tailtag_simulator.reports import ReportFailed, validate_report
 from tailtag_simulator.traffic_config import resolve_traffic_config
 
 RUN = "55555555-5555-4555-8555-555555555555"
@@ -197,12 +197,39 @@ def test_pass_report_cannot_clear_missing_or_untrusted_recovery_receipt(
         trusted = None
     with admit_run(owner_root, supplied) as run:
         path = report_file(run.report_dir, supplied, tmp_path / "scratch")
+        companion = run.companion_path
+        if fault in {"held", "run", "target", "extra"}:
+            original_bytes = path.read_bytes()
+            invalid = json.loads(original_bytes)
+            if fault == "held":
+                invalid["source"]["simulator_sha"]["value"] = "e" * 40
+            elif fault == "run":
+                invalid["run_id"] = NEXT
+            elif fault == "target":
+                foreign = {**supplied["backend_identity"], "source_sha": "e" * 40}
+                for name in ("starting", "final"):
+                    invalid["target"][name]["value"] = foreign
+                invalid["safety"]["target"]["identity"] = foreign
+            else:
+                invalid["unexpected"] = "SENTINEL-private-report"
+            if fault != "extra":
+                assert validate_report(invalid) == invalid
+            path.write_text(json.dumps(invalid))
+            with pytest.raises((*REJECTED, ReportFailed)):
+                run.record_completion(evidence())
+            assert not companion.exists()
+            path.write_bytes(original_bytes)
+        # Workload exit writes host evidence without accepting a receipt or
+        # clearing recovery authority. Missing receipt exercises this seam alone.
+        run.record_completion(evidence())
+        assert companion.is_file() and json.loads(companion.read_text())
+        assert companion.stat().st_mode & 0o777 == 0o600
         try:
-            run.finalize(evidence(), trusted)
+            if fault != "missing":
+                run.finalize(evidence(), trusted)
         except REJECTED:
             pass  # A sanitized refusal or durable held completion are both safe.
         assert path.exists()
-        companion = run.companion_path
         companion_bytes = companion.read_bytes() if companion.exists() else None
     with pytest.raises(REJECTED), admit_run(owner_root, manifest(NEXT)):
         pytest.fail("PASS report incorrectly granted fresh host admission")
