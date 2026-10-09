@@ -51,7 +51,10 @@ manifest/session commands; `sim-host-release-export` and `sim-host-release-load`
 wrap verified archive handoff. Prefer absolute path parameters: these wrappers
 evaluate relative CLI paths from `tools/simulator`. The runbook prepares an
 owner-private profile copy with an absolute safety-file path and establishes the
-matching release cwd/Python in each separate host control session. Use
+matching release cwd/Python in each separate host control session. Automatic
+remote commands select that cwd too. Offline source verification has finite
+time/output bounds and cleanup of its exact named probe; failed or interrupted
+preflight cannot launch the workload. Use
 `make sim-image PLATFORM=linux/amd64` for the host. Canonical `make sim-check` includes secret-free bootstrap syntax validation;
 CI builds amd64 without running traffic. Existing local simulator commands retain
 their launcher behavior.
