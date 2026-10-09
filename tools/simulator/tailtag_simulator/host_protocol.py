@@ -29,23 +29,27 @@ def _constant(_: str) -> object:
     raise _invalid()
 
 
-def decode_frame(raw: bytes) -> dict[str, object]:
+def decode_document(raw: bytes) -> dict[str, object]:
+    """Decode one bounded local JSON object, allowing document whitespace."""
     try:
-        if (
-            len(raw) > MAX_FRAME_BYTES
-            or not raw.endswith(b"\n")
-            or raw.count(b"\n") != 1
-        ):
+        if len(raw) > MAX_FRAME_BYTES:
             raise _invalid()
         value: object = json.loads(
             raw.decode("utf-8"), object_pairs_hook=_pairs, parse_constant=_constant
         )
         if not isinstance(value, dict):
             raise _invalid()
+        # Also reject numeric overflow to infinity at any nested depth.
         json.dumps(value, allow_nan=False)
         return cast(dict[str, object], value)
     except (ValueError, UnicodeError, RecursionError):
         raise _invalid() from None
+
+
+def decode_frame(raw: bytes) -> dict[str, object]:
+    if len(raw) > MAX_FRAME_BYTES or not raw.endswith(b"\n") or raw.count(b"\n") != 1:
+        raise _invalid()
+    return decode_document(raw)
 
 
 def encode_frame(value: dict[str, object]) -> bytes:

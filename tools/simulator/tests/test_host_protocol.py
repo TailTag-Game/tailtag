@@ -5,12 +5,13 @@ from copy import deepcopy
 from typing import cast
 
 import pytest
+
 from tailtag_simulator.host_protocol import (
+    decode_document,
     decode_frame,
     encode_frame,
     validate_manifest,
 )
-
 from tailtag_simulator.safety import resolve_safety_policy
 from tailtag_simulator.traffic_config import resolve_traffic_config
 
@@ -123,12 +124,18 @@ def test_frames_roundtrip_requests_replies_and_exact_byte_boundary() -> None:
         assert encoded.endswith(b"\n") and encoded.count(b"\n") == 1
         assert json.loads(encoded) == value
         assert decode_frame(encoded) == value
+    pretty = b'{\n  "nested": {"value": 1},\n  "name": "configured"\n}\n'
+    assert decode_document(pretty) == {"nested": {"value": 1}, "name": "configured"}
+    with pytest.raises(ValueError):
+        decode_frame(pretty)
     # Literal 65536 bytes including the required final newline.
     boundary = b'{"x":"' + b"a" * 65527 + b'"}\n'
     assert len(boundary) == 65536
     assert decode_frame(boundary) == {"x": "a" * 65527}
-    with pytest.raises(ValueError):
-        decode_frame(boundary[:-1] + b" \n")
+    assert decode_document(boundary) == {"x": "a" * 65527}
+    for decode in (decode_frame, decode_document):
+        with pytest.raises(ValueError):
+            decode(boundary[:-1] + b" \n")
     with pytest.raises(ValueError):
         encode_frame({"x": "a" * 65536})
     with pytest.raises(ValueError):
@@ -136,20 +143,28 @@ def test_frames_roundtrip_requests_replies_and_exact_byte_boundary() -> None:
 
 
 @pytest.mark.parametrize(
-    "raw",
+    ("raw", "document_valid"),
     [
-        b'{"x":1,"x":2}\n',
-        b'{"x":{"nested":1,"nested":2}}\n',
-        b'{"x":NaN}\n',
-        b'{"x":Infinity}\n',
-        b'{"x":"\xff"}\n',
-        b"[]\n",
-        b"{}",
-        b"{}\n{}\n",
-        b'{"x":"SENTINEL-private-secret"',
+        (b'{"x":1,"x":2}\n', False),
+        (b'{"x":{"nested":1,"nested":2}}\n', False),
+        (b'{"x":NaN}\n', False),
+        (b'{"x":Infinity}\n', False),
+        (b'{"x":"\xff"}\n', False),
+        (b"[]\n", False),
+        (b"{}", True),
+        (b"{}\n{}\n", False),
+        (b'{"x":"SENTINEL-private-secret"', False),
     ],
 )
-def test_malformed_frames_fail_without_echoing_input(raw: bytes) -> None:
+def test_malformed_frames_fail_without_echoing_input(
+    raw: bytes, document_valid: bool
+) -> None:
     with pytest.raises(ValueError) as caught:
         decode_frame(raw)
     assert SENTINEL not in repr(caught.value)
+    if document_valid:
+        assert decode_document(raw) == {}
+    else:
+        with pytest.raises(ValueError) as document_error:
+            decode_document(raw)
+        assert SENTINEL not in repr(document_error.value)
