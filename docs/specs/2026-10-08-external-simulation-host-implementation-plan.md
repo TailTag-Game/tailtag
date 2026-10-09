@@ -127,7 +127,7 @@ Supervisor runs independently of interactive stdin, polls health every five seco
 - [x] Independent Test Author submits minimal transport/CLI/foreground/signal failure modes and approved behavioral test shape.
 - [x] Record red; implementer wires explicit host path and supervised runtime, preserving local entrypoints.
 - [x] Real socket + small child process walking skeleton proves disconnect stop/no resumption, secret-free stage capture and bounded named-process finalization.
-- [ ] Focused tests/static/security checks, commit with verified identity, independent unit reviewer; resolve material findings.
+- [x] Focused tests/static/security checks, commit with verified identity, independent unit reviewer; resolve material findings.
 
 Whole-change review tightened two existing success/ownership contracts. `RunArtifacts.record_completion(evidence, *, require_pass=False)` preserves bounded nonzero/pre-report evidence; prospective runner success requires a present, attributed schema-valid report with `outcome == "passed"`. A nonzero runner never triggers automatic receipt resolution, even when backend lease release was acknowledged: Clerk/session uncertainty requires exact-run manual recovery.
 
@@ -186,7 +186,7 @@ Runtime integration consumes `host_release.read_release(path:Path)->dict[str,obj
 - [x] Independent Test Author proposes and writes minimum lock/hold/retention/budget/tamper/platform tests, real filesystem/child locks and external Docker boundary substitutes; record red.
 - [x] Implementer completes admission/artifacts/releases/bootstrap; U2 subsequently consumes these real domain helpers.
 - [x] Narrow checks then independent reviewer; resolve findings.
-- [ ] Commit clean verified source; real local container build/provenance/UID/signal/Unixsocket proof with offline boundaries. Task container names carry `tailtag-228-`; no live Staging or secret input.
+- [x] Commit clean verified source; real local container build/provenance/UID/signal/Unixsocket proof with offline boundaries. Task container names carry `tailtag-228-`; no live Staging or secret input.
 
 ## Task 4: Operator documentation and integrated evidence (U4)
 
@@ -196,11 +196,11 @@ Runtime integration consumes `host_release.read_release(path:Path)->dict[str,obj
 
 Normal proof profile: twenty identities, five-minute convention-v2 traffic segments with adequate execution/setup margin; ten actor/in-flight caps. Stop profile: smaller bounded existing family suitable for explicit operator SIGINT. Both are preparatory artifacts until live authorization. Include report validation, closed acknowledgement state, exact-run retained inspection/cleanup/pool readmission checks and SSH/hash retrieval. Document DigitalOcean region/plan/budget/account ownership, firewall/key inventory, Linux/Docker patching only between runs, rollback, no automatic restart and explicit recovery-hold resolution.
 
-- [ ] Reviewer verifies each approved AC against code/docs/offline proof or explicit later external gate; no new duplicate tests for prose.
-- [ ] Canonical `make sim-check`; `./scripts/doctor.sh` after verified GitHub acting identity; `git diff --check`.
-- [ ] Targeted plausible-mutant analysis: repeated allocate, identity override, pending-provision release, renewable health, lock bypass, held-artifact deletion, image tag substitution.
-- [ ] Astra implementation security review focused on new privilege/secret boundary; fresh independent whole-change reviewer at Sol/xhigh; resolve material findings.
-- [ ] Record local evidence and remaining external ACs; stop/remove only task-owned disposable resources; commit local implementation after Git identity verification. No push or PR publication without authorization.
+- [x] Reviewer verifies each approved AC against code/docs/offline proof or explicit later external gate; no new duplicate tests for prose.
+- [x] Canonical `make sim-check`; `./scripts/doctor.sh` after verified GitHub acting identity; `git diff --check`.
+- [x] Targeted plausible-mutant analysis: repeated allocate, identity override, pending-provision release, renewable health, lock bypass, held-artifact deletion, image tag substitution.
+- [x] Astra implementation security review focused on new privilege/secret boundary; fresh independent whole-change reviewer at Sol/xhigh; resolve material findings.
+- [x] Record local evidence and remaining external ACs; stop/remove only task-owned disposable resources; commit local implementation after Git identity verification. No push or PR publication without authorization.
 
 ## Execution record
 
@@ -213,3 +213,24 @@ Authoritative live state and detailed review/test outcomes are recorded in `.ref
 Integrated correction checkpoint: U1, U3 helper/bootstrap and U4 integration unit reviews passed; U2 corrections include attributed passed-report enforcement, fresh CID ownership, joined startup/cancellation cleanup and isolated Docker signal handling. Native process-group HUP reproduced the missing graceful finalization, then passed unchanged on commit `3f99623` in a real isolated Ubuntu 24.04 amd64 guest (one case, 10.59 seconds; no swap, core limit zero, core pattern `|/bin/false`). This proves local signal handling, not DigitalOcean capacity or live acceptance. Final CID-durability review, real image/runtime/TTY proof, canonical validation and final whole-change verdict remain open at this checkpoint.
 
 Canonical checkpoint at `6fb0343`: 1,341 tests passed, one macOS supported-Linux case skipped (separately proven above), Ruff/format/strict Pyright/catalog/bootstrap syntax passed, and Semgrep reported zero findings. Final U2 and U4 scoped reviews and targeted Astra implementation review passed. Real archive export/load/hash/platform/provenance passed. Actual Docker CID/init/nonroot/SIGINT and inherited hidden-input TTY passed; macOS-shared Unix socket connection was refused, so an isolated trusted Linux controller and task-private volume proved the actual read-only RPC socket/ACK without exposing Docker authority to the workload. Temporary controller/volume are disposable. The failed first installation requires the bounded copier correction, independent regressions/review, clean rebuild and actual install proof before final completion; this checkpoint does not claim those gates passed.
+
+### Final local implementation — 2026-10-08
+
+Production source is `912f3d70c1f23b7e717b0e5a8311acdb15682a33` on `feat/external-simulator-host-228`, against baseline `9eecb7a`. U1–U4 and the fresh whole-change reviewer returned SPEC, QUALITY, TEST, SCOPE, SECURITY, DATA INTEGRITY and RELIABILITY PASS. Targeted Astra implementation and extraction-delta reviews passed. All material findings are resolved. The read-only-source first-install assumption was corrected only after actual Docker failure and independent regression evidence; the replacement then passed the actual installation. No unrelated scope or material code/test sprawl remains.
+
+| Required proof | Final result |
+| --- | --- |
+| `make sim-check` on `912f3d7` | 1,342 passed, one macOS Linux-only skip, 80.24 seconds; 90 files formatted, Ruff and strict Pyright clean, catalog/bootstrap syntax passed; three Semgrep fixtures passed and 15 rules/38 targets found zero issues |
+| Supported Linux signal behavior | Actual nonroot Ubuntu 24.04 amd64 guest, no swap/core dumps; unchanged process-group HUP case failed before the two signal fixes and passed at `3f99623` in 10.59 seconds |
+| Actual immutable delivery | Clean `linux/amd64` image build, archive export/load, immutable ID/platform and packaged provenance verified |
+| Actual corrected host installation | Nonroot read-only source copy; checksum-pinned uv 0.9.17, managed Python 3.13.11, locked no-dev sync/httpx 0.28.1; all 56 source files and `source.json` match image bytes after sync; root/runtime 0700 and source/receipt files 0600 |
+| Docker wiring and hidden input | CID/UUID-label/image binding, init/direct nonroot Python SIGINT, restricted mounts and private Linux RPC socket/ACK passed; inherited PTY/new session/no signal proxy accepted hidden fake input without echo or persisted transcript |
+| Contributor environment | Fresh `gh api user --jq .login` returned `FinnThePanther`, then `./scripts/doctor.sh` passed; optional Dev Container CLI absent warning |
+
+Selected release source: `912f3d70c1f23b7e717b0e5a8311acdb15682a33`. Immutable image: `sha256:df6e7d18a7af10457653a4ecc7b32ad79c30c4c726a0977d0a0f89b1e4077901`. Archive SHA-256: `3d015d6a8b147dc3f2ded3b71dc591e3dd439b15a539914ffe1caf03f30333c8`. Parent independently verified the archive hash, image ID/platform and frozen dependency-lock hash. Selected image/archive/closed metadata remain useful local handoff artifacts. Detailed local proof and per-AC external-gate accounting live in ignored `.refinement/228-real-image-final-evidence.md`, `228-contract-coverage.md`, `228-assurance-map.md`, unit/whole review reports and the phase ledger.
+
+Docker wiring proof used the earlier clean `6fb0343` image, with its exact SHA/ID recorded, and was retained for the source-copy-only correction because Dockerfile, runner flags and that wiring were unchanged. macOS-shared Unix socket connection refused with errno 111; the actual connection passed using an isolated trusted Linux controller and private disposable volume. Actual image/delivery checks used local amd64 emulation on ARM64; the separate Ubuntu signal proof used a real isolated guest kernel. Neither establishes native DigitalOcean readiness, capacity or live public-path acceptance.
+
+Task-created VM/controller/probe containers, networks/volumes, guest keys/disks, temporary installed runtimes/uv/Python/caches, QA tools image and superseded release image are removed. Shared engine, base/reusable images and pre-existing services are preserved. Four durable task-retro lessons were captured locally; behavioral protections and runbook context carry the corrections without unrelated repository-guidance changes. Local source/docs remain a TWO-WAY DOOR.
+
+**External acceptance remains open:** separately authorized paid NYC3 provisioning, full native Ubuntu bootstrap, verified host/SSH policy, public Staging/Clerk normal twenty-identity five-minute and smaller stop runs, actual resource/accounting/lag and exact fixture/session/lease recovery, and authenticated artifact retrieval. Issue #228 remains open for those observations. Local implementation is committed; push, PR publication, deployment and merge are separate actions.
