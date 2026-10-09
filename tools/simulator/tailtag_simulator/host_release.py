@@ -108,11 +108,16 @@ def _run(
     *,
     timeout_seconds: float = COMMAND_SECONDS,
     cleanup: bool = False,
+    deadline: float | None = None,
 ) -> str:
     state = None if cleanup else _COMMAND_STATE.get()
     if state is not None and state[0].is_set():
         raise SourceRejected()
-    deadline = time.monotonic() + timeout_seconds
+    deadline = (
+        min(deadline, time.monotonic() + timeout_seconds)
+        if deadline is not None
+        else time.monotonic() + timeout_seconds
+    )
     if state is not None and state[1] is not None:
         deadline = min(deadline, state[1])
     process = subprocess.Popen(
@@ -142,7 +147,7 @@ def _run(
                         raise SourceRejected()
                     else:
                         output.extend(chunk)
-            if process.returncode != 0 and not cleanup:
+            if process.returncode != 0 or time.monotonic() >= deadline:
                 raise SourceRejected()
             completed = True
         return output.decode("utf-8")
@@ -186,6 +191,31 @@ def _hash(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def _remove_named(name: str) -> None:
+    deadline = time.monotonic() + CLEANUP_SECONDS
+    try:
+        _run(["docker", "rm", "--force", name], cleanup=True, deadline=deadline)
+        return
+    except SourceRejected:
+        if time.monotonic() >= deadline:
+            raise
+    remaining = _run(
+        [
+            "docker",
+            "ps",
+            "--all",
+            "--filter",
+            "name=^/" + name + "$",
+            "--format",
+            "{{.Names}}",
+        ],
+        cleanup=True,
+        deadline=deadline,
+    )
+    if remaining.strip():
+        raise SourceRejected()
+
+
 def _probe_source(image: str, *, timeout_seconds: float) -> str:
     name = "tailtag-sim-source-" + str(uuid.uuid4())
     try:
@@ -211,11 +241,7 @@ def _probe_source(image: str, *, timeout_seconds: float) -> str:
             timeout_seconds=timeout_seconds,
         )
     finally:
-        _run(
-            ["docker", "rm", "--force", name],
-            timeout_seconds=CLEANUP_SECONDS,
-            cleanup=True,
-        )
+        _remove_named(name)
 
 
 def _inspect(image: str, *, timeout_seconds: float = COMMAND_SECONDS) -> dict[str, Any]:
@@ -407,11 +433,7 @@ def install_runtime(archive: Path, metadata: Path, root: Path) -> Path:
                 timeout_seconds=TRANSFER_SECONDS,
             )
         finally:
-            _run(
-                ["docker", "rm", "--force", name],
-                timeout_seconds=CLEANUP_SECONDS,
-                cleanup=True,
-            )
+            _remove_named(name)
         if _packaged(runtime) != (
             record["simulator_sha"],
             record["dependency_lock_sha256"],

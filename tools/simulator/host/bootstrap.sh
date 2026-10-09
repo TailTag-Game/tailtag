@@ -119,13 +119,13 @@ def reap(process):
             return
         except subprocess.TimeoutExpired: pass
     raise ValueError('bootstrap_rejected')
-def run(args, *, timeout_seconds=30.0, cleanup=False):
+def run(args, *, timeout_seconds=30.0, cleanup=False, deadline=None, cwd=None):
     if not cleanup and cancelled.is_set(): raise ValueError('bootstrap_rejected')
-    deadline = time.monotonic() + timeout_seconds
+    deadline = min(deadline, time.monotonic()+timeout_seconds) if deadline is not None else time.monotonic()+timeout_seconds
     if not cleanup and probe_deadline is not None: deadline = min(deadline, probe_deadline)
     process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL, start_new_session=True,
-        cwd=str(runtime) if 'runtime' in globals() and 'tailtag_simulator.host_release' in args else str(root))
+        cwd=str(cwd if cwd is not None else root))
     output = bytearray()
     completed = False
     try:
@@ -140,12 +140,36 @@ def run(args, *, timeout_seconds=30.0, cleanup=False):
                     if not chunk: selector.unregister(key.fileobj)
                     elif len(output)+len(chunk) > 65536: raise ValueError('bootstrap_rejected')
                     else: output.extend(chunk)
-            if process.returncode != 0 and not cleanup: raise ValueError('bootstrap_rejected')
+            if process.returncode != 0 or time.monotonic() >= deadline: raise ValueError('bootstrap_rejected')
             completed = True
         return output.decode('utf-8')
     finally:
         if not completed or process.poll() is None: reap(process)
         if process.stdout is not None: process.stdout.close()
+def remove_named(name: str) -> None:
+    deadline = time.monotonic()+5.0
+    try:
+        run(['docker','rm','--force',name], cleanup=True, deadline=deadline)
+        return
+    except ValueError:
+        if time.monotonic() >= deadline: raise
+    remaining = run(['docker','ps','--all','--filter','name=^/'+name+'$','--format','{{.Names}}'], cleanup=True, deadline=deadline)
+    if remaining.strip(): raise ValueError('bootstrap_rejected')
+def validate_source(source, record, *, managed=False):
+    assert isinstance(source,dict) and set(source) == {'simulator_sha','provenance','reason','runtime'}
+    assert source['provenance'] == 'clean' and source['reason'] is None
+    assert source['simulator_sha'] == {'value':record['simulator_sha'],'reason':None}
+    runtime_source = source['runtime']
+    assert isinstance(runtime_source,dict) and set(runtime_source) == {'python','httpx','dependency_lock_sha256'}
+    for entry in runtime_source.values():
+        assert isinstance(entry,dict) and set(entry) == {'value','reason'}
+        assert isinstance(entry['value'],str) and entry['reason'] is None
+    assert runtime_source['dependency_lock_sha256'] == {'value':record['dependency_lock_sha256'],'reason':None}
+    if managed: assert runtime_source['python']['value'] == '3.13.11'
+    else: assert re.fullmatch(r'3\.13\.[0-9]+', runtime_source['python']['value'])
+def verify_runtime(runtime: pathlib.Path, record: dict) -> None:
+    source = json.loads(run([str(runtime/'.venv/bin/python'),'-m','tailtag_simulator.provenance','inspect'], cwd=runtime), object_pairs_hook=pairs)
+    validate_source(source, record, managed=True)
 def probe_source(image: str, *, timeout_seconds: float=30.0) -> str:
     global probe_deadline
     assert re.fullmatch(r'sha256:[0-9a-f]{64}', image)
@@ -157,7 +181,7 @@ def probe_source(image: str, *, timeout_seconds: float=30.0) -> str:
         try:
             output = run(['docker','run','--name',name,'--rm','--network=none','--read-only','--cap-drop=ALL','--security-opt=no-new-privileges','--log-driver=none','--entrypoint','python',image,'-m','tailtag_simulator.provenance','inspect'])
         finally:
-            run(['docker','rm','--force',name], timeout_seconds=5.0, cleanup=True)
+            remove_named(name)
         if cancelled.is_set(): raise ValueError('bootstrap_rejected')
         return output
     finally:
@@ -178,11 +202,7 @@ inspection = json.loads(run(['docker','image','inspect',image]), object_pairs_ho
 assert len(inspection) == 1 and inspection[0]['Id'] == image
 assert inspection[0]['Os'] == 'linux' and inspection[0]['Architecture'] == 'amd64'
 source = json.loads(probe_source(image), object_pairs_hook=pairs)
-assert set(source) == {'simulator_sha','provenance','reason','runtime'}
-assert source['provenance'] == 'clean' and source['reason'] is None
-assert source['simulator_sha'] == {'value':record['simulator_sha'],'reason':None}
-assert source['runtime']['dependency_lock_sha256'] == {'value':record['dependency_lock_sha256'],'reason':None}
-assert source['runtime']['python']['reason'] is None and re.fullmatch(r'3\.13\.[0-9]+',source['runtime']['python']['value'])
+validate_source(source, record)
 runtime = root / 'releases' / record['simulator_sha']
 fresh_copy = not runtime.exists()
 if fresh_copy:
@@ -192,7 +212,7 @@ if fresh_copy:
         container = run(['docker','create','--name',name,image]).strip()
         assert re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}',container)
         run(['docker','cp',name+':/app/.',str(runtime)], timeout_seconds=300.0)
-    finally: run(['docker','rm','--force',name], timeout_seconds=5.0, cleanup=True)
+    finally: remove_named(name)
 assert not runtime.is_symlink() and runtime.stat().st_uid == os.getuid()
 packaged = read(runtime / 'source.json')
 assert set(packaged) == {'schema_version','simulator_sha','dependency_lock_sha256','manifest'}
@@ -240,9 +260,8 @@ else:
     with os.fdopen(fd,'w') as stream:
         json.dump(record,stream,sort_keys=True); stream.flush(); os.fsync(stream.fileno())
 run([str(root/'tools/uv'),'sync','--directory',str(runtime),'--locked','--no-dev','--python','3.13.11','--managed-python'], timeout_seconds=300.0)
-# Subsequent operation uses the single production release-verification path.
-os.chdir(runtime)
-run([str(runtime/'.venv/bin/python'),'-m','tailtag_simulator.host_release','install-runtime','--archive',str(archive),'--metadata',str(metadata),'--root',str(root)], timeout_seconds=300.0)
+# Confirm the installed managed runtime directly; no nested Docker controller.
+verify_runtime(runtime, record)
 versions = run(['dpkg-query','-W','docker-ce','docker-ce-cli','containerd.io','docker-buildx-plugin','docker-compose-plugin'])
 (root/'tools/versions.txt').write_text(versions + run([str(root/'tools/uv'),'--version']) + run([str(runtime/'.venv/bin/python'),'--version']) + run([str(runtime/'.venv/bin/python'),'-c',"import importlib.metadata; print('httpx='+importlib.metadata.version('httpx'))"]))
 (root/'tools/versions.txt').chmod(0o600)

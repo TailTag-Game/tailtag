@@ -145,6 +145,8 @@ class DockerBoundary:
         }
         self.packaged_source = source()
         self.copy_tamper = False
+        self.cleanup_mode = "none"
+        self.last_removal: str | None = None
 
     def run(
         self, arguments: list[str], **kwargs: Any
@@ -152,6 +154,7 @@ class DockerBoundary:
         assert not kwargs.get("shell", False)
         self.calls.append(list(arguments))
         output = ""
+        status = 0
         if arguments[0] == "docker":
             if arguments[1] == "inspect" or arguments[1:3] == ["image", "inspect"]:
                 assert IMAGE in arguments
@@ -195,6 +198,23 @@ class DockerBoundary:
                     arguments[-1] in self.owned_names
                     or arguments[-1] == "tailtag-228-runtime-copy"
                 )
+                self.last_removal = arguments[-1]
+                status = 17 if self.cleanup_mode != "none" else 0
+            elif arguments[1] == "ps":
+                assert self.last_removal is not None
+                assert arguments == [
+                    "docker",
+                    "ps",
+                    "--all",
+                    "--filter",
+                    "name=^/" + self.last_removal + "$",
+                    "--format",
+                    "{{.Names}}",
+                ]
+                output = (
+                    "" if self.cleanup_mode == "absent" else self.last_removal + "\n"
+                )
+                status = 19 if self.cleanup_mode == "error" else 0
             else:
                 raise AssertionError(f"Unexpected Docker operation: {arguments[1:]}")
         elif Path(arguments[0]).name == "uv":
@@ -211,7 +231,7 @@ class DockerBoundary:
             raise AssertionError("Unexpected external process")
         return subprocess.CompletedProcess(
             arguments,
-            0,
+            status,
             stdout=output if kwargs.get("text") else output.encode(),
             stderr="" if kwargs.get("text") else b"",
         )
@@ -226,8 +246,9 @@ class DockerBoundary:
                 [
                     sys.executable,
                     "-c",
-                    "import sys; sys.stdout.buffer.write(sys.argv[1].encode())",
+                    "import sys; sys.stdout.buffer.write(sys.argv[1].encode()); sys.exit(int(sys.argv[2]))",
                     outcome.stdout.decode(),
+                    str(outcome.returncode),
                 ],
                 **kwargs,
             ),
@@ -352,7 +373,17 @@ def test_export_load_uses_immutable_id_and_keeps_previous_release_and_reports(
     assert any("load" in call for call in docker.calls)
 
 
-@pytest.mark.parametrize("fault", ["none", "copied_bytes", "existing_bytes"])
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "none",
+        "copied_bytes",
+        "existing_bytes",
+        "cleanup_absent",
+        "cleanup_present",
+        "cleanup_error",
+    ],
+)
 def test_host_runtime_is_verified_before_locked_python313_sync_or_execution(
     tmp_path: Path, release_files: tuple[Path, Path], docker: DockerBoundary, fault: str
 ) -> None:
@@ -363,6 +394,13 @@ def test_host_runtime_is_verified_before_locked_python313_sync_or_execution(
     tools.mkdir(mode=0o700)
     (tools / "uv").write_text("pinned uv boundary")
     (tools / "uv").chmod(0o700)
+    if fault.startswith("cleanup_"):
+        docker.cleanup_mode = fault.removeprefix("cleanup_")
+    if fault in {"cleanup_present", "cleanup_error"}:
+        with pytest.raises(REJECTED):
+            install_runtime(archive, record, root)
+        assert not any(Path(call[0]).name == "uv" for call in docker.calls)
+        return
     if fault == "copied_bytes":
         docker.copy_tamper = True
         with pytest.raises(REJECTED):
@@ -387,6 +425,10 @@ def test_host_runtime_is_verified_before_locked_python313_sync_or_execution(
         runtime / ".venv/host-environment"
     ).read_text() == "host managed Python 3.13.11"
     assert any(Path(call[0]).name == "uv" for call in docker.calls)
+    if fault == "cleanup_absent":
+        removals = [call[-1] for call in docker.calls if call[1] == "rm"]
+        queries = [call[4] for call in docker.calls if call[1] == "ps"]
+        assert queries == ["name=^/" + name + "$" for name in removals]
     if fault == "existing_bytes":
         (runtime / "tailtag_simulator/host_runner.py").write_text(
             "SENTINEL-existing-tamper"
@@ -556,6 +598,9 @@ elif args[0] == 'run':
     name = args[args.index('--name')+1] if '--name' in args else 'unnamed'
     (root/'ready.tmp').write_text(json.dumps({'name':name,'pid':os.getpid()}))
     (root/'ready.tmp').replace(root/'ready.json')
+    if os.environ['TT228_PROBE_MODE'].startswith('cleanup_'):
+        print(json.dumps(provider['source']))
+        sys.exit(0)
     sys.stderr.write('SENTINEL-private-probe-diagnostic\n'); sys.stderr.flush()
     if os.environ['TT228_PROBE_MODE'] == 'overflow':
         sys.stdout.buffer.write(b'SENTINEL-private-probe-output'+b'x'*65537)
@@ -566,8 +611,18 @@ elif args[0] == 'rm':
     assert '--force' in args
     ready = json.loads((root/'ready.json').read_text())
     assert args[-1] == ready['name']
+    mode = os.environ['TT228_PROBE_MODE']
+    if mode in {'cleanup_present', 'cleanup_error'}:
+        sys.exit(17)
     os.kill(provider['probe_pid'], signal.SIGTERM)
     (root/'removed.json').write_text(json.dumps({'name':args[-1]}))
+    if mode == 'cleanup_absent': sys.exit(17)
+elif args[0] == 'ps':
+    ready = json.loads((root/'ready.json').read_text())
+    assert args == ['ps','--all','--filter','name=^/'+ready['name']+'$','--format','{{.Names}}']
+    mode = os.environ['TT228_PROBE_MODE']
+    if mode == 'cleanup_error': sys.exit(19)
+    if mode == 'cleanup_present': print(ready['name'])
 else:
     sys.exit(19)
 """
@@ -594,22 +649,31 @@ else:
             child.wait(timeout=3)
 
 
+def bootstrap_prefix() -> str:
+    script = (Path(__file__).parents[1] / "host/bootstrap.sh").read_text()
+    body = script.split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
+    nodes: list[ast.stmt] = []
+    for node in ast.parse(body).body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "record"
+            for target in node.targets
+        ):
+            break
+        nodes.append(node)
+    return ast.unparse(ast.Module(body=nodes, type_ignores=[]))
+
+
 def verification_driver(transport: str, mode: str, root: Path) -> str:
     if transport == "bootstrap":
-        script = (Path(__file__).parents[1] / "host/bootstrap.sh").read_text()
-        body = script.split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
-        nodes: list[ast.stmt] = []
-        for node in ast.parse(body).body:
-            if isinstance(node, ast.Assign) and any(
-                isinstance(target, ast.Name) and target.id == "record"
-                for target in node.targets
-            ):
-                break
-            nodes.append(node)
-        prefix = ast.unparse(ast.Module(body=nodes, type_ignores=[]))
+        prefix = bootstrap_prefix()
         return (
             prefix
-            + f"\nprobe_source({IMAGE!r}, timeout_seconds={1.0 if mode == 'timeout' else 3.0})\nraise SystemExit('unbounded probe returned')\n"
+            + f"\noutput = probe_source({IMAGE!r}, timeout_seconds={1.0 if mode == 'timeout' else 3.0})\n"
+            + (
+                "print(output)\n"
+                if mode.startswith("cleanup_")
+                else "raise SystemExit('unbounded probe returned')\n"
+            )
         )
     return f"""
 import asyncio, json
@@ -642,6 +706,9 @@ raise SystemExit(asyncio.run(exercise()))
         ("bootstrap", "timeout"),
         ("bootstrap", "overflow"),
         ("bootstrap", "SIGHUP"),
+        ("bootstrap", "cleanup_absent"),
+        ("bootstrap", "cleanup_present"),
+        ("bootstrap", "cleanup_error"),
     ],
 )
 def test_source_probe_is_bounded_cancelled_and_only_owned_resources_are_reaped(
@@ -695,7 +762,7 @@ def test_source_probe_is_bounded_cancelled_and_only_owned_resources_are_reaped(
         )
         os.kill(driver.pid, getattr(signal, mode))
     stdout, stderr = driver.communicate(timeout=5)
-    assert driver.returncode != 0
+    assert (driver.returncode == 0) is (mode == "cleanup_absent")
     if mode == "cancel":
         assert driver.returncode == 2, "cancellation must finish as cancellation"
     if mode == "overflow":
@@ -709,10 +776,68 @@ def test_source_probe_is_bounded_cancelled_and_only_owned_resources_are_reaped(
     assert str(
         uuid.UUID(name.removeprefix("tailtag-sim-source-"))
     ) == name.removeprefix("tailtag-sim-source-")
-    assert json.loads((rig.root / "removed.json").read_text()) == {"name": name}
-    rig.probe.wait(timeout=2)
+    if mode.startswith("cleanup_"):
+        assert [call["args"] for call in rig.calls() if call["args"][0] == "ps"] == [
+            [
+                "ps",
+                "--all",
+                "--filter",
+                "name=^/" + name + "$",
+                "--format",
+                "{{.Names}}",
+            ]
+        ]
+    if mode in {"cleanup_present", "cleanup_error"}:
+        # The provider refuses removal; success must be denied rather than
+        # claiming this independently daemon-owned child was reaped.
+        # Fixture finalization owns its eventual kill/wait.
+        assert not (rig.root / "removed.json").exists()
+        assert rig.probe.poll() is None
+    else:
+        assert json.loads((rig.root / "removed.json").read_text()) == {"name": name}
+        rig.probe.wait(timeout=2)
     assert rig.unrelated.poll() is None
     assert not any(process_alive(int(call["pid"])) for call in rig.calls())
     assert [call["args"] for call in rig.calls() if call["args"][0] == "rm"] == [
         ["rm", "--force", name]
     ]
+
+
+@pytest.mark.parametrize("fault", ["none", "source", "lock"])
+def test_bootstrap_verifies_installed_interpreter_source_before_success(
+    tmp_path: Path, release_files: tuple[Path, Path], fault: str
+) -> None:
+    archive, record = release_files
+    runtime = tmp_path / "runtime"
+    binary = runtime / ".venv/bin"
+    binary.mkdir(parents=True)
+    observed = source()
+    if fault == "source":
+        observed["simulator_sha"]["value"] = "e" * 40
+    elif fault == "lock":
+        observed["runtime"]["dependency_lock_sha256"]["value"] = "e" * 64
+    log = tmp_path / "interpreter.json"
+    interpreter = binary / "python"
+    interpreter.write_text(
+        f"#!{sys.executable}\nimport json, os, sys\nfrom pathlib import Path\n"
+        + f"Path({str(log)!r}).write_text(json.dumps({{'args':sys.argv[1:],'cwd':os.getcwd()}}))\n"
+        + f"print({json.dumps(observed)!r})\n"
+    )
+    interpreter.chmod(0o700)
+    driver = (
+        bootstrap_prefix()
+        + f"\nverify_runtime(pathlib.Path({str(runtime)!r}), read(metadata))\n"
+    )
+    outcome = subprocess.run(
+        [sys.executable, "-c", driver, str(tmp_path), str(archive), str(record)],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        timeout=5,
+        check=False,
+    )
+    assert (outcome.returncode == 0) is (fault == "none")
+    assert b"SENTINEL" not in outcome.stdout + outcome.stderr
+    assert json.loads(log.read_text()) == {
+        "args": ["-m", "tailtag_simulator.provenance", "inspect"],
+        "cwd": str(runtime),
+    }
