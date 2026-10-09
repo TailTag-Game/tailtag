@@ -168,6 +168,7 @@ def test_competing_process_and_crash_hold_require_explicit_manual_recovery(
         "missing",
         "held",
         "run",
+        "lock",
         "target",
         "extra",
         "manual_root_symlink",
@@ -182,7 +183,7 @@ def test_pass_report_cannot_clear_missing_or_untrusted_recovery_receipt(
     trusted: dict[str, Any] | None = receipt()
     if fault == "missing":
         trusted = None
-    elif fault == "held":
+    elif fault in {"held", "lock"}:
         trusted["disposition"] = "held"
     elif fault == "run":
         trusted["run_id"] = NEXT
@@ -198,13 +199,17 @@ def test_pass_report_cannot_clear_missing_or_untrusted_recovery_receipt(
     with admit_run(owner_root, supplied) as run:
         path = report_file(run.report_dir, supplied, tmp_path / "scratch")
         companion = run.companion_path
-        if fault in {"held", "run", "target", "extra"}:
+        if fault in {"held", "run", "lock", "target", "extra"}:
             original_bytes = path.read_bytes()
             invalid = json.loads(original_bytes)
             if fault == "held":
                 invalid["source"]["simulator_sha"]["value"] = "e" * 40
             elif fault == "run":
                 invalid["run_id"] = NEXT
+            elif fault == "lock":
+                invalid["source"]["runtime"]["dependency_lock_sha256"]["value"] = (
+                    "e" * 64
+                )
             elif fault == "target":
                 foreign = {**supplied["backend_identity"], "source_sha": "e" * 40}
                 for name in ("starting", "final"):
@@ -212,16 +217,19 @@ def test_pass_report_cannot_clear_missing_or_untrusted_recovery_receipt(
                 invalid["safety"]["target"]["identity"] = foreign
             else:
                 invalid["unexpected"] = "SENTINEL-private-report"
+            if fault != "target":
+                invalid["outcome"] = "failed"
+                invalid["failure"] = {"stage": "cleanup", "code": "FAIL_CLEANUP"}
             if fault != "extra":
                 assert validate_report(invalid) == invalid
             path.write_text(json.dumps(invalid))
             with pytest.raises((*REJECTED, ReportFailed)):
-                run.record_completion(evidence())
+                run.record_completion(evidence(), require_pass=fault == "target")
             assert not companion.exists()
             path.write_bytes(original_bytes)
         # Workload exit writes host evidence without accepting a receipt or
         # clearing recovery authority. Missing receipt exercises this seam alone.
-        run.record_completion(evidence())
+        run.record_completion(evidence(), require_pass=True)
         assert companion.is_file() and json.loads(companion.read_text())
         assert companion.stat().st_mode & 0o777 == 0o600
         try:
@@ -268,6 +276,79 @@ def test_pass_report_cannot_clear_missing_or_untrusted_recovery_receipt(
         assert companion.read_bytes() == companion_bytes
     with admit_run(owner_root, manifest(NEXT)):
         assert path.is_file()
+
+
+@pytest.mark.parametrize(
+    ("starting", "safety", "attribution"),
+    [
+        ("matching", "matching", "matched"),
+        ("foreign", "matching", "mismatched"),
+        ("matching", "foreign", "mismatched"),
+        ("missing", "foreign", "unavailable"),
+        ("foreign", "missing", "unavailable"),
+        ("no_report", "no_report", "unavailable"),
+    ],
+)
+def test_nonpassing_completion_records_derived_attribution_without_releasing_hold(
+    owner_root: Path,
+    tmp_path: Path,
+    starting: str,
+    safety: str,
+    attribution: str,
+) -> None:
+    supplied = manifest()
+    with admit_run(owner_root, supplied) as run:
+        path = run.report_dir / f"{RUN}.json"
+        original: bytes | None = None
+        if starting != "no_report":
+            path = report_file(run.report_dir, supplied, tmp_path / "scratch")
+            value = json.loads(path.read_text())
+            value["outcome"] = "failed"
+            value["correctness"] = "not_observed"
+            value["failure"] = {"stage": "attribution", "code": "FAIL_ATTRIBUTION"}
+            value["phases"]["attribution"].update(
+                status="failed", code="FAIL_ATTRIBUTION"
+            )
+            foreign = {**supplied["backend_identity"], "source_sha": "e" * 40}
+            if starting == "foreign":
+                value["target"]["starting"]["value"] = foreign
+                value["target"].update(
+                    attribution="unverified", reason="identity_changed"
+                )
+            elif starting == "missing":
+                value["target"]["starting"] = {
+                    "value": None,
+                    "reason": "not_observed",
+                }
+                value["target"].update(
+                    attribution="unverified", reason="identity_unverified"
+                )
+            if safety == "foreign":
+                value["safety"]["target"]["identity"] = foreign
+            elif safety == "missing":
+                value["safety"]["target"] = {"identity": None, "evidence": "unverified"}
+            assert validate_report(value) == value
+            path.write_text(json.dumps(value))
+            original = path.read_bytes()
+        supplied_evidence = {**evidence(), "report_attribution": "caller-forged"}
+        with pytest.raises((*REJECTED, ReportFailed)):
+            run.record_completion(supplied_evidence, require_pass=True)
+        assert not run.companion_path.exists()
+        run.record_completion(supplied_evidence)
+        assert (
+            json.loads(run.companion_path.read_text())["evidence"]["report_attribution"]
+            == attribution
+        )
+        assert supplied_evidence["report_attribution"] == "caller-forged"
+        assert run.companion_path.stat().st_mode & 0o777 == 0o600
+        if original is None:
+            assert not path.exists()
+        else:
+            assert path.read_bytes() == original
+        with pytest.raises(REJECTED), admit_run(owner_root, manifest(NEXT)):
+            pytest.fail("completion released the active host lock")
+    with pytest.raises(REJECTED), admit_run(owner_root, manifest(NEXT)):
+        pytest.fail("diagnostic completion cleared the durable recovery hold")
 
 
 @pytest.mark.parametrize(

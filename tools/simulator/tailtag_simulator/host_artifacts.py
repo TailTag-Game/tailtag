@@ -152,6 +152,7 @@ class RunArtifacts:
         if evidence.get("run_id") != self.manifest["run_id"]:
             _reject()
         report = self.report_dir / f"{self.manifest['run_id']}.json"
+        report_attribution = "unavailable"
         if require_pass and not report.exists():
             _reject()
         if report.exists():
@@ -167,11 +168,18 @@ class RunArtifacts:
                 != release["simulator_sha"]
                 or validated["source"]["runtime"]["dependency_lock_sha256"]["value"]
                 != release["dependency_lock_sha256"]
-                or validated["target"]["starting"]["value"]
-                != self.manifest["backend_identity"]
-                or validated["safety"]["target"]["identity"]
-                != self.manifest["backend_identity"]
-                or (require_pass and validated["outcome"] != "passed")
+            ):
+                _reject()
+            starting = validated["target"]["starting"]["value"]
+            safety = validated["safety"]["target"]["identity"]
+            if starting is not None and safety is not None:
+                report_attribution = (
+                    "matched"
+                    if starting == safety == self.manifest["backend_identity"]
+                    else "mismatched"
+                )
+            if require_pass and (
+                validated["outcome"] != "passed" or report_attribution != "matched"
             ):
                 _reject()
         completed = self.clock()
@@ -184,7 +192,7 @@ class RunArtifacts:
                 "schema_version": 1,
                 "run_id": self.manifest["run_id"],
                 "completed_at": completed,
-                "evidence": dict(evidence),
+                "evidence": {**evidence, "report_attribution": report_attribution},
             },
         )
         self.check_budget()

@@ -423,7 +423,7 @@ class BridgeSession:
             result, data = "FAIL_LAUNCHER", {}
         if result == "FAIL_TARGET":
             self._veto = True
-        if op in _MUTATIONS and result in _UNCERTAIN:
+        if op in _MUTATIONS and op != "heartbeat" and result in _UNCERTAIN:
             self._uncertain = True
         self._outcomes[op] = result
         reply: dict[str, object] = {"result": result, "data": data}

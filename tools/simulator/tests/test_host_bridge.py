@@ -414,40 +414,71 @@ def test_concurrent_replay_and_caller_cancellation_never_repeat_one_attempt(
     asyncio.run(execute())
 
 
-def test_pending_provision_settles_before_terminal_mutation_and_release() -> None:
+@pytest.mark.parametrize(
+    ("mutation", "outcome"),
+    [
+        ("provision", "PASS"),
+        ("heartbeat", "FAIL_LAUNCHER"),
+        ("heartbeat", "FAIL_ERROR"),
+        ("heartbeat", "FAIL_BOOTSTRAP"),
+        ("heartbeat", "exception"),
+        ("heartbeat", "malformed"),
+    ],
+)
+def test_pending_mutation_settles_before_terminal_recovery_and_release(
+    mutation: str, outcome: str
+) -> None:
     async def execute() -> None:
         relay = Relay()
         session = BridgeSession(manifest(), relay.dispatch)
-        await advance(session, "allocated")
-        relay.held.add("provision")
-        provision = asyncio.create_task(call(session, "provision"))
-        retain: asyncio.Task[dict[str, object]] | None = None
+        await advance(
+            session, "provisioned" if mutation == "heartbeat" else "allocated"
+        )
+        relay.held.add(mutation)
+        if outcome == "exception":
+            relay.answers[mutation] = RuntimeError(SENTINEL)
+        elif outcome == "malformed":
+            relay.answers[mutation] = ("PASS", {"extended": True})
+        elif outcome != "PASS":
+            relay.answers[mutation] = (outcome, {})
+        pending = asyncio.create_task(call(session, mutation))
+        recovery = "cleanup" if mutation == "heartbeat" else "retain"
+        terminal: asyncio.Task[dict[str, object]] | None = None
         try:
             await asyncio.wait_for(relay.started.wait(), 1)
-            retain = asyncio.create_task(call(session, "retain"))
+            if mutation == "heartbeat":
+                session.revoke_workload()
+                assert_rejected(await asyncio.wait_for(call(session, "heartbeat"), 0.5))
+            before = [req["operation"] for _, req in relay.calls]
+            terminal = asyncio.create_task(call(session, recovery))
             await asyncio.sleep(0)
             await asyncio.sleep(0)
-            assert [req["operation"] for _, req in relay.calls] == [
-                "allocate",
-                "provision",
-            ]
-            assert not retain.done()
+            assert [req["operation"] for _, req in relay.calls] == before
+            assert not terminal.done()
             relay.finish.set()
-            assert (await asyncio.wait_for(provision, 1))["result"] == "PASS"
-            assert (await asyncio.wait_for(retain, 1))["result"] == "PASS"
-            relay.answers["release"] = ("PASS", {"released": 0})
+            response = await asyncio.wait_for(pending, 1)
+            if outcome == "PASS":
+                assert response["result"] == "PASS"
+            else:
+                assert_rejected(response)
+            assert (await asyncio.wait_for(terminal, 1))["result"] == "PASS"
+            relay.answers["release"] = (
+                "PASS",
+                {"released": 6 if recovery == "cleanup" else 0},
+            )
             assert (await call(session, "release"))["result"] == "PASS"
-            assert [req["operation"] for _, req in relay.calls] == [
-                "allocate",
-                "provision",
-                "retain",
+            assert [req["operation"] for _, req in relay.calls] == before + [
+                recovery,
                 "release",
             ]
+            assert session.receipt()["disposition"] == "released"
+            assert not relay.cancelled
+            assert SENTINEL not in json.dumps(session.evidence())
         finally:
             relay.finish.set()
             session.close()
             await asyncio.gather(
-                provision, *([retain] if retain else []), return_exceptions=True
+                pending, *([terminal] if terminal else []), return_exceptions=True
             )
 
     asyncio.run(execute())
@@ -527,7 +558,7 @@ def test_malformed_relay_acknowledgements_cannot_grant_authority_or_leak(
     asyncio.run(execute())
 
 
-@pytest.mark.parametrize("source", ["caller", "relay", "terminal"])
+@pytest.mark.parametrize("source", ["caller", "relay", "heartbeat", "terminal"])
 def test_target_veto_or_terminal_entry_never_reopens_authority(
     source: str,
 ) -> None:
@@ -545,6 +576,11 @@ def test_target_veto_or_terminal_entry_never_reopens_authority(
                     "inspect-population-v1",
                     "release",
                 )
+            elif source == "heartbeat":
+                await advance(session, "provisioned")
+                relay.answers["heartbeat"] = ("FAIL_TARGET", {})
+                assert_rejected(await call(session, "heartbeat"))
+                prohibited = ("heartbeat", "cleanup", "retain", "release")
             else:
                 request = envelope("allocate")
                 if source == "caller":
