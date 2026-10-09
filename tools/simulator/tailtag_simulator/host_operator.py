@@ -268,7 +268,10 @@ async def run_session(
             _write_new(state / (run_id + ".bridge.json"), session.evidence())
             receipt = session.receipt()
             resolved = False
-            if receipt["disposition"] in {"released", "no_mutation"}:
+            if process.returncode == 0 and receipt["disposition"] in {
+                "released",
+                "no_mutation",
+            }:
                 resolved = (
                     await _control(
                         host,

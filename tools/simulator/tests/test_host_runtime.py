@@ -387,7 +387,8 @@ raise SystemExit(result.returncode)
 
 
 @pytest.mark.parametrize(
-    "outcome", ["no_mutation", "released", "resolve_failure", "held"]
+    "outcome",
+    ["no_mutation", "released", "resolve_failure", "held", "released_runner_failure"],
 )
 def test_operator_runner_zero_requires_acknowledged_exact_recovery_receipt(
     monkeypatch: pytest.MonkeyPatch,
@@ -424,11 +425,11 @@ operation = words[words.index("tailtag_simulator.host_runner") + 1]
 payload = json.loads(sys.stdin.read()) if operation != "run" else None
 with (root / "ssh.jsonl").open("a") as out:
     out.write(json.dumps({{"operation":operation,"argv":argv,"payload":payload}}) + "\\n")
-if operation == "run" and {outcome!r} in ("released", "held"):
+if operation == "run" and {outcome!r} in ("released", "held", "released_runner_failure"):
     path = next(argv[i+1].split(":",1)[1] for i,arg in enumerate(argv)
                 if arg == "-R" and "rpc.sock" in argv[i+1])
     manifest = json.loads((root / "launch.json").read_text())
-    for op in (["allocate", "release"] if {outcome!r} == "released" else ["allocate"]):
+    for op in (["allocate", "release"] if {outcome!r} in ("released", "released_runner_failure") else ["allocate"]):
         arguments = {{"run_id":manifest["run_id"]}}
         if op == "allocate": arguments.update(count=8, ttl_seconds=1800)
         request = {{"operation":op,"pool":"p1","arguments":arguments,
@@ -439,7 +440,9 @@ if operation == "run" and {outcome!r} in ("released", "held"):
             with connection.makefile("rb") as stream:
                 reply = json.loads(stream.readline())
         assert reply["result"] == "PASS", reply
-raise SystemExit(1 if operation == "recovery-resolve" and {outcome!r} == "resolve_failure" else 0)
+failed = (operation == "recovery-resolve" and {outcome!r} == "resolve_failure"
+          or operation == "run" and {outcome!r} == "released_runner_failure")
+raise SystemExit(1 if failed else 0)
 """,
         )
         (root / "launch.json").write_text(json.dumps(value))
@@ -453,12 +456,14 @@ raise SystemExit(1 if operation == "recovery-resolve" and {outcome!r} == "resolv
         assert result == (0 if outcome in {"no_mutation", "released"} else 1)
         ssh = records(root / "ssh.jsonl")
         expected_operations = ["prepare", "run"] + (
-            [] if outcome == "held" else ["recovery-resolve"]
+            []
+            if outcome in {"held", "released_runner_failure"}
+            else ["recovery-resolve"]
         )
         assert [item["operation"] for item in ssh] == expected_operations
         disposition = (
             "released"
-            if outcome == "released"
+            if outcome in {"released", "released_runner_failure"}
             else "held"
             if outcome == "held"
             else "no_mutation"
@@ -469,7 +474,7 @@ raise SystemExit(1 if operation == "recovery-resolve" and {outcome!r} == "resolv
             "backend_identity": value["backend_identity"],
             "disposition": disposition,
         }
-        if outcome != "held":
+        if outcome not in {"held", "released_runner_failure"}:
             assert ssh[-1]["payload"] == receipt
             words = shlex.split(ssh[-1]["argv"][-1])
             assert words[-6:] == [
@@ -483,7 +488,7 @@ raise SystemExit(1 if operation == "recovery-resolve" and {outcome!r} == "resolv
         relays = records(root / "relay.jsonl")
         operations = (
             ["allocate", "release"]
-            if outcome == "released"
+            if outcome in {"released", "released_runner_failure"}
             else ["allocate"]
             if outcome == "held"
             else []
