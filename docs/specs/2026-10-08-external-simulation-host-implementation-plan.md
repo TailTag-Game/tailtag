@@ -8,7 +8,13 @@
 
 **Tech stack:** Existing Python 3.13/httpx/uv/Ruff/Pyright/pytest/Semgrep; standard-library asyncio Unix sockets, subprocess, filesystem and flock; OpenSSH and Docker Engine. No new runtime dependency.
 
-## Global constraints
+## Current acceptance follow-up — 2026-10-09
+
+The [approved spec follow-up](2026-10-08-external-simulation-host.md#acceptance-follow-up--2026-10-09) supersedes the original NYC3/80-GiB selection below with the provisioned maintainer-approved **RIC1 v5, 2 vCPU, 4 GiB, 30 GiB, US$0.052/hour, with a US$40/month before-tax operating budget** override. Plan class, transfer allowance and billing ownership are not inferred. Preserve original design/execution records as dated evidence.
+
+Native Ubuntu bootstrap and exact host-run recovery are proven; the local Mac twenty-identity pool authentication smoke passed. Full normal DigitalOcean and separate manual-stop acceptance remain pending. Follow-up U1 repairs generated OpenSSH policy with `AllowTcpForwarding remote` + `PermitListen none`, retains the other restrictions, and requires independent real Unix-positive/TCP-negative proof. Root administration uses the trusted provider console; `tailtag_sim` has no sudo. The sole normal-profile change is per-request `limits.attempts=9000`; ten active actors is not ten RPS, and the safety execution cap remains 10,000. U2 separately repairs renewal/terminal ordering while preserving bridge authority and mutation uncertainty.
+
+## Original global constraints — 2026-10-08
 
 - Acceptance: adjacent approved design plus issue #228 comment 6072384020; no backend, gameplay, report-schema or scenario-semantics change.
 - One DigitalOcean NYC3 x86 Basic VM: 2 vCPU, 4 GiB, 80 GiB; selected platform `linux/amd64`.
@@ -233,4 +239,4 @@ Docker wiring proof used the earlier clean `6fb0343` image, with its exact SHA/I
 
 Task-created VM/controller/probe containers, networks/volumes, guest keys/disks, temporary installed runtimes/uv/Python/caches, QA tools image and superseded release image are removed. Shared engine, base/reusable images and pre-existing services are preserved. Four durable task-retro lessons were captured locally; behavioral protections and runbook context carry the corrections without unrelated repository-guidance changes. Local source/docs remain a TWO-WAY DOOR.
 
-**External acceptance remains open:** separately authorized paid NYC3 provisioning, full native Ubuntu bootstrap, verified host/SSH policy, public Staging/Clerk normal twenty-identity five-minute and smaller stop runs, actual resource/accounting/lag and exact fixture/session/lease recovery, and authenticated artifact retrieval. Issue #228 remains open for those observations. Local implementation is committed; push, PR publication, deployment and merge are separate actions.
+**External acceptance status at 2026-10-08 (historical):** paid NYC3 provisioning, full native Ubuntu bootstrap, verified host/SSH policy, public Staging/Clerk normal twenty-identity five-minute and smaller stop runs, actual resource/accounting/lag and exact fixture/session/lease recovery, and authenticated artifact retrieval were pending. The current follow-up above records the approved override and subsequent bootstrap/recovery/smoke evidence; normal and stop acceptance remain open. Issue #228 remains open for those observations. Local implementation is committed; push, PR publication, deployment and merge are separate actions.

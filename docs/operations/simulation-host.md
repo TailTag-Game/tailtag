@@ -4,9 +4,9 @@ This runbook implements the [approved #228 contract](../specs/2026-10-08-externa
 
 ## Host selection and private inventory
 
-The approved host is one DigitalOcean Basic x86 Droplet in **NYC3**, with **2 vCPUs, 4 GiB RAM, 80 GiB disk**, advertised at **US$24/month**. The operating budget is **US$30/month before tax**. The refinement quote included 4,000 GiB transfer. Review current included transfer, metered usage and potential overage before provisioning and after each milestone; the US$30 budget is operator policy, not a provider-enforced billing cap. No paid add-ons, automatic resizing, additional paid service, registry, scheduled workload or automatic restart is approved. Confirm the selected plan, price and budget before authorized provisioning; stop if the approved choice is unavailable or the budget would be exceeded. Provider selection and research sources are recorded in the implementation plan.
+The provisioned host uses the maintainer-approved override: **DigitalOcean RIC1, v5, 2 vCPUs, 4 GiB RAM, 30 GiB disk**, at **US$0.052/hour**, with a **US$40/month before-tax operating budget**. This supersedes the original NYC3/80-GiB, US$24/month proposal and US$30/month operating budget. The original proposal and research remain historical evidence in the implementation plan. Plan class, transfer allowance and billing ownership are not established by this override; retain verified provider details in private inventory. Review metered usage and potential overage after each milestone. No paid add-ons, automatic resizing, additional paid service, registry, scheduled workload or automatic restart is approved. Further provisioning or a host/budget change requires separate authorization.
 
-Use DigitalOcean image `ubuntu-24-04-x64` (Ubuntu 24.04 LTS Noble amd64). Keep the owning account, billing owner, Droplet ID/IP, SSH key fingerprint, allowed maintainer source addresses, and firewall inventory in private operator records. Use key-only SSH administration and a dedicated operator account. Permit SSH only from approved maintainer addresses; expose no application or bridge port. Gameplay and Clerk requests leave the container directly through public HTTPS, rather than through the maintainer bridge.
+Use DigitalOcean image `ubuntu-24-04-x64` (Ubuntu 24.04 LTS Noble amd64). Keep the owning account, billing owner, Droplet ID/IP, SSH key fingerprint, allowed maintainer source addresses, and firewall inventory in private operator records. Use key-only SSH access and the dedicated `tailtag_sim` owner account, which has no sudo access. Perform administrative root setup through the trusted provider console; ordinary transfer, runtime and recovery commands use owner SSH. Permit SSH only from approved maintainer addresses; expose no application or bridge port. Gameplay and Clerk requests leave the container directly through public HTTPS, rather than through the maintainer bridge.
 
 Bootstrap is secret-free. Its supported Docker packages are fixed, with no latest fallback:
 
@@ -26,7 +26,7 @@ Keep a private SSH configuration, for example:
 ```sshconfig
 Host tailtag-sim
     HostName <private-inventory-address>
-    User <dedicated-operator>
+    User tailtag_sim
     IdentityFile <private-key-path>
     IdentitiesOnly yes
     ForwardAgent no
@@ -36,7 +36,7 @@ Host tailtag-sim
     StreamLocalBindUnlink no
 ```
 
-Verify the host key fingerprint through the provider console or another independently trusted channel before adding it to known_hosts. `ssh-keyscan` alone does not authenticate a key. Protect configuration/key/inventory files with owner permissions. Do not bypass a changed key warning. The operator adds two run-private reverse Unix-socket forwards; neither a TCP bridge listener nor SSH agent forwarding is needed.
+Verify the host key fingerprint through the provider console or another independently trusted channel before adding it to known_hosts. `ssh-keyscan` alone does not authenticate a key. Protect configuration/key/inventory files with owner permissions. Do not bypass a changed key warning. The operator adds two run-private reverse Unix-socket forwards. Bootstrap sets `AllowTcpForwarding remote` with `PermitListen none` and `AllowStreamLocalForwarding remote`: Ubuntu 24.04/OpenSSH 9.6 admits the remote Unix channel while remote TCP listeners and local TCP forwarding are refused. Agent forwarding and tunnels remain disabled; socket mask 0177, unlink refusal and TTY access are preserved.
 
 ## Immutable release handoff
 
@@ -53,11 +53,14 @@ make sim-host-release-export IMAGE_ID="$IMAGE_ID" \
   ARCHIVE="$TRANSFER/simulator.tar" RELEASE="$TRANSFER/release.json"
 ```
 
-After provisioning authorization and key verification, create owner-private host transfer directories:
+After provisioning authorization and key verification, an administrator creates the owner-private host transfer directories in the trusted provider console as root. The existing `tailtag_sim` account must be present before bootstrap:
 
 ```sh
-ssh tailtag-sim 'sudo install -d -m 0700 -o "$(id -un)" -g "$(id -gn)" /srv/tailtag-simulator /srv/tailtag-simulator/incoming'
+install -d -m 0700 -o tailtag_sim -g "$(id -gn tailtag_sim)" \
+  /srv/tailtag-simulator /srv/tailtag-simulator/incoming
 ```
+
+The owner transfers files through ordinary `tailtag-sim` SSH/SCP. Archive and metadata must be owner-only regular files (0600) owned by `tailtag_sim`, as required by bootstrap.
 
 Release metadata is a closed schema-1 object containing only `schema_version`, `simulator_sha`, `dependency_lock_sha256`, `image_id`, `platform`, and `archive_sha256`. Keep the trusted local metadata alongside the archive. Transfer both with authenticated SSH/SCP to an owner-only incoming directory outside source/image. Record the trusted archive hash locally and compare it on the host before Docker loads anything:
 
@@ -81,10 +84,15 @@ The initial control runtime is installed by the secret-free repository-owned `to
 shasum -a 256 tools/simulator/host/bootstrap.sh
 scp tools/simulator/host/bootstrap.sh tailtag-sim:/srv/tailtag-simulator/incoming/bootstrap.sh
 ssh tailtag-sim 'sha256sum /srv/tailtag-simulator/incoming/bootstrap.sh'
-ssh -t tailtag-sim 'sudo bash /srv/tailtag-simulator/incoming/bootstrap.sh \
-  --user "$(id -un)" --root /srv/tailtag-simulator \
+```
+
+After comparing the hash with the trusted local value, an administrator executes the verified script in the trusted provider console as root:
+
+```sh
+bash /srv/tailtag-simulator/incoming/bootstrap.sh \
+  --user tailtag_sim --root /srv/tailtag-simulator \
   --archive /srv/tailtag-simulator/incoming/simulator.tar \
-  --metadata /srv/tailtag-simulator/incoming/release.json'
+  --metadata /srv/tailtag-simulator/incoming/release.json
 ```
 
 Bootstrap installs the pinned OS/tools/SSH configuration, verifies archive hash and immutable image ID/platform, verifies packaged provenance inside that image, and copies `/app` into the owner release directory. It performs a standard-library-only `source.json` file-hash check before any locked host dependency sync, then runs the installed venv's `tailtag_simulator.provenance inspect` locally from that release directory. Bootstrap validates clean attribution, simulator SHA, dependency-lock hash and managed Python 3.13.11 from the actual installed runtime; it does not invoke a nested Docker installer. Root setup and nonroot owner runtime installation are distinct; the dedicated owner is in the Docker group and owns `root/tools/uv` and `root/releases/<simulator_sha>`. The simulator container never mounts the Docker socket.
@@ -118,7 +126,7 @@ The checked-in profile wrappers have exactly `scenario_id`, `scenario_version`, 
 | `tools/simulator/host/normal-profile.json` | 2 normal + 2 popular owners; 8 casual + 8 active attendees; one fursuit per owner | baseline convention-v2, active mode, ten actors for 300 seconds | 22801 |
 | `tools/simulator/host/stop-profile.json` | 1 normal + 1 popular owner; 1 casual + 1 active attendee; one fursuit per owner | baseline convention-v2, active mode, two actors for 120 seconds | 22802 |
 
-Traffic uses existing finite scheduler semantics, so realized starts, concurrency and completion can differ from the target. Both profiles cap ordinary in-flight requests at ten. `host/safety.json` is a separate safety policy: 900 seconds for setup/execution and 600 seconds shared finalization reserve, 10,000 public execution attempts, 1,000 finalization attempts and at most 50 identities. The five-minute traffic window therefore has setup/drain margin; it is not the entire wall-runtime budget. A reserved control request slot is additional to the ten ordinary requests. Host admission refuses limits beyond 50 identities, ten actors/in-flight requests or 900+600 seconds; health, lease renewals and RPC activity never renew those deadlines.
+Traffic uses existing finite scheduler semantics, so realized starts, concurrency and completion can differ from the target. Both profiles cap ordinary in-flight requests at ten. The normal profile explicitly sets `configuration.limits.attempts=9000`: this is a per-request execution attempt budget, not a ten-requests-per-second target. Its active mode selects ten actors; each journey can issue multiple requests. `host/safety.json` is a separate safety policy: 900 seconds for setup/execution and 600 seconds shared finalization reserve, 10,000 public execution attempts, 1,000 finalization attempts and at most 50 identities. The five-minute traffic window therefore has setup/drain margin; it is not the entire wall-runtime budget. A reserved control request slot is additional to the ten ordinary requests. Host admission refuses limits beyond 50 identities, ten actors/in-flight requests or 900+600 seconds; health, lease renewals and RPC activity never renew those deadlines.
 
 On the maintainer machine, confirm the existing Railway relay environment and owner manifest are ready, without exporting them to the VPS. Use an interactive terminal with recording disabled. Create an owner-private profile copy, then edit its pool to the already provisioned approved pool before preparing. Keep this copy outside Git; use the private copy for both profile selection and later evidence.
 
@@ -245,11 +253,11 @@ Patch Linux/Docker and deliberately update pins only between runs after all work
 
 Keep preparation/offline evidence separate from live evidence. An authorized live milestone needs:
 
-- Provider evidence that this exact host is the approved NYC3 plan, plus installed OS/runtime/package versions and SSH/firewall/swap/core/logging checks.
+- Provider evidence that this exact host matches the approved RIC1 v5 override (2 vCPU/4 GiB/30 GiB, US$0.052/hour, with a US$40/month before-tax operating budget), plus installed OS/runtime/package versions and SSH/firewall/swap/core/logging checks.
 - The verified immutable image ID, `linux/amd64`, simulator SHA, lock/archive hashes, prepared UUID/configuration/safety, and actual pinned backend source SHA/deployment/environment.
 - Public DNS resolution, TLS certificate/hostname verification and actual public peer address evidence from the host. Correlate bounded observation with the run; a maintainer-side probe alone cannot prove container traffic used public ingress. Record provider/region/backend identity without publishing private account or billing identifiers.
 - The five-minute/20-identity run's versioned report and companion with CPU, memory, CPU steal, realized concurrency and scheduling-lag evidence, plus backend observations or explicit unavailable status.
 - A separate small manual-interrupt run, nonzero/interrupted report, bounded finalization and acknowledged fixture/session/lease recovery; no resumption or overlapping workload.
 - Trusted terminal receipts or documented exact-run manual recovery, pool/retained checks, any holds/uncertainty, and hash-verified SSH retrieval into the maintainer's milestone archive.
 
-A successful local test or image build covers only its local assertion. Paid-host, actual public path, live backend identity and acknowledged live recovery remain pending until observed under explicit authorization.
+Current checkpoint (2026-10-09): native Ubuntu bootstrap and exact host-run recovery have been proven. The twenty-identity pool authentication smoke passed on the local Mac; it does not establish a successful normal DigitalOcean run. Full normal five-minute and separate manual-stop acceptance proofs, including resource/public-path evidence and their acknowledged recovery, remain pending. Keep the native-host and local-smoke records distinct from those pending acceptance gates.

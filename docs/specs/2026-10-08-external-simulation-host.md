@@ -5,7 +5,19 @@ Acceptance source: the [approved refinement comment](https://github.com/TailTag-
 
 **Status: approved by the maintainer on 2026-10-08; implementation authorized.**
 
-## Routing and phase ledger
+## Acceptance follow-up — 2026-10-09
+
+This checkpoint supersedes the original host selection and earlier phase status below; those remain historical design and local implementation evidence. The maintainer-approved provisioned override is **DigitalOcean RIC1 v5, 2 vCPU, 4 GiB RAM, 30 GiB disk, US$0.052/hour, with a US$40/month before-tax operating budget**, on `linux/amd64`. Plan class, transfer allowance and billing ownership are not established by this override; keep verified provider inventory private.
+
+Native Ubuntu bootstrap and exact host-run recovery are proven. A twenty-identity pool authentication smoke passed on the local Mac. Full normal DigitalOcean five-minute acceptance and the separate manual-stop proof remain pending; neither the smoke nor recovered failed attempts establishes normal-run PASS.
+
+The acceptance repair generates `AllowTcpForwarding remote` plus `PermitListen none`, preserving remote-only Unix forwarding, mask 0177, no unlink, no agent forwarding, no tunnel and TTY access. Independent real Ubuntu 24.04/OpenSSH 9.6 evidence must prove Unix round trip and remote/local TCP refusal. Administrative bootstrap runs as root through the trusted provider console; the dedicated `tailtag_sim` owner has no sudo and uses ordinary SSH for transfers/runtime/recovery.
+
+The normal profile sets `configuration.limits.attempts=9000`, a per-request execution attempt budget. Ten active actors does not mean ten requests per second. The separate safety policy retains 10,000 execution attempts. Fixture-renewal/terminal recovery corrections are a separate bounded implementation unit; existing pinned identity, single-attempt mutations, sticky target veto and honest uncertain recovery remain required. No new provisioning, deployment, paid resources or live workload is authorized by this local follow-up.
+
+Completed locally: acceptance-repair implementation, `make sim-check` (formatting, lint, strict types, catalog, Bash syntax, tests and Semgrep), and independent unit/whole-change review. Pending: hosted PR CI/review gates and separately authorized remaining normal-run/manual-stop acceptance proofs. Reversibility: local changes TWO-WAY DOOR.
+
+## Original routing and phase ledger — 2026-10-08
 
 Execution: ADW STANDARD EXPANDED.
 Assurance: SECURITY, DATA INTEGRITY, RELIABILITY.
@@ -150,7 +162,7 @@ Owner-restricted per-run directories hold versioned reports, fixed stage logs an
 
 Artifact policy: reports 30 days, stage logs seven days, one GiB aggregate report/log/companion budget. Images are governed separately by the release/rollback policy, not silently included in that one-GiB report budget. Only expired completed-run artifacts are eligible for pruning. Active or recovery-held evidence is preserved. Reserve 32 MiB for each run within both the artifact budget and available filesystem space; refuse admission when that writable capacity cannot be established. Enforce that allowance during execution so a later disk/budget failure stops work and cannot pass; do not delete an in-progress report. Recovery holds require explicit operator resolution.
 
-Provisioning/bootstrap uses secret-free repository-owned instructions/configuration, one supported Linux image on the x86 DigitalOcean Basic NYC3 plan, SSH-key administration, Docker Engine, dedicated operator directories and no public application/bridge listener. Freeze the exact supported OS/package versions in the implementation plan using current provider/upstream documentation. Private host addresses, account IDs and billing identifiers remain operator inventory. No additional paid service or scheduled load job is added.
+Provisioning/bootstrap uses secret-free repository-owned instructions/configuration and one supported Linux image on the approved x86 DigitalOcean host (current RIC1 override above; original proposal: Basic NYC3), SSH-key administration, Docker Engine, dedicated operator directories and no public application/bridge listener. Freeze the exact supported OS/package versions in the implementation plan using current provider/upstream documentation. Private host addresses, account IDs and billing identifiers remain operator inventory. No additional paid service or scheduled load job is added.
 
 Extend the existing provenance builder with explicit `linux/amd64` build selection. Preserve clean source verification and embedded hashes; new simulator/control modules enter the provenance manifest. Export/load archives through Docker's standard commands. Release metadata schema version 1 contains exactly the simulator SHA, dependency-lock hash, image ID, platform and archive SHA-256, plus schema version. Transfer over authenticated SSH, verify the trusted archive hash before loading, verify loaded ID/platform and packaged source before any live run, and select by immutable image ID. Keep the previous approved image and original reports. No registry or runtime emulation is required.
 
