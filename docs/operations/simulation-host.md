@@ -43,6 +43,7 @@ Verify the host key fingerprint through the provider console or another independ
 Use a clean, verified contributor checkout and the locked simulator environment. Build for `linux/amd64` explicitly; source, dependency-lock hash, image ID and packaged files must verify. A dirty relevant source tree cannot produce an attributed release. Record the resulting immutable `sha256:<64hex>` image ID as `IMAGE_ID`; a tag is only a build convenience.
 
 ```sh
+SIM_REPO_ROOT="$PWD"
 make sim-image PLATFORM=linux/amd64
 IMAGE_ID="$(docker image inspect --format '{{.Id}}' tailtag-simulator:local)"
 umask 077
@@ -86,7 +87,7 @@ Bootstrap installs the pinned OS/tools/SSH configuration, verifies archive hash 
 
 ```sh
 HOST_PY="/srv/tailtag-simulator/releases/$SIMULATOR_SHA/.venv/bin/python"
-cd "/srv/tailtag-simulator/releases/$SIMULATOR_SHA"
+cd "/srv/tailtag-simulator/releases/$SIMULATOR_SHA" || exit 1
 "$HOST_PY" -m tailtag_simulator.host_release install-runtime \
   --archive /srv/tailtag-simulator/incoming/simulator.tar \
   --metadata /srv/tailtag-simulator/incoming/release.json \
@@ -106,21 +107,28 @@ The checked-in profile wrappers have exactly `scenario_id`, `scenario_version`, 
 
 Traffic uses existing finite scheduler semantics, so realized starts, concurrency and completion can differ from the target. Both profiles cap ordinary in-flight requests at ten. `host/safety.json` is a separate safety policy: 900 seconds for setup/execution and 600 seconds shared finalization reserve, 10,000 public execution attempts, 1,000 finalization attempts and at most 50 identities. The five-minute traffic window therefore has setup/drain margin; it is not the entire wall-runtime budget. A reserved control request slot is additional to the ten ordinary requests. Host admission refuses limits beyond 50 identities, ten actors/in-flight requests or 900+600 seconds; health, lease renewals and RPC activity never renew those deadlines.
 
-On the maintainer machine, confirm the existing Railway relay environment and owner manifest are ready, without exporting them to the VPS. Use an interactive terminal with recording disabled. Prepare verifies the current public Staging identity twice using the existing target checker, resolves configuration/safety, validates release metadata, generates a fresh UUID, and writes an owner-only immutable manifest without mutating Staging:
+On the maintainer machine, confirm the existing Railway relay environment and owner manifest are ready, without exporting them to the VPS. Use an interactive terminal with recording disabled. Create an owner-private profile copy, then edit its pool to the already provisioned approved pool before preparing. Keep this copy outside Git; use the private copy for both profile selection and later evidence.
 
 ```sh
-make sim-host-prepare PROFILE=tools/simulator/host/normal-profile.json \
-  SAFETY_CONFIG=tools/simulator/host/safety.json \
+cp "$SIM_REPO_ROOT/tools/simulator/host/normal-profile.json" "$TRANSFER/normal-profile.json"
+chmod 0600 "$TRANSFER/normal-profile.json"
+```
+
+Prepare verifies the current public Staging identity twice using the existing target checker, resolves configuration/safety, validates release metadata, generates a fresh UUID, and writes an owner-only immutable manifest without mutating Staging:
+
+```sh
+make sim-host-prepare PROFILE="$TRANSFER/normal-profile.json" \
+  SAFETY_CONFIG="$SIM_REPO_ROOT/tools/simulator/host/safety.json" \
   RELEASE="$TRANSFER/release.json" MANIFEST="$TRANSFER/manifest.json"
 make sim-host-run MANIFEST="$TRANSFER/manifest.json" HOST=tailtag-sim \
   HOST_ROOT=/srv/tailtag-simulator
 ```
 
-These Make wrappers invoke the frozen `host_operator prepare --profile --safety-config --release --output` and `run --manifest --host --host-root` CLI. `sim-host-release-export` invokes `host_release export --image --archive --metadata`; `sim-host-release-load ARCHIVE=path RELEASE=path` invokes the same verified `load --archive --metadata` implementation on a machine with Docker. All parameters are secret-free paths, an SSH alias or an immutable image ID. `make sim-host-bootstrap-check` checks Bash syntax without executing bootstrap and is part of canonical `make sim-check`; simulator CI runs that check and builds explicitly for `linux/amd64`, never executes load.
+These Make wrappers invoke the frozen `host_operator prepare --profile --safety-config --release --output` and `run --manifest --host --host-root` CLI. `sim-host-release-export` invokes `host_release export --image --archive --metadata`; `sim-host-release-load ARCHIVE=path RELEASE=path` invokes the same verified `load --archive --metadata` implementation on a machine with Docker. All parameters are secret-free paths, an SSH alias or an immutable image ID. Prefer absolute values for every new Make path parameter (`PROFILE`, `SAFETY_CONFIG`, `RELEASE`, `MANIFEST`, `ARCHIVE`, `STATE_DIR`, `HOST_ROOT`): the wrappers use `uv --directory tools/simulator`, so relative CLI paths are evaluated from `tools/simulator`, not the caller's repository-root shell. `make sim-host-bootstrap-check` checks Bash syntax without executing bootstrap and is part of canonical `make sim-check`; simulator CI runs that check and builds explicitly for `linux/amd64`, never executes load.
 
 Use a private profile copy when changing the pool. The default local operator state directory is `~/.local/state/tailtag-simulator`; optional `STATE_DIR=path` on `sim-host-run` (CLI `--state-dir PATH`) chooses another owner-private directory. It writes `<UUID>.used.json` before opening SSH and `<UUID>.bridge.json` after revoking workload and joining bridge-owned operations. Both are owner-only closed JSON evidence, with file/parent-directory fsync. The bridge record contains bounded dispatch/attempt/outcome and acknowledgement/uncertainty state, never raw requests or provider details. Preserve and archive these files alongside the original manifest; preserve used-UUID markers even after completion. A completed, interrupted or crashed manifest cannot reopen a session. Each subsequent workload uses `prepare` and a new manifest/UUID; no automatic restart or allocation retry is provided. `--unattended` remains refused. Later scheduling needs separately approved noninteractive authentication, overlap prevention, automated resource-abort policy and schedule-disable/recovery controls; these are outside this issue.
 
-The foreground operator owns the bridge and attached SSH child. It selects the absolute host control Python at `root/releases/<simulator_sha>/.venv/bin/python`, then sends the manifest over a bounded separate SSH control command to `host_runner prepare --root ABSOLUTE_PATH --manifest -`. That command creates only the fresh run's private `rpc`/`control` parents and `control/manifest.json`. The operator then opens attached SSH with `rpc.sock` and `health.sock` reverse forwards and invokes `host_runner run --root ABSOLUTE_PATH --manifest root/runs/<UUID>/control/manifest.json --release root/releases/<simulator_sha>/release.json`. Host control imports from the installed release venv; manual host commands use that same venv and release working directory. The host runner verifies the same release and manifest before workload. The bridge invokes only the existing fixed pool/fixture/inspection relays: neither profile JSON nor socket traffic can select a command, provider or arbitrary path. Setup authority is finite: one allocation, one provision attempt, exact manifest pool/run/index partitions, and bounded inspection/terminal operations. A target mismatch permanently revokes forwarding, including cleanup/release.
+The foreground operator owns the bridge and attached SSH child. It selects the absolute host control Python at `root/releases/<simulator_sha>/.venv/bin/python`, then sends the manifest over a bounded separate SSH control command to `host_runner prepare --root ABSOLUTE_PATH --manifest -`. That command creates only the fresh run's private `rpc`/`control` parents and `control/manifest.json`. The operator then opens attached SSH with `rpc.sock` and `health.sock` reverse forwards and invokes `host_runner run --root ABSOLUTE_PATH --manifest root/runs/<UUID>/control/manifest.json --release root/releases/<simulator_sha>/release.json`. Host control module imports require the matching `root/releases/<simulator_sha>` working directory as well as its absolute venv Python; selecting a venv alone does not establish package imports. Every separate remote control command must enter that release directory, and each manual SSH session must establish it again. The host runner verifies the same release and manifest before workload. The bridge invokes only the existing fixed pool/fixture/inspection relays: neither profile JSON nor socket traffic can select a command, provider or arbitrary path. Setup authority is finite: one allocation, one provision attempt, exact manifest pool/run/index partitions, and bounded inspection/terminal operations. A target mismatch permanently revokes forwarding, including cleanup/release.
 
 The Linux runner holds a whole-host exclusive lock through work and evidence finalization, and creates a durable recovery hold before external work. An overlapping invocation or unresolved hold refuses admission; do not steal a lock or kill an unknown process. Hard host/process failure may leave only the last durable snapshot with unfinished fixtures and unreleased or expired leases, so use the exact-run recovery procedure below even after a reboot. Container name is exactly `tailtag-sim-<UUID>`. Its convention invocation uses `--host-manifest /manifest.json --host-socket-dir /bridge` and the manifest family/pool/version/seed. It omits `--config` and `--safety-config`, so the existing CLI consumes the immutable manifest configuration and safety directly; no competing runtime copy is accepted. It runs direct Python with Docker init, nonroot host UID/GID, core limit zero, no restart and no Docker logging. Only `runs/<UUID>/rpc` and the exact control manifest are mounted read-only; only `runs/<UUID>/reports` is writable. Supervisor control, Docker socket, SSH agent and maintainer credential directories are never mounted.
 
@@ -130,9 +138,12 @@ The supervisor polls health every five seconds, allowing two seconds per request
 
 For the authorized normal run, observe host Docker CPU/memory and Linux CPU steal, report realized active/in-flight peaks and scheduling lag, and observe existing Staging Railway/Sentry evidence. The companion samples CPU/memory percentages and the cumulative Linux CPU-steal tick counter; retain its actual units, rather than label raw ticks a percentage. Record offered/admitted/skipped/completed work from the report alongside these observations. Record unavailable evidence explicitly; automated backend saturation monitoring is unavailable. Generator saturation or resource failure requires investigation and separate resizing authorization before larger work. Do not equate an offered actor count or a single VM run with backend capacity.
 
-For the separately authorized small stop run, prepare `stop-profile.json` into a new manifest, start foreground execution, then use Ctrl-C in its maintainer terminal or the host stop command from a second trusted SSH session:
+For the separately authorized small stop run, prepare `stop-profile.json` into a new manifest, start foreground execution, then use Ctrl-C in its maintainer terminal or the host stop command from a second trusted SSH session. In that new host session, set `SIMULATOR_SHA` and canonical `RUN_ID` from the original trusted manifest, then establish the release cwd and absolute Python explicitly:
 
 ```sh
+HOST_ROOT=/srv/tailtag-simulator
+cd "$HOST_ROOT/releases/$SIMULATOR_SHA" || exit 1
+HOST_PY="$HOST_ROOT/releases/$SIMULATOR_SHA/.venv/bin/python"
 "$HOST_PY" -m tailtag_simulator.host_runner stop \
   --root /srv/tailtag-simulator --run-id "$RUN_ID"
 ```
@@ -173,9 +184,12 @@ Completion is deliberately two-phase. The attached runner first validates availa
 
 The trusted receipt's exact shape is `{schema_version:1, run_id, backend_identity, disposition}`. `released` derives only from acknowledged bridge lease release; `no_mutation` only when no mutating dispatch started; every unresolved case is `held`. The UUID and backend tuple must match the original manifest. The simulator's report/RPC reply cannot supply this authority, and the container never mounts the receipt directory.
 
-For manual resolution, after the original target and exact-run recovery checks above have established settled fixture/session/lease state, the maintainer explicitly prepares an owner-private receipt tied to that original tuple, transfers it by verified SSH into the run's supervisor-only control directory, and resolves only that run:
+For manual resolution, after the original target and exact-run recovery checks above have established settled fixture/session/lease state, the maintainer explicitly prepares an owner-private receipt tied to that original tuple, transfers it by verified SSH into the run's supervisor-only control directory, and resolves only that run. In this separate host session, set `SIMULATOR_SHA` and canonical `RUN_ID` from the original trusted manifest and establish its release cwd/Python again:
 
 ```sh
+HOST_ROOT=/srv/tailtag-simulator
+cd "$HOST_ROOT/releases/$SIMULATOR_SHA" || exit 1
+HOST_PY="$HOST_ROOT/releases/$SIMULATOR_SHA/.venv/bin/python"
 "$HOST_PY" -m tailtag_simulator.host_runner recovery-resolve \
   --root /srv/tailtag-simulator --run-id "$RUN_ID" \
   --receipt "/srv/tailtag-simulator/runs/$RUN_ID/control/recovery.json"
