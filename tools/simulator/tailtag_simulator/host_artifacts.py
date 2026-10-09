@@ -65,6 +65,14 @@ def _read(path: Path) -> dict[str, Any]:
     return cast(dict[str, Any], value)
 
 
+def _sync_directory(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def _write(path: Path, value: Mapping[str, object]) -> None:
     payload = json.dumps(value, sort_keys=True, allow_nan=False).encode()
     if len(payload) > 65536:
@@ -77,11 +85,7 @@ def _write(path: Path, value: Mapping[str, object]) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
-        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        _sync_directory(path.parent)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -89,11 +93,7 @@ def _write(path: Path, value: Mapping[str, object]) -> None:
 def _clear_hold(base: Path) -> None:
     _private(base / "recovery-hold.json")
     (base / "recovery-hold.json").unlink()
-    fd = os.open(base, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
+    _sync_directory(base)
 
 
 def _receipt(value: object, manifest: Mapping[str, object]) -> dict[str, Any]:
@@ -269,14 +269,36 @@ def admit_run(
             _write(base / "control" / "manifest.json", supplied)
         (base / "reports").mkdir(mode=0o700)
         _write(base / "recovery-hold.json", {"schema_version": 1, "run_id": run_id})
+        # A prepared manifest may have arrived before this admission. Flush its
+        # bytes and every containing directory, not just the hold's parent.
+        manifest_fd = os.open(
+            base / "control" / "manifest.json", os.O_RDONLY | os.O_NOFOLLOW
+        )
+        try:
+            os.fsync(manifest_fd)
+        finally:
+            os.close(manifest_fd)
+        for directory in (
+            base / "reports",
+            base / "rpc",
+            base / "control",
+            base,
+            runs,
+            root,
+        ):
+            _sync_directory(directory)
         yield RunArtifacts(root, supplied, clock)
 
 
 def resolve_recovery(root: Path, run_id: str, receipt: Mapping[str, object]) -> None:
     with _lock(root):
-        base = root / "runs" / _uuid(run_id)
+        runs = root / "runs"
+        _private(runs)
+        base = runs / _uuid(run_id)
         _tree(base)
         manifest = validate_manifest(_read(base / "control" / "manifest.json"))
+        if manifest["run_id"] != run_id:
+            _reject()
         trusted = _receipt(dict(receipt), manifest)
         hold = _read(base / "recovery-hold.json")
         if (

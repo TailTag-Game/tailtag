@@ -5,6 +5,7 @@ import os
 import select
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 from collections.abc import Iterator
@@ -161,7 +162,19 @@ def test_competing_process_and_crash_hold_require_explicit_manual_recovery(
         )
 
 
-@pytest.mark.parametrize("fault", ["missing", "held", "run", "target", "extra"])
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing",
+        "held",
+        "run",
+        "target",
+        "extra",
+        "manual_root_symlink",
+        "manual_runs_symlink",
+        "manual_foreign_manifest",
+    ],
+)
 def test_pass_report_cannot_clear_missing_or_untrusted_recovery_receipt(
     owner_root: Path, tmp_path: Path, fault: str
 ) -> None:
@@ -178,8 +191,10 @@ def test_pass_report_cannot_clear_missing_or_untrusted_recovery_receipt(
             **trusted["backend_identity"],
             "source_sha": "e" * 40,
         }
-    else:
+    elif fault == "extra":
         trusted["unexpected"] = "SENTINEL-private-control"
+    else:
+        trusted = None
     with admit_run(owner_root, supplied) as run:
         path = report_file(run.report_dir, supplied, tmp_path / "scratch")
         try:
@@ -194,11 +209,99 @@ def test_pass_report_cannot_clear_missing_or_untrusted_recovery_receipt(
     # Manual resolution is explicit and bound to the original run and tuple.
     with pytest.raises(REJECTED):
         resolve_recovery(owner_root, RUN, receipt(NEXT))
+    if fault.startswith("manual_"):
+        base = owner_root / "runs" / RUN
+        recovery_root, recovery_receipt = owner_root, receipt()
+        original_manifest = base / "control" / "manifest.json"
+        outside_runs = tmp_path / "outside-runs"
+        if fault == "manual_root_symlink":
+            recovery_root = tmp_path / "root-alias"
+            recovery_root.symlink_to(owner_root, target_is_directory=True)
+        elif fault == "manual_runs_symlink":
+            (owner_root / "runs").rename(outside_runs)
+            (owner_root / "runs").symlink_to(outside_runs, target_is_directory=True)
+        else:
+            original_manifest.write_text(json.dumps(manifest(NEXT)))
+            recovery_receipt = receipt(NEXT)
+        before = {
+            p.relative_to(base): p.read_bytes() for p in base.rglob("*") if p.is_file()
+        }
+        with pytest.raises(REJECTED):
+            resolve_recovery(recovery_root, RUN, recovery_receipt)
+        assert {
+            p.relative_to(base): p.read_bytes() for p in base.rglob("*") if p.is_file()
+        } == before
+        if fault == "manual_runs_symlink":
+            (owner_root / "runs").unlink()
+            outside_runs.rename(owner_root / "runs")
+        elif fault == "manual_foreign_manifest":
+            original_manifest.write_text(json.dumps(manifest()))
     resolve_recovery(owner_root, RUN, receipt())
     if companion_bytes is not None:
         assert companion.read_bytes() == companion_bytes
     with admit_run(owner_root, manifest(NEXT)):
         assert path.is_file()
+
+
+@pytest.mark.parametrize(
+    ("prepared", "fail_root_sync"), [(False, False), (True, False), (False, True)]
+)
+def test_admission_syncs_full_owner_directory_chain_before_external_authority(
+    owner_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    prepared: bool,
+    fail_root_sync: bool,
+) -> None:
+    runs = owner_root / "runs"
+    base = runs / RUN
+    control = base / "control"
+    if prepared:
+        for directory in (runs, base, base / "rpc", control):
+            directory.mkdir(mode=0o700)
+        path = control / "manifest.json"
+        path.write_text(json.dumps(manifest()))
+        path.chmod(0o600)
+    real_fsync = os.fsync
+    synced: list[tuple[Path, set[str]]] = []
+
+    def fsync(fd: int) -> None:
+        info = os.fstat(fd)
+        actual: Path | None = None
+        if stat.S_ISDIR(info.st_mode):
+            for directory in (owner_root, runs, base, control):
+                if directory.exists():
+                    candidate = directory.stat()
+                    if (candidate.st_dev, candidate.st_ino) == (
+                        info.st_dev,
+                        info.st_ino,
+                    ):
+                        actual = directory
+                        break
+        # Forward every call to the real filesystem. The one fault models an
+        # external syscall error, not an internal helper or alleged power loss.
+        real_fsync(fd)
+        if actual is not None:
+            synced.append((actual, {p.name for p in actual.iterdir()}))
+            if fail_root_sync and actual == owner_root:
+                raise OSError("simulated directory fsync failure")
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    if fail_root_sync:
+        with pytest.raises(REJECTED), admit_run(owner_root, manifest()):
+            pytest.fail("fsync failure granted external authority")
+        return
+    with admit_run(owner_root, manifest()):
+        # Observe inode-backed directory sync only after the child entries exist
+        # and before authority is yielded; no exact helper/call count required.
+        for directory, children in (
+            (owner_root, {"runs"}),
+            (runs, {RUN}),
+            (base, {"rpc", "control", "reports"}),
+            (control, {"manifest.json"}),
+        ):
+            assert any(
+                path == directory and children <= entries for path, entries in synced
+            ), f"directory entry not durable before admission: {directory.name}"
 
 
 @pytest.mark.parametrize("disposition", ["released", "no_mutation"])

@@ -207,15 +207,25 @@ def install_runtime(archive: Path, metadata: Path, root: Path) -> Path:
             raise SourceRejected()
         # Image venv is a different platform/runtime installation. It is not
         # part of source.json; discard only this newly copied disposable venv.
+        if runtime.is_symlink() or runtime.stat().st_uid != os.getuid():
+            raise SourceRejected()
+        runtime.chmod(0o700, follow_symlinks=False)
         copied_venv = runtime / ".venv"
         if copied_venv.is_symlink():
             copied_venv.unlink()
         elif copied_venv.exists():
+            # Docker cp retains the image's chmod -R a-w. Restore only owned
+            # real directories needed to unlink this freshly copied venv.
+            for directory, _, _ in os.walk(copied_venv, followlinks=False):
+                path = Path(directory)
+                if path.is_symlink() or path.stat().st_uid != os.getuid():
+                    raise SourceRejected()
+                path.chmod(0o700, follow_symlinks=False)
             shutil.rmtree(copied_venv)
         for path in runtime.rglob("*"):
             if path.is_symlink():
                 raise SourceRejected()
-            path.chmod(0o700 if path.is_dir() else 0o600)
+            path.chmod(0o700 if path.is_dir() else 0o600, follow_symlinks=False)
         _write(runtime / "release.json", record)
     _private(root / "tools")
     uv = root / "tools" / "uv"

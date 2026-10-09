@@ -35,6 +35,24 @@ if root.exists():
 for path in (archive,metadata):
     info = path.stat()
     assert path.is_file() and info.st_uid == owner and stat.S_IMODE(info.st_mode) == 0o600
+# These are privileged install/chown destinations. Refuse existing incompatible
+# state before any package, swap, SSH or filesystem configuration is changed.
+for path in (root/'tools',root/'releases'):
+    assert not path.is_symlink()
+    if path.exists():
+        info = path.stat()
+        assert path.is_dir() and info.st_uid == owner and stat.S_IMODE(info.st_mode) == 0o700
+for path, mode in ((root/'tools/uv',0o700),(root/'tools/versions.txt',0o600)):
+    assert not path.is_symlink()
+    if path.exists():
+        info = path.stat()
+        assert path.is_file() and info.st_uid == owner and info.st_nlink == 1 and stat.S_IMODE(info.st_mode) == mode
+releases = root/'releases'
+if releases.exists():
+    for path in releases.iterdir():
+        assert not path.is_symlink()
+        info = path.stat()
+        assert path.is_dir() and info.st_uid == owner and stat.S_IMODE(info.st_mode) == 0o700
 PATHS
 # Refuse host configurations that capture interactive credentials.
 if grep -RqE '^[^#]*(log_input|log_output|pam_tty_audit)' /etc/sudoers /etc/sudoers.d /etc/pam.d 2>/dev/null; then
@@ -110,15 +128,13 @@ assert source['simulator_sha'] == {'value':record['simulator_sha'],'reason':None
 assert source['runtime']['dependency_lock_sha256'] == {'value':record['dependency_lock_sha256'],'reason':None}
 assert source['runtime']['python']['reason'] is None and re.fullmatch(r'3\.13\.[0-9]+',source['runtime']['python']['value'])
 runtime = root / 'releases' / record['simulator_sha']
-if not runtime.exists():
+fresh_copy = not runtime.exists()
+if fresh_copy:
     runtime.mkdir(mode=0o700)
     container = run(['docker','create',image]).strip()
     assert re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}',container)
     try: run(['docker','cp',container+':/app/.',str(runtime)])
     finally: run(['docker','rm',container])
-    copied_venv = runtime / '.venv'
-    if copied_venv.is_symlink(): copied_venv.unlink()
-    elif copied_venv.exists(): shutil.rmtree(copied_venv)
 assert not runtime.is_symlink() and runtime.stat().st_uid == os.getuid()
 packaged = read(runtime / 'source.json')
 assert set(packaged) == {'schema_version','simulator_sha','dependency_lock_sha256','manifest'}
@@ -146,10 +162,19 @@ for name, digest in manifest.items():
     assert isinstance(digest,str) and re.fullmatch(r'[0-9a-f]{64}',digest)
     assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
 assert manifest['uv.lock'] == record['dependency_lock_sha256']
-for path in runtime.rglob('*'):
-    if path.is_relative_to(runtime/'.venv'): continue
-    assert not path.is_symlink()
-    path.chmod(0o700 if path.is_dir() else 0o600)
+if fresh_copy:
+    runtime.chmod(0o700, follow_symlinks=False)
+    copied_venv = runtime / '.venv'
+    if copied_venv.is_symlink(): copied_venv.unlink()
+    elif copied_venv.exists():
+        for directory, _, _ in os.walk(copied_venv, followlinks=False):
+            path = pathlib.Path(directory)
+            assert not path.is_symlink() and path.stat().st_uid == os.getuid()
+            path.chmod(0o700, follow_symlinks=False)
+        shutil.rmtree(copied_venv)
+    for path in runtime.rglob('*'):
+        assert not path.is_symlink()
+        path.chmod(0o700 if path.is_dir() else 0o600, follow_symlinks=False)
 receipt = runtime / 'release.json'
 if receipt.exists(): assert read(receipt) == record
 else:

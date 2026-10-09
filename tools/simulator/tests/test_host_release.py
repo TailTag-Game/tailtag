@@ -2,14 +2,18 @@
 
 import hashlib
 import json
+import os
+import pwd
 import shutil
 import subprocess
+import sys
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
-from tailtag_simulator.host_release import install_runtime, load_release, main
 
+from tailtag_simulator.host_release import install_runtime, load_release, main
 from tailtag_simulator.provenance import SourceRejected
 
 IMAGE = "sha256:" + "d" * 64
@@ -70,6 +74,20 @@ def packaged(root: Path) -> Path:
             }
         )
     )
+    # uv's image environment is not portable to the host. Docker cp preserves
+    # the Dockerfile's chmod -R a-w /app modes, including /app itself.
+    image_package = root / ".venv/lib/python3.13/site-packages/image_only"
+    image_package.mkdir(parents=True)
+    (image_package / "__init__.py").write_text("IMAGE_ENVIRONMENT = True\n")
+    binary = root / ".venv/bin"
+    binary.mkdir()
+    (binary / "python").symlink_to("/usr/local/bin/python3.13")
+    (binary / "python3").symlink_to("python")
+    (root / ".venv/lib64").symlink_to("lib", target_is_directory=True)
+    (root / ".venv/pyvenv.cfg").write_text("home = /usr/local/bin\n")
+    for path in (root, *root.rglob("*")):
+        if not path.is_symlink():
+            path.chmod(0o555 if path.is_dir() else 0o444)
     return root
 
 
@@ -147,11 +165,14 @@ class DockerBoundary:
                     ":/app"
                 )
                 destination = Path(arguments[-1])
-                shutil.copytree(self.package, destination, dirs_exist_ok=True)
+                shutil.copytree(
+                    self.package, destination, dirs_exist_ok=True, symlinks=True
+                )
                 if self.copy_tamper:
-                    (destination / "tailtag_simulator/host_runner.py").write_text(
-                        "SENTINEL-tampered-copy"
-                    )
+                    changed = destination / "tailtag_simulator/host_runner.py"
+                    changed.chmod(0o600)
+                    changed.write_text("SENTINEL-tampered-copy")
+                    changed.chmod(0o444)
             elif arguments[1] == "rm":
                 assert "tailtag-228-runtime-copy" in arguments
             else:
@@ -161,6 +182,11 @@ class DockerBoundary:
             assert "--locked" in arguments and "--no-dev" in arguments
             assert "3.13.11" in arguments
             assert Path(arguments[0]).parent.name == "tools"
+            runtime = Path(arguments[arguments.index("--directory") + 1])
+            (runtime / ".venv").mkdir(mode=0o700, exist_ok=True)
+            (runtime / ".venv/host-environment").write_text(
+                "host managed Python 3.13.11"
+            )
         else:
             raise AssertionError("Unexpected external process")
         return subprocess.CompletedProcess(
@@ -180,10 +206,16 @@ def release_files(tmp_path: Path) -> tuple[Path, Path]:
 
 
 @pytest.fixture
-def docker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DockerBoundary:
+def docker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[DockerBoundary]:
     boundary = DockerBoundary(packaged(tmp_path / "packaged"))
     monkeypatch.setattr(subprocess, "run", boundary.run)
-    return boundary
+    try:
+        yield boundary
+    finally:
+        # Own both readonly fixture/copies; never follow copied image symlinks.
+        for path in (tmp_path, *tmp_path.rglob("*")):
+            if not path.is_symlink():
+                path.chmod(0o700 if path.is_dir() else 0o600)
 
 
 @pytest.mark.parametrize(
@@ -301,6 +333,17 @@ def test_host_runtime_is_verified_before_locked_python313_sync_or_execution(
         runtime / "tailtag_simulator/host_runner.py"
     ).read_bytes() == b"HOST_RUNTIME = 'verified'\n"
     assert (runtime / "uv.lock").read_bytes() == LOCK
+    source_manifest = json.loads((docker.package / "source.json").read_text())
+    for name in source_manifest["manifest"]:
+        assert (runtime / name).read_bytes() == (docker.package / name).read_bytes()
+    assert (runtime / "source.json").read_bytes() == (
+        docker.package / "source.json"
+    ).read_bytes()
+    assert not (runtime / ".venv/lib/python3.13/site-packages/image_only").exists()
+    assert not (runtime / ".venv/bin/python").is_symlink()
+    assert (
+        runtime / ".venv/host-environment"
+    ).read_text() == "host managed Python 3.13.11"
     assert any(Path(call[0]).name == "uv" for call in docker.calls)
     if fault == "existing_bytes":
         (runtime / "tailtag_simulator/host_runner.py").write_text(
@@ -310,3 +353,89 @@ def test_host_runtime_is_verified_before_locked_python313_sync_or_execution(
         with pytest.raises(REJECTED):
             install_runtime(archive, record, root)
         assert not any(Path(call[0]).name == "uv" for call in docker.calls[before:])
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "clean",
+        "tools_symlink",
+        "releases_symlink",
+        "tools_file",
+        "releases_mode",
+        "uv_symlink",
+        "runtime_symlink",
+    ],
+)
+def test_bootstrap_preflight_rejects_unsafe_destinations_before_mutation(
+    tmp_path: Path, release_files: tuple[Path, Path], fault: str
+) -> None:
+    archive, record = release_files
+    archive.chmod(0o600)
+    record.chmod(0o600)
+    root = tmp_path / "host"
+    root.mkdir(mode=0o700)
+    tools, releases = root / "tools", root / "releases"
+    tools.mkdir(mode=0o700)
+    releases.mkdir(mode=0o700)
+    uv = tools / "uv"
+    uv.write_text("existing pinned uv")
+    uv.chmod(0o700)
+    outside = tmp_path / "outside"
+    outside.mkdir(mode=0o700)
+    sentinel = outside / "original"
+    sentinel.write_bytes(b"SENTINEL-external-owner-evidence")
+    sentinel.chmod(0o600)
+    if fault == "tools_symlink":
+        shutil.rmtree(tools)
+        tools.symlink_to(outside, target_is_directory=True)
+    elif fault == "releases_symlink":
+        releases.rmdir()
+        releases.symlink_to(outside, target_is_directory=True)
+    elif fault == "tools_file":
+        shutil.rmtree(tools)
+        tools.write_text("incompatible tools file")
+        tools.chmod(0o600)
+    elif fault == "releases_mode":
+        releases.chmod(0o755)
+    elif fault == "uv_symlink":
+        uv.unlink()
+        uv.symlink_to(sentinel)
+    elif fault == "runtime_symlink":
+        (releases / SHA).symlink_to(outside, target_is_directory=True)
+
+    def snapshot() -> dict[Path, tuple[int, str | bytes | None]]:
+        return {
+            p.relative_to(tmp_path): (
+                p.lstat().st_mode,
+                str(p.readlink())
+                if p.is_symlink()
+                else p.read_bytes()
+                if p.is_file()
+                else None,
+            )
+            for p in tmp_path.rglob("*")
+        }
+
+    before = snapshot()
+    script = (Path(__file__).parents[1] / "host/bootstrap.sh").read_text()
+    # Execute the actual trusted initial stdlib preflight in isolation. Do not
+    # execute root/apt/swap/SSH bootstrap actions or assert its source wording.
+    preflight = script.split("<<'PATHS'\n", 1)[1].split("\nPATHS\n", 1)[0]
+    outcome = subprocess.run(
+        [
+            sys.executable,
+            "-",
+            str(root),
+            str(archive),
+            str(record),
+            pwd.getpwuid(os.getuid()).pw_name,
+        ],
+        input=preflight,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert (outcome.returncode == 0) is (fault == "clean")
+    assert snapshot() == before
