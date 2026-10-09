@@ -17,7 +17,7 @@ import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal, Protocol, cast
@@ -395,27 +395,33 @@ class _Renewal:
         self.worker: asyncio.Task[int] | None = None
         self.timer: asyncio.Task[None] | None = None
         self.failed = False
+        self.mutation_lock = asyncio.Lock()
 
     async def call(
         self, operation: str, pool: str, arguments: Mapping[str, object]
     ) -> Mapping[str, object]:
-        data = await self.channel.call(operation, pool, arguments)
-        if operation == "allocate":
-            self.timer = asyncio.create_task(self._renew(pool, arguments))
-        return data
+        if operation == "quarantine":
+            # Terminal recovery closes heartbeat authority. Join renewal first.
+            await self.stop()
+        async with self.mutation_lock:
+            data = await self.channel.call(operation, pool, arguments)
+            if operation == "allocate":
+                self.timer = asyncio.create_task(self._renew(pool, arguments))
+            return data
 
     async def _renew(self, pool: str, allocation: Mapping[str, object]) -> None:
         try:
             while True:
                 await asyncio.sleep(60)
-                data = await self.channel.call(
-                    "heartbeat",
-                    pool,
-                    {
-                        "run_id": allocation["run_id"],
-                        "ttl_seconds": limits.LEASE_TTL_SECONDS,
-                    },
-                )
+                async with self.mutation_lock:
+                    data = await self.channel.call(
+                        "heartbeat",
+                        pool,
+                        {
+                            "run_id": allocation["run_id"],
+                            "ttl_seconds": limits.LEASE_TTL_SECONDS,
+                        },
+                    )
                 if (
                     type(data.get("extended")) is not int
                     or data["extended"] != allocation["count"]
@@ -601,17 +607,22 @@ async def run_provisioned(
                     )
                     # A sent provision may commit even if its acknowledgement is lost.
                     outcome = "interrupted"
-                    await fixture_channel.call(
-                        "provision",
-                        {
-                            "pool": pool,
-                            "run_id": run,
-                            "owners": list(indexes[:owners]),
-                            "catchers": list(indexes[owners:provisioned]),
-                            "fursuits_per_owner": fursuits_per_owner,
-                            "extras": list(indexes[provisioned:]),
-                        },
-                    )
+                    async with (
+                        _renewal.mutation_lock
+                        if _renewal is not None
+                        else nullcontext()
+                    ):
+                        await fixture_channel.call(
+                            "provision",
+                            {
+                                "pool": pool,
+                                "run_id": run,
+                                "owners": list(indexes[:owners]),
+                                "catchers": list(indexes[owners:provisioned]),
+                                "fursuits_per_owner": fursuits_per_owner,
+                                "extras": list(indexes[provisioned:]),
+                            },
+                        )
             except SafetyAborted:
                 raise
             except SetupFailed as failure:
@@ -664,6 +675,8 @@ async def run_provisioned(
                         raise StageFailed("report")
                 await runtime.check_target()
                 with runtime.phase("cleanup"):
+                    if _renewal is not None:
+                        await _renewal.stop()
                     cleaned = await _clean(fixture_channel, pool, run, emit, report)
                     # Preserve acknowledged cleanup before the exit checkpoint can fail.
                     if cleaned:

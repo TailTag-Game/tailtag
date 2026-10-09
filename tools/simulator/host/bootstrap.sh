@@ -79,7 +79,7 @@ apt-get install -y \
   docker-compose-plugin=5.6.0-1~ubuntu.24.04~noble
 apt-mark hold docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 usermod -aG docker "$user"
-printf 'Match User %s\n    AllowAgentForwarding no\n    AllowTcpForwarding no\n    AllowStreamLocalForwarding remote\n    StreamLocalBindMask 0177\n    StreamLocalBindUnlink no\n    PermitTunnel no\n    PermitTTY yes\nMatch all\n' "$user" > /etc/ssh/sshd_config.d/90-tailtag.conf
+printf 'Match User %s\n    AllowAgentForwarding no\n    AllowTcpForwarding remote\n    PermitListen none\n    AllowStreamLocalForwarding remote\n    StreamLocalBindMask 0177\n    StreamLocalBindUnlink no\n    PermitTunnel no\n    PermitTTY yes\nMatch all\n' "$user" > /etc/ssh/sshd_config.d/90-tailtag.conf
 sshd -t
 systemctl reload ssh
 systemctl enable --now docker
