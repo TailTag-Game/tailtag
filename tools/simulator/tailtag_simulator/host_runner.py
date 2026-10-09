@@ -6,8 +6,10 @@ import json
 import math
 import os
 import platform
+import re
 import resource
 import signal
+import stat
 import sys
 import time
 import uuid
@@ -29,6 +31,7 @@ from .host_protocol import (
     validate_manifest,
 )
 from .host_release import read_release, verify_image_async
+from .reports import ReportFailed
 
 
 async def _docker(*arguments: str, timeout: float = 2) -> bytes:
@@ -41,8 +44,9 @@ async def _docker(*arguments: str, timeout: float = 2) -> bytes:
     )
     try:
         assert process.stdout is not None
-        raw = await asyncio.wait_for(process.stdout.read(65537), timeout)
-        await asyncio.wait_for(process.wait(), timeout)
+        async with asyncio.timeout(timeout):
+            raw = await process.stdout.read(65537)
+            await process.wait()
         if len(raw) > 65536 or process.returncode != 0:
             raise ValueError
         return raw
@@ -52,11 +56,53 @@ async def _docker(*arguments: str, timeout: float = 2) -> bytes:
             await process.wait()
 
 
-async def _running(name: str) -> tuple[bool, int]:
-    value: object = json.loads(await _docker("inspect", name))
+def _container_id(path: Path) -> str:
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        info = os.fstat(fd)
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_nlink != 1
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) != 0o600
+        ):
+            raise ValueError
+        if info.st_size == 0:
+            raise BlockingIOError("container_id_pending")
+        raw = os.read(fd, 66)
+        if re.fullmatch(rb"[0-9a-f]{64}\n?", raw) is None:
+            raise ValueError
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+    return raw.decode("ascii").rstrip("\n")
+
+
+async def _running(cid: str, manifest: dict[str, object]) -> tuple[bool, int]:
+    value: object = json.loads(await _docker("inspect", cid))
     if not isinstance(value, list) or len(cast(list[object], value)) != 1:
         raise ValueError
-    item = cast(list[dict[str, object]], value)[0]
+    item = cast(list[object], value)[0]
+    if not isinstance(item, dict) or not isinstance(
+        cast(dict[str, object], item).get("Config"), dict
+    ):
+        raise ValueError("container_identity_rejected")  # noqa: TRY004 - closed external metadata validation
+    item = cast(dict[str, object], item)
+    labels = cast(dict[str, object], item["Config"]).get("Labels")
+    if (
+        item.get("Id") != cid
+        or item.get("Name") != "/tailtag-sim-" + str(manifest["run_id"])
+        or item.get("Image") != cast(dict[str, object], manifest["release"])["image_id"]
+        or not isinstance(labels, dict)
+        or cast(dict[str, object], labels).get("tailtag.run_id") != manifest["run_id"]
+        or not isinstance(item.get("State"), dict)
+    ):
+        raise ValueError
     state = cast(dict[str, object], item["State"])
     if type(state.get("Running")) is not bool or type(state.get("ExitCode")) is not int:
         raise ValueError
@@ -135,7 +181,7 @@ async def supervise_run(
     name = "tailtag-sim-" + str(manifest["run_id"])
     previous: dict[int, object] = {}
     requested_stop: str | None = None
-    launched = False
+    cid: str | None = None
     container_finished = False
     stop_event = asyncio.Event()
     hard_stop = False
@@ -176,14 +222,32 @@ async def supervise_run(
                         verification, interruption, return_exceptions=True
                     )
                 base = artifacts.base
+                if (
+                    await _docker(
+                        "ps",
+                        "--all",
+                        "--no-trunc",
+                        "--quiet",
+                        "--filter",
+                        "name=^/" + name + "$",
+                    )
+                ).strip():
+                    raise ValueError("container_name_occupied")
+                started = clock()
+                execution_end = started + cast(float, safety["seconds"])
                 # Only rpc is exposed; the host-only control directory stays unmounted.
                 process = await asyncio.create_subprocess_exec(
                     "docker",
                     "run",
                     "--name",
                     name,
+                    "--cidfile",
+                    str(base / "control/container.cid"),
+                    "--label",
+                    "tailtag.run_id=" + str(manifest["run_id"]),
                     "--init",
                     "--interactive",
+                    "--sig-proxy=false",
                     *(["--tty"] if sys.stdin.isatty() and sys.stdout.isatty() else []),
                     "--log-driver=none",
                     "--read-only",
@@ -224,10 +288,70 @@ async def supervise_run(
                     "/reports",
                     "--stage-log",
                     "/reports/stages.log",
+                    umask=0o077,
+                    start_new_session=True,
                 )
-                launched = True
-                started = clock()
-                execution_end = started + cast(float, safety["seconds"])
+                ownership_end = loop.time() + 30
+                try:
+                    while True:
+                        if (
+                            requested_stop
+                            or clock() >= execution_end
+                            or loop.time() >= ownership_end
+                        ):
+                            raise ValueError("container_ownership_uncertain")
+                        try:
+                            candidate = _container_id(base / "control/container.cid")
+                        except (FileNotFoundError, BlockingIOError):
+                            if process.returncode is not None:
+                                raise ValueError(
+                                    "container_ownership_uncertain"
+                                ) from None
+                        else:
+                            # Admission forbids a pre-existing CID file: this freshly
+                            # Docker-created full ID owns cleanup even if inspect fails.
+                            cid = candidate
+                            async with asyncio.timeout(
+                                min(
+                                    2,
+                                    ownership_end - loop.time(),
+                                    execution_end - clock(),
+                                )
+                            ):
+                                await _running(candidate, manifest)
+                            break
+                        waiter = asyncio.create_task(process.wait())
+                        wake = asyncio.create_task(stop_event.wait())
+                        pause = asyncio.ensure_future(sleep(0.02))
+                        try:
+                            await asyncio.wait(
+                                (waiter, wake, pause),
+                                timeout=max(
+                                    0,
+                                    min(
+                                        ownership_end - loop.time(),
+                                        execution_end - clock(),
+                                    ),
+                                ),
+                                return_when=asyncio.FIRST_COMPLETED,
+                            )
+                        finally:
+                            for task in (waiter, wake, pause):
+                                task.cancel()
+                            await asyncio.gather(
+                                waiter, wake, pause, return_exceptions=True
+                            )
+                except (OSError, ValueError, TimeoutError):
+                    artifacts.record_completion(
+                        {
+                            "schema_version": 1,
+                            "run_id": manifest["run_id"],
+                            "container_id": cid,
+                            "stop_reason": "ownership_uncertain",
+                            "recovery": "uncertain",
+                        }
+                    )
+                    return 1
                 last_live = started
                 next_health = started
                 exit_code = 1
@@ -256,7 +380,7 @@ async def supervise_run(
                                 last_live = clock()
                             next_health = now + 5
                             if stop_reason is None and len(samples) < 301:
-                                samples.append(await _sample(name))
+                                samples.append(await _sample(cid))
                                 stop_reason = due_stop()
                         if stop_reason is None:
                             try:
@@ -265,7 +389,7 @@ async def supervise_run(
                                 requested_stop = "storage_uncertain"
                             stop_reason = due_stop()
                         if stop_reason is None and process.returncode is not None:
-                            running, exit_code = await _running(name)
+                            running, exit_code = await _running(cid, manifest)
                             if not running:
                                 container_finished = True
                                 break
@@ -274,15 +398,15 @@ async def supervise_run(
                             final_at = (
                                 clock() + cast(float, safety["final_seconds"]) + 10
                             )
-                            await _docker("kill", "--signal", "SIGINT", name)
+                            await _docker("kill", "--signal", "SIGINT", cid)
                     if stop_reason is not None:
-                        running, exit_code = await _running(name)
+                        running, exit_code = await _running(cid, manifest)
                         if not running:
                             container_finished = True
                             break
                         assert final_at is not None
                         if clock() >= math.nextafter(final_at, -math.inf):
-                            await _docker("kill", "--signal", "SIGKILL", name)
+                            await _docker("kill", "--signal", "SIGKILL", cid)
                             hard_stop = True
                             container_finished = True
                             exit_code = 1
@@ -333,32 +457,71 @@ async def supervise_run(
                     "run_id": manifest["run_id"],
                     "image_id": pinned["image_id"],
                     "platform": pinned["platform"],
+                    "container_id": cid,
                     "stop_reason": stop_reason,
                     "hard_stop": hard_stop,
                     "container_exit_code": max(-255, min(255, exit_code)),
                     "recovery": "uncertain",
                     "samples": samples,
                 }
-                artifacts.record_completion(evidence)
-                return 1 if stop_reason or hard_stop or exit_code != 0 else 0
+                prospective_pass = not stop_reason and not hard_stop and exit_code == 0
+                try:
+                    artifacts.record_completion(evidence, require_pass=prospective_pass)
+                except (OSError, ValueError, ReportFailed):
+                    if not prospective_pass:
+                        raise
+                    evidence["stop_reason"] = "report_uncertain"
+                    # Retain honest pre-report/nonpassing evidence where it validates.
+                    with suppress(OSError, ValueError, ReportFailed):
+                        artifacts.record_completion(evidence)
+                    return 1
+                return 0 if prospective_pass else 1
             finally:
-                if launched and not container_finished:
-                    # A failed client/inspection is no evidence that Docker stopped.
-                    with suppress(OSError, ValueError, TimeoutError):
-                        await _docker("kill", "--signal", "SIGINT", name)
-                        await _docker(
-                            "wait",
-                            name,
-                            timeout=cast(float, safety["final_seconds"]) + 10,
-                        )
-                    with suppress(OSError, ValueError, TimeoutError):
-                        await _docker("kill", "--signal", "SIGKILL", name)
-                if process is not None and process.returncode is None:
-                    with suppress(ProcessLookupError):
-                        process.kill()
-                    await process.wait()
-                if launched:
-                    await _docker("rm", name)
+
+                async def cleanup_owned() -> None:
+                    nonlocal cid
+                    client_error: OSError | TimeoutError | None = None
+                    # Freeze creation before discovering a CID after interrupted
+                    # startup. Killing this owned client never authorizes a name.
+                    if process is not None and process.returncode is None:
+                        try:
+                            with suppress(ProcessLookupError):
+                                process.kill()
+                            await asyncio.wait_for(process.wait(), 2)
+                        except (OSError, TimeoutError) as error:
+                            # A client reap failure cannot skip known workload cleanup.
+                            client_error = error
+                    if cid is None and process is not None:
+                        with suppress(OSError, ValueError):
+                            cid = _container_id(
+                                artifacts.base / "control/container.cid"
+                            )
+                    if cid is not None and not container_finished:
+                        # Fresh creation receipt owns cleanup even if inspect failed.
+                        with suppress(OSError, ValueError, TimeoutError):
+                            await _docker("kill", "--signal", "SIGINT", cid)
+                            await _docker(
+                                "wait",
+                                cid,
+                                timeout=cast(float, safety["final_seconds"]) + 10,
+                            )
+                        with suppress(OSError, ValueError, TimeoutError):
+                            await _docker("kill", "--signal", "SIGKILL", cid)
+                    if cid is not None:
+                        await _docker("rm", cid)
+                    if client_error is not None:
+                        raise client_error
+
+                cleanup = asyncio.create_task(cleanup_owned())
+                interrupted = False
+                while not cleanup.done():
+                    try:
+                        await asyncio.shield(cleanup)
+                    except asyncio.CancelledError:
+                        interrupted = True
+                cleanup.result()
+                if interrupted:
+                    raise asyncio.CancelledError
     finally:
         for sig, handler in previous.items():
             loop.remove_signal_handler(sig)
@@ -434,9 +597,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             if owned["run_id"] != args.run_id:
                 raise ValueError
-            asyncio.run(
-                _docker("kill", "--signal", "SIGINT", "tailtag-sim-" + args.run_id)
-            )
+
+            async def stop_owned() -> None:
+                cid = _container_id(
+                    args.root / "runs" / args.run_id / "control/container.cid"
+                )
+                await _running(cid, owned)
+                await _docker("kill", "--signal", "SIGINT", cid)
+
+            asyncio.run(stop_owned())
             return 0
         resolve_recovery(args.root, args.run_id, _input(args.receipt))
         return 0

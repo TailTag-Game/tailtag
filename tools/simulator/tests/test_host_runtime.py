@@ -20,11 +20,15 @@ from typing import Any, cast
 
 import pytest
 from report_support import read_report
+from test_host_artifacts import report_file
 from test_host_cli import IMAGE, RUN, SENTINEL, host_manifest, packaged_source, section
 from traffic_support import ManualClock
 
 from tailtag_simulator.host_operator import run_session
 from tailtag_simulator.host_runner import supervise_run
+
+CID = "1" * 64
+FOREIGN_CID = "2" * 64
 
 
 def executable(path: Path, body: str) -> None:
@@ -528,6 +532,11 @@ def docker_boundary(
     *,
     stuck: bool,
     client_exit: bool = False,
+    report_outcome: str | None = None,
+    collision: str | None = None,
+    inspect_failure: bool = False,
+    startup_gate: bool = False,
+    cancel_cleanup_gate: bool = False,
 ) -> Path:
     """Docker's boundary operates a single real child and a fake immutable image."""
     binary = root / "bin"
@@ -570,6 +579,16 @@ signal.signal(signal.SIGINT, stop)
 (root / "child-ready").write_text(str(os.getpid()))
 print({SENTINEL!r}, flush=True)
 print({SENTINEL!r}, file=sys.stderr, flush=True)
+report_outcome = {report_outcome!r}
+if report_outcome is not None:
+    if {report_outcome!r} == "missing": report.path.unlink()
+    elif {report_outcome!r} == "failed":
+        report.end("simulation", "failed", "FAIL_SIMULATION")
+        report.finish(1)
+    elif {report_outcome!r} == "passed":
+        report.path.write_bytes((root / "passed" / {RUN!r} / "snapshot.json").read_bytes())
+    (root / "child-finalized").write_text("0")
+    raise SystemExit(0)
 while True: time.sleep(0.01)
 """)
     executable(
@@ -580,8 +599,9 @@ from pathlib import Path
 root = Path({str(root)!r})
 args = sys.argv[1:]
 with (root / "docker.jsonl").open("a") as out:
-    out.write(json.dumps({{"argv":args}}) + "\\n")
+    out.write(json.dumps({{"argv":args,"pid":os.getpid(),"sid":os.getsid(0),"pgid":os.getpgrp()}}) + "\\n")
 op = args[0]
+collision = {collision!r}
 if op == "run" and "tailtag_simulator.provenance" in args:
     assert args[:2] == ["run", "--name"], args
     name = args[2]
@@ -598,9 +618,28 @@ if op == "run" and "tailtag_simulator.provenance" in args:
     print(json.dumps(load_source(root / "source")))
 elif op == "run":
     name = args[args.index("--name") + 1]
+    if collision is not None:
+        raise SystemExit(125)  # Docker name collision produces no created CID.
+    if "--cidfile" in args:
+        destination = args[args.index("--cidfile") + 1]
+        fd = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666)
+        with os.fdopen(fd, "w") as out:
+            while {startup_gate!r} and not (root / "publish-cid").exists(): time.sleep(0.01)
+            out.write({CID!r} + "\\n")
+    labels = dict(item.split("=", 1) for i,item in enumerate(args)
+                  if i and args[i-1] == "--label")
     proc = subprocess.Popen([{sys.executable!r}, str(root / "python-child.py")],
-                            env={{**os.environ, "PYTHONPATH":str(root / "source")}})
-    (root / "container.json").write_text(json.dumps({{"name":name,"pid":proc.pid}}))
+                            env={{**os.environ, "PYTHONPATH":str(root / "source")}},
+                            start_new_session=True)
+    (root / "container.json").write_text(json.dumps({{"name":name,"pid":proc.pid,"labels":labels}}))
+    # The container child is outside the host's terminal process group. Docker
+    # CLI's real default sigProxy nevertheless forwards received HUP into it.
+    def forward_hup(signum, frame):
+        if "--sig-proxy=false" not in args:
+            (root / "docker-forwarded-hup").touch()
+            with suppress(ProcessLookupError): os.kill(proc.pid, signal.SIGHUP)
+    from contextlib import suppress
+    signal.signal(signal.SIGHUP, forward_hup)
     if {client_exit!r}:
         while not (root / "child-ready").exists() and proc.poll() is None:
             time.sleep(0.01)
@@ -610,13 +649,15 @@ elif op == "run":
     (root / "container-exit").write_text(str(code))
     raise SystemExit(code if code >= 0 else 128-code)
 elif op == "kill":
-    state = json.loads((root / "container.json").read_text())
-    assert args[-1] == state["name"], args
+    state = json.loads((root / ("foreign.json" if {collision!r} else "container.json")).read_text())
+    assert args[-1] in (state["name"], {FOREIGN_CID!r} if {collision!r} else {CID!r}), args
     value = "KILL"
     for i, item in enumerate(args):
         if item in ("--signal", "-s"): value = args[i+1]
         if item.startswith("--signal="): value = item.split("=",1)[1]
     value = value.removeprefix("SIG")
+    if {cancel_cleanup_gate!r} and value == "INT" and args[-1] == {CID!r}:
+        while not (root / "release-kill").exists(): time.sleep(0.01)
     os.kill(state["pid"], getattr(signal, "SIG" + value))
     print(state["name"])
 elif op in ("inspect", "image"):
@@ -624,7 +665,21 @@ elif op in ("inspect", "image"):
     data = {{"Id":{IMAGE!r},"Architecture":"amd64","Os":"linux",
             "Config":{{"User":"1000:1000","Entrypoint":["python","-m","tailtag_simulator"],"Env":[]}},
             "State":{{"Running":not ended,"ExitCode":130 if ended else 0}}}}
+    if op == "inspect":
+        if {inspect_failure!r}:
+            while not (root / "child-ready").exists(): time.sleep(0.01)
+            raise SystemExit(1)
+        state_path = root / ("foreign.json" if {collision!r} else "container.json")
+        if not state_path.exists(): raise SystemExit(1)
+        state = json.loads(state_path.read_text())
+        data.update(Id={FOREIGN_CID!r} if {collision!r} else {CID!r},
+                    Name="/"+state["name"], Image={IMAGE!r})
+        data["Config"]["Labels"] = state["labels"]
+        data["State"]["ExitCode"] = int((root/"container-exit").read_text()) if (root/"container-exit").exists() else (0 if {report_outcome!r} else (130 if ended else 0))
     print(json.dumps([data]))
+elif op == "ps":
+    assert args == ["ps", "--all", "--no-trunc", "--quiet", "--filter", "name=^/tailtag-sim-"+{RUN!r}+"$"], args
+    print({FOREIGN_CID!r} if {collision!r} == "preexisting" else "")
 elif op == "create": print("tailtag-228-extract")
 elif op == "cp":
     destination = Path(args[-1])
@@ -634,15 +689,252 @@ elif op == "cp":
     else: shutil.copytree(root/"source", destination, dirs_exist_ok=True)
 elif op == "stats": print(json.dumps({{"CPUPerc":"0.00%","MemUsage":"1MiB / 1GiB","MemPerc":"0.10%"}}))
 elif op == "wait":
+    if {collision!r}: raise SystemExit(1)
     while not (root/"container-exit").exists() and not (root/"child-finalized").exists(): time.sleep(0.01)
     print((root/"container-exit").read_text() if (root/"container-exit").exists() else "130")
-elif op == "rm": pass
+elif op == "rm":
+    if collision and args[-1] in ({FOREIGN_CID!r}, "tailtag-sim-"+{RUN!r}):
+        (root / "foreign-removed").touch()
 elif op == "info": print(json.dumps({{"OSType":"linux","Architecture":"x86_64"}}))
 else: raise SystemExit("unexpected Docker boundary operation")
 """,
     )
     monkeypatch.setenv("PATH", str(binary) + os.pathsep + os.environ["PATH"])
     return root / "docker.jsonl"
+
+
+@pytest.mark.parametrize(
+    "collision",
+    ["preexisting", "race", "inspect-failure", "startup-signal", "startup-cancel"],
+)
+def test_container_collision_and_unbound_stop_preserve_foreign_work_and_hold(
+    monkeypatch: pytest.MonkeyPatch, collision: str
+) -> None:
+    async def execute(root: Path) -> None:
+        startup = collision in {"startup-signal", "startup-cancel"}
+        record = docker_boundary(
+            root,
+            monkeypatch,
+            stuck=False,
+            collision=None if collision == "inspect-failure" or startup else collision,
+            inspect_failure=collision == "inspect-failure",
+            startup_gate=startup,
+            cancel_cleanup_gate=collision == "startup-cancel",
+        )
+        value = host_manifest()
+        section(value, "release")["dependency_lock_sha256"] = json.loads(
+            (root / "image-source.json").read_text()
+        )["dependency_lock_sha256"]
+        (root / "run-manifest.json").write_text(json.dumps(value))
+        release = {
+            "schema_version": 1,
+            **section(value, "release"),
+            "archive_sha256": "e" * 64,
+        }
+        run_root, control = prepared_skeleton(root, value)
+        acquisition = asyncio.Event()
+        release_poll = asyncio.Event()
+
+        async def poll_sleep(seconds: float) -> None:
+            cidfile = control / "container.cid"
+            if startup and cidfile.exists() and cidfile.stat().st_size == 0:
+                acquisition.set()
+                await release_poll.wait()
+            else:
+                await asyncio.sleep(seconds)
+
+        async def serve(
+            reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+        ) -> None:
+            try:
+                await reader.readline()
+                writer.write(json.dumps({"run_id": RUN, "live": True}).encode() + b"\n")
+                await writer.drain()
+            finally:
+                writer.close()
+                await writer.wait_closed()
+
+        server = await asyncio.start_unix_server(serve, path=control / "health.sock")
+        (control / "health.sock").chmod(0o600)
+        foreign = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-c",
+            "import signal,sys,time\nfrom pathlib import Path\n"
+            "signal.signal(signal.SIGINT, lambda *_: Path(sys.argv[1]).write_text('SIGINT'))\n"
+            "Path(sys.argv[2]).touch()\nwhile True: time.sleep(0.01)\n",
+            str(root / "foreign-signal"),
+            str(root / "foreign-ready"),
+        )
+        (root / "foreign.json").write_text(
+            json.dumps(
+                {
+                    "name": "tailtag-sim-" + RUN,
+                    "pid": foreign.pid,
+                    "labels": {
+                        "tailtag.run_id": "66666666-6666-4666-8666-666666666666"
+                    },
+                }
+            )
+        )
+        task: asyncio.Task[int] | None = None
+        cleanup_interrupt: asyncio.Task[None] | None = None
+        try:
+            await eventually(
+                lambda: (root / "foreign-ready").exists(), "foreign fixture not ready"
+            )
+            task = asyncio.create_task(
+                supervise_run(value, release, root, sleep=poll_sleep)
+            )
+            if startup:
+                await eventually(
+                    acquisition.is_set,
+                    "ownership polling bypassed the public sleep boundary",
+                    seconds=0.5,
+                )
+                (root / "publish-cid").touch()
+                await eventually(
+                    lambda: (root / "child-ready").exists(),
+                    "gated Docker child did not start",
+                )
+                assert (control / "container.cid").read_text().strip() == CID
+                assert not [
+                    item for item in records(record) if item["argv"][0] == "inspect"
+                ]
+                if collision == "startup-signal":
+                    os.kill(os.getpid(), signal.SIGINT)
+                else:
+                    task.cancel()
+
+                    async def cancel_during_cleanup() -> None:
+                        assert task is not None
+                        try:
+                            await eventually(
+                                lambda: any(
+                                    item["argv"][0] == "kill"
+                                    and item["argv"][-1] == CID
+                                    for item in records(record)
+                                ),
+                                "CID cleanup never started",
+                            )
+                            task.cancel()
+                            await asyncio.sleep(0.05)
+                            assert not task.done(), (
+                                "caller returned before CID cleanup joined"
+                            )
+                        finally:
+                            (root / "release-kill").touch()
+
+                    cleanup_interrupt = asyncio.create_task(cancel_during_cleanup())
+            result = 1
+            with suppress(ValueError, TimeoutError, asyncio.CancelledError):
+                result = await asyncio.wait_for(task, 2)
+            if cleanup_interrupt is not None:
+                await cleanup_interrupt
+            assert result != 0
+            commands = [item["argv"] for item in records(record)]
+            foreign_actions = [
+                args
+                for args in commands
+                if args[0] in {"kill", "wait", "rm"}
+                and args[-1] in {FOREIGN_CID, "tailtag-sim-" + RUN}
+            ]
+            assert not foreign_actions
+            assert foreign.returncode is None
+            assert not (root / "foreign-signal").exists()
+            assert not (root / "foreign-removed").exists()
+            assert json.loads((run_root / "recovery-hold.json").read_text()) == {
+                "schema_version": 1,
+                "run_id": RUN,
+            }
+            assert [args for args in commands if args[0] == "ps"] == [
+                [
+                    "ps",
+                    "--all",
+                    "--no-trunc",
+                    "--quiet",
+                    "--filter",
+                    "name=^/tailtag-sim-" + RUN + "$",
+                ]
+            ]
+            launches = [
+                args
+                for args in commands
+                if args[0] == "run" and "tailtag_simulator.provenance" not in args
+            ]
+            assert len(launches) == (0 if collision == "preexisting" else 1)
+            cidfile = control / "container.cid"
+            if collision == "inspect-failure" or startup:
+                assert cidfile.read_text().strip() == CID
+                await eventually(
+                    lambda: (root / "child-finalized").exists(),
+                    "fresh owned CID was orphaned during startup",
+                    seconds=0.5,
+                )
+                assert (root / "child-signal").read_text() == str(signal.SIGINT)
+                assert (root / "child-finalized").read_text() == "130"
+                cleanup = [
+                    args
+                    for args in commands
+                    if args[0] in {"kill", "wait", "rm"} and args[-1] == CID
+                ]
+                assert cleanup and any(args[0] == "kill" for args in cleanup)
+                return
+            assert not cidfile.exists()
+            # The real stop CLI has no Linux admission bypass. Neither absent
+            # ownership evidence nor a foreign CID with mismatching run label
+            # permits a name fallback or signal to the foreign child.
+            for cid in (None, FOREIGN_CID):
+                if cid is not None:
+                    cidfile.write_text(cid + "\n")
+                    cidfile.chmod(0o600)
+                before = len(records(record))
+                stop = await asyncio.create_subprocess_exec(
+                    sys.executable,
+                    "-m",
+                    "tailtag_simulator.host_runner",
+                    "stop",
+                    "--root",
+                    str(root),
+                    "--run-id",
+                    RUN,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                try:
+                    stdout, stderr = await asyncio.wait_for(stop.communicate(), 5)
+                finally:
+                    if stop.returncode is None:
+                        stop.kill()
+                        await stop.wait()
+                assert stop.returncode != 0
+                assert stdout == b"FAIL host_runner\n" and not stderr
+                new = records(record)[before:]
+                assert not [
+                    item for item in new if item["argv"][0] in {"kill", "wait", "rm"}
+                ]
+                assert foreign.returncode is None
+                assert not (root / "foreign-signal").exists()
+                assert (run_root / "recovery-hold.json").exists()
+        finally:
+            (root / "release-kill").touch()
+            if cleanup_interrupt is not None and not cleanup_interrupt.done():
+                cleanup_interrupt.cancel()
+                with suppress(asyncio.CancelledError):
+                    await cleanup_interrupt
+            release_poll.set()
+            if task is not None and not task.done():
+                task.cancel()
+                with suppress(ValueError, asyncio.CancelledError):
+                    await task
+            stop_owned_container_child(root, None)
+            if foreign.returncode is None:
+                foreign.terminate()
+            await asyncio.wait_for(foreign.wait(), 5)
+            server.close()
+            await server.wait_closed()
+
+    with owned_root() as root:
+        asyncio.run(execute(root))
 
 
 @pytest.mark.parametrize(
@@ -655,6 +947,10 @@ else: raise SystemExit("unexpected Docker boundary operation")
         ("client-exit", False),
         ("late-live", False),
         ("deadline-before-health", False),
+        ("missing-report", False),
+        ("failed-report", False),
+        ("running-report", False),
+        ("passed-report", False),
     ],
 )
 def test_supervisor_latches_health_loss_or_deadline_and_signals_named_real_child(
@@ -663,8 +959,15 @@ def test_supervisor_latches_health_loss_or_deadline_and_signals_named_real_child
     stop: str,
 ) -> None:
     async def execute(root: Path) -> None:
+        report_outcome = (
+            stop.removesuffix("-report") if stop.endswith("-report") else None
+        )
         record = docker_boundary(
-            root, monkeypatch, stuck=stuck, client_exit=stop == "client-exit"
+            root,
+            monkeypatch,
+            stuck=stuck,
+            client_exit=stop == "client-exit",
+            report_outcome=report_outcome,
         )
         value = host_manifest()
         if stop in {"deadline", "deadline-before-health"}:
@@ -679,6 +982,11 @@ def test_supervisor_latches_health_loss_or_deadline_and_signals_named_real_child
             "archive_sha256": "e" * 64,
         }
         run_root, control = prepared_skeleton(root, value)
+        if report_outcome == "passed":
+            destination = root / "passed" / RUN
+            destination.mkdir(parents=True)
+            snapshot = report_file(destination, value, root / "scratch")
+            snapshot.rename(destination / "snapshot.json")
         live = True
         requests: list[object] = []
         delayed_health = asyncio.Event()
@@ -725,71 +1033,116 @@ def test_supervisor_latches_health_loss_or_deadline_and_signals_named_real_child
                 "supervisor never launched Python",
             )
             child_pid = int((root / "child-ready").read_text())
-            await eventually(lambda: bool(requests), "supervisor never checked health")
-            assert requests[0] == {
-                "schema_version": 1,
-                "channel": "health",
-                "run_id": RUN,
-            }
-            live = stop not in {"supervision", "late-live"}
-            # Wall-clock changes are deliberately irrelevant to monotonic loss.
-            monkeypatch.setattr(time, "time", lambda: 1.0)
-            requests_before_deadline = len(requests)
-            samples_before_deadline = 0
-            if stop != "client-exit":
-                stop_at = 10 if stop in {"deadline", "deadline-before-health"} else 30
-                for _ in range(stop_at // 5 - 1):
-                    await timer.advance(5)
-                    await asyncio.sleep(0.02)
-                if stop == "deadline-before-health":
-                    # Finish the predeadline poll/sample before moving time;
-                    # otherwise slow process startup can shift its next poll.
-                    await eventually(
-                        lambda: len(requests) == 2 and 10.0 in timer.waiters.values(),
-                        "predeadline health/sample did not settle",
-                    )
-                await timer.advance(4.999)
-                assert not (root / "child-signal").exists()
-                if stop == "late-live":
-                    await asyncio.wait_for(delayed_health.wait(), 1)
-                requests_before_deadline = len(requests)
-                samples_before_deadline = len(
-                    [item for item in records(record) if item["argv"][0] == "stats"]
-                )
-                await timer.advance(float(stop_at) - timer.now)
-                if stop == "late-live":
-                    # A reply from a request begun before expiry cannot erase
-                    # the elapsed loss window when it arrives after >=30 s.
-                    live = True
-                    await timer.advance(0.5)
-                    finish_health.set()
+            # Advance only a pending public ownership poll before normal work;
+            # its elapsed time still counts toward the original execution end.
             await eventually(
-                lambda: (root / "child-signal").exists(),
-                "bounded stop did not reach Python",
-                seconds=0.5 if stop in {"late-live", "deadline-before-health"} else 5,
+                lambda: (
+                    task.done()
+                    or bool(timer.waiters)
+                    or any(item["argv"][0] == "inspect" for item in records(record))
+                ),
+                "startup did not reach a public poll or inspection",
             )
-            if stop == "deadline-before-health":
-                assert len(requests) == requests_before_deadline
-                assert not delayed_health.is_set()
-                assert (
-                    len(
+            if timer.waiters and not any(
+                item["argv"][0] == "inspect" for item in records(record)
+            ):
+                await timer.advance(min(timer.waiters.values()) - timer.now)
+            if report_outcome is not None:
+                result = await asyncio.wait_for(task, 5)
+                assert result == (0 if report_outcome == "passed" else 1)
+                assert not (root / "child-signal").exists()
+                assert (root / "child-finalized").read_text() == "0"
+                assert json.loads((run_root / "recovery-hold.json").read_text()) == {
+                    "schema_version": 1,
+                    "run_id": RUN,
+                }
+            else:
+                await eventually(
+                    lambda: bool(requests), "supervisor never checked health"
+                )
+                assert requests[0] == {
+                    "schema_version": 1,
+                    "channel": "health",
+                    "run_id": RUN,
+                }
+                if stop != "client-exit":
+                    await eventually(
+                        lambda: (
+                            bool(timer.waiters)
+                            and any(
+                                item["argv"][0] == "stats" for item in records(record)
+                            )
+                        ),
+                        "initial health/sample did not settle",
+                    )
+                live = stop not in {"supervision", "late-live"}
+                # Wall-clock changes are deliberately irrelevant to monotonic loss.
+                monkeypatch.setattr(time, "time", lambda: 1.0)
+                requests_before_deadline = len(requests)
+                samples_before_deadline = 0
+                if stop != "client-exit":
+                    deadline_case = stop in {"deadline", "deadline-before-health"}
+                    stop_at = 10.0 if deadline_case else timer.now + 30
+                    for _ in range(1 if deadline_case else 5):
+                        await timer.advance(5)
+                        await asyncio.sleep(0.02)
+                    if stop == "deadline-before-health":
+                        # Finish the predeadline poll/sample before moving time;
+                        # otherwise slow process startup can shift its next poll.
+                        await eventually(
+                            lambda: (
+                                len(requests) == 2 and 10.0 in timer.waiters.values()
+                            ),
+                            "predeadline health/sample did not settle",
+                        )
+                    await timer.advance(stop_at - timer.now - 0.001)
+                    assert not (root / "child-signal").exists()
+                    if stop == "late-live":
+                        await asyncio.wait_for(delayed_health.wait(), 1)
+                    requests_before_deadline = len(requests)
+                    samples_before_deadline = len(
                         [item for item in records(record) if item["argv"][0] == "stats"]
                     )
-                    == samples_before_deadline
+                    await timer.advance(float(stop_at) - timer.now)
+                    if stop == "late-live":
+                        # A reply from a request begun before expiry cannot erase
+                        # the elapsed loss window when it arrives after >=30 s.
+                        live = True
+                        await timer.advance(0.5)
+                        finish_health.set()
+                await eventually(
+                    lambda: (root / "child-signal").exists(),
+                    "bounded stop did not reach Python",
+                    seconds=0.5
+                    if stop in {"late-live", "deadline-before-health"}
+                    else 5,
                 )
-            assert (root / "child-signal").read_text() == str(signal.SIGINT)
-            assert unrelated.returncode is None
-            live = True
-            await timer.advance(5)
-            if stuck:
-                await timer.advance(9.999)
-                assert not (root / "container-exit").exists()
-                await timer.advance(0.001)
-            assert await asyncio.wait_for(task, 5) != 0
+                if stop == "deadline-before-health":
+                    assert len(requests) == requests_before_deadline
+                    assert not delayed_health.is_set()
+                    assert (
+                        len(
+                            [
+                                item
+                                for item in records(record)
+                                if item["argv"][0] == "stats"
+                            ]
+                        )
+                        == samples_before_deadline
+                    )
+                assert (root / "child-signal").read_text() == str(signal.SIGINT)
+                assert unrelated.returncode is None
+                live = True
+                await timer.advance(5)
+                if stuck:
+                    await timer.advance(9.999)
+                    assert not (root / "container-exit").exists()
+                    await timer.advance(0.001)
+                assert await asyncio.wait_for(task, 5) != 0
             commands = [item["argv"] for item in records(record)]
             if stop == "client-exit":
                 assert any(
-                    args[0] in ("inspect", "wait") and args[-1] == "tailtag-sim-" + RUN
+                    args[0] in ("inspect", "wait") and args[-1] == CID
                     for args in commands
                 )
             launches = [
@@ -800,6 +1153,23 @@ def test_supervisor_latches_health_loss_or_deadline_and_signals_named_real_child
             assert len(launches) == 1  # Late live health never restarts this run.
             launch = launches[0]
             assert launch[launch.index("--name") + 1] == "tailtag-sim-" + RUN
+            assert launch[launch.index("--cidfile") + 1] == str(
+                control / "container.cid"
+            )
+            assert launch[launch.index("--label") + 1] == "tailtag.run_id=" + RUN
+            cidfile = control / "container.cid"
+            assert cidfile.read_text().strip() == CID
+            assert cidfile.stat().st_mode & 0o777 == 0o600
+            assert cidfile.stat().st_uid == os.getuid()
+            workload_actions = [
+                args
+                for args in commands
+                if args[0] in {"inspect", "stats", "kill", "wait", "rm"}
+                and not (args[0] == "rm" and args[-1].startswith("tailtag-sim-source-"))
+            ]
+            assert workload_actions and all(
+                args[-1] == CID for args in workload_actions
+            )
             assert "--init" in launch
             assert (
                 "--log-driver=none" in launch
@@ -828,8 +1198,8 @@ def test_supervisor_latches_health_loss_or_deadline_and_signals_named_real_child
                 for mount in mounts
             )
             kills = [args for args in commands if args[0] == "kill"]
-            assert len(kills) == (2 if stuck else 1)
-            assert all(args[-1] == "tailtag-sim-" + RUN for args in kills)
+            assert len(kills) == (0 if report_outcome else 2 if stuck else 1)
+            assert all(args[-1] == CID for args in kills)
             evidence_path = run_root / "host.json"
             evidence = evidence_path.read_text()
             assert len(evidence.encode()) < 65536
@@ -837,7 +1207,20 @@ def test_supervisor_latches_health_loss_or_deadline_and_signals_named_real_child
             if stop in {"supervision", "late-live"}:
                 assert "supervision_lost" in evidence
             assert isinstance(json.loads(evidence), dict)
-            if stuck:
+            if report_outcome is not None:
+                assert json.loads(evidence)["evidence"]["recovery"] == "uncertain"
+                reports = list((run_root / "reports").glob("*.json"))
+                if report_outcome == "missing":
+                    assert not reports
+                else:
+                    assert len(reports) == 1
+                    report = read_report(reports[0])
+                    assert report["outcome"] == report_outcome
+                    assert (
+                        report["target"]["starting"]["value"]
+                        == value["backend_identity"]
+                    )
+            elif stuck:
                 assert "uncertain" in evidence or "hard_stop" in evidence
                 assert not (root / "child-finalized").exists()
             else:
@@ -922,6 +1305,10 @@ def test_host_cli_survives_sighup_until_named_python_finalizes(
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        unrelated = await asyncio.create_subprocess_exec(
+            sys.executable, "-c", "import time; time.sleep(30)", start_new_session=True
         )
         child_pid: int | None = None
         try:
@@ -930,36 +1317,45 @@ def test_host_cli_survives_sighup_until_named_python_finalizes(
                 "host CLI never launched Python",
             )
             child_pid = int((root / "child-ready").read_text())
-            process.send_signal(signal.SIGHUP)
+            assert os.getsid(process.pid) == process.pid
+            assert os.getpgid(process.pid) == process.pid
+            os.killpg(process.pid, signal.SIGHUP)
             await eventually(
                 lambda: (root / "child-finalized").exists(),
                 "SIGHUP orphaned the Python run",
             )
             assert (root / "child-signal").read_text() == str(signal.SIGINT)
             assert await asyncio.wait_for(process.wait(), 5) != 0
+            assert unrelated.returncode is None
+            assert not (root / "docker-forwarded-hup").exists()
             commands = [item["argv"] for item in records(record)]
-            assert (
-                len(
-                    [
-                        args
-                        for args in commands
-                        if args[0] == "run"
-                        and "tailtag_simulator.provenance" not in args
-                    ]
-                )
-                == 1
-            )
+            workload = [
+                item
+                for item in records(record)
+                if item["argv"][0] == "run"
+                and "tailtag_simulator.provenance" not in item["argv"]
+            ]
+            assert len(workload) == 1
+            assert workload[0]["sid"] != process.pid
+            assert workload[0]["pgid"] != process.pid
+            assert "--sig-proxy=false" in workload[0]["argv"]
             kills = [args for args in commands if args[0] == "kill"]
             assert len(kills) == 1
-            assert kills[0][-1] == "tailtag-sim-" + RUN
+            assert kills[0][-1] == CID
             report_path = next((run_root / "reports").rglob("*.json"))
             assert read_report(report_path)["outcome"] == "interrupted"
             assert (run_root / "host.json").is_file()
+            assert json.loads((run_root / "recovery-hold.json").read_text()) == {
+                "schema_version": 1,
+                "run_id": RUN,
+            }
         finally:
             if process.returncode is None:
                 process.kill()
                 await process.wait()
             stop_owned_container_child(root, child_pid)
+            unrelated.terminate()
+            await asyncio.wait_for(unrelated.wait(), 5)
             server.close()
             await server.wait_closed()
 

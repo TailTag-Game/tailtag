@@ -144,12 +144,16 @@ class RunArtifacts:
         ):
             _reject()
 
-    def record_completion(self, evidence: Mapping[str, object]) -> None:
+    def record_completion(
+        self, evidence: Mapping[str, object], *, require_pass: bool = False
+    ) -> None:
         """Validate and durably record completion without settling recovery."""
         self.check_budget()
         if evidence.get("run_id") != self.manifest["run_id"]:
             _reject()
         report = self.report_dir / f"{self.manifest['run_id']}.json"
+        if require_pass and not report.exists():
+            _reject()
         if report.exists():
             _private(report)
             validated = cast(
@@ -167,6 +171,7 @@ class RunArtifacts:
                 != self.manifest["backend_identity"]
                 or validated["safety"]["target"]["identity"]
                 != self.manifest["backend_identity"]
+                or (require_pass and validated["outcome"] != "passed")
             ):
                 _reject()
         completed = self.clock()
