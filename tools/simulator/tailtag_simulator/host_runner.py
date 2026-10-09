@@ -72,6 +72,14 @@ def _container_id(path: Path) -> str:
         raw = os.read(fd, 66)
         if re.fullmatch(rb"[0-9a-f]{64}\n?", raw) is None:
             raise ValueError
+    finally:
+        os.close(fd)
+    return raw.decode("ascii").rstrip("\n")
+
+
+def _sync_container_id(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
         os.fsync(fd)
     finally:
         os.close(fd)
@@ -80,7 +88,6 @@ def _container_id(path: Path) -> str:
         os.fsync(directory)
     finally:
         os.close(directory)
-    return raw.decode("ascii").rstrip("\n")
 
 
 async def _running(cid: str, manifest: dict[str, object]) -> tuple[bool, int]:
@@ -311,6 +318,7 @@ async def supervise_run(
                             # Admission forbids a pre-existing CID file: this freshly
                             # Docker-created full ID owns cleanup even if inspect fails.
                             cid = candidate
+                            _sync_container_id(base / "control/container.cid")
                             async with asyncio.timeout(
                                 min(
                                     2,
@@ -491,7 +499,7 @@ async def supervise_run(
                         except (OSError, TimeoutError) as error:
                             # A client reap failure cannot skip known workload cleanup.
                             client_error = error
-                    if cid is None and process is not None:
+                    if cid is None:
                         with suppress(OSError, ValueError):
                             cid = _container_id(
                                 artifacts.base / "control/container.cid"

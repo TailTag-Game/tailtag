@@ -705,18 +705,32 @@ else: raise SystemExit("unexpected Docker boundary operation")
 
 @pytest.mark.parametrize(
     "collision",
-    ["preexisting", "race", "inspect-failure", "startup-signal", "startup-cancel"],
+    [
+        "preexisting",
+        "race",
+        "inspect-failure",
+        "startup-signal",
+        "startup-cancel",
+        "cid-file-fsync-failure",
+        "cid-dir-fsync-failure",
+    ],
 )
 def test_container_collision_and_unbound_stop_preserve_foreign_work_and_hold(
     monkeypatch: pytest.MonkeyPatch, collision: str
 ) -> None:
     async def execute(root: Path) -> None:
         startup = collision in {"startup-signal", "startup-cancel"}
+        storage_failure = collision in {
+            "cid-file-fsync-failure",
+            "cid-dir-fsync-failure",
+        }
         record = docker_boundary(
             root,
             monkeypatch,
             stuck=False,
-            collision=None if collision == "inspect-failure" or startup else collision,
+            collision=None
+            if collision == "inspect-failure" or startup or storage_failure
+            else collision,
             inspect_failure=collision == "inspect-failure",
             startup_gate=startup,
             cancel_cleanup_gate=collision == "startup-cancel",
@@ -778,10 +792,36 @@ def test_container_collision_and_unbound_stop_preserve_foreign_work_and_hold(
         )
         task: asyncio.Task[int] | None = None
         cleanup_interrupt: asyncio.Task[None] | None = None
+        failed_fsync = False
+        real_fsync = os.fsync
+
+        def storage_fsync(fd: int) -> None:
+            nonlocal failed_fsync
+            cidfile = control / "container.cid"
+            if cidfile.exists() and cidfile.stat().st_size >= 64:
+                target = cidfile if collision == "cid-file-fsync-failure" else control
+                expected, actual = target.stat(), os.fstat(fd)
+                if (actual.st_dev, actual.st_ino) == (expected.st_dev, expected.st_ino):
+                    # Only this storage boundary waits for the real external
+                    # child. Report/admission/companion fsync calls stay real.
+                    until = time.monotonic() + 2
+                    while (
+                        not (root / "child-ready").exists() and time.monotonic() < until
+                    ):
+                        time.sleep(0.001)
+                    assert (root / "child-ready").exists(), (
+                        "storage fault preceded real child creation"
+                    )
+                    failed_fsync = True
+                    raise OSError("injected CID durability failure")
+            real_fsync(fd)
+
         try:
             await eventually(
                 lambda: (root / "foreign-ready").exists(), "foreign fixture not ready"
             )
+            if storage_failure:
+                monkeypatch.setattr(os, "fsync", storage_fsync)
             task = asyncio.create_task(
                 supervise_run(value, release, root, sleep=poll_sleep)
             )
@@ -863,7 +903,9 @@ def test_container_collision_and_unbound_stop_preserve_foreign_work_and_hold(
             ]
             assert len(launches) == (0 if collision == "preexisting" else 1)
             cidfile = control / "container.cid"
-            if collision == "inspect-failure" or startup:
+            if collision == "inspect-failure" or startup or storage_failure:
+                if storage_failure:
+                    assert failed_fsync
                 assert cidfile.read_text().strip() == CID
                 await eventually(
                     lambda: (root / "child-finalized").exists(),
