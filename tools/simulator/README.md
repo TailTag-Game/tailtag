@@ -54,7 +54,16 @@ owner-private profile copy with an absolute safety-file path and establishes the
 matching release cwd/Python in each separate host control session. Automatic
 remote commands select that cwd too. Offline source verification has finite
 time/output bounds and cleanup of its exact named probe; failed or interrupted
-preflight cannot launch the workload. Use
+preflight cannot launch the workload. Install a later release from the previous
+verified release cwd/Python, then select the new runtime after success. Failed or
+interrupted runners retain a manual recovery hold even after acknowledged release.
+Runner success requires a validated attributed `passed` report. A fresh validated
+Docker-created CID proves current-invocation ownership; admission/success and
+manual stop also require the exact run/name/image/UUID label. Initial inspection
+failure still requests bounded cleanup of that owned CID and preserves a hold.
+An unknown name collision cannot authorize a foreign-container stop. The attached
+Docker client disables signal proxying and has its own process session, retaining
+the inherited terminal for hidden input; the supervisor signals only the owned CID. Use
 `make sim-image PLATFORM=linux/amd64` for the host. Canonical `make sim-check` includes secret-free bootstrap syntax validation;
 CI builds amd64 without running traffic. Existing local simulator commands retain
 their launcher behavior.
