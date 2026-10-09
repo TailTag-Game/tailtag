@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
 
@@ -26,10 +27,7 @@ from .provenance import (
 IMAGE = re.compile(r"sha256:[0-9a-f]{64}")
 
 
-def _metadata(path: Path) -> dict[str, Any]:
-    if path.is_symlink() or path.stat().st_size > 65536:
-        raise SourceRejected()
-    value: object = json.loads(path.read_text(), object_pairs_hook=_pairs)
+def _validate_release(value: object) -> dict[str, Any]:
     keys = {
         "schema_version",
         "simulator_sha",
@@ -38,9 +36,11 @@ def _metadata(path: Path) -> dict[str, Any]:
         "platform",
         "archive_sha256",
     }
-    if not isinstance(value, dict) or set(cast(dict[str, Any], value)) != keys:
+    if not isinstance(value, Mapping):
         raise SourceRejected()
-    result = cast(dict[str, Any], value)
+    result = dict(cast(Mapping[str, Any], value))
+    if set(result) != keys:
+        raise SourceRejected()
     if (
         type(result["schema_version"]) is not int
         or result["schema_version"] != 1
@@ -56,6 +56,17 @@ def _metadata(path: Path) -> dict[str, Any]:
         if not isinstance(result[key], str) or pattern.fullmatch(result[key]) is None:
             raise SourceRejected()
     return result
+
+
+def read_release(path: Path) -> dict[str, object]:
+    """Read closed immutable release metadata without exposing untrusted detail."""
+    try:
+        if path.is_symlink() or path.stat().st_size > 65536:
+            raise SourceRejected()
+        value: object = json.loads(path.read_text(), object_pairs_hook=_pairs)
+        return _validate_release(value)
+    except (OSError, ValueError):
+        raise SourceRejected() from None
 
 
 def _run(arguments: list[str]) -> str:
@@ -148,20 +159,37 @@ def _inspect(image: str) -> dict[str, Any]:
     return cast(dict[str, Any], source)
 
 
+def verify_image(release: Mapping[str, object]) -> dict[str, object]:
+    """Verify the installed immutable image and its bound packaged source."""
+    try:
+        record = _validate_release(release)
+        source = _inspect(record["image_id"])
+        if (
+            source["simulator_sha"]["value"] != record["simulator_sha"]
+            or source["runtime"]["dependency_lock_sha256"]["value"]
+            != record["dependency_lock_sha256"]
+        ):
+            raise SourceRejected()
+        return source
+    except (
+        OSError,
+        ValueError,
+        subprocess.SubprocessError,
+        KeyError,
+        TypeError,
+        AttributeError,
+    ):
+        raise SourceRejected() from None
+
+
 def load_release(archive: Path, metadata: Path) -> str:
-    record = _metadata(metadata)
+    record = cast(dict[str, Any], read_release(metadata))
     if _hash(archive) != record["archive_sha256"]:
         raise SourceRejected()
     loaded = _run(["docker", "load", "--input", str(archive)])
     if "Loaded image ID: " + record["image_id"] not in loaded.splitlines():
         raise SourceRejected()
-    source = _inspect(record["image_id"])
-    if (
-        source["simulator_sha"]["value"] != record["simulator_sha"]
-        or source["runtime"]["dependency_lock_sha256"]["value"]
-        != record["dependency_lock_sha256"]
-    ):
-        raise SourceRejected()
+    verify_image(record)
     return str(record["image_id"])
 
 
@@ -171,7 +199,7 @@ def install_runtime(archive: Path, metadata: Path, root: Path) -> Path:
     ):
         raise SourceRejected()
     _private(root)
-    record = _metadata(metadata)
+    record = cast(dict[str, Any], read_release(metadata))
     releases = root / "releases"
     if releases.exists() or releases.is_symlink():
         _private(releases)

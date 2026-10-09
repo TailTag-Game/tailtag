@@ -13,7 +13,12 @@ from typing import Any
 
 import pytest
 
-from tailtag_simulator.host_release import install_runtime, load_release, main
+from tailtag_simulator.host_release import (
+    install_runtime,
+    load_release,
+    main,
+    verify_image,
+)
 from tailtag_simulator.provenance import SourceRejected
 
 IMAGE = "sha256:" + "d" * 64
@@ -240,6 +245,10 @@ def test_untrusted_release_metadata_is_refused_before_docker(
     altered[key] = value
     record.write_text(json.dumps(altered))
     assert main(["load", "--archive", str(archive), "--metadata", str(record)]) != 0
+    # U2 supplies the trusted release mapping directly. It must not bypass the
+    # same closed metadata validation enforced by file/archive callers.
+    with pytest.raises(SourceRejected):
+        verify_image(altered)
     assert docker.calls == []
     output = capsys.readouterr()
     assert "SENTINEL" not in output.out + output.err
@@ -301,6 +310,7 @@ def test_export_load_uses_immutable_id_and_keeps_previous_release_and_reports(
     assert archive.read_bytes() == ARCHIVE
     assert json.loads(record.read_text()) == metadata()
     assert load_release(archive, record) == IMAGE
+    assert verify_image(metadata()) == source()
     assert (
         old.read_text() == "previous approved release"
         and report.read_text() == "original report bytes"
