@@ -3,7 +3,7 @@
 Issue: [#228](https://github.com/TailTag-Game/tailtag/issues/228).
 Acceptance source: the [approved refinement comment](https://github.com/TailTag-Game/tailtag/issues/228#issuecomment-6072384020), also saved locally in `.refinement/228.md`.
 
-**Status: proposed implementation design; awaiting maintainer approval.**
+**Status: approved by the maintainer on 2026-10-08; implementation authorized.**
 
 ## Routing and phase ledger
 
@@ -19,11 +19,11 @@ Completed:
 - Fresh baseline `make sim-check`: 1,115 tests, catalog, formatting, lint, strict types and Semgrep passed.
 - Independent Astra security design challenge: acceptable when the authorization, mutation-settlement and supervision constraints below are frozen. No new product/scope decision required.
 
-Current: maintainer review of this written design and test surface.
+Current: approved design and test surface; implementation planning and execution.
 
 Pending: implementation plan; independent Test Author → Implementer → Reviewer per unit; deterministic and targeted assurance gates; whole-change review; offline host/container proof; separately authorized provisioning and live proof.
 
-Environment: simulator toolchain is ready. Docker CLI/Compose are installed, but the pre-existing Docker daemon is unavailable. Image/container proof will require starting the existing local engine, preserving its initial state and cleaning up only task-owned resources. No external host or live Staging work has been started.
+Environment: simulator toolchain and existing Docker engine are ready. The daemon was unavailable during design checks and became available before implementation; this task did not start it. Clean up only task-owned resources. No external host or live Staging work has been started.
 
 ## Scope guard
 
