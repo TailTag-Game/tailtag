@@ -15,7 +15,7 @@ The acceptance repair generates `AllowTcpForwarding remote` plus `PermitListen n
 
 The normal profile sets `configuration.limits.attempts=9000`, a per-request execution attempt budget. Ten active actors does not mean ten requests per second. The separate safety policy retains 10,000 execution attempts. Fixture-renewal/terminal recovery corrections are a separate bounded implementation unit; existing pinned identity, single-attempt mutations, sticky target veto and honest uncertain recovery remain required. No new provisioning, deployment, paid resources or live workload is authorized by this local follow-up.
 
-Current: local acceptance-repair implementation and independent verification/review. Pending: canonical checks and unit/whole-change review, then separately authorized remaining normal/stop acceptance proofs. Reversibility: local changes TWO-WAY DOOR.
+Completed locally: acceptance-repair implementation, `make sim-check` (formatting, lint, strict types, catalog, Bash syntax, tests and Semgrep), and independent unit/whole-change review. Pending: hosted PR CI/review gates and separately authorized remaining normal-run/manual-stop acceptance proofs. Reversibility: local changes TWO-WAY DOOR.
 
 ## Original routing and phase ledger — 2026-10-08
 

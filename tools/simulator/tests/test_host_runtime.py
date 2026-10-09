@@ -571,6 +571,8 @@ def stop(signum, frame):
     (root / "child-signal").write_text(str(signum))
     if {stuck!r}:
         return
+    if {client_exit!r}:
+        while not (root / "finalize-child").exists(): time.sleep(0.01)
     report.end("simulation", "interrupted", "FAIL_INTERRUPTED")
     code = report.finish(130)
     (root / "child-finalized").write_text(str(code))
@@ -676,6 +678,8 @@ elif op in ("inspect", "image"):
                     Name="/"+state["name"], Image={IMAGE!r})
         data["Config"]["Labels"] = state["labels"]
         data["State"]["ExitCode"] = int((root/"container-exit").read_text()) if (root/"container-exit").exists() else (0 if {report_outcome!r} else (130 if ended else 0))
+        if {client_exit!r} and not ended and (root / "child-signal").exists():
+            (root / "stopping-inspected").touch()
     print(json.dumps([data]))
 elif op == "ps":
     assert args == ["ps", "--all", "--no-trunc", "--quiet", "--filter", "name=^/tailtag-sim-"+{RUN!r}+"$"], args
@@ -1175,6 +1179,25 @@ def test_supervisor_latches_health_loss_or_deadline_and_signals_named_real_child
                 assert (root / "child-signal").read_text() == str(signal.SIGINT)
                 assert unrelated.returncode is None
                 live = True
+                if stop == "client-exit":
+                    # Exercise an inspection that still sees the signalled child
+                    # running, then let that real child finish its report.
+                    await eventually(
+                        lambda: (root / "stopping-inspected").exists(),
+                        "supervisor never inspected the stopping container",
+                    )
+                    (root / "finalize-child").touch()
+                if not stuck:
+                    await eventually(
+                        lambda: (root / "child-finalized").exists(),
+                        "signalled child never finalized",
+                    )
+                # SIGINT receipt does not mean Docker inspection has settled.
+                # Arm the next poll before advancing its injected clock.
+                await eventually(
+                    lambda: task.done() or bool(timer.waiters),
+                    "supervisor neither completed nor armed its stop poll",
+                )
                 await timer.advance(5)
                 if stuck:
                     await timer.advance(9.999)
