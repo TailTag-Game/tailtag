@@ -77,11 +77,11 @@ Retained counts is eligible once before allocation. Heartbeat only after acknowl
 
 Two socket listeners isolate admission. Each handler reads at most limit+1 with a deadline, admits bounded clients without waiting in an unbounded queue, validates exactly one frame, and writes a bounded sanitized response. Health performs no provider command. Refuse symlink/pre-existing paths, use owner permissions, remove only owned sockets at close. Server shutdown joins owned operations within remaining reserve and records unresolved outcomes.
 
-- [ ] Test Author submits minimal Failure Mode Inventory/Test Value Map; parent approves shape.
-- [ ] Author writes real manifest/state/socket tests; boundary relay callback captures dispatches. Record red due missing production modules, not defective fixtures.
-- [ ] Implementer builds only the specified bridge files; demonstrate valid lifecycle, replay/disconnect, pending/uncertain mutation, wrong tuple/role and malformed/slow input refusal.
-- [ ] Run focused tests, Ruff, strict Pyright and Semgrep. Commit unit after identity check.
-- [ ] Fresh reviewer returns SPEC/QUALITY/TEST/SCOPE and SECURITY/DATA INTEGRITY/RELIABILITY; resolve material findings before U2.
+- [x] Test Author submits minimal Failure Mode Inventory/Test Value Map; parent approves shape.
+- [x] Author writes real manifest/state/socket tests; boundary relay callback captures dispatches. Record red due missing production modules, not defective fixtures.
+- [x] Implementer builds only the specified bridge files; demonstrate valid lifecycle, replay/disconnect, pending/uncertain mutation, wrong tuple/role and malformed/slow input refusal.
+- [x] Run focused tests, Ruff, strict Pyright and Semgrep. Commit unit after identity check.
+- [x] Fresh reviewer returns SPEC/QUALITY/TEST/SCOPE and SECURITY/DATA INTEGRITY/RELIABILITY; resolve material findings before U2.
 
 Behavioral example for the independent author to adapt, rather than mirror implementation:
 
@@ -116,20 +116,22 @@ Approved Test Surface supplement: shim grammar is `python -m tailtag_simulator.h
 
 Before workload: verify remote immutable release/manifest, establish private session paths, then serve sockets and start owned foreground SSH child with inherited TTY. Transfer secret-free data via authenticated SSH/SCP only. Relay credentials stay maintainer-side. On operator SIGINT/SIGHUP or SSH exit revoke workload immediately; allow bounded terminal recovery while transport survives; close session after settlement. Fresh health depends on trusted deadline plus owned SSH process state, not caller traffic. Clean only task-owned local session sockets/processes.
 
+Remote layout: `root/runs/<UUID>/rpc/rpc.sock` is the only socket directory mounted read-only into the container. `root/runs/<UUID>/control/{health.sock,manifest.json,recovery.json}` is host/operator-only; only the manifest file is separately mounted read-only. Reports and bounded stage log live in `root/runs/<UUID>/reports`; `host.json` companion and recovery hold stay outside that writable mount. Local BridgeServer's two sockets remain in one private local directory. A preliminary bounded fixed SSH command invokes `host_runner prepare --root --manifest PATH` to create only owner-private rpc/control parents and exact manifest before the main SSH requests its two forwards. Admission accepts only this prepared skeleton (including expected owned sockets), with no prior reports, host evidence, hold or completion; it then locks and creates durable run state before workload. Unexpected files, foreign owners, symlinks or a changed manifest refuse admission.
+
 `__main__` explicit `--host-manifest` and `--host-socket-dir` convention-only option loads/validates manifest, requires matching family/pool/config/safety/version/seed/source, passes run UUID to existing `RunReport`, and selects shim commands for all three launcher classes. Ordinary invocations preserve defaults and existing tests. No secret is supplied through these options. Finalizer, target probes and SIMULATION clients remain unchanged.
 
 Host supervisor launches direct Python container with `--init`, no automatic restart, `--log-driver=none`, core limit zero, nonroot UID/GID, read-only socket/manifest mounts and owner-writable reports. No Docker socket/agent/platform dirs inside. Retain inherited TTY for hidden Clerk prompt; stage output is captured only through the simulator's fixed `_emit` channel, never raw terminal bytes. Add an explicit bounded stage-log destination if needed, safe file path host-owned, preserving ordinary console output.
 
 Supervisor runs independently of interactive stdin, polls health every five seconds, latches at 30 seconds without fresh live response, SIGINTs exact named container, waits final_seconds+10, then kills only that container and records uncertainty. Python must receive SIGINT through init; preserve existing report interrupted semantics. Host wall execution deadline is independent and nonrenewable. Samples CPU/memory and Linux CPU-steal into closed bounded evidence; use Docker stats and `/proc/stat` as external boundaries. Resource saturation remains manual SIGUSR1. No capacity claim.
 
-- [ ] Independent Test Author submits minimal transport/CLI/foreground/signal failure modes and approved behavioral test shape.
+- [x] Independent Test Author submits minimal transport/CLI/foreground/signal failure modes and approved behavioral test shape.
 - [ ] Record red; implementer wires explicit host path and supervised runtime, preserving local entrypoints.
 - [ ] Real socket + small child process walking skeleton proves disconnect stop/no resumption, secret-free stage capture and bounded named-process finalization.
 - [ ] Focused tests/static/security checks, commit with verified identity, independent unit reviewer; resolve material findings.
 
 ## Task 3: Host admission, artifacts and immutable releases (U3)
 
-**Files:** Extend `host_runner.py`; create `host_artifacts.py` and `host_release.py` if these cohesive responsibilities require separate files; modify `provenance.py`; create `tools/simulator/host/bootstrap.sh`; tests `test_host_artifacts.py`, `test_host_release.py`, targeted provenance tests.
+**Files:** Create `host_artifacts.py` and `host_release.py`; modify `provenance.py`; create `tools/simulator/host/bootstrap.sh`; tests `test_host_artifacts.py`, `test_host_release.py`, targeted provenance tests. U2 owns all `host_runner.py` wiring after the U3 helper review gate.
 
 **Interfaces:** Runtime consumes admission context that holds Linux flock through container/evidence finalization; release verifier consumes closed metadata with simulator_sha, dependency_lock_sha256, image_id, platform, archive_sha256, schema_version. Artifact operations accept only canonical run UUIDs within trusted owner root. No general path deletion API.
 
@@ -165,9 +167,13 @@ Host control runs outside the simulator container. Ubuntu's system Python stays 
 
 `host_release.install_runtime(archive:Path, metadata:Path, root:Path)->Path` backs `install-runtime --archive --metadata --root`; it uses verified immutable image/source, copies into the owner release directory, revalidates copied source.json against trusted metadata before locked sync, and refuses incompatible existing source. Host-local uv resides at `root/tools/uv`. A targeted distinct test proves that tampered copied control source cannot reach sync/execution; this closes the newly discovered host-runtime readiness seam without adding an alternate distribution channel.
 
-- [ ] Independent Test Author proposes and writes minimum lock/hold/retention/budget/tamper/platform tests, real filesystem/child locks and external Docker boundary substitutes; record red.
-- [ ] Implementer completes admission/artifacts/releases/bootstrap, using prior U2 launch seam.
-- [ ] Narrow checks then independent reviewer; resolve findings.
+Runtime integration consumes `host_release.read_release(path:Path)->dict[str,object]` and `verify_image(release:Mapping[str,object])->dict[str,object]`. Both raise `SourceRejected` on malformed release metadata or image/source mismatch and share the existing closed metadata validation and immutable-image inspection used by archive loading. The source verification container is a bounded offline probe; it does not launch the named workload. This avoids duplicate parsers or temporary metadata workarounds in U2.
+
+`RunArtifacts.record_completion(evidence)->None` validates report attribution, writes durable bounded completion evidence, and checks the budget before and after persistence without accepting a receipt or clearing a hold. `finalize` reuses it before receipt-dependent settlement. The outer operator can pass only after workload success and separately authenticated exact-run recovery resolution. Local pretty-printed JSON inputs use shared `host_protocol.decode_document(raw)`; wire `decode_frame` retains its exact single-newline framing rule.
+
+- [x] Independent Test Author proposes and writes minimum lock/hold/retention/budget/tamper/platform tests, real filesystem/child locks and external Docker boundary substitutes; record red.
+- [x] Implementer completes admission/artifacts/releases/bootstrap; U2 subsequently consumes these real domain helpers.
+- [x] Narrow checks then independent reviewer; resolve findings.
 - [ ] Commit clean verified source; real local container build/provenance/UID/signal/Unixsocket proof with offline boundaries. Task container names carry `tailtag-228-`; no live Staging or secret input.
 
 ## Task 4: Operator documentation and integrated evidence (U4)
@@ -187,5 +193,7 @@ Normal proof profile: twenty identities, five-minute convention-v2 traffic segme
 ## Execution record
 
 Design approved on 2026-10-08. Baseline `make sim-check`: 1,115 tests plus catalog/format/lint/types/Semgrep passed. Docker engine became reachable before implementation without this task starting it; 13 pre-existing stopped containers/164 images recorded, preserve them.
+
+Dependency correction during test-surface preparation: U2's real supervisor consumes U3 admission/release helpers, and independent tests correctly do not mock those domain collaborators. Execute U3 filesystem/release/bootstrap production and its focused review after U1, then U2 runtime/walking skeleton; run U3's real-image integration proof after U2. U3 does not edit the not-yet-existing host_runner; U2 wires the approved admission/recovery CLI seams. This changes execution order only, preserving the approved architecture, acceptance contracts, role independence and four review units.
 
 Authoritative live state and detailed review/test outcomes are recorded in `.refinement/228-phase-ledger.md` and this plan's SDD workspace; update after each unit. Tests and production ownership must be disjoint. No independently required role may be collapsed into controller implementation.

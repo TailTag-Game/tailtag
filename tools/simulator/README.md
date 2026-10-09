@@ -36,6 +36,23 @@ cleans up or retains each run's state. Design: [spec](../../docs/specs/2026-10-0
   Railway CLI and the owner manifest, so they run from a maintainer machine through
   `make`, not in the container image.
 
+## External Staging host
+
+The [external simulation host runbook](../../docs/operations/simulation-host.md)
+describes the approved DigitalOcean NYC3 host, immutable `linux/amd64` image
+archive delivery, foreground maintainer SSH bridge, finite profiles, supervision,
+artifact retrieval and exact-run recovery. Gameplay remains direct public HTTPS;
+privileged Railway relays stay on the maintainer machine. Profile examples are in
+`host/normal-profile.json` and `host/stop-profile.json`, with separate
+`host/safety.json`. Preparation/offline evidence and separately authorized paid-host
+provisioning/live traffic are distinct gates. No automatic restart or CI load run
+is provided. `make sim-host-prepare` and `make sim-host-run` wrap foreground
+manifest/session commands; `sim-host-release-export` and `sim-host-release-load`
+wrap verified archive handoff. Use `make sim-image PLATFORM=linux/amd64` for the
+host. Canonical `make sim-check` includes secret-free bootstrap syntax validation;
+CI builds amd64 without running traffic. Existing local simulator commands retain
+their launcher behavior.
+
 ## Targets and safety
 
 - Targets are a closed set: `local` and `staging`. Production and Development cannot
