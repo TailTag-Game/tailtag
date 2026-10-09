@@ -5,7 +5,9 @@ import asyncio
 import getpass
 import json
 import logging
+import os
 import signal
+import stat
 import sys
 import uuid
 import warnings
@@ -17,6 +19,7 @@ from tailtag_simulator.behavior_config import resolve_behavior_config
 from tailtag_simulator.cleanup import run_cleanup, run_retained
 from tailtag_simulator.convention import run_convention
 from tailtag_simulator.fixtures import FixtureLauncherChannel, run_fixture_smoke
+from tailtag_simulator.host_protocol import decode_document, validate_manifest
 from tailtag_simulator.images import load_fixture_images
 from tailtag_simulator.journeys import JourneyImages, run_journeys
 from tailtag_simulator.pool import (
@@ -107,7 +110,19 @@ def _prompt_secret() -> str:
     return _prompt_hidden("Clerk Staging secret:")
 
 
+_stage_fd: int | None = None
+_stage_bytes = 0
+
+
 def _emit(line: str) -> None:
+    global _stage_bytes
+    if _stage_fd is not None:
+        payload = (line + "\n").encode("utf-8")
+        if _stage_bytes + len(payload) > 1_048_576:
+            raise ValueError("stage_limit")
+        if os.write(_stage_fd, payload) != len(payload):
+            raise OSError("stage_write")
+        _stage_bytes += len(payload)
     print(line, flush=True)
 
 
@@ -145,6 +160,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     convention.add_argument("--config", type=Path)
     convention.add_argument("--unattended", action="store_true")
+    convention.add_argument("--host-manifest", type=Path)
+    convention.add_argument("--host-socket-dir", type=Path)
+    convention.add_argument("--stage-log", type=Path)
     cleanup = commands.add_parser(
         "cleanup", help="clean one run's Staging state and readmit its identities"
     )
@@ -225,12 +243,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
         return asyncio.run(_execute(args))
+    except (OSError, ValueError):
+        if args.command != "convention" or not (
+            args.host_manifest or args.host_socket_dir or args.stage_log
+        ):
+            raise
+        print("FAIL host", flush=True)
+        return 1
     except KeyboardInterrupt:
         _emit("FAIL interrupted")
         return 130
+    finally:
+        global _stage_fd
+        if _stage_fd is not None:
+            os.close(_stage_fd)
+            _stage_fd = None
 
 
-def _behavior_file(path: Path) -> dict[str, object]:
+def _behavior_file(path: Path, *, host: bool = False) -> dict[str, object]:
     """Bounded JSON with no duplicate keys or unapproved routing overrides."""
 
     def pairs(items: list[tuple[str, object]]) -> dict[str, object]:
@@ -247,25 +277,39 @@ def _behavior_file(path: Path) -> dict[str, object]:
         if len(raw) > 65536:
             raise ScenarioRejected
         value = json.loads(raw, object_pairs_hook=pairs)
-        if not isinstance(value, dict) or set(cast(dict[str, object], value)) & {
-            "pool",
-            "target",
-            "base_url",
-            "family",
-        }:
+        if not isinstance(value, dict):
             raise ScenarioRejected
-        return cast(dict[str, object], value)
+        value = cast(dict[str, object], value)
+        if set(value) & {"pool", "family"}:
+            raise ScenarioRejected
+        if host:
+            if (
+                value.get("target", "staging") != "staging"
+                or value.get("base_url") is not None
+            ):
+                raise ScenarioRejected
+        elif set(value) & {"target", "base_url"}:
+            raise ScenarioRejected
+        return value
     except (OSError, ValueError, RecursionError):
         raise ScenarioRejected from None
 
 
 async def _execute(args: argparse.Namespace) -> int:
     """Create durable evidence and establish provenance before executing a command."""
+    supplied_host: dict[str, object] | None = None
     try:
+        if args.command == "convention" and args.host_manifest is not None:
+            with args.host_manifest.open("rb") as stream:
+                supplied_host = validate_manifest(decode_document(stream.read(65537)))
         if args.command == "convention" and args.unattended:
             raise ValueError
         policy = resolve_safety_policy(
-            _behavior_file(args.safety_config) if args.safety_config is not None else {}
+            _behavior_file(args.safety_config)
+            if args.safety_config is not None
+            else cast(dict[str, object], supplied_host["safety"])
+            if supplied_host
+            else {}
         )
     except (ScenarioRejected, ValueError):
         _emit("FAIL configuration")
@@ -293,8 +337,13 @@ async def _execute(args: argparse.Namespace) -> int:
         if args.command == "convention":
             try:
                 config.update(
-                    _behavior_file(args.config) if args.config is not None else {}
+                    _behavior_file(args.config, host=supplied_host is not None)
+                    if args.config is not None
+                    else cast(dict[str, object], supplied_host["configuration"])
+                    if supplied_host
+                    else {}
                 )
+                config["pool"] = args.pool
                 config["family"] = args.family
                 config = (
                     resolve_traffic_config
@@ -304,6 +353,62 @@ async def _execute(args: argparse.Namespace) -> int:
             except (ScenarioRejected, ValueError):
                 _emit("FAIL configuration")
                 return 1
+        host: dict[str, object] | None = None
+        if args.command == "convention" and (
+            args.host_manifest is not None
+            or args.host_socket_dir is not None
+            or args.stage_log is not None
+        ):
+            try:
+                if (
+                    args.host_manifest is None
+                    or args.host_socket_dir is None
+                    or args.scenario_version != 2
+                    or not args.host_socket_dir.is_absolute()
+                ):
+                    raise ValueError
+                host = supplied_host
+                if host is None:
+                    raise ValueError
+                if (
+                    host["configuration"] != config
+                    or host["safety"] != policy
+                    or host["seed"] != args.seed
+                    or host["scenario_id"] != "convention-" + args.family
+                ):
+                    raise ValueError
+                source = load_source(REPOSITORY_ROOT)
+                release = cast(dict[str, object], host["release"])
+                runtime = cast(dict[str, object], source["runtime"])
+                if (
+                    cast(dict[str, object], source["simulator_sha"])["value"]
+                    != release["simulator_sha"]
+                    or cast(dict[str, object], runtime["dependency_lock_sha256"])[
+                        "value"
+                    ]
+                    != release["dependency_lock_sha256"]
+                ):
+                    raise ValueError
+                if args.stage_log is not None:
+                    global _stage_fd, _stage_bytes
+                    if any(
+                        parent.is_symlink()
+                        for parent in (args.stage_log, *args.stage_log.parents)
+                    ):
+                        raise ValueError
+                    _stage_fd = os.open(
+                        args.stage_log,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                        0o600,
+                    )
+                    info = os.fstat(_stage_fd)
+                    if info.st_uid != os.getuid() or not stat.S_ISREG(info.st_mode):
+                        raise ValueError
+                    _stage_bytes = 0
+            except (OSError, ValueError, SourceRejected):
+                print("FAIL host", flush=True)
+                return 1
+        args.bound_host = host
         try:
             report = RunReport(
                 args.report_dir,
@@ -314,6 +419,7 @@ async def _execute(args: argparse.Namespace) -> int:
                 seed=args.seed,
                 config=config,
                 safety_policy=policy,
+                run_id=cast(str, host["run_id"]) if host else None,
             )
         except (ReportFailed, ScenarioRejected):
             _emit("FAIL report")
@@ -363,16 +469,42 @@ async def _dispatch(
     safety: SafetyRuntime,
 ) -> int:
     if args.command == "convention":
+
+        def channel_command(channel: str, ordinary: list[str]) -> list[str]:
+            return (
+                [
+                    sys.executable,
+                    "-m",
+                    "tailtag_simulator.host_channel",
+                    "--channel",
+                    channel,
+                    "--socket-dir",
+                    str(args.host_socket_dir),
+                ]
+                if args.bound_host
+                else ordinary
+            )
+
         return await run_convention(
             str(args.pool),
             config=config,
             seed=args.seed,
             scenario_version=args.scenario_version,
             prompt_secret=_prompt_secret,
-            lease_channel=_launcher(),
-            fixture_channel=_fixture_launcher(),
+            lease_channel=LauncherChannel(
+                channel_command("pool", LAUNCHER_COMMAND), cwd=REPOSITORY_ROOT
+            )
+            if args.bound_host
+            else _launcher(),
+            fixture_channel=FixtureLauncherChannel(
+                channel_command("fixture", FIXTURE_LAUNCHER_COMMAND),
+                cwd=REPOSITORY_ROOT,
+            )
+            if args.bound_host
+            else _fixture_launcher(),
             inspection_channel=PopulationInspectionLauncherChannel(
-                INSPECTION_LAUNCHER_COMMAND, cwd=REPOSITORY_ROOT
+                channel_command("inspection", INSPECTION_LAUNCHER_COMMAND),
+                cwd=REPOSITORY_ROOT,
             ),
             emit=_emit,
             report=report,
