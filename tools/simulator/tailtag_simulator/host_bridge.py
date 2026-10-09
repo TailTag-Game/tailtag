@@ -55,7 +55,7 @@ _FAILURES = {
     "FAIL_LAUNCHER",
 }
 _UNCERTAIN = {"FAIL_LAUNCHER", "FAIL_BOOTSTRAP", "FAIL_ERROR"}
-_REASONS = {"journeys", "reconciliation", "cleanup", "interrupted", "unfinished"}
+_REASONS = {"journeys", "reconciliation", "cleanup", "interrupted"}
 
 
 def _rejected(result: str = "FAIL_REQUEST") -> dict[str, object]:
@@ -182,9 +182,6 @@ class BridgeSession:
     def _envelope(
         self, channel: str, envelope: dict[str, object]
     ) -> tuple[str, dict[str, object]]:
-        if not _same(envelope.get("expected_identity"), self._identity):
-            self._veto = True
-            raise ValueError
         op = envelope.get("operation")
         if not isinstance(op, str):
             raise TypeError
@@ -198,11 +195,12 @@ class BridgeSession:
         keys: set[str] = {"operation", "arguments", "expected_identity"} | (
             {"pool"} if expected_channel == "pool" else set[str]()
         )
-        if (
-            channel != expected_channel
-            or set(envelope) != keys
-            or (channel == "pool" and envelope["pool"] != self._pool)
+        if channel != expected_channel or set(envelope) != keys:
+            raise ValueError
+        if not _same(envelope["expected_identity"], self._identity) or (
+            channel == "pool" and envelope["pool"] != self._pool
         ):
+            self._veto = True
             raise ValueError
         args = _dict(envelope["arguments"])
         expected: dict[str, object] = {"run_id": self._run}
@@ -214,12 +212,12 @@ class BridgeSession:
             expected["ttl_seconds"] = 1800
         elif op == "quarantine":
             index = args.get("index")
-            if (
-                not _integer(index)
-                or index not in self._indexes
-                or index in self._quarantined
-                or f"quarantine:{index}" in self._attempts
-            ):
+            if not _integer(index):
+                raise ValueError
+            if index not in self._indexes:
+                self._veto = True
+                raise ValueError
+            if index in self._quarantined or f"quarantine:{index}" in self._attempts:
                 raise ValueError
             expected["index"] = index
         elif op == "provision":
@@ -247,9 +245,20 @@ class BridgeSession:
                 expected["reason"] = reason
         elif op != "release":
             raise ValueError
-        if set(args) != set(expected) or not all(
-            _same(args[k], v) for k, v in expected.items()
-        ):
+        if set(args) != set(expected):
+            raise ValueError
+        authority_keys = {
+            "run_id",
+            "pool",
+            "owners",
+            "catchers",
+            "extras",
+            "identities",
+        }
+        if any(not _same(args[k], expected[k]) for k in authority_keys & set(expected)):
+            self._veto = True
+            raise ValueError
+        if not all(_same(args[k], v) for k, v in expected.items()):
             raise ValueError
         return op, args
 
@@ -376,11 +385,12 @@ class BridgeSession:
         }
         if set(data) != shapes[op] or not all(_integer(v) for v in data.values()):
             return False
-        if op == "release":
-            # Quarantine/retention clear leases before the final release call.
-            return cast(int, data["released"]) <= self._count
-        if op in {"heartbeat", "retain"}:
-            return next(iter(data.values())) == self._count
+        if op in {"release", "retain"}:
+            # Prior quarantine/retention clear leases. Each atomic backend ACK
+            # covers all remaining run-owned leases, whose count can be smaller.
+            return cast(int, next(iter(data.values()))) <= self._count
+        if op == "heartbeat":
+            return data["extended"] == self._count
         if op == "provision":
             return data == {
                 "convention": 1,

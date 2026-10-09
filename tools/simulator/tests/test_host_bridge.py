@@ -216,9 +216,18 @@ def test_exact_lifecycle_releases_only_after_complete_acknowledged_recovery(
                 assert len(relay.calls) == before
                 assert (await call(session, "quarantine", index=43))["result"] == "PASS"
             else:
+                recovery_ack: dict[str, object] = ACKS[recovery]
+                if recovery == "retain":
+                    # Backend retain reports live leases it quarantines, not
+                    # the already-quarantined part of the allocation.
+                    assert (await call(session, "quarantine", index=17))[
+                        "result"
+                    ] == "PASS"
+                    recovery_ack = {"quarantined": 5}
+                    relay.answers["retain"] = ("PASS", recovery_ack)
                 assert await call(session, recovery) == {
                     "result": "PASS",
-                    "data": ACKS[recovery],
+                    "data": recovery_ack,
                 }
             # Retain and quarantine clear their leases; live cleanup leaves
             # leases for release. The returned count is not allocation size.
@@ -311,6 +320,7 @@ AUTHORITY_CASES = [
     ),
     ("provisioned", "inspect-population-v1", "pool", "operation", "inspect"),
     ("provisioned", "retain", "arguments", "reason", SENTINEL),
+    ("provisioned", "retain", "arguments", "reason", "unfinished"),
     ("provisioned", "cleanup", "arguments", "pool", "other"),
 ]
 
@@ -338,6 +348,27 @@ def test_wrong_authority_never_reaches_privileged_relay(
             channel = cast(str, value) if where == "channel" else channel_for(operation)
             assert_rejected(await session.request(channel, request))
             assert len(relay.calls) == before
+            if (
+                key == "pool"
+                and value == "other"
+                or key == "run_id"
+                or key in {"owners", "catchers", "extras"}
+                or key == "identities"
+                and phase == "provisioned"
+            ):
+                # These are well-formed authority mismatches, distinct from
+                # generic malformed input: matching retries cannot reopen it.
+                assert_rejected(await call(session, operation))
+                assert len(relay.calls) == before
+                assert session.health() == {"run_id": RUN, "live": False}
+            elif key == "reason":
+                # A rejected reason must not consume terminal authority. The
+                # backend's mutating REASONS excludes listed-status unfinished.
+                assert await call(session, "retain") == {
+                    "result": "PASS",
+                    "data": {"quarantined": 6},
+                }
+                assert relay.calls[before:] == [("fixture", envelope("retain"))]
         finally:
             session.close()
 
