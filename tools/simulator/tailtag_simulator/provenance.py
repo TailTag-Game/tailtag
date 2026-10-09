@@ -32,7 +32,7 @@ HOST_FILES = {
     "services/api/pyproject.toml",
     "services/api/uv.lock",
 }
-HOST_OPTIONAL_FILES = {
+HOST_OPTIONAL_FILES = {"tools/simulator/host/bootstrap.sh"} | {
     stem + suffix
     for stem in ("scripts/__init__", "scripts")
     for suffix in all_suffixes()
@@ -284,7 +284,9 @@ def load_source(root: Path | None = None) -> dict[str, object]:
         raise SourceRejected() from None
 
 
-def _build(root: Path, tag: str) -> None:
+def _build(root: Path, tag: str, selected_platform: str | None = None) -> None:
+    if selected_platform not in {None, "linux/amd64"}:
+        raise SourceRejected()
     sha, inputs = _host(root)
     with tempfile.TemporaryDirectory(prefix="tailtag-simulator-build-") as temporary:
         context = Path(temporary)
@@ -312,7 +314,14 @@ def _build(root: Path, tag: str) -> None:
         )
         _packaged(context)
         subprocess.run(
-            ["docker", "build", "-t", tag, str(context)],
+            [
+                "docker",
+                "build",
+                *(["--platform", selected_platform] if selected_platform else []),
+                "-t",
+                tag,
+                str(context),
+            ],
             check=True,
             capture_output=True,
         )
@@ -324,9 +333,15 @@ def main(argv: list[str] | None = None) -> int:
     build = commands.add_parser("build")
     build.add_argument("--root", type=Path, required=True)
     build.add_argument("--tag", required=True)
+    build.add_argument("--platform")
+    inspect = commands.add_parser("inspect")
+    inspect.add_argument("--root", type=Path)
     args = parser.parse_args(argv)
     try:
-        _build(args.root, args.tag)
+        if args.command == "inspect":
+            print(json.dumps(load_source(args.root), sort_keys=True))
+            return 0
+        _build(args.root, args.tag, args.platform)
     except (
         OSError,
         ValueError,
