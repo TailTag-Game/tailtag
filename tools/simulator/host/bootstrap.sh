@@ -93,7 +93,7 @@ install -o "$user" -g "$(id -gn "$user")" -m 0700 "$work/uv-x86_64-unknown-linux
 # First install cannot import host_release before its verified venv exists.
 # This dedicated stdlib validator executes no copied package code before hashes.
 runuser -u "$user" -- python3 - "$root" "$archive" "$metadata" <<'PY'
-import hashlib, json, os, pathlib, re, selectors, shutil, signal, subprocess, sys, threading, time, uuid
+import csv, hashlib, io, json, os, pathlib, re, selectors, signal, subprocess, sys, threading, time, uuid
 root, archive, metadata = map(pathlib.Path, sys.argv[1:])
 def pairs(items):
     result = {}
@@ -186,6 +186,18 @@ def probe_source(image: str, *, timeout_seconds: float=30.0) -> str:
         return output
     finally:
         probe_deadline = previous
+def copy_runtime(image: str, runtime: pathlib.Path) -> None:
+    info = runtime.lstat()
+    assert runtime.is_dir() and not runtime.is_symlink() and info.st_uid == os.getuid()
+    assert info.st_mode & 0o777 == 0o700 and not any(runtime.iterdir())
+    assert re.fullmatch(r'sha256:[0-9a-f]{64}', image)
+    mount = io.StringIO()
+    csv.writer(mount).writerow(['type=bind','src='+str(runtime),'dst=/output'])
+    code = "import os, shutil; os.umask(0o077); shutil.copytree('/app','/output',dirs_exist_ok=True,symlinks=True,copy_function=shutil.copyfile,ignore=lambda path,names:['.venv'] if path=='/app' else [])"
+    name = 'tailtag-sim-copy-' + str(uuid.uuid4())
+    try:
+        run(['docker','run','--name',name,'--rm','--init','--user',f'{os.getuid()}:{os.getgid()}','--network=none','--read-only','--cap-drop=ALL','--security-opt=no-new-privileges','--log-driver=none','--ulimit','core=0:0','--mount',mount.getvalue().removesuffix('\r\n'),'--entrypoint','python',image,'-c',code], timeout_seconds=300.0)
+    finally: remove_named(name)
 record = read(metadata)
 assert set(record) == {'schema_version','simulator_sha','dependency_lock_sha256','image_id','platform','archive_sha256'}
 assert type(record['schema_version']) is int and record['schema_version'] == 1
@@ -207,12 +219,7 @@ runtime = root / 'releases' / record['simulator_sha']
 fresh_copy = not runtime.exists()
 if fresh_copy:
     runtime.mkdir(mode=0o700)
-    name = 'tailtag-sim-copy-' + str(uuid.uuid4())
-    try:
-        container = run(['docker','create','--name',name,image]).strip()
-        assert re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}',container)
-        run(['docker','cp',name+':/app/.',str(runtime)], timeout_seconds=300.0)
-    finally: remove_named(name)
+    copy_runtime(image, runtime)
 assert not runtime.is_symlink() and runtime.stat().st_uid == os.getuid()
 packaged = read(runtime / 'source.json')
 assert set(packaged) == {'schema_version','simulator_sha','dependency_lock_sha256','manifest'}
@@ -242,14 +249,6 @@ for name, digest in manifest.items():
 assert manifest['uv.lock'] == record['dependency_lock_sha256']
 if fresh_copy:
     runtime.chmod(0o700, follow_symlinks=False)
-    copied_venv = runtime / '.venv'
-    if copied_venv.is_symlink(): copied_venv.unlink()
-    elif copied_venv.exists():
-        for directory, _, _ in os.walk(copied_venv, followlinks=False):
-            path = pathlib.Path(directory)
-            assert not path.is_symlink() and path.stat().st_uid == os.getuid()
-            path.chmod(0o700, follow_symlinks=False)
-        shutil.rmtree(copied_venv)
     for path in runtime.rglob('*'):
         assert not path.is_symlink()
         path.chmod(0o700 if path.is_dir() else 0o600, follow_symlinks=False)

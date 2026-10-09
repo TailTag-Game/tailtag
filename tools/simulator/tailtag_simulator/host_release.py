@@ -2,12 +2,13 @@
 
 import argparse
 import asyncio
+import csv
 import hashlib
+import io
 import json
 import os
 import re
 import selectors
-import shutil
 import signal
 import subprocess
 import threading
@@ -397,6 +398,51 @@ def load_release(archive: Path, metadata: Path) -> str:
     return str(record["image_id"])
 
 
+def _copy_runtime(image: str, runtime: Path) -> None:
+    _private(runtime)
+    if any(runtime.iterdir()) or IMAGE.fullmatch(image) is None:
+        raise SourceRejected()
+    mount = io.StringIO()
+    csv.writer(mount).writerow(["type=bind", "src=" + str(runtime), "dst=/output"])
+    code = (
+        "import os, shutil; os.umask(0o077); "
+        "shutil.copytree('/app','/output',dirs_exist_ok=True,symlinks=True,"
+        "copy_function=shutil.copyfile,"
+        "ignore=lambda path,names:['.venv'] if path=='/app' else [])"
+    )
+    name = "tailtag-sim-copy-" + str(uuid.uuid4())
+    try:
+        _run(
+            [
+                "docker",
+                "run",
+                "--name",
+                name,
+                "--rm",
+                "--init",
+                "--user",
+                f"{os.getuid()}:{os.getgid()}",
+                "--network=none",
+                "--read-only",
+                "--cap-drop=ALL",
+                "--security-opt=no-new-privileges",
+                "--log-driver=none",
+                "--ulimit",
+                "core=0:0",
+                "--mount",
+                mount.getvalue().removesuffix("\r\n"),
+                "--entrypoint",
+                "python",
+                image,
+                "-c",
+                code,
+            ],
+            timeout_seconds=TRANSFER_SECONDS,
+        )
+    finally:
+        _remove_named(name)
+
+
 def install_runtime(archive: Path, metadata: Path, root: Path) -> Path:
     if not root.is_absolute() or any(
         parent.is_symlink() for parent in (root, *root.parents)
@@ -423,39 +469,13 @@ def install_runtime(archive: Path, metadata: Path, root: Path) -> Path:
     _private(releases)
     if not runtime.exists():
         runtime.mkdir(mode=0o700)
-        name = "tailtag-sim-copy-" + str(uuid.uuid4())
-        try:
-            container = _run(["docker", "create", "--name", name, image]).strip()
-            if re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}", container) is None:
-                raise SourceRejected()
-            _run(
-                ["docker", "cp", name + ":/app/.", str(runtime)],
-                timeout_seconds=TRANSFER_SECONDS,
-            )
-        finally:
-            _remove_named(name)
+        _copy_runtime(image, runtime)
         if _packaged(runtime) != (
             record["simulator_sha"],
             record["dependency_lock_sha256"],
         ):
             raise SourceRejected()
-        # Image venv is a different platform/runtime installation. It is not
-        # part of source.json; discard only this newly copied disposable venv.
-        if runtime.is_symlink() or runtime.stat().st_uid != os.getuid():
-            raise SourceRejected()
         runtime.chmod(0o700, follow_symlinks=False)
-        copied_venv = runtime / ".venv"
-        if copied_venv.is_symlink():
-            copied_venv.unlink()
-        elif copied_venv.exists():
-            # Docker cp retains the image's chmod -R a-w. Restore only owned
-            # real directories needed to unlink this freshly copied venv.
-            for directory, _, _ in os.walk(copied_venv, followlinks=False):
-                path = Path(directory)
-                if path.is_symlink() or path.stat().st_uid != os.getuid():
-                    raise SourceRejected()
-                path.chmod(0o700, follow_symlinks=False)
-            shutil.rmtree(copied_venv)
         for path in runtime.rglob("*"):
             if path.is_symlink():
                 raise SourceRejected()

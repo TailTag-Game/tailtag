@@ -1,6 +1,7 @@
 """#228 U3: archive handoff and verified host runtime; only Docker/uv are faked."""
 
 import ast
+import csv
 import hashlib
 import json
 import os
@@ -63,6 +64,7 @@ def packaged(root: Path) -> Path:
     files = {
         "tailtag_simulator/__init__.py": b"",
         "tailtag_simulator/host_runner.py": b"HOST_RUNTIME = 'verified'\n",
+        "tailtag_simulator/assets/.venv/required.bin": b"nested source must be retained\n",
         "pyproject.toml": b'[project]\nname="tailtag-simulator"\nversion="0.1.0"\nrequires-python=">=3.13,<3.14"\ndependencies=["httpx>=0.28,<0.29"]\n',
         "uv.lock": LOCK,
         "services/api/simulation_fixtures/images/valid.png": b"fixed image fixture bytes",
@@ -95,6 +97,7 @@ def packaged(root: Path) -> Path:
     (binary / "python3").symlink_to("python")
     (root / ".venv/lib64").symlink_to("lib", target_is_directory=True)
     (root / ".venv/pyvenv.cfg").write_text("home = /usr/local/bin\n")
+    (root / ".venv/.gitignore").write_text("*\n")
     for path in (root, *root.rglob("*")):
         if not path.is_symlink():
             path.chmod(0o555 if path.is_dir() else 0o444)
@@ -169,11 +172,70 @@ class DockerBoundary:
                 assert IMAGE in arguments and "--rm" in arguments
                 if "--name" in arguments:
                     self.owned_names.add(arguments[arguments.index("--name") + 1])
-                assert (
-                    "tailtag_simulator.provenance" in arguments
-                    and "inspect" in arguments
-                )
-                output = json.dumps(self.packaged_source)
+                if "-c" in arguments:
+                    assert arguments.count("--mount") == 1
+                    for flag in (
+                        "--init",
+                        "--network=none",
+                        "--read-only",
+                        "--cap-drop=ALL",
+                        "--security-opt=no-new-privileges",
+                        "--log-driver=none",
+                    ):
+                        assert flag in arguments
+                    assert (
+                        arguments[arguments.index("--user") + 1]
+                        == f"{os.getuid()}:{os.getgid()}"
+                    )
+                    assert arguments[arguments.index("--ulimit") + 1] == "core=0:0"
+                    assert arguments[arguments.index("--entrypoint") + 1] == "python"
+                    fields = next(
+                        csv.reader([arguments[arguments.index("--mount") + 1]])
+                    )
+                    assert (
+                        len(fields) == 3
+                        and fields[0] == "type=bind"
+                        and fields[2] == "dst=/output"
+                    )
+                    assert fields[1].startswith("src=")
+                    destination = Path(fields[1].removeprefix("src="))
+                    assert destination.stat().st_uid == os.getuid()
+                    assert destination.stat().st_mode & 0o777 == 0o700
+                    assert list(destination.iterdir()) == []
+                    tree = ast.parse(arguments[arguments.index("-c") + 1])
+                    # Docker's unavailable namespace is the only substitution:
+                    # execute the actual fixed command over real readonly bytes.
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.Constant) and node.value in {
+                            "/app",
+                            "/output",
+                        }:
+                            node.value = str(
+                                self.package if node.value == "/app" else destination
+                            )
+                    child = self.real_popen(
+                        [sys.executable, "-c", ast.unparse(tree)],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    try:
+                        copied, _ = child.communicate(timeout=5)
+                        status = child.returncode
+                        output = copied.decode()
+                    finally:
+                        if child.poll() is None:
+                            child.kill()
+                        child.wait(timeout=3)
+                    if self.copy_tamper and status == 0:
+                        changed = destination / "tailtag_simulator/host_runner.py"
+                        changed.chmod(0o600)
+                        changed.write_text("SENTINEL-tampered-copy")
+                else:
+                    assert (
+                        "tailtag_simulator.provenance" in arguments
+                        and "inspect" in arguments
+                    )
+                    output = json.dumps(self.packaged_source)
             elif arguments[1] == "create":
                 assert IMAGE in arguments
                 if "--name" in arguments:
@@ -184,14 +246,20 @@ class DockerBoundary:
                     ":/app"
                 )
                 destination = Path(arguments[-1])
-                shutil.copytree(
-                    self.package, destination, dirs_exist_ok=True, symlinks=True
-                )
-                if self.copy_tamper:
-                    changed = destination / "tailtag_simulator/host_runner.py"
-                    changed.chmod(0o600)
-                    changed.write_text("SENTINEL-tampered-copy")
-                    changed.chmod(0o444)
+                # docker cp extracts the readonly directory mode before its
+                # contents. copytree's final copystat used to hide this failure.
+                image_venv = destination / ".venv"
+                image_venv.mkdir(mode=0o555)
+                try:
+                    shutil.copyfile(
+                        self.package / ".venv/.gitignore", image_venv / ".gitignore"
+                    )
+                except PermissionError:
+                    status = 17
+                else:
+                    raise AssertionError(
+                        "readonly directory extraction unexpectedly writable; nonroot proof unavailable"
+                    )
             elif arguments[1] == "rm":
                 assert "--force" in arguments
                 assert (
@@ -661,6 +729,58 @@ def bootstrap_prefix() -> str:
             break
         nodes.append(node)
     return ast.unparse(ast.Module(body=nodes, type_ignores=[]))
+
+
+def test_bootstrap_copies_verified_readonly_source_without_image_environment(
+    tmp_path: Path,
+    release_files: tuple[Path, Path],
+    docker: DockerBoundary,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    archive, record = release_files
+    # Exercise actual mount CSV escaping within the sole cold-copy case.
+    runtime = tmp_path / "cold-runtime,owned"
+    runtime.mkdir(mode=0o700)
+    previous = {
+        sig: signal.getsignal(sig)
+        for sig in (signal.SIGINT, signal.SIGHUP, signal.SIGTERM)
+    }
+    try:
+        with monkeypatch.context() as context:
+            context.setattr(
+                sys,
+                "argv",
+                ["bootstrap-prefix", str(tmp_path), str(archive), str(record)],
+            )
+            # Execute only actual stdlib definitions/signal guard and the copy
+            # helper, with Docker substituted at its external Popen boundary.
+            exec(  # noqa: S102 - execute only actual trusted repository prefix
+                compile(
+                    bootstrap_prefix()
+                    + f"\ncopy_runtime({IMAGE!r}, pathlib.Path({str(runtime)!r}))\n",
+                    "actual-bootstrap-prefix",
+                    "exec",
+                ),
+                {},
+            )
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+    source_manifest = json.loads((docker.package / "source.json").read_text())
+    for name in source_manifest["manifest"]:
+        assert (runtime / name).read_bytes() == (docker.package / name).read_bytes()
+    assert (runtime / "source.json").read_bytes() == (
+        docker.package / "source.json"
+    ).read_bytes()
+    assert not (runtime / ".venv").exists()
+    assert not any(Path(call[0]).name == "uv" for call in docker.calls)
+    copy_calls = [call for call in docker.calls if call[1] == "run"]
+    assert len(copy_calls) == 1
+    name = copy_calls[0][copy_calls[0].index("--name") + 1]
+    assert name.startswith("tailtag-sim-copy-")
+    assert [call for call in docker.calls if call[1] == "rm"] == [
+        ["docker", "rm", "--force", name]
+    ]
 
 
 def verification_driver(transport: str, mode: str, root: Path) -> str:
