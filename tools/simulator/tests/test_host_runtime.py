@@ -311,6 +311,212 @@ def test_operator_rejects_unsafe_ssh_inputs_before_any_external_process(
         asyncio.run(execute(root))
 
 
+def test_remote_commands_import_uninstalled_release_from_unrelated_cwd(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def execute(root: Path) -> None:
+        value = host_manifest()
+        host_root = root / "host's release root"
+        release_root = (
+            host_root / "releases" / str(section(value, "release")["simulator_sha"])
+        )
+        packaged_source(release_root)
+        python = release_root / ".venv/bin/python"
+        python.parent.mkdir(parents=True)
+        # Keep the actual dependency-bearing interpreter prefix; a bare venv
+        # symlink without pyvenv.cfg would accidentally lose installed httpx.
+        executable(
+            python,
+            f"import os, sys\nos.execv({sys.executable!r}, [{sys.executable!r}, *sys.argv[1:]])\n",
+        )
+        unrelated = root / "ssh-home"
+        unrelated.mkdir()
+        binary = root / "bin"
+        binary.mkdir()
+        executable(
+            binary / "ssh",
+            f"""
+import json, os, shlex, subprocess, sys
+from pathlib import Path
+root = Path({str(root)!r})
+command = sys.argv[-1]
+words = shlex.split(command)
+operation = words[words.index("tailtag_simulator.host_runner") + 1]
+payload = json.loads(sys.stdin.read()) if operation != "run" else None
+environment = dict(os.environ)
+environment.pop("PYTHONPATH", None)
+environment.pop("PYTHONHOME", None)
+# Actual remote shell syntax/cwd and actual uninstalled package imports. Help
+# stops before Linux policy/workload; this is not a simulated host execution.
+result = subprocess.run(["/bin/sh", "-c", command + " --help"],
+                        cwd=root / "ssh-home", env=environment,
+                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE, timeout=5)
+with (root / "ssh.jsonl").open("a") as out:
+    out.write(json.dumps({{"operation":operation, "returncode":result.returncode,
+                          "help": "usage:" in result.stdout.decode(),
+                          "payload":payload}}) + "\\n")
+raise SystemExit(result.returncode)
+""",
+        )
+        monkeypatch.setenv("PATH", str(binary) + os.pathsep + os.environ["PATH"])
+        assert (
+            await asyncio.wait_for(
+                run_session(value, "tailtag-test", host_root, state_dir=root / "state"),
+                10,
+            )
+            == 0
+        )
+        commands = records(root / "ssh.jsonl")
+        assert [item["operation"] for item in commands] == [
+            "prepare",
+            "run",
+            "recovery-resolve",
+        ]
+        assert all(item["returncode"] == 0 and item["help"] for item in commands)
+        assert commands[0]["payload"] == value
+        assert commands[-1]["payload"] == {
+            "schema_version": 1,
+            "run_id": RUN,
+            "backend_identity": value["backend_identity"],
+            "disposition": "no_mutation",
+        }
+
+    with owned_root() as root:
+        asyncio.run(execute(root))
+
+
+@pytest.mark.parametrize(
+    "outcome", ["no_mutation", "released", "resolve_failure", "held"]
+)
+def test_operator_runner_zero_requires_acknowledged_exact_recovery_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    outcome: str,
+) -> None:
+    async def execute(root: Path) -> None:
+        value = host_manifest()
+        binary = root / "bin"
+        binary.mkdir()
+        executable(
+            binary / "make",
+            f"""
+import json, sys
+from pathlib import Path
+root = Path({str(root)!r})
+request = json.loads(sys.stdin.read())
+with (root / "relay.jsonl").open("a") as out:
+    out.write(json.dumps({{"argv":sys.argv[1:],"request":request}}) + "\\n")
+operation = request["operation"]
+assert operation in {{"allocate", "release"}}
+data = {{"indexes":[17,23,31,37,41,43,47,53]}} if operation == "allocate" else {{"released":8}}
+print(json.dumps({{"result":"PASS","data":data}}))
+""",
+        )
+        executable(
+            binary / "ssh",
+            f"""
+import json, shlex, socket, sys
+from pathlib import Path
+root = Path({str(root)!r})
+argv = sys.argv[1:]
+words = shlex.split(argv[-1])
+operation = words[words.index("tailtag_simulator.host_runner") + 1]
+payload = json.loads(sys.stdin.read()) if operation != "run" else None
+with (root / "ssh.jsonl").open("a") as out:
+    out.write(json.dumps({{"operation":operation,"argv":argv,"payload":payload}}) + "\\n")
+if operation == "run" and {outcome!r} in ("released", "held"):
+    path = next(argv[i+1].split(":",1)[1] for i,arg in enumerate(argv)
+                if arg == "-R" and "rpc.sock" in argv[i+1])
+    manifest = json.loads((root / "launch.json").read_text())
+    for op in (["allocate", "release"] if {outcome!r} == "released" else ["allocate"]):
+        arguments = {{"run_id":manifest["run_id"]}}
+        if op == "allocate": arguments.update(count=8, ttl_seconds=1800)
+        request = {{"operation":op,"pool":"p1","arguments":arguments,
+                   "expected_identity":manifest["backend_identity"]}}
+        with socket.socket(socket.AF_UNIX) as connection:
+            connection.connect(path)
+            connection.sendall((json.dumps({{"schema_version":1,"channel":"pool","request":request}})+"\\n").encode())
+            with connection.makefile("rb") as stream:
+                reply = json.loads(stream.readline())
+        assert reply["result"] == "PASS", reply
+raise SystemExit(1 if operation == "recovery-resolve" and {outcome!r} == "resolve_failure" else 0)
+""",
+        )
+        (root / "launch.json").write_text(json.dumps(value))
+        monkeypatch.setenv("PATH", str(binary) + os.pathsep + os.environ["PATH"])
+        result = await asyncio.wait_for(
+            run_session(
+                value, "tailtag-test", root / "remote", state_dir=root / "state"
+            ),
+            5,
+        )
+        assert result == (0 if outcome in {"no_mutation", "released"} else 1)
+        ssh = records(root / "ssh.jsonl")
+        expected_operations = ["prepare", "run"] + (
+            [] if outcome == "held" else ["recovery-resolve"]
+        )
+        assert [item["operation"] for item in ssh] == expected_operations
+        disposition = (
+            "released"
+            if outcome == "released"
+            else "held"
+            if outcome == "held"
+            else "no_mutation"
+        )
+        receipt = {
+            "schema_version": 1,
+            "run_id": RUN,
+            "backend_identity": value["backend_identity"],
+            "disposition": disposition,
+        }
+        if outcome != "held":
+            assert ssh[-1]["payload"] == receipt
+            words = shlex.split(ssh[-1]["argv"][-1])
+            assert words[-6:] == [
+                "--root",
+                str(root / "remote"),
+                "--run-id",
+                RUN,
+                "--receipt",
+                "-",
+            ]
+        relays = records(root / "relay.jsonl")
+        operations = (
+            ["allocate", "release"]
+            if outcome == "released"
+            else ["allocate"]
+            if outcome == "held"
+            else []
+        )
+        expected_requests: list[dict[str, object]] = []
+        for operation in operations:
+            arguments: dict[str, object] = {"run_id": RUN}
+            if operation == "allocate":
+                arguments.update(count=8, ttl_seconds=1800)
+            expected_requests.append(
+                {
+                    "operation": operation,
+                    "pool": "p1",
+                    "arguments": arguments,
+                    "expected_identity": value["backend_identity"],
+                }
+            )
+        assert [item["request"] for item in relays] == expected_requests
+        assert all(
+            item["argv"] == ["-s", "--no-print-directory", "api-sim-pool-ssh"]
+            for item in relays
+        )
+        snapshots = [
+            json.loads(path.read_text()) for path in (root / "state").glob("*.json")
+        ]
+        evidence = next(item for item in snapshots if "disposition" in item)
+        assert {key: evidence[key] for key in receipt} == receipt
+        assert SENTINEL not in json.dumps(evidence)
+
+    with owned_root() as root:
+        asyncio.run(execute(root))
+
+
 def docker_boundary(
     root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -364,15 +570,19 @@ while True: time.sleep(0.01)
     executable(
         binary / "docker",
         f"""
-import json, os, shutil, signal, subprocess, sys, time
+import json, os, shutil, signal, subprocess, sys, time, uuid
 from pathlib import Path
 root = Path({str(root)!r})
 args = sys.argv[1:]
 with (root / "docker.jsonl").open("a") as out:
     out.write(json.dumps({{"argv":args}}) + "\\n")
 op = args[0]
-if op == "run" and "--name" not in args:
-    assert args == ["run", "--rm", "--network=none", "--read-only",
+if op == "run" and "tailtag_simulator.provenance" in args:
+    assert args[:2] == ["run", "--name"], args
+    name = args[2]
+    probe_uuid = name.removeprefix("tailtag-sim-source-")
+    assert name == "tailtag-sim-source-" + str(uuid.UUID(probe_uuid)), name
+    assert args == ["run", "--name", name, "--rm", "--network=none", "--read-only",
                     "--cap-drop=ALL", "--security-opt=no-new-privileges",
                     "--log-driver=none", "--entrypoint", "python", {IMAGE!r},
                     "-m", "tailtag_simulator.provenance", "inspect"], args
@@ -438,6 +648,8 @@ else: raise SystemExit("unexpected Docker boundary operation")
         ("deadline", False),
         ("deadline", True),
         ("client-exit", False),
+        ("late-live", False),
+        ("deadline-before-health", False),
     ],
 )
 def test_supervisor_latches_health_loss_or_deadline_and_signals_named_real_child(
@@ -450,7 +662,7 @@ def test_supervisor_latches_health_loss_or_deadline_and_signals_named_real_child
             root, monkeypatch, stuck=stuck, client_exit=stop == "client-exit"
         )
         value = host_manifest()
-        if stop == "deadline":
+        if stop in {"deadline", "deadline-before-health"}:
             section(value, "safety")["seconds"] = 10
         section(value, "release")["dependency_lock_sha256"] = json.loads(
             (root / "image-source.json").read_text()
@@ -464,12 +676,23 @@ def test_supervisor_latches_health_loss_or_deadline_and_signals_named_real_child
         run_root, control = prepared_skeleton(root, value)
         live = True
         requests: list[object] = []
+        delayed_health = asyncio.Event()
+        finish_health = asyncio.Event()
+        timer = ManualClock()
 
         async def serve(
             reader: asyncio.StreamReader, writer: asyncio.StreamWriter
         ) -> None:
             try:
                 requests.append(json.loads(await reader.readline()))
+                if (
+                    stop == "late-live"
+                    and timer.now >= 25
+                    or stop == "deadline-before-health"
+                    and timer.now >= 10
+                ):
+                    delayed_health.set()
+                    await finish_health.wait()
                 writer.write(json.dumps({"run_id": RUN, "live": live}).encode() + b"\n")
                 await writer.drain()
             finally:
@@ -478,7 +701,6 @@ def test_supervisor_latches_health_loss_or_deadline_and_signals_named_real_child
 
         server = await asyncio.start_unix_server(serve, path=control / "health.sock")
         (control / "health.sock").chmod(0o600)
-        timer = ManualClock()
         task = asyncio.create_task(
             supervise_run(
                 value,
@@ -504,21 +726,52 @@ def test_supervisor_latches_health_loss_or_deadline_and_signals_named_real_child
                 "channel": "health",
                 "run_id": RUN,
             }
-            live = stop != "supervision"
+            live = stop not in {"supervision", "late-live"}
             # Wall-clock changes are deliberately irrelevant to monotonic loss.
             monkeypatch.setattr(time, "time", lambda: 1.0)
+            requests_before_deadline = len(requests)
+            samples_before_deadline = 0
             if stop != "client-exit":
-                stop_at = 10 if stop == "deadline" else 30
+                stop_at = 10 if stop in {"deadline", "deadline-before-health"} else 30
                 for _ in range(stop_at // 5 - 1):
                     await timer.advance(5)
                     await asyncio.sleep(0.02)
+                if stop == "deadline-before-health":
+                    # Finish the predeadline poll/sample before moving time;
+                    # otherwise slow process startup can shift its next poll.
+                    await eventually(
+                        lambda: len(requests) == 2 and 10.0 in timer.waiters.values(),
+                        "predeadline health/sample did not settle",
+                    )
                 await timer.advance(4.999)
                 assert not (root / "child-signal").exists()
-                await timer.advance(0.001)
+                if stop == "late-live":
+                    await asyncio.wait_for(delayed_health.wait(), 1)
+                requests_before_deadline = len(requests)
+                samples_before_deadline = len(
+                    [item for item in records(record) if item["argv"][0] == "stats"]
+                )
+                await timer.advance(float(stop_at) - timer.now)
+                if stop == "late-live":
+                    # A reply from a request begun before expiry cannot erase
+                    # the elapsed loss window when it arrives after >=30 s.
+                    live = True
+                    await timer.advance(0.5)
+                    finish_health.set()
             await eventually(
                 lambda: (root / "child-signal").exists(),
                 "bounded stop did not reach Python",
+                seconds=0.5 if stop in {"late-live", "deadline-before-health"} else 5,
             )
+            if stop == "deadline-before-health":
+                assert len(requests) == requests_before_deadline
+                assert not delayed_health.is_set()
+                assert (
+                    len(
+                        [item for item in records(record) if item["argv"][0] == "stats"]
+                    )
+                    == samples_before_deadline
+                )
             assert (root / "child-signal").read_text() == str(signal.SIGINT)
             assert unrelated.returncode is None
             live = True
@@ -535,7 +788,9 @@ def test_supervisor_latches_health_loss_or_deadline_and_signals_named_real_child
                     for args in commands
                 )
             launches = [
-                args for args in commands if args[0] == "run" and "--name" in args
+                args
+                for args in commands
+                if args[0] == "run" and "tailtag_simulator.provenance" not in args
             ]
             assert len(launches) == 1  # Late live health never restarts this run.
             launch = launches[0]
@@ -574,7 +829,7 @@ def test_supervisor_latches_health_loss_or_deadline_and_signals_named_real_child
             evidence = evidence_path.read_text()
             assert len(evidence.encode()) < 65536
             assert SENTINEL not in evidence
-            if stop == "supervision":
+            if stop in {"supervision", "late-live"}:
                 assert "supervision_lost" in evidence
             assert isinstance(json.loads(evidence), dict)
             if stuck:
@@ -589,6 +844,7 @@ def test_supervisor_latches_health_loss_or_deadline_and_signals_named_real_child
                 assert report["outcome"] == "interrupted"
                 assert report["safety"]["abort"] is None
         finally:
+            finish_health.set()
             if not task.done():
                 task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -679,7 +935,12 @@ def test_host_cli_survives_sighup_until_named_python_finalizes(
             commands = [item["argv"] for item in records(record)]
             assert (
                 len(
-                    [args for args in commands if args[0] == "run" and "--name" in args]
+                    [
+                        args
+                        for args in commands
+                        if args[0] == "run"
+                        and "tailtag_simulator.provenance" not in args
+                    ]
                 )
                 == 1
             )

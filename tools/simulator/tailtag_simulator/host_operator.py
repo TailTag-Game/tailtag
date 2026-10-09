@@ -103,12 +103,19 @@ async def _prepare(
     return 0
 
 
-async def _control(host: str, command: list[str], payload: dict[str, object]) -> int:
+def _remote_command(command: list[str], cwd: Path) -> str:
+    """Fixed shell grammar; package=false requires the verified release directory."""
+    return "cd -- " + shlex.quote(str(cwd)) + " && exec " + shlex.join(command)
+
+
+async def _control(
+    host: str, command: list[str], payload: dict[str, object], *, cwd: Path
+) -> int:
     process = await asyncio.create_subprocess_exec(
         "ssh",
         *SSH_OPTIONS,
         host,
-        shlex.join(command),
+        _remote_command(command, cwd),
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
@@ -155,14 +162,14 @@ async def run_session(
             state / (run_id + ".used.json"), {"schema_version": 1, "run_id": run_id}
         )
         release = cast(dict[str, object], manifest["release"])
-        python = str(
-            host_root / "releases" / str(release["simulator_sha"]) / ".venv/bin/python"
-        )
+        runtime = host_root / "releases" / str(release["simulator_sha"])
+        python = str(runtime / ".venv/bin/python")
         command = [python, "-m", "tailtag_simulator.host_runner"]
         if await _control(
             host,
             [*command, "prepare", "--root", root_text, "--manifest", "-"],
             manifest,
+            cwd=runtime,
         ):
             return 1
         with tempfile.TemporaryDirectory(prefix="tailtag-op-", dir="/tmp") as temporary:
@@ -208,7 +215,7 @@ async def run_session(
                 + ":"
                 + str(directory / "health.sock"),
                 host,
-                shlex.join(
+                _remote_command(
                     [
                         *command,
                         "run",
@@ -223,7 +230,8 @@ async def run_session(
                             / str(release["simulator_sha"])
                             / "release.json"
                         ),
-                    ]
+                    ],
+                    runtime,
                 ),
             )  # Inherit the caller's real TTY; no input/output transcript.
             while process.returncode is None:
@@ -275,6 +283,7 @@ async def run_session(
                             "-",
                         ],
                         receipt,
+                        cwd=runtime,
                     )
                     == 0
                 )

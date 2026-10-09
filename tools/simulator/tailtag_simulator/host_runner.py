@@ -28,7 +28,7 @@ from .host_protocol import (
     encode_frame,
     validate_manifest,
 )
-from .host_release import read_release, verify_image
+from .host_release import read_release, verify_image_async
 
 
 async def _docker(*arguments: str, timeout: float = 2) -> bytes:
@@ -153,11 +153,28 @@ async def supervise_run(
     try:
         with admit_run(root, manifest) as artifacts:
             try:
-                # Admission owns the whole-host lock before any external image/workload action.
-                verify_image(release)
                 for sig in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
                     previous[sig] = signal.getsignal(sig)
                     loop.add_signal_handler(sig, request_stop)
+                # The shared verifier owns a bounded named probe and joins its cleanup.
+                verification = asyncio.create_task(verify_image_async(release))
+                interruption = asyncio.create_task(stop_event.wait())
+                try:
+                    done, _ = await asyncio.wait(
+                        (verification, interruption),
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if interruption in done:
+                        raise ValueError("host_verification_interrupted")
+                    await verification
+                    if requested_stop:
+                        raise ValueError("host_verification_interrupted")
+                finally:
+                    verification.cancel()
+                    interruption.cancel()
+                    await asyncio.gather(
+                        verification, interruption, return_exceptions=True
+                    )
                 base = artifacts.base
                 # Only rpc is exposed; the host-only control directory stays unmounted.
                 process = await asyncio.create_subprocess_exec(
@@ -214,29 +231,40 @@ async def supervise_run(
                 last_live = started
                 next_health = started
                 exit_code = 1
+
+                def due_stop() -> str | None:
+                    now = clock()
+                    if requested_stop:
+                        return requested_stop
+                    if now >= math.nextafter(execution_end, -math.inf):
+                        return "execution_deadline"
+                    if now - last_live >= 30:
+                        return "supervision_lost"
+                    return None
+
                 while True:
                     now = clock()
                     if stop_reason is None:
-                        if now >= next_health:
-                            if await _health(
+                        # Expired authority cannot be renewed by optional health or stats.
+                        stop_reason = due_stop()
+                        if stop_reason is None and now >= next_health:
+                            live = await _health(
                                 base / "control/health.sock", str(manifest["run_id"])
-                            ):
+                            )
+                            stop_reason = due_stop()
+                            if stop_reason is None and live:
                                 last_live = clock()
                             next_health = now + 5
-                            if len(samples) < 301:
+                            if stop_reason is None and len(samples) < 301:
                                 samples.append(await _sample(name))
-                        try:
-                            artifacts.check_budget()
-                        except (OSError, ValueError):
-                            requested_stop = "storage_uncertain"
-                        now = clock()
-                        if requested_stop:
-                            stop_reason = requested_stop
-                        elif now >= math.nextafter(execution_end, -math.inf):
-                            stop_reason = "execution_deadline"
-                        elif now - last_live >= 30:
-                            stop_reason = "supervision_lost"
-                        elif process.returncode is not None:
+                                stop_reason = due_stop()
+                        if stop_reason is None:
+                            try:
+                                artifacts.check_budget()
+                            except (OSError, ValueError):
+                                requested_stop = "storage_uncertain"
+                            stop_reason = due_stop()
+                        if stop_reason is None and process.returncode is not None:
                             running, exit_code = await _running(name)
                             if not running:
                                 container_finished = True
