@@ -1,15 +1,20 @@
 """#228 U3: archive handoff and verified host runtime; only Docker/uv are faked."""
 
+import ast
 import hashlib
 import json
 import os
 import pwd
 import shutil
+import signal
 import subprocess
 import sys
+import time
+import uuid
 from collections.abc import Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -101,6 +106,8 @@ class DockerBoundary:
 
     def __init__(self, package: Path) -> None:
         self.package = package
+        self.real_popen = subprocess.Popen
+        self.owned_names: set[str] = set()
         self.calls: list[list[str]] = []
         self.inspection: dict[str, Any] = {
             "Id": IMAGE,
@@ -157,6 +164,8 @@ class DockerBoundary:
                 Path(arguments[arguments.index(flag) + 1]).write_bytes(ARCHIVE)
             elif arguments[1] == "run":
                 assert IMAGE in arguments and "--rm" in arguments
+                if "--name" in arguments:
+                    self.owned_names.add(arguments[arguments.index("--name") + 1])
                 assert (
                     "tailtag_simulator.provenance" in arguments
                     and "inspect" in arguments
@@ -164,6 +173,8 @@ class DockerBoundary:
                 output = json.dumps(self.packaged_source)
             elif arguments[1] == "create":
                 assert IMAGE in arguments
+                if "--name" in arguments:
+                    self.owned_names.add(arguments[arguments.index("--name") + 1])
                 output = "tailtag-228-runtime-copy\n"
             elif arguments[1] == "cp":
                 assert arguments[-2].endswith(":/app/.") or arguments[-2].endswith(
@@ -179,7 +190,11 @@ class DockerBoundary:
                     changed.write_text("SENTINEL-tampered-copy")
                     changed.chmod(0o444)
             elif arguments[1] == "rm":
-                assert "tailtag-228-runtime-copy" in arguments
+                assert "--force" in arguments
+                assert (
+                    arguments[-1] in self.owned_names
+                    or arguments[-1] == "tailtag-228-runtime-copy"
+                )
             else:
                 raise AssertionError(f"Unexpected Docker operation: {arguments[1:]}")
         elif Path(arguments[0]).name == "uv":
@@ -201,6 +216,23 @@ class DockerBoundary:
             stderr="" if kwargs.get("text") else b"",
         )
 
+    def popen(self, arguments: list[str], **kwargs: Any) -> subprocess.Popen[bytes]:
+        # Substitute only Docker/uv, then expose real binary pipes/process exit
+        # to the production bounded transport. No source/domain helper is mocked.
+        outcome = self.run(arguments)
+        return cast(
+            "subprocess.Popen[bytes]",
+            self.real_popen(
+                [
+                    sys.executable,
+                    "-c",
+                    "import sys; sys.stdout.buffer.write(sys.argv[1].encode())",
+                    outcome.stdout.decode(),
+                ],
+                **kwargs,
+            ),
+        )
+
 
 @pytest.fixture
 def release_files(tmp_path: Path) -> tuple[Path, Path]:
@@ -213,7 +245,7 @@ def release_files(tmp_path: Path) -> tuple[Path, Path]:
 @pytest.fixture
 def docker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[DockerBoundary]:
     boundary = DockerBoundary(packaged(tmp_path / "packaged"))
-    monkeypatch.setattr(subprocess, "run", boundary.run)
+    monkeypatch.setattr(subprocess, "Popen", boundary.popen)
     try:
         yield boundary
     finally:
@@ -449,3 +481,238 @@ def test_bootstrap_preflight_rejects_unsafe_destinations_before_mutation(
     )
     assert (outcome.returncode == 0) is (fault == "clean")
     assert snapshot() == before
+
+
+def process_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+@dataclass
+class ProbeProcesses:
+    root: Path
+    probe: subprocess.Popen[bytes]
+    unrelated: subprocess.Popen[bytes]
+    drivers: list[subprocess.Popen[bytes]] = field(
+        default_factory=lambda: list[subprocess.Popen[bytes]]()
+    )
+
+    def calls(self) -> list[dict[str, Any]]:
+        path = self.root / "calls.jsonl"
+        return (
+            [json.loads(line) for line in path.read_text().splitlines()]
+            if path.exists()
+            else []
+        )
+
+
+@pytest.fixture
+def probe_processes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[ProbeProcesses]:
+    # These test-owned children represent daemon-side containers. Killing the
+    # Docker CLI does not stop them, and their parent retains reaping ownership.
+    sleepers = [
+        subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        for _ in range(2)
+    ]
+    rig = ProbeProcesses(tmp_path, sleepers[0], sleepers[1])
+    (tmp_path / "provider.json").write_text(
+        json.dumps(
+            {
+                "probe_pid": rig.probe.pid,
+                "inspection": DockerBoundary(tmp_path).inspection,
+                "source": source(),
+            }
+        )
+    )
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    executable = binary / "docker"
+    executable.write_text(
+        f"#!{sys.executable}\n"
+        + r"""
+import json, os, signal, sys, time
+from pathlib import Path
+root = Path(os.environ['TT228_PROBE_ROOT'])
+provider = json.loads((root/'provider.json').read_text())
+args = sys.argv[1:]
+fd = os.open(root/'calls.jsonl', os.O_APPEND|os.O_CREAT|os.O_WRONLY, 0o600)
+os.write(fd, (json.dumps({'pid':os.getpid(),'args':args})+'\n').encode())
+os.close(fd)
+if args[:2] == ['image','inspect']:
+    print(json.dumps([provider['inspection']]))
+elif args[0] == 'load':
+    print('Loaded image ID: '+provider['inspection']['Id'])
+elif args[0] == 'run':
+    name = args[args.index('--name')+1] if '--name' in args else 'unnamed'
+    (root/'ready.tmp').write_text(json.dumps({'name':name,'pid':os.getpid()}))
+    (root/'ready.tmp').replace(root/'ready.json')
+    sys.stderr.write('SENTINEL-private-probe-diagnostic\n'); sys.stderr.flush()
+    if os.environ['TT228_PROBE_MODE'] == 'overflow':
+        sys.stdout.buffer.write(b'SENTINEL-private-probe-output'+b'x'*65537)
+        sys.stdout.buffer.flush()
+    time.sleep(20)
+    sys.exit(17)
+elif args[0] == 'rm':
+    assert '--force' in args
+    ready = json.loads((root/'ready.json').read_text())
+    assert args[-1] == ready['name']
+    os.kill(provider['probe_pid'], signal.SIGTERM)
+    (root/'removed.json').write_text(json.dumps({'name':args[-1]}))
+else:
+    sys.exit(19)
+"""
+    )
+    executable.chmod(0o700)
+    monkeypatch.setenv("TT228_PROBE_ROOT", str(tmp_path))
+    monkeypatch.setenv("PATH", str(binary) + os.pathsep + os.environ.get("PATH", ""))
+    try:
+        yield rig
+    finally:
+        for driver in rig.drivers:
+            if driver.poll() is None:
+                driver.kill()
+            driver.communicate(timeout=3)
+        # Every PID came from this fixture's executable; stop only task-owned
+        # clients left by a failed red, never the unrelated/shared process tree.
+        for call in rig.calls():
+            pid = int(call["pid"])
+            if process_alive(pid):
+                os.kill(pid, signal.SIGKILL)
+        for child in sleepers:
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=3)
+
+
+def verification_driver(transport: str, mode: str, root: Path) -> str:
+    if transport == "bootstrap":
+        script = (Path(__file__).parents[1] / "host/bootstrap.sh").read_text()
+        body = script.split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
+        nodes: list[ast.stmt] = []
+        for node in ast.parse(body).body:
+            if isinstance(node, ast.Assign) and any(
+                isinstance(target, ast.Name) and target.id == "record"
+                for target in node.targets
+            ):
+                break
+            nodes.append(node)
+        prefix = ast.unparse(ast.Module(body=nodes, type_ignores=[]))
+        return (
+            prefix
+            + f"\nprobe_source({IMAGE!r}, timeout_seconds={1.0 if mode == 'timeout' else 3.0})\nraise SystemExit('unbounded probe returned')\n"
+        )
+    return f"""
+import asyncio, json
+from pathlib import Path
+from tailtag_simulator.host_release import verify_image_async
+from tailtag_simulator.provenance import SourceRejected
+async def exercise():
+    task = asyncio.create_task(verify_image_async(json.loads(Path({str(root / "release.json")!r}).read_text()), timeout_seconds={1.0 if mode == "timeout" else 3.0}))
+    if {mode!r} == 'cancel':
+        while not Path({str(root / "ready.json")!r}).exists():
+            if task.done(): await task
+            await asyncio.sleep(0.01)
+        task.cancel()
+    try: await task
+    except SourceRejected: return 1
+    except asyncio.CancelledError: return 2
+    return 0
+raise SystemExit(asyncio.run(exercise()))
+"""
+
+
+@pytest.mark.parametrize(
+    ("transport", "mode"),
+    [
+        ("async", "timeout"),
+        ("async", "overflow"),
+        ("async", "cancel"),
+        ("cli", "SIGINT"),
+        ("cli", "SIGHUP"),
+        ("bootstrap", "timeout"),
+        ("bootstrap", "overflow"),
+        ("bootstrap", "SIGHUP"),
+    ],
+)
+def test_source_probe_is_bounded_cancelled_and_only_owned_resources_are_reaped(
+    probe_processes: ProbeProcesses,
+    release_files: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    transport: str,
+    mode: str,
+) -> None:
+    rig = probe_processes
+    archive, record = release_files
+    monkeypatch.setenv("TT228_PROBE_MODE", mode)
+    if transport == "cli":
+        arguments = [
+            sys.executable,
+            "-m",
+            "tailtag_simulator.host_release",
+            "load",
+            "--archive",
+            str(archive),
+            "--metadata",
+            str(record),
+        ]
+    else:
+        arguments = [
+            sys.executable,
+            "-c",
+            verification_driver(transport, mode, rig.root),
+            str(rig.root),
+            str(archive),
+            str(record),
+        ]
+    started = time.monotonic()
+    driver = subprocess.Popen(
+        arguments,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    rig.drivers.append(driver)
+    if mode in {"SIGINT", "SIGHUP"}:
+        deadline = time.monotonic() + 3
+        while (
+            not (rig.root / "ready.json").exists()
+            and driver.poll() is None
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.01)
+        assert (rig.root / "ready.json").exists(), (
+            "source verification helper did not start named probe"
+        )
+        os.kill(driver.pid, getattr(signal, mode))
+    stdout, stderr = driver.communicate(timeout=5)
+    assert driver.returncode != 0
+    if mode == "cancel":
+        assert driver.returncode == 2, "cancellation must finish as cancellation"
+    if mode == "overflow":
+        # Three-second deadline is deliberately later than this assertion:
+        # rejecting only when that deadline expires must not satisfy byte-cap proof.
+        assert time.monotonic() - started < 2
+    assert b"SENTINEL" not in stdout + stderr
+    ready = json.loads((rig.root / "ready.json").read_text())
+    name = ready["name"]
+    assert name.startswith("tailtag-sim-source-")
+    assert str(
+        uuid.UUID(name.removeprefix("tailtag-sim-source-"))
+    ) == name.removeprefix("tailtag-sim-source-")
+    assert json.loads((rig.root / "removed.json").read_text()) == {"name": name}
+    rig.probe.wait(timeout=2)
+    assert rig.unrelated.poll() is None
+    assert not any(process_alive(int(call["pid"])) for call in rig.calls())
+    assert [call["args"] for call in rig.calls() if call["args"][0] == "rm"] == [
+        ["rm", "--force", name]
+    ]

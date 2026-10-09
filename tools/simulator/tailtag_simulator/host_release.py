@@ -1,14 +1,23 @@
 """Immutable Docker archive verification and attributed host runtime installation."""
 
 import argparse
+import asyncio
 import hashlib
 import json
 import os
 import re
+import selectors
 import shutil
+import signal
 import subprocess
-from collections.abc import Mapping
+import threading
+import time
+import uuid
+from collections.abc import Generator, Mapping
+from contextlib import contextmanager, suppress
+from contextvars import ContextVar
 from pathlib import Path
+from types import FrameType
 from typing import Any, cast
 
 from .host_artifacts import (
@@ -25,6 +34,14 @@ from .provenance import (
 )
 
 IMAGE = re.compile(r"sha256:[0-9a-f]{64}")
+MAX_COMMAND_OUTPUT_BYTES = 65536
+COMMAND_SECONDS = 30.0
+TRANSFER_SECONDS = 300.0
+CLEANUP_SECONDS = 5.0
+# Actual CLI signal session and async-owned verifier worker share cancellation.
+_COMMAND_STATE: ContextVar[tuple[threading.Event, float | None] | None] = ContextVar(
+    "host_release_command_state", default=None
+)
 
 
 def _validate_release(value: object) -> dict[str, Any]:
@@ -69,8 +86,97 @@ def read_release(path: Path) -> dict[str, object]:
         raise SourceRejected() from None
 
 
-def _run(arguments: list[str]) -> str:
-    return subprocess.run(arguments, check=True, capture_output=True, text=True).stdout
+def _cancelled() -> bool:
+    state = _COMMAND_STATE.get()
+    return state is not None and state[0].is_set()
+
+
+def _reap(process: subprocess.Popen[bytes]) -> None:
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        with suppress(ProcessLookupError):
+            os.killpg(process.pid, sig)
+        try:
+            process.wait(timeout=1)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+    raise SourceRejected()
+
+
+def _run(
+    arguments: list[str],
+    *,
+    timeout_seconds: float = COMMAND_SECONDS,
+    cleanup: bool = False,
+) -> str:
+    state = None if cleanup else _COMMAND_STATE.get()
+    if state is not None and state[0].is_set():
+        raise SourceRejected()
+    deadline = time.monotonic() + timeout_seconds
+    if state is not None and state[1] is not None:
+        deadline = min(deadline, state[1])
+    process = subprocess.Popen(
+        arguments,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    output = bytearray()
+    completed = False
+    try:
+        assert process.stdout is not None
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stdout, selectors.EVENT_READ)
+            while selector.get_map() or process.poll() is None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or (state is not None and state[0].is_set()):
+                    raise SourceRejected()
+                for key, _ in selector.select(min(0.05, remaining)):
+                    chunk = os.read(
+                        key.fd, min(65536, MAX_COMMAND_OUTPUT_BYTES - len(output) + 1)
+                    )
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                    elif len(output) + len(chunk) > MAX_COMMAND_OUTPUT_BYTES:
+                        raise SourceRejected()
+                    else:
+                        output.extend(chunk)
+            if process.returncode != 0 and not cleanup:
+                raise SourceRejected()
+            completed = True
+        return output.decode("utf-8")
+    finally:
+        if not completed or process.poll() is None:
+            _reap(process)
+        if process.stdout is not None:
+            process.stdout.close()
+
+
+@contextmanager
+def _cli_signals() -> Generator[None]:
+    cancelled = threading.Event()
+    token = _COMMAND_STATE.set((cancelled, None))
+    previous: dict[int, object] = {}
+
+    def request_stop(_sig: int, _frame: FrameType | None) -> None:
+        cancelled.set()
+
+    try:
+        for sig in (signal.SIGINT, signal.SIGHUP, signal.SIGTERM):
+            previous[sig] = signal.getsignal(sig)
+            signal.signal(sig, request_stop)
+        yield
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)  # type: ignore[arg-type]
+        _COMMAND_STATE.reset(token)
+
+
+def _probe_seconds(value: float) -> float:
+    if type(value) not in {int, float} or not 0 < value <= COMMAND_SECONDS:
+        raise SourceRejected()
+    return value
 
 
 def _hash(path: Path) -> str:
@@ -80,7 +186,54 @@ def _hash(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def _inspect(image: str) -> dict[str, Any]:
+def _probe_source(image: str, *, timeout_seconds: float) -> str:
+    name = "tailtag-sim-source-" + str(uuid.uuid4())
+    try:
+        return _run(
+            [
+                "docker",
+                "run",
+                "--name",
+                name,
+                "--rm",
+                "--network=none",
+                "--read-only",
+                "--cap-drop=ALL",
+                "--security-opt=no-new-privileges",
+                "--log-driver=none",
+                "--entrypoint",
+                "python",
+                image,
+                "-m",
+                "tailtag_simulator.provenance",
+                "inspect",
+            ],
+            timeout_seconds=timeout_seconds,
+        )
+    finally:
+        _run(
+            ["docker", "rm", "--force", name],
+            timeout_seconds=CLEANUP_SECONDS,
+            cleanup=True,
+        )
+
+
+def _inspect(image: str, *, timeout_seconds: float = COMMAND_SECONDS) -> dict[str, Any]:
+    seconds = _probe_seconds(timeout_seconds)
+    state = _COMMAND_STATE.get()
+    token = _COMMAND_STATE.set(
+        (state[0] if state else threading.Event(), time.monotonic() + seconds)
+    )
+    try:
+        result = _inspect_body(image, timeout_seconds=seconds)
+        if _cancelled():
+            raise SourceRejected()
+        return result
+    finally:
+        _COMMAND_STATE.reset(token)
+
+
+def _inspect_body(image: str, *, timeout_seconds: float) -> dict[str, Any]:
     if IMAGE.fullmatch(image) is None:
         raise SourceRejected()
     value: Any = json.loads(
@@ -101,24 +254,7 @@ def _inspect(image: str) -> dict[str, Any]:
     ):
         raise SourceRejected()
     source: Any = json.loads(
-        _run(
-            [
-                "docker",
-                "run",
-                "--rm",
-                "--network=none",
-                "--read-only",
-                "--cap-drop=ALL",
-                "--security-opt=no-new-privileges",
-                "--log-driver=none",
-                "--entrypoint",
-                "python",
-                image,
-                "-m",
-                "tailtag_simulator.provenance",
-                "inspect",
-            ]
-        ),
+        _probe_source(image, timeout_seconds=timeout_seconds),
         object_pairs_hook=_pairs,
     )
     if not isinstance(source, dict):
@@ -159,11 +295,13 @@ def _inspect(image: str) -> dict[str, Any]:
     return cast(dict[str, Any], source)
 
 
-def verify_image(release: Mapping[str, object]) -> dict[str, object]:
+def _verify_image(
+    release: Mapping[str, object], *, timeout_seconds: float = COMMAND_SECONDS
+) -> dict[str, object]:
     """Verify the installed immutable image and its bound packaged source."""
     try:
         record = _validate_release(release)
-        source = _inspect(record["image_id"])
+        source = _inspect(record["image_id"], timeout_seconds=timeout_seconds)
         if (
             source["simulator_sha"]["value"] != record["simulator_sha"]
             or source["runtime"]["dependency_lock_sha256"]["value"]
@@ -182,11 +320,51 @@ def verify_image(release: Mapping[str, object]) -> dict[str, object]:
         raise SourceRejected() from None
 
 
+def verify_image(release: Mapping[str, object]) -> dict[str, object]:
+    """Verify the installed immutable image using a bounded source probe."""
+    return _verify_image(release)
+
+
+async def verify_image_async(
+    release: Mapping[str, object], *, timeout_seconds: float = COMMAND_SECONDS
+) -> dict[str, object]:
+    """Join the owned verifier and named cleanup even when the caller cancels."""
+    seconds = _probe_seconds(timeout_seconds)
+    cancelled = threading.Event()
+
+    def verify() -> dict[str, object]:
+        token = _COMMAND_STATE.set((cancelled, None))
+        try:
+            return _verify_image(release, timeout_seconds=seconds)
+        finally:
+            _COMMAND_STATE.reset(token)
+
+    # Keep the executor Future separate from asyncio Tasks: loop shutdown may
+    # cancel every Task, but must still let this wrapper join its owned worker.
+    worker = asyncio.get_running_loop().run_in_executor(None, verify)
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        cancelled.set()
+        while not worker.done():
+            try:
+                await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                continue
+            except Exception:  # noqa: BLE001 - consume the joined verifier failure
+                break
+        with suppress(Exception):
+            worker.result()
+        raise
+
+
 def load_release(archive: Path, metadata: Path) -> str:
     record = cast(dict[str, Any], read_release(metadata))
     if _hash(archive) != record["archive_sha256"]:
         raise SourceRejected()
-    loaded = _run(["docker", "load", "--input", str(archive)])
+    loaded = _run(
+        ["docker", "load", "--input", str(archive)], timeout_seconds=TRANSFER_SECONDS
+    )
     if "Loaded image ID: " + record["image_id"] not in loaded.splitlines():
         raise SourceRejected()
     verify_image(record)
@@ -219,15 +397,21 @@ def install_runtime(archive: Path, metadata: Path, root: Path) -> Path:
     _private(releases)
     if not runtime.exists():
         runtime.mkdir(mode=0o700)
-        container: str | None = None
+        name = "tailtag-sim-copy-" + str(uuid.uuid4())
         try:
-            container = _run(["docker", "create", image]).strip()
+            container = _run(["docker", "create", "--name", name, image]).strip()
             if re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}", container) is None:
                 raise SourceRejected()
-            _run(["docker", "cp", container + ":/app/.", str(runtime)])
+            _run(
+                ["docker", "cp", name + ":/app/.", str(runtime)],
+                timeout_seconds=TRANSFER_SECONDS,
+            )
         finally:
-            if container is not None:
-                _run(["docker", "rm", container])
+            _run(
+                ["docker", "rm", "--force", name],
+                timeout_seconds=CLEANUP_SECONDS,
+                cleanup=True,
+            )
         if _packaged(runtime) != (
             record["simulator_sha"],
             record["dependency_lock_sha256"],
@@ -275,7 +459,8 @@ def install_runtime(archive: Path, metadata: Path, root: Path) -> Path:
             "--python",
             "3.13.11",
             "--managed-python",
-        ]
+        ],
+        timeout_seconds=TRANSFER_SECONDS,
     )
     if _packaged(runtime) != (
         record["simulator_sha"],
@@ -285,7 +470,7 @@ def install_runtime(archive: Path, metadata: Path, root: Path) -> Path:
     return runtime
 
 
-def main(argv: list[str] | None = None) -> int:
+def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Verify immutable host simulator releases"
     )
@@ -304,7 +489,10 @@ def main(argv: list[str] | None = None) -> int:
             if args.archive.exists() or args.metadata.exists():
                 raise SourceRejected()
             source = _inspect(args.image)
-            _run(["docker", "save", "--output", str(args.archive), args.image])
+            _run(
+                ["docker", "save", "--output", str(args.archive), args.image],
+                timeout_seconds=TRANSFER_SECONDS,
+            )
             args.archive.chmod(0o600)
             _write(
                 args.metadata,
@@ -336,6 +524,15 @@ def main(argv: list[str] | None = None) -> int:
     ):
         print("host_release_rejected")
         return 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    with _cli_signals():
+        result = _main(argv)
+        if _cancelled() and result == 0:
+            print("host_release_rejected")
+            return 1
+        return result
 
 
 if __name__ == "__main__":

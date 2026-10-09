@@ -93,7 +93,7 @@ install -o "$user" -g "$(id -gn "$user")" -m 0700 "$work/uv-x86_64-unknown-linux
 # First install cannot import host_release before its verified venv exists.
 # This dedicated stdlib validator executes no copied package code before hashes.
 runuser -u "$user" -- python3 - "$root" "$archive" "$metadata" <<'PY'
-import hashlib, json, os, pathlib, re, shutil, subprocess, sys
+import hashlib, json, os, pathlib, re, selectors, shutil, signal, subprocess, sys, threading, time, uuid
 root, archive, metadata = map(pathlib.Path, sys.argv[1:])
 def pairs(items):
     result = {}
@@ -104,8 +104,64 @@ def pairs(items):
 def read(path):
     if path.is_symlink() or path.stat().st_size > 65536: raise ValueError('bootstrap_rejected')
     return json.loads(path.read_text(), object_pairs_hook=pairs)
-def run(args):
-    return subprocess.run(args, check=True, capture_output=True, text=True, cwd=str(runtime) if 'runtime' in globals() and 'tailtag_simulator.host_release' in args else str(root)).stdout
+cancelled = threading.Event()
+probe_deadline = None
+def request_stop(_sig, _frame):
+    cancelled.set()
+for sig in (signal.SIGINT, signal.SIGHUP, signal.SIGTERM):
+    signal.signal(sig, request_stop)
+def reap(process):
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try: os.killpg(process.pid, sig)
+        except ProcessLookupError: pass
+        try:
+            process.wait(timeout=1)
+            return
+        except subprocess.TimeoutExpired: pass
+    raise ValueError('bootstrap_rejected')
+def run(args, *, timeout_seconds=30.0, cleanup=False):
+    if not cleanup and cancelled.is_set(): raise ValueError('bootstrap_rejected')
+    deadline = time.monotonic() + timeout_seconds
+    if not cleanup and probe_deadline is not None: deadline = min(deadline, probe_deadline)
+    process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL, start_new_session=True,
+        cwd=str(runtime) if 'runtime' in globals() and 'tailtag_simulator.host_release' in args else str(root))
+    output = bytearray()
+    completed = False
+    try:
+        assert process.stdout is not None
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stdout, selectors.EVENT_READ)
+            while selector.get_map() or process.poll() is None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or (not cleanup and cancelled.is_set()): raise ValueError('bootstrap_rejected')
+                for key, _ in selector.select(min(0.05, remaining)):
+                    chunk = os.read(key.fd, min(65536, 65536-len(output)+1))
+                    if not chunk: selector.unregister(key.fileobj)
+                    elif len(output)+len(chunk) > 65536: raise ValueError('bootstrap_rejected')
+                    else: output.extend(chunk)
+            if process.returncode != 0 and not cleanup: raise ValueError('bootstrap_rejected')
+            completed = True
+        return output.decode('utf-8')
+    finally:
+        if not completed or process.poll() is None: reap(process)
+        if process.stdout is not None: process.stdout.close()
+def probe_source(image: str, *, timeout_seconds: float=30.0) -> str:
+    global probe_deadline
+    assert re.fullmatch(r'sha256:[0-9a-f]{64}', image)
+    assert type(timeout_seconds) in {int,float} and 0 < timeout_seconds <= 30
+    previous = probe_deadline
+    probe_deadline = time.monotonic() + timeout_seconds
+    name = 'tailtag-sim-source-' + str(uuid.uuid4())
+    try:
+        try:
+            output = run(['docker','run','--name',name,'--rm','--network=none','--read-only','--cap-drop=ALL','--security-opt=no-new-privileges','--log-driver=none','--entrypoint','python',image,'-m','tailtag_simulator.provenance','inspect'])
+        finally:
+            run(['docker','rm','--force',name], timeout_seconds=5.0, cleanup=True)
+        if cancelled.is_set(): raise ValueError('bootstrap_rejected')
+        return output
+    finally:
+        probe_deadline = previous
 record = read(metadata)
 assert set(record) == {'schema_version','simulator_sha','dependency_lock_sha256','image_id','platform','archive_sha256'}
 assert type(record['schema_version']) is int and record['schema_version'] == 1
@@ -115,13 +171,13 @@ for key, pattern in [('simulator_sha',r'[0-9a-f]{40}'),('dependency_lock_sha256'
 assert not archive.is_symlink()
 with archive.open('rb') as stream:
     assert hashlib.file_digest(stream,'sha256').hexdigest() == record['archive_sha256']
-loaded = run(['docker','load','--input',str(archive)])
+loaded = run(['docker','load','--input',str(archive)], timeout_seconds=300.0)
 assert 'Loaded image ID: '+record['image_id'] in loaded.splitlines()
 image = record['image_id']
 inspection = json.loads(run(['docker','image','inspect',image]), object_pairs_hook=pairs)
 assert len(inspection) == 1 and inspection[0]['Id'] == image
 assert inspection[0]['Os'] == 'linux' and inspection[0]['Architecture'] == 'amd64'
-source = json.loads(run(['docker','run','--rm','--network=none','--read-only','--cap-drop=ALL','--security-opt=no-new-privileges','--log-driver=none','--entrypoint','python',image,'-m','tailtag_simulator.provenance','inspect']), object_pairs_hook=pairs)
+source = json.loads(probe_source(image), object_pairs_hook=pairs)
 assert set(source) == {'simulator_sha','provenance','reason','runtime'}
 assert source['provenance'] == 'clean' and source['reason'] is None
 assert source['simulator_sha'] == {'value':record['simulator_sha'],'reason':None}
@@ -131,10 +187,12 @@ runtime = root / 'releases' / record['simulator_sha']
 fresh_copy = not runtime.exists()
 if fresh_copy:
     runtime.mkdir(mode=0o700)
-    container = run(['docker','create',image]).strip()
-    assert re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}',container)
-    try: run(['docker','cp',container+':/app/.',str(runtime)])
-    finally: run(['docker','rm',container])
+    name = 'tailtag-sim-copy-' + str(uuid.uuid4())
+    try:
+        container = run(['docker','create','--name',name,image]).strip()
+        assert re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}',container)
+        run(['docker','cp',name+':/app/.',str(runtime)], timeout_seconds=300.0)
+    finally: run(['docker','rm','--force',name], timeout_seconds=5.0, cleanup=True)
 assert not runtime.is_symlink() and runtime.stat().st_uid == os.getuid()
 packaged = read(runtime / 'source.json')
 assert set(packaged) == {'schema_version','simulator_sha','dependency_lock_sha256','manifest'}
@@ -181,11 +239,11 @@ else:
     fd = os.open(receipt, os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
     with os.fdopen(fd,'w') as stream:
         json.dump(record,stream,sort_keys=True); stream.flush(); os.fsync(stream.fileno())
-run([str(root/'tools/uv'),'sync','--directory',str(runtime),'--locked','--no-dev','--python','3.13.11','--managed-python'])
+run([str(root/'tools/uv'),'sync','--directory',str(runtime),'--locked','--no-dev','--python','3.13.11','--managed-python'], timeout_seconds=300.0)
 # Subsequent operation uses the single production release-verification path.
 os.chdir(runtime)
-run([str(runtime/'.venv/bin/python'),'-m','tailtag_simulator.host_release','install-runtime','--archive',str(archive),'--metadata',str(metadata),'--root',str(root)])
-versions = subprocess.run(['dpkg-query','-W','docker-ce','docker-ce-cli','containerd.io','docker-buildx-plugin','docker-compose-plugin'],check=True,capture_output=True,text=True).stdout
+run([str(runtime/'.venv/bin/python'),'-m','tailtag_simulator.host_release','install-runtime','--archive',str(archive),'--metadata',str(metadata),'--root',str(root)], timeout_seconds=300.0)
+versions = run(['dpkg-query','-W','docker-ce','docker-ce-cli','containerd.io','docker-buildx-plugin','docker-compose-plugin'])
 (root/'tools/versions.txt').write_text(versions + run([str(root/'tools/uv'),'--version']) + run([str(runtime/'.venv/bin/python'),'--version']) + run([str(runtime/'.venv/bin/python'),'-c',"import importlib.metadata; print('httpx='+importlib.metadata.version('httpx'))"]))
 (root/'tools/versions.txt').chmod(0o600)
 print(str(runtime/'.venv/bin/python'))
