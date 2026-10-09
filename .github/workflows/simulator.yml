@@ -4,6 +4,15 @@ on:
   pull_request:
     paths:
       - "tools/simulator/**"
+      - "docs/operations/simulation-host.md"
+      - "scripts/api_sim_pool_ssh.py"
+      - "scripts/api_sim_fixture_ssh.py"
+      - "scripts/api_sim_inspect_ssh.py"
+      - "scripts/api_staging_reset_ssh.py"
+      - "scripts/api_staging_preflight.py"
+      - "services/api/pyproject.toml"
+      - "services/api/uv.lock"
+      - "services/api/simulation_fixtures/images/**"
       - ".semgrep/**"
       - "Makefile"
       - "scripts/validate_semgrep_contract.py"
@@ -13,6 +22,15 @@ on:
       - main
     paths:
       - "tools/simulator/**"
+      - "docs/operations/simulation-host.md"
+      - "scripts/api_sim_pool_ssh.py"
+      - "scripts/api_sim_fixture_ssh.py"
+      - "scripts/api_sim_inspect_ssh.py"
+      - "scripts/api_staging_reset_ssh.py"
+      - "scripts/api_staging_preflight.py"
+      - "services/api/pyproject.toml"
+      - "services/api/uv.lock"
+      - "services/api/simulation_fixtures/images/**"
       - ".semgrep/**"
       - "Makefile"
       - "scripts/validate_semgrep_contract.py"
@@ -25,7 +43,7 @@ permissions:
 jobs:
   simulator:
     name: Simulator checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Check out repository
@@ -50,8 +68,17 @@ jobs:
           uv --directory tools/simulator sync --all-groups --locked
           uv --directory .semgrep sync --locked
 
+      # The Linux CLI signal test exercises real admission policy. Configure
+      # only this disposable runner; no external host or workload is started.
+      - name: Prepare disposable runner for host policy proof
+        run: |
+          sudo swapoff -a
+          sudo sysctl -w 'kernel.core_pattern=|/bin/false'
+
       - name: Run canonical simulator validation
-        run: make sim-check
+        run: |
+          ulimit -c 0
+          make sim-check
 
       - name: Build simulator image
-        run: make sim-image
+        run: make sim-image PLATFORM=linux/amd64
