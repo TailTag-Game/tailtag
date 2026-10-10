@@ -22,6 +22,10 @@ class RequestFailed(Exception):
 class TransportFailed(RequestFailed):
     """A genuine transport failure, without external error details."""
 
+    def __init__(self, *, timed_out: bool = False) -> None:
+        super().__init__()
+        self.timed_out = timed_out
+
 
 @dataclass(frozen=True)
 class Reply:
@@ -127,11 +131,13 @@ class ApiClient:
                         if len(raw) > MAX_RESPONSE_BYTES:
                             raise RequestFailed
                     return response.status_code, raw
-            except httpx.HTTPError:
+            except httpx.HTTPError as error:
                 transport_failed = True
                 if runtime is not None:
                     runtime.observed_transport_failure()
-                raise TransportFailed from None
+                raise TransportFailed(
+                    timed_out=isinstance(error, httpx.TimeoutException)
+                ) from None
             finally:
                 if runtime is not None and status is not None and not transport_failed:
                     runtime.observed_reply(status)

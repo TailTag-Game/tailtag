@@ -7,11 +7,15 @@ phases and reporting all run for real.
 
 import asyncio
 import dataclasses
+import json
 import re
+import time
 import typing
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
+from urllib.parse import parse_qs
 
 import httpx
 import pool_support
@@ -25,11 +29,13 @@ from pool_support import (
     SHA,
     FakeChannel,
     World,
+    jwt_claims,
     onboarded,
     user_json,
 )
 from report_support import disposable_catalog, fault_descriptor, read_report, recorder
 
+from tailtag_simulator import clerk, pool
 from tailtag_simulator.client import ApiClient
 from tailtag_simulator.pool import PoolSimulationContext, run_pool_smoke
 from tailtag_simulator.reports import RunReport
@@ -43,6 +49,31 @@ FIXED_LINES = re.compile(
     r"|PASS (simulation|reconciliation|release)"
     r"|FAIL (target|setup|simulation|reconciliation|release)"
 )
+
+
+DIAG_LINE = re.compile(
+    r"DIAG setup index=\d+ step=(backend_lookup|identity_validation|backend_sessions"
+    r"|backend_session_revoke|backend_ticket_lookup|backend_ticket_create"
+    r"|frontend_client|frontend_sign_in|frontend_token|profile_read|profile_write"
+    r"|profile_validation|unknown) failure=(http|timeout|transport|invalid_response"
+    r"|identity_invalid|unknown) status=([1-5]\d{2}|none) "
+    r"elapsed=(lt_1s|lt_5s|lt_10s|ge_10s|unknown)"
+)
+
+
+def setup_diagnostics(lines: list[str]) -> list[str]:
+    diagnostics = [line for line in lines if line.startswith("DIAG ")]
+    assert all(DIAG_LINE.fullmatch(line) for line in diagnostics), diagnostics
+    assert not any(
+        value in "\n".join(lines)
+        for value in (*SENSITIVE_PREFIXES, "SENTINEL", "https://", "sit_")
+    )
+    return diagnostics
+
+
+def assert_diagnostic(line: str, index: int, fields: str) -> None:
+    assert DIAG_LINE.fullmatch(line), line
+    assert line.startswith(f"DIAG setup index={index} {fields} elapsed="), line
 
 
 @dataclass
@@ -60,6 +91,9 @@ def smoke(
     run_id: str | None = RUN_ID,
     cancel_in_sleep: bool = False,
     report: RunReport | None = None,
+    clerk_transport: httpx.AsyncBaseTransport | None = None,
+    api_transport: httpx.AsyncBaseTransport | None = None,
+    on_emit: Callable[[str], None] | None = None,
 ) -> Run:
     prompts: list[str] = []
 
@@ -73,6 +107,8 @@ def smoke(
     def emit(line: str) -> None:
         lines.append(line)
         world.note("emit", line)
+        if on_emit is not None:
+            on_emit(line)
 
     async def sleep(seconds: float) -> None:
         if cancel_in_sleep:
@@ -87,8 +123,8 @@ def smoke(
             prompt_secret=prompt,
             channel=channel,
             emit=emit,
-            clerk_transport=world.clerk_transport,
-            api_transport=world.api_transport,
+            clerk_transport=clerk_transport or world.clerk_transport,
+            api_transport=api_transport or world.api_transport,
             sleep=sleep,
             clock=world.clock,
             run_id=run_id,
@@ -379,8 +415,21 @@ def test_a_broken_identity_is_quarantined_and_the_run_stops_after_releasing(
     quarantined = ",".join(str(i) for i in sorted(bad))
     integrity = case in {"profile-handle-drift", "onboarding-yields-another-handle"}
     setup_label = "pending_quarantine" if integrity else "quarantined"
+    diagnostics = setup_diagnostics(run.lines)
+    attempted_bad = sorted(bad) if not integrity else [1]
+    assert len(diagnostics) == len(attempted_bad)
+    fields = (
+        "step=frontend_sign_in failure=http status=422"
+        if case == "sign-in-rejected"
+        else "step=profile_validation failure=identity_invalid status=none"
+        if integrity
+        else "step=identity_validation failure=identity_invalid status=none"
+    )
+    for line, index in zip(diagnostics, attempted_bad, strict=True):
+        assert_diagnostic(line, index, fields)
     assert run.lines == [
         TARGET_LINE,
+        *diagnostics,
         f"FAIL setup {setup_label}={quarantined}",
         "PASS release",
         *(["FAIL safety reason=correctness"] if integrity else []),
@@ -412,11 +461,201 @@ def test_when_every_allocated_identity_fails_nothing_is_quarantined_but_all_is_r
     run = smoke(world, channel, count=2)
 
     assert run.code == 1
-    assert run.lines == [TARGET_LINE, "FAIL setup", "PASS release"]
+    diagnostics = setup_diagnostics(run.lines)
+    assert len(diagnostics) == 2
+    for line, index in zip(diagnostics, [0, 1], strict=True):
+        assert_diagnostic(
+            line, index, "step=identity_validation failure=identity_invalid status=none"
+        )
+    assert run.lines == [TARGET_LINE, *diagnostics, "FAIL setup", "PASS release"]
     assert channel.calls_to("quarantine") == []
     assert channel.indexes("quarantined") == set()
     assert channel.indexes("free") == set(range(5))
     assert channel.calls_to("release") == [{"run_id": RUN_ID}]
+
+
+# Each row protects a distinct external failure boundary/category, without
+# substituting any of the Clerk/client/orchestration behavior.
+BOUNDARY_FAILURES = {
+    "sign-in-429-cleanup-fails": "step=frontend_sign_in failure=http status=429",
+    "ticket-503": "step=backend_ticket_create failure=http status=503",
+    "sign-in-timeout": "step=frontend_sign_in failure=timeout status=none",
+    "sign-in-transport": "step=frontend_sign_in failure=transport status=none",
+    "sign-in-invalid-json": "step=frontend_sign_in failure=invalid_response status=none",
+    "sign-in-invalid-shape": "step=frontend_sign_in failure=invalid_response status=none",
+    "nested-token-401": "step=frontend_token failure=http status=401",
+    "profile-403": "step=profile_read failure=http status=403",
+    "profile-201": "step=profile_read failure=http status=201",
+    "profile-timeout": "step=profile_read failure=timeout status=none",
+    "unexpected-exception": "step=unknown failure=unknown status=none",
+}
+
+
+@pytest.mark.parametrize("case", BOUNDARY_FAILURES)
+def test_setup_diagnostic_preserves_the_failing_boundary_without_leaks_or_retries(
+    world: World, monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    channel = FakeChannel(world)
+    provider, api = world.clerk_transport, world.api_transport
+    requests: list[httpx.Request] = []
+    failures: list[httpx.Request] = []
+    revocations: list[httpx.Request] = []
+    elapsed = 100.0
+    sentinel = "SENTINEL-private https://provider.invalid/user_SECRET1/sess_1?TICKET1"
+
+    if case == "sign-in-429-cleanup-fails":
+        # Replace only each module's monotonic namespace, not global time or the
+        # injected JWT/SafetyRuntime clocks. All successful boundaries take 0s.
+        clock = SimpleNamespace(**{**vars(time), "monotonic": lambda: elapsed})
+        monkeypatch.setattr(clerk, "time", clock)
+        monkeypatch.setattr(pool, "time", clock)
+
+    async def reply(request: httpx.Request) -> httpx.Response:
+        nonlocal elapsed
+        requests.append(request)
+        path = request.url.path
+        sign_in = path == "/v1/client/sign_ins" and parse_qs(
+            request.content.decode()
+        ).get("ticket") == ["TICKET1"]
+        ticket = (
+            path == "/v1/sign_in_tokens"
+            and json.loads(request.content).get("user_id") == "user_SECRET1"
+        )
+        token = path == "/v1/client/sessions/sess_1/tokens"
+        profile = (
+            path == "/api/profile/"
+            and jwt_claims(request.headers["authorization"].removeprefix("Bearer "))[
+                "sub"
+            ]
+            == "user_SECRET1"
+        )
+        if (
+            case == "sign-in-429-cleanup-fails"
+            and path == "/v1/sign_in_tokens/sit_1/revoke"
+        ):
+            revocations.append(request)
+            return httpx.Response(500, text=sentinel)
+        failing = (
+            (case.startswith("sign-in-") or case == "unexpected-exception")
+            and sign_in
+            or case == "ticket-503"
+            and ticket
+            or case == "nested-token-401"
+            and token
+            or case.startswith("profile-")
+            and profile
+            and request.method == "GET"
+        )
+        if failing:
+            failures.append(request)
+            if case == "sign-in-429-cleanup-fails":
+                elapsed += 6.0
+                return httpx.Response(
+                    429, text=sentinel, headers={"x-private": sentinel}
+                )
+            if case == "sign-in-timeout" or case == "profile-timeout":
+                raise httpx.ReadTimeout(sentinel, request=request)
+            if case == "sign-in-transport":
+                raise httpx.ConnectError(sentinel, request=request)
+            if case == "sign-in-invalid-json":
+                return httpx.Response(
+                    200, text=sentinel, headers={"x-private": sentinel}
+                )
+            if case == "sign-in-invalid-shape":
+                return httpx.Response(200, json={"response": sentinel})
+            if case == "unexpected-exception":
+                raise RuntimeError(sentinel)
+            status = {
+                "ticket-503": 503,
+                "nested-token-401": 401,
+                "profile-403": 403,
+                "profile-201": 201,
+            }[case]
+            return httpx.Response(
+                status, text=sentinel, headers={"x-private": sentinel}
+            )
+        boundary = api if request.url.host == pool_support.API_HOST else provider
+        return await boundary.handle_async_request(request)
+
+    transport = httpx.MockTransport(reply)
+    run = smoke(world, channel, clerk_transport=transport, api_transport=transport)
+
+    assert run.code == 1
+    assert len(failures) == 1  # no HTTP retry or single-use ticket replay
+    assert world.tickets.count(1) == (0 if case == "ticket-503" else 1)
+    assert sum(
+        r.url.path == "/v1/client/sign_ins"
+        and parse_qs(r.content.decode()).get("ticket") == ["TICKET1"]
+        for r in requests
+    ) == (0 if case == "ticket-503" else 1)
+    integrity = case == "profile-201"
+    bad = {1, 2} if integrity else {1}
+    assert channel.indexes("quarantined") == bad
+    assert channel.indexes("free") == set(range(5)) - bad
+    if integrity:
+        assert world.tickets == [0, 1]
+        assert not any(
+            r.url.path == "/v1/users"
+            and r.url.params.get("external_id") == "sim-pool-p1-2"
+            for r in requests
+        )
+    assert channel.calls_to("release") == [{"run_id": RUN_ID}]
+    assert channel.calls_to("heartbeat") == []
+    assert not any(path == "/api/me/" for _, path, _ in world.api_calls)
+    assert_released(world, channel)
+
+    diagnostics = setup_diagnostics(run.lines)
+    assert len(diagnostics) == 1
+    assert_diagnostic(diagnostics[0], 1, BOUNDARY_FAILURES[case])
+    if case == "unexpected-exception":
+        assert diagnostics == [
+            "DIAG setup index=1 step=unknown failure=unknown status=none elapsed=unknown"
+        ]
+    if case == "sign-in-429-cleanup-fails":
+        assert diagnostics == [
+            "DIAG setup index=1 step=frontend_sign_in failure=http status=429 elapsed=lt_10s"
+        ]
+        assert len(revocations) == 1
+    assert run.lines == [
+        TARGET_LINE,
+        *diagnostics,
+        "FAIL setup pending_quarantine=1,2"
+        if integrity
+        else "FAIL setup quarantined=1",
+        "PASS release",
+        *(["FAIL safety reason=correctness"] if integrity else []),
+    ]
+
+
+def test_diagnostic_sink_failure_cannot_prevent_root_setup_failure_or_recovery(
+    world: World,
+) -> None:
+    world.sign_in_rejected = {1}
+    channel = FakeChannel(world)
+
+    def reject_diagnostic(line: str) -> None:
+        if line.startswith("DIAG "):
+            raise RuntimeError("SENTINEL-sink-private")
+
+    run = smoke(world, channel, on_emit=reject_diagnostic)
+
+    diagnostics = setup_diagnostics(run.lines)
+    assert len(diagnostics) == 1
+    assert_diagnostic(
+        diagnostics[0], 1, "step=frontend_sign_in failure=http status=422"
+    )
+    assert run.code == 1
+    assert run.lines == [
+        TARGET_LINE,
+        *diagnostics,
+        "FAIL setup quarantined=1",
+        "PASS release",
+    ]
+    assert world.tickets == [0, 1, 2]
+    assert channel.indexes("quarantined") == {1}
+    assert channel.indexes("free") == {0, 2, 3, 4}
+    assert channel.calls_to("release") == [{"run_id": RUN_ID}]
+    assert_released(world, channel)
 
 
 def test_cancellation_during_the_wait_still_ends_sessions_and_releases_leases(

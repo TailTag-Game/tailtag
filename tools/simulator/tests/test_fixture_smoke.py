@@ -59,6 +59,7 @@ from pool_support import (
     Slot,
     World,
 )
+from test_pool_smoke import DIAG_LINE, assert_diagnostic, setup_diagnostics
 
 from tailtag_simulator.__main__ import main
 from tailtag_simulator.fixtures import FixtureFailed, run_fixture_smoke
@@ -168,7 +169,9 @@ def assert_released(rig: Rig) -> None:
 
 
 def assert_only_fixed_output(run: Run) -> None:
-    assert all(FIXED_LINES.fullmatch(line) for line in run.lines), run.lines
+    assert all(
+        FIXED_LINES.fullmatch(line) or DIAG_LINE.fullmatch(line) for line in run.lines
+    ), run.lines
     joined = "\n".join(run.lines)
     assert not any(s in joined for s in (*LEAK_SENTINELS, SECRET, *SENSITIVE_PREFIXES))
 
@@ -323,7 +326,23 @@ def test_a_failed_identity_setup_never_provisions_and_releases_what_it_leased(
     run = smoke(rig)
 
     assert run.code == 1
-    assert run.lines == [TARGET_LINE, RUN_LINE, failure, *(["PASS release"] * released)]
+    diagnostics = setup_diagnostics(run.lines)
+    if case == "unusable-identity":
+        assert len(diagnostics) == 1
+        assert_diagnostic(
+            diagnostics[0],
+            3,
+            "step=identity_validation failure=identity_invalid status=none",
+        )
+    else:
+        assert diagnostics == []
+    assert run.lines == [
+        TARGET_LINE,
+        RUN_LINE,
+        *diagnostics,
+        failure,
+        *(["PASS release"] * released),
+    ]
     assert rig.fixtures.calls_to("provision") == []
     assert rig.leases.indexes("quarantined") == quarantined
     assert rig.leases.indexes("leased") == set()
