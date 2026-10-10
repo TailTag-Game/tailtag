@@ -660,3 +660,135 @@ def test_cli_operator_signal_stops_owned_http_and_restores_signal_handler(
     assert evidence["outcome"] == "aborted"
     assert evidence["safety"]["abort"]["reason"] == "resource_saturation"
     assert sent.count("/api/me/") == 1
+
+
+@pytest.mark.parametrize(
+    "cause", ["cancel", "duration_ceiling", "identity_mismatch", "failed-then-cancel"]
+)
+def test_pending_setup_cooldown_obeys_interruptions_before_another_identity(
+    world: World, monkeypatch: pytest.MonkeyPatch, cause: str
+) -> None:
+    from tailtag_simulator import pool
+
+    time = ManualClock()
+    runtime = SafetyRuntime(
+        {"seconds": 1} if cause == "duration_ceiling" else {},
+        monotonic=lambda: time.now,
+        sleep=time.sleep,
+    )
+    leases = FakeChannel(world)
+    lines: list[str] = []
+    entered, cancelled = asyncio.Event(), asyncio.Event()
+    lookups: list[str] = []
+    provider = world.clerk_transport
+    changed = False
+
+    async def setup_wait(seconds: float) -> None:
+        assert seconds == 4
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    monkeypatch.setattr(pool.asyncio, "sleep", setup_wait)
+
+    async def clerk_reply(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/users":
+            lookups.append(request.url.params["external_id"])
+        if cause == "failed-then-cancel" and request.url.path == "/v1/client/sign_ins":
+            return httpx.Response(429, text="SENTINEL-private-provider-body")
+        return await provider.handle_async_request(request)
+
+    api = world.api_transport
+
+    async def api_reply(request: httpx.Request) -> httpx.Response:
+        if changed and request.url.path == "/health/identity":
+            return httpx.Response(
+                200,
+                json={
+                    "source_sha": "b" * 40,
+                    "deployment_id": "22222222-2222-4222-8222-222222222222",
+                    "environment": "staging",
+                },
+            )
+        return await api.handle_async_request(request)
+
+    async def token_wait(seconds: float) -> None:
+        world.clock.now += seconds
+        await asyncio.sleep(0)
+
+    async def execute() -> int | None:
+        nonlocal changed
+        before = set(asyncio.all_tasks())
+        task = asyncio.create_task(
+            run_pool_smoke(
+                POOL,
+                3,
+                prompt_secret=lambda: SECRET,
+                channel=leases,
+                emit=lines.append,
+                clerk_transport=httpx.MockTransport(clerk_reply),
+                api_transport=httpx.MockTransport(api_reply),
+                sleep=token_wait,
+                clock=world.clock,
+                run_id=RUN_ID,
+                safety=runtime,
+            )
+        )
+        pending = asyncio.create_task(entered.wait())
+        try:
+            await asyncio.wait_for(
+                asyncio.wait({task, pending}, return_when=asyncio.FIRST_COMPLETED), 3
+            )
+            assert entered.is_set(), "setup completed without the required cooldown"
+            assert lookups == [f"sim-pool-{POOL}-0", f"sim-pool-{POOL}-0"]
+            assert world.tickets == [0]
+            assert not task.done()
+            await time.settle()
+            if cause in {"cancel", "failed-then-cancel"}:
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await asyncio.wait_for(task, 3)
+                code = None
+            else:
+                changed = cause == "identity_mismatch"
+                await time.advance(1 if cause == "duration_ceiling" else 10)
+                code = await asyncio.wait_for(task, 3)
+            assert cancelled.is_set()
+            assert lookups == [f"sim-pool-{POOL}-0", f"sim-pool-{POOL}-0"]
+            assert world.tickets == [0]
+            assert not (set(asyncio.all_tasks()) - before)
+            return code
+        finally:
+            if not pending.done():
+                pending.cancel()
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, pending, return_exceptions=True)
+
+    code = asyncio.run(execute())
+    assert set(world.ended_sessions) == set(world.opened_sessions)
+    assert not time.waiters
+    assert not any(request.url.path == "/api/me/" for request in world.api_requests)
+    if cause == "identity_mismatch":
+        assert code == 1
+        assert runtime.abort_reason == cause
+        assert leases.calls_to("release") == []
+        assert leases.calls_to("quarantine") == []
+        assert leases.indexes("leased") == {0, 1, 2}
+    else:
+        assert code == (1 if cause == "duration_ceiling" else None)
+        assert runtime.abort_reason == (cause if cause == "duration_ceiling" else None)
+        assert leases.calls_to("release") == [{"run_id": RUN_ID}]
+        assert leases.indexes("leased") == set()
+        assert leases.indexes("quarantined") == (
+            {0} if cause == "failed-then-cancel" else set()
+        )
+        assert leases.calls_to("quarantine") == (
+            [{"index": 0, "run_id": RUN_ID}] if cause == "failed-then-cancel" else []
+        )
+    assert not any(
+        private in "\n".join(lines) for private in (SECRET, "SENTINEL", "TICKET")
+    )

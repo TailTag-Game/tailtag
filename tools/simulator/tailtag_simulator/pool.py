@@ -61,6 +61,7 @@ LEASE_TTL_SECONDS: Final = limits.LEASE_TTL_SECONDS
 MAX_POOL_SIZE: Final = 1000
 # One ordinary token lives 60 seconds; waiting one second longer forces a refresh.
 TOKEN_WAIT_SECONDS: Final = 61.0
+SETUP_WAIT_SECONDS: Final = 4.0
 PROFILE_PATH: Final = "/api/profile/"
 
 LAUNCHER_TIMEOUT_SECONDS: Final = limits.LAUNCHER_TIMEOUT_SECONDS
@@ -517,6 +518,7 @@ async def open_identities(
     api_transport: httpx.AsyncBaseTransport | None,
     clock: Callable[[], float],
     emit: Callable[[str], None] | None = None,
+    setup_sleep: Callable[[float], Awaitable[None]] | None = None,
 ) -> tuple[tuple[int, ...], tuple[ApiClient, ...]]:
     """The only place the Clerk secret and the admin exist; neither outlives this call.
 
@@ -524,6 +526,7 @@ async def open_identities(
     clients. Their sessions are registered on `stack`. Shared by every Staging run
     that leases identities (#219, #220).
     """
+    wait = asyncio.sleep if setup_sleep is None else setup_sleep
     async with open_admin(prompt_secret(), transport=clerk_transport) as admin:
         await admin.verify_instance()
         held.leases = True
@@ -552,6 +555,8 @@ async def open_identities(
         clients: list[ApiClient] = []
         bad: list[int] = []
         for position, index in enumerate(cast(list[int], indexes)):
+            if position:
+                await wait(SETUP_WAIT_SECONDS)
             try:
                 clients.append(
                     await _open_identity(
@@ -576,6 +581,8 @@ async def open_identities(
                     with suppress(Exception):
                         emit(diagnostic.line(index))
                 bad.append(index)
+                # Preserve known failures if the next cooldown is interrupted.
+                held.quarantine_indexes = tuple(bad)
                 runtime = active_runtime()
                 if runtime is not None and runtime.abort_reason is not None:
                     bad.extend(cast(list[int], indexes)[position + 1 :])
@@ -583,6 +590,7 @@ async def open_identities(
         runtime = active_runtime()
         if len(bad) == count and (runtime is None or runtime.abort_reason is None):
             # Every identity failing points at the environment, not the identities.
+            held.quarantine_indexes = ()
             raise SetupFailed
         held.quarantine_indexes = tuple(bad)
         if runtime is None or runtime.abort_reason is None:
@@ -616,6 +624,7 @@ async def run_pool_smoke(
     clerk_transport: httpx.AsyncBaseTransport | None = None,
     api_transport: httpx.AsyncBaseTransport | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    setup_sleep: Callable[[float], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.time,
     run_id: str | None = None,
     report: RunReport | None = None,
@@ -646,6 +655,7 @@ async def run_pool_smoke(
                 clerk_transport=clerk_transport,
                 api_transport=api_transport,
                 sleep=sleep,
+                setup_sleep=setup_sleep,
                 clock=clock,
                 run_id=run_id,
                 report=report,
@@ -694,6 +704,7 @@ async def run_pool_smoke(
                         api_transport=api_transport,
                         clock=clock,
                         emit=emit,
+                        setup_sleep=setup_sleep,
                     )
             except SafetyAborted:
                 raise
