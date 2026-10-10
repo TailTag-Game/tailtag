@@ -605,6 +605,11 @@ Preserve failed or aborted attempts. Make no capacity or SLO claim. If the
 observed run-to-run variation contradicts the AC15 defaults, return for a
 revised threshold decision.
 
+Completed 2026-10-10. See the
+[Staging proof](2026-10-10-simulation-performance-evidence-staging-proof.md):
+run 2 was `acceptable` against the run-1 baseline, and the variation was within
+the AC15 defaults.
+
 ## Frozen test surface and failure/value map
 
 Tests use real simulator modules. Fakes are allowed only at existing seams:
