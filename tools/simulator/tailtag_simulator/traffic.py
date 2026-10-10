@@ -9,17 +9,23 @@ import time
 from bisect import bisect_right
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 
 import httpx
 
 from tailtag_simulator.behavior_config import PERSONAS
-from tailtag_simulator.client import Reply
+from tailtag_simulator.client import (
+    Reply,
+    RequestFailed,
+    TransportFailed,
+    request_issued,
+)
 from tailtag_simulator.limits import REQUEST_TIMEOUT_SECONDS
 from tailtag_simulator.traffic_config import (
     resolve_traffic_config,
     traffic_bucket_count,
 )
+from tailtag_simulator.traffic_metrics import OPERATIONS, OperationMeter, classify_reply
 
 
 @dataclass(frozen=True)
@@ -51,6 +57,7 @@ _COUNTERS = (
     "unresolved",
     "sent",
 )
+_INJECTIONS = ("none", "pre_send", "lost_response")
 _STOPS = ("attempts", "generation", "drain", "external", "correctness", "entries")
 
 
@@ -86,6 +93,7 @@ class TrafficRuntime:
         self.drain_seconds = 0.0
         self.lag_seconds = 0.0
         self.buckets: list[dict[str, object]] = []
+        self.meter = OperationMeter()
 
     def bind_seed(self, seed: int) -> None:
         self.plan_digest = hashlib.sha256(
@@ -143,7 +151,20 @@ class TrafficRuntime:
                     task.cancel()
             await asyncio.gather(operation, timer, stop, return_exceptions=True)
 
-    async def request(self, send: Callable[[], Awaitable[Reply]]) -> Reply:
+    def expected_rejection(self, operation: str) -> None:
+        """Count a domain-case reply as an expected rejection, not a client error."""
+        self.meter.reject(operation)
+        self.record("expected_rejections")
+
+    async def request(
+        self,
+        send: Callable[[], Awaitable[Reply]],
+        *,
+        operation: str,
+        injection: str = "none",
+    ) -> Reply:
+        if operation not in OPERATIONS or injection not in _INJECTIONS:
+            raise ValueError("invalid traffic operation")
         if self.stopped.is_set():
             raise TrafficStopped
         if self.values["attempts"] >= cast(int, self.limits["attempts"]):
@@ -161,9 +182,23 @@ class TrafficRuntime:
             raise TrafficStopped
 
         async def invoke() -> Reply:
+            started = self.clock.monotonic()  # Fallback for sends that skip ApiClient.
+
+            def issued() -> None:
+                nonlocal started
+                started = self.clock.monotonic()
+
+            token = request_issued.set(issued)
             try:
-                return await send()
+                reply = await send()
+            except Exception as error:
+                self._measure(operation, injection, None, error, started)
+                raise
+            else:
+                self._measure(operation, injection, reply, None, started)
+                return reply
             finally:
+                request_issued.reset(token)
                 task = asyncio.current_task()
                 if task is not None:
                     self.sending.discard(task)
@@ -183,6 +218,7 @@ class TrafficRuntime:
                         if self.clock.monotonic() >= budget_end - 1e-9:
                             self.stop("drain")
                             raise TrafficStopped from None
+                        self.meter.record(operation, "timeout")
                         raise httpx.TimeoutException(
                             "modeled request timed out"
                         ) from None
@@ -194,6 +230,38 @@ class TrafficRuntime:
         except TimeoutError:
             self.stop("drain")
             raise TrafficStopped from None
+
+    def _measure(
+        self,
+        operation: str,
+        injection: str,
+        reply: Reply | None,
+        error: Exception | None,
+        started: float,
+    ) -> None:
+        """Classify one send exactly once; stop-driven failures are not recorded."""
+        milliseconds = (self.clock.monotonic() - started) * 1000
+        if reply is not None:
+            if injection == "lost_response":
+                # Counted with the meter so a stop in the response delay stays consistent.
+                self.meter.record(operation, "injected")
+                self.record("injected")
+            else:
+                self.meter.record(operation, classify_reply(reply.status), milliseconds)
+        elif injection == "pre_send":
+            self.meter.record(operation, "injected")
+        elif isinstance(error, TransportFailed) and error.timed_out:
+            self.meter.record(operation, "timeout")
+        elif isinstance(error, RequestFailed):
+            self.meter.record(operation, "transport_error")
+
+    def performance(self) -> dict[str, Any]:
+        window = self.generation_seconds + self.drain_seconds
+        return {
+            "attempts": self.meter.attempts(),
+            "throughput": self.meter.throughput(window),
+            "latency_percentiles": self.meter.latency_percentiles(),
+        }
 
     def _count(self, counter: str, bucket: int) -> None:
         self.values[counter] += 1

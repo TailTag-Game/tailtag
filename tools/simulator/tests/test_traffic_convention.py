@@ -135,7 +135,7 @@ def test_v2_workload_evidence_drives_cleanup_or_retention_and_always_releases(
 
     code = asyncio.run(exercise())
     value = read_report(run.report.path)
-    assert value["schema_version"] == 4
+    assert value["schema_version"] == 5
     assert value["scenario"]["version"] == 2
     traffic = value["results"]["traffic"]
     assert traffic["reason"] is None
@@ -314,7 +314,7 @@ def test_cli_explicit_v2_creates_schema3_before_source_failure(
     paths = list(root.rglob("*.json"))
     assert len(paths) == 1
     value = read_report(paths[0])
-    assert value["schema_version"] == 4
+    assert value["schema_version"] == 5
     assert value["scenario"]["version"] == 2
     assert value["failure"] == {"stage": "provenance", "code": "FAIL_PROVENANCE"}
 
@@ -426,7 +426,7 @@ def test_successful_cli_v2_forwards_version_to_real_runner(
     paths = list(root.rglob("*.json"))
     assert len(paths) == 1
     value = read_report(paths[0])
-    assert value["schema_version"] == 4
+    assert value["schema_version"] == 5
     assert value["scenario"]["version"] == 2
     assert value["outcome"] == value["correctness"] == "passed"
     assert value["results"]["traffic"]["value"]["offered"] == 6

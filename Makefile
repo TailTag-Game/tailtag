@@ -105,7 +105,7 @@ endef
 	api-staging-restore-drill \
 	api-format-check api-lint-check api-type-check api-django-check \
 	api-schema-check api-gunicorn-check \
-	sim-setup sim-check sim-smoke sim-pool-provision sim-pool-status sim-pool-readmit sim-pool-smoke sim-fixture-smoke sim-journeys sim-convention sim-cleanup sim-retained sim-image sim-host-prepare sim-host-run sim-host-release-export sim-host-release-load sim-host-bootstrap-check sim-catalog-check sim-report-validate sim-format-check sim-lint-check sim-type-check sim-test sim-semgrep-check
+	sim-setup sim-check sim-smoke sim-pool-provision sim-pool-status sim-pool-readmit sim-pool-smoke sim-fixture-smoke sim-journeys sim-convention sim-cleanup sim-retained sim-image sim-host-prepare sim-host-run sim-host-release-export sim-host-release-load sim-host-bootstrap-check sim-catalog-check sim-report-validate sim-report-evaluate sim-report-trend sim-baseline-promote sim-format-check sim-lint-check sim-type-check sim-test sim-semgrep-check
 
 help: ## List the canonical backend developer commands.
 	@awk 'BEGIN { print "TailTag backend commands:" } /^[a-zA-Z0-9_-]+:.*##/ { target = $$1; sub(/:.*/, "", target); if (target != "help") { description = $$0; sub(/^.*##[[:space:]]*/, "", description); printf "  make %-20s %s\n", target, description } }' $(MAKEFILE_LIST)
@@ -312,6 +312,19 @@ sim-catalog-check: ## Validate scenario descriptors and their Git history.
 sim-report-validate: ## Validate an existing report offline: REPORT=path.
 	@test -n "$(REPORT)" || { printf '%s\n' 'REPORT is required.' >&2; exit 2; }
 	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator report validate '$(REPORT)'
+
+sim-report-evaluate: ## Evaluate a report offline: REPORT=path [HOST_COMPANION=path CONTEXT=path OUT=path].
+	@test -n "$(REPORT)" || { printf '%s\n' 'REPORT is required.' >&2; exit 2; }
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator report evaluate '$(subst ','"'"',$(REPORT))' $(if $(HOST_COMPANION),--host-companion '$(subst ','"'"',$(HOST_COMPANION))') $(if $(CONTEXT),--context '$(subst ','"'"',$(CONTEXT))') $(if $(OUT),--out '$(subst ','"'"',$(OUT))')
+
+sim-report-trend: ## Show the run trend for archived reports offline: DIR=path.
+	@test -n "$(DIR)" || { printf '%s\n' 'DIR is required.' >&2; exit 2; }
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator report trend '$(subst ','"'"',$(DIR))'
+
+sim-baseline-promote: ## Promote a reviewed baseline: REPORT=path RATIONALE=text [HOST_COMPANION=path CONTEXT=path INITIAL_THRESHOLDS=1].
+	@test -n "$(REPORT)" || { printf '%s\n' 'REPORT is required.' >&2; exit 2; }
+	@test -n '$(subst ','"'"',$(value RATIONALE))' || { printf '%s\n' 'RATIONALE is required.' >&2; exit 2; }
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator baseline promote '$(subst ','"'"',$(REPORT))' --rationale='$(subst ','"'"',$(value RATIONALE))' $(if $(HOST_COMPANION),--host-companion '$(subst ','"'"',$(HOST_COMPANION))') $(if $(CONTEXT),--context '$(subst ','"'"',$(CONTEXT))') $(if $(INITIAL_THRESHOLDS),--initial-thresholds)
 
 sim-format-check:
 	@printf '%s\n' 'Checking simulator Ruff formatting...'

@@ -602,8 +602,9 @@ runtime; actual network timing and completion ordering may differ.
 
 These commands execute Staging work and require separate live-execution
 authorization. Small Staging family/failure proof remains an explicit gate;
-convention-scale readiness, latency/SLO analysis and the long expiration proof
-are deferred. The [implementation contract](../../docs/specs/2026-10-07-convention-traffic.md)
+convention-scale readiness, SLOs and the long expiration proof are deferred.
+Version 2 runs record performance measurements; see
+[Performance evidence](#performance-evidence). The [implementation contract](../../docs/specs/2026-10-07-convention-traffic.md)
 defines the complete closed parameter and evidence shapes.
 
 ## Run reports
@@ -628,7 +629,8 @@ supported for each current command. Convention workloads consume the recorded in
 seed; the four legacy workloads record it without making random choices. There are
 no scenario-specific traffic ramps or traffic budgets in version 1. Shared safety
 ceilings apply to every command and supported version. Version 2 adds the bounded
-traffic evidence described above; performance percentiles and SLOs remain deferred. Existing request,
+traffic evidence described above and schema-5 performance measurements; SLOs
+remain deferred. Existing request,
 response, launcher, lease and retention limits are recorded with their units and
 actual enforcement scopes.
 
@@ -636,7 +638,7 @@ Report schema changes require a new `schema_version`, independently of scenario
 versions. Supported older reports retain their original contract and meaning;
 unsupported versions are rejected offline without conversion or reinterpretation.
 
-Schema versions 1, 2 and 3 are strict: unknown fields, duplicate keys, invalid measurements,
+Schema versions 1 to 5 are strict: unknown fields, duplicate keys, invalid measurements,
 unsupported versions, unsafe configuration and malformed files fail offline with
 only `FAIL report`; valid files print only `PASS report`. Validation performs no
 backend or provider requests. The [frozen design](../../docs/specs/2026-10-05-simulation-scenarios-run-reports.md)
@@ -652,8 +654,9 @@ only the one inspection check reached. Cleanup records the eight
 object-kind counts and the readmitted count.
 
 Every unavailable measurement has a null value and a bounded reason:
-`not_observed`, `not_applicable` or `not_implemented`. Throughput, latency percentiles,
-resource context and load ramp are unavailable, rather than guessed. Reports never
+`not_observed`, `not_applicable` or `not_implemented`. Before schema 5, throughput,
+latency percentiles, resource context and load ramp are unavailable, rather than
+guessed. Reports never
 contain credentials, provider/user/session IDs, fixture/database IDs, pool indexes,
 handles, cookies, image/media URLs, raw payloads, exception text or launcher/Git
 stderr. Synthetic pool names, logical roles, bounded counts and validated public
@@ -722,10 +725,175 @@ To reproduce an equivalent workload, retain the report and:
 
 No command automatically checks out a revision or launches a reproduction.
 
+## Performance evidence
+
+Convention version 2 runs write report schema 5. Every other command and scenario
+version still writes schema 4. Schema 5 adds measured performance to the report.
+Judgment happens offline: an evaluation command reads the immutable report plus
+reviewed configuration and writes a separate artifact. Thresholds and baselines are
+documented assumptions for regression evidence. They are not production SLOs or
+capacity claims. The [implementation contract](../../docs/specs/2026-10-10-simulation-performance-evidence.md)
+defines every field.
+
+### What is measured
+
+Every SIMULATION workload request attempt is timed in the simulator.
+
+- **Start:** when the HTTP request is issued, after the bearer token and the shared
+  safety request slot are in hand.
+- **End:** the last response byte, or the failure.
+- **Excluded:** waiting for a traffic concurrency slot (scheduling lag covers it),
+  Clerk token refresh, and the safety-slot wait.
+- **Included:** network time from the generator to Staging ingress. Latency is not
+  server processing time.
+- **Not measured:** SETUP, reconciliation, finalization, control probes and token
+  refresh.
+
+Metrics are kept per operation and as a total:
+
+| Operation | Requests | API route template |
+| --- | --- | --- |
+| `resolve` | credential resolution | `api/conventions/<int:pk>/catch-credentials/resolve/` |
+| `confirm` | catch confirmation | `api/catches/confirm/` |
+| `read` | collection history reads | `api/catches/` |
+| `auxiliary` | population preparation, activation, session arming, domain rotate/stop | several |
+
+`auxiliary` includes preparation before the traffic window, so its throughput and
+the total throughput are not workload rates. Use the per-operation `resolve`,
+`confirm` and `read` throughput to compare workloads.
+
+Each attempt gets exactly one class:
+
+| Class | Meaning |
+| --- | --- |
+| `success` | 2xx |
+| `expected_rejection` | a domain rejection the scenario expected |
+| `client_error` | any other 4xx |
+| `server_error` | 5xx |
+| `timeout` | client or modeled 10-second request timeout |
+| `transport_error` | a transport or protocol failure with no usable response |
+| `injected` | a pre-send failure or lost reply injected by the retry experiments |
+
+Injected attempts are excluded from rates and latency.
+
+- Error rate = (`client_error` + `server_error` + `transport_error`) ÷ non-injected
+  attempts.
+- Timeout rate = `timeout` ÷ non-injected attempts.
+- p50/p95/p99/max are exact nearest-rank values over responses, in milliseconds.
+- Throughput = responses ÷ the traffic window (generation plus drain).
+- An attempt cut off by a stop is not recorded.
+
+The report also records `execution_mode`: `container` or `checkout`. A container
+cannot attest which host it ran on. Evaluation adds host identity from the host
+companion.
+
+### Evaluate
+
+```bash
+make sim-report-evaluate REPORT=/archive/<run-uuid>.json \
+  HOST_COMPANION=/archive/<run-uuid>/host.json CONTEXT=/archive/<run-uuid>.context.json
+# Equivalent:
+uv run --locked --no-sync python -m tailtag_simulator report evaluate /archive/<run-uuid>.json \
+  --host-companion /archive/<run-uuid>/host.json --context /archive/<run-uuid>.context.json
+```
+
+Evaluation runs offline and makes no network calls. It never changes its inputs.
+
+- **Output file:** `<run-uuid>.evaluation-<UTC>.json`, written next to the report
+  (or to `OUT=`) at mode `0600`. It never overwrites an existing file.
+- **Output text:** `PASS evaluation <verdict>` plus fixed summary lines, or only
+  `FAIL evaluation` for an invalid input. `PASS` means the evaluation completed.
+  The verdict that follows is the performance result.
+- **Comparable key:** scenario ID and version, descriptor digest, traffic plan digest
+  (resolved configuration including pool name, seed and limits), environment, and
+  execution context. The context is `external_host:<platform>` only with a matching
+  host companion from a container run.
+- **Thresholds and baseline:** read from `tools/simulator/baselines/`, matched by key.
+  An invalid or ambiguous file there refuses evaluation.
+
+Verdicts, first match wins:
+
+| Verdict | When |
+| --- | --- |
+| `not_evaluated` | the run did not pass, correctness did not pass, the host companion records a run that did not pass, or the report is schema 4 |
+| `inconclusive` | traffic stopped early, the generator saturated, too few samples, no thresholds, no baseline, or no comparable key |
+| `breached` | an absolute threshold was exceeded |
+| `regressed` | a baseline tolerance was exceeded |
+| `acceptable` | none of the above |
+
+Only `acceptable` is a passing performance result. It covers only the checks the
+thresholds file configures. A thresholds file with no operation limits would leave
+only the saturation checks, so review the listed checks, not just the verdict. A
+run's `outcome` never changes.
+Differences in simulator revision, dependency lock or image are listed as caveats. A
+different backend build is what is being compared, so it is not flagged.
+
+The optional operator context file records what the
+[host runbook recipes](../../docs/operations/simulation-host.md#backend-context-for-performance-evaluation)
+showed for the run's window. Each value is a closed choice, with no free text:
+
+```json
+{"schema_version": 1, "run_id": "<run-uuid>",
+ "signals": {"http_5xx": "observed_normal", "server_latency": "not_observed",
+             "db_connections": "observed_normal", "worker_timeouts": "observed_normal",
+             "restarts_or_oom": "observed_normal", "runtime_resources": "observed_pressure",
+             "domain_outcomes": "observed_normal"}}
+```
+
+Each value is `observed_normal`, `observed_pressure` or `not_observed`. The context
+is copied into the evaluation so readers can separate application failures from
+database or runtime pressure. It never changes the verdict.
+
+### Promote a baseline
+
+```bash
+make sim-baseline-promote REPORT=/archive/<run-uuid>.json HOST_COMPANION=/archive/<run-uuid>/host.json \
+  RATIONALE="Reviewed 2026-10-12 normal host run; correctness passed, no saturation."
+```
+
+Promotion re-evaluates the report itself. It writes nothing unless all of these hold:
+
+- the report is schema 5;
+- outcome and correctness both passed;
+- the target was Staging;
+- the verdict is `acceptable`, or `inconclusive` only because no baseline or
+  thresholds exist yet;
+- no threshold or regression check failed.
+
+It writes or replaces the single `tools/simulator/baselines/<slug>.baseline.json`
+for the key and records the baseline it supersedes. `INITIAL_THRESHOLDS=1` also
+proposes `<slug>.thresholds.json` from the baseline, but only when none exists.
+It refuses when the baseline is too small to derive any operation limit. The
+proposed defaults:
+
+- 2× p95, rounded up to 1 ms, for operations with at least 200 latency samples;
+- 2× p99, rounded up to 1 ms, for operations with at least 1,000 latency samples;
+- error and timeout rate ceilings of 2× baseline, at least 0.01;
+- regression tolerances of +25% p95 and +50% p99, ignored below 20 ms;
+- generator saturation at Docker CPU 160, lag 1 s and 1,500 steal ticks.
+
+Every value carries assumption text to review. The promotion takes effect only
+when a pull request with those files merges. See [baselines/README.md](baselines/README.md).
+No run, evaluation or trend command writes a baseline.
+
+### Trend
+
+```bash
+make sim-report-trend DIR=/archive
+```
+
+The command reads reports, evaluations and host companions under the directory.
+It groups runs by comparable key and prints one time-ordered table per key. Each
+row shows the backend revision, correctness, the newest matching evaluation's
+verdict (`-` when there is none), per-operation p95/p99, and error and timeout
+rates. The active baseline row is marked `*`. The output ends with `skipped <n>`
+for invalid or unrelated files. Trend never writes anything. History stays in the
+operator archive, separate from the reviewed baseline.
+
 ## Later issues
 
-Personas and traffic (#225, #226), guardrail
-limits (#227), and the execution host (#228).
+Personas and traffic (#225, #226), guardrail limits (#227), the execution host
+(#228), performance evidence (#229), and scheduled operation (#230).
 
 ## Runtime safety and operator stop
 

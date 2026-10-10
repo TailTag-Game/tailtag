@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from tailtag_simulator import reports_v2, reports_v3, reports_v4
+from tailtag_simulator import reports_v2, reports_v3, reports_v4, reports_v5
 from tailtag_simulator.limits import (
     LAUNCHER_TIMEOUT_SECONDS,
     LEASE_TTL_SECONDS,
@@ -370,11 +370,11 @@ def _validate_report(
         if isinstance(value, dict):
             candidate = cast(dict[str, Any], value)
             value = candidate
-            if (
-                type(candidate.get("schema_version")) is int
-                and candidate["schema_version"] == 4
-            ):
-                return reports_v4.validate(candidate, admitted_scenario)
+            if type(candidate.get("schema_version")) is int:
+                if candidate["schema_version"] == 4:
+                    return reports_v4.validate(candidate, admitted_scenario)
+                if candidate["schema_version"] == 5:
+                    return reports_v5.validate(candidate, admitted_scenario)
         report = _object(
             value,
             {
@@ -733,8 +733,9 @@ class RunReport:
             else ({"cleanup", "retention"} if scenario_id == "pool-smoke" else set())
         )
         v2 = scenario_id.startswith("convention-")
+        v5 = v2 and scenario_version == 2
         self._value: dict[str, Any] = {
-            "schema_version": 4,
+            "schema_version": 5 if v5 else 4,
             "safety": SafetyRuntime(
                 {} if safety_policy is None else safety_policy
             ).snapshot(),
@@ -808,6 +809,19 @@ class RunReport:
                 ),
             },
             "performance": {
+                key: unavailable()
+                for key in (
+                    "duration_seconds",
+                    "window_seconds",
+                    "execution_mode",
+                    "attempts",
+                    "throughput",
+                    "latency_percentiles",
+                    "resource_context",
+                )
+            }
+            if v5
+            else {
                 "duration_seconds": unavailable(),
                 "throughput": unavailable("not_implemented"),
                 "latency_percentiles": unavailable("not_implemented"),
@@ -874,14 +888,32 @@ class RunReport:
     def correctness(self) -> str:
         return self._value["correctness"]
 
-    def record_traffic(self, snapshot: Mapping[str, object]) -> None:
-        _require(
-            self._value["scenario"]["id"].startswith("convention-")
-            and self.scenario_version == 2
+    def record_traffic(
+        self, snapshot: Mapping[str, object], performance: Mapping[str, Any]
+    ) -> None:
+        _require(self._value["schema_version"] == 5)
+        window = cast(float, snapshot["generation_seconds"]) + cast(
+            float, snapshot["drain_seconds"]
         )
         results = copy.deepcopy(self._value["results"])
         results["traffic"] = observed(copy.deepcopy(dict(snapshot)))
-        self._update("results", results)
+        measured = {
+            **self._value["performance"],
+            "window_seconds": observed(window),
+            "attempts": observed(performance["attempts"]),
+            "throughput": unavailable()
+            if performance["throughput"] is None
+            else observed(performance["throughput"]),
+            "latency_percentiles": observed(performance["latency_percentiles"]),
+        }
+        self._update_sections(results=results, performance=copy.deepcopy(measured))
+
+    def record_execution_mode(self, mode: str) -> None:
+        _require(self._value["schema_version"] == 5)
+        self._update(
+            "performance",
+            {**self._value["performance"], "execution_mode": observed(mode)},
+        )
 
     def _wall(self) -> str:
         value = self._clock()
@@ -922,8 +954,11 @@ class RunReport:
                         raise ReportFailed from None
 
     def _update(self, section: str, value: object) -> None:
+        self._update_sections(**{section: value})
+
+    def _update_sections(self, **sections: object) -> None:
         _require(not self._finished)
-        candidate = {**self._value, section: copy.deepcopy(value)}
+        candidate = {**self._value, **copy.deepcopy(sections)}
         _validate_report(candidate, self._admitted_scenario)
         self._value = candidate
         self._snapshot()

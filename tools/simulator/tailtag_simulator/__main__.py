@@ -15,9 +15,17 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import cast
 
+from tailtag_simulator.baselines import PromotionFailed, promote, trend
 from tailtag_simulator.behavior_config import resolve_behavior_config
 from tailtag_simulator.cleanup import run_cleanup, run_retained
 from tailtag_simulator.convention import run_convention
+from tailtag_simulator.evaluation import (
+    EvaluationFailed,
+    default_output,
+    evaluate,
+    summary,
+    write_evaluation,
+)
 from tailtag_simulator.fixtures import FixtureLauncherChannel, run_fixture_smoke
 from tailtag_simulator.host_protocol import decode_document, validate_manifest
 from tailtag_simulator.images import load_fixture_images
@@ -33,7 +41,7 @@ from tailtag_simulator.pool import (
 from tailtag_simulator.population_reconciliation import (
     PopulationInspectionLauncherChannel,
 )
-from tailtag_simulator.provenance import SourceRejected, load_source
+from tailtag_simulator.provenance import SourceRejected, execution_mode, load_source
 from tailtag_simulator.reconciliation import InspectionLauncherChannel
 from tailtag_simulator.reports import ReportFailed, RunReport, load_report
 from tailtag_simulator.safety import SafetyRuntime, resolve_safety_policy
@@ -185,6 +193,33 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     report_validate = report_commands.add_parser("validate")
     report_validate.add_argument("path", type=Path)
+    report_evaluate = report_commands.add_parser("evaluate")
+    report_evaluate.add_argument("report", type=Path)
+    report_evaluate.add_argument("--host-companion", type=Path)
+    report_evaluate.add_argument("--context", type=Path)
+    default_baselines = REPOSITORY_ROOT / "tools/simulator/baselines"
+    report_evaluate.add_argument(
+        "--baselines-dir", type=Path, default=default_baselines
+    )
+    report_evaluate.add_argument("--out", type=Path)
+    report_trend = report_commands.add_parser("trend")
+    report_trend.add_argument("directory", type=Path)
+    report_trend.add_argument("--baselines-dir", type=Path, default=default_baselines)
+    baseline_command = commands.add_parser(
+        "baseline", help="promote a reviewed baseline offline"
+    )
+    baseline_commands = baseline_command.add_subparsers(
+        dest="baseline_command", required=True
+    )
+    baseline_promote = baseline_commands.add_parser("promote")
+    baseline_promote.add_argument("report", type=Path)
+    baseline_promote.add_argument("--rationale", required=True)
+    baseline_promote.add_argument("--host-companion", type=Path)
+    baseline_promote.add_argument("--context", type=Path)
+    baseline_promote.add_argument(
+        "--baselines-dir", type=Path, default=default_baselines
+    )
+    baseline_promote.add_argument("--initial-thresholds", action="store_true")
     for execution in (smoke, pool_smoke, fixture_smoke, journeys, convention):
         execution.add_argument("--safety-config", type=Path)
         execution.add_argument("--scenario-version", type=int, default=1)
@@ -202,6 +237,48 @@ def main(argv: Sequence[str] | None = None) -> int:
     for name in ("httpx", "httpcore"):  # their INFO lines carry full request URLs
         logging.getLogger(name).setLevel(logging.WARNING)
         logging.getLogger(name).propagate = False
+    if args.command == "report" and args.report_command == "evaluate":
+        try:
+            artifact = evaluate(
+                args.report,
+                host_companion=args.host_companion,
+                context=args.context,
+                baselines_dir=args.baselines_dir,
+            )
+            write_evaluation(
+                artifact, args.out or default_output(args.report, artifact)
+            )
+        except EvaluationFailed:
+            _emit("FAIL evaluation")
+            return 1
+        _emit(f"PASS evaluation {artifact['verdict']}")
+        for line in summary(artifact):
+            _emit(line)
+        return 0
+    if args.command == "baseline":
+        try:
+            written = promote(
+                args.report,
+                rationale=args.rationale,
+                baselines_dir=args.baselines_dir,
+                host_companion=args.host_companion,
+                context=args.context,
+                initial_thresholds=args.initial_thresholds,
+            )
+        except PromotionFailed:
+            _emit("FAIL promotion")
+            return 1
+        _emit(f"PASS promotion {written.name.removesuffix('.baseline.json')}")
+        return 0
+    if args.command == "report" and args.report_command == "trend":
+        try:
+            lines = trend(args.directory, baselines_dir=args.baselines_dir)
+        except OSError:
+            _emit("FAIL trend")
+            return 1
+        for line in lines:
+            _emit(line)
+        return 0
     if args.command == "report":
         try:
             load_report(args.path)
@@ -436,6 +513,8 @@ async def _execute(args: argparse.Namespace) -> int:
             report.finish(130)
             raise
         report.record_source(source)
+        if args.command == "convention" and args.scenario_version == 2:
+            report.record_execution_mode(execution_mode(REPOSITORY_ROOT))
         report.end("provenance", "passed")
         if report.write_failed:
             _emit("FAIL report")
