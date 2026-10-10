@@ -29,10 +29,20 @@ from tailtag_simulator import limits
 from tailtag_simulator.clerk import (
     ClerkAdmin,
     ClerkFailed,
+    SetupDiagnostic,
+    SetupStep,
     open_admin,
     open_session,
+    setup_boundary,
+    setup_failure,
 )
-from tailtag_simulator.client import ApiClient, Reply, open_client
+from tailtag_simulator.client import (
+    ApiClient,
+    Reply,
+    RequestFailed,
+    TransportFailed,
+    open_client,
+)
 from tailtag_simulator.lifecycle import run_guarded
 from tailtag_simulator.phases import (
     ME_PATH,
@@ -310,19 +320,42 @@ def _profile(reply: Reply) -> tuple[object, object, object]:
     return body.get("handle"), body.get("display_name"), body.get("onboarding_complete")
 
 
+async def _profile_request(
+    client: ApiClient, step: SetupStep, body: Mapping[str, object] | None = None
+) -> tuple[object, object, object]:
+    with setup_boundary(step):
+        try:
+            reply = (
+                await client.get(PROFILE_PATH)
+                if body is None
+                else await client.put(PROFILE_PATH, body)
+            )
+        except TransportFailed as error:
+            raise setup_failure("timeout" if error.timed_out else "transport") from None
+        except RequestFailed:
+            raise setup_failure("invalid_response") from None
+        try:
+            return _profile(reply)
+        except PhaseFailed:
+            if reply.status != 200:
+                raise setup_failure("http", reply.status) from None
+            raise setup_failure("invalid_response") from None
+
+
 async def _ensure_profile(client: ApiClient, pool: str, index: int) -> None:
     """Onboard a never-onboarded identity once; accept only the exact pool profile."""
     handle, name = pool_handle(pool, index), pool_display_name(pool, index)
-    current = _profile(await client.get(PROFILE_PATH))
+    current = await _profile_request(client, "profile_read")
     if current == (None, None, False):
-        current = _profile(
-            await client.put(PROFILE_PATH, {"handle": handle, "display_name": name})
+        current = await _profile_request(
+            client, "profile_write", {"handle": handle, "display_name": name}
         )
-    if current[:2] != (handle, name) or current[2] is not True:
-        runtime = active_runtime()
-        if runtime is not None:
-            runtime.abort("correctness")
-        raise PhaseFailed
+    with setup_boundary("profile_validation", "identity_invalid"):
+        if current[:2] != (handle, name) or current[2] is not True:
+            runtime = active_runtime()
+            if runtime is not None:
+                runtime.abort("correctness")
+            raise ClerkFailed from None
 
 
 async def _open_identity(
@@ -337,8 +370,9 @@ async def _open_identity(
     clock: Callable[[], float],
 ) -> ApiClient:
     user = await admin.find_pool_user(pool, index)
-    if user is None:
-        raise PhaseFailed
+    with setup_boundary("identity_validation", "identity_invalid"):
+        if user is None:
+            raise ClerkFailed from None
     admin.require_pool_identity(user, pool, index)
     await admin.revoke_active_sessions(user)
     ticket = await admin.create_ticket(user)
@@ -347,7 +381,7 @@ async def _open_identity(
             open_session(ticket, transport=clerk_transport, clock=clock)
         )
     except Exception:
-        with suppress(ClerkFailed):
+        with suppress(Exception):
             await admin.revoke_ticket(ticket)
         raise
     client = await stack.enter_async_context(
@@ -482,6 +516,7 @@ async def open_identities(
     clerk_transport: httpx.AsyncBaseTransport | None,
     api_transport: httpx.AsyncBaseTransport | None,
     clock: Callable[[], float],
+    emit: Callable[[str], None] | None = None,
 ) -> tuple[tuple[int, ...], tuple[ApiClient, ...]]:
     """The only place the Clerk secret and the admin exist; neither outlives this call.
 
@@ -530,7 +565,16 @@ async def open_identities(
                         clock=clock,
                     )
                 )
-            except Exception:  # noqa: BLE001 - quarantined below
+            except Exception as error:  # noqa: BLE001 - quarantined below
+                diagnostic = (
+                    error.diagnostic
+                    if isinstance(error, ClerkFailed) and error.diagnostic is not None
+                    else SetupDiagnostic("unknown", "unknown")
+                )
+                if emit is not None:
+                    # Diagnostics are observational; cancellation still propagates.
+                    with suppress(Exception):
+                        emit(diagnostic.line(index))
                 bad.append(index)
                 runtime = active_runtime()
                 if runtime is not None and runtime.abort_reason is not None:
@@ -649,6 +693,7 @@ async def run_pool_smoke(
                         clerk_transport=clerk_transport,
                         api_transport=api_transport,
                         clock=clock,
+                        emit=emit,
                     )
             except SafetyAborted:
                 raise

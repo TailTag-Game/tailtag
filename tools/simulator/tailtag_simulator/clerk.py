@@ -15,12 +15,13 @@ import base64
 import binascii
 import hashlib
 import json
+import math
 import re
 import time
-from collections.abc import AsyncGenerator, Callable
-from contextlib import asynccontextmanager, suppress
+from collections.abc import AsyncGenerator, Callable, Generator
+from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import dataclass
-from typing import cast
+from typing import Literal, cast, get_args
 from urllib.parse import urlsplit
 
 import httpx
@@ -42,7 +43,108 @@ _ID = re.compile(r"[A-Za-z0-9_]+")
 
 
 class ClerkFailed(Exception):
-    """A Clerk step failed. Deliberately carries no detail."""
+    """A Clerk step failed. Exception text stays empty; metadata is finite."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.diagnostic: SetupDiagnostic | None = None
+
+
+SetupStep = Literal[
+    "backend_lookup",
+    "identity_validation",
+    "backend_sessions",
+    "backend_session_revoke",
+    "backend_ticket_lookup",
+    "backend_ticket_create",
+    "frontend_client",
+    "frontend_sign_in",
+    "frontend_token",
+    "profile_read",
+    "profile_write",
+    "profile_validation",
+    "unknown",
+]
+SetupFailure = Literal[
+    "http",
+    "timeout",
+    "transport",
+    "invalid_response",
+    "identity_invalid",
+    "unknown",
+]
+ElapsedBucket = Literal["lt_1s", "lt_5s", "lt_10s", "ge_10s", "unknown"]
+
+
+@dataclass(frozen=True)
+class SetupDiagnostic:
+    step: SetupStep
+    failure: SetupFailure
+    status: int | None = None
+    elapsed: ElapsedBucket = "unknown"
+
+    def line(self, index: int) -> str:
+        if (
+            type(self.step) is not str
+            or self.step not in get_args(SetupStep)
+            or type(self.failure) is not str
+            or self.failure not in get_args(SetupFailure)
+            or type(self.elapsed) is not str
+            or self.elapsed not in get_args(ElapsedBucket)
+        ):
+            return SetupDiagnostic("unknown", "unknown").line(index)
+        status = (
+            self.status
+            if type(self.status) is int and 100 <= self.status <= 599
+            else "none"
+        )
+        return (
+            f"DIAG setup index={index} step={self.step} failure={self.failure} "
+            f"status={status} elapsed={self.elapsed}"
+        )
+
+
+def setup_failure(failure: SetupFailure, status: int | None = None) -> ClerkFailed:
+    error = ClerkFailed()
+    error.diagnostic = SetupDiagnostic("unknown", failure, status)
+    return error
+
+
+@contextmanager
+def setup_boundary(
+    step: SetupStep, failure: SetupFailure = "invalid_response"
+) -> Generator[None]:
+    """Attach the innermost known failing boundary, never external error details."""
+    started: float | None = None
+    with suppress(Exception):
+        started = time.monotonic()
+    try:
+        yield
+    except ClerkFailed as error:
+        previous = error.diagnostic
+        if previous is None or previous.step == "unknown":
+            bucket: ElapsedBucket = "unknown"
+            elapsed = float("nan")
+            with suppress(Exception):
+                if started is not None:
+                    elapsed = time.monotonic() - started
+            if math.isfinite(elapsed) and elapsed >= 0:
+                bucket = (
+                    "lt_1s"
+                    if elapsed < 1
+                    else "lt_5s"
+                    if elapsed < 5
+                    else "lt_10s"
+                    if elapsed < 10
+                    else "ge_10s"
+                )
+            error.diagnostic = SetupDiagnostic(
+                step,
+                previous.failure if previous else failure,
+                previous.status if previous else None,
+                bucket,
+            )
+        raise
 
 
 def external_id(pool: str, index: int) -> str:
@@ -108,14 +210,16 @@ async def _call(
             method, path, params=params, json=body, data=form
         ) as response:
             if not 200 <= response.status_code < 300:
-                raise ClerkFailed from None
+                raise setup_failure("http", response.status_code) from None
             raw = bytearray()
             async for chunk in response.aiter_bytes():
                 raw.extend(chunk)
                 if len(raw) > MAX_RESPONSE_BYTES:
                     raise ClerkFailed from None
+    except httpx.TimeoutException:
+        raise setup_failure("timeout") from None
     except httpx.HTTPError:
-        raise ClerkFailed from None
+        raise setup_failure("transport") from None
     try:
         return json.loads(raw)
     except (RecursionError, UnicodeError, ValueError):
@@ -188,17 +292,23 @@ class ClerkAdmin:
         )
 
     async def find_pool_user(self, pool: str, index: int) -> PoolUser | None:
-        self._require_verified()
-        found = await _call(
-            self._client,
-            "GET",
-            "/v1/users",
-            params={"external_id": external_id(pool, index)},
-        )
-        users = _list(found)
-        if len(users) > 1:
-            raise ClerkFailed from None
-        return self._user(users[0]) if users else None
+        return await self._find_pool_user(pool, index, "backend_lookup")
+
+    async def _find_pool_user(
+        self, pool: str, index: int, step: SetupStep
+    ) -> PoolUser | None:
+        with setup_boundary(step):
+            self._require_verified()
+            found = await _call(
+                self._client,
+                "GET",
+                "/v1/users",
+                params={"external_id": external_id(pool, index)},
+            )
+            users = _list(found)
+            if len(users) > 1:
+                raise ClerkFailed from None
+            return self._user(users[0]) if users else None
 
     async def create_pool_user(self, pool: str, index: int) -> PoolUser:
         self._require_verified()
@@ -225,55 +335,68 @@ class ClerkAdmin:
 
     def require_pool_identity(self, user: PoolUser, pool: str, index: int) -> None:
         """Fail unless the user is an unbanned, unlocked, correctly marked pool user."""
-        metadata = user.public_metadata or {}
-        recorded_index = metadata.get("tailtag_pool_index")
-        if not (
-            user.external_id == external_id(pool, index)
-            and metadata.get("tailtag_synthetic") is True
-            and metadata.get("tailtag_environment") == "staging"
-            and metadata.get("tailtag_pool") == pool
-            and type(recorded_index) is int
-            and recorded_index == index
-            and not user.banned
-            and not user.locked
-        ):
-            raise ClerkFailed from None
+        with setup_boundary("identity_validation", "identity_invalid"):
+            metadata = user.public_metadata or {}
+            recorded_index = metadata.get("tailtag_pool_index")
+            if not (
+                user.external_id == external_id(pool, index)
+                and metadata.get("tailtag_synthetic") is True
+                and metadata.get("tailtag_environment") == "staging"
+                and metadata.get("tailtag_pool") == pool
+                and type(recorded_index) is int
+                and recorded_index == index
+                and not user.banned
+                and not user.locked
+            ):
+                raise ClerkFailed from None
 
     async def revoke_active_sessions(self, user: PoolUser) -> int:
-        self._require_verified()
-        listed = await _call(
-            self._client,
-            "GET",
-            "/v1/sessions",
-            params={"user_id": user.id, "status": "active"},
-        )
-        ids = [_path_id(_object(item).get("id")) for item in _list(listed)]
-        for session_id in ids:
-            await _call(self._client, "POST", f"/v1/sessions/{session_id}/revoke")
-        return len(ids)
+        with setup_boundary("backend_sessions"):
+            self._require_verified()
+            listed = await _call(
+                self._client,
+                "GET",
+                "/v1/sessions",
+                params={"user_id": user.id, "status": "active"},
+            )
+            ids = [_path_id(_object(item).get("id")) for item in _list(listed)]
+            for session_id in ids:
+                with setup_boundary("backend_session_revoke"):
+                    await _call(
+                        self._client, "POST", f"/v1/sessions/{session_id}/revoke"
+                    )
+            return len(ids)
 
     async def create_ticket(self, user: PoolUser) -> Ticket:
         """Mint a ticket only for a user that Clerk currently shows as a pool identity."""
         self._require_verified()
-        metadata = user.public_metadata or {}
-        pool, index = metadata.get("tailtag_pool"), metadata.get("tailtag_pool_index")
-        if not isinstance(pool, str) or type(index) is not int:
-            raise ClerkFailed from None
-        current = await self.find_pool_user(pool, index)
-        if current is None or current.id != user.id:
-            raise ClerkFailed from None
-        self.require_pool_identity(current, pool, index)
-        created = _object(
-            await _call(
-                self._client,
-                "POST",
-                "/v1/sign_in_tokens",
-                body={"user_id": user.id, "expires_in_seconds": TICKET_SECONDS},
+        with setup_boundary("identity_validation", "identity_invalid"):
+            metadata = user.public_metadata or {}
+            pool, index = (
+                metadata.get("tailtag_pool"),
+                metadata.get("tailtag_pool_index"),
             )
-        )
-        if created.get("user_id") != user.id:
-            raise ClerkFailed from None
-        return Ticket(id=_path_id(created.get("id")), token=_text(created.get("token")))
+            if not isinstance(pool, str) or type(index) is not int:
+                raise ClerkFailed from None
+        current = await self._find_pool_user(pool, index, "backend_ticket_lookup")
+        with setup_boundary("identity_validation", "identity_invalid"):
+            if current is None or current.id != user.id:
+                raise ClerkFailed from None
+            self.require_pool_identity(current, pool, index)
+        with setup_boundary("backend_ticket_create"):
+            created = _object(
+                await _call(
+                    self._client,
+                    "POST",
+                    "/v1/sign_in_tokens",
+                    body={"user_id": user.id, "expires_in_seconds": TICKET_SECONDS},
+                )
+            )
+            if created.get("user_id") != user.id:
+                raise ClerkFailed from None
+            return Ticket(
+                id=_path_id(created.get("id")), token=_text(created.get("token"))
+            )
 
     async def revoke_ticket(self, ticket: Ticket) -> None:
         self._require_verified()
@@ -314,30 +437,31 @@ class ClerkSession:
 
     async def token(self) -> str:
         """A token with more than the refresh margin of life left."""
-        async with self._lock:
-            if (
-                self._cached is not None
-                and self._cached[1] - self._clock() > REFRESH_MARGIN_SECONDS
-            ):
-                return self._cached[0]
-            fetched = _object(
-                await _call(
-                    self._client,
-                    "POST",
-                    f"/v1/client/sessions/{self._session_id}/tokens",
+        with setup_boundary("frontend_token"):
+            async with self._lock:
+                if (
+                    self._cached is not None
+                    and self._cached[1] - self._clock() > REFRESH_MARGIN_SECONDS
+                ):
+                    return self._cached[0]
+                fetched = _object(
+                    await _call(
+                        self._client,
+                        "POST",
+                        f"/v1/client/sessions/{self._session_id}/tokens",
+                    )
                 )
-            )
-            jwt = _text(fetched.get("jwt"))
-            claims = _claims(jwt)
-            expires = claims.get("exp")
-            if (
-                claims.get("azp") != TOOLING_ORIGIN
-                or claims.get("sid") != self._session_id
-                or type(expires) is not int
-            ):
-                raise ClerkFailed from None
-            self._cached = (jwt, expires)
-            return jwt
+                jwt = _text(fetched.get("jwt"))
+                claims = _claims(jwt)
+                expires = claims.get("exp")
+                if (
+                    claims.get("azp") != TOOLING_ORIGIN
+                    or claims.get("sid") != self._session_id
+                    or type(expires) is not int
+                ):
+                    raise ClerkFailed from None
+                self._cached = (jwt, expires)
+                return jwt
 
     async def end(self) -> None:
         await _call(self._client, "POST", f"/v1/client/sessions/{self._session_id}/end")
@@ -368,25 +492,27 @@ async def open_session(
     """
     headers = {"Origin": TOOLING_ORIGIN, "Clerk-API-Version": FRONTEND_API_VERSION}
     async with _client(FRONTEND_API, headers, transport) as client:
-        await _call(client, "POST", "/v1/client")
-        signed_in = _object(
-            await _call(
-                client,
-                "POST",
-                "/v1/client/sign_ins",
-                form={"strategy": "ticket", "ticket": ticket.token},
+        with setup_boundary("frontend_client"):
+            await _call(client, "POST", "/v1/client")
+        with setup_boundary("frontend_sign_in"):
+            signed_in = _object(
+                await _call(
+                    client,
+                    "POST",
+                    "/v1/client/sign_ins",
+                    form={"strategy": "ticket", "ticket": ticket.token},
+                )
             )
-        )
-        result = _object(signed_in.get("response"))
-        if result.get("status") != "complete":
-            raise ClerkFailed from None
-        session = ClerkSession(
-            client, _path_id(result.get("created_session_id")), clock
-        )
+            result = _object(signed_in.get("response"))
+            if result.get("status") != "complete":
+                raise ClerkFailed from None
+            session = ClerkSession(
+                client, _path_id(result.get("created_session_id")), clock
+            )
         try:
             yield session
         except BaseException:
-            with suppress(ClerkFailed):
+            with suppress(Exception):
                 await session.end()
             raise
         await session.end()

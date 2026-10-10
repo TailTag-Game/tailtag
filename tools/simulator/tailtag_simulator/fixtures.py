@@ -604,6 +604,7 @@ async def run_provisioned(
                         clerk_transport=clerk_transport,
                         api_transport=api_transport,
                         clock=clock,
+                        emit=emit,
                     )
                     # A sent provision may commit even if its acknowledgement is lost.
                     outcome = "interrupted"

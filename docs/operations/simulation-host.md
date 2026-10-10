@@ -189,6 +189,14 @@ Use only the canonical UUID and immutable image ID from the trusted manifest; if
 
 ## Recovery and refusal handling
 
+An attempted identity that fails during SETUP emits one bounded diagnostic line:
+
+```text
+DIAG setup index=15 step=frontend_sign_in failure=http status=429 elapsed=lt_1s
+```
+
+The index is the leased pool slot, not a provider identity. Steps and failure categories are fixed labels; HTTP status is a bounded number or `none`, and elapsed time is a coarse monotonic bucket (`lt_1s`, `lt_5s`, `lt_10s`, `ge_10s`, or `unknown`). A nested token failure keeps its token-step attribution. Diagnostics contain no credentials, provider IDs, URLs, response bodies, headers or exception text. They do not retry a ticket or request, change pacing, or establish recovery authority. An unknown result remains unknown; use the observed failing step to investigate before another workload. Successful or unattempted identities emit no diagnostic.
+
 A report PASS, validated report, clean-looking pool, expired lease, process exit or old hold timestamp cannot clear a recovery hold. Allocation/provision attempts are reserved before dispatch; a lost acknowledgement may mean the remote operation committed. Never retry allocation/provision on the same session or race cleanup/retention/release against a mutation that may still commit. Preserve uncertainty and settle the exact run manually. A pinned-target mismatch requires investigation before any further TailTag recovery action; do not substitute the new deployment tuple for the original receipt.
 
 From the maintainer's existing trusted environment, independently verify current Staging `/health/identity` using the target check and compare its exact source/deployment/environment tuple with the held manifest. Existing relays independently verify provider and deployed target too. Confirm all bridge-owned mutating operations have settled remotely, including any indeterminate provision. Preserve report/companion evidence and inspect the exact retained/unfinished run, then use the existing commands:

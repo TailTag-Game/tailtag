@@ -11,6 +11,7 @@ import pytest
 from fixture_support import CLEANUP_LINE, FakeFixtureChannel, FixtureState
 from pool_support import DEPLOYMENT_ID, POOL, RUN_ID, SECRET, SHA, FakeChannel, World
 from test_host_protocol import manifest
+from test_pool_smoke import assert_diagnostic, setup_diagnostics
 
 from tailtag_simulator import fixtures
 from tailtag_simulator.client import ApiClient
@@ -215,7 +216,13 @@ def test_setup_renewal_respects_terminal_recovery_and_pending_provision(
             host.session.close()
 
     code = asyncio.run(exercise())
+    diagnostics = setup_diagnostics(lines)
     if held_operation == "quarantine":
+        assert len(diagnostics) == 2
+        for line, index in zip(diagnostics, [1, 2], strict=True):
+            assert_diagnostic(
+                line, index, "step=frontend_token failure=http status=503"
+            )
         assert code == 1
         assert "FAIL setup quarantined=1,2" in lines
         assert "FAIL lease result=FAIL_LEASE" not in lines
@@ -231,6 +238,7 @@ def test_setup_renewal_respects_terminal_recovery_and_pending_provision(
         assert host.fixtures.operations == ["retained_counts"]
         assert not simulated
     else:
+        assert diagnostics == []
         assert code == 0
         assert "PASS setup identities=3 fursuits=2" in lines
         assert host.fixtures.operations == ["retained_counts", "provision", "cleanup"]
