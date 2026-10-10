@@ -30,7 +30,7 @@
       "active": 10,
       "in_flight": 10,
       "attempts": 9000,
-      "generation_seconds": 300,
+      "generation_seconds": 360,
       "drain_seconds": 15
     }
   }
