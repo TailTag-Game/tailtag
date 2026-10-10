@@ -818,3 +818,94 @@ def test_reported_pool_smoke_keeps_workload_counts_waits_and_correctness_separat
         assert value["phases"]["release"]["status"] == (
             "passed" if failure is None else "failed"
         )
+
+
+@pytest.mark.parametrize(
+    ("count", "rejected"),
+    [(1, None), (3, None), (3, 1)],
+    ids=["singleton", "success", "middle-429"],
+)
+def test_identity_attempts_wait_before_the_next_lookup_and_fresh_ticket(
+    world: World, monkeypatch: pytest.MonkeyPatch, count: int, rejected: int | None
+) -> None:
+    events: list[str] = []
+    requests: list[httpx.Request] = []
+    for index in range(count):
+        world.profiles[index] = onboarded(index)
+    provider, api = world.clerk_transport, world.api_transport
+
+    async def clerk_reply(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        path = request.url.path
+        if path == "/v1/users":
+            events.append(
+                f"lookup:{request.url.params['external_id'].rsplit('-', 1)[1]}"
+            )
+        elif path == "/v1/sign_in_tokens":
+            index = json.loads(request.content)["user_id"].removeprefix("user_SECRET")
+            events.append(f"ticket:{index}")
+        elif path == "/v1/client/sign_ins":
+            index = int(parse_qs(request.content.decode())["ticket"][0][6:])
+            events.append(f"sign-in:{index}")
+            if index == rejected:
+                return httpx.Response(429, text="SENTINEL-private-provider-body")
+        return await provider.handle_async_request(request)
+
+    async def api_reply(request: httpx.Request) -> httpx.Response:
+        reply = await api.handle_async_request(request)
+        if request.url.path == "/api/profile/":
+            claims = jwt_claims(
+                request.headers["authorization"].removeprefix("Bearer ")
+            )
+            subject = claims["sub"]
+            assert isinstance(subject, str)
+            events.append(f"complete:{subject.removeprefix('user_SECRET')}")
+        return reply
+
+    async def setup_wait(seconds: float) -> None:
+        events.append(f"wait:{seconds:g}")
+        await asyncio.sleep(0)
+
+    monkeypatch.setattr(pool.asyncio, "sleep", setup_wait)
+    channel = FakeChannel(world)
+    run = smoke(
+        world,
+        channel,
+        count=count,
+        clerk_transport=httpx.MockTransport(clerk_reply),
+        api_transport=httpx.MockTransport(api_reply),
+    )
+    expected = ["lookup:0", "lookup:0", "ticket:0", "sign-in:0", "complete:0"]
+    if count == 3:
+        expected += ["wait:4", "lookup:1", "lookup:1", "ticket:1", "sign-in:1"]
+        if rejected is None:
+            expected += ["complete:1"]
+        expected += [
+            "wait:4",
+            "lookup:2",
+            "lookup:2",
+            "ticket:2",
+            "sign-in:2",
+            "complete:2",
+        ]
+    assert events == expected
+    assert run.code == (1 if rejected is not None else 0)
+    assert world.tickets == list(range(count))
+    assert len([r for r in requests if r.url.path == "/v1/client/sign_ins"]) == count
+    assert_released(world, channel)
+    diagnostics = setup_diagnostics(run.lines)
+    if rejected is not None:
+        assert len(diagnostics) == 1
+        assert_diagnostic(
+            diagnostics[0], 1, "step=frontend_sign_in failure=http status=429"
+        )
+        assert channel.indexes("quarantined") == {1}
+        assert (
+            len(
+                [r for r in requests if r.url.path == "/v1/sign_in_tokens/sit_1/revoke"]
+            )
+            == 1
+        )
+    else:
+        assert diagnostics == []
+        assert [float(detail) for _, detail in world.kinds("sleep")] == [61.0]

@@ -268,3 +268,115 @@ def test_setup_renewal_respects_terminal_recovery_and_pending_provision(
     assert host.session.evidence()["pending_mutations"] == 0
     for secret in (SECRET, "SENTINEL", "user_SECRET", "TICKET", "COOKIE"):
         assert secret not in "\n".join(lines)
+
+
+def test_host_renews_while_setup_cooldown_is_pending(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host = HostBoundary(world, "unused")
+    entered, resume = asyncio.Event(), asyncio.Event()
+    waits: list[float] = []
+    lines: list[str] = []
+    ticks = 0
+
+    async def setup_wait(seconds: float) -> None:
+        waits.append(seconds)
+        if len(waits) == 1:
+            entered.set()
+            await resume.wait()
+        else:
+            await asyncio.sleep(0)
+
+    async def timer(seconds: float) -> None:
+        nonlocal ticks
+        assert seconds == 60
+        ticks += 1
+        if ticks == 1:
+            await entered.wait()
+        else:
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        fixtures, "asyncio", SimpleNamespace(**{**vars(asyncio), "sleep": timer})
+    )
+    lookups: list[str] = []
+    provider = world.clerk_transport
+
+    async def clerk_reply(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/users":
+            lookups.append(request.url.params["external_id"])
+        return await provider.handle_async_request(request)
+
+    async def simulate(
+        _origin: str, clients: tuple[ApiClient, ...], indexes: tuple[int, ...]
+    ) -> Literal["pass"]:
+        assert indexes == (0, 1, 2)
+        for client in clients:
+            assert (await client.get("/api/me/")).status == 200
+        return "pass"
+
+    async def exercise() -> int:
+        before = set(asyncio.all_tasks())
+        task = asyncio.create_task(
+            run_provisioned(
+                POOL,
+                1,
+                2,
+                2,
+                0,
+                prompt_secret=lambda: SECRET,
+                lease_channel=PoolAdapter(host),
+                fixture_channel=FixtureAdapter(host),
+                emit=lines.append,
+                clerk_transport=httpx.MockTransport(clerk_reply),
+                api_transport=world.api_transport,
+                clock=world.clock,
+                run_id=RUN_ID,
+                renew_leases=True,
+                setup_sleep=setup_wait,
+                simulate_and_reconcile=simulate,
+            )
+        )
+        pending = asyncio.create_task(entered.wait())
+        try:
+            await asyncio.wait_for(
+                asyncio.wait({task, pending}, return_when=asyncio.FIRST_COMPLETED), 3
+            )
+            assert entered.is_set(), "setup completed without the required cooldown"
+            await asyncio.wait_for(host.heartbeat_acknowledged.wait(), 3)
+            assert not task.done()
+            assert waits == [4]
+            assert lookups == [f"sim-pool-{POOL}-0", f"sim-pool-{POOL}-0"]
+            assert world.tickets == [0]
+            assert host.leases.calls_to("heartbeat") == [
+                {"run_id": RUN_ID, "ttl_seconds": 1800}
+            ]
+            assert host.fixtures.operations == ["retained_counts"]
+            resume.set()
+            code = await asyncio.wait_for(task, 3)
+            await host.session.settle()
+            assert not (set(asyncio.all_tasks()) - before)
+            return code
+        finally:
+            resume.set()
+            if not pending.done():
+                pending.cancel()
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, pending, return_exceptions=True)
+            await host.session.settle()
+            host.session.close()
+
+    assert asyncio.run(exercise()) == 0
+    assert waits == [4, 4]
+    assert host.rejected == []
+    assert host.fixtures.operations == ["retained_counts", "provision", "cleanup"]
+    assert host.leases.calls_to("release") == [{"run_id": RUN_ID}]
+    assert (
+        set(world.ended_sessions)
+        == set(world.opened_sessions)
+        == {"sess_0", "sess_1", "sess_2"}
+    )
+    assert host.session.evidence()["release_acknowledged"] is True
+    assert host.session.evidence()["pending_mutations"] == 0
+    assert "PASS release" in lines

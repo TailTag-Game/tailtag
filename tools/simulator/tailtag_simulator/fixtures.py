@@ -458,6 +458,7 @@ async def run_provisioned(
     api_transport: httpx.AsyncBaseTransport | None,
     clock: Callable[[], float],
     run_id: str | None,
+    setup_sleep: Callable[[float], Awaitable[None]] | None = None,
     report: RunReport | None = None,
     safety: SafetyRuntime | None = None,
     reconcile_partial: Callable[[], Awaitable[None]] | None = None,
@@ -508,6 +509,7 @@ async def run_provisioned(
                 api_transport=api_transport,
                 clock=clock,
                 run_id=run_id,
+                setup_sleep=setup_sleep,
                 report=report,
                 safety=runtime,
                 simulate_and_reconcile=simulate_and_reconcile,
@@ -539,6 +541,7 @@ async def run_provisioned(
                 api_transport=api_transport,
                 clock=clock,
                 run_id=run_id,
+                setup_sleep=setup_sleep,
                 report=report,
                 simulate_and_reconcile=simulate_and_reconcile,
                 _renewal=renewal,
@@ -605,6 +608,7 @@ async def run_provisioned(
                         api_transport=api_transport,
                         clock=clock,
                         emit=emit,
+                        setup_sleep=setup_sleep,
                     )
                     # A sent provision may commit even if its acknowledgement is lost.
                     outcome = "interrupted"
