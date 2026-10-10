@@ -5,7 +5,15 @@ Acceptance source: the [approved refinement comment](https://github.com/TailTag-
 
 **Status: approved by the maintainer on 2026-10-08; implementation authorized.**
 
-## Acceptance follow-up — 2026-10-09
+## Native acceptance checkpoint — 2026-10-10 UTC
+
+The [native Staging proof](2026-10-10-external-simulation-host-staging-proof.md) supersedes the pending live gates in the historical checkpoints below. Immutable release `28c0799f8a3eea49477e8459587a90178e027503` passed the twenty-identity, five-minute normal milestone. A separate four-identity controlled stop recorded the expected `FAIL_INTERRUPTED`, bounded finalization and exact-run recovery. Container public HTTPS connections were observed during that stop milestone. Both runs completed setup without the earlier HTTP 429; the precise Clerk limiter remains unknown.
+
+The maintainer approved normal-profile `limits.generation_seconds=360` to accommodate owner preparation and scheduling overhead. Scheduled traffic remains 300 seconds; actor counts, 9,000 workload attempts and the existing safety policy remain unchanged. Original failed attempts and used manifests are preserved separately.
+
+All twenty identities are available after acknowledged fixture cleanup, Clerk session closure, lease release and explicit host recovery resolution. No task containers or host holds remain. Backend resource observations were unavailable; these bounded milestones do not establish capacity or an SLO. Private plan class, transfer allowance, usage/overage and project/billing ownership confirmation remain pending before tracker closeout. The existing RIC1 v5/budget override stands; no further provisioning or workload is authorized by this documentation checkpoint. Reversibility: TWO-WAY DOOR.
+
+## Historical acceptance follow-up — 2026-10-09
 
 This checkpoint supersedes the original host selection and earlier phase status below; those remain historical design and local implementation evidence. The maintainer-approved provisioned override is **DigitalOcean RIC1 v5, 2 vCPU, 4 GiB RAM, 30 GiB disk, US$0.052/hour, with a US$40/month before-tax operating budget**, on `linux/amd64`. Plan class, transfer allowance and billing ownership are not established by this override; keep verified provider inventory private.
 
@@ -19,7 +27,7 @@ Completed: acceptance-repair implementation, `make sim-check` (formatting, lint,
 
 The subsequent native-host attempt failed while opening identities, before fixture provision or simulation. Exact-run session/lease recovery and independent identity checks restored the twenty-identity pool; the failed report remains preserved. At that checkpoint the failing request was unknown because the existing error boundary discarded that detail. The maintainer approved a bounded setup-diagnostics follow-up: one fixed line per attempted failed identity with its pool index, a finite step/failure category, bounded HTTP status or `none`, and coarse monotonic elapsed bucket. Exception strings remain detail-free; credentials, provider IDs, URLs, bodies, headers and arbitrary error text remain excluded. That diagnostic-only change added no retry, pacing, secret-input path, recovery authority or report-schema change.
 
-### Setup pacing checkpoint — 2026-10-09
+### Historical setup pacing checkpoint — 2026-10-09
 
 The reviewed diagnostic release identified HTTP 429 at `frontend_sign_in` for the final five identities in native run `782b3847-7a6f-4e85-b5a1-a6d957fb8a25`. Independent identity checks and exact-run recovery restored the pool to twenty available identities with none leased or quarantined; the failed report remains preserved. [Clerk's system limits](https://clerk.com/docs/guides/how-clerk-works/system-limits) document IP-based frontend limiting and a CreateSignIn `/v1/sign_ins` limit of five requests per ten seconds. The simulator uses the legacy `/v1/client/sign_ins` route; the precise rejecting limiter/window remains unknown.
 
