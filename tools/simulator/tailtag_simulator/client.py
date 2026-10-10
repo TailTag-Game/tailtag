@@ -3,6 +3,7 @@
 import json
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from http.cookiejar import DefaultCookiePolicy
 
@@ -13,6 +14,10 @@ from tailtag_simulator.safety import active_runtime
 
 MAX_RESPONSE_BYTES = limits.MAX_RESPONSE_BYTES
 REQUEST_TIMEOUT_SECONDS = limits.REQUEST_TIMEOUT_SECONDS
+# Set by the traffic runtime around one attempt; called as the HTTP request is issued.
+request_issued: ContextVar[Callable[[], None] | None] = ContextVar(
+    "request_issued", default=None
+)
 
 
 class RequestFailed(Exception):
@@ -119,6 +124,9 @@ class ApiClient:
             try:
                 if start_send is not None:
                     start_send()
+                issued = request_issued.get()
+                if issued is not None:
+                    issued()
                 async with self._client.stream(
                     method, path, headers=headers, json=body, data=data, files=parts
                 ) as response:

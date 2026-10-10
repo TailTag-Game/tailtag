@@ -308,7 +308,7 @@ def test_host_cli_binds_manifest_uuid_socket_channels_and_stage_only_capture(
     assert len(reports) == 1
     report = read_report(reports[0])
     assert report["run_id"] == RUN
-    assert report["schema_version"] == 4
+    assert report["schema_version"] == 5
     assert report["scenario"]["version"] == 2
     assert report["outcome"] == "passed"
     assert {channel for channel, _ in seen} == {"pool", "fixture", "inspection"}

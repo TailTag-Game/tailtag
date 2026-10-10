@@ -43,6 +43,13 @@ class TrafficEffects:
         for attempt in range(cast(int, self.retry["attempts"])):
             # Draw before the request to keep intended choices independent of completion.
             pre, outcome = rng.random(), rng.random()
+            injection = "none"
+            if selected and pre < cast(float, self.failure["pre_send_failure_rate"]):
+                injection = "pre_send"
+            elif selected and outcome < cast(
+                float, self.failure["lost_response_rate"]
+            ) + cast(float, self.failure["timeout_rate"]):
+                injection = "lost_response"
 
             async def affected(pre: float = pre) -> Reply:
                 if selected and pre < cast(
@@ -59,7 +66,9 @@ class TrafficEffects:
                     await self.clock.sleep(
                         cast(float, self.failure["pre_send_delay_seconds"])
                     )
-                reply = await self.runtime.request(affected)
+                reply = await self.runtime.request(
+                    affected, operation=operation, injection=injection
+                )
                 if selected:
                     await self.clock.sleep(
                         cast(float, self.failure["response_delay_seconds"])
@@ -67,7 +76,6 @@ class TrafficEffects:
                     if outcome < cast(float, self.failure["lost_response_rate"]) + cast(
                         float, self.failure["timeout_rate"]
                     ):
-                        self.runtime.record("injected")
                         raise InjectedFailure
                 if reply.status not in (502, 503, 504):
                     return reply

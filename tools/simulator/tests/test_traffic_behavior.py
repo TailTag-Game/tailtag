@@ -15,6 +15,8 @@ from traffic_behavior_support import (
 
 from tailtag_simulator.reconciliation import Made
 from tailtag_simulator.safety import SafetyRuntime, active_runtime
+from tailtag_simulator.traffic import TrafficRuntime
+from tailtag_simulator.traffic_behavior import TrafficPopulationRun
 
 
 def confirmations(world: TrafficWorld) -> list[tuple[str, Mapping[str, object]]]:
@@ -23,6 +25,65 @@ def confirmations(world: TrafficWorld) -> list[tuple[str, Mapping[str, object]]]
         for actor, _method, path, body in world.requests
         if path == CONFIRM
     ]
+
+
+def assert_rejections_reclassified(
+    runtime: TrafficRuntime, result: TrafficPopulationRun
+) -> dict[str, dict[str, int]]:
+    """Domain-case 404s are expected rejections, never client errors (AC8)."""
+    attempts = runtime.performance()["attempts"]
+    assert attempts["total"]["client_error"] == 0
+    assert (
+        attempts["total"]["expected_rejection"] == result.traffic["expected_rejections"]
+    )
+    return attempts
+
+
+def test_operations_are_measured_under_their_own_route_label() -> None:
+    config = config_for()
+    world = TrafficWorld(config)
+    runtime = TrafficRuntime(config, clock=world.time.clock)
+
+    result, compared = run_traffic(world, config, runtime=runtime)
+
+    assert result.population.passed and compared.passed
+    attempts = runtime.performance()["attempts"]
+    paths = [path for _a, _m, path, _b in world.requests]
+    resolves = sum(path.endswith("/catch-credentials/resolve/") for path in paths)
+    assert resolves > 0 and CONFIRM in paths
+    assert attempts["resolve"]["success"] == resolves
+    assert attempts["confirm"]["success"] == paths.count(CONFIRM)
+    assert attempts["read"]["success"] > 0
+    assert attempts["auxiliary"]["success"] > 0
+    assert attempts["total"]["success"] == result.traffic["sent"]
+    assert attempts["total"]["success"] == result.traffic["attempts"]
+    assert sum(attempts["total"].values()) == attempts["total"]["success"]
+
+
+@pytest.mark.parametrize(
+    "effect", ["pre_send_failure_rate", "lost_response_rate", "timeout_rate"]
+)
+def test_injected_attempts_are_their_own_class_and_never_latency_samples(
+    effect: str,
+) -> None:
+    config = config_for(
+        failure={"operations": ["confirm"], effect: 1}, retry={"attempts": 1}
+    )
+    world = TrafficWorld(config)
+    runtime = TrafficRuntime(config, clock=world.time.clock)
+
+    result, _compared = run_traffic(world, config, runtime=runtime)
+
+    performance = runtime.performance()
+    confirm = performance["attempts"]["confirm"]
+    assert confirm["injected"] == 1 and sum(confirm.values()) == 1
+    assert performance["attempts"]["total"]["injected"] == result.traffic["injected"]
+    latency = performance["latency_percentiles"]
+    assert latency["confirm"]["samples"] == 0
+    assert (
+        latency["resolve"]["samples"] == performance["attempts"]["resolve"]["success"]
+    )
+    assert latency["resolve"]["samples"] > 0
 
 
 def test_committed_transport_loss_retries_the_exact_payload_and_recovers_canonical() -> (
@@ -136,10 +197,13 @@ def test_public_owner_transition_distinguishes_negative_creation_and_existing_re
         }
     )
     world = TrafficWorld(config)
+    runtime = TrafficRuntime(config, clock=world.time.clock)
 
-    result, compared = run_traffic(world, config)
+    result, compared = run_traffic(world, config, runtime=runtime)
 
     assert result.population.passed and compared.passed
+    attempts = assert_rejections_reclassified(runtime, result)
+    assert attempts["confirm"]["expected_rejection"] == int(not recover)
     pair = ("attendee0", 100)
     assert result.population.expectations.pairs == {
         pair: "required" if recover else "forbidden"
@@ -192,10 +256,12 @@ def test_natural_expiration_uses_public_deadline_without_refresh_or_stop(
         limits={"generation_seconds": 43210},
     )
     world = TrafficWorld(config)
+    runtime = TrafficRuntime(config, clock=world.time.clock)
 
-    result, compared = run_traffic(world, config)
+    result, compared = run_traffic(world, config, runtime=runtime)
 
     assert result.population.passed and compared.passed
+    assert_rejections_reclassified(runtime, result)
     first_confirm = next(
         n for n, (_a, _m, p, _b) in enumerate(world.requests) if p == CONFIRM
     )

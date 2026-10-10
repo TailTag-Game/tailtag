@@ -246,6 +246,12 @@ def _packaged(root: Path) -> tuple[str, str]:
     return sha, lock
 
 
+def execution_mode(root: Path) -> str:
+    """Name the provenance path `load_source` takes for this root."""
+    packaged = not (root / ".git").exists() and (root / "source.json").exists()
+    return "container" if packaged else "checkout"
+
+
 def load_source(root: Path | None = None) -> dict[str, object]:
     """Return the closed report source object or raise a detail-free rejection."""
     if root is None:
@@ -259,7 +265,7 @@ def load_source(root: Path | None = None) -> dict[str, object]:
             package_root,
         )
     try:
-        if not (root / ".git").exists() and (root / "source.json").exists():
+        if execution_mode(root) == "container":
             sha, lock = _packaged(root)
         else:
             sha, inputs = _host(root)

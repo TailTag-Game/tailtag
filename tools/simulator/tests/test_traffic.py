@@ -614,10 +614,10 @@ def test_request_attempt_cap_counts_failed_sends_and_prevents_next_external_call
             from tailtag_simulator.client import RequestFailed
 
             with pytest.raises(RequestFailed):
-                await runtime.request(send)
-            assert (await runtime.request(send)).status == 200
+                await runtime.request(send, operation="read")
+            assert (await runtime.request(send, operation="read")).status == 200
             with pytest.raises(TrafficStopped):
-                await runtime.request(send)
+                await runtime.request(send, operation="read")
         assert calls == 2
         assert runtime.snapshot()["attempts"] == runtime.snapshot()["sent"] == 2
         assert runtime.snapshot()["stop_reason"] == "attempts"
@@ -653,7 +653,10 @@ def test_request_inflight_cap_limits_real_http_without_losing_waiting_requests()
                 runtime.record("sent")
                 return await client.get("/api/me/")
 
-            tasks = [asyncio.create_task(runtime.request(send)) for _ in range(5)]
+            tasks = [
+                asyncio.create_task(runtime.request(send, operation="read"))
+                for _ in range(5)
+            ]
             try:
                 await time.settle()
                 assert active == peak == 2
@@ -706,7 +709,9 @@ def test_request_has_total_deadline_and_awaits_external_send_cancellation(
         async with open_client(
             "https://staging.tailtag.app", transport=httpx.MockTransport(endpoint)
         ) as client:
-            task = asyncio.create_task(runtime.request(lambda: client.get("/api/me/")))
+            task = asyncio.create_task(
+                runtime.request(lambda: client.get("/api/me/"), operation="read")
+            )
             try:
                 await time.settle()
                 assert entered.is_set()
@@ -750,7 +755,7 @@ def test_runtime_stop_cancels_inflight_send_and_rejects_further_requests() -> No
                 await asyncio.sleep(0)
                 cleaned.set()
 
-        task = asyncio.create_task(runtime.request(send))
+        task = asyncio.create_task(runtime.request(send, operation="read"))
         try:
             await time.settle()
             assert entered.is_set()
@@ -761,7 +766,7 @@ def test_runtime_stop_cancels_inflight_send_and_rejects_further_requests() -> No
                 await task
             assert cleaned.is_set()
             with pytest.raises(TrafficStopped):
-                await runtime.request(send)
+                await runtime.request(send, operation="read")
             assert runtime.snapshot()["attempts"] == 1
             assert runtime.snapshot()["stop_reason"] == "external"
         finally:

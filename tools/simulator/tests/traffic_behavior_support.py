@@ -18,7 +18,7 @@ from tailtag_simulator.population_reconciliation import (
     reconcile_population,
 )
 from tailtag_simulator.safety import SafetyRuntime
-from tailtag_simulator.traffic import Clock
+from tailtag_simulator.traffic import Clock, TrafficRuntime
 from tailtag_simulator.traffic_behavior import (
     TrafficPopulationRun,
     simulate_traffic_population,
@@ -225,6 +225,7 @@ def run_traffic(
     seed: int = 728,
     check_joined: bool = False,
     safety: SafetyRuntime | None = None,
+    runtime: TrafficRuntime | None = None,
 ) -> tuple[TrafficPopulationRun, PopulationReconciliationResult]:
     async def execute() -> tuple[TrafficPopulationRun, PopulationReconciliationResult]:
         driver = asyncio.create_task(world.time.drive())
@@ -252,7 +253,11 @@ def run_traffic(
                 with safety.scope() if safety is not None else nullcontext():
                     result = await asyncio.wait_for(
                         simulate_traffic_population(
-                            context, config, seed, clock=world.time.clock
+                            context,
+                            config,
+                            seed,
+                            clock=world.time.clock,
+                            runtime=runtime,
                         ),
                         timeout=5,
                     )

@@ -261,6 +261,53 @@ Keep each milestone in its own owner-private archive directory with original man
 
 Patch Linux/Docker and deliberately update pins only between runs after all workload processes end and holds are investigated. Record old/new installed versions and reverify host prerequisites and offline wiring before the next authorized live run. For rollback, select the previous approved immutable image/release, verify its original archive/source/lock/platform again, use its matching host runtime, then prepare a fresh manifest. Do not retag a running workload, reopen its manifest, overwrite its reports, or remove the retained previous image as general cleanup.
 
+## Backend context for performance evaluation
+
+Use this after a normal run, once its report and `host.json` have been retrieved
+into the milestone archive. Evaluation is offline. Run it on the maintainer machine
+from a checkout of the merged simulator, not on the host:
+
+```bash
+make sim-report-evaluate REPORT="$ARCHIVE/<run-uuid>.json" \
+  HOST_COMPANION="$ARCHIVE/<run-uuid>/host.json" CONTEXT="$ARCHIVE/<run-uuid>.context.json"
+```
+
+The companion turns the execution context into `external_host:linux/amd64` and
+supplies peak Docker CPU and memory and the CPU-steal tick delta, in their recorded
+units.
+
+A companion that records a stop, a hard stop, a non-zero container exit, or an
+unmatched report attribution makes the evaluation `not_evaluated`. Keep the
+companion exactly as written; never edit it to change that result.
+
+Before evaluating, the operator may fill in the optional context file. Use the
+evaluation window printed in the summary, which is the report's UTC start and end.
+Filter by the report's backend `source_sha` and the Sentry release, and record one
+closed value per signal:
+
+| Signal | Where to look | Reference |
+| --- | --- | --- |
+| `http_5xx` | `tailtag.http.server.requests` with `http.response.status_class` `5xx`, by `http.route` | [service signals](backend-service-signals.md) |
+| `server_latency` | Sentry trace p95 by transaction for the routes in the simulator README's operation table | [service signals](backend-service-signals.md) |
+| `db_connections` | `tailtag.db.connection.attempts` outcomes and `tailtag.db.connection.duration` p95 | [dependency health](backend-dependency-health.md#postgresql) |
+| `worker_timeouts` | `WORKER TIMEOUT` or `SIGKILL` lines from `gunicorn.error` in Railway logs | [runtime failures](backend-service-signals.md#runtime-failures) |
+| `restarts_or_oom` | Railway deployment events: restarts, redeploys, out-of-memory kills | [dependency health](backend-dependency-health.md#runtime-resources) |
+| `runtime_resources` | Railway API service CPU and memory graphs for the window | [dependency health](backend-dependency-health.md#runtime-resources) |
+| `domain_outcomes` | #213 outcome counts, such as `tailtag.catches.confirmation` rejected by `tailtag.reason` | [domain outcomes](backend-domain-outcomes.md) |
+
+Use `observed_pressure` only for evidence of saturation or failure inside the
+window, `observed_normal` when the signal was checked and looked ordinary, and
+`not_observed` when it was not checked or not available. The file contains no
+free text, links or screenshots. Keep any screenshots in the private archive,
+separate from the file. The context helps readers tell an application or domain
+failure apart from database or runtime pressure. It never changes the verdict.
+Sentry traces are sampled, so the simulator's own latency remains the primary
+measurement.
+
+Promote a reviewed run with `make sim-baseline-promote`, as described in the
+simulator README. Promotion takes effect only through a reviewed pull request.
+Never promote from the host.
+
 ## External acceptance record
 
 Keep preparation/offline evidence separate from live evidence. An authorized live milestone needs:

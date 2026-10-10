@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 from report_support import DATA, commit, git, literal_report, repository
 
+from tailtag_simulator import provenance
 from tailtag_simulator.provenance import SourceRejected, load_source, main
 
 
@@ -62,6 +63,7 @@ def test_clean_git_source_reports_full_sha_and_locked_dependency_identity(
     source_repo: Path,
 ) -> None:
     source = load_source(source_repo)
+    assert provenance.execution_mode(source_repo) == "checkout"
     assert source["simulator_sha"] == {
         "value": git(source_repo, "rev-parse", "HEAD"),
         "reason": None,
@@ -274,6 +276,7 @@ def test_build_validates_git_before_docker_and_copies_a_self_verifying_runtime_c
     ).read_bytes()
     monkeypatch.setenv("TAILTAG_SIMULATOR_SOURCE_SHA", "e" * 40)
     packaged = load_source(captured)
+    assert provenance.execution_mode(captured) == "container"
     assert packaged["simulator_sha"] == {
         "value": metadata["simulator_sha"],
         "reason": None,

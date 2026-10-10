@@ -94,7 +94,7 @@ class _CountedClient(ApiClient):
             self.runtime.record("sent")
             return await send()
 
-        return await self.runtime.request(counted)
+        return await self.runtime.request(counted, operation="auxiliary")
 
 
 async def simulate_traffic_population(
@@ -196,7 +196,7 @@ async def simulate_traffic_population(
             if expectations.pairs.get(pair) == "unresolved":
                 runtime.record("unresolved", -1)
             expectations.pairs[pair] = "forbidden"
-            runtime.record("expected_rejections")
+            runtime.expected_rejection("confirm")
             summaries[actor.persona]["expected_rejections"] += 1
             return
         # Concurrent duplicates and lost replies can observe already_caught first.
@@ -271,7 +271,7 @@ async def simulate_traffic_population(
                             get_value(b, "code") == "catch_target_unavailable"
                         ),
                     )
-                    runtime.record("expected_rejections")
+                    runtime.expected_rejection("resolve")
                 else:
                     await step(
                         "resolve",

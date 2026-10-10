@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+from performance_support import idle_performance
 from report_support import RUN_ID, ReportClock, read_report
 from traffic_support import ManualClock
 
@@ -81,7 +82,7 @@ def test_bucket_boundaries_survive_configuration_scheduling_and_report_readback(
 ) -> None:
     config, snapshot = scheduled_traffic(duration, width)
     report = traffic_report(tmp_path, config)
-    report.record_traffic(snapshot)
+    report.record_traffic(snapshot, idle_performance(snapshot))
     assert read_report(report.path)["results"]["traffic"] == {
         "value": snapshot,
         "reason": None,
@@ -100,7 +101,7 @@ def test_report_rejects_terminal_bucket_even_with_valid_grid_and_accounting(
 ) -> None:
     config, snapshot = scheduled_traffic(1.0, 0.1)
     report = traffic_report(tmp_path, config)
-    report.record_traffic(snapshot)
+    report.record_traffic(snapshot, idle_performance(snapshot))
     value = read_report(report.path)
     buckets = value["results"]["traffic"]["value"]["buckets"]
     if tamper == "append-terminal":

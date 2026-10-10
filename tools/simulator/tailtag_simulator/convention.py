@@ -164,7 +164,9 @@ async def run_convention(
                                 cancellation.population.summaries,
                                 cancellation.population.failure,
                             )
-                            report.record_traffic(runtime.snapshot())
+                            report.record_traffic(
+                                runtime.snapshot(), runtime.performance()
+                            )
                         except ReportFailed:
                             pass  # Persistence cannot prevent cancellation/finalization.
                     raise
@@ -175,7 +177,7 @@ async def run_convention(
             try:
                 report.record_behavior(simulated.summaries, simulated.failure)
                 if runtime is not None:
-                    report.record_traffic(runtime.snapshot())
+                    report.record_traffic(runtime.snapshot(), runtime.performance())
             except ReportFailed:
                 report_failed = True
         labels = tuple(f"owner{n}" for n in range(owners)) + tuple(
