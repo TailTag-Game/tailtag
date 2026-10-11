@@ -10,7 +10,15 @@ from tempfile import TemporaryDirectory
 from typing import cast
 
 import pytest
-from test_host_protocol import IDENTITY, RUN, SENTINEL, manifest, section
+from test_host_protocol import (
+    IDENTITY,
+    RUN,
+    SENTINEL,
+    expiration_manifest,
+    journeys_manifest,
+    manifest,
+    section,
+)
 
 from tailtag_simulator.host_bridge import BridgeServer, BridgeSession
 from tailtag_simulator.host_protocol import decode_frame, encode_frame
@@ -78,7 +86,7 @@ def envelope(operation: str, **changes: object) -> dict[str, object]:
             extras=[],
             fursuits_per_owner=4,
         )
-    elif operation == "inspect-population-v1":
+    elif operation in {"inspect-population-v1", "inspect"}:
         arguments.update(pool="alpha", identities=dict(ROLES))
     elif operation in {"cleanup", "retain"}:
         arguments["pool"] = "alpha"
@@ -98,7 +106,9 @@ def envelope(operation: str, **changes: object) -> dict[str, object]:
 def channel_for(operation: str) -> str:
     if operation in {"allocate", "heartbeat", "quarantine", "release"}:
         return "pool"
-    return "inspection" if operation == "inspect-population-v1" else "fixture"
+    if operation in {"inspect-population-v1", "inspect"}:
+        return "inspection"
+    return "fixture"
 
 
 class Relay:
@@ -125,7 +135,11 @@ class Relay:
             except asyncio.CancelledError:
                 self.cancelled = True
                 raise
-        answer = self.answers.get(operation, ("PASS", deepcopy(ACKS[operation])))
+        answer = (
+            self.answers[operation]
+            if operation in self.answers
+            else ("PASS", deepcopy(ACKS[operation]))
+        )
         self.settled.set()
         if isinstance(answer, Exception):
             raise answer
@@ -608,7 +622,7 @@ def test_target_veto_or_terminal_entry_never_reopens_authority(
     asyncio.run(execute())
 
 
-@pytest.mark.parametrize("limit", ["time", "revoke", "close", "operations"])
+@pytest.mark.parametrize("limit", ["time", "revoke", "close"])
 def test_authority_and_dispatch_budget_cannot_be_renewed(limit: str) -> None:
     async def execute() -> None:
         now = [100.0]
@@ -619,10 +633,7 @@ def test_authority_and_dispatch_budget_cannot_be_renewed(limit: str) -> None:
         try:
             await advance(session, "allocated")
             assert session.health() == {"run_id": RUN, "live": True}
-            if limit == "operations":
-                for _ in range(255):
-                    assert (await call(session, "heartbeat"))["result"] == "PASS"
-            elif limit == "time":
+            if limit == "time":
                 now[0] = 109.0
                 assert (await call(session, "heartbeat"))["result"] == "PASS"
                 assert session.health()["live"] is True
@@ -939,6 +950,261 @@ def test_invalid_socket_frames_never_dispatch_or_echo_input(
             writer.close()
             await writer.wait_closed()
             await server.close()
+            session.close()
+
+    asyncio.run(execute())
+
+
+# #230 U2: journeys partition, `inspect` and the expiration-tier heartbeat budget.
+JOURNEY_INDEXES = [17, 23, 31, 37, 41, 43, 47]
+JOURNEY_ROLES = {
+    "owner0": 17,
+    "owner1": 23,
+    "catcher0": 31,
+    "catcher1": 37,
+    "catcher2": 41,
+    "catcher3": 43,
+    "outsider": 47,
+}
+JOURNEY_PROVISION: dict[str, object] = {
+    "owners": [17, 23],
+    "catchers": [31, 37, 41, 43],
+    "extras": [47],
+    "fursuits_per_owner": 2,
+}
+JOURNEY_ACK = {"convention": 1, "enrollment": 6, "fursuit": 4, "activation": 4}
+CATCH_ROW: dict[str, object] = {
+    "id": 5,
+    "fursuit": 101,
+    "catcher": 31,
+    "fursuit_owner": 17,
+    "run_convention": True,
+    "provenance": True,
+    "in_window": True,
+    "caught_at": "2026-10-10T12:00:00.123456Z",
+}
+JOURNEY_INSPECTION: dict[str, object] = {
+    "catches": [CATCH_ROW],
+    "fursuits": [{"id": 101, "owner": 17}],
+    "fixture_photos_unchanged": True,
+    "avatars": [17],
+}
+
+
+def journeys_relay() -> Relay:
+    relay = Relay()
+    relay.answers.update(
+        allocate=("PASS", {"indexes": JOURNEY_INDEXES}),
+        heartbeat=("PASS", {"extended": 7}),
+        provision=("PASS", dict(JOURNEY_ACK)),
+        inspect=("PASS", deepcopy(JOURNEY_INSPECTION)),
+    )
+    return relay
+
+
+async def journeys_session(relay: Relay, *, provisioned: bool) -> BridgeSession:
+    session = BridgeSession(journeys_manifest(), relay.dispatch)
+    assert (await call(session, "allocate", count=7))["result"] == "PASS"
+    if provisioned:
+        reply = await call(session, "provision", **JOURNEY_PROVISION)
+        assert reply == {"result": "PASS", "data": JOURNEY_ACK}
+    return session
+
+
+def test_journeys_session_grants_only_the_fixed_seven_role_partition() -> None:
+    async def execute() -> None:
+        relay = journeys_relay()
+        session = await journeys_session(relay, provisioned=True)
+        try:
+            assert await call(session, "inspect", identities=JOURNEY_ROLES) == {
+                "result": "PASS",
+                "data": JOURNEY_INSPECTION,
+            }
+            provision_call = next(
+                req for _, req in relay.calls if req["operation"] == "provision"
+            )
+            assert section(provision_call, "arguments") == {
+                "run_id": RUN,
+                "pool": "alpha",
+                **JOURNEY_PROVISION,
+            }
+        finally:
+            session.close()
+
+    asyncio.run(execute())
+
+
+WRONG_PARTITIONS: list[dict[str, object]] = [
+    {"owners": [17, 23, 31], "catchers": [37, 41, 43]},
+    {"owners": [23, 17]},
+    {"owners": [31, 37], "catchers": [17, 23, 41, 43]},
+    {"extras": []},
+    {"extras": [43], "catchers": [31, 37, 41, 47]},
+    {"fursuits_per_owner": 4},
+]
+
+
+@pytest.mark.parametrize("change", WRONG_PARTITIONS)
+def test_journeys_provision_outside_the_partition_never_reaches_the_relay(
+    change: dict[str, object],
+) -> None:
+    async def execute() -> None:
+        relay = journeys_relay()
+        session = await journeys_session(relay, provisioned=False)
+        try:
+            before = len(relay.calls)
+            wrong = {**JOURNEY_PROVISION, **change}
+            assert_rejected(await call(session, "provision", **wrong))
+            assert len(relay.calls) == before
+            assert session.health() == {"run_id": RUN, "live": False}
+        finally:
+            session.close()
+
+    asyncio.run(execute())
+
+
+def test_journeys_provision_acknowledgement_must_be_the_fixed_counts() -> None:
+    async def execute() -> None:
+        relay = journeys_relay()
+        # The convention formula would count seven enrollments and eight fursuits.
+        relay.answers["provision"] = (
+            "PASS",
+            {"convention": 1, "enrollment": 7, "fursuit": 4, "activation": 4},
+        )
+        session = BridgeSession(journeys_manifest(), relay.dispatch)
+        try:
+            assert (await call(session, "allocate", count=7))["result"] == "PASS"
+            assert_rejected(await call(session, "provision", **JOURNEY_PROVISION))
+            before = len(relay.calls)
+            assert_rejected(await call(session, "inspect", identities=JOURNEY_ROLES))
+            assert len(relay.calls) == before
+        finally:
+            session.close()
+
+    asyncio.run(execute())
+
+
+def test_journeys_inspect_with_the_wrong_role_mapping_is_a_veto() -> None:
+    async def execute() -> None:
+        relay = journeys_relay()
+        session = await journeys_session(relay, provisioned=True)
+        try:
+            before = len(relay.calls)
+            swapped = {**JOURNEY_ROLES, "owner0": 23, "owner1": 17}
+            assert_rejected(await call(session, "inspect", identities=swapped))
+            assert len(relay.calls) == before
+            assert session.health() == {"run_id": RUN, "live": False}
+        finally:
+            session.close()
+
+    asyncio.run(execute())
+
+
+def drop(value: dict[str, object], key: str) -> dict[str, object]:
+    return {k: v for k, v in value.items() if k != key}
+
+
+BAD_INSPECTIONS: list[dict[str, object]] = [
+    {**JOURNEY_INSPECTION, SENTINEL: 1},
+    drop(JOURNEY_INSPECTION, "avatars"),
+    {**JOURNEY_INSPECTION, "fixture_photos_unchanged": 1},
+    {**JOURNEY_INSPECTION, "avatars": [True]},
+    {**JOURNEY_INSPECTION, "catches": [drop(CATCH_ROW, "provenance")]},
+    {**JOURNEY_INSPECTION, "catches": [{**CATCH_ROW, "caught_at": "yesterday"}]},
+    {**JOURNEY_INSPECTION, "fursuits": [{"id": 101, "owner": 17, "x": 1}]},
+]
+
+
+@pytest.mark.parametrize("answer", BAD_INSPECTIONS)
+def test_malformed_journeys_inspection_response_is_a_launcher_failure(
+    answer: dict[str, object],
+) -> None:
+    async def execute() -> None:
+        relay = journeys_relay()
+        relay.answers["inspect"] = ("PASS", answer)
+        session = await journeys_session(relay, provisioned=True)
+        try:
+            reply = await call(session, "inspect", identities=JOURNEY_ROLES)
+            assert reply == {"result": "FAIL_LAUNCHER", "data": {}}
+            assert SENTINEL not in json.dumps(session.evidence(), allow_nan=False)
+        finally:
+            session.close()
+
+    asyncio.run(execute())
+
+
+def test_inspection_operations_are_not_interchangeable_between_scenarios() -> None:
+    async def execute() -> None:
+        relay = journeys_relay()
+        journeys = await journeys_session(relay, provisioned=True)
+        convention_relay = Relay()
+        convention = BridgeSession(manifest(), convention_relay.dispatch)
+        try:
+            await advance(convention, "provisioned")
+            before = len(relay.calls), len(convention_relay.calls)
+            assert_rejected(
+                await call(journeys, "inspect-population-v1", identities=JOURNEY_ROLES)
+            )
+            assert_rejected(await call(convention, "inspect"))
+            assert (len(relay.calls), len(convention_relay.calls)) == before
+        finally:
+            journeys.close()
+            convention.close()
+
+    asyncio.run(execute())
+
+
+@pytest.mark.parametrize(
+    ("kind", "budget"),
+    [("standard", 41), ("journeys", 41), ("expiration", 806)],
+)
+def test_heartbeat_budget_follows_safety_and_never_consumes_other_operations(
+    kind: str, budget: int
+) -> None:
+    async def execute() -> None:
+        relay = journeys_relay()
+        launch = {
+            "standard": manifest,
+            "journeys": journeys_manifest,
+            "expiration": expiration_manifest,
+        }[kind]()
+        count = {"standard": 6, "journeys": 7, "expiration": 2}[kind]
+        relay.answers.update(
+            allocate=("PASS", {"indexes": JOURNEY_INDEXES[:count]}),
+            heartbeat=("PASS", {"extended": count}),
+            release=("PASS", {"released": count}),
+        )
+        session = BridgeSession(launch, relay.dispatch, clock=lambda: 100.0)
+        try:
+            assert (await call(session, "allocate", count=count))["result"] == "PASS"
+            for _ in range(budget):
+                assert (await call(session, "heartbeat"))["result"] == "PASS"
+            before = len(relay.calls)
+            assert_rejected(await call(session, "heartbeat"))
+            assert len(relay.calls) == before
+            assert (await call(session, "release"))["result"] == "PASS"
+        finally:
+            session.close()
+
+    asyncio.run(execute())
+
+
+def test_heartbeats_never_extend_the_non_heartbeat_operation_cap() -> None:
+    async def execute() -> None:
+        relay = journeys_relay()
+        relay.answers["heartbeat"] = ("PASS", {"extended": 7})
+        session = await journeys_session(relay, provisioned=True)
+        try:
+            for _ in range(10):
+                assert (await call(session, "heartbeat"))["result"] == "PASS"
+            # allocate and provision used 2 of the 256 non-heartbeat operations.
+            for _ in range(254):
+                reply = await call(session, "inspect", identities=JOURNEY_ROLES)
+                assert reply["result"] == "PASS"
+            before = len(relay.calls)
+            assert_rejected(await call(session, "inspect", identities=JOURNEY_ROLES))
+            assert len(relay.calls) == before
+        finally:
             session.close()
 
     asyncio.run(execute())

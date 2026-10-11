@@ -1,6 +1,8 @@
 """Owner-private admission and durable recovery holds for the trusted host."""
 
+import errno
 import fcntl
+import hashlib
 import json
 import math
 import os
@@ -19,6 +21,8 @@ from .reports import validate_report
 
 TOTAL = 1_073_741_824
 RESERVE = 33_554_432
+MAX_EVIDENCE_BYTES = 33_554_432
+MAX_INVENTORY_RUNS = 64
 
 
 def _reject() -> NoReturn:
@@ -345,3 +349,170 @@ def resolve_recovery(root: Path, run_id: str, receipt: Mapping[str, object]) -> 
             )
         _write(base / "control" / "recovery.json", trusted)
         _clear_hold(base)
+
+
+def _contents(
+    directory: int, parts: tuple[str, ...], *, optional: bool = False
+) -> bytes | None:
+    """Read one owner-held regular file below `directory`, never following links.
+
+    `optional` maps an absent, linked, special or empty file to None; everything
+    else unusable raises. Non-blocking opens keep a FIFO from stalling the scan.
+    """
+    opened: list[int] = []
+    try:
+        current = directory
+        for name in parts[:-1]:
+            current = os.open(
+                name,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=current,
+            )
+            opened.append(current)
+        try:
+            fd = os.open(
+                parts[-1],
+                os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                dir_fd=current,
+            )
+        except OSError as error:
+            if optional and error.errno in {errno.ENOENT, errno.ELOOP}:
+                return None
+            raise
+        opened.append(fd)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            if optional:
+                return None
+            _reject()
+        if info.st_uid != os.getuid():
+            _reject()
+        data = bytearray()
+        while chunk := os.read(fd, MAX_EVIDENCE_BYTES + 1 - len(data)):
+            data += chunk
+            if len(data) > MAX_EVIDENCE_BYTES:
+                _reject()
+        if not data:
+            if optional:
+                return None
+            _reject()
+        return bytes(data)
+    finally:
+        for fd in opened:
+            os.close(fd)
+
+
+def _digest(data: bytes | None) -> dict[str, object] | None:
+    if data is None:
+        return None
+    return {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+
+
+def _completed_at(host: bytes) -> float:
+    if len(host) > 65536:
+        _reject()
+    value: object = json.loads(host, object_pairs_hook=_pairs)
+    if not isinstance(value, dict):
+        _reject()
+    completed = cast(dict[str, Any], value).get("completed_at")
+    if type(completed) not in {int, float} or not math.isfinite(cast(float, completed)):
+        _reject()
+    return float(cast(float, completed))
+
+
+def _exists(directory: int, name: str) -> bool:
+    try:
+        os.lstat(name, dir_fd=directory)
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def _run_files(runs: int, run_id: str) -> tuple[str, dict[str, object] | None, float]:
+    """Classify one run directory, reading nothing outside its fixed evidence.
+
+    The states are held, incomplete, settled and pruned (nothing left to collect).
+    """
+    base = os.open(run_id, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=runs)
+    try:
+        if _exists(base, "recovery-hold.json"):
+            return "held", None, 0.0
+        try:
+            control = os.open(
+                "control", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=base
+            )
+        except OSError:
+            return "incomplete", None, 0.0
+        try:
+            recovered = _exists(control, "recovery.json")
+        finally:
+            os.close(control)
+        if recovered and not _exists(base, "host.json"):
+            return "pruned", None, 0.0
+        try:
+            host = _contents(base, ("host.json",))
+            files: dict[str, object] = {
+                "report": _digest(_contents(base, ("reports", f"{run_id}.json"))),
+                "stages": _digest(
+                    _contents(base, ("reports", "stages.log"), optional=True)
+                ),
+                "host": _digest(host),
+            }
+            _contents(base, ("control", "recovery.json"))  # Presence and ownership.
+            assert host is not None
+            return "settled", files, _completed_at(host)
+        except (OSError, ValueError, AssertionError):
+            return "incomplete", None, 0.0  # Includes anything vanished mid-read.
+    finally:
+        os.close(base)
+
+
+def inventory_runs(root: Path) -> dict[str, object]:
+    """Read-only, lock-free listing of host runs; never writes, prunes or waits."""
+    if not root.is_absolute():
+        _reject()
+    top = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        runs = os.open("runs", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=top)
+    finally:
+        os.close(top)
+    try:
+        pending: list[dict[str, object]] = []
+        settled: list[tuple[float, dict[str, object]]] = []
+        for run_id in sorted(os.listdir(runs)):
+            try:
+                if str(uuid.UUID(run_id)) != run_id:
+                    continue
+            except ValueError:
+                continue
+            try:
+                if not stat.S_ISDIR(os.lstat(run_id, dir_fd=runs).st_mode):
+                    continue
+            except FileNotFoundError:
+                continue  # Removed after listing; this listing takes no lock.
+            try:
+                state, files, completed = _run_files(runs, run_id)
+            except OSError:
+                state, files, completed = "incomplete", None, 0.0
+            if state == "pruned":
+                continue
+            entry: dict[str, object] = {
+                "run_id": run_id,
+                "state": state,
+                "files": files,
+            }
+            if state == "settled":
+                settled.append((completed, entry))
+            else:
+                pending.append(entry)
+        if len(pending) > MAX_INVENTORY_RUNS:
+            _reject()
+        settled.sort(key=lambda item: (-item[0], str(item[1]["run_id"])))
+        room = MAX_INVENTORY_RUNS - len(pending)
+        return {
+            "schema_version": 1,
+            "runs": [*pending, *(entry for _, entry in settled[:room])],
+            "omitted": len(settled) - room if len(settled) > room else 0,
+        }
+    finally:
+        os.close(runs)

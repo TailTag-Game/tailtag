@@ -9,22 +9,28 @@ import os
 import tempfile
 import threading
 import uuid
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Mapping
 from contextlib import contextmanager
 from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
 import httpx
 import pytest
 from convention_support import CONFIG, Rig, rig
+from journey_support import JourneyWorld
 from pool_support import DEPLOYMENT_ID, INSTANCE_ID, POOL, SECRET, SHA
+from reconciliation_support import FakeInspectionChannel
 from report_support import read_report
+from test_journeys import Rig as JourneysRigParts
+from test_journeys import make_rig as make_journeys_rig
 
 from tailtag_simulator import clerk
 from tailtag_simulator.__main__ import main
 from tailtag_simulator.host_bridge import BridgeServer, BridgeSession
 from tailtag_simulator.host_operator import main as operator_main
+from tailtag_simulator.reconciliation import Role
 from tailtag_simulator.safety import resolve_safety_policy
 from tailtag_simulator.traffic_config import resolve_traffic_config
 
@@ -155,7 +161,7 @@ def install_http(
 
 @contextmanager
 def bridge(
-    value: dict[str, object], run: Rig, directory: Path
+    value: dict[str, object], run: "Rig | JourneysRig", directory: Path
 ) -> Generator[list[tuple[str, dict[str, object]]]]:
     """Actual bridge on a separate loop; only its external relay boundary is fake."""
     seen: list[tuple[str, dict[str, object]]] = []
@@ -467,3 +473,230 @@ def test_prepare_verifies_staging_without_mutation_and_writes_fresh_private_mani
     )
     assert len(set(uuids)) == len(uuids)
     assert SENTINEL not in "".join(capsys.readouterr())
+
+
+# #230 U1: every committed profile prepares through the real operator path.
+HOST_DIR = Path(__file__).parents[1] / "host"
+STANDARD_PROFILES = [
+    "smoke-profile.json",
+    "normal-profile.json",
+    "nightly-post-event-profile.json",
+    "nightly-hotspot-profile.json",
+    "nightly-retry-profile.json",
+    "nightly-soak-profile.json",
+    "weekend-profile.json",
+]
+PERSONAS = (
+    "normal_owners",
+    "popular_owners",
+    "casual",
+    "active",
+    "heavy",
+    "retry_prone",
+)
+
+
+def committed(name: str) -> dict[str, object]:
+    return cast(dict[str, object], json.loads((HOST_DIR / name).read_text()))
+
+
+def prepare_committed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile: str, safety: str
+) -> tuple[int, Path, list[str]]:
+    release = {
+        "schema_version": 1,
+        **section(host_manifest(), "release"),
+        "archive_sha256": "e" * 64,
+    }
+    (tmp_path / "release.json").write_text(json.dumps(release))
+    seen: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        if request.url.path == "/health/ready":
+            return httpx.Response(200, json={"status": "ok"})
+        return httpx.Response(200, json=IDENTITY)
+
+    install_http(monkeypatch, respond)
+    output = tmp_path / "manifest.json"
+    code = operator_main(
+        [
+            "prepare",
+            "--profile",
+            str(HOST_DIR / profile),
+            "--safety-config",
+            str(HOST_DIR / safety),
+            "--release",
+            str(tmp_path / "release.json"),
+            "--output",
+            str(output),
+        ]
+    )
+    return code, output, seen
+
+
+@pytest.mark.parametrize(
+    ("profile", "safety"),
+    [(name, "safety.json") for name in STANDARD_PROFILES]
+    + [("expiration-profile.json", "expiration-safety.json")],
+)
+def test_every_committed_profile_prepares_with_its_intended_safety_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile: str, safety: str
+) -> None:
+    code, output, _ = prepare_committed(tmp_path, monkeypatch, profile, safety)
+    assert code == 0
+    prepared = cast(dict[str, object], json.loads(output.read_text()))
+    wrapper = committed(profile)
+    assert prepared["scenario_id"] == wrapper["scenario_id"]
+    assert prepared["seed"] == wrapper["seed"]
+
+
+@pytest.mark.parametrize(
+    ("profile", "safety"),
+    [
+        ("expiration-profile.json", "safety.json"),
+        ("normal-profile.json", "expiration-safety.json"),
+        ("weekend-profile.json", "expiration-safety.json"),
+    ],
+)
+def test_committed_profile_with_the_wrong_tier_safety_file_is_refused_before_network(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile: str, safety: str
+) -> None:
+    code, output, seen = prepare_committed(tmp_path, monkeypatch, profile, safety)
+    assert code != 0
+    assert not output.exists()
+    assert seen == []
+
+
+def test_committed_cadence_profiles_keep_their_documented_population_shape() -> None:
+    def personas(name: str) -> dict[str, int]:
+        config = cast(dict[str, object], committed(name)["configuration"])
+        return {key: cast(int, config[key]) for key in PERSONAS}
+
+    weekend = personas("weekend-profile.json")
+    assert sum(weekend.values()) == 50
+    assert all(count > 0 for count in weekend.values())
+    for name in STANDARD_PROFILES:
+        if name.startswith("nightly-"):
+            assert sum(personas(name).values()) <= 20
+
+
+# #230 U2: journeys runs through the same bound-host entrypoint and bridge.
+class RoleKeyedInspection:
+    """The relay's wire form names roles by string; the journeys fake takes Role."""
+
+    def __init__(self, inner: FakeInspectionChannel) -> None:
+        self.inner = inner
+
+    async def inspect(
+        self, pool: str, run_id: str, identities: Mapping[str, int]
+    ) -> Mapping[str, object]:
+        return await self.inner.inspect(
+            pool, run_id, {Role(name): index for name, index in identities.items()}
+        )
+
+
+@dataclass
+class JourneysRig:
+    leases: Any
+    fixtures: Any
+    inspection: RoleKeyedInspection
+
+
+def journeys_host_manifest() -> dict[str, object]:
+    value = host_manifest()
+    value.update(
+        scenario_id="journeys",
+        scenario_version=1,
+        seed=0,
+        configuration={"pool": POOL},
+        safety=resolve_safety_policy({"population": 50, "final_seconds": 5}),
+    )
+    return value
+
+
+def test_host_journeys_runs_through_bridge_channels_with_manifest_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    value = journeys_host_manifest()
+    source = packaged_source(tmp_path / "source")
+    section(value, "release")["dependency_lock_sha256"] = source[
+        "dependency_lock_sha256"
+    ]
+    module = importlib.import_module("tailtag_simulator.__main__")
+    monkeypatch.setattr(module, "REPOSITORY_ROOT", tmp_path / "source")
+    monkeypatch.setattr(
+        clerk,
+        "INSTANCE_FINGERPRINT",
+        hashlib.sha256(INSTANCE_ID.encode()).hexdigest()[:16],
+    )
+    parts: JourneysRigParts = make_journeys_rig(JourneyWorld())
+    run = JourneysRig(
+        parts.leases, parts.fixtures, RoleKeyedInspection(parts.inspection)
+    )
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        transport = (
+            parts.world.api_transport
+            if request.url.host == "staging.tailtag.app"
+            else parts.world.clerk_transport
+        )
+        return await transport.handle_async_request(request)
+
+    install_http(monkeypatch, respond)
+
+    def secret(*_args: object, **_kwargs: object) -> str:
+        return SECRET
+
+    monkeypatch.setattr(getpass, "getpass", secret)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("sys.stderr.isatty", lambda: True)
+    root = tmp_path / "cli"
+    root.mkdir()
+    (root / "manifest.json").write_text(json.dumps(value))
+    with tempfile.TemporaryDirectory(prefix="t230-", dir="/tmp") as path:
+        directory = Path(path).resolve() / "s"
+        with bridge(value, run, directory) as seen:
+            code = main(
+                [
+                    "journeys",
+                    "--pool",
+                    POOL,
+                    "--scenario-version",
+                    "1",
+                    "--seed",
+                    "0",
+                    "--host-manifest",
+                    str(root / "manifest.json"),
+                    "--host-socket-dir",
+                    str(directory),
+                    "--stage-log",
+                    str(root / "stages.log"),
+                    "--report-dir",
+                    str(root / "reports"),
+                ]
+            )
+    assert code == 0
+    reports = list((root / "reports").rglob("*.json"))
+    assert len(reports) == 1
+    report = read_report(reports[0])
+    assert report["run_id"] == RUN
+    assert report["outcome"] == "passed"
+    assert (root / "stages.log").stat().st_mode & 0o777 == 0o600
+    # Every privileged call crossed the bridge, none a local launcher.
+    assert {channel for channel, _ in seen} == {"pool", "fixture", "inspection"}
+    fixed = {"allocate", "provision", "inspect", "cleanup", "release"}
+    operations = [
+        request["operation"] for _, request in seen if request["operation"] in fixed
+    ]
+    assert operations == ["allocate", "provision", "inspect", "cleanup", "release"]
+    provision = next(r for _, r in seen if r["operation"] == "provision")
+    assert section(provision, "arguments") == {
+        "run_id": RUN,
+        "pool": POOL,
+        "owners": [1, 2],
+        "catchers": [3, 4, 5, 6],
+        "extras": [7],
+        "fursuits_per_owner": 2,
+    }
+    assert set(parts.world.ended_sessions) == set(parts.world.opened_sessions)

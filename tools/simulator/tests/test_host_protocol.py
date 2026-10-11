@@ -168,3 +168,142 @@ def test_malformed_frames_fail_without_echoing_input(
         with pytest.raises(ValueError) as document_error:
             decode_document(raw)
         assert SENTINEL not in repr(document_error.value)
+
+
+# #230 U1: admission accepts exactly three closed shapes.
+def merged(base: dict[str, object], changes: dict[str, object]) -> dict[str, object]:
+    """One-level-deep override so a case names only the nested key it changes."""
+    result = deepcopy(base)
+    for key, value in changes.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = {**cast(dict[str, object], result[key]), **value}
+        else:
+            result[key] = value
+    return result
+
+
+def journeys_manifest(**changes: object) -> dict[str, object]:
+    launch = manifest()
+    launch.update(
+        scenario_id="journeys",
+        scenario_version=1,
+        seed=0,
+        configuration={"pool": "alpha"},
+        safety=resolve_safety_policy({"population": 7}),
+    )
+    launch.update(changes)
+    return launch
+
+
+EXPIRATION_CONFIG: dict[str, object] = {
+    "pool": "alpha",
+    "family": "baseline",
+    "normal_owners": 1,
+    "popular_owners": 0,
+    "casual": 1,
+    "active": 0,
+    "heavy": 0,
+    "retry_prone": 0,
+    "fursuits": 1,
+    "traffic": {
+        "mode": "active",
+        "segments": [{"duration_seconds": 44000, "start": 1, "end": 1}],
+        "bursts": [],
+        "think_seconds": 1,
+        "jitter_seconds": 0,
+        "bucket_seconds": 60,
+    },
+    "failure": {"domain_case": "expired"},
+    "limits": {
+        "active": 1,
+        "in_flight": 2,
+        "generation_seconds": 44500,
+        "drain_seconds": 15,
+    },
+}
+EXPIRATION_SAFETY: dict[str, object] = {
+    "seconds": 46800,
+    "final_seconds": 600,
+    "population": 2,
+    "in_flight": 2,
+}
+
+
+def expiration_manifest(
+    config: dict[str, object] | None = None,
+    safety: dict[str, object] | None = None,
+    **top: object,
+) -> dict[str, object]:
+    launch = manifest()
+    launch.update(
+        configuration=resolve_traffic_config(merged(EXPIRATION_CONFIG, config or {})),
+        safety=resolve_safety_policy({**EXPIRATION_SAFETY, **(safety or {})}),
+    )
+    launch.update(top)
+    return launch
+
+
+def test_journeys_and_expiration_tier_manifests_are_admitted_unchanged() -> None:
+    for supplied in (journeys_manifest(), expiration_manifest()):
+        expected = deepcopy(supplied)
+        assert validate_manifest(supplied) == expected
+
+
+ADMISSION_REFUSED: list[tuple[str, dict[str, object]]] = [
+    ("journeys-extra-key", journeys_manifest(configuration={"pool": "a", "x": 1})),
+    ("journeys-family", journeys_manifest(configuration={"pool": "a", "family": "b"})),
+    ("journeys-bad-pool", journeys_manifest(configuration={"pool": "Bad_Pool"})),
+    ("journeys-seed", journeys_manifest(seed=1)),
+    ("journeys-version", journeys_manifest(scenario_version=2)),
+    (
+        "journeys-population",
+        journeys_manifest(safety=resolve_safety_policy({"population": 6})),
+    ),
+    (
+        "journeys-over-standard-ceiling",
+        journeys_manifest(safety=resolve_safety_policy({"population": 51})),
+    ),
+    ("expiration-persona-sum", expiration_manifest({"casual": 2})),
+    (
+        "expiration-domain-case",
+        expiration_manifest({"failure": {"domain_case": "none"}}),
+    ),
+    ("expiration-seconds", expiration_manifest(safety={"seconds": 46801})),
+    ("expiration-final-seconds", expiration_manifest(safety={"final_seconds": 601})),
+    ("expiration-population", expiration_manifest(safety={"population": 3})),
+    ("expiration-safety-in-flight", expiration_manifest(safety={"in_flight": 3})),
+    ("expiration-requests", expiration_manifest(safety={"requests": 10001})),
+    (
+        "expiration-family",
+        expiration_manifest(
+            {"family": "retry", "casual": 0, "retry_prone": 1},
+            scenario_id="convention-retry",
+        ),
+    ),
+    ("expiration-active", expiration_manifest({"limits": {"active": 2}})),
+    ("expiration-in-flight", expiration_manifest({"limits": {"in_flight": 3}})),
+    (
+        "expiration-generation",
+        expiration_manifest({"limits": {"generation_seconds": 45001}}),
+    ),
+    (
+        # Large persona sum, standard ceilings: only the tier rule can refuse it.
+        "standard-expired",
+        expiration_manifest(
+            {"casual": 9, "limits": {"active": 10, "in_flight": 10}},
+            {"seconds": 900, "population": 50, "in_flight": 10},
+        ),
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "supplied",
+    [item for _, item in ADMISSION_REFUSED],
+    ids=[n for n, _ in ADMISSION_REFUSED],
+)
+def test_manifest_refuses_everything_outside_the_three_closed_shapes(
+    supplied: dict[str, object],
+) -> None:
+    with pytest.raises(ValueError):
+        validate_manifest(supplied)

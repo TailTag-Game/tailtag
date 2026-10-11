@@ -1,0 +1,8 @@
+{
+  "scenario_id": "journeys",
+  "scenario_version": 1,
+  "seed": 0,
+  "configuration": {
+    "pool": "host228"
+  }
+}

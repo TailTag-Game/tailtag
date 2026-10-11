@@ -19,9 +19,18 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from pool_support import POOL
 from report_support import read_report
 from test_host_artifacts import report_file
-from test_host_cli import IMAGE, RUN, SENTINEL, host_manifest, packaged_source, section
+from test_host_cli import (
+    IMAGE,
+    RUN,
+    SENTINEL,
+    host_manifest,
+    journeys_host_manifest,
+    packaged_source,
+    section,
+)
 from traffic_support import ManualClock
 
 from tailtag_simulator.host_operator import run_session
@@ -1421,6 +1430,82 @@ def test_host_cli_survives_sighup_until_named_python_finalizes(
             stop_owned_container_child(root, child_pid)
             unrelated.terminate()
             await asyncio.wait_for(unrelated.wait(), 5)
+            server.close()
+            await server.wait_closed()
+
+    with owned_root() as root:
+        asyncio.run(execute(root))
+
+
+# #230 U2: the container command is derived from the manifest's scenario.
+@pytest.mark.parametrize("scenario", ["convention", "journeys"])
+def test_container_command_is_built_from_the_admitted_scenario(
+    monkeypatch: pytest.MonkeyPatch, scenario: str
+) -> None:
+    async def execute(root: Path) -> None:
+        record = docker_boundary(
+            root, monkeypatch, stuck=False, report_outcome="failed"
+        )
+        value = (
+            host_manifest() if scenario == "convention" else journeys_host_manifest()
+        )
+        section(value, "release")["dependency_lock_sha256"] = json.loads(
+            (root / "image-source.json").read_text()
+        )["dependency_lock_sha256"]
+        (root / "run-manifest.json").write_text(json.dumps(value))
+        release = {
+            "schema_version": 1,
+            **section(value, "release"),
+            "archive_sha256": "e" * 64,
+        }
+        _, control = prepared_skeleton(root, value)
+
+        async def serve(
+            reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+        ) -> None:
+            try:
+                await reader.readline()
+                writer.write(json.dumps({"run_id": RUN, "live": True}).encode() + b"\n")
+                await writer.drain()
+            finally:
+                writer.close()
+                await writer.wait_closed()
+
+        server = await asyncio.start_unix_server(serve, path=control / "health.sock")
+        (control / "health.sock").chmod(0o600)
+        task = asyncio.create_task(supervise_run(value, release, root))
+        try:
+            with suppress(ValueError, TimeoutError, asyncio.CancelledError):
+                await asyncio.wait_for(task, 10)
+            launches = [
+                item["argv"]
+                for item in records(record)
+                if item["argv"][0] == "run"
+                and "tailtag_simulator.provenance" not in item["argv"]
+            ]
+            assert len(launches) == 1
+            argv = launches[0]
+            command = argv[argv.index("tailtag_simulator") + 1 :]
+            assert command[0] == scenario
+            flags = dict(zip(command[1::2], command[2::2], strict=True))
+            expected = {
+                "--pool": POOL,
+                "--scenario-version": "2" if scenario == "convention" else "1",
+                "--seed": "-7" if scenario == "convention" else "0",
+                "--host-manifest": "/manifest.json",
+                "--host-socket-dir": "/bridge",
+                "--report-dir": "/reports",
+                "--stage-log": "/reports/stages.log",
+            }
+            if scenario == "convention":
+                expected["--family"] = "baseline"
+            assert flags == expected
+        finally:
+            if not task.done():
+                task.cancel()
+                with suppress(ValueError, asyncio.CancelledError):
+                    await task
+            stop_owned_container_child(root, None)
             server.close()
             await server.wait_closed()
 

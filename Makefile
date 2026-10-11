@@ -105,7 +105,7 @@ endef
 	api-staging-restore-drill \
 	api-format-check api-lint-check api-type-check api-django-check \
 	api-schema-check api-gunicorn-check \
-	sim-setup sim-check sim-smoke sim-pool-provision sim-pool-status sim-pool-readmit sim-pool-smoke sim-fixture-smoke sim-journeys sim-convention sim-cleanup sim-retained sim-image sim-host-prepare sim-host-run sim-host-release-export sim-host-release-load sim-host-bootstrap-check sim-catalog-check sim-report-validate sim-report-evaluate sim-report-trend sim-baseline-promote sim-format-check sim-lint-check sim-type-check sim-test sim-semgrep-check
+	sim-setup sim-check sim-smoke sim-pool-provision sim-pool-status sim-pool-readmit sim-pool-smoke sim-fixture-smoke sim-journeys sim-convention sim-cleanup sim-retained sim-image sim-host-prepare sim-host-run sim-host-collect sim-host-release-export sim-host-release-load sim-host-bootstrap-check sim-catalog-check sim-report-validate sim-report-evaluate sim-report-trend sim-baseline-promote sim-format-check sim-lint-check sim-type-check sim-test sim-semgrep-check
 
 help: ## List the canonical backend developer commands.
 	@awk 'BEGIN { print "TailTag backend commands:" } /^[a-zA-Z0-9_-]+:.*##/ { target = $$1; sub(/:.*/, "", target); if (target != "help") { description = $$0; sub(/^.*##[[:space:]]*/, "", description); printf "  make %-20s %s\n", target, description } }' $(MAKEFILE_LIST)
@@ -294,6 +294,10 @@ sim-host-prepare: ## Prepare a private host manifest: PROFILE=path SAFETY_CONFIG
 sim-host-run: ## Run the foreground maintainer host session: MANIFEST=path HOST=ssh-alias HOST_ROOT=absolute-path [STATE_DIR=path].
 	@test -n '$(subst ','"'"',$(MANIFEST))' -a -n '$(subst ','"'"',$(HOST))' -a -n '$(subst ','"'"',$(HOST_ROOT))' || { printf '%s\n' 'MANIFEST, HOST and HOST_ROOT are required.' >&2; exit 2; }
 	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator.host_operator run --manifest '$(subst ','"'"',$(MANIFEST))' --host '$(subst ','"'"',$(HOST))' --host-root '$(subst ','"'"',$(HOST_ROOT))' $(if $(STATE_DIR),--state-dir '$(subst ','"'"',$(STATE_DIR))')
+
+sim-host-collect: ## Copy verified settled host evidence into a local archive: HOST=ssh-alias HOST_ROOT=absolute-path RELEASE=path ARCHIVE=path [BASELINES=path].
+	@test -n '$(subst ','"'"',$(HOST))' -a -n '$(subst ','"'"',$(HOST_ROOT))' -a -n '$(subst ','"'"',$(RELEASE))' -a -n '$(subst ','"'"',$(ARCHIVE))' || { printf '%s\n' 'HOST, HOST_ROOT, RELEASE and ARCHIVE are required.' >&2; exit 2; }
+	$(SIM_UV) run --locked --no-sync python -m tailtag_simulator.host_operator collect --host '$(subst ','"'"',$(HOST))' --host-root '$(subst ','"'"',$(HOST_ROOT))' --release '$(subst ','"'"',$(RELEASE))' --archive '$(subst ','"'"',$(ARCHIVE))' $(if $(BASELINES),--baselines-dir '$(subst ','"'"',$(BASELINES))')
 
 sim-host-release-export: ## Export an immutable image and metadata: IMAGE_ID=sha256:id ARCHIVE=path RELEASE=path.
 	@test -n '$(subst ','"'"',$(IMAGE_ID))' -a -n '$(subst ','"'"',$(ARCHIVE))' -a -n '$(subst ','"'"',$(RELEASE))' || { printf '%s\n' 'IMAGE_ID, ARCHIVE and RELEASE are required.' >&2; exit 2; }

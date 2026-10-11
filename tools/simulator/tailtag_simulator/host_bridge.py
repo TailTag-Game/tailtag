@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import math
 import os
 import re
 import stat
@@ -105,15 +106,28 @@ class BridgeSession:
         self._identity = deepcopy(_dict(self.manifest["backend_identity"]))
         config = _dict(self.manifest["configuration"])
         self._pool = config["pool"]
-        self._owners = cast(int, config["normal_owners"]) + cast(
-            int, config["popular_owners"]
-        )
-        self._attendees = sum(
-            cast(int, config[k]) for k in ("casual", "active", "heavy", "retry_prone")
-        )
-        self._count = self._owners + self._attendees
-        self._fursuits = cast(int, config["fursuits"])
+        self._journeys = self.manifest["scenario_id"] == "journeys"
+        if self._journeys:
+            # Fixed by journeys.py: 2 owners, 4 catchers and 1 outsider without fixture state.
+            self._owners, self._extras, self._count, self._fursuits = 2, 1, 7, 2
+        else:
+            self._owners = cast(int, config["normal_owners"]) + cast(
+                int, config["popular_owners"]
+            )
+            self._extras = 0
+            self._count = self._owners + sum(
+                cast(int, config[k])
+                for k in ("casual", "active", "heavy", "retry_prone")
+            )
+            self._fursuits = cast(int, config["fursuits"])
         safety = _dict(self.manifest["safety"])
+        self._heartbeat_budget = (
+            math.ceil(
+                (cast(float, safety["seconds"]) + cast(float, safety["final_seconds"]))
+                / 60
+            )
+            + 16
+        )
         self._execution_end = clock() + cast(float, safety["seconds"])
         self._end = self._execution_end + cast(float, safety["final_seconds"])
         self._closed = self._revoked = self._veto = self._terminal = False
@@ -125,7 +139,7 @@ class BridgeSession:
         self._cached: dict[str, dict[str, object]] = {}
         self._tasks: set[asyncio.Task[dict[str, object]]] = set()
         self._mutation: asyncio.Task[dict[str, object]] | None = None
-        self._operations = 0
+        self._operations = self._heartbeats = 0
         self._mutating_started = False
 
     def health(self) -> dict[str, object]:
@@ -189,7 +203,7 @@ class BridgeSession:
             "pool"
             if op in {"allocate", "heartbeat", "quarantine", "release"}
             else "inspection"
-            if op == "inspect-population-v1"
+            if op in {"inspect-population-v1", "inspect"}
             else "fixture"
         )
         keys: set[str] = {"operation", "arguments", "expected_identity"} | (
@@ -221,14 +235,20 @@ class BridgeSession:
                 raise ValueError
             expected["index"] = index
         elif op == "provision":
+            split = self._count - self._extras
             expected.update(
                 pool=self._pool,
                 owners=self._indexes[: self._owners],
-                catchers=self._indexes[self._owners :],
-                extras=[],
+                catchers=self._indexes[self._owners : split],
+                extras=self._indexes[split:],
                 fursuits_per_owner=self._fursuits,
             )
-        elif op == "inspect-population-v1":
+        elif op == "inspect" and self._journeys:
+            names = ["owner0", "owner1", *(f"catcher{i}" for i in range(4)), "outsider"]
+            expected.update(
+                pool=self._pool, identities=dict(zip(names, self._indexes, strict=True))
+            )
+        elif op == "inspect-population-v1" and not self._journeys:
             roles = {
                 ("owner" + str(i))
                 if i < self._owners
@@ -255,6 +275,9 @@ class BridgeSession:
             "extras",
             "identities",
         }
+        if self._journeys:
+            # The journeys partition is wholly fixed, so any deviation is authority.
+            authority_keys.add("fursuits_per_owner")
         if any(not _same(args[k], expected[k]) for k in authority_keys & set(expected)):
             self._veto = True
             raise ValueError
@@ -267,7 +290,11 @@ class BridgeSession:
             self._closed
             or self._veto
             or self._clock() >= self._end
-            or self._operations >= 256
+            or (
+                self._heartbeats >= self._heartbeat_budget
+                if op == "heartbeat"
+                else self._operations - self._heartbeats >= 256
+            )
         ):
             return False
         if op not in _TERMINAL and (
@@ -284,7 +311,7 @@ class BridgeSession:
             return False
         if op == "provision":
             return not self._terminal and op not in self._attempts
-        if op == "inspect-population-v1":
+        if op in {"inspect-population-v1", "inspect"}:
             return self._provisioned and not self._terminal
         if op == "heartbeat":
             return not self._terminal
@@ -338,6 +365,7 @@ class BridgeSession:
         if op == "quarantine":
             self._attempts.add(f"quarantine:{args['index']}")
         self._operations += 1
+        self._heartbeats += op == "heartbeat"
         if op in _MUTATIONS:
             self._mutating_started = True
         self._outcomes[op] = "pending"
@@ -363,7 +391,7 @@ class BridgeSession:
             )
         if op == "quarantine":
             return not data
-        if op == "inspect-population-v1":
+        if op in {"inspect-population-v1", "inspect"}:
             return _inspection(data)
         shapes: dict[str, set[str]] = {
             "retained_counts": {"retained", "unfinished"},
@@ -394,7 +422,7 @@ class BridgeSession:
         if op == "provision":
             return data == {
                 "convention": 1,
-                "enrollment": self._count,
+                "enrollment": self._count - self._extras,
                 "fursuit": self._owners * self._fursuits,
                 "activation": self._owners * self._fursuits,
             }
