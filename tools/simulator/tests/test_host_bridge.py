@@ -1154,7 +1154,10 @@ def test_inspection_operations_are_not_interchangeable_between_scenarios() -> No
     asyncio.run(execute())
 
 
-@pytest.mark.parametrize(("kind", "budget"), [("standard", 41), ("expiration", 806)])
+@pytest.mark.parametrize(
+    ("kind", "budget"),
+    [("standard", 41), ("journeys", 41), ("expiration", 806)],
+)
 def test_heartbeat_budget_follows_safety_and_never_consumes_other_operations(
     kind: str, budget: int
 ) -> None:

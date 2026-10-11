@@ -499,6 +499,7 @@ def test_collect_evaluates_only_convention_schema_5_reports(
         ("stages", "truncate"),
         ("report", "fail"),
         ("report", "invalid"),
+        ("report", "misattributed"),
     ],
 )
 def test_collect_leaves_no_evidence_for_a_run_whose_transfer_does_not_verify(
@@ -508,12 +509,13 @@ def test_collect_leaves_no_evidence_for_a_run_whose_transfer_does_not_verify(
     kind: str,
     fault: str,
 ) -> None:
-    bad = convention_report(SETTLED, tmp_path)
+    # A valid report for another run must not be archived under this run.
+    bad = convention_report(GOOD if fault == "misattributed" else SETTLED, tmp_path)
     if fault == "invalid":
         bad["outcome"] = "not-an-outcome"
     host_run(rig.host, SETTLED, "settled", report=bad)
     host_run(rig.host, GOOD, "settled", report=convention_report(GOOD, tmp_path / "s"))
-    if fault != "invalid":
+    if fault not in {"invalid", "misattributed"}:
         rig.tampering(SETTLED, kind, fault)
 
     code, states, _ = rig.collect(capsys)

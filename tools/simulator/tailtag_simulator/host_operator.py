@@ -391,6 +391,8 @@ async def _collect_run(
             await _fetch(host, remote, partial / name)
             _verify(partial / name, record)
         report = load_report(partial / f"{run_id}.json")
+        if report["run_id"] != run_id:
+            raise ValueError  # A valid report for another run is misattributed.
         evaluation = _evaluate_collected(report, partial, run_id, baselines)
         _write_private(
             partial / "collected.json",

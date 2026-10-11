@@ -387,8 +387,8 @@ def _contents(
             _reject()
         if info.st_uid != os.getuid():
             _reject()
-        data = b""
-        while chunk := os.read(fd, 1_048_576):
+        data = bytearray()
+        while chunk := os.read(fd, MAX_EVIDENCE_BYTES + 1 - len(data)):
             data += chunk
             if len(data) > MAX_EVIDENCE_BYTES:
                 _reject()
@@ -396,7 +396,7 @@ def _contents(
             if optional:
                 return None
             _reject()
-        return data
+        return bytes(data)
     finally:
         for fd in opened:
             os.close(fd)
@@ -485,8 +485,11 @@ def inventory_runs(root: Path) -> dict[str, object]:
                     continue
             except ValueError:
                 continue
-            if not stat.S_ISDIR(os.lstat(run_id, dir_fd=runs).st_mode):
-                continue
+            try:
+                if not stat.S_ISDIR(os.lstat(run_id, dir_fd=runs).st_mode):
+                    continue
+            except FileNotFoundError:
+                continue  # Removed after listing; this listing takes no lock.
             try:
                 state, files, completed = _run_files(runs, run_id)
             except OSError:
