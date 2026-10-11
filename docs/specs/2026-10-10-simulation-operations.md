@@ -157,7 +157,7 @@ private copies when they change the pool.
 | `nightly-hotspot-profile.json` | `convention-hotspot` v2, at least one popular owner | Nightly rotation |
 | `nightly-retry-profile.json` | `convention-retry` v2, at least one retry-prone attendee | Nightly rotation |
 | `nightly-soak-profile.json` | `convention-soak` v2 | Nightly rotation |
-| `weekend-profile.json` | `convention-baseline` v2 with every persona, persona sum 50, ten active actors for about 480 s | Weekend |
+| `weekend-profile.json` | `convention-baseline` v2 with every persona, persona sum 50, ten active actors for 300 s | Weekend |
 | `expiration-profile.json` | `convention-baseline` v2, expiration tier | AC25 one-time proof |
 | `expiration-safety.json` | Expiration-tier safety | Used only with `expiration-profile.json` |
 

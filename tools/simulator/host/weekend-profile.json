@@ -16,7 +16,7 @@
       "mode": "active",
       "segments": [
         {
-          "duration_seconds": 480,
+          "duration_seconds": 300,
           "start": 10,
           "end": 10
         }
