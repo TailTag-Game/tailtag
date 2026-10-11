@@ -223,6 +223,11 @@ Failures fail closed:
 4. Record the cause before resuming. A failed smoke means the promoted build
    needs investigation before any nightly run.
 
+For a `supervision_lost` stop, two non-authoritative diagnostics say where the
+health path stalled: the Mac `<state>/<UUID>.bridge.json` fields `health` and
+`revocation`, and the host's `runs/<UUID>/control/health.json`, read over ssh.
+They never decide an outcome and are not collected.
+
 Because every run is attended, the operator sees each result directly, and
 there is no push notification today. If unattended scheduling is approved, the
 notification mechanism will be Sentry Cron check-ins, which need only the DSN:

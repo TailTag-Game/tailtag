@@ -13,6 +13,7 @@ import stat
 import sys
 import time
 import uuid
+from collections import deque
 from collections.abc import Awaitable, Callable, Sequence
 from contextlib import suppress
 from pathlib import Path
@@ -116,7 +117,18 @@ async def _running(cid: str, manifest: dict[str, object]) -> tuple[bool, int]:
     return cast(bool, state["Running"]), cast(int, state["ExitCode"])
 
 
-async def _health(path: Path, run_id: str) -> bool:
+_HEALTH_RESULTS = (
+    "live",
+    "not_live",
+    "refused",
+    "timeout",
+    "connect_error",
+    "invalid",
+)
+
+
+async def _health(path: Path, run_id: str) -> str:
+    """Classify one check as exactly one of _HEALTH_RESULTS; only `live` counts."""
     writer: asyncio.StreamWriter | None = None
     try:
         async with asyncio.timeout(2):
@@ -127,19 +139,62 @@ async def _health(path: Path, run_id: str) -> bool:
                 )
             )
             await writer.drain()
-            reply = decode_frame(await reader.readline())
-            return (
-                set(reply) == {"run_id", "live"}
-                and reply["run_id"] == run_id
-                and reply["live"] is True
-            )
-    except (OSError, ValueError, TimeoutError):
-        return False
+            raw = await reader.readline()
+            if not raw:
+                return "refused"
+            reply = decode_frame(raw)
+            if (
+                set(reply) != {"run_id", "live"}
+                or reply["run_id"] != run_id
+                or type(reply["live"]) is not bool
+            ):
+                return "invalid"
+            return "live" if reply["live"] else "not_live"
+    except TimeoutError:  # before OSError, which it subclasses
+        return "timeout"
+    except ValueError:
+        return "invalid"
+    except OSError:
+        return "connect_error"
     finally:
         if writer is not None:
             writer.close()
             with suppress(OSError):
                 await writer.wait_closed()
+
+
+class _HealthLog:
+    """Non-authoritative diagnostics for control/health.json; never read back."""
+
+    def __init__(self, started: float) -> None:
+        self.started = started
+        self.counts: dict[str, int] = dict.fromkeys(_HEALTH_RESULTS, 0)
+        self.failures: deque[dict[str, object]] = deque(maxlen=64)
+        self.longest = 0.0
+        self.last_live = started
+        self.ended: float | None = None
+
+    def record(self, offset: float, result: str, at: float) -> None:
+        self.counts[result] += 1
+        if result == "live":
+            self.longest = max(self.longest, at - self.last_live)
+            self.last_live = at
+        else:
+            self.failures.append({"offset_seconds": round(offset, 1), "result": result})
+
+    def summary(self, run_id: object, now: float) -> dict[str, object]:
+        # The final open interval runs to the moment the stop was decided.
+        gap = max(
+            self.longest, (now if self.ended is None else self.ended) - self.last_live
+        )
+        return {
+            "schema_version": 1,
+            "run_id": run_id,
+            "checks": sum(self.counts.values()),
+            "counts": dict(self.counts),
+            "longest_gap_seconds": round(gap, 1),
+            "failures": list(self.failures),
+        }
 
 
 async def _sample(name: str) -> dict[str, object]:
@@ -194,6 +249,7 @@ async def supervise_run(
     hard_stop = False
     stop_reason: str | None = None
     final_at: float | None = None
+    health_log: _HealthLog | None = None
     samples: list[dict[str, object]] = []
     safety = cast(dict[str, object], manifest["safety"])
     loop = asyncio.get_running_loop()
@@ -376,6 +432,7 @@ async def supervise_run(
                         }
                     )
                     return 1
+                health_log = _HealthLog(started)
                 last_live = started
                 next_health = started
                 exit_code = 1
@@ -396,11 +453,12 @@ async def supervise_run(
                         # Expired authority cannot be renewed by optional health or stats.
                         stop_reason = due_stop()
                         if stop_reason is None and now >= next_health:
-                            live = await _health(
+                            result = await _health(
                                 base / "control/health.sock", str(manifest["run_id"])
                             )
+                            health_log.record(now - started, result, clock())
                             stop_reason = due_stop()
-                            if stop_reason is None and live:
+                            if stop_reason is None and result == "live":
                                 last_live = clock()
                             next_health = now + 5
                             if stop_reason is None and len(samples) < 301:
@@ -419,6 +477,7 @@ async def supervise_run(
                                 break
                             stop_reason = "attached_client_lost"
                         if stop_reason:
+                            health_log.ended = clock()
                             final_at = (
                                 clock() + cast(float, safety["final_seconds"]) + 10
                             )
@@ -501,6 +560,12 @@ async def supervise_run(
                     return 1
                 return 0 if prospective_pass else 1
             finally:
+                if health_log is not None:
+                    # Diagnostics never alter the outcome, hold or other artifacts.
+                    with suppress(OSError, ValueError):
+                        artifacts.record_health(
+                            health_log.summary(manifest["run_id"], clock())
+                        )
 
                 async def cleanup_owned() -> None:
                     nonlocal cid
