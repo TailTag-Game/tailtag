@@ -576,8 +576,12 @@ asyncio.run(safety.check_target())
 report.record_safety(safety.snapshot())
 report.begin("provenance"); report.end("provenance", "passed")
 report.begin("simulation")
+def mark(name, text):
+    # Publish markers atomically: the test polls for existence, then reads.
+    (root / (name + ".tmp")).write_text(text)
+    os.replace(root / (name + ".tmp"), root / name)
 def stop(signum, frame):
-    (root / "child-signal").write_text(str(signum))
+    mark("child-signal", str(signum))
     if {stuck!r}:
         return
     if {client_exit!r}:
@@ -587,7 +591,7 @@ def stop(signum, frame):
     (root / "child-finalized").write_text(str(code))
     raise SystemExit(code)
 signal.signal(signal.SIGINT, stop)
-(root / "child-ready").write_text(str(os.getpid()))
+mark("child-ready", str(os.getpid()))
 print({SENTINEL!r}, flush=True)
 print({SENTINEL!r}, file=sys.stderr, flush=True)
 report_outcome = {report_outcome!r}
