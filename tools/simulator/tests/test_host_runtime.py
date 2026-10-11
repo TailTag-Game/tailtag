@@ -138,6 +138,17 @@ async def health(path: Path) -> dict[str, object]:
         await writer.wait_closed()
 
 
+def first_revocation(state: Path, cause: str) -> float:
+    """The operator's bridge evidence records only the first cause of revocation."""
+    bridge = json.loads((state / (RUN + ".bridge.json")).read_text())
+    revocation = bridge["revocation"]
+    assert set(revocation) == {"cause", "offset_seconds"}
+    assert revocation["cause"] == cause  # later operator_exit revokes never replace it
+    offset = revocation["offset_seconds"]
+    assert offset >= 0 and round(offset, 1) == offset
+    return cast(float, offset)
+
+
 def attached_ssh(record: Path) -> dict[str, Any] | None:
     return next((item for item in records(record) if "-R" in item["argv"]), None)
 
@@ -213,6 +224,14 @@ def test_operator_owned_ssh_or_terminal_loss_revokes_health_before_teardown(
                 except (OSError, asyncio.IncompleteReadError, json.JSONDecodeError):
                     pass
             assert await asyncio.wait_for(process.wait(), 5) != 0
+            first_revocation(
+                state,
+                {
+                    "ssh-exit": "child_exit",
+                    "SIGINT": "signal_SIGINT",
+                    "SIGHUP": "signal_SIGHUP",
+                }[stop],
+            )
             assert state.stat().st_mode & 0o777 == 0o700
             assert RUN in "".join(
                 path.name + path.read_text()
@@ -273,6 +292,8 @@ def test_operator_deadline_is_nonrenewable_and_manifest_cannot_reopen(
             assert (await health(local_health))["live"] is False
             await timer.advance(2)
             assert await asyncio.wait_for(task, 5) != 0
+            # The deadline is session-clock time since the session was created.
+            assert 1.0 <= first_revocation(state, "execution_deadline") <= 3.0
             count = len(records(record))
             assert (
                 await run_session(
@@ -996,6 +1017,44 @@ def test_container_collision_and_unbound_stop_preserve_foreign_work_and_hold(
         asyncio.run(execute(root))
 
 
+HEALTH_CATEGORIES = {
+    "live",
+    "not_live",
+    "refused",
+    "timeout",
+    "connect_error",
+    "invalid",
+}
+
+
+def health_diagnostics(control: Path) -> dict[str, Any]:
+    """Closed, private, non-authoritative supervision-health summary (#230)."""
+    path = control / "health.json"
+    assert path.stat().st_mode & 0o777 == 0o600
+    data = json.loads(path.read_text())
+    assert set(data) == {
+        "schema_version",
+        "run_id",
+        "checks",
+        "counts",
+        "longest_gap_seconds",
+        "failures",
+    }
+    assert data["schema_version"] == 1 and data["run_id"] == RUN
+    assert set(data["counts"]) == HEALTH_CATEGORIES
+    assert all(type(v) is int and v >= 0 for v in data["counts"].values())
+    assert data["checks"] == sum(data["counts"].values()) >= 1
+    gap = data["longest_gap_seconds"]
+    assert gap >= 0 and round(gap, 1) == gap
+    failures = data["failures"]
+    assert all(set(f) == {"offset_seconds", "result"} for f in failures)
+    assert {f["result"] for f in failures} <= HEALTH_CATEGORIES - {"live"}
+    offsets = [f["offset_seconds"] for f in failures]
+    assert offsets == sorted(offsets)  # oldest first
+    assert len(failures) == min(64, data["checks"] - data["counts"]["live"])
+    return cast(dict[str, Any], data)
+
+
 @pytest.mark.parametrize(
     ("stop", "stuck"),
     [
@@ -1010,6 +1069,7 @@ def test_container_collision_and_unbound_stop_preserve_foreign_work_and_hold(
         ("failed-report", False),
         ("running-report", False),
         ("passed-report", False),
+        ("unwritable-health", False),
     ],
 )
 def test_supervisor_latches_health_loss_or_deadline_and_signals_named_real_child(
@@ -1134,7 +1194,10 @@ def test_supervisor_latches_health_loss_or_deadline_and_signals_named_real_child
                         ),
                         "initial health/sample did not settle",
                     )
-                live = stop not in {"supervision", "late-live"}
+                if stop == "unwritable-health":
+                    # Admitted and running: now the diagnostic write cannot succeed.
+                    (control / "health.json").mkdir(mode=0o700)
+                live = stop not in {"supervision", "late-live", "unwritable-health"}
                 # Wall-clock changes are deliberately irrelevant to monotonic loss.
                 monkeypatch.setattr(time, "time", lambda: 1.0)
                 requests_before_deadline = len(requests)
@@ -1282,9 +1345,31 @@ def test_supervisor_latches_health_loss_or_deadline_and_signals_named_real_child
             evidence = evidence_path.read_text()
             assert len(evidence.encode()) < 65536
             assert SENTINEL not in evidence
-            if stop in {"supervision", "late-live"}:
+            if stop in {"supervision", "late-live", "unwritable-health"}:
                 assert "supervision_lost" in evidence
             assert isinstance(json.loads(evidence), dict)
+            if stop == "unwritable-health":
+                assert (control / "health.json").is_dir()
+                assert not (control / "health.json.tmp").exists()
+                # Same fail-closed outcome as the plain supervision-loss case.
+                assert json.loads(evidence)["evidence"]["stop_reason"] == (
+                    "supervision_lost"
+                )
+            else:
+                diagnostics = health_diagnostics(control)
+                assert "health" not in evidence  # host.json's shape is closed
+                if stop == "supervision":
+                    # Fail-closed loss: only the first reply was live, and the
+                    # open interval to the 30 s stop is the longest gap.
+                    assert diagnostics["counts"]["live"] >= 1
+                    assert diagnostics["counts"]["not_live"] >= 1
+                    assert diagnostics["longest_gap_seconds"] == 30.0
+                    assert {f["result"] for f in diagnostics["failures"]} == {
+                        "not_live"
+                    }
+                elif stop == "passed-report":
+                    assert diagnostics["counts"]["live"] == diagnostics["checks"]
+                    assert diagnostics["failures"] == []
             if report_outcome is not None:
                 assert json.loads(evidence)["evidence"]["recovery"] == "uncertain"
                 reports = list((run_root / "reports").glob("*.json"))
@@ -1318,6 +1403,127 @@ def test_supervisor_latches_health_loss_or_deadline_and_signals_named_real_child
             stop_owned_container_child(root, child_pid)
             unrelated.terminate()
             await asyncio.wait_for(unrelated.wait(), 5)
+            server.close()
+            await server.wait_closed()
+
+    with owned_root() as root:
+        asyncio.run(execute(root))
+
+
+def test_supervision_health_diagnostics_classify_every_check_and_cap_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # One live reply at least every 25 s keeps supervision alive for 86 checks.
+    block = ["live", "refused", "refused", "refused", "refused"]
+    script = (
+        ["live", "not_live", "refused", "invalid", "timeout"]
+        + block * 15
+        + ["live", "refused", "refused", "refused", "refused", "connect_error"]
+    )
+
+    async def execute(root: Path) -> None:
+        record = docker_boundary(root, monkeypatch, stuck=False)
+        value = host_manifest()
+        section(value, "release")["dependency_lock_sha256"] = json.loads(
+            (root / "image-source.json").read_text()
+        )["dependency_lock_sha256"]
+        (root / "run-manifest.json").write_text(json.dumps(value))
+        release = {
+            "schema_version": 1,
+            **section(value, "release"),
+            "archive_sha256": "e" * 64,
+        }
+        run_root, control = prepared_skeleton(root, value)
+        timer = ManualClock()
+        asked = 0
+        hang = asyncio.Event()
+
+        async def serve(
+            reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+        ) -> None:
+            nonlocal asked
+            try:
+                await reader.readline()
+                mode = script[asked]
+                asked += 1
+                if mode == "timeout":
+                    await hang.wait()
+                elif mode != "refused":  # refused: EOF without a reply
+                    reply = {
+                        "run_id": "x" if mode == "invalid" else RUN,
+                        "live": mode == "live",
+                    }
+                    writer.write(json.dumps(reply).encode() + b"\n")
+                    await writer.drain()
+            finally:
+                writer.close()
+                with suppress(OSError):
+                    await writer.wait_closed()
+
+        def sampled() -> int:
+            return sum(1 for item in records(record) if item["argv"][0] == "stats")
+
+        server = await asyncio.start_unix_server(serve, path=control / "health.sock")
+        (control / "health.sock").chmod(0o600)
+        task = asyncio.create_task(
+            supervise_run(
+                value, release, root, clock=lambda: timer.now, sleep=timer.sleep
+            )
+        )
+        child_pid: int | None = None
+        try:
+            await eventually(lambda: (root / "child-ready").exists(), "no child")
+            child_pid = int((root / "child-ready").read_text())
+            await eventually(
+                lambda: (
+                    task.done()
+                    or bool(timer.waiters)
+                    or any(item["argv"][0] == "inspect" for item in records(record))
+                ),
+                "startup did not reach a public poll or inspection",
+            )
+            if timer.waiters and not any(
+                item["argv"][0] == "inspect" for item in records(record)
+            ):
+                await timer.advance(min(timer.waiters.values()) - timer.now)
+            for check in range(len(script)):
+                # Each check, with its sample, settles before time moves again.
+                await eventually(
+                    lambda check=check: sampled() == check + 1 and bool(timer.waiters),
+                    f"check {check} did not settle",
+                    seconds=8,
+                )
+                if check == len(script) - 2:
+                    (control / "health.sock").unlink()  # the last is connect_error
+                await timer.advance(5)
+            await eventually(lambda: (root / "child-signal").exists(), "no stop")
+            await eventually(lambda: (root / "child-finalized").exists(), "no final")
+            await eventually(lambda: task.done() or bool(timer.waiters), "no poll")
+            await timer.advance(5)
+            assert await asyncio.wait_for(task, 5) != 0
+            assert "supervision_lost" in (run_root / "host.json").read_text()
+            diagnostics = health_diagnostics(control)
+            assert asked == len(script) - 1  # the last check never connected
+            assert diagnostics["checks"] == len(script)
+            assert diagnostics["counts"] == {
+                category: script.count(category) for category in HEALTH_CATEGORIES
+            }
+            assert diagnostics["longest_gap_seconds"] == 30.0
+            # The 64 newest failures, oldest first; counts keep the older ones.
+            failing = [
+                {"offset_seconds": 5.0 * index, "result": result}
+                for index, result in enumerate(script)
+                if result != "live"
+            ]
+            assert len(failing) > 64
+            assert diagnostics["failures"] == failing[-64:]
+        finally:
+            hang.set()
+            if not task.done():
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+            stop_owned_container_child(root, child_pid)
             server.close()
             await server.wait_closed()
 

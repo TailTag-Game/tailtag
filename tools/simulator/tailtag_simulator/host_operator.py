@@ -500,7 +500,7 @@ async def run_session(
             stopped = False
             interrupted = False
 
-            def revoke() -> None:
+            def revoke(cause: str) -> None:
                 nonlocal stopped, terminal_end
                 if not stopped:
                     stopped = True
@@ -508,17 +508,17 @@ async def run_session(
                         terminal_end, clock() + cast(float, safety["final_seconds"])
                     )
                     assert session is not None
-                    session.revoke_workload()
+                    session.revoke_workload(cause)
 
-            def interrupt() -> None:
+            def interrupt(cause: str) -> None:
                 nonlocal interrupted
                 interrupted = True
-                revoke()
+                revoke(cause)
 
             loop = asyncio.get_running_loop()
             for sig in (signal.SIGINT, signal.SIGHUP, signal.SIGTERM):
                 previous[sig] = signal.getsignal(sig)
-                loop.add_signal_handler(sig, interrupt)
+                loop.add_signal_handler(sig, interrupt, "signal_" + sig.name)
             base = host_root / "runs" / run_id
             process = await asyncio.create_subprocess_exec(
                 "ssh",
@@ -552,9 +552,9 @@ async def run_session(
             )  # Inherit the caller's real TTY; no input/output transcript.
             while process.returncode is None:
                 if clock() >= execution_end:
-                    revoke()
+                    revoke("execution_deadline")
                 if clock() >= terminal_end:
-                    revoke()
+                    revoke("terminal_deadline")
                     break
                 # Bound owned-child exit observation independently of a fake clock.
                 waiter = asyncio.create_task(process.wait())
@@ -571,8 +571,8 @@ async def run_session(
                     return_exceptions=True,
                 )
                 if waiter in done:
-                    revoke()
-            revoke()
+                    revoke("child_exit")
+            revoke("operator_exit")
             if process.returncode is None:
                 process.terminate()
                 try:
@@ -618,7 +618,7 @@ async def run_session(
         return 1
     finally:
         if session is not None:
-            session.revoke_workload()
+            session.revoke_workload("operator_exit")
         if process is not None and process.returncode is None:
             with suppress(ProcessLookupError):
                 process.kill()

@@ -201,6 +201,10 @@ class RunArtifacts:
         )
         self.check_budget()
 
+    def record_health(self, diagnostics: Mapping[str, object]) -> None:
+        """Best-effort supervision-health summary; callers ignore its failure."""
+        _write(self.base / "control" / "health.json", diagnostics)
+
     def finalize(
         self, evidence: Mapping[str, object], recovery_receipt: object = None
     ) -> None:

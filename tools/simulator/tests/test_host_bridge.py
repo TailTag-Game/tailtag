@@ -955,6 +955,189 @@ def test_invalid_socket_frames_never_dispatch_or_echo_input(
     asyncio.run(execute())
 
 
+HEALTH_FRAME: dict[str, object] = {
+    "schema_version": 1,
+    "channel": "health",
+    "run_id": RUN,
+}
+HEALTH_COUNTERS = {
+    "accepted",
+    "refused_at_capacity",
+    "replied_live",
+    "replied_not_live",
+    "invalid",
+    "write_failed",
+    "close_timeouts",
+    "peak_active",
+}
+
+
+def health_counters(**counts: int) -> dict[str, int]:
+    assert set(counts) <= HEALTH_COUNTERS
+    return {key: counts.get(key, 0) for key in sorted(HEALTH_COUNTERS)}
+
+
+async def settled_health(
+    session: BridgeSession, expected: dict[str, int], *, peak: set[int]
+) -> None:
+    """Exact closed counters once handlers finish their bookkeeping.
+
+    Sequential connections may overlap their final close, so callers that cannot
+    pin concurrency pass the admissible peak values instead of an exact one.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 1
+    while True:
+        counters = cast(dict[str, int], session.evidence()["health"])
+        if (
+            {k: v for k, v in counters.items() if k != "peak_active"}
+            == {k: v for k, v in expected.items() if k != "peak_active"}
+            and counters["peak_active"] in peak
+        ) or loop.time() >= deadline:
+            break
+        await asyncio.sleep(0.01)
+    assert {k: v for k, v in counters.items() if k != "peak_active"} == {
+        k: v for k, v in expected.items() if k != "peak_active"
+    }
+    assert set(counters) == HEALTH_COUNTERS
+    assert counters["peak_active"] in peak
+
+
+def test_unfinished_health_close_is_bounded_and_never_pins_capacity(
+    socket_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # #230: wait_closed is the provider/transport boundary. Two accepted handlers
+    # never complete their close; each slot must still come back after the bound.
+    original = asyncio.StreamWriter.wait_closed
+    unfinished = [2]
+
+    async def wait_closed(self: asyncio.StreamWriter) -> None:
+        if unfinished[0] and self.get_extra_info("sockname"):  # accepted side only
+            unfinished[0] -= 1
+            await asyncio.Event().wait()
+        await original(self)
+
+    monkeypatch.setattr(asyncio.StreamWriter, "wait_closed", wait_closed)
+
+    async def execute() -> None:
+        session = BridgeSession(manifest(), Relay().dispatch)
+        directory = socket_root / "bridge"
+        server = BridgeServer(session, directory)
+        await server.start()
+        writers: list[asyncio.StreamWriter] = []
+
+        async def ask() -> bytes:
+            reader, writer = await asyncio.open_unix_connection(
+                str(directory / "health.sock")
+            )
+            writers.append(writer)
+            try:
+                writer.write(encode_frame(HEALTH_FRAME))
+                await writer.drain()
+            except OSError:
+                pass
+            try:
+                return await asyncio.wait_for(reader.read(), 1)
+            except ConnectionResetError:
+                # Linux resets a refused socket with unread input; macOS sends EOF.
+                return b""
+
+        try:
+            live = {"run_id": RUN, "live": True}
+            for _ in range(2):
+                assert decode_frame(await ask()) == live
+            # Both slots are in the unfinished close: the third is closed unanswered.
+            assert await ask() == b""
+            await asyncio.sleep(2.5)  # past the 2 s close bound
+            reply = await ask()
+            assert reply, "a health slot stayed pinned past the close bound"
+            assert decode_frame(reply) == live
+            await settled_health(
+                session,
+                health_counters(
+                    accepted=3,
+                    refused_at_capacity=1,
+                    replied_live=3,
+                    close_timeouts=2,
+                ),
+                peak={2},
+            )
+            assert session.evidence()["revocation"] is None
+        finally:
+            for writer in writers:
+                writer.close()
+            await server.close()
+            session.close()
+
+    asyncio.run(execute())
+
+
+def test_health_evidence_is_closed_and_counts_live_not_live_and_invalid(
+    socket_root: Path,
+) -> None:
+    async def execute() -> None:
+        now = [100.0]
+        launch = manifest()
+        section(launch, "safety").update(seconds=10, final_seconds=5)
+        session = BridgeSession(launch, Relay().dispatch, clock=lambda: now[0])
+        directory = socket_root / "bridge"
+        server = BridgeServer(session, directory)
+        await server.start()
+        try:
+            evidence = session.evidence()
+            assert set(evidence) == {
+                "schema_version",
+                "run_id",
+                "backend_identity",
+                "disposition",
+                "dispatches",
+                "attempts",
+                "outcomes",
+                "allocation_acknowledged",
+                "provision_acknowledged",
+                "release_acknowledged",
+                "pending_mutations",
+                "may_have_committed",
+                "target_veto",
+                "recovery_hold",
+                "health",
+                "revocation",
+            }
+            assert evidence["health"] == health_counters()
+            assert evidence["revocation"] is None
+
+            assert await wire(directory, "health.sock", HEALTH_FRAME) == {
+                "run_id": RUN,
+                "live": True,
+            }
+            reader, writer = await asyncio.open_unix_connection(
+                str(directory / "health.sock")
+            )
+            writer.write(encode_frame({**HEALTH_FRAME, "run_id": SENTINEL}))
+            await writer.drain()
+            assert await asyncio.wait_for(reader.read(), 1) == b""
+            writer.close()
+            now[0] = 110.0  # the execution window has ended
+            assert await wire(directory, "health.sock", HEALTH_FRAME) == {
+                "run_id": RUN,
+                "live": False,
+            }
+            await settled_health(
+                session,
+                health_counters(
+                    accepted=3, replied_live=1, replied_not_live=1, invalid=1
+                ),
+                peak={1, 2},
+            )
+            assert SENTINEL not in json.dumps(session.evidence())
+            assert session.evidence()["revocation"] is None
+        finally:
+            await server.close()
+            session.close()
+
+    asyncio.run(execute())
+
+
 # #230 U2: journeys partition, `inspect` and the expiration-tier heartbeat budget.
 JOURNEY_INDEXES = [17, 23, 31, 37, 41, 43, 47]
 JOURNEY_ROLES = {

@@ -57,6 +57,25 @@ _FAILURES = {
 }
 _UNCERTAIN = {"FAIL_LAUNCHER", "FAIL_BOOTSTRAP", "FAIL_ERROR"}
 _REASONS = {"journeys", "reconciliation", "cleanup", "interrupted"}
+_REVOCATIONS = {
+    "signal_SIGINT",
+    "signal_SIGHUP",
+    "signal_SIGTERM",
+    "child_exit",
+    "execution_deadline",
+    "terminal_deadline",
+    "operator_exit",
+}
+_HEALTH_COUNTERS = (
+    "accepted",
+    "refused_at_capacity",
+    "replied_live",
+    "replied_not_live",
+    "invalid",
+    "write_failed",
+    "close_timeouts",
+    "peak_active",
+)
 
 
 def _rejected(result: str = "FAIL_REQUEST") -> dict[str, object]:
@@ -128,7 +147,8 @@ class BridgeSession:
             )
             + 16
         )
-        self._execution_end = clock() + cast(float, safety["seconds"])
+        self._started = clock()
+        self._execution_end = self._started + cast(float, safety["seconds"])
         self._end = self._execution_end + cast(float, safety["final_seconds"])
         self._closed = self._revoked = self._veto = self._terminal = False
         self._attempts: set[str] = set()
@@ -141,6 +161,9 @@ class BridgeSession:
         self._mutation: asyncio.Task[dict[str, object]] | None = None
         self._operations = self._heartbeats = 0
         self._mutating_started = False
+        # Non-authoritative diagnostics (#230): never read back for decisions.
+        self.health_counters = dict.fromkeys(_HEALTH_COUNTERS, 0)
+        self._revocation: dict[str, object] | None = None
 
     def health(self) -> dict[str, object]:
         return {
@@ -149,8 +172,16 @@ class BridgeSession:
             and self._clock() < self._execution_end,
         }
 
-    def revoke_workload(self) -> None:
+    def revoke_workload(self, cause: str = "operator_exit") -> None:
+        # Revoke before recording: an unexpected cause must never leave work live.
         self._revoked = True
+        if cause not in _REVOCATIONS:
+            raise ValueError
+        if self._revocation is None:
+            self._revocation = {
+                "cause": cause,
+                "offset_seconds": round(self._clock() - self._started, 1),
+            }
 
     def close(self) -> None:
         # Dispatched operations remain owned until they settle; closing is no rollback.
@@ -191,6 +222,8 @@ class BridgeSession:
             "may_have_committed": self._uncertain,
             "target_veto": self._veto,
             "recovery_hold": self._mutating_started and not self._released,
+            "health": dict(self.health_counters),
+            "revocation": None if self._revocation is None else dict(self._revocation),
         }
 
     def _envelope(
@@ -585,10 +618,16 @@ class BridgeServer:
     def _accept(
         self, kind: str, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
+        counters = self._session.health_counters
         if self._active[kind] >= (10 if kind == "rpc" else 2):
+            if kind == "health":
+                counters["refused_at_capacity"] += 1
             writer.close()
             return
         self._active[kind] += 1
+        if kind == "health":
+            counters["accepted"] += 1
+            counters["peak_active"] = max(counters["peak_active"], self._active[kind])
         task = asyncio.create_task(self._handle(kind, reader, writer))
         self._handlers.add(task)
         task.add_done_callback(self._handlers.discard)
@@ -596,6 +635,7 @@ class BridgeServer:
     async def _handle(
         self, kind: str, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
+        counters = self._session.health_counters
         try:
             frame = decode_frame(await asyncio.wait_for(_read_frame(reader), 2))
             if (
@@ -621,13 +661,27 @@ class BridgeServer:
                     cast(str, frame["channel"]), _dict(frame["request"])
                 )
             writer.write(encode_frame(reply))
-            await asyncio.wait_for(writer.drain(), 2)
+            try:
+                await asyncio.wait_for(writer.drain(), 2)
+            except (OSError, TimeoutError):
+                if kind == "health":
+                    counters["write_failed"] += 1
+            else:
+                if kind == "health":
+                    counters[
+                        "replied_live" if reply["live"] else "replied_not_live"
+                    ] += 1
         except (ValueError, TypeError, OSError, TimeoutError):
-            pass
+            if kind == "health":
+                counters["invalid"] += 1
         finally:
             writer.close()
             try:
-                await writer.wait_closed()
+                # A transport that never finishes closing must not pin a slot.
+                await asyncio.wait_for(writer.wait_closed(), 2)
+            except TimeoutError:
+                if kind == "health":
+                    counters["close_timeouts"] += 1
             except OSError:
                 pass
             self._active[kind] -= 1
