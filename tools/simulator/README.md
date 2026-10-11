@@ -890,10 +890,21 @@ rates. The active baseline row is marked `*`. The output ends with `skipped <n>`
 for invalid or unrelated files. Trend never writes anything. History stays in the
 operator archive, separate from the reviewed baseline.
 
-## Later issues
+## Operations
 
-Personas and traffic (#225, #226), guardrail limits (#227), the execution host
-(#228), performance evidence (#229), and scheduled operation (#230).
+Routine attended operation (#230) is in the
+[simulation operations guide](../../docs/operations/simulation-operations.md):
+
+- `journeys` smoke on the host after every promotion and before nightly runs;
+- nightly and weekend profiles;
+- `make sim-host-collect` for hash-verified evidence retrieval and evaluation;
+- baselines for new profiles;
+- the one-time natural-expiration proof.
+
+Committed host profiles are in `host/`. Unattended scheduling is not enabled.
+See the [design for decision](../../docs/specs/2026-10-10-unattended-simulation-scheduling-design.md).
+Earlier issues added personas and traffic (#225, #226), guardrail limits
+(#227), the execution host (#228) and performance evidence (#229).
 
 ## Runtime safety and operator stop
 

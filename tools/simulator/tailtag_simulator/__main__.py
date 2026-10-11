@@ -98,11 +98,6 @@ def _fixture_launcher() -> FixtureLauncherChannel:
     return FixtureLauncherChannel(FIXTURE_LAUNCHER_COMMAND, cwd=REPOSITORY_ROOT)
 
 
-def _inspection_launcher() -> InspectionLauncherChannel:
-    """The inspection launcher, from the repository root; only journeys reconciliation calls it."""
-    return InspectionLauncherChannel(INSPECTION_LAUNCHER_COMMAND, cwd=REPOSITORY_ROOT)
-
-
 def _run_id(value: str) -> str:
     """A canonical lowercase UUID, as the ledger records it."""
     if str(uuid.UUID(value)) != value:
@@ -158,6 +153,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     journeys = commands.add_parser(
         "journeys", help="run the acceptance journeys on Staging"
     )
+    journeys.add_argument("--host-manifest", type=Path)
+    journeys.add_argument("--host-socket-dir", type=Path)
+    journeys.add_argument("--stage-log", type=Path)
     convention = commands.add_parser(
         "convention", help="run a finite convention population on Staging"
     )
@@ -321,7 +319,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         return asyncio.run(_execute(args))
     except (OSError, ValueError):
-        if args.command != "convention" or not (
+        if args.command not in {"convention", "journeys"} or not (
             args.host_manifest or args.host_socket_dir or args.stage_log
         ):
             raise
@@ -376,7 +374,10 @@ async def _execute(args: argparse.Namespace) -> int:
     """Create durable evidence and establish provenance before executing a command."""
     supplied_host: dict[str, object] | None = None
     try:
-        if args.command == "convention" and args.host_manifest is not None:
+        if (
+            args.command in {"convention", "journeys"}
+            and args.host_manifest is not None
+        ):
             with args.host_manifest.open("rb") as stream:
                 supplied_host = validate_manifest(decode_document(stream.read(65537)))
         if args.command == "convention" and args.unattended:
@@ -431,7 +432,8 @@ async def _execute(args: argparse.Namespace) -> int:
                 _emit("FAIL configuration")
                 return 1
         host: dict[str, object] | None = None
-        if args.command == "convention" and (
+        convention = args.command == "convention"
+        if args.command in {"convention", "journeys"} and (
             args.host_manifest is not None
             or args.host_socket_dir is not None
             or args.stage_log is not None
@@ -440,7 +442,7 @@ async def _execute(args: argparse.Namespace) -> int:
                 if (
                     args.host_manifest is None
                     or args.host_socket_dir is None
-                    or args.scenario_version != 2
+                    or args.scenario_version != (2 if convention else 1)
                     or not args.host_socket_dir.is_absolute()
                 ):
                     raise ValueError
@@ -448,10 +450,12 @@ async def _execute(args: argparse.Namespace) -> int:
                 if host is None:
                     raise ValueError
                 if (
-                    host["configuration"] != config
+                    host["configuration"]
+                    != (config if convention else {"pool": args.pool})
                     or host["safety"] != policy
                     or host["seed"] != args.seed
-                    or host["scenario_id"] != "convention-" + args.family
+                    or host["scenario_id"]
+                    != ("convention-" + args.family if convention else "journeys")
                 ):
                     raise ValueError
                 source = load_source(REPOSITORY_ROOT)
@@ -547,23 +551,22 @@ async def _dispatch(
     report: RunReport | None,
     safety: SafetyRuntime,
 ) -> int:
+    def channel_command(channel: str, ordinary: list[str]) -> list[str]:
+        return (
+            [
+                sys.executable,
+                "-m",
+                "tailtag_simulator.host_channel",
+                "--channel",
+                channel,
+                "--socket-dir",
+                str(args.host_socket_dir),
+            ]
+            if args.bound_host
+            else ordinary
+        )
+
     if args.command == "convention":
-
-        def channel_command(channel: str, ordinary: list[str]) -> list[str]:
-            return (
-                [
-                    sys.executable,
-                    "-m",
-                    "tailtag_simulator.host_channel",
-                    "--channel",
-                    channel,
-                    "--socket-dir",
-                    str(args.host_socket_dir),
-                ]
-                if args.bound_host
-                else ordinary
-            )
-
         return await run_convention(
             str(args.pool),
             config=config,
@@ -636,9 +639,17 @@ async def _dispatch(
             str(args.pool),
             images=JourneyImages(valid_a=valid_a, valid_b=valid_b),
             prompt_secret=_prompt_secret,
-            lease_channel=_launcher(),
-            fixture_channel=_fixture_launcher(),
-            inspection_channel=_inspection_launcher(),
+            lease_channel=LauncherChannel(
+                channel_command("pool", LAUNCHER_COMMAND), cwd=REPOSITORY_ROOT
+            ),
+            fixture_channel=FixtureLauncherChannel(
+                channel_command("fixture", FIXTURE_LAUNCHER_COMMAND),
+                cwd=REPOSITORY_ROOT,
+            ),
+            inspection_channel=InspectionLauncherChannel(
+                channel_command("inspection", INSPECTION_LAUNCHER_COMMAND),
+                cwd=REPOSITORY_ROOT,
+            ),
             emit=_emit,
             report=report,
             safety=safety,

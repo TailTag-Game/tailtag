@@ -3,9 +3,11 @@
 import json
 import re
 import uuid
+from collections.abc import Mapping
 from copy import deepcopy
 from typing import cast
 
+from tailtag_simulator.pool import validate_pool_name
 from tailtag_simulator.safety import resolve_safety_policy
 from tailtag_simulator.traffic_config import resolve_traffic_config
 
@@ -83,6 +85,81 @@ def _hex(value: object, length: int) -> bool:
     )
 
 
+def _within(safety: dict[str, object], ceilings: Mapping[str, float]) -> bool:
+    return all(cast(float, safety[k]) <= maximum for k, maximum in ceilings.items())
+
+
+_STANDARD_SAFETY = {
+    "seconds": 900,
+    "final_seconds": 600,
+    "population": 50,
+    "in_flight": 10,
+}
+_EXPIRATION_SAFETY = {
+    "seconds": 46800,
+    "final_seconds": 600,
+    "population": 2,
+    "in_flight": 2,
+    "requests": 10000,
+}
+
+
+def _journeys_shape(
+    launch: dict[str, object], config: dict[str, object], safety: dict[str, object]
+) -> None:
+    """Journeys smoke: fixed seven identities, no randomness, pool-only configuration."""
+    if (
+        launch["scenario_version"] != 1
+        or launch["seed"] != 0
+        or set(config) != {"pool"}
+        or not isinstance(config["pool"], str)
+        or validate_pool_name(config["pool"]) != config["pool"]
+        or cast(int, safety["population"]) < 7
+        or not _within(safety, _STANDARD_SAFETY)
+    ):
+        raise _invalid()
+
+
+def _convention_shape(
+    launch: dict[str, object], config: dict[str, object], safety: dict[str, object]
+) -> None:
+    """Standard tier, or the expiration tier selected only by the closed shape."""
+    if (
+        launch["scenario_version"] != 2
+        or resolve_traffic_config(config) != config
+        or launch["scenario_id"] != "convention-" + cast(str, config["family"])
+    ):
+        raise _invalid()
+    population = sum(
+        cast(int, config[k])
+        for k in (
+            "normal_owners",
+            "popular_owners",
+            "casual",
+            "active",
+            "heavy",
+            "retry_prone",
+        )
+    )
+    limits = _mapping(config["limits"])
+    if _mapping(config["failure"])["domain_case"] != "expired":
+        if (
+            population > 50
+            or not _within(safety, _STANDARD_SAFETY)
+            or any(cast(int, limits[k]) > 10 for k in ("active", "in_flight"))
+        ):
+            raise _invalid()
+    elif (
+        launch["scenario_id"] != "convention-baseline"
+        or population > 2
+        or cast(int, limits["active"]) > 1
+        or cast(int, limits["in_flight"]) > 2
+        or cast(float, limits["generation_seconds"]) > 45000
+        or not _within(safety, _EXPIRATION_SAFETY)
+    ):
+        raise _invalid()
+
+
 def validate_manifest(value: object) -> dict[str, object]:
     try:
         launch = _mapping(value)
@@ -102,45 +179,18 @@ def validate_manifest(value: object) -> dict[str, object]:
             type(launch["schema_version"]) is not int
             or launch["schema_version"] != 1
             or type(launch["scenario_version"]) is not int
-            or launch["scenario_version"] != 2
             or type(launch["seed"]) is not int
             or not _uuid(launch["run_id"])
         ):
             raise _invalid()
         config = _mapping(launch["configuration"])
         safety = _mapping(launch["safety"])
-        if (
-            resolve_traffic_config(config) != config
-            or resolve_safety_policy(safety) != safety
-            or launch["scenario_id"] != "convention-" + cast(str, config["family"])
-        ):
+        if resolve_safety_policy(safety) != safety:
             raise _invalid()
-        population = sum(
-            cast(int, config[k])
-            for k in (
-                "normal_owners",
-                "popular_owners",
-                "casual",
-                "active",
-                "heavy",
-                "retry_prone",
-            )
-        )
-        limits = _mapping(config["limits"])
-        if (
-            population > 50
-            or any(
-                cast(float, safety[k]) > maximum
-                for k, maximum in (
-                    ("seconds", 900),
-                    ("final_seconds", 600),
-                    ("population", 50),
-                    ("in_flight", 10),
-                )
-            )
-            or any(cast(int, limits[k]) > 10 for k in ("active", "in_flight"))
-        ):
-            raise _invalid()
+        if launch["scenario_id"] == "journeys":
+            _journeys_shape(launch, config, safety)
+        else:
+            _convention_shape(launch, config, safety)
         identity = _mapping(launch["backend_identity"])
         if (
             set(identity) != {"source_sha", "deployment_id", "environment"}

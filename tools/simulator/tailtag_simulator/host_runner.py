@@ -18,7 +18,7 @@ from contextlib import suppress
 from pathlib import Path
 from typing import cast
 
-from .host_artifacts import admit_run, resolve_recovery
+from .host_artifacts import admit_run, inventory_runs, resolve_recovery
 from .host_operator import (
     _private_directory,  # pyright: ignore[reportPrivateUsage]
     _write_new,  # pyright: ignore[reportPrivateUsage]
@@ -242,6 +242,30 @@ async def supervise_run(
                     raise ValueError("container_name_occupied")
                 started = clock()
                 execution_end = started + cast(float, safety["seconds"])
+                configuration = cast(dict[str, object], manifest["configuration"])
+                scenario_arguments = (
+                    [
+                        "journeys",
+                        "--pool",
+                        str(configuration["pool"]),
+                        "--scenario-version",
+                        "1",
+                        "--seed",
+                        "0",
+                    ]
+                    if manifest["scenario_id"] == "journeys"
+                    else [
+                        "convention",
+                        "--family",
+                        str(configuration["family"]),
+                        "--pool",
+                        str(configuration["pool"]),
+                        "--scenario-version",
+                        "2",
+                        "--seed",
+                        str(manifest["seed"]),
+                    ]
+                )
                 # Only rpc is exposed; the host-only control directory stays unmounted.
                 process = await asyncio.create_subprocess_exec(
                     "docker",
@@ -278,15 +302,7 @@ async def supervise_run(
                     str(pinned["image_id"]),
                     "-m",
                     "tailtag_simulator",
-                    "convention",
-                    "--family",
-                    str(cast(dict[str, object], manifest["configuration"])["family"]),
-                    "--pool",
-                    str(cast(dict[str, object], manifest["configuration"])["pool"]),
-                    "--scenario-version",
-                    "2",
-                    "--seed",
-                    str(manifest["seed"]),
+                    *scenario_arguments,
                     "--host-manifest",
                     "/manifest.json",
                     "--host-socket-dir",
@@ -561,9 +577,11 @@ def _input(path: str) -> dict[str, object]:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
-    for command in ("prepare", "run", "stop", "recovery-resolve"):
+    for command in ("prepare", "run", "stop", "recovery-resolve", "inventory"):
         sub = commands.add_parser(command)
         sub.add_argument("--root", type=Path, required=True)
+        if command == "inventory":
+            continue
         if command in {"prepare", "run"}:
             sub.add_argument("--manifest", required=True)
         else:
@@ -576,6 +594,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command in {"prepare", "run"}:
             _linux_policy()
+        if args.command == "inventory":
+            line = (
+                json.dumps(
+                    inventory_runs(args.root), separators=(",", ":"), allow_nan=False
+                )
+                + "\n"
+            )
+            if len(line) > 65536:
+                raise ValueError
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            return 0
         if args.command == "prepare":
             value = validate_manifest(_input(args.manifest))
             root = args.root
