@@ -126,14 +126,19 @@ target.
 | `nightly-hotspot-profile.json` | 23002 | 20 | Two popular owners attract concentrated catches and overlapping duplicates. |
 | `nightly-retry-profile.json` | 23003 | 20 | Four retry-prone attendees on poor networks, with injected pre-send failures and lost responses. |
 | `nightly-soak-profile.json` | 23004 | 20 | Three finite cycles that revisit the same catch pairs. |
-| `weekend-profile.json` | 23010 | 50 | Every persona. Ten active actors for 480 s with 2 s think time, which keeps requests under the 9,000 attempt and 10,000 safety budgets. |
+| `weekend-profile.json` | 23010 | 50 | Every persona. Ten active actors for 300 s with 2 s think time. |
 | `expiration-profile.json` | 23020 | 2 | One owner and one casual attendee. Exercises the natural 12-hour catch-session expiry. A one-time proof only. |
 
 **Setup time.** Identity setup is paced at 4 s per identity. That is about
 76 s for 20 identities and 196 s for 50, and it counts against safety
-`seconds`. The weekend profile's total runtime has not yet been confirmed by a
-live run. If it reaches the 900 s deadline, the run stops as a safety stop and
-cannot pass. Reduce the traffic window in a reviewed change; never raise the
+`seconds`. If a run reaches the 900 s deadline, it stops as a safety stop and
+cannot pass.
+
+**Attempt budget.** A traffic schedule that exhausts `limits.attempts` before
+its window ends stops early and fails. The first live weekend run sent about
+24 attempts per second and spent its 9,000 attempts 369 s into a 480 s window,
+so the window is now 300 s, about 7,300 attempts. If a profile hits either
+limit, shorten its traffic window in a reviewed change; never raise the
 ceilings.
 
 **Reproduction.** A run is reproduced by:
