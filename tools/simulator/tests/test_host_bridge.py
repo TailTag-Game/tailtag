@@ -1036,7 +1036,11 @@ def test_unfinished_health_close_is_bounded_and_never_pins_capacity(
                 await writer.drain()
             except OSError:
                 pass
-            return await asyncio.wait_for(reader.read(), 1)
+            try:
+                return await asyncio.wait_for(reader.read(), 1)
+            except ConnectionResetError:
+                # Linux resets a refused socket with unread input; macOS sends EOF.
+                return b""
 
         try:
             live = {"run_id": RUN, "live": True}
