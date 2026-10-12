@@ -9,7 +9,18 @@ the identifier `app.tailtag`.
 The current UI is only a neutral scaffold proving startup, routing, and
 Riverpod composition.
 
-Root commands, configuration, and diagnostics; CI; API/OpenAPI integration;
-and Clerk integration remain assigned to issues #132–#135. Do not infer setup
-or run commands from this scaffold: issue #132 defines the contributor
-interface.
+Run these from the repository root on macOS or Linux (Windows uses the raw
+`fvm` commands in the guide):
+
+- `make mobile-setup` installs locked dependencies (needs FVM and the pinned
+  SDK; run `fvm install` here once).
+- `make mobile-check` runs format, analysis, and tests; it does not build.
+- `make mobile-doctor` diagnoses the environment.
+- `make mobile-run DEVICE=<id>` launches the app on one connected Android or iOS
+  target, using `config/development.json` copied from
+  `config/development.example.json`.
+
+Setup, configuration, local connectivity, and the Windows command table are in
+[Mobile contributor environment](../../docs/development/mobile.md). CI;
+API/OpenAPI integration; and Clerk integration remain assigned to issues
+#133–#135.

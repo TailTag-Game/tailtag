@@ -1,10 +1,8 @@
-# Mobile contributor environment (current scaffold and future contract)
+# Mobile contributor environment
 
-TailTag's Flutter V0 scaffold now exists at `apps/mobile/`, with its
-repository-owned FVM configuration at `apps/mobile/.fvmrc`. This guide records
-the current scaffold and the contributor environment contract that later child
-issues will implement. It does not yet define supported root mobile commands,
-runtime configuration, or diagnostics.
+TailTag's Flutter V0 app lives at `apps/mobile/`, with its repository-owned FVM
+configuration at `apps/mobile/.fvmrc`. This guide is the contributor workflow
+for it: setup, configuration, validation, launch, and diagnostics.
 
 The application uses its repository-owned FVM configuration to pin exact stable
 Flutter `3.47.2` in `apps/mobile/.fvmrc`, rather than following a moving
@@ -54,39 +52,97 @@ lockfile, confirm the validation results, and merge the pull request manually.
 
 ## Prerequisites
 
-All future mobile contributors need the following. IDE choice is deliberately
+All mobile contributors need the following. IDE choice is deliberately
 not mandated.
 
 | Area | Required baseline | Notes |
 | --- | --- | --- |
-| Common | Git, FVM, the repository-pinned Flutter SDK, dependency resolution, the future repository-owned validation command, and one supported target | FVM selects Flutter `3.47.2` from `apps/mobile/.fvmrc`; use its bundled Dart `3.13.2`. |
-| Android | A compatible JDK, Android SDK and tooling, plus an Android API 26-or-newer emulator | Android is supported on Windows, Linux, and macOS. Android Studio provides the best-supported development experience, but equivalent command-line tooling is sufficient when it satisfies future diagnostics. |
+| Common | Git, FVM, the repository-pinned Flutter SDK, dependency resolution, the `make mobile-*` commands below, and one supported target | FVM selects Flutter `3.47.2` from `apps/mobile/.fvmrc`; use its bundled Dart `3.13.2`. |
+| Android | A compatible JDK, Android SDK and tooling, plus an Android API 26-or-newer emulator | Android is supported on Windows, Linux, and macOS. Android Studio provides the best-supported development experience, but equivalent command-line tooling is sufficient when `make mobile-doctor` reports the toolchain as usable. Flutter must be able to find the Android SDK: set `ANDROID_HOME` or run `fvm flutter config --android-sdk <path>` (`fvm flutter doctor -v` shows what it found). |
 | iOS | macOS, Xcode with its command-line tools selected, completed Xcode first-run/license setup, and an iOS 15.1-or-newer Simulator runtime | Xcode is required to install iOS Simulator runtimes. Android Studio with the Flutter plugin is recommended for running TailTag on those simulators. CocoaPods is required when native Flutter plugins require it. Windows and Linux contributors do not need Xcode or iOS support. |
 
 macOS contributors may validate either Android or iOS. Phones are the primary
 V0 UX target; tablets remain compatible but have no V0-specific optimization
 requirement. Launching on a physical device is permitted, but optional.
 
-## Future setup and validation
+## Commands
 
-Once the child issues land, a successful mobile environment means all of the
-following:
+Root `make mobile-*` commands support macOS and Linux hosts and run Flutter and
+Dart through FVM. They sit beside the backend `make api-*` commands in the same
+root `Makefile` (`make help` lists both) but run on the host: the `api-*`
+commands run in the TailTag devcontainer, while every `mobile-*` command fails
+immediately with a "run on the host" message when `TAILTAG_DEVCONTAINER=1`.
+Windows contributors use the raw commands in the
+[Windows table](#windows-raw-commands).
 
-1. The FVM-selected, repository-pinned Flutter toolchain resolves the future
-   mobile dependencies.
-2. The future repository-owned mobile validation command succeeds.
-3. The app actually launches on at least one supported Android emulator or iOS
-   Simulator.
+| Command | What it does | Kind |
+| --- | --- | --- |
+| `make mobile-setup` | Verifies FVM and the pinned Flutter SDK are installed, then runs `fvm flutter pub get --enforce-lockfile` in `apps/mobile/`. It never installs the SDK; when the SDK is missing it prints `(cd apps/mobile && fvm install)`. | Deterministic |
+| `make mobile-format-check` | `fvm dart format --output=none --set-exit-if-changed .` | Deterministic |
+| `make mobile-analyze` | `fvm flutter analyze` | Deterministic |
+| `make mobile-test` | `fvm flutter test` (no configuration needed) | Deterministic |
+| `make mobile-check` | Runs `mobile-format-check`, `mobile-analyze`, and `mobile-test`. It does **not** build; CI builds the Android and iOS artifacts. | Deterministic |
+| `make mobile-doctor` | Same as `./scripts/doctor.sh --mobile`: diagnoses FVM, the pinned SDK, platform toolchains, devices, configuration, and API reachability. | Deterministic diagnosis; the API probe is live |
+| `make mobile-run DEVICE=<id>` | Validates configuration, applies `adb reverse` for Android with Local configuration, then runs `fvm flutter run -d <id>` with the configuration file. | Interactive and live |
 
-The future root `make mobile-*` commands, configuration flow, and diagnostics
-are issue #132 work. Do not infer or rely on those commands before that issue
-lands. Issue #131 implements the scaffold and proves initial Android and iOS
-builds and launches; issue #133 adds CI; issue #134 adds OpenAPI; issue #135
-proves live Clerk; and issue #136 independently validates clean onboarding.
+`mobile-run` is intentionally interactive, and the API reachability check in
+`mobile-doctor` is intentionally live: they depend on a device and a running
+API. Later Clerk proof (#135) is likewise live. Everything else is
+deterministic and safe to script.
 
-## Future runtime configuration
+`./scripts/doctor.sh` without `--mobile` is unchanged apart from a hint line;
+`--mobile` adds the host-only mobile section after the repository checks. It
+reports a missing FVM, a missing pinned SDK, no usable Android or iOS toolchain,
+and invalid configuration as failures. It reports one missing platform
+toolchain (iOS is reported as not applicable off macOS), no available
+device or emulator, missing configuration, and an unreachable API as warnings,
+each with a next step.
 
-TailTag will own a typed `AppConfig` populated by compile-time Dart defines.
+## First run
+
+A contributor with one supported target (Android or iOS) can complete this
+workflow. A second platform is optional local validation.
+
+1. Install [FVM](https://fvm.app/documentation/getting-started/installation),
+   then install the pinned SDK once: `cd apps/mobile && fvm install`.
+2. From the repository root, run `make mobile-setup`.
+3. Run `make mobile-doctor` and follow the next step on any FAIL or WARN.
+4. Create your configuration file (see [Configuration](#configuration)):
+   `cp apps/mobile/config/development.example.json apps/mobile/config/development.json`,
+   then set `CLERK_PUBLISHABLE_KEY`.
+5. Run `make mobile-check`.
+6. Start an emulator or simulator (`fvm flutter emulators --launch
+   <emulator-id>`), find its id with `fvm flutter devices`, then run
+   `make mobile-run DEVICE=<id>`. Without `DEVICE`, or with an id that is not
+   connected, the command prints the device list and an emulator launch hint
+   and exits; it never boots or chooses a device for you.
+
+TailTag supports Android and iOS targets only; `mobile-run` rejects desktop and
+web devices.
+
+## Configuration
+
+The app reads two compile-time Dart defines from a JSON file passed with
+`--dart-define-from-file`. Copy `apps/mobile/config/development.example.json`
+to `apps/mobile/config/development.json`, which is gitignored; never commit it.
+
+| Key | Rule |
+| --- | --- |
+| `TAILTAG_API_BASE_URL` | An absolute origin only: no path (other than an optional trailing `/`), query, fragment, or userinfo. The scheme is `https`, or `http` only when the host is exactly `127.0.0.1` or `localhost`. |
+| `CLERK_PUBLISHABLE_KEY` | Required. It must be a Clerk Development publishable key starting with `pk_test_`. Empty values, `pk_live_` keys, and `sk_` secret keys are rejected. |
+
+One pure-Dart parser, `AppConfig`, is the only validator. It runs at app
+startup (a missing or invalid value fails fast, naming the key without echoing
+its value), in the pre-launch check of `make mobile-run`, and in
+`make mobile-doctor`. To check a file yourself, run from `apps/mobile/`:
+`fvm dart run tool/check_config.dart config/development.json`.
+
+The Clerk Development publishable key comes from the Clerk dashboard's API keys
+page for TailTag's Development instance; ask a maintainer if you need access.
+Publishable values are not application secrets, but compile-time defines are
+embedded in the app. They must never contain Clerk secret keys, bearer tokens,
+signing material, or any other secret.
+
 The configuration selects the API, rather than using flavors or schemes:
 
 | Environment | Approved backend API root |
@@ -94,12 +150,38 @@ The configuration selects the API, rather than using flavors or schemes:
 | Local | `http://127.0.0.1:8000` |
 | Railway Development | `https://dev.tailtag.app` |
 
+### Railway Development
+
+Railway Development is the shared, HTTPS development API. The committed example
+file already contains its approved root, `https://dev.tailtag.app`; supply it
+through your own `development.json`. Choosing it implies no production access
+and no production configuration. Use it whenever the Local API is unreachable
+from your device (see below) or when you need authenticated requests, because
+the Clerk token transport rule below forbids sending a token over HTTP.
+
+### Local API connectivity
+
 The Local row names the API on the contributor host; it is not a portable
-device URL. In the standard Android Emulator, `127.0.0.1` is the emulator
-itself. Reaching the host API requires `http://10.0.2.2:8000` or an equivalent
-`adb reverse` setup that preserves the approved Local API root. Issue #132 owns
-the final commands, configuration mapping, and launch proof. Until that issue
-lands, Android Local connectivity is not a supported contributor workflow.
+device URL. Keep `http://127.0.0.1:8000` in the configuration and use the
+mapping for your target:
+
+| Target | How it reaches the Local API |
+| --- | --- |
+| iOS Simulator | Uses the host's loopback directly. No extra step. |
+| Android emulator | `make mobile-run` runs `adb -s <id> reverse tcp:8000 tcp:8000` for you, so the device's `127.0.0.1:8000` forwards to the host. |
+| USB-connected Android device | Same `adb reverse` as the emulator. |
+| iOS physical device | Cannot reach host loopback. Use Railway Development. |
+| Wi-Fi-only Android device (no `adb reverse`) | Cannot reach host loopback. Use Railway Development. |
+
+Local over a LAN IP address is unsupported: the configuration validator
+rejects `http` to anything but `127.0.0.1` or `localhost`, and the Local API
+does not accept other hosts. The standard Android emulator alias `10.0.2.2` is
+not used, because the Local API rejects that host. `adb reverse` requires
+`adb` on `PATH` (Android SDK platform-tools); `make mobile-run` stops with
+guidance if it is missing.
+
+The reachability probe in `make mobile-doctor` runs `curl` from the host. A
+passing probe shows the host can reach the API; it does not prove a device can.
 
 The authentication transport rule is invariant across environments: attach a
 Clerk session token as `Authorization: Bearer` only to an HTTPS request within
@@ -111,26 +193,47 @@ before issuing a new request with the header. Use HTTPS termination for
 authenticated Local testing or use Railway Development. Never transmit a Clerk
 session token over cleartext HTTP or to another origin.
 
-Android apps targeting API 28 or newer reject cleartext HTTP by default. If
-issue #132 retains unauthenticated Local HTTP, it must use a narrowly scoped
-debug policy rather than a release-wide cleartext exception and must cover the
-API 28+ behavior in its validation. The transport rule above still forbids
-attaching a Clerk token to those requests.
+### Cleartext HTTP policy
 
-Future configuration also includes the Clerk Development publishable
-configuration. Publishable values are not application secrets, but
-compile-time defines are embedded in the app. They must never contain Clerk
-secret keys, bearer tokens, signing material, or any other secret.
+TailTag adds no Android network security configuration, `usesCleartextTraffic`
+setting, or iOS App Transport Security exception for Local HTTP. Sockets owned
+by Dart, including the default client of `package:http`, are not governed by
+Android's cleartext policy or by iOS ATS, so such a policy would be read by
+nothing. The app's own rules (HTTP only to `127.0.0.1` or `localhost`, validated
+by `AppConfig`) are the control. A future client that uses platform networking
+(for example `cronet_http` or `cupertino_http`) must add a debug-only,
+host-scoped cleartext policy and must never enable cleartext release-wide.
+
+### Clerk SDK direction
 
 `clerk_flutter` is the initial SDK direction. Clerk owns session/token refresh
 and persistence; TailTag will not create separate persistent bearer-token
 storage.
 
+## Windows raw commands
+
+Root Make commands support macOS and Linux hosts. On Windows, run these from
+`apps/mobile/`; `fvm flutter doctor` is the diagnostic equivalent of
+`make mobile-doctor`.
+
+| Make target | Raw command |
+| --- | --- |
+| `mobile-setup` | `fvm flutter pub get --enforce-lockfile` |
+| `mobile-format-check` | `fvm dart format --output=none --set-exit-if-changed .` |
+| `mobile-analyze` | `fvm flutter analyze` |
+| `mobile-test` | `fvm flutter test` |
+| `mobile-check` | The three checks above, in that order |
+| `mobile-run` | `fvm dart run tool/check_config.dart config/development.json`, then `fvm flutter run -d <id> --dart-define-from-file=config/development.json` (for Android with Local configuration, first run `adb -s <id> reverse tcp:8000 tcp:8000`) |
+| `mobile-doctor` | `fvm flutter doctor` |
+
+iOS is not available on Windows.
+
 ## Scope and references
 
-Issue #130 was documentation-only. Issue #131 implements `apps/mobile/`,
-`.fvmrc`, dependencies, platform projects, and application files; Make targets,
-runtime configuration, and diagnostics remain assigned to their child issues.
+Issue #130 documented the contract, #131 implemented the scaffold, and #132
+adds the commands, configuration, and diagnostics above. Issue #133 adds CI;
+issue #134 adds OpenAPI and the API client; issue #135 proves live Clerk; and
+issue #136 independently validates clean onboarding.
 
 - [FVM project configuration](https://fvm.app/documentation/getting-started/configuration)
   and [basic commands](https://fvm.app/documentation/guides/basic-commands)

@@ -36,6 +36,8 @@ Compile-time values must be treated as public application contents. Server-side 
 
 Issue #131 owns the scaffold, identifiers, minimum implementations, committed `apps/mobile/.fvmrc` exact Flutter `3.47.1` pin, and Android/iOS build and launch proof. Issue #132 owns root commands, `AppConfig` implementation, configuration inputs, Android emulator host mapping, and diagnostics. It must cover Android API 28+ cleartext behavior if unauthenticated Local HTTP remains available, without enabling cleartext release-wide. Issue #133 owns CI. Issue #134 owns generator and client implementation plus regeneration proof. Issue #135 owns live Clerk proof. Issue #136 owns independent clean-environment validation. Frontend architecture requires approval from `@TailTag-Game/core-maintainers`, with relevant mobile/frontend contributors reviewing changes.
 
+The cleartext-policy finding for issue #132 (Dart-owned sockets are not governed by Android network security configuration or iOS ATS, so no platform policy is added) is recorded in [Mobile contributor environment](../development/mobile.md#cleartext-http-policy).
+
 This is a documentation-only decision: it creates no application secret, Flutter scaffold, dependency, platform project, screen, command or diagnostic implementation, product behavior, or `apps/mobile/` directory. If Flutter or the contained integrations cease to meet the approved requirements, replace this ADR through a reviewed successor that preserves API/auth contracts and provides a migration and rollback plan.
 
 ## References
