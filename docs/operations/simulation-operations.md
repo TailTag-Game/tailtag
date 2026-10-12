@@ -323,6 +323,11 @@ only for this closed configuration shape:
 
 Every other profile is refused with this safety file.
 
+Staging safety checks count toward the 10,000-request ceiling. Each check
+sends three requests, and the run checks once per `poll_seconds` (30 s here)
+plus once per 60 s lease heartbeat: about 7,000 requests over 46,800 s. At a
+10 s poll the checks alone would exceed the ceiling after about 8 hours.
+
 **This proof is not part of the cadence.** It needs separate authorization.
 Plan for these constraints:
 

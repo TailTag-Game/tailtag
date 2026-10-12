@@ -551,6 +551,17 @@ def test_every_committed_profile_prepares_with_its_intended_safety_file(
     assert prepared["seed"] == wrapper["seed"]
 
 
+@pytest.mark.parametrize("safety", ["safety.json", "expiration-safety.json"])
+def test_committed_safety_checks_fit_inside_their_own_request_ceiling(
+    safety: str,
+) -> None:
+    # Every target check sends three counted requests (targets.verify_target):
+    # one check per poll and one per 60 s lease heartbeat, for the whole run.
+    policy = cast(dict[str, float], json.loads((HOST_DIR / safety).read_text()))
+    checks = policy["seconds"] / policy["poll_seconds"] + policy["seconds"] / 60
+    assert 3 * checks <= 0.8 * policy["requests"]
+
+
 @pytest.mark.parametrize(
     ("profile", "safety"),
     [
