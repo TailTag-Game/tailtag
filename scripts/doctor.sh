@@ -314,7 +314,8 @@ check_mobile_configuration() {
   fi
 
   pass "Mobile configuration is valid"
-  origin="${check_output%%$'\n'*}"
+  # The tool prints the validated origin as its final line.
+  origin="${check_output##*$'\n'}"
 
   if ! command -v curl >/dev/null 2>&1; then
     warn "curl is not installed; skipped the API reachability check for $origin (host reachability does not prove device reachability)"

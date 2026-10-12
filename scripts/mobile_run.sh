@@ -63,10 +63,15 @@ esac
 
 # --- Validate configuration before launching -----------------------------------
 
+# The tool prints the validated origin on stdout and problems on stderr; keep
+# them apart so incidental tool output never becomes part of the origin.
+check_errors_file="$(mktemp)"
 set +e
-check_output="$(cd "$mobile_directory" && fvm dart run tool/check_config.dart "$config_file" 2>&1)"
+check_output="$(cd "$mobile_directory" && fvm dart run tool/check_config.dart "$config_file" 2>"$check_errors_file")"
 check_status=$?
 set -e
+check_errors="$(cat "$check_errors_file")"
+rm -f "$check_errors_file"
 
 if (( check_status == 2 )); then
   printf '%s\n' 'Mobile configuration is missing: apps/mobile/config/development.json'
@@ -75,13 +80,13 @@ if (( check_status == 2 )); then
   exit 1
 elif (( check_status != 0 )); then
   printf '%s\n' 'Mobile configuration is invalid (apps/mobile/config/development.json):' >&2
-  printf '%s\n' "$check_output" >&2
+  printf '%s\n' "$check_errors" >&2
   exit 1
 fi
 
 # --- Android Local needs the device to reach the host loopback API -------------
 
-origin="$check_output"
+origin="${check_output##*$'\n'}"
 
 if [[ "$origin" == http://* && "$platform" == android* ]]; then
   command -v adb >/dev/null 2>&1 || \

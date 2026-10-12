@@ -473,15 +473,17 @@ assert_line "$mobile_output" 'WARN' 'Android'
 assert_no_line "$mobile_output" 'FAIL' ''
 
 # Toolchains: a [!] entry is usable, with a pointer to the verbose doctor.
+# Both entries are [!], so treating [!] as unusable would FAIL this case.
 new_mobile_fixture usable-with-warnings
 FAKE_FLUTTER_DOCTOR='Doctor summary (to see all details, run flutter doctor -v):
 [✓] Flutter (Channel stable, 3.47.2, on macOS 26.6.2 25G83 darwin-arm64, locale en-US)
-[✓] Android toolchain - develop for Android devices (Android SDK version 36.0.0)
+[!] Android toolchain - develop for Android devices (Android SDK version 36.0.0)
+    ! Some Android licenses not accepted.
 [!] Xcode - develop for iOS and macOS (Xcode 27.0)
     ! CocoaPods not installed.
 [✓] Chrome - develop for the web' run_mobile
-expect_status 0 'expected a toolchain with warnings to remain usable'
-assert_line "$mobile_output" 'WARN' 'fvm flutter doctor -v'
+expect_status 0 'expected toolchains with warnings to remain usable'
+assert_line "$mobile_output" 'WARN' 'usable with warnings'
 assert_no_line "$mobile_output" 'FAIL' ''
 
 # iOS is not applicable off macOS: informational, not a WARN.

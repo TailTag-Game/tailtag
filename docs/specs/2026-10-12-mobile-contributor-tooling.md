@@ -34,6 +34,7 @@ tests share.
   new `apps/mobile/config/development.example.json`, `apps/mobile/.gitignore`,
   `apps/mobile/test/` (config tests, startup test), `apps/mobile/README.md`,
   `docs/development/mobile.md`, `docs/development/getting-started.md`,
+  `docs/architecture.md` (replace the superseded `10.0.2.2`/cleartext paragraph),
   `docs/adrs/0006-use-flutter-for-mobile-v0.md` (one pointer sentence),
   `docs/specs/README.md`, and this contract and its plan.
 - **Reversibility:** two-way door. All changes are contributor tooling and
