@@ -634,6 +634,10 @@ import json, os, shutil, signal, subprocess, sys, time, uuid
 from pathlib import Path
 root = Path({str(root)!r})
 args = sys.argv[1:]
+def publish(name, text):
+    # Inspect checks existence, then reads: never expose a partial file.
+    (root / (name + ".tmp")).write_text(text)
+    os.replace(root / (name + ".tmp"), root / name)
 with (root / "docker.jsonl").open("a") as out:
     out.write(json.dumps({{"argv":args,"pid":os.getpid(),"sid":os.getsid(0),"pgid":os.getpgrp()}}) + "\\n")
 op = args[0]
@@ -667,7 +671,7 @@ elif op == "run":
     proc = subprocess.Popen([{sys.executable!r}, str(root / "python-child.py")],
                             env={{**os.environ, "PYTHONPATH":str(root / "source")}},
                             start_new_session=True)
-    (root / "container.json").write_text(json.dumps({{"name":name,"pid":proc.pid,"labels":labels}}))
+    publish("container.json", json.dumps({{"name":name,"pid":proc.pid,"labels":labels}}))
     # The container child is outside the host's terminal process group. Docker
     # CLI's real default sigProxy nevertheless forwards received HUP into it.
     def forward_hup(signum, frame):
@@ -682,7 +686,7 @@ elif op == "run":
         # Losing the attached client does not stop the named container.
         raise SystemExit(1)
     code = proc.wait()
-    (root / "container-exit").write_text(str(code))
+    publish("container-exit", str(code))
     raise SystemExit(code if code >= 0 else 128-code)
 elif op == "kill":
     state = json.loads((root / ("foreign.json" if {collision!r} else "container.json")).read_text())
