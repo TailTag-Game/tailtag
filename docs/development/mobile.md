@@ -105,9 +105,10 @@ workflow. A second platform is optional local validation.
 
 1. Install [FVM](https://fvm.app/documentation/getting-started/installation),
    then install the pinned SDK once: `cd apps/mobile && fvm install`.
-   `make mobile-setup` and `make mobile-doctor` only check for the SDK; other
-   `fvm flutter` and `fvm dart` commands, including the other `mobile-*`
-   targets, make FVM download a missing pinned SDK automatically.
+   `make mobile-setup`, `make mobile-run`, and `make mobile-doctor` stop with
+   this command when the SDK is missing; other `fvm flutter` and `fvm dart`
+   commands, including the check targets, make FVM download a missing pinned
+   SDK automatically.
 2. From the repository root, run `make mobile-setup`.
 3. Run `make mobile-doctor` and follow the next step on any FAIL or WARN.
 4. Create your configuration file (see [Configuration](#configuration)):

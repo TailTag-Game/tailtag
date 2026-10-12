@@ -458,7 +458,8 @@ FAKE_FLUTTER_DOCTOR='Doctor summary (to see all details, run flutter doctor -v):
     ✗ cmdline-tools component is missing.
 [✓] Chrome - develop for the web' run_mobile
 expect_status 1 'expected no usable platform toolchain to fail'
-assert_line "$mobile_output" 'FAIL' ''
+assert_line "$mobile_output" 'FAIL' 'ANDROID_HOME'
+assert_line "$mobile_output" 'FAIL' 'xcodebuild -runFirstLaunch'
 
 # Toolchains: exactly one unusable warns and does not fail.
 new_mobile_fixture one-toolchain
@@ -469,7 +470,7 @@ FAKE_FLUTTER_DOCTOR='Doctor summary (to see all details, run flutter doctor -v):
 [✓] Xcode - develop for iOS and macOS (Xcode 27.0)
 [✓] Chrome - develop for the web' run_mobile
 expect_status 0 'expected one usable platform toolchain to pass'
-assert_line "$mobile_output" 'WARN' 'Android'
+assert_line "$mobile_output" 'WARN' 'ANDROID_HOME'
 assert_no_line "$mobile_output" 'FAIL' ''
 
 # Toolchains: a [!] entry is usable, with a pointer to the verbose doctor.

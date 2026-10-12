@@ -74,13 +74,14 @@ check_errors="$(cat "$check_errors_file")"
 rm -f "$check_errors_file"
 
 if (( check_status == 2 )); then
-  printf '%s\n' 'Mobile configuration is missing: apps/mobile/config/development.json'
-  printf '%s\n' 'Copy the template: cp apps/mobile/config/development.example.json apps/mobile/config/development.json'
-  printf '%s\n' 'Then set CLERK_PUBLISHABLE_KEY to the Clerk Development publishable key.'
+  printf '%s\n' 'Mobile configuration is missing: apps/mobile/config/development.json' >&2
+  printf '%s\n' 'Copy the template: cp apps/mobile/config/development.example.json apps/mobile/config/development.json' >&2
+  printf '%s\n' 'Then set CLERK_PUBLISHABLE_KEY to the Clerk Development publishable key.' >&2
   exit 1
 elif (( check_status != 0 )); then
   printf '%s\n' 'Mobile configuration is invalid (apps/mobile/config/development.json):' >&2
   printf '%s\n' "$check_errors" >&2
+  printf '%s\n' 'Fix the listed values, or start again from the template: cp apps/mobile/config/development.example.json apps/mobile/config/development.json' >&2
   exit 1
 fi
 

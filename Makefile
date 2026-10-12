@@ -101,6 +101,15 @@ define mobile_host_guard
 test "$${TAILTAG_DEVCONTAINER:-}" != "1" || { printf '%s\n' 'Mobile commands run on the host, not in the TailTag devcontainer.' >&2; exit 1; }
 endef
 
+# Fail instead of letting FVM silently download a missing pinned SDK.
+define mobile_sdk_guard
+command -v fvm >/dev/null 2>&1 || { printf '%s\n' 'FVM is not installed; install it: https://fvm.app/documentation/getting-started/installation' >&2; exit 1; }; \
+pinned="$$(sed -nE 's/.*"flutter"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' '$(MOBILE_DIRECTORY)/.fvmrc' | head -n 1)"; \
+test -n "$$pinned" || { printf '%s\n' 'Could not read the pinned Flutter version from apps/mobile/.fvmrc.' >&2; exit 1; }; \
+fvm api list --compress | tr -d ' \t\r\n' | sed -e 's/.*"versions":\[//' -e 's/\],"projects".*//' | grep -Fq "\"name\":\"$$pinned\"" || { \
+	printf 'Flutter %s (pinned in apps/mobile/.fvmrc) is not installed; run: (cd apps/mobile && fvm install)\n' "$$pinned" >&2; exit 1; }
+endef
+
 .DEFAULT_GOAL := help
 .NOTPARALLEL: api-check sim-check mobile-check
 
@@ -246,16 +255,13 @@ api-gunicorn-check:
 
 mobile-setup: ## Install locked Flutter dependencies (host; needs FVM and the pinned SDK).
 	@$(call mobile_host_guard)
-	@command -v fvm >/dev/null 2>&1 || { printf '%s\n' 'FVM is not installed; install it: https://fvm.app/documentation/getting-started/installation' >&2; exit 1; }
-	@pinned="$$(sed -nE 's/.*"flutter"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' '$(MOBILE_DIRECTORY)/.fvmrc' | head -n 1)"; \
-	test -n "$$pinned" || { printf '%s\n' 'Could not read the pinned Flutter version from apps/mobile/.fvmrc.' >&2; exit 1; }; \
-	fvm api list --compress | tr -d ' \t\r\n' | sed -e 's/.*"versions":\[//' -e 's/\],"projects".*//' | grep -Fq "\"name\":\"$$pinned\"" || { \
-		printf 'Flutter %s (pinned in apps/mobile/.fvmrc) is not installed; run: (cd apps/mobile && fvm install)\n' "$$pinned" >&2; exit 1; }
+	@$(call mobile_sdk_guard)
 	@printf '%s\n' 'Installing locked Flutter dependencies...'
 	@cd '$(MOBILE_DIRECTORY)' && fvm flutter pub get --enforce-lockfile
 
 mobile-run: ## Run the app on a connected Android or iOS target: DEVICE=id (host; see fvm flutter devices).
 	@$(call mobile_host_guard)
+	@$(call mobile_sdk_guard)
 	@DEVICE='$(subst ','"'"',$(DEVICE))' '$(REPOSITORY_ROOT)/scripts/mobile_run.sh'
 
 mobile-format-check: ## Check Dart formatting without changing files (host).
