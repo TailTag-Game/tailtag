@@ -191,7 +191,7 @@ void main() {
       expect(config.clerkPublishableKey, _validKey);
     });
 
-    final shapeFailures = <String, String>{
+    const shapeFailures = <String, String>{
       "malformed JSON": '{"$apiBaseUrlKey": "$_validUrl"',
       "an array": '["$_validUrl"]',
       "a string": '"$_validUrl"',
