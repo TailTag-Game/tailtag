@@ -53,6 +53,23 @@ UNMATCHED_PATH = f"/no-such-route/{RAW_PATH_SENTINEL}/"
 CONVENTION_PATH = "/api/conventions/424242/"
 SAMPLED_PARENT = f"{'a' * 32}-{'b' * 16}-1"
 UNSAMPLED_PARENT = f"{'a' * 32}-{'b' * 16}-0"
+CLIENT_TRACE_ID = "c0ffee00" * 4
+CLIENT_SPAN_ID = "d00dfeed" * 2
+CLIENT_BAGGAGE_VALUES = [
+    CLIENT_TRACE_ID,
+    "0.314159",  # sentry-sample_rand
+    "client-environment-sentinel",
+    "client-release-sentinel",
+    "client-public-key-sentinel",
+]
+CLIENT_BAGGAGE = ",".join(
+    f"sentry-{key}={value}"
+    for key, value in zip(
+        ["trace_id", "sample_rand", "environment", "release", "public_key"],
+        CLIENT_BAGGAGE_VALUES,
+        strict=True,
+    )
+)
 
 
 def _request_metric_attributes(transport: CapturingTransport) -> dict[str, Any]:
@@ -108,18 +125,21 @@ def test_invalid_traces_sample_rate_stops_startup_without_echoing_the_value(
     ],
     ids=[
         "health-live-never-traced",
-        "health-ready-forced-on-by-client",
+        "health-ready-client-header-has-no-effect",
         "tracing-off-without-a-rate",
         "traced-at-rate-one",
-        "client-cannot-force-off",
-        "client-cannot-force-on",
+        "client-unsampled-header-has-no-effect",
+        "client-sampled-header-has-no-effect",
         "head-counted-not-traced",
     ],
 )
 def test_health_is_never_traced_other_routes_follow_the_rate_and_every_request_is_counted(
     method: str, path: str, rate: float | None, parent: str | None, traced: bool
 ) -> None:
-    """AC-1, AC-2, AC-5: the sampler ignores the client's parent decision.
+    """AC-1, AC-2, AC-5: a client's sampling decision never affects tracing.
+
+    Cases with a `sentry-trace` header prove this end to end; #260 AC-1 covers
+    the header being dropped at the entry point, so the sampler never sees it.
 
     HEAD and OPTIONS are never traced, as the SDK's Django integration default.
     The request metric is unsampled: exactly one per request for health, traced,
@@ -345,3 +365,49 @@ def test_gunicorn_access_records_reach_neither_stdout_nor_sentry_breadcrumbs() -
 
     assert capture.lines() == []
     assert RAW_PATH_SENTINEL not in transport.serialized()
+
+
+# --- #260: client trace headers are ignored ---
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("rate", [None, 1.0], ids=["tracing-off", "tracing-on"])
+def test_client_trace_headers_never_reach_logs_or_sentry_and_the_request_still_succeeds(
+    settings: SettingsWrapper, rate: float | None
+) -> None:
+    """#260 AC-1, AC-2, AC-4: `sentry-trace` and `baggage` from a client are inert.
+
+    The SDK adopts them even with tracing off, so a client could pick the
+    `trace_id` on every log line and Sentry item and inject the dynamic sampling
+    context. The request fails (`/boom/`) so a log line, an error event, and, when
+    tracing is on, a transaction all carry trace context.
+    """
+    settings.ROOT_URLCONF = TEST_URLCONF
+    headers = {
+        "sentry-trace": f"{CLIENT_TRACE_ID}-{CLIENT_SPAN_ID}-1",
+        "baggage": CLIENT_BAGGAGE,
+    }
+    baseline_status = wsgi_request("/boom/424242/")
+
+    with (
+        sentry_capturing(identity(), traces_sample_rate=rate) as transport,
+        capture_json_stdout() as capture,
+    ):
+        status = wsgi_request("/boom/424242/", headers=headers)
+        sentry_sdk.flush()
+
+    assert status == baseline_status == 500
+    trace_ids = {line["trace_id"] for line in capture.lines()}
+    sent = [*transport.events(), *transport.transactions()]
+    sent_trace_ids = {item["contexts"]["trace"]["trace_id"] for item in sent}
+    assert len(trace_ids) == 1
+    assert len(transport.events()) == 1
+    assert len(transport.transactions()) == (0 if rate is None else 1)
+    assert sent_trace_ids == trace_ids
+    everything_observable = capture.text + transport.serialized()
+    leaked = [
+        value
+        for value in [*CLIENT_BAGGAGE_VALUES, CLIENT_SPAN_ID]
+        if value in everything_observable
+    ]
+    assert leaked == []

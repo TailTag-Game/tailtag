@@ -48,20 +48,21 @@ or one of Sentry's default user widgets such as `count_unique(user)`.
 | D7 | Why are catches rejected? | Application Metrics | `sum(tailtag.catches.confirmation)` where `tailtag.outcome` is `rejected`, grouped by `tailtag.reason` |
 | D8 | Is PostgreSQL healthy? | Application Metrics | Two widgets: `sum(tailtag.db.connection.attempts)`, line, grouped by `tailtag.outcome` and `tailtag.reason`; and `p95(tailtag.db.connection.duration)`, line |
 | D9 | Is authentication abnormal? | Application Metrics | `sum(tailtag.authentication.verification)`, grouped by `tailtag.reason` |
-| D10 | Is media storage failing? | Application Metrics | `sum(tailtag.media.storage.operations)` where `tailtag.outcome` is `failed`, grouped by `rpc.method` and `tailtag.reason` |
+| D10 | Is media storage failing? | Application Metrics | `sum(tailtag.media.storage.operations)` where `tailtag.outcome` is `failed`, grouped by `rpc.method` and `tailtag.reason` (see below) |
 | D11 | Which build is observed? | Application Metrics | `sum(tailtag.http.server.requests)`, bar, grouped by `release` |
 
 Application Metrics widgets cannot be tables, so grouped counts use bar or
-line charts. A metric appears in the widget builder only after Staging has
-emitted it, so a widget for a signal Staging has not produced yet is added
-once it has.
+line charts. A metric, or an attribute of it, appears in the widget builder
+only after Staging has emitted it. D10 is therefore grouped by `rpc.method`
+only: storage operations carry `tailtag.reason` only when they fail, and
+Staging has recorded no failure. Add the `tailtag.reason` grouping once it
+has.
 
 ## Monitors
 
-M6, D6, D7, and D10 are not built yet. Staging had not emitted their metrics
-when the rest was built, and Sentry offers a metric only after it has been
-emitted. They are tracked in
-[#217](https://github.com/TailTag-Game/tailtag/issues/217#issuecomment-5924825747).
+M6, D6, D7, and D10 were built for
+[#217](https://github.com/TailTag-Game/tailtag/issues/217) on 2026-10-01, once
+Staging had emitted their metrics. The rest was built for #216.
 
 Every monitor uses the `staging` environment, a High priority threshold only,
 and the Default resolve: the issue resolves when the value is back at or below
@@ -156,7 +157,7 @@ Saving the shared alert, including after using **Send Test Notification**, can
 replace its connected monitors with "Issue Stream: All Projects". That
 disconnects every monitor and makes the alert fire on any issue in any
 environment. After any edit to the alert, check that it is still connected to
-exactly M1 to M5 and M7.
+exactly M1 to M7.
 
 The recipient's own Sentry notification settings must allow issue alert email
 for the project (**User Settings → Notifications → Issue Alerts**, including
@@ -175,7 +176,8 @@ as the [access policy](../architecture/backend/telemetry-retention-access.md#rul
 allows. For #216 the owner authorized it directly on 2026-10-01; that grant is
 recorded in the
 [#216 spec ledger](../specs/2026-09-30-field-beta-operations-dashboard.md#status-and-phase-ledger)
-rather than as an issue comment.
+rather than as an issue comment. The #217 grant is recorded in the
+[#217 spec ledger](../specs/2026-10-01-field-beta-observability-validation.md#status-and-phase-ledger).
 
 ## Rehearsal
 
@@ -197,10 +199,12 @@ change to a monitor's query.
 | R-5 | M5 | `5xx` → `4xx` | 2 or more unauthenticated `POST /api/catches/confirm/` (401) | Issue and email; restore; resolves |
 | R-6 | M6 | None | 5 or more malformed `POST /api/catches/confirm/` from an approved Staging test player | Issue and email; resolves |
 | R-7 | M7 | None | 5 or more `GET /api/me/` with `Authorization: Bearer` and a non-token value | Issue and email (`token_invalid`); resolves |
-| R-8 | Dashboard | None | Traffic from R-1 to R-7 | D2 to D5, D8, D9, and D11 show the rehearsal; D11 shows the Staging `source_sha`. D7 waits for M6 |
+| R-8 | Dashboard | None | Traffic from R-1 to R-7 | D2 to D9 and D11 show the rehearsal; D11 shows the Staging `source_sha` |
 
-R-6 needs authenticated catch traffic, for which replacement Staging has no
-approved launcher yet. It is deferred with M6 to #217.
+R-6 needs authenticated catch traffic. Replacement Staging has no committed
+launcher for it; #217 used a temporary probe reviewed before it ran, as
+described in the
+[#217 spec](../specs/2026-10-01-field-beta-observability-validation.md#probe-contract).
 
 Write the evidence by hand from allow-listed values: counts, outcomes, reasons,
 status classes, route templates, `source_sha`, Sentry issue short IDs, and
@@ -284,5 +288,15 @@ Times are UTC.
   Rehearsal issues `TAILTAG-TESTING-2` and `-4` to `-7` had resolved, and
   `-8` resolves once its rejections leave M7's window.
 
-Not rehearsed in #216: R-6 and M6, deferred to
-[#217](https://github.com/TailTag-Game/tailtag/issues/217#issuecomment-5924825747).
+R-6 and M6 were not rehearsed in #216. #217 rehearsed them on 2026-10-01,
+against the same deployment:
+
+- **R-6 passed with the real condition.** Six malformed
+  `POST /api/catches/confirm/` requests (400, `payload_invalid`) from the
+  synthetic catcher were sent at 22:29:23. M6 evaluated 6 above 4 at 22:35:01
+  and opened `TAILTAG-TESTING-A`; the alert email arrived. No swap was needed.
+  `TAILTAG-TESTING-A` resolved afterwards.
+- **Final state.** The shared alert is connected to exactly M1 to M7.
+
+The full #217 run is in the
+[field-beta observability validation](../development/field-beta-observability-validation.md).

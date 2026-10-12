@@ -104,10 +104,14 @@ durations, request_ids>
 
 ## Simulation reports
 
-Simulation reports are kept in the repository like evidence records and follow
-the same must-not-contain list. Telemetry a simulation produces in Staging
-follows normal provider retention, so record anything worth keeping from it in
-the report.
+Simulation reports, evaluations and host companions are kept in the
+maintainer's private evidence archive, not in the repository.
+`tools/simulator/reports/` is ignored by Git. They follow the same
+must-not-contain list. Only reviewed performance baselines and thresholds are
+committed, under `tools/simulator/baselines/`, and each baseline records the
+SHA-256 of the archived report it came from. Telemetry a simulation produces in
+Staging follows normal provider retention. Record anything worth keeping in the
+report, or as closed values in an evaluation's operator context.
 
 ## Grant or remove access
 

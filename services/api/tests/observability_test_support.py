@@ -11,7 +11,6 @@ from typing import Any, TextIO, cast
 
 import sentry_sdk
 from django.core.signals import request_finished, request_started
-from django.core.wsgi import get_wsgi_application
 from django.db import close_old_connections, connection
 from django.http import HttpRequest, HttpResponse
 from django.test import RequestFactory
@@ -19,6 +18,7 @@ from django.urls import URLPattern, path
 from sentry_sdk.envelope import Envelope
 from sentry_sdk.transport import Transport
 
+from config import wsgi
 from config.build_identity import Identity
 from observability.dependencies import DependencySignal
 from observability.logging import JsonFormatter
@@ -213,12 +213,14 @@ def identity(
 def wsgi_request(
     path: str, *, method: str = "GET", headers: dict[str, str] | None = None
 ) -> int:
-    """Serve one request through Django's real WSGI handler; return its status code.
+    """Serve one request through `config.wsgi.application`; return its status code.
 
-    Django's test client bypasses `WSGIHandler`, which is where the Sentry SDK
-    starts transactions, so tracing can only be observed through this entry
-    point. Like the test client, it keeps `close_old_connections` from closing
-    the test's connection.
+    That is the production entry point (Gunicorn's target), so anything wrapped
+    around Django's `WSGIHandler` applies here. Django's test client bypasses it,
+    and `WSGIHandler` is where the Sentry SDK starts transactions, so tracing and
+    client headers as a server receives them can only be observed through this
+    entry point. Like the test client, it keeps `close_old_connections` from
+    closing the test's connection.
     """
     environ = RequestFactory().generic(method, path, headers=headers).environ
     status: list[str] = []
@@ -226,7 +228,7 @@ def wsgi_request(
     def start_response(response_status: str, *_: object) -> None:
         status.append(response_status)
 
-    handler = get_wsgi_application()
+    handler = wsgi.application
     request_started.disconnect(close_old_connections)  # pyright: ignore[reportUnknownMemberType]
     request_finished.disconnect(close_old_connections)  # pyright: ignore[reportUnknownMemberType]
     try:

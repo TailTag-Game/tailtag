@@ -1,0 +1,47 @@
+{
+  "id": "fixture-smoke",
+  "version": 1,
+  "api_contract": "tailtag-public-v0",
+  "consumes_randomness": false,
+  "roles": [
+    "owner",
+    "catcher"
+  ],
+  "operations": [
+    "identity_preflight",
+    "retention_preflight",
+    "lease",
+    "token_setup",
+    "provision",
+    "fixture_reads",
+    "reconciliation",
+    "identity_final",
+    "cleanup",
+    "retain_on_failure",
+    "release"
+  ],
+  "assumptions": [
+    "isolated_convention",
+    "photo_bearing_active_fursuits"
+  ],
+  "waits_seconds": [],
+  "configuration": {
+    "defaults": {
+      "target": "staging",
+      "base_url": null,
+      "pool": null,
+      "owners": 2,
+      "fursuits": 1,
+      "catchers": 2
+    },
+    "parameters": {
+      "target": "target",
+      "base_url": "local_origin",
+      "pool": "pool",
+      "owners": "owners",
+      "fursuits": "fursuits",
+      "catchers": "catchers"
+    }
+  },
+  "descriptor_digest": "ee823e6e80ce3b216163f254241588da99a1523a21b882b460230e45ef5508c3"
+}

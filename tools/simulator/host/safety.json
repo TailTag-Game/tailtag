@@ -1,0 +1,13 @@
+{
+  "requests": 10000,
+  "seconds": 900,
+  "in_flight": 10,
+  "population": 50,
+  "final_requests": 1000,
+  "final_seconds": 600,
+  "poll_seconds": 10,
+  "error_window_seconds": 10,
+  "error_min_samples": 20,
+  "error_percent": 50,
+  "error_windows": 2
+}

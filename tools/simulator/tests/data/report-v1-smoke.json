@@ -1,0 +1,361 @@
+{
+  "schema_version": 1,
+  "run_id": "123e4567-e89b-42d3-a456-426614174000",
+  "scenario": {
+    "id": "smoke",
+    "version": 1,
+    "descriptor": {
+      "id": "smoke",
+      "version": 1,
+      "api_contract": "tailtag-public-v0",
+      "consumes_randomness": false,
+      "roles": [
+        "player"
+      ],
+      "operations": [
+        "identity_preflight",
+        "token_setup",
+        "me_first",
+        "me_second",
+        "identity_final"
+      ],
+      "assumptions": [
+        "same_authenticated_identity"
+      ],
+      "waits_seconds": [],
+      "configuration": {
+        "defaults": {
+          "target": "staging",
+          "base_url": null
+        },
+        "parameters": {
+          "target": "target",
+          "base_url": "local_origin"
+        }
+      }
+    },
+    "descriptor_digest": "5c3dee69eac3e82acf3bd8acce73a3427d42db2424d6481f5a1e6b100467dd21",
+    "seed": -42,
+    "consumes_randomness": false,
+    "configuration": {
+      "target": "staging",
+      "base_url": null
+    }
+  },
+  "source": {
+    "simulator_sha": {
+      "value": "ffffffffffffffffffffffffffffffffffffffff",
+      "reason": null
+    },
+    "provenance": "clean",
+    "reason": null,
+    "runtime": {
+      "python": {
+        "value": "3.13.7",
+        "reason": null
+      },
+      "httpx": {
+        "value": "0.28.1",
+        "reason": null
+      },
+      "dependency_lock_sha256": {
+        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reason": null
+      }
+    }
+  },
+  "target": {
+    "name": "staging",
+    "origin": "https://staging.tailtag.app",
+    "starting": {
+      "value": {
+        "source_sha": "0123456789abcdef0123456789abcdef01234567",
+        "deployment_id": "223e4567-e89b-42d3-a456-426614174000",
+        "environment": "staging"
+      },
+      "reason": null
+    },
+    "final": {
+      "value": {
+        "source_sha": "0123456789abcdef0123456789abcdef01234567",
+        "deployment_id": "223e4567-e89b-42d3-a456-426614174000",
+        "environment": "staging"
+      },
+      "reason": null
+    },
+    "attribution": "verified",
+    "reason": null
+  },
+  "timing": {
+    "started_at": "2026-10-05T12:00:00Z",
+    "ended_at": {
+      "value": "2026-10-05T12:00:01Z",
+      "reason": null
+    },
+    "duration_seconds": {
+      "value": 6.0,
+      "reason": null
+    }
+  },
+  "population": {
+    "roles": {
+      "player": 1
+    },
+    "identities": 1,
+    "fixtures": {
+      "owners": 0,
+      "fursuits_per_owner": 0,
+      "catchers": 0,
+      "outsiders": 0,
+      "fursuits": 0
+    }
+  },
+  "profile": {
+    "operations": [
+      "identity_preflight",
+      "token_setup",
+      "me_first",
+      "me_second",
+      "identity_final"
+    ],
+    "waits_seconds": [],
+    "load_ramp": {
+      "value": null,
+      "reason": "not_implemented"
+    }
+  },
+  "limits": {
+    "response_bytes": {
+      "value": 65536,
+      "reason": null,
+      "unit": "bytes",
+      "scope": "per_response"
+    },
+    "lease_ttl": {
+      "value": null,
+      "reason": "not_applicable",
+      "unit": "seconds",
+      "scope": "lease"
+    },
+    "launcher_timeout": {
+      "value": null,
+      "reason": "not_applicable",
+      "unit": "seconds",
+      "scope": "per_launcher"
+    },
+    "retained_runs": {
+      "value": null,
+      "reason": "not_applicable",
+      "unit": "runs",
+      "scope": "before_allocation"
+    },
+    "request_ceiling": {
+      "value": null,
+      "reason": "not_implemented",
+      "unit": "requests",
+      "scope": "run"
+    },
+    "duration_ceiling": {
+      "value": null,
+      "reason": "not_implemented",
+      "unit": "seconds",
+      "scope": "run"
+    },
+    "concurrency_ceiling": {
+      "value": null,
+      "reason": "not_implemented",
+      "unit": "requests",
+      "scope": "run"
+    },
+    "request_timeout": {
+      "value": 10.0,
+      "reason": null,
+      "unit": "seconds",
+      "scope": "per_request"
+    }
+  },
+  "phases": {
+    "provenance": {
+      "status": "passed",
+      "started_at": {
+        "value": "2026-10-05T12:00:00Z",
+        "reason": null
+      },
+      "ended_at": {
+        "value": "2026-10-05T12:00:01Z",
+        "reason": null
+      },
+      "duration_seconds": {
+        "value": 1.0,
+        "reason": null
+      },
+      "code": null
+    },
+    "target": {
+      "status": "passed",
+      "started_at": {
+        "value": "2026-10-05T12:00:00Z",
+        "reason": null
+      },
+      "ended_at": {
+        "value": "2026-10-05T12:00:01Z",
+        "reason": null
+      },
+      "duration_seconds": {
+        "value": 1.0,
+        "reason": null
+      },
+      "code": null
+    },
+    "setup": {
+      "status": "passed",
+      "started_at": {
+        "value": "2026-10-05T12:00:00Z",
+        "reason": null
+      },
+      "ended_at": {
+        "value": "2026-10-05T12:00:01Z",
+        "reason": null
+      },
+      "duration_seconds": {
+        "value": 1.0,
+        "reason": null
+      },
+      "code": null
+    },
+    "simulation": {
+      "status": "passed",
+      "started_at": {
+        "value": "2026-10-05T12:00:00Z",
+        "reason": null
+      },
+      "ended_at": {
+        "value": "2026-10-05T12:00:01Z",
+        "reason": null
+      },
+      "duration_seconds": {
+        "value": 1.0,
+        "reason": null
+      },
+      "code": null
+    },
+    "reconciliation": {
+      "status": "passed",
+      "started_at": {
+        "value": "2026-10-05T12:00:00Z",
+        "reason": null
+      },
+      "ended_at": {
+        "value": "2026-10-05T12:00:01Z",
+        "reason": null
+      },
+      "duration_seconds": {
+        "value": 1.0,
+        "reason": null
+      },
+      "code": null
+    },
+    "attribution": {
+      "status": "passed",
+      "started_at": {
+        "value": "2026-10-05T12:00:00Z",
+        "reason": null
+      },
+      "ended_at": {
+        "value": "2026-10-05T12:00:01Z",
+        "reason": null
+      },
+      "duration_seconds": {
+        "value": 1.0,
+        "reason": null
+      },
+      "code": null
+    },
+    "cleanup": {
+      "status": "not_applicable",
+      "started_at": {
+        "value": null,
+        "reason": "not_applicable"
+      },
+      "ended_at": {
+        "value": null,
+        "reason": "not_applicable"
+      },
+      "duration_seconds": {
+        "value": null,
+        "reason": "not_applicable"
+      },
+      "code": null
+    },
+    "retention": {
+      "status": "not_applicable",
+      "started_at": {
+        "value": null,
+        "reason": "not_applicable"
+      },
+      "ended_at": {
+        "value": null,
+        "reason": "not_applicable"
+      },
+      "duration_seconds": {
+        "value": null,
+        "reason": "not_applicable"
+      },
+      "code": null
+    },
+    "release": {
+      "status": "not_applicable",
+      "started_at": {
+        "value": null,
+        "reason": "not_applicable"
+      },
+      "ended_at": {
+        "value": null,
+        "reason": "not_applicable"
+      },
+      "duration_seconds": {
+        "value": null,
+        "reason": "not_applicable"
+      },
+      "code": null
+    }
+  },
+  "correctness": "passed",
+  "results": {
+    "journeys": {
+      "items": [],
+      "passed": 0,
+      "failed": 0,
+      "reason": "not_applicable"
+    },
+    "checks": {
+      "items": [],
+      "count": 0,
+      "reason": "not_applicable"
+    },
+    "cleanup": {
+      "value": null,
+      "reason": "not_applicable"
+    }
+  },
+  "performance": {
+    "duration_seconds": {
+      "value": 6.0,
+      "reason": null
+    },
+    "throughput": {
+      "value": null,
+      "reason": "not_implemented"
+    },
+    "latency_percentiles": {
+      "value": null,
+      "reason": "not_implemented"
+    },
+    "resource_context": {
+      "value": null,
+      "reason": "not_observed"
+    }
+  },
+  "outcome": "passed",
+  "failure": null
+}

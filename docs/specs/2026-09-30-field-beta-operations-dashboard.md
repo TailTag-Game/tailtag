@@ -93,7 +93,7 @@ RELIABILITY failed on one finding. Remediated by the parent:
 
 Remediation verification: `./scripts/doctor.sh` and `git diff --check`
 passed.
-Current: pull request review.
+Completed additionally: merged as `19abf91` (PR #273).
 
 ## Problem
 

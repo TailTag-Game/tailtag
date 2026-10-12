@@ -6,6 +6,14 @@
 
 **Status:** Approved and frozen for implementation
 
+**Amendment (#219, 2026-10-02):** The
+[synthetic simulation identity pool](2026-10-02-synthetic-identity-pool.md)
+spec (decisions D1 and D2) permits, only in the simulator's privileged SETUP
+phase, Backend sign-in tickets redeemed through the Frontend API client cookie
+with the pinned tooling origin `https://simulator.staging.tailtag.app`, and adds
+that origin as Staging's second authorized party. The other prohibitions in
+"Bootstrap authentication proof" below still apply.
+
 ## Goal
 
 Establish one persistent Railway environment named `staging` as TailTag's

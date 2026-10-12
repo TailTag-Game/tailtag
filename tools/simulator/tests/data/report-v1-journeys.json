@@ -1,0 +1,469 @@
+{
+  "schema_version": 1,
+  "run_id": "123e4567-e89b-42d3-a456-426614174000",
+  "scenario": {
+    "id": "journeys",
+    "version": 1,
+    "descriptor": {
+      "id": "journeys",
+      "version": 1,
+      "api_contract": "tailtag-public-v0",
+      "consumes_randomness": false,
+      "roles": [
+        "owner",
+        "catcher",
+        "outsider"
+      ],
+      "operations": [
+        "identity_preflight",
+        "retention_preflight",
+        "lease",
+        "token_setup",
+        "provision",
+        "unauthenticated",
+        "catch",
+        "retry",
+        "stopped_session",
+        "stale_credential",
+        "deactivated",
+        "self_catch",
+        "convention_mismatch",
+        "ineligible_catcher",
+        "not_owner",
+        "avatar",
+        "fursuit_photo",
+        "image_rejections",
+        "reconciliation",
+        "identity_final",
+        "cleanup",
+        "retain_on_failure",
+        "release"
+      ],
+      "assumptions": [
+        "isolated_convention",
+        "fixed_seven_identities",
+        "public_api_journeys"
+      ],
+      "waits_seconds": [],
+      "configuration": {
+        "defaults": {
+          "target": "staging",
+          "base_url": null,
+          "pool": null
+        },
+        "parameters": {
+          "target": "target",
+          "base_url": "local_origin",
+          "pool": "pool"
+        }
+      }
+    },
+    "descriptor_digest": "685cd990f6a540f440b92b431c51f346424815f2e74ba1c77a3321b029319dc8",
+    "seed": 0,
+    "consumes_randomness": false,
+    "configuration": {
+      "target": "staging",
+      "base_url": null,
+      "pool": "p1"
+    }
+  },
+  "source": {
+    "simulator_sha": {
+      "value": "ffffffffffffffffffffffffffffffffffffffff",
+      "reason": null
+    },
+    "provenance": "clean",
+    "reason": null,
+    "runtime": {
+      "python": {
+        "value": "3.13.7",
+        "reason": null
+      },
+      "httpx": {
+        "value": "0.28.1",
+        "reason": null
+      },
+      "dependency_lock_sha256": {
+        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reason": null
+      }
+    }
+  },
+  "target": {
+    "name": "staging",
+    "origin": "https://staging.tailtag.app",
+    "starting": {
+      "value": {
+        "source_sha": "0123456789abcdef0123456789abcdef01234567",
+        "deployment_id": "223e4567-e89b-42d3-a456-426614174000",
+        "environment": "staging"
+      },
+      "reason": null
+    },
+    "final": {
+      "value": {
+        "source_sha": "0123456789abcdef0123456789abcdef01234567",
+        "deployment_id": "223e4567-e89b-42d3-a456-426614174000",
+        "environment": "staging"
+      },
+      "reason": null
+    },
+    "attribution": "verified",
+    "reason": null
+  },
+  "timing": {
+    "started_at": "2026-10-05T12:00:00Z",
+    "ended_at": {
+      "value": "2026-10-05T12:00:01Z",
+      "reason": null
+    },
+    "duration_seconds": {
+      "value": 8.0,
+      "reason": null
+    }
+  },
+  "population": {
+    "roles": {
+      "owner": 2,
+      "catcher": 4,
+      "outsider": 1
+    },
+    "identities": 7,
+    "fixtures": {
+      "owners": 2,
+      "fursuits_per_owner": 2,
+      "catchers": 4,
+      "outsiders": 1,
+      "fursuits": 4
+    }
+  },
+  "profile": {
+    "operations": [
+      "identity_preflight",
+      "retention_preflight",
+      "lease",
+      "token_setup",
+      "provision",
+      "unauthenticated",
+      "catch",
+      "retry",
+      "stopped_session",
+      "stale_credential",
+      "deactivated",
+      "self_catch",
+      "convention_mismatch",
+      "ineligible_catcher",
+      "not_owner",
+      "avatar",
+      "fursuit_photo",
+      "image_rejections",
+      "reconciliation",
+      "identity_final",
+      "cleanup",
+      "retain_on_failure",
+      "release"
+    ],
+    "waits_seconds": [],
+    "load_ramp": {
+      "value": null,
+      "reason": "not_implemented"
+    }
+  },
+  "limits": {
+    "response_bytes": {
+      "value": 65536,
+      "reason": null,
+      "unit": "bytes",
+      "scope": "per_response"
+    },
+    "lease_ttl": {
+      "value": 1800,
+      "reason": null,
+      "unit": "seconds",
+      "scope": "lease"
+    },
+    "launcher_timeout": {
+      "value": 180,
+      "reason": null,
+      "unit": "seconds",
+      "scope": "per_launcher"
+    },
+    "retained_runs": {
+      "value": 5,
+      "reason": null,
+      "unit": "runs",
+      "scope": "before_allocation"
+    },
+    "request_ceiling": {
+      "value": null,
+      "reason": "not_implemented",
+      "unit": "requests",
+      "scope": "run"
+    },
+    "duration_ceiling": {
+      "value": null,
+      "reason": "not_implemented",
+      "unit": "seconds",
+      "scope": "run"
+    },
+    "concurrency_ceiling": {
+      "value": null,
+      "reason": "not_implemented",
+      "unit": "requests",
+      "scope": "run"
+    },
+    "request_timeout": {
+      "value": 10.0,
+      "reason": null,
+      "unit": "seconds",
+      "scope": "per_request"
+    }
+  },
+  "phases": {
+    "provenance": {
+      "status": "passed",
+      "started_at": {
+        "value": "2026-10-05T12:00:00Z",
+        "reason": null
+      },
+      "ended_at": {
+        "value": "2026-10-05T12:00:01Z",
+        "reason": null
+      },
+      "duration_seconds": {
+        "value": 1.0,
+        "reason": null
+      },
+      "code": null
+    },
+    "target": {
+      "status": "passed",
+      "started_at": {
+        "value": "2026-10-05T12:00:00Z",
+        "reason": null
+      },
+      "ended_at": {
+        "value": "2026-10-05T12:00:01Z",
+        "reason": null
+      },
+      "duration_seconds": {
+        "value": 1.0,
+        "reason": null
+      },
+      "code": null
+    },
+    "setup": {
+      "status": "passed",
+      "started_at": {
+        "value": "2026-10-05T12:00:00Z",
+        "reason": null
+      },
+      "ended_at": {
+        "value": "2026-10-05T12:00:01Z",
+        "reason": null
+      },
+      "duration_seconds": {
+        "value": 1.0,
+        "reason": null
+      },
+      "code": null
+    },
+    "simulation": {
+      "status": "passed",
+      "started_at": {
+        "value": "2026-10-05T12:00:00Z",
+        "reason": null
+      },
+      "ended_at": {
+        "value": "2026-10-05T12:00:01Z",
+        "reason": null
+      },
+      "duration_seconds": {
+        "value": 1.0,
+        "reason": null
+      },
+      "code": null
+    },
+    "reconciliation": {
+      "status": "passed",
+      "started_at": {
+        "value": "2026-10-05T12:00:00Z",
+        "reason": null
+      },
+      "ended_at": {
+        "value": "2026-10-05T12:00:01Z",
+        "reason": null
+      },
+      "duration_seconds": {
+        "value": 1.0,
+        "reason": null
+      },
+      "code": null
+    },
+    "attribution": {
+      "status": "passed",
+      "started_at": {
+        "value": "2026-10-05T12:00:00Z",
+        "reason": null
+      },
+      "ended_at": {
+        "value": "2026-10-05T12:00:01Z",
+        "reason": null
+      },
+      "duration_seconds": {
+        "value": 1.0,
+        "reason": null
+      },
+      "code": null
+    },
+    "cleanup": {
+      "status": "passed",
+      "started_at": {
+        "value": "2026-10-05T12:00:00Z",
+        "reason": null
+      },
+      "ended_at": {
+        "value": "2026-10-05T12:00:01Z",
+        "reason": null
+      },
+      "duration_seconds": {
+        "value": 1.0,
+        "reason": null
+      },
+      "code": null
+    },
+    "retention": {
+      "status": "not_reached",
+      "started_at": {
+        "value": null,
+        "reason": "not_observed"
+      },
+      "ended_at": {
+        "value": null,
+        "reason": "not_observed"
+      },
+      "duration_seconds": {
+        "value": null,
+        "reason": "not_observed"
+      },
+      "code": null
+    },
+    "release": {
+      "status": "passed",
+      "started_at": {
+        "value": "2026-10-05T12:00:00Z",
+        "reason": null
+      },
+      "ended_at": {
+        "value": "2026-10-05T12:00:01Z",
+        "reason": null
+      },
+      "duration_seconds": {
+        "value": 1.0,
+        "reason": null
+      },
+      "code": null
+    }
+  },
+  "correctness": "passed",
+  "results": {
+    "journeys": {
+      "items": [
+        {
+          "name": "unauthenticated",
+          "status": "passed"
+        },
+        {
+          "name": "catch",
+          "status": "passed"
+        },
+        {
+          "name": "retry",
+          "status": "passed"
+        },
+        {
+          "name": "stopped_session",
+          "status": "passed"
+        },
+        {
+          "name": "stale_credential",
+          "status": "passed"
+        },
+        {
+          "name": "deactivated",
+          "status": "passed"
+        },
+        {
+          "name": "self_catch",
+          "status": "passed"
+        },
+        {
+          "name": "convention_mismatch",
+          "status": "passed"
+        },
+        {
+          "name": "ineligible_catcher",
+          "status": "passed"
+        },
+        {
+          "name": "not_owner",
+          "status": "passed"
+        },
+        {
+          "name": "avatar",
+          "status": "passed"
+        },
+        {
+          "name": "fursuit_photo",
+          "status": "passed"
+        },
+        {
+          "name": "image_rejections",
+          "status": "passed"
+        }
+      ],
+      "passed": 13,
+      "failed": 0,
+      "reason": null
+    },
+    "checks": {
+      "items": [],
+      "count": 14,
+      "reason": null
+    },
+    "cleanup": {
+      "value": {
+        "convention": 1,
+        "enrollment": 6,
+        "fursuit": 5,
+        "activation": 4,
+        "catch": 2,
+        "session": 5,
+        "credential": 5,
+        "image": 4,
+        "readmitted": 7
+      },
+      "reason": null
+    }
+  },
+  "performance": {
+    "duration_seconds": {
+      "value": 8.0,
+      "reason": null
+    },
+    "throughput": {
+      "value": null,
+      "reason": "not_implemented"
+    },
+    "latency_percentiles": {
+      "value": null,
+      "reason": "not_implemented"
+    },
+    "resource_context": {
+      "value": null,
+      "reason": "not_observed"
+    }
+  },
+  "outcome": "passed",
+  "failure": null
+}

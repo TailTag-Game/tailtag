@@ -132,7 +132,6 @@ Feature code does not call `sentry_sdk.metrics` directly. The `direct-sentry-met
 - **Paths remain in `request.url` on error events and matched-route transactions.** They keep the request path, without its query string. Matched routes carry only integer IDs, which section 4 allows in protected telemetry.
 - **Error events from unmatched requests keep the raw path.** The unmatched rename runs only on transactions, so an error event raised during a request that matched no route keeps the client's path in its `transaction` name (source `url`) and in `request.url`. One realistic trigger is an invalid `Host` header, which Django reports at ERROR on `django.security.DisallowedHost`; Railway's host-based routing makes that rare. This predates #212. Extending the rename to error events is a follow-up decision.
 - **Unmatched paths reach stdout.** Django's `Not Found: <path>` WARNING line writes an unmatched path to stdout, inside the Railway access boundary.
-- **Client trace headers are continued.** The SDK continues an incoming `sentry-trace` and `baggage` header, so a client can choose the `trace_id` recorded in logs and Sentry. The `request_id` is unaffected, and the sampler ignores the client's sampling decision. Ignoring these headers is [#260](https://github.com/TailTag-Game/tailtag/issues/260).
 
 ## 8. Extending the policy
 

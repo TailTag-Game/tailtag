@@ -1,0 +1,42 @@
+{
+  "id": "pool-smoke",
+  "version": 1,
+  "api_contract": "tailtag-public-v0",
+  "consumes_randomness": false,
+  "roles": [
+    "player"
+  ],
+  "operations": [
+    "identity_preflight",
+    "lease",
+    "token_setup",
+    "me_first",
+    "heartbeat",
+    "token_refresh_wait",
+    "me_second",
+    "identity_final",
+    "release"
+  ],
+  "assumptions": [
+    "distinct_authenticated_identities",
+    "token_refresh"
+  ],
+  "waits_seconds": [
+    61.0
+  ],
+  "configuration": {
+    "defaults": {
+      "target": "staging",
+      "base_url": null,
+      "pool": null,
+      "count": null
+    },
+    "parameters": {
+      "target": "target",
+      "base_url": "local_origin",
+      "pool": "pool",
+      "count": "count"
+    }
+  },
+  "descriptor_digest": "819dfd866d13b52038dae22cede1a7d7cd6ab031e1abf041ba7c1000951f4d68"
+}
