@@ -146,7 +146,7 @@ Both nights skipped the nightly cycle, as the guide requires.
 | Probes / preflight checks passed | 2,873 / 462 | 1,122 / 536 |
 | Bridge health refused / close timeouts | 0 / 0 | 0 / 0 |
 
-In both runs, Staging probes, supervision and finalization held for the whole run, and both were recovered (above). Backend tests already cover the 12-hour expiry semantics. This proof adds the real-clock check on Staging.
+In both runs, Staging probes, supervision and finalization held for the whole run, and both were recovered (above). Both runs stopped before the session expired, so the real-clock expiry check on Staging remains unproven and is pending in [#316](https://github.com/TailTag-Game/tailtag/issues/316). Backend tests already cover the 12-hour expiry semantics.
 
 With the maintainer's approval, AC25 and its AC26 line move to [#316](https://github.com/TailTag-Game/tailtag/issues/316). That issue also carries heartbeat-failure tolerance and the AC14 unattended-scheduling follow-up.
 
