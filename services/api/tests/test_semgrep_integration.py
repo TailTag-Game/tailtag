@@ -10,7 +10,12 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from tests.semgrep_support import FROZEN_ROOT_HELPERS, dry_run_commands, task_dry_run
+from tests.semgrep_support import (
+    FROZEN_ROOT_HELPERS,
+    dry_run_commands,
+    task_dry_run,
+    task_environment,
+)
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
@@ -295,7 +300,7 @@ def test_inherited_baseline_cannot_suppress_the_canonical_task_scan(
     completed = subprocess.run(
         ["task", "api-semgrep-check"],
         cwd=clone,
-        env={**os.environ, "SEMGREP_BASELINE_COMMIT": "HEAD"},
+        env=task_environment({"SEMGREP_BASELINE_COMMIT": "HEAD"}),
         capture_output=True,
         text=True,
         check=False,

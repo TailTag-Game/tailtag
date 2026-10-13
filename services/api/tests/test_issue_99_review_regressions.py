@@ -25,6 +25,8 @@ from _pytest.capture import CaptureResult
 from clerk_backend_api.utils import RetryConfig
 from pytest import MonkeyPatch
 
+from tests.semgrep_support import task_environment
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
@@ -615,14 +617,15 @@ def assert_pre_sign_in_protocol_failure_at_command_boundary(
 
 def test_actual_task_entry_point_imports_and_rejects_an_invalid_target_first() -> None:
     """The root command fails closed before baseline, prompting, or provider work."""
-    environment = {
-        **os.environ,
-        "API_BASE_URL": "https://development.tailtag.example/forbidden-path",
-        "CLERK_SMOKE_USER_ID": SYNTHETIC_USER,
-        "HTTP_PROXY": "http://127.0.0.1:1",
-        "HTTPS_PROXY": "http://127.0.0.1:1",
-        "ALL_PROXY": "http://127.0.0.1:1",
-    }
+    environment = task_environment(
+        {
+            "API_BASE_URL": "https://development.tailtag.example/forbidden-path",
+            "CLERK_SMOKE_USER_ID": SYNTHETIC_USER,
+            "HTTP_PROXY": "http://127.0.0.1:1",
+            "HTTPS_PROXY": "http://127.0.0.1:1",
+            "ALL_PROXY": "http://127.0.0.1:1",
+        }
+    )
     completed = subprocess.run(
         ["task", "api-auth-smoke"],
         cwd=REPOSITORY_ROOT,

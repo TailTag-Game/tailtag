@@ -50,6 +50,18 @@ TASK_COMMAND_PREFIX = re.compile(r"^task: \[[^\]]+\] ")
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
 
+def task_environment(overrides: dict[str, str] | None = None) -> dict[str, str]:
+    """Return a hermetic environment for running go-task from a test.
+
+    GitHub Actions makes go-task emit ANSI colors and `::error` annotations, so
+    the parent's GITHUB_ACTIONS is dropped and colors are disabled explicitly.
+    """
+    environment = {
+        name: value for name, value in os.environ.items() if name != "GITHUB_ACTIONS"
+    }
+    return {**environment, "NO_COLOR": "1", **(overrides or {})}
+
+
 def run_task(
     *arguments: str,
     environment: dict[str, str] | None = None,
@@ -59,7 +71,7 @@ def run_task(
     return subprocess.run(
         ["task", *arguments],
         cwd=cwd,
-        env={**os.environ, **(environment or {})},
+        env=task_environment(environment),
         capture_output=True,
         text=True,
         check=False,

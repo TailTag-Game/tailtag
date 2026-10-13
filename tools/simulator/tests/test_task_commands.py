@@ -22,7 +22,11 @@ def run_task(
     return subprocess.run(
         ["task", *arguments],
         cwd=cwd,
-        env=env,
+        # GitHub Actions makes go-task add colors and `::error` annotations.
+        env={
+            **{k: v for k, v in env.items() if k != "GITHUB_ACTIONS"},
+            "NO_COLOR": "1",
+        },
         check=False,
         capture_output=True,
         text=True,
