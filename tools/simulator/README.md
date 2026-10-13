@@ -34,7 +34,7 @@ cleans up or retains each run's state. Design: [spec](../../docs/specs/2026-10-0
   SIMULATION has finished. There is no plugin registry.
 - Pool and fixture commands are host-only. The lease and fixture channels need the
   Railway CLI and the owner manifest, so they run from a maintainer machine through
-  `make`, not in the container image.
+  `task`, not in the container image.
 
 ## External Staging host
 
@@ -46,7 +46,7 @@ privileged Railway relays stay on the maintainer machine. Profile examples are i
 `host/normal-profile.json` and `host/stop-profile.json`, with separate
 `host/safety.json`. Preparation/offline evidence and separately authorized paid-host
 provisioning/live traffic are distinct gates. No automatic restart or CI load run
-is provided. `make sim-host-prepare` and `make sim-host-run` wrap foreground
+is provided. `task sim-host-prepare` and `task sim-host-run` wrap foreground
 manifest/session commands; `sim-host-release-export` and `sim-host-release-load`
 wrap verified archive handoff. Prefer absolute path parameters: these wrappers
 evaluate relative CLI paths from `tools/simulator`. The runbook prepares an
@@ -64,7 +64,7 @@ failure still requests bounded cleanup of that owned CID and preserves a hold.
 An unknown name collision cannot authorize a foreign-container stop. The attached
 Docker client disables signal proxying and has its own process session, retaining
 the inherited terminal for hidden input; the supervisor signals only the owned CID. Use
-`make sim-image PLATFORM=linux/amd64` for the host. Canonical `make sim-check` includes secret-free bootstrap syntax validation;
+`task sim-image PLATFORM=linux/amd64` for the host. Canonical `task sim-check` includes secret-free bootstrap syntax validation;
 CI builds amd64 without running traffic. Existing local simulator commands retain
 their launcher behavior.
 
@@ -115,11 +115,11 @@ endpoints are not called.
 Run from the repository root.
 
 ```bash
-make sim-setup                      # sync locked dependencies
-make sim-check                      # catalog/history, format, lint, Pyright, tests, Semgrep
-make sim-smoke TARGET=local         # optional BASE_URL=http://localhost:8000
-make sim-smoke TARGET=staging
-make sim-image                      # clean-source build of tailtag-simulator:local
+task sim-setup                      # sync locked dependencies
+task sim-check                      # catalog/history, format, lint, Pyright, tests, Semgrep
+task sim-smoke TARGET=local         # optional BASE_URL=http://localhost:8000
+task sim-smoke TARGET=staging
+task sim-image                      # clean-source build of tailtag-simulator:local
 mkdir -p tools/simulator/reports
 # Use your host UID/GID so mounted reports remain writable and readable.
 docker run --rm -it --user "$(id -u):$(id -g)" -v "$PWD/tools/simulator/reports:/reports" tailtag-simulator:local smoke --target local --base-url http://host.docker.internal:8000 --report-dir /reports
@@ -129,7 +129,7 @@ The container needs `-it` so the hidden prompt has a TTY. For the local target, 
 local API must also accept the `host.docker.internal` host: add it to
 `DJANGO_ALLOWED_HOSTS`, or Django answers 400 and the run fails at `target`. On Linux,
 also pass `--add-host=host.docker.internal:host-gateway` to `docker run`. No secrets are baked into the
-image. CI (`.github/workflows/simulator.yml`) runs `make sim-check` and `make sim-image`
+image. CI (`.github/workflows/simulator.yml`) runs `task sim-check` and `task sim-image`
 with no secrets and no network target.
 
 ## Identity pool
@@ -140,10 +140,10 @@ authentication boundary, and releases (#219,
 from a maintainer machine with the Railway CLI, and only against Staging.
 
 ```bash
-make sim-pool-provision POOL=p1 SIZE=50   # create missing users and slots; idempotent
-make sim-pool-status POOL=p1              # counts only
-make sim-pool-smoke POOL=p1 COUNT=3       # allocate, GET /api/me/ across a token lifetime, release
-make sim-pool-readmit POOL=p1 INDEX=7     # re-admit a repaired quarantined identity
+task sim-pool-provision POOL=p1 SIZE=50   # create missing users and slots; idempotent
+task sim-pool-status POOL=p1              # counts only
+task sim-pool-smoke POOL=p1 COUNT=3       # allocate, GET /api/me/ across a token lifetime, release
+task sim-pool-readmit POOL=p1 INDEX=7     # re-admit a repaired quarantined identity
 ```
 
 - **Prerequisites:** canonical Staging readiness requires both authorized parties, so
@@ -171,7 +171,7 @@ make sim-pool-readmit POOL=p1 INDEX=7     # re-admit a repaired quarantined iden
   `FAIL setup quarantined=<i,j,...>` with the indexes in ascending order. To recover,
   inspect those users in the Clerk Staging dashboard (external ID
   `sim-pool-<pool>-<i>`), repair or retire each, then run
-  `make sim-pool-readmit POOL=<pool> INDEX=<i>`. Quarantine never deletes anything. If
+  `task sim-pool-readmit POOL=<pool> INDEX=<i>`. Quarantine never deletes anything. If
   every allocated identity fails, none is quarantined (that points at the environment,
   not the identities); the run releases all of them and prints a plain `FAIL setup`.
 - **Crashed run:** leases expire after 1800 seconds and become reclaimable. Leftover
@@ -189,8 +189,8 @@ commands it runs only from a maintainer machine with the Railway CLI, only again
 Staging.
 
 ```bash
-make sim-fixture-smoke POOL=p1                                  # defaults: 2 owners, 1 fursuit each, 2 catchers
-make sim-fixture-smoke POOL=p1 OWNERS=4 FURSUITS=3 CATCHERS=10
+task sim-fixture-smoke POOL=p1                                  # defaults: 2 owners, 1 fursuit each, 2 catchers
+task sim-fixture-smoke POOL=p1 OWNERS=4 FURSUITS=3 CATCHERS=10
 ```
 
 - **Configuration:** `POOL` is required; `OWNERS`, `FURSUITS`, and `CATCHERS` map to
@@ -266,7 +266,7 @@ make sim-fixture-smoke POOL=p1 OWNERS=4 FURSUITS=3 CATCHERS=10
   request to the launcher on stdin from the repository root:
 
   ```bash
-  printf '{"operation":"status","arguments":{"run_id":"<run id>"}}' | make -s api-sim-fixture-ssh
+  printf '{"operation":"status","arguments":{"run_id":"<run id>"}}' | task -s api-sim-fixture-ssh
   ```
 
   An unknown run ID returns `FAIL_RUN_UNKNOWN`.
@@ -332,8 +332,8 @@ WARN retained=<n> unfinished=<m>
 ### Maintainer commands
 
 ```bash
-make sim-retained                          # list retained and unfinished runs
-make sim-cleanup POOL=p1 RUN_ID=<run id>   # clean one run and readmit its identities
+task sim-retained                          # list retained and unfinished runs
+task sim-cleanup POOL=p1 RUN_ID=<run id>   # clean one run and readmit its identities
 ```
 
 Both are host-only, need no Clerk secret and no API target, and exit 0 only after a
@@ -368,7 +368,7 @@ A run from before #223 recorded no identities, so `sim-cleanup` derives them fro
 run's enrollments and cleans under the same rules; an identity that cannot be resolved
 is `FAIL_ATTRIBUTION`. Such runs appear in `sim-retained` as `unfinished`. Their
 outsider slot (the 7th identity of a `journeys` run) was never recorded and is not
-readmitted by cleanup: readmit it with `make sim-pool-readmit POOL=<pool> INDEX=<i>`.
+readmitted by cleanup: readmit it with `task sim-pool-readmit POOL=<pool> INDEX=<i>`.
 
 ### Limitations
 
@@ -388,7 +388,7 @@ real Clerk authentication boundary and the public API only (#221,
 and Staging-only, like `fixture-smoke`, and has nothing to configure.
 
 ```bash
-make sim-journeys POOL=p1
+task sim-journeys POOL=p1
 ```
 
 - **Prerequisites:** the [pool](#identity-pool) and [fixture](#simulation-fixtures)
@@ -441,12 +441,12 @@ make sim-journeys POOL=p1
 After the journeys, `journeys` proves that the simulator's expected state, the Catch
 rows on Staging and each run identity's public catch history agree (#222,
 [spec](../../docs/specs/2026-10-03-simulation-reconciliation.md)). It runs inside
-`make sim-journeys` once SETUP has passed, whether the journeys passed or failed, and
+`task sim-journeys` once SETUP has passed, whether the journeys passed or failed, and
 always before the leases are released.
 
 - **What is checked:** the journeys record every confirm they attempt, and the
   `catch` and `retry` journeys record what the API reported. One read-only `inspect`
-  call, relayed over SSH to the pinned Staging instance (`make api-sim-inspect-ssh`),
+  call, relayed over SSH to the pinned Staging instance (`task api-sim-inspect-ssh`),
   returns the run's Catch rows, fursuits and avatars from the database. Each of the 7
   identities also reads its own `GET /api/catches/` history. The comparison fails on:
   `contamination`, `duplicate`, `missing`, `unexpected`, `catch_id`, `caught_at`,
@@ -481,8 +481,8 @@ are `baseline` (round-robin visits), `post-event` (grouped collection), `hotspot
 `soak` (finite repeated cycles over the same catch pairs).
 
 ```bash
-make sim-convention POOL=p1 FAMILY=baseline SEED=42
-make sim-convention POOL=p1 FAMILY=soak CONFIG=/path/to/population.json REPORT_DIR=/path/to/reports
+task sim-convention POOL=p1 FAMILY=baseline SEED=42
+task sim-convention POOL=p1 FAMILY=soak CONFIG=/path/to/population.json REPORT_DIR=/path/to/reports
 # From tools/simulator:
 uv run --locked --no-sync python -m tailtag_simulator convention --pool p1 --family retry --config /path/to/population.json --seed 42
 ```
@@ -544,7 +544,7 @@ concentrated release (`post-event`), overlapping confirmations on one target
 (`soak`). All population and timing defaults are synthetic assumptions.
 
 ```bash
-make sim-convention POOL=p1 FAMILY=baseline VERSION=2 CONFIG=/path/to/traffic.json SEED=42
+task sim-convention POOL=p1 FAMILY=baseline VERSION=2 CONFIG=/path/to/traffic.json SEED=42
 ```
 
 A bounded JSON configuration can combine configurable persona counts, target
@@ -618,8 +618,8 @@ must be writable and should be outside version control. Reports are never
 implicitly deleted or uploaded; operators control retention and export.
 
 ```bash
-make sim-journeys POOL=demo VERSION=1 SEED=0 REPORT_DIR=/tmp/tailtag-reports
-make sim-report-validate REPORT=/tmp/tailtag-reports/<run-uuid>.json
+task sim-journeys POOL=demo VERSION=1 SEED=0 REPORT_DIR=/tmp/tailtag-reports
+task sim-report-validate REPORT=/tmp/tailtag-reports/<run-uuid>.json
 # Equivalent offline validation from the simulator project:
 uv run --locked --no-sync python -m tailtag_simulator report validate /path/to/report.json
 ```
@@ -665,7 +665,7 @@ run evidence and store them under the team's retention policy.
 
 The initial running file is reserved before source verification and any external
 work. Dirty, unknown or missing simulator source prevents execution and leaves a
-sanitized failed artifact when storage works. `make sim-image` uses the provenance
+sanitized failed artifact when storage works. `task sim-image` uses the provenance
 builder to validate clean source and copy approved inputs into a temporary context
 with build-time metadata. Runtime SHA environment variables cannot relabel an image.
 An initial report write failure prevents provenance and network calls. Recorder
@@ -696,7 +696,7 @@ report failure already observed during the run.
 
 Descriptors live in `tailtag_simulator/scenarios/<id>-v<version>.json` and are embedded
 with a canonical SHA-256 digest. Committed versions cannot be changed or removed;
-`make sim-catalog-check` checks structure, digests and available Git history, and
+`task sim-catalog-check` checks structure, digests and available Git history, and
 fails on shallow history. CI fetches full history. Review semantic workload changes
 and create a new version when role/operation order, assumptions, waits, population
 meaning, configuration meaning or backend contract interpretation changes. Changing
@@ -706,7 +706,7 @@ does not alone change scenario version. Source identity preserves executable his
 To reproduce an equivalent workload, retain the report and:
 
 1. Check out its full `source.simulator_sha.value` in a clean checkout with full
-   history, then run `make sim-setup` for that revision's locked Python environment.
+   history, then run `task sim-setup` for that revision's locked Python environment.
    Compare the reported runtime and dependency-lock identity.
 2. Read the embedded descriptor and digest, scenario ID/version, seed and resolved
    configuration. Use those same effective inputs with the corresponding command;
@@ -790,7 +790,7 @@ companion.
 ### Evaluate
 
 ```bash
-make sim-report-evaluate REPORT=/archive/<run-uuid>.json \
+task sim-report-evaluate REPORT=/archive/<run-uuid>.json \
   HOST_COMPANION=/archive/<run-uuid>/host.json CONTEXT=/archive/<run-uuid>.context.json
 # Equivalent:
 uv run --locked --no-sync python -m tailtag_simulator report evaluate /archive/<run-uuid>.json \
@@ -846,9 +846,11 @@ database or runtime pressure. It never changes the verdict.
 
 ### Promote a baseline
 
+The rationale is taken from the environment so go-task does not alter it.
+
 ```bash
-make sim-baseline-promote REPORT=/archive/<run-uuid>.json HOST_COMPANION=/archive/<run-uuid>/host.json \
-  RATIONALE="Reviewed 2026-10-12 normal host run; correctness passed, no saturation."
+RATIONALE='Reviewed 2026-10-12 normal host run; correctness passed, no saturation.' \
+  task sim-baseline-promote REPORT=/archive/<run-uuid>.json HOST_COMPANION=/archive/<run-uuid>/host.json
 ```
 
 Promotion re-evaluates the report itself. It writes nothing unless all of these hold:
@@ -879,7 +881,7 @@ No run, evaluation or trend command writes a baseline.
 ### Trend
 
 ```bash
-make sim-report-trend DIR=/archive
+task sim-report-trend DIR=/archive
 ```
 
 The command reads reports, evaluations and host companions under the directory.
@@ -897,7 +899,7 @@ Routine attended operation (#230) is in the
 
 - `journeys` smoke on the host after every promotion and before nightly runs;
 - nightly and weekend profiles;
-- `make sim-host-collect` for hash-verified evidence retrieval and evaluation;
+- `task sim-host-collect` for hash-verified evidence retrieval and evaluation;
 - baselines for new profiles;
 - the one-time natural-expiration proof.
 
@@ -920,7 +922,7 @@ without being followed. A healthy next probe resumes traffic. A changed or
 malformed identity aborts immediately.
 
 Use `--safety-config path.json` or `SAFETY_CONFIG=path.json` with the corresponding
-Make target. The bounded JSON object accepts only the following fields; omitted
+task. The bounded JSON object accepts only the following fields; omitted
 fields keep their defaults. Duplicate/unknown keys, nonfinite values, and values
 outside allowed bounds fail before credentials or external work.
 
@@ -949,7 +951,7 @@ non-overlapping windows; expected rejections and injected failures do not count
 as catastrophic errors. These settings are initial safety policy, not SLOs.
 
 Convention execution requires supervision. `--unattended` (or `UNATTENDED=1` with
-`make sim-convention`) refuses execution. Automated resource monitoring is
+`task sim-convention`) refuses execution. Automated resource monitoring is
 reported as unavailable. The operator observes Railway/Sentry evidence and can
 request `resource_saturation` by sending **SIGUSR1 to the Python run process**:
 
@@ -958,7 +960,7 @@ kill -USR1 <python-run-pid>
 ```
 
 Identify the specific `python -m tailtag_simulator ...` process in the supervised
-terminal/process listing. Do not signal the Make parent or another run. The CLI
+terminal/process listing. Do not signal the task parent or another run. The CLI
 registers the handler with the running event loop, waking idle execution, and
 removes it and restores the previous process handler on exit. The signal latches a
 sanitized abort reason, cancels and awaits owned traffic, and writes schema-4

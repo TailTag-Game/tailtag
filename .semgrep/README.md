@@ -18,14 +18,14 @@ First synchronize the locked development dependencies, then run the canonical
 gate from the repository root:
 
 ```bash
-make api-setup
-make api-semgrep-check
+task api-setup
+task api-semgrep-check
 ```
 
-`make api-setup` synchronizes two locked projects: the API project at
+`task api-setup` synchronizes two locked projects: the API project at
 `services/api/` and this separate, non-package Semgrep project. Its local
 virtual environment, `.semgrep/.venv`, is intentionally ignored. After setup,
-`make api-semgrep-check` is a locked, no-sync command: it first runs
+`task api-semgrep-check` is a locked, no-sync command: it first runs
 `scripts/validate_semgrep_contract.py`, then Semgrep's fixture test, then the
 blocking scan.
 

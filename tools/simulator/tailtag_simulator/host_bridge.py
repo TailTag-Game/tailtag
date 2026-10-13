@@ -104,7 +104,7 @@ async def fixed_dispatch(
 ) -> tuple[str, dict[str, object]]:
     """Trusted argv/cwd only; the complete request travels exclusively on stdin."""
     return await run_launcher(
-        ["make", "-s", "--no-print-directory", _TARGETS[channel]],
+        ["task", "-s", _TARGETS[channel]],
         Path(__file__).resolve().parents[3],
         LAUNCHER_TIMEOUT_SECONDS,
         encode_frame(envelope),

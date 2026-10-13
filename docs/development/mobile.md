@@ -57,8 +57,8 @@ target platform. IDE choice is deliberately not mandated.
 
 | Area | Required baseline | Notes |
 | --- | --- | --- |
-| Common | Git, FVM, the repository-pinned Flutter SDK, dependency resolution, the `make mobile-*` commands below, and one supported target | FVM selects Flutter `3.47.2` from `apps/mobile/.fvmrc`; use its bundled Dart `3.13.2`. |
-| Android target | A compatible JDK, Android SDK and tooling, plus an Android API 26-or-newer emulator | Required only for Android contributors. Android is supported on Windows, Linux, and macOS. Android Studio provides the best-supported development experience, but equivalent command-line tooling is sufficient when `make mobile-doctor` reports the toolchain as usable. Flutter must be able to find the Android SDK: set `ANDROID_HOME` or run `fvm flutter config --android-sdk <path>` (`fvm flutter doctor -v` shows what it found). |
+| Common | Git, FVM, the repository-pinned Flutter SDK, dependency resolution, the `task mobile-*` commands below, and one supported target | FVM selects Flutter `3.47.2` from `apps/mobile/.fvmrc`; use its bundled Dart `3.13.2`. |
+| Android target | A compatible JDK, Android SDK and tooling, plus an Android API 26-or-newer emulator | Required only for Android contributors. Android is supported on Windows, Linux, and macOS. Android Studio provides the best-supported development experience, but equivalent command-line tooling is sufficient when `task mobile-doctor` reports the toolchain as usable. Flutter must be able to find the Android SDK: set `ANDROID_HOME` or run `fvm flutter config --android-sdk <path>` (`fvm flutter doctor -v` shows what it found). |
 | iOS target | macOS, Xcode with its command-line tools selected, completed Xcode first-run/license setup, and an iOS 15.1-or-newer Simulator runtime | Xcode is required to install iOS Simulator runtimes. Android Studio with the Flutter plugin is recommended for running TailTag on those simulators. CocoaPods is required when native Flutter plugins require it. Windows and Linux contributors do not need Xcode or iOS support. |
 
 macOS contributors may validate either Android or iOS. Phones are the primary
@@ -67,9 +67,9 @@ requirement. Launching on a physical device is permitted, but optional.
 
 ## Commands
 
-Root `make mobile-*` commands support macOS and Linux hosts and run Flutter and
-Dart through FVM. They sit beside the backend `make api-*` commands in the same
-root `Makefile` (`make help` lists both) but run on the host: the `api-*`
+Root `task mobile-*` commands support macOS and Linux hosts and run Flutter and
+Dart through FVM. They sit beside the backend `task api-*` commands in the same
+root `Taskfile.yml` (`task help` lists both) but run on the host: the `api-*`
 commands run in the TailTag devcontainer, while every `mobile-*` command fails
 immediately with a "run on the host" message when `TAILTAG_DEVCONTAINER=1`.
 Windows contributors use the raw commands in the
@@ -77,13 +77,13 @@ Windows contributors use the raw commands in the
 
 | Command | What it does | Kind |
 | --- | --- | --- |
-| `make mobile-setup` | Verifies FVM and the pinned Flutter SDK are installed, then runs `fvm flutter pub get --enforce-lockfile` in `apps/mobile/`. It never installs the SDK; when the SDK is missing it prints `(cd apps/mobile && fvm install)`. | Deterministic |
-| `make mobile-format-check` | `fvm dart format --output=none --set-exit-if-changed .` | Deterministic |
-| `make mobile-analyze` | `fvm flutter analyze` | Deterministic |
-| `make mobile-test` | `fvm flutter test` (no configuration needed) | Deterministic |
-| `make mobile-check` | Runs `mobile-format-check`, `mobile-analyze`, and `mobile-test`. It does **not** build; CI builds the Android and iOS artifacts. | Deterministic |
-| `make mobile-doctor` | Same as `./scripts/doctor.sh --mobile`: diagnoses FVM, the pinned SDK, platform toolchains, devices, configuration, and API reachability. | Deterministic diagnosis; the API probe is live |
-| `make mobile-run DEVICE=<id>` | Validates configuration, applies `adb reverse` for Android with Local configuration, then runs `fvm flutter run -d <id>` with the configuration file. | Interactive and live |
+| `task mobile-setup` | Verifies FVM and the pinned Flutter SDK are installed, then runs `fvm flutter pub get --enforce-lockfile` in `apps/mobile/`. It never installs the SDK; when the SDK is missing it prints `(cd apps/mobile && fvm install)`. | Deterministic |
+| `task mobile-format-check` | `fvm dart format --output=none --set-exit-if-changed .` | Deterministic |
+| `task mobile-analyze` | `fvm flutter analyze` | Deterministic |
+| `task mobile-test` | `fvm flutter test` (no configuration needed) | Deterministic |
+| `task mobile-check` | Runs `mobile-format-check`, `mobile-analyze`, and `mobile-test`. It does **not** build; CI builds the Android and iOS artifacts. | Deterministic |
+| `task mobile-doctor` | Same as `./scripts/doctor.sh --mobile`: diagnoses FVM, the pinned SDK, platform toolchains, devices, configuration, and API reachability. | Deterministic diagnosis; the API probe is live |
+| `task mobile-run DEVICE=<id>` | Validates configuration, applies `adb reverse` for Android with Local configuration, then runs `fvm flutter run -d <id>` with the configuration file. | Interactive and live |
 
 `mobile-run` is intentionally interactive, and the API reachability check in
 `mobile-doctor` is intentionally live: they depend on a device and a running
@@ -105,19 +105,19 @@ workflow. A second platform is optional local validation.
 
 1. Install [FVM](https://fvm.app/documentation/getting-started/installation),
    then install the pinned SDK once: `cd apps/mobile && fvm install`.
-   `make mobile-setup`, `make mobile-run`, and `make mobile-doctor` stop with
+   `task mobile-setup`, `task mobile-run`, and `task mobile-doctor` stop with
    this command when the SDK is missing; other `fvm flutter` and `fvm dart`
    commands, including the check targets, make FVM download a missing pinned
    SDK automatically.
-2. From the repository root, run `make mobile-setup`.
-3. Run `make mobile-doctor` and follow the next step on any FAIL or WARN.
+2. From the repository root, run `task mobile-setup`.
+3. Run `task mobile-doctor` and follow the next step on any FAIL or WARN.
 4. Create your configuration file (see [Configuration](#configuration)):
    `cp apps/mobile/config/development.example.json apps/mobile/config/development.json`,
    then set `CLERK_PUBLISHABLE_KEY`.
-5. Run `make mobile-check`.
+5. Run `task mobile-check`.
 6. Start an emulator or simulator (`fvm flutter emulators --launch
    <emulator-id>`), find its id with `fvm flutter devices`, then run
-   `make mobile-run DEVICE=<id>`. Without `DEVICE`, or with an id that is not
+   `task mobile-run DEVICE=<id>`. Without `DEVICE`, or with an id that is not
    connected, the command prints the device list and an emulator launch hint
    and exits; it never boots or chooses a device for you.
 
@@ -137,8 +137,8 @@ to `apps/mobile/config/development.json`, which is gitignored; never commit it.
 
 One pure-Dart parser, `AppConfig`, is the only validator. It runs at app
 startup (a missing or invalid value fails fast, naming the key without echoing
-its value), in the pre-launch check of `make mobile-run`, and in
-`make mobile-doctor`. To check a file yourself, run from `apps/mobile/`:
+its value), in the pre-launch check of `task mobile-run`, and in
+`task mobile-doctor`. To check a file yourself, run from `apps/mobile/`:
 `fvm dart run tool/check_config.dart config/development.json`.
 
 The Clerk Development publishable key comes from the Clerk dashboard's API keys
@@ -172,7 +172,7 @@ mapping for your target:
 | Target | How it reaches the Local API |
 | --- | --- |
 | iOS Simulator | Uses the host's loopback directly. No extra step. |
-| Android emulator | `make mobile-run` runs `adb -s <id> reverse tcp:8000 tcp:8000` for you, so the device's `127.0.0.1:8000` forwards to the host. |
+| Android emulator | `task mobile-run` runs `adb -s <id> reverse tcp:8000 tcp:8000` for you, so the device's `127.0.0.1:8000` forwards to the host. |
 | USB-connected Android device | Same `adb reverse` as the emulator. |
 | iOS physical device | Cannot reach host loopback. Use Railway Development. |
 | Wi-Fi-only Android device (no `adb reverse`) | Cannot reach host loopback. Use Railway Development. |
@@ -181,10 +181,10 @@ Local over a LAN IP address is unsupported: the configuration validator
 rejects `http` to anything but `127.0.0.1` or `localhost`, and the Local API
 does not accept other hosts. The standard Android emulator alias `10.0.2.2` is
 not used, because the Local API rejects that host. `adb reverse` requires
-`adb` on `PATH` (Android SDK platform-tools); `make mobile-run` stops with
+`adb` on `PATH` (Android SDK platform-tools); `task mobile-run` stops with
 guidance if it is missing.
 
-The reachability probe in `make mobile-doctor` runs `curl` from the host. A
+The reachability probe in `task mobile-doctor` runs `curl` from the host. A
 passing probe shows the host can reach the API; it does not prove a device can.
 
 The authentication transport rule is invariant across environments: attach a
@@ -216,12 +216,12 @@ storage.
 
 ## Windows raw commands
 
-Root Make commands support macOS and Linux hosts. On Windows, run these from
-`apps/mobile/`. No single command replaces `make mobile-doctor`:
+Root task mobile commands support macOS and Linux hosts only. On Windows, run these from
+`apps/mobile/`. No single command replaces `task mobile-doctor`:
 `fvm flutter doctor` checks only the Flutter toolchains and devices, so also
 validate the configuration and the host API separately.
 
-| Make target | Raw command |
+| Task | Raw command |
 | --- | --- |
 | `mobile-setup` | `fvm flutter pub get --enforce-lockfile` |
 | `mobile-format-check` | `fvm dart format --output=none --set-exit-if-changed .` |

@@ -407,7 +407,7 @@ def test_missing_api_url_fails_development_preflight_before_smoke(
     assert workflow.index("--development-candidate") < workflow.index(
         "Run canonical HTTP smoke verification"
     )
-    assert 'API_BASE_URL="$API_BASE_URL" make api-smoke' in smoke
+    assert 'API_BASE_URL="$API_BASE_URL" task api-smoke' in smoke
 
 
 def test_post_deploy_smoke_workflow_uses_the_approved_contract() -> None:
@@ -433,7 +433,7 @@ def test_post_deploy_smoke_workflow_uses_the_approved_contract() -> None:
         "railway deploy",
         "railway run",
         "railway login",
-        "make api-check",
+        "task api-check",
         "manage.py migrate",
         "postgres:",
     ):

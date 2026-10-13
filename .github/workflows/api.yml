@@ -86,9 +86,15 @@ jobs:
           uv --directory services/api sync --all-groups --locked
           uv --directory .semgrep sync --locked
 
+      - name: Install pinned go-task
+        if: steps.relevance.outputs.backend_relevant == 'true'
+        uses: arduino/setup-task@c0bc642852239c2689f73f4ea6459c29405f3c52 # v3.0.0
+        with:
+          version: 3.53.1
+
       - name: Run canonical API validation
         if: steps.relevance.outputs.backend_relevant == 'true'
-        run: make api-check
+        run: task api-check
 
       - name: Report skipped backend validation
         if: steps.relevance.outputs.backend_relevant != 'true'

@@ -24,7 +24,7 @@ state, and the `fursuits` module owns durable, owner-scoped participating
 character records.
 
 The POC application migrations were intentionally reset. On a clean database,
-`make api-migrate` applies the approved TailTag and Django framework migrations;
+`task api-migrate` applies the approved TailTag and Django framework migrations;
 future TailTag domain migrations require approved feature work. Historical
 Django POC documents remain evaluation evidence and are not current setup
 instructions.
@@ -91,7 +91,7 @@ in place.
 
 Do not deploy this user-model switch to an already-migrated development database
 until maintainers have separately authorized and coordinated its reset or
-transition. The normal `make api-migrate` and Railway pre-deploy migration command
+transition. The normal `task api-migrate` and Railway pre-deploy migration command
 do not perform that operation. This repository contains no production
 environment, and #95 does not authorize any database or environment reset.
 
@@ -178,10 +178,10 @@ branch:
 
 ```bash
 TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM=run-r2-development-media-storage-smoke \
-railway run --service api --environment development -- make api-media-storage-smoke
+railway run --service api --environment development -- task api-media-storage-smoke
 ```
 
-It is not part of `make api-check`, application startup, deployment, or
+It is not part of `task api-check`, application startup, deployment, or
 ordinary CI. The command requires the exact Railway target `development`/`api`,
 the fixed confirmation value above, production Django settings, and
 `S3MediaStorage`; it rejects production and any unknown target. It uses only
@@ -415,28 +415,28 @@ having to remember `uv`, Django, or individual quality-tool invocations.
 
 | Command | Purpose | Required state |
 | --- | --- | --- |
-| `make help` | List canonical backend commands. | None. |
-| `make api-setup` | Synchronize locked API and Semgrep dependencies. | `uv` available; does not start services or change schema. |
-| `make api-run` | Run Django on port 8000. | Dependencies, `services/api/.env`, and PostgreSQL available. |
-| `make api-test` | Run PostgreSQL-backed backend tests. | Dependencies, `services/api/.env`, and PostgreSQL available. |
-| `make api-semgrep-check` | Run deterministic TailTag Semgrep security analysis. | Run `make api-setup` first. |
-| `make api-check` | Run complete local pre-PR backend validation. | Dependencies, `services/api/.env`, and PostgreSQL available. |
-| `make api-migrate` | **Apply existing Django migrations.** | Dependencies, `services/api/.env`, and PostgreSQL available; mutates schema. |
-| `make api-migrations` | **Create Django migrations from model changes.** | Dependencies and `services/api/.env`; mutates migration state but does not apply migrations. |
-| `make api-migrations-check` | Check for migration drift. | Dependencies, `services/api/.env`, and PostgreSQL available; does not create migrations. |
-| `make api-shell` | Open the Django shell. | Dependencies, `services/api/.env`, and PostgreSQL available. |
-| `make api-smoke` | HTTP-check an already-running API. | API already running; never starts services or applies migrations. |
-| `make api-auth-smoke` | Manually exercise Clerk Development authentication against `/api/me/`. | Interactive terminal, an already-running approved Development API, and explicitly supplied non-secret smoke-user configuration. Never CI or production. |
+| `task help` | List canonical backend commands. | None. |
+| `task api-setup` | Synchronize locked API and Semgrep dependencies. | `uv` available; does not start services or change schema. |
+| `task api-run` | Run Django on port 8000. | Dependencies, `services/api/.env`, and PostgreSQL available. |
+| `task api-test` | Run PostgreSQL-backed backend tests. | Dependencies, `services/api/.env`, and PostgreSQL available. |
+| `task api-semgrep-check` | Run deterministic TailTag Semgrep security analysis. | Run `task api-setup` first. |
+| `task api-check` | Run complete local pre-PR backend validation. | Dependencies, `services/api/.env`, and PostgreSQL available. |
+| `task api-migrate` | **Apply existing Django migrations.** | Dependencies, `services/api/.env`, and PostgreSQL available; mutates schema. |
+| `task api-migrations` | **Create Django migrations from model changes.** | Dependencies and `services/api/.env`; mutates migration state but does not apply migrations. |
+| `task api-migrations-check` | Check for migration drift. | Dependencies, `services/api/.env`, and PostgreSQL available; does not create migrations. |
+| `task api-shell` | Open the Django shell. | Dependencies, `services/api/.env`, and PostgreSQL available. |
+| `task api-smoke` | HTTP-check an already-running API. | API already running; never starts services or applies migrations. |
+| `task api-auth-smoke` | Manually exercise Clerk Development authentication against `/api/me/`. | Interactive terminal, an already-running approved Development API, and explicitly supplied non-secret smoke-user configuration. Never CI or production. |
 
-`make api-setup` synchronizes the two locked development projects:
+`task api-setup` synchronizes the two locked development projects:
 `services/api/` and the separate non-package `.semgrep/` project. Once setup
-has completed, `make api-semgrep-check` uses locked, no-sync environments to
+has completed, `task api-semgrep-check` uses locked, no-sync environments to
 run the fail-closed fixture-contract preflight, Semgrep's fixture tests, and
 the local blocking scan. It explicitly clears any inherited Semgrep baseline;
 the command is deterministic both normally and with the supported forced
 offline boundary.
 
-`make api-check` runs formatting, linting, strict typing, the Semgrep rule
+`task api-check` runs formatting, linting, strict typing, the Semgrep rule
 tests and local blocking scan, PostgreSQL-backed tests, Django system checks,
 migration-drift detection, OpenAPI validation, and Gunicorn
 production-configuration loading. It neither synchronizes dependencies nor
@@ -453,9 +453,9 @@ scope, and limitation guidance.
 
 ## Authenticated Development API smoke
 
-`make api-auth-smoke` is the only supported live Clerk Development workflow.
+`task api-auth-smoke` is the only supported live Clerk Development workflow.
 It is a manual, interactive Development-only operation: it is not a dependency
-of `make api-check`, `make api-smoke`, ordinary tests, or CI, and it must never
+of `task api-check`, `task api-smoke`, ordinary tests, or CI, and it must never
 be run against or configured for production.
 
 ### One-time Development setup
@@ -516,7 +516,7 @@ operational limitations are maintained in this README and the
 With a local API already running at its fixed local target:
 
 ```bash
-CLERK_SMOKE_USER_ID=<opaque-development-user-id> make api-auth-smoke
+CLERK_SMOKE_USER_ID=<opaque-development-user-id> task api-auth-smoke
 ```
 
 For Railway development, both URL variables must name the same exact API root:
@@ -525,7 +525,7 @@ For Railway development, both URL variables must name the same exact API root:
 API_BASE_URL=https://<exact-development-api-host> \
 TAILTAG_DEVELOPMENT_API_BASE_URL=https://<exact-development-api-host> \
 CLERK_SMOKE_USER_ID=<opaque-development-user-id> \
-make api-auth-smoke
+task api-auth-smoke
 ```
 
 After its credential-free baseline smoke succeeds, the command requires a TTY
@@ -611,8 +611,8 @@ already-applied migrations a no-op. This is deliberately not a global
 exactly-once guarantee and does not require distributed locking for V0.
 
 Migrations must remain absent from Docker CMD/entrypoint, Gunicorn and Django
-startup, health/readiness endpoints, and normal local commands such as `make
-api-run`. Local contributors continue to run `make api-migrate` explicitly.
+startup, health/readiness endpoints, and normal local commands such as `task
+api-run`. Local contributors continue to run `task api-migrate` explicitly.
 The Railway pre-deploy container uses the same private Railway database
 configuration as the API; do not add a second database URL, expose a public
 PostgreSQL endpoint, or put database credentials in source or logs.
@@ -652,7 +652,7 @@ schema change is backward compatible or a mandate for a separate migration
 framework.
 
 The GitHub Actions post-deploy smoke workflow verifies a successful Railway
-development deployment with the same `make api-smoke` contract. It does not
+development deployment with the same `task api-smoke` contract. It does not
 deploy, migrate, or start the API. The protected `main`-to-development
 delivery chain owns those separate responsibilities.
 
@@ -660,9 +660,9 @@ Use the commands for distinct purposes:
 
 - `./scripts/doctor.sh` diagnoses environment readiness; it does not repair or
   mutate the environment.
-- `make api-test` is the normal feedback loop while developing.
-- `make api-smoke` verifies an already-running API over HTTP.
-- `make api-check` is the pre-pull-request validation suite.
+- `task api-test` is the normal feedback loop while developing.
+- `task api-smoke` verifies an already-running API over HTTP.
+- `task api-check` is the pre-pull-request validation suite.
 
 ## Recommended devcontainer workflow
 
@@ -681,17 +681,17 @@ migrations or make schema changes. Inside the devcontainer, run:
 
 ```bash
 ./scripts/doctor.sh
-make api-migrate
-make api-run
+task api-migrate
+task api-run
 ```
 
-Leave `make api-run` running. In another terminal, run:
+Leave `task api-run` running. In another terminal, run:
 
 ```bash
-make api-smoke
+task api-smoke
 ```
 
-Use `make api-test` while developing and `make api-check` before a pull request.
+Use `task api-test` while developing and `task api-check` before a pull request.
 Migrations remain explicit after a new, reopened, or rebuilt devcontainer.
 
 ## Supported native workflow
@@ -708,12 +708,12 @@ same canonical commands:
 
 ```bash
 docker compose -f services/api/compose.yaml up -d db
-make api-setup
-make api-migrate
-make api-run
+task api-setup
+task api-migrate
+task api-run
 ```
 
-In a second terminal, use `make api-smoke`. The host connects to the
+In a second terminal, use `task api-smoke`. The host connects to the
 Compose-published database at `127.0.0.1:5432`, as configured by `.env`.
 
 This support boundary excludes host-installed PostgreSQL, SQLite, Python versions
@@ -741,12 +741,12 @@ database state, use the following **destructive** command:
 docker compose -f services/api/compose.yaml down --volumes
 ```
 
-This deletes local PostgreSQL data. Start the database again and run `make
+This deletes local PostgreSQL data. Start the database again and run `task
 api-migrate` explicitly; no workflow automatically recreates schema state.
 
 ## HTTP surfaces
 
-With `make api-run` running, local development surfaces are:
+With `task api-run` running, local development surfaces are:
 
 | URL | Purpose |
 | --- | --- |
@@ -758,13 +758,13 @@ With `make api-run` running, local development surfaces are:
 | `http://127.0.0.1:8000/api/docs/` | Interactive OpenAPI documentation. |
 | `http://127.0.0.1:8000/admin/` | Django development/operational administration. |
 
-`make api-smoke` is the normal HTTP verification path. It requires an already
+`task api-smoke` is the normal HTTP verification path. It requires an already
 running service and checks liveness, readiness, schema, and interactive docs for
 HTTP 200. It defaults to `http://127.0.0.1:8000`; target another running
 environment only when appropriate:
 
 ```bash
-API_BASE_URL=https://example.internal make api-smoke
+API_BASE_URL=https://example.internal task api-smoke
 ```
 
 If `/health/ready` returns `503`, required configuration or PostgreSQL is not
@@ -784,7 +784,7 @@ Railway `deployment_status` event only when the deployment environment is
 `TailTag / development` and its creator is `railway-app[bot]`. It can also be
 run manually without initiating a deployment. Both paths use the non-secret
 repository Actions variable `TAILTAG_DEVELOPMENT_API_BASE_URL` and run the
-canonical `API_BASE_URL=... make api-smoke` command.
+canonical `API_BASE_URL=... task api-smoke` command.
 
 The workflow logs the triggering deployment/status identifiers, ref, and public
 target URL, then fails its GitHub Actions job if any smoke endpoint fails. It
@@ -802,10 +802,10 @@ Normal contributor delivery is a composed GitHub and Railway control path:
    requires one approval, resolved review conversations, squash merge, and the
    stable `API foundation checks` status check.
 2. The API workflow runs that one named job on every pull request. Relevant
-   changes run `make api-check`; irrelevant changes take the explicit
+   changes run `task api-check`; irrelevant changes take the explicit
    successful skip path.
 3. A normal merge creates a `main` commit. The same workflow force-runs the
-   canonical `make api-check` contract for that push.
+   canonical `task api-check` contract for that push.
 4. Railway's development `api` service autodeploys only
    `TailTag-Game/tailtag` `main` commits and has Wait for CI enabled. It
    waits while GitHub workflows run, skips the candidate when a workflow fails,
@@ -817,7 +817,7 @@ Normal contributor delivery is a composed GitHub and Railway control path:
 
 Railway watches only `services/api/**` for this service. Its deployment
 relevance is intentionally narrower than backend CI relevance: a change only to
-the root `Makefile`, `scripts/api_smoke.py`, `.github/workflows/api.yml`,
+the root `Taskfile.yml`, `scripts/api_smoke.py`, `.github/workflows/api.yml`,
 documentation, or frontend code does not rebuild the running API unless an
 approved runtime build change makes that path relevant.
 
@@ -867,7 +867,7 @@ profile or fursuit administration. Convention and catch domain workflows remain
 outside this administrative surface.
 
 Create a development-only Django superuser after PostgreSQL is available. There
-is no canonical Make target for this one Django operation, so use this narrow
+is no canonical task for this one Django operation, so use this narrow
 low-level command from the repository root:
 
 ```bash
@@ -902,7 +902,7 @@ interactive prompts. At its visible confirmation prompt, type the exact
 non-secret phrase `bootstrap Railway Development operator`. Never put either
 credential in command arguments, environment variables, shell history, logs,
 issues, pull requests, or committed evidence. No Clerk secret is required. Do
-not add a Make target or script, set a
+not add a task or script, set a
 `DJANGO_SUPERUSER_PASSWORD`, configure Railway credential variables, or run the
 command automatically during build, pre-deploy, startup, health checks, or
 Gunicorn.
@@ -946,14 +946,14 @@ apply the recovery for the supported workflow.
 | --- | --- | --- |
 | `doctor.sh` reports Docker or Compose `FAIL` | Docker CLI is missing, daemon is stopped, or the Compose plugin is unavailable. Re-run `./scripts/doctor.sh` after checking Docker Desktop/Engine. | Install or start a compatible Docker Engine with Compose, then re-run doctor. A missing Dev Container CLI is only a `WARN` when a compatible editor is used. |
 | Devcontainer cannot open or build | Docker/Compose is unhealthy, or `services/api/.env` is missing. Check host `./scripts/doctor.sh` and the editor's devcontainer build output. | Restore Docker/Compose, create `.env` from the template, then rebuild or reopen the container. |
-| Devcontainer post-create dependency sync fails | Locked dependencies could not synchronize. Inside the container, run `./scripts/doctor.sh` to distinguish dependency and database readiness. | Resolve the reported environment problem, then run `make api-setup`; reopen or rebuild only if the editor environment itself is stale. |
+| Devcontainer post-create dependency sync fails | Locked dependencies could not synchronize. Inside the container, run `./scripts/doctor.sh` to distinguish dependency and database readiness. | Resolve the reported environment problem, then run `task api-setup`; reopen or rebuild only if the editor environment itself is stale. |
 | Django reports missing configuration or an invalid `DATABASE_URL` | `services/api/.env` is missing, incomplete, or malformed. | Recopy the template if appropriate and edit only local values. Do not paste `.env` contents into logs or commit the file. |
 | Database is unreachable or unhealthy | The `db` service is not running or has failed its health check. Run `docker compose -f services/api/compose.yaml ps` and `docker compose -f services/api/compose.yaml logs db`. | Start it with `docker compose -f services/api/compose.yaml up -d db`, then retry the canonical command. |
 | Port 5432 is already in use | Another host process is using the published PostgreSQL port. Check the host process or Compose output. | Stop or reconfigure the conflicting local process; do not substitute a host-installed PostgreSQL workflow. |
-| Port 8000 is already in use | Another Django/API process is still listening. | Stop that process, then rerun `make api-run`; `make api-smoke` must target the API instance you intend to verify. |
-| Migration errors or drift | Existing migrations have not been applied, or model changes need review. | Use `make api-migrate` for existing migrations. Use `make api-migrations-check` to inspect drift; create migrations only with `make api-migrations` when approved work changes models. |
-| `/health/ready` is unavailable or `make api-smoke` fails | The service is not running, PostgreSQL is not ready, or the target URL/status is wrong. Run `make api-smoke` against the running service and inspect `db` status/logs. | Start or repair the intended service/database, then rerun smoke. Use `API_BASE_URL` only for another already-running target. |
-| Local database state must be discarded | The named volume intentionally persists through normal stops and rebuilds. | Use the destructive `down --volumes` command in [PostgreSQL lifecycle](#postgresql-lifecycle), then explicitly run `make api-migrate`. |
+| Port 8000 is already in use | Another Django/API process is still listening. | Stop that process, then rerun `task api-run`; `task api-smoke` must target the API instance you intend to verify. |
+| Migration errors or drift | Existing migrations have not been applied, or model changes need review. | Use `task api-migrate` for existing migrations. Use `task api-migrations-check` to inspect drift; create migrations only with `task api-migrations` when approved work changes models. |
+| `/health/ready` is unavailable or `task api-smoke` fails | The service is not running, PostgreSQL is not ready, or the target URL/status is wrong. Run `task api-smoke` against the running service and inspect `db` status/logs. | Start or repair the intended service/database, then rerun smoke. Use `API_BASE_URL` only for another already-running target. |
+| Local database state must be discarded | The named volume intentionally persists through normal stops and rebuilds. | Use the destructive `down --volumes` command in [PostgreSQL lifecycle](#postgresql-lifecycle), then explicitly run `task api-migrate`. |
 
 `FAIL` from `doctor.sh` means a required condition for the environment it is
 checking is absent. `WARN` is advisory and does not cause the command to fail.

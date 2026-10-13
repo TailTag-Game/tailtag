@@ -613,7 +613,7 @@ def assert_pre_sign_in_protocol_failure_at_command_boundary(
     ]
 
 
-def test_actual_make_entry_point_imports_and_rejects_an_invalid_target_first() -> None:
+def test_actual_task_entry_point_imports_and_rejects_an_invalid_target_first() -> None:
     """The root command fails closed before baseline, prompting, or provider work."""
     environment = {
         **os.environ,
@@ -624,7 +624,7 @@ def test_actual_make_entry_point_imports_and_rejects_an_invalid_target_first() -
         "ALL_PROXY": "http://127.0.0.1:1",
     }
     completed = subprocess.run(
-        ["make", "api-auth-smoke"],
+        ["task", "api-auth-smoke"],
         cwd=REPOSITORY_ROOT,
         env=environment,
         check=False,

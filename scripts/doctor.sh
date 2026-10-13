@@ -120,7 +120,7 @@ check_foundation_structure() {
     "services/api/.env.example"
     ".devcontainer/devcontainer.json"
     ".devcontainer/compose.devcontainer.yaml"
-    "Makefile"
+    "Taskfile.yml"
     "scripts/doctor.sh"
   )
   local path
@@ -206,10 +206,10 @@ with connection.cursor() as cursor:
     fail "uv is not installed in the TailTag devcontainer"
   fi
 
-  if command -v make >/dev/null 2>&1 && make -n help >/dev/null 2>&1; then
-    pass "Canonical backend Make commands are available"
+  if command -v task >/dev/null 2>&1 && task --version >/dev/null 2>&1; then
+    pass "Canonical backend task commands are available"
   else
-    fail "Canonical backend Make commands are unavailable; verify the root Makefile"
+    fail "Canonical backend task commands are unavailable; verify go-task is installed and the root Taskfile.yml exists"
   fi
 }
 

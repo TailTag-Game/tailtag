@@ -1,8 +1,30 @@
 FROM python:3.13-slim-bookworm AS development
 
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y git make \
+    && apt-get install --no-install-recommends -y git \
     && rm -rf /var/lib/apt/lists/*
+
+# go-task runs the root Taskfile.yml. The archive is verified against the
+# SHA-256 published in go-task v3.53.1's task_checksums.txt.
+ARG TARGETARCH
+ARG TASK_VERSION=3.53.1
+ARG TASK_SHA256_AMD64=a54a408f6861ff921f6e87774180db31bacd8c1e7c944ca696db9fea49a82fc7
+ARG TASK_SHA256_ARM64=e3ad19101493a0112e1f22ae8ccc54bf03e533b1076a0ca1e6c782a09ad2e588
+RUN set -eu; \
+    case "$TARGETARCH" in \
+        amd64) task_sha256="$TASK_SHA256_AMD64" ;; \
+        arm64) task_sha256="$TASK_SHA256_ARM64" ;; \
+        *) echo "unsupported architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    archive="task_linux_${TARGETARCH}.tar.gz"; \
+    workdir="$(mktemp -d)"; \
+    python -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' \
+        "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/${archive}" \
+        "${workdir}/${archive}"; \
+    echo "${task_sha256}  ${workdir}/${archive}" | sha256sum -c -; \
+    tar -xzf "${workdir}/${archive}" -C "${workdir}" task; \
+    install -m 0755 "${workdir}/task" /usr/local/bin/task; \
+    rm -rf "${workdir}"
 
 COPY --from=ghcr.io/astral-sh/uv:0.9.17 /uv /uvx /bin/
 

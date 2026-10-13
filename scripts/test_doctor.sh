@@ -91,7 +91,7 @@ create_repository_fixture() {
     "$fixture/scripts-doctor-placeholder"
   mkdir -p "$fixture/scripts"
   cp "$doctor_script" "$fixture/scripts/doctor.sh"
-  printf 'help:\n\t@:\n' >"$fixture/Makefile"
+  printf "version: '3'\\ntasks:\\n  default:\\n    cmds:\\n      - 'true'\\n" >"$fixture/Taskfile.yml"
   printf '[project]\nrequires-python = ">=3.13,<3.14"\n' >"$fixture/services/api/pyproject.toml"
 }
 
@@ -116,6 +116,10 @@ case "$1 ${2:-}" in
   "compose version") exit "${FAKE_DOCKER_COMPOSE_STATUS:-0}" ;;
   *) exit 0 ;;
 esac
+EOF
+  cat >"$tools_directory/task" <<'EOF'
+#!/usr/bin/env bash
+exit 0
 EOF
   cat >"$tools_directory/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -246,7 +250,7 @@ assert_contains "$container_output" 'PASS  Python 3.13 matches the required vers
 assert_contains "$container_output" 'PASS  uv is available'
 assert_contains "$container_output" 'PASS  Locked backend dependencies are usable'
 assert_contains "$container_output" 'PASS  PostgreSQL is reachable from the backend environment'
-assert_contains "$container_output" 'PASS  Canonical backend Make commands are available'
+assert_contains "$container_output" 'PASS  Canonical backend task commands are available'
 assert_not_contains "$container_output" 'Docker daemon'
 assert_contains "$container_output" 'Mobile checks: run ./scripts/doctor.sh --mobile on the host.'
 

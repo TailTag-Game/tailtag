@@ -433,7 +433,7 @@ def test_operator_runner_zero_requires_acknowledged_exact_recovery_receipt(
         binary = root / "bin"
         binary.mkdir()
         executable(
-            binary / "make",
+            binary / "task",
             f"""
 import json, sys
 from pathlib import Path
@@ -541,10 +541,7 @@ raise SystemExit(1 if failed else 0)
                 }
             )
         assert [item["request"] for item in relays] == expected_requests
-        assert all(
-            item["argv"] == ["-s", "--no-print-directory", "api-sim-pool-ssh"]
-            for item in relays
-        )
+        assert all(item["argv"] == ["-s", "api-sim-pool-ssh"] for item in relays)
         snapshots = [
             json.loads(path.read_text()) for path in (root / "state").glob("*.json")
         ]

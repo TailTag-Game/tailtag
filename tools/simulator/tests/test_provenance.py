@@ -44,7 +44,7 @@ def source_repo(tmp_path: Path) -> Path:
             "tools/simulator/uv.lock": "version = 1\nrevision = 3\n",
             "tools/simulator/Dockerfile": "FROM scratch\nCOPY . /app\n",
             "services/api/simulation_fixtures/images/valid-a.png": b"committed-workload-bytes",
-            "Makefile": "sim-image:\n\tdocker build tools/simulator\n",
+            "Taskfile.yml": "version: '3'\ntasks:\n  sim-image:\n    cmds:\n      - docker build tools/simulator\n",
             "scripts/api_sim_pool_ssh.py": "# committed host launcher\n",
             "scripts/api_sim_fixture_ssh.py": "# committed host launcher\n",
             "scripts/api_sim_inspect_ssh.py": "# committed host launcher\n",
@@ -122,7 +122,7 @@ def test_changed_or_untracked_runtime_inputs_cannot_claim_a_clean_git_identity(
     elif change == "fixture_deleted":
         (source_repo / "services/api/simulation_fixtures/images/valid-a.png").unlink()
     elif change == "wiring":
-        (source_repo / "Makefile").write_text("SENTINEL_changed_build_wiring")
+        (source_repo / "Taskfile.yml").write_text("SENTINEL_changed_build_wiring")
     elif change in {"untracked", "ignored"}:
         (
             package
@@ -209,6 +209,17 @@ def test_missing_source_identity_is_rejected_with_sanitized_failure(
     assert "SENTINEL" not in str(failure.value) + repr(failure.value)
 
 
+def test_taskfile_is_required_build_wiring_in_place_of_the_makefile(
+    source_repo: Path,
+) -> None:
+    assert "Taskfile.yml" in provenance.BUILD_FILES
+    assert "Makefile" not in provenance.BUILD_FILES
+    git(source_repo, "rm", "-q", "Taskfile.yml")
+    commit(source_repo, "Remove build wiring")
+    with pytest.raises(SourceRejected):
+        load_source(source_repo)
+
+
 def docker_recorder(
     monkeypatch: pytest.MonkeyPatch, captured: Path, *, fail: bool = False
 ) -> list[Path]:
@@ -262,6 +273,9 @@ def test_build_validates_git_before_docker_and_copies_a_self_verifying_runtime_c
     assert metadata["simulator_sha"] == git(source_repo, "rev-parse", "HEAD")
     assert metadata["schema_version"] == 1
     assert metadata["manifest"]
+    # Build wiring validates the source but never ships in the runtime image.
+    assert "Taskfile.yml" not in metadata["manifest"]
+    assert not (captured / "Taskfile.yml").exists()
     assert not any(
         name.startswith("scripts/")
         or name in {"services/api/pyproject.toml", "services/api/uv.lock"}

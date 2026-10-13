@@ -19,6 +19,8 @@ from typing import Any, NoReturn, Self, cast
 
 import pytest
 
+from tests.semgrep_support import task_dry_run
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = REPOSITORY_ROOT / "scripts" / "api_staging_reset_ssh.py"
 CONFIGURATION_NAMES = frozenset(
@@ -2156,23 +2158,13 @@ def test_execute_remote_preserves_the_core_failure_when_its_second_preflight_cha
     assert events == ["quiesce", "reset", "resume", "quiesce"]
 
 
-def test_make_and_validation_matrices_include_the_ssh_operator() -> None:
+def test_task_and_validation_matrices_include_the_ssh_operator() -> None:
     """SSH-8: static checks and CI cannot omit the new repository-owned helper."""
-    completed_make = subprocess.run(
-        ["make", "-n", "api-staging-reset-ssh"],
-        cwd=REPOSITORY_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert completed_make.returncode == 0, completed_make.stderr
-    assert "api_staging_reset_ssh" in completed_make.stdout
-    assert "--confirm reset-tailtag-staging" in completed_make.stdout
+    dry_run = task_dry_run("api-staging-reset-ssh").stdout
+    assert "api_staging_reset_ssh" in dry_run
+    assert "--confirm reset-tailtag-staging" in dry_run
 
-    makefile = (REPOSITORY_ROOT / "Makefile").read_text()
     pyproject = (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml").read_text()
     relevance = (REPOSITORY_ROOT / "scripts" / "backend_ci_relevance.py").read_text()
-    assert "override STAGING_RESET_SSH_SCRIPT :=" in makefile
-    assert "$(STAGING_RESET_SSH_SCRIPT)" in makefile
     assert "scripts/api_staging_reset_ssh.py" in pyproject
     assert "scripts/api_staging_reset_ssh.py" in relevance

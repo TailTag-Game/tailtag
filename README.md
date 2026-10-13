@@ -73,7 +73,7 @@ The guide covers repository access, cloning, Git configuration, environment veri
 
 ## Authenticated Development API smoke
 
-`make api-auth-smoke` is the sole manual, interactive check of Clerk
+`task api-auth-smoke` is the sole manual, interactive check of Clerk
 Development authentication against `GET /api/me/`; it is excluded from normal
 tests, CI, and production operations. A maintainer must first create and retain
 one dedicated user in the Clerk Development instance, copy its opaque user ID
@@ -90,7 +90,7 @@ on port 3000, and production configuration must not gain that allowance.
 Local development:
 
 ```bash
-CLERK_SMOKE_USER_ID=<opaque-development-user-id> make api-auth-smoke
+CLERK_SMOKE_USER_ID=<opaque-development-user-id> task api-auth-smoke
 ```
 
 Railway development (the URL must be the exact approved API root):
@@ -99,7 +99,7 @@ Railway development (the URL must be the exact approved API root):
 API_BASE_URL=https://<exact-development-api-host> \
 TAILTAG_DEVELOPMENT_API_BASE_URL=https://<exact-development-api-host> \
 CLERK_SMOKE_USER_ID=<opaque-development-user-id> \
-make api-auth-smoke
+task api-auth-smoke
 ```
 
 The dedicated Clerk and TailTag users are persistent test state. Each run uses

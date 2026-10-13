@@ -10,13 +10,13 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from tests.semgrep_support import FROZEN_ROOT_HELPERS, dry_run_commands
+from tests.semgrep_support import FROZEN_ROOT_HELPERS, dry_run_commands, task_dry_run
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
 
 def tracked_semgrep_targets(repository: Path) -> set[Path]:
-    """Derive the approved API portion from Git, not Makefile operands."""
+    """Derive the approved API portion from Git, not Taskfile operands."""
     completed = subprocess.run(
         ["git", "ls-files", "-z", "--", "services/api"],
         cwd=repository,
@@ -34,15 +34,8 @@ def tracked_semgrep_targets(repository: Path) -> set[Path]:
 
 
 def canonical_main_scan_command(repository: Path) -> tuple[dict[str, str], list[str]]:
-    """Take the main scan's actual command construction directly from Make."""
-    dry_run = subprocess.run(
-        ["make", "-n", "api-semgrep-check"],
-        cwd=repository,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert dry_run.returncode == 0, dry_run.stderr
+    """Take the main scan's actual command construction directly from go-task."""
+    dry_run = task_dry_run("api-semgrep-check")
     commands = [
         line
         for line in dry_run_commands(dry_run.stdout)
@@ -64,14 +57,7 @@ def test_canonical_ruff_commands_include_all_reviewed_root_helpers() -> None:
         ("api-format-check", ("ruff", "format")),
         ("api-lint-check", ("ruff", "check")),
     ):
-        completed = subprocess.run(
-            ["make", "-n", target],
-            cwd=REPOSITORY_ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert completed.returncode == 0, completed.stderr
+        completed = task_dry_run(target)
         matching = [
             shlex.split(line)
             for line in dry_run_commands(completed.stdout)
@@ -239,10 +225,10 @@ def test_canonical_main_scan_reports_exact_frozen_tracked_scope() -> None:
     assert any(path.name.startswith("test_") for path in scanned)
 
 
-def test_inherited_baseline_cannot_suppress_the_canonical_make_scan(
+def test_inherited_baseline_cannot_suppress_the_canonical_task_scan(
     tmp_path: Path,
 ) -> None:
-    """A real inherited baseline cannot hide a new violation from the Make target."""
+    """A real inherited baseline cannot hide a new violation from the Task target."""
     api_venv = REPOSITORY_ROOT / "services" / "api" / ".venv"
     semgrep_venv = REPOSITORY_ROOT / ".semgrep" / ".venv"
     assert api_venv.is_dir()
@@ -307,7 +293,7 @@ def test_inherited_baseline_cannot_suppress_the_canonical_make_scan(
     assert committed.returncode == 0, committed.stderr
 
     completed = subprocess.run(
-        ["make", "api-semgrep-check"],
+        ["task", "api-semgrep-check"],
         cwd=clone,
         env={**os.environ, "SEMGREP_BASELINE_COMMIT": "HEAD"},
         capture_output=True,

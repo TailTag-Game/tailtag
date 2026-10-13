@@ -12,11 +12,11 @@ Riverpod composition.
 Run these from the repository root on macOS or Linux (Windows uses the raw
 `fvm` commands in the guide):
 
-- `make mobile-setup` installs locked dependencies (needs FVM and the pinned
+- `task mobile-setup` installs locked dependencies (needs FVM and the pinned
   SDK; run `fvm install` here once).
-- `make mobile-check` runs format, analysis, and tests; it does not build.
-- `make mobile-doctor` diagnoses the environment.
-- `make mobile-run DEVICE=<id>` launches the app on one connected Android or iOS
+- `task mobile-check` runs format, analysis, and tests; it does not build.
+- `task mobile-doctor` diagnoses the environment.
+- `task mobile-run DEVICE=<id>` launches the app on one connected Android or iOS
   target, using `config/development.json` copied from
   `config/development.example.json`.
 

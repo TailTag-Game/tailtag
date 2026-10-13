@@ -44,12 +44,12 @@ Use a clean, verified contributor checkout and the locked simulator environment.
 
 ```sh
 SIM_REPO_ROOT="$PWD"
-make sim-image PLATFORM=linux/amd64
+task sim-image PLATFORM=linux/amd64
 IMAGE_ID="$(docker image inspect --format '{{.Id}}' tailtag-simulator:local)"
 umask 077
 mkdir -p "$HOME/.local/state/tailtag-host-transfer"
 TRANSFER="$HOME/.local/state/tailtag-host-transfer"
-make sim-host-release-export IMAGE_ID="$IMAGE_ID" \
+task sim-host-release-export IMAGE_ID="$IMAGE_ID" \
   ARCHIVE="$TRANSFER/simulator.tar" RELEASE="$TRANSFER/release.json"
 ```
 
@@ -144,14 +144,14 @@ chmod 0600 "$TRANSFER/normal-profile.json"
 Prepare verifies the current public Staging identity twice using the existing target checker, resolves configuration/safety, validates release metadata, generates a fresh UUID, and writes an owner-only immutable manifest without mutating Staging:
 
 ```sh
-make sim-host-prepare PROFILE="$TRANSFER/normal-profile.json" \
+task sim-host-prepare PROFILE="$TRANSFER/normal-profile.json" \
   SAFETY_CONFIG="$SIM_REPO_ROOT/tools/simulator/host/safety.json" \
   RELEASE="$TRANSFER/release.json" MANIFEST="$TRANSFER/manifest.json"
-make sim-host-run MANIFEST="$TRANSFER/manifest.json" HOST=tailtag-sim \
+task sim-host-run MANIFEST="$TRANSFER/manifest.json" HOST=tailtag-sim \
   HOST_ROOT=/srv/tailtag-simulator
 ```
 
-These Make wrappers invoke the frozen `host_operator prepare --profile --safety-config --release --output` and `run --manifest --host --host-root` CLI. `sim-host-release-export` invokes `host_release export --image --archive --metadata`; `sim-host-release-load ARCHIVE=path RELEASE=path` invokes the same verified `load --archive --metadata` implementation on a machine with Docker. All parameters are secret-free paths, an SSH alias or an immutable image ID. Prefer absolute values for every new Make path parameter (`PROFILE`, `SAFETY_CONFIG`, `RELEASE`, `MANIFEST`, `ARCHIVE`, `STATE_DIR`, `HOST_ROOT`): the wrappers use `uv --directory tools/simulator`, so relative CLI paths are evaluated from `tools/simulator`, not the caller's repository-root shell. `make sim-host-bootstrap-check` checks Bash syntax without executing bootstrap and is part of canonical `make sim-check`; simulator CI runs that check and builds explicitly for `linux/amd64`, never executes load.
+These task wrappers invoke the frozen `host_operator prepare --profile --safety-config --release --output` and `run --manifest --host --host-root` CLI. `sim-host-release-export` invokes `host_release export --image --archive --metadata`; `sim-host-release-load ARCHIVE=path RELEASE=path` invokes the same verified `load --archive --metadata` implementation on a machine with Docker. All parameters are secret-free paths, an SSH alias or an immutable image ID. Prefer absolute values for every new task path parameter (`PROFILE`, `SAFETY_CONFIG`, `RELEASE`, `MANIFEST`, `ARCHIVE`, `STATE_DIR`, `HOST_ROOT`): the wrappers use `uv --directory tools/simulator`, so relative CLI paths are evaluated from `tools/simulator`, not the caller's repository-root shell. `task sim-host-bootstrap-check` checks Bash syntax without executing bootstrap and is part of canonical `task sim-check`; simulator CI runs that check and builds explicitly for `linux/amd64`, never executes load.
 
 Use a private profile copy when changing the pool. The default local operator state directory is `~/.local/state/tailtag-simulator`; optional `STATE_DIR=path` on `sim-host-run` (CLI `--state-dir PATH`) chooses another owner-private directory. It writes `<UUID>.used.json` before opening SSH and `<UUID>.bridge.json` after revoking workload and joining bridge-owned operations. Both are owner-only closed JSON evidence, with file/parent-directory fsync. The bridge record contains bounded dispatch/attempt/outcome and acknowledgement/uncertainty state, never raw requests or provider details. Preserve and archive these files alongside the original manifest; preserve used-UUID markers even after completion. A completed, interrupted or crashed manifest cannot reopen a session. Each subsequent workload uses `prepare` and a new manifest/UUID; no automatic restart or allocation retry is provided. `--unattended` remains refused. Later scheduling needs separately approved noninteractive authentication, overlap prevention, automated resource-abort policy and schedule-disable/recovery controls; these are outside this issue.
 
@@ -208,10 +208,10 @@ A report PASS, validated report, clean-looking pool, expired lease, process exit
 From the maintainer's existing trusted environment, independently verify current Staging `/health/identity` using the target check and compare its exact source/deployment/environment tuple with the held manifest. Existing relays independently verify provider and deployed target too. Confirm all bridge-owned mutating operations have settled remotely, including any indeterminate provision. Preserve report/companion evidence and inspect the exact retained/unfinished run, then use the existing commands:
 
 ```sh
-make sim-retained
-make sim-pool-status POOL="$POOL"
-make sim-cleanup POOL="$POOL" RUN_ID="$RUN_ID"
-make sim-pool-status POOL="$POOL"
+task sim-retained
+task sim-pool-status POOL="$POOL"
+task sim-cleanup POOL="$POOL" RUN_ID="$RUN_ID"
+task sim-pool-status POOL="$POOL"
 ```
 
 Set `POOL` and canonical `RUN_ID` from the original trusted manifest before these commands, not an assumed example value. `sim-cleanup` accepts retained/provisioned runs and readmits the run's quarantined identities only after verified clean. It does not accept a cleaned/failed row; do not reinterpret that refusal as proof that a lost provision never committed. `FAIL_ATTRIBUTION`, `FAIL_VERIFY`, `FAIL_TARGET`, `FAIL_STORAGE`, `FAIL_LIMIT` or other failure requires investigation, not host hold removal. After storage failure the documented exact-run cleanup may be retried; setup authority remains closed. Existing independent Clerk session closure must also be acknowledged or uncertainty retained.
@@ -219,8 +219,8 @@ Set `POOL` and canonical `RUN_ID` from the original trusted manifest before thes
 Set `REPAIRED_INDEX` only from the exact-run verified repair record. Only if an identity remains independently quarantined after verified repair/cleanup, use the existing explicit per-index recovery and recheck pool status:
 
 ```sh
-make sim-pool-readmit POOL="$POOL" INDEX="$REPAIRED_INDEX"
-make sim-pool-status POOL="$POOL"
+task sim-pool-readmit POOL="$POOL" INDEX="$REPAIRED_INDEX"
+task sim-pool-status POOL="$POOL"
 ```
 
 Readmission alone removes no fixtures and cannot establish cleanup. Review the [existing cleanup failure/recovery semantics](../../tools/simulator/README.md#run-lifecycle) before this step.
@@ -248,7 +248,7 @@ Invalid profile/manifest/release, reused UUID, unsafe/symlinked/foreign paths, m
 
 Owner-only run directories contain `runs/<UUID>/reports/<UUID>.json`, fixed sanitized `runs/<UUID>/reports/stages.log` (at most one MiB), and supervisor-owned `runs/<UUID>/host.json`. `control/manifest.json`, `control/recovery.json`, `control/container.cid` and `recovery-hold.json` stay outside the container-writable report mount. The runner also writes a non-authoritative `runs/<UUID>/control/health.json` (per-check health counts, longest gap between live replies and the last 64 failed checks) for any run that reached supervision; read it over ssh when diagnosing a `supervision_lost` stop. It is not part of `host.json` and is not collected, and a failure to write it changes no outcome. The operator's local `<state>/<UUID>.bridge.json` records the bridge's own `health` counters and the first `revocation` cause. Reports/companion are retained 30 days and stage logs seven days, so collect evidence at least every six days. The aggregate report/log/companion budget is one GiB; each admitted run reserves 32 MiB within both that budget and free filesystem space. During execution, budget/write failures stop work and prevent PASS. Only expired completed-run artifacts are pruned. Active or recovery-held evidence is never pruned or used as expendable storage; resolve its hold explicitly. When admission is storage-blocked, the maintainer owns hash-verified export and exact-run recovery; prune only eligible expired completed evidence, then rerun admission. Do not delete held/live evidence or expand the paid host automatically. Images and rollback releases have their separate lifecycle.
 
-For routine operation, `make sim-host-collect HOST=tailtag-sim HOST_ROOT=/srv/tailtag-simulator RELEASE=path ARCHIVE=path` runs a read-only `host_runner inventory` on the host, copies every settled, not-yet-collected run with size and SHA-256 verification, validates and evaluates it, and never writes to the host or resolves holds; see the [operations guide](simulation-operations.md#collection-and-evaluation). The manual procedure below remains valid for a single run.
+For routine operation, `task sim-host-collect HOST=tailtag-sim HOST_ROOT=/srv/tailtag-simulator RELEASE=path ARCHIVE=path` runs a read-only `host_runner inventory` on the host, copies every settled, not-yet-collected run with size and SHA-256 verification, validates and evaluates it, and never writes to the host or resolves holds; see the [operations guide](simulation-operations.md#collection-and-evaluation). The manual procedure below remains valid for a single run.
 
 Retrieve selected evidence through verified SSH to an owner-private maintainer archive. Enumerate exact files for the selected UUID; do not copy runtime credential/configuration directories. Capture a SHA-256 inventory on the host, transfer those same report/stage/companion files, and verify hashes locally. For example, after verifying the original canonical UUID and filenames:
 
@@ -258,7 +258,7 @@ scp "tailtag-sim:/srv/tailtag-simulator/runs/$RUN_ID/reports/$RUN_ID.json" "$TRA
 scp "tailtag-sim:/srv/tailtag-simulator/runs/$RUN_ID/reports/stages.log" "$TRANSFER/"
 scp "tailtag-sim:/srv/tailtag-simulator/runs/$RUN_ID/host.json" "$TRANSFER/"
 shasum -a 256 "$TRANSFER/$RUN_ID.json" "$TRANSFER/stages.log" "$TRANSFER/host.json"
-make sim-report-validate REPORT="$TRANSFER/$RUN_ID.json"
+task sim-report-validate REPORT="$TRANSFER/$RUN_ID.json"
 ```
 
 Keep each milestone in its own owner-private archive directory with original manifest, release metadata, hash inventory and bounded observations; avoid overwriting another run's `host.json`. Validate using the recorded simulator revision/release, rather than assuming the current validator is compatible. Preserve original reports when rolling back.
@@ -272,7 +272,7 @@ into the milestone archive. Evaluation is offline. Run it on the maintainer mach
 from a checkout of the merged simulator, not on the host:
 
 ```bash
-make sim-report-evaluate REPORT="$ARCHIVE/<run-uuid>.json" \
+task sim-report-evaluate REPORT="$ARCHIVE/<run-uuid>.json" \
   HOST_COMPANION="$ARCHIVE/<run-uuid>/host.json" CONTEXT="$ARCHIVE/<run-uuid>.context.json"
 ```
 
@@ -308,7 +308,7 @@ failure apart from database or runtime pressure. It never changes the verdict.
 Sentry traces are sampled, so the simulator's own latency remains the primary
 measurement.
 
-Promote a reviewed run with `make sim-baseline-promote`, as described in the
+Promote a reviewed run with `task sim-baseline-promote`, as described in the
 simulator README. Promotion takes effect only through a reviewed pull request.
 Never promote from the host.
 

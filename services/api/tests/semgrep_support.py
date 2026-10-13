@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
+from pathlib import Path
 
 FROZEN_ROOT_HELPERS = frozenset(
     {
@@ -43,28 +46,58 @@ FROZEN_ROOT_HELPERS = frozenset(
         "scripts/validate_semgrep_contract.py",
     }
 )
-MAKE_DIRECTORY_DIAGNOSTIC = re.compile(
-    r"^make(?:\[\d+\])?: (?:Entering|Leaving) directory "
-)
+TASK_COMMAND_PREFIX = re.compile(r"^task: \[[^\]]+\] ")
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+
+
+def run_task(
+    *arguments: str,
+    environment: dict[str, str] | None = None,
+    cwd: Path = REPOSITORY_ROOT,
+) -> subprocess.CompletedProcess[str]:
+    """Run go-task from the repository root with optional environment overrides."""
+    return subprocess.run(
+        ["task", *arguments],
+        cwd=cwd,
+        env={**os.environ, **(environment or {})},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+
+
+def task_dry_run(
+    *targets: str, environment: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Compile targets without executing; verbose mode also lists silent tasks."""
+    completed = run_task("--dry", "--verbose", *targets, environment=environment)
+    assert completed.returncode == 0, completed.stderr
+    # go-task writes the dry-run echo to stderr; expose it as the output stream.
+    return subprocess.CompletedProcess(
+        completed.args,
+        completed.returncode,
+        stdout=completed.stdout + completed.stderr,
+        stderr="",
+    )
 
 
 def dry_run_commands(dry_run: str) -> list[str]:
-    """Collapse Make continuations and omit recursive-Make diagnostics."""
-    commands: list[str] = []
-    fragments: list[str] = []
+    """Return each command a go-task dry run would execute, continuations joined."""
+    commands: list[list[str]] = []
+    open_command = False
     for raw_line in dry_run.splitlines():
         line = raw_line.strip()
-        if not line or MAKE_DIRECTORY_DIAGNOSTIC.match(line):
-            continue
-        if line.endswith("\\"):
-            fragments.append(line[:-1].rstrip())
-            continue
-        if fragments:
-            fragments.append(line)
-            commands.append(" ".join(fragments))
-            fragments = []
-        else:
-            commands.append(line)
+        prefix = TASK_COMMAND_PREFIX.match(line)
+        if prefix:
+            commands.append([line[prefix.end() :]])
+            open_command = True
+        elif not line or line.startswith("task: "):
+            open_command = False
+        elif open_command:
+            commands[-1].append(line)
 
-    assert not fragments, "Make dry run must not end with a shell continuation"
-    return commands
+    return [
+        " ".join(part.removesuffix("\\").rstrip() for part in parts)
+        for parts in commands
+    ]
