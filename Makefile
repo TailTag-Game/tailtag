@@ -1,6 +1,7 @@
 override REPOSITORY_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 override API_DIRECTORY := services/api
 override SEMGREP_DIRECTORY := .semgrep
+override MOBILE_DIRECTORY := $(REPOSITORY_ROOT)/apps/mobile
 UV ?= uv
 override API_UV := $(UV) --directory $(API_DIRECTORY)
 override SEMGREP_UV := $(UV) --directory $(SEMGREP_DIRECTORY)
@@ -96,8 +97,21 @@ else \
 fi
 endef
 
+define mobile_host_guard
+test "$${TAILTAG_DEVCONTAINER:-}" != "1" || { printf '%s\n' 'Mobile commands run on the host, not in the TailTag devcontainer.' >&2; exit 1; }
+endef
+
+# Fail instead of letting FVM silently download a missing pinned SDK.
+define mobile_sdk_guard
+command -v fvm >/dev/null 2>&1 || { printf '%s\n' 'FVM is not installed; install it: https://fvm.app/documentation/getting-started/installation' >&2; exit 1; }; \
+pinned="$$(sed -nE 's/.*"flutter"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' '$(MOBILE_DIRECTORY)/.fvmrc' | head -n 1)"; \
+test -n "$$pinned" || { printf '%s\n' 'Could not read the pinned Flutter version from apps/mobile/.fvmrc.' >&2; exit 1; }; \
+fvm api list --compress | tr -d ' \t\r\n' | sed -e 's/.*"versions":\[//' -e 's/\],"projects".*//' | grep -Fq "\"name\":\"$$pinned\"" || { \
+	printf 'Flutter %s (pinned in apps/mobile/.fvmrc) is not installed; run: (cd apps/mobile && fvm install)\n' "$$pinned" >&2; exit 1; }
+endef
+
 .DEFAULT_GOAL := help
-.NOTPARALLEL: api-check sim-check
+.NOTPARALLEL: api-check sim-check mobile-check
 
 .PHONY: help \
 	api-setup api-run api-semgrep-check api-test api-check api-migrate api-migrations \
@@ -105,10 +119,11 @@ endef
 	api-staging-restore-drill \
 	api-format-check api-lint-check api-type-check api-django-check \
 	api-schema-check api-gunicorn-check \
+	mobile-setup mobile-run mobile-format-check mobile-analyze mobile-test mobile-check mobile-doctor \
 	sim-setup sim-check sim-smoke sim-pool-provision sim-pool-status sim-pool-readmit sim-pool-smoke sim-fixture-smoke sim-journeys sim-convention sim-cleanup sim-retained sim-image sim-host-prepare sim-host-run sim-host-collect sim-host-release-export sim-host-release-load sim-host-bootstrap-check sim-catalog-check sim-report-validate sim-report-evaluate sim-report-trend sim-baseline-promote sim-format-check sim-lint-check sim-type-check sim-test sim-semgrep-check
 
-help: ## List the canonical backend developer commands.
-	@awk 'BEGIN { print "TailTag backend commands:" } /^[a-zA-Z0-9_-]+:.*##/ { target = $$1; sub(/:.*/, "", target); if (target != "help") { description = $$0; sub(/^.*##[[:space:]]*/, "", description); printf "  make %-20s %s\n", target, description } }' $(MAKEFILE_LIST)
+help: ## List the canonical developer commands.
+	@awk 'BEGIN { print "TailTag developer commands:" } /^[a-zA-Z0-9_-]+:.*##/ { target = $$1; sub(/:.*/, "", target); if (target != "help") { description = $$0; sub(/^.*##[[:space:]]*/, "", description); printf "  make %-20s %s\n", target, description } }' $(MAKEFILE_LIST)
 
 api-setup: ## Sync locked backend dependencies.
 	@printf '%s\n' 'Synchronizing locked backend dependencies...'
@@ -237,6 +252,39 @@ api-gunicorn-check:
 	MEDIA_STORAGE_ACCESS_KEY_ID=ci-not-a-real-access-key \
 	MEDIA_STORAGE_SECRET_ACCESS_KEY=ci-not-a-real-secret-key \
 	$(API_UV) run --locked --no-sync gunicorn config.wsgi:application --check-config
+
+mobile-setup: ## Install locked Flutter dependencies (host; needs FVM and the pinned SDK).
+	@$(call mobile_host_guard)
+	@$(call mobile_sdk_guard)
+	@printf '%s\n' 'Installing locked Flutter dependencies...'
+	@cd '$(MOBILE_DIRECTORY)' && fvm flutter pub get --enforce-lockfile
+
+mobile-run: ## Run the app on a connected Android or iOS target: DEVICE=id (host; see fvm flutter devices).
+	@$(call mobile_host_guard)
+	@$(call mobile_sdk_guard)
+	@DEVICE='$(subst ','"'"',$(DEVICE))' '$(REPOSITORY_ROOT)/scripts/mobile_run.sh'
+
+mobile-format-check: ## Check Dart formatting without changing files (host).
+	@$(call mobile_host_guard)
+	@printf '%s\n' 'Checking Dart formatting...'
+	@cd '$(MOBILE_DIRECTORY)' && fvm dart format --output=none --set-exit-if-changed .
+
+mobile-analyze: ## Run Flutter static analysis (host).
+	@$(call mobile_host_guard)
+	@printf '%s\n' 'Running Flutter analysis...'
+	@cd '$(MOBILE_DIRECTORY)' && fvm flutter analyze
+
+mobile-test: ## Run the Flutter unit and widget tests (host).
+	@$(call mobile_host_guard)
+	@printf '%s\n' 'Running Flutter tests...'
+	@cd '$(MOBILE_DIRECTORY)' && fvm flutter test
+
+mobile-check: mobile-format-check mobile-analyze mobile-test ## Run mobile format, analyze, and test checks; does not build (host).
+	@printf '%s\n' 'Mobile validation completed.'
+
+mobile-doctor: ## Diagnose the Flutter contributor environment (host).
+	@$(call mobile_host_guard)
+	@cd '$(REPOSITORY_ROOT)' && ./scripts/doctor.sh --mobile
 
 sim-setup: ## Sync locked simulator dependencies.
 	@printf '%s\n' 'Synchronizing locked simulator dependencies...'

@@ -213,18 +213,195 @@ with connection.cursor() as cursor:
   fi
 }
 
+pinned_flutter_version() {
+  sed -nE 's/.*"flutter"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' apps/mobile/.fvmrc 2>/dev/null | head -n 1
+}
+
+# Only the `versions` array counts; entries under `projects` do not.
+fvm_sdk_installed() {
+  fvm api list --compress 2>/dev/null | tr -d ' \t\r\n' | \
+    sed -e 's/.*"versions":\[//' -e 's/\],"projects".*//' | \
+    grep -Fq "\"name\":\"$1\""
+}
+
+# Prints ok, warn, or bad for the named `fvm flutter doctor` section.
+flutter_doctor_state() {
+  local doctor_output="$1"
+  local section="$2"
+  local line
+
+  while IFS= read -r line; do
+    case "$line" in
+      "[✓] $section"*) printf 'ok'; return 0 ;;
+      "[!] $section"*) printf 'warn'; return 0 ;;
+      "[✗] $section"*) printf 'bad'; return 0 ;;
+    esac
+  done <<<"$doctor_output"
+
+  printf 'bad'
+}
+
+check_mobile_toolchains() {
+  local doctor_output
+  local android_state
+  local ios_state=""
+  local android_hint="set ANDROID_HOME or run: fvm flutter config --android-sdk <path>, then see: fvm flutter doctor -v"
+  local ios_hint="install Xcode and run: sudo xcodebuild -runFirstLaunch, then see: fvm flutter doctor -v"
+
+  doctor_output="$(cd apps/mobile && fvm flutter doctor 2>&1 || true)"
+  android_state="$(flutter_doctor_state "$doctor_output" 'Android toolchain')"
+
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    ios_state="$(flutter_doctor_state "$doctor_output" 'Xcode')"
+  fi
+
+  if [[ "$android_state" == "bad" && ( -z "$ios_state" || "$ios_state" == "bad" ) ]]; then
+    if [[ -z "$ios_state" ]]; then
+      fail "The Android toolchain is not usable ($android_hint); iOS is not applicable on this host"
+    else
+      fail "Neither the Android toolchain nor Xcode is usable; Android: $android_hint; iOS: $ios_hint"
+    fi
+    return
+  fi
+
+  case "$android_state" in
+    ok) pass "Android toolchain is usable" ;;
+    warn) warn "Android toolchain is usable with warnings; see: fvm flutter doctor -v" ;;
+    bad) warn "Android toolchain is not usable (optional while iOS works): $android_hint" ;;
+  esac
+
+  case "$ios_state" in
+    "") pass "iOS is not applicable on this host (Xcode requires macOS)" ;;
+    ok) pass "Xcode (iOS) toolchain is usable" ;;
+    warn) warn "Xcode (iOS) toolchain is usable with warnings; see: fvm flutter doctor -v" ;;
+    bad) warn "Xcode (iOS) toolchain is not usable (optional while Android works): $ios_hint" ;;
+  esac
+}
+
+check_mobile_devices() {
+  if (cd apps/mobile && fvm flutter devices --machine 2>/dev/null) | tr -d ' \t\r\n' | \
+    grep -Eq '"targetPlatform":"(android[^"]*|ios)"'; then
+    pass "An Android or iOS device or emulator is available"
+  else
+    warn "No Android or iOS device or emulator is available; start one with: fvm flutter emulators --launch <emulator-id>"
+  fi
+}
+
+check_mobile_configuration() {
+  local config_path="apps/mobile/config/development.json"
+  local check_output
+  local check_errors
+  local check_errors_file
+  local check_status
+  local origin
+  local problem
+
+  if [[ ! -f "$config_path" ]]; then
+    warn "Mobile configuration is missing; run: cp apps/mobile/config/development.example.json apps/mobile/config/development.json"
+    return
+  fi
+
+  # The tool prints the validated origin on stdout and problems on stderr; keep
+  # them apart so incidental tool output never becomes the probed origin.
+  check_errors_file="$(mktemp)"
+  check_output="$(cd apps/mobile && fvm dart run tool/check_config.dart config/development.json 2>"$check_errors_file")"
+  check_status=$?
+  check_errors="$(cat "$check_errors_file")"
+  rm -f "$check_errors_file"
+
+  if (( check_status == 2 )); then
+    warn "Mobile configuration is missing; run: cp apps/mobile/config/development.example.json apps/mobile/config/development.json"
+    return
+  elif (( check_status != 0 )); then
+    fail "Mobile configuration is invalid"
+    while IFS= read -r problem; do
+      printf '      %s\n' "$problem"
+    done <<<"$check_errors"
+    return
+  fi
+
+  pass "Mobile configuration is valid"
+  # The tool prints the validated origin as its final line.
+  origin="${check_output##*$'\n'}"
+
+  if ! command -v curl >/dev/null 2>&1; then
+    warn "curl is not installed; skipped the API reachability check for $origin (host reachability does not prove device reachability)"
+  elif curl -fsS --max-time 5 "$origin/health/live" >/dev/null 2>&1; then
+    pass "API at $origin answered /health/live from this host (host reachability does not prove device reachability)"
+  else
+    warn "API at $origin did not answer /health/live from this host; start it or check the URL (host reachability does not prove device reachability)"
+  fi
+}
+
+check_mobile_environment() {
+  local pinned_version
+
+  if [[ "${TAILTAG_DEVCONTAINER:-}" == "1" ]]; then
+    fail "Mobile checks run on the host, not in the TailTag devcontainer"
+    return
+  fi
+
+  if ! command -v fvm >/dev/null 2>&1; then
+    fail "FVM is not installed; install it: https://fvm.app/documentation/getting-started/installation"
+    warn "Flutter SDK, toolchain, device, and configuration checks skipped until FVM is installed"
+    return
+  fi
+
+  pass "FVM is installed"
+  pinned_version="$(pinned_flutter_version)"
+
+  if [[ -z "$pinned_version" ]]; then
+    fail "Could not determine the pinned Flutter version from apps/mobile/.fvmrc"
+    warn "Flutter SDK, toolchain, device, and configuration checks skipped"
+    return
+  fi
+
+  if fvm_sdk_installed "$pinned_version"; then
+    pass "Flutter $pinned_version (pinned in apps/mobile/.fvmrc) is installed"
+  else
+    fail "Flutter $pinned_version (pinned in apps/mobile/.fvmrc) is not installed; run: (cd apps/mobile && fvm install)"
+    warn "Toolchain, device, and configuration checks skipped until the pinned Flutter SDK is installed"
+    return
+  fi
+
+  check_mobile_toolchains
+  check_mobile_devices
+  check_mobile_configuration
+}
+
+usage() {
+  printf 'usage: ./scripts/doctor.sh [--mobile]\n'
+}
+
+mobile_mode=0
+
+for argument in "$@"; do
+  case "$argument" in
+    --mobile) mobile_mode=1 ;;
+    *)
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
 printf 'TailTag contributor environment check\n\n'
 printf 'Repository\n'
 check_repository
 check_github_cli
 check_foundation_structure
 
-if [[ "${TAILTAG_DEVCONTAINER:-}" == "1" ]]; then
+if (( mobile_mode )); then
+  printf '\nMobile environment (host)\n'
+  check_mobile_environment
+elif [[ "${TAILTAG_DEVCONTAINER:-}" == "1" ]]; then
   printf '\nBackend environment (TailTag devcontainer)\n'
   check_devcontainer_environment
+  printf 'Mobile checks: run ./scripts/doctor.sh --mobile on the host.\n'
 else
   printf '\nHost prerequisites\n'
   check_host_prerequisites
+  printf 'Mobile checks: run ./scripts/doctor.sh --mobile on the host.\n'
 fi
 
 printf '\n'

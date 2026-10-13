@@ -54,3 +54,6 @@ ios/.symlinks/
 
 # Widget Preview related
 .widget_preview/
+
+# Contributor-local mobile configuration (copy from config/development.example.json)
+/config/development.json

@@ -6,6 +6,8 @@ Small, reversible changes with clear acceptance criteria do not need a spec. Spe
 
 ## Current V0 specifications
 
+- [Flutter contributor tooling, configuration, and diagnostics](2026-10-12-mobile-contributor-tooling.md) — #132 frozen `make mobile-*`, `AppConfig`, and `doctor.sh --mobile` contract
+  ([implementation plan](2026-10-12-mobile-contributor-tooling-implementation-plan.md))
 - [Synthetic simulation identity pool](2026-10-02-synthetic-identity-pool.md) — #219 durable Staging synthetic identities, ticket and cookie token path, leases, and #200/#218 amendments
 - [Field-beta observability validation](2026-10-01-field-beta-observability-validation.md) — #217 Staging walkthrough, canary absence check, M6/D6/D7/D10, and #199 signal handoff
 - [Field-beta operations dashboard and alerts](2026-09-30-field-beta-operations-dashboard.md) — #216 Staging Sentry dashboard, sustained count-based monitors, and swap rehearsal
