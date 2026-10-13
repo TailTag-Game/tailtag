@@ -124,7 +124,7 @@ target.
 | `normal-profile.json` | 22801 | 20 | Unchanged #228 normal run: ten active actors for 300 s. Its key carries the committed baseline. |
 | `nightly-post-event-profile.json` | 23001 | 20 | Grouped collection after an event, as family-default bursts. |
 | `nightly-hotspot-profile.json` | 23002 | 20 | Two popular owners attract concentrated catches and overlapping duplicates. |
-| `nightly-retry-profile.json` | 23003 | 20 | Four retry-prone attendees on poor networks, with injected pre-send failures and lost responses. |
+| `nightly-retry-profile.json` | 23003 | 20 | Four retry-prone attendees revisit their catches. Every read, resolve and confirm attempt, from any actor, has a 10% injected pre-send failure and a 10% lost response. Five attempts per call keep a chance run failure near 1.6%; with three, about a third of runs would fail by chance. |
 | `nightly-soak-profile.json` | 23004 | 20 | Three finite cycles that revisit the same catch pairs. |
 | `weekend-profile.json` | 23010 | 50 | Every persona. Ten active actors for 300 s with 2 s think time. |
 | `expiration-profile.json` | 23020 | 2 | One owner and one casual attendee. Exercises the natural 12-hour catch-session expiry. A one-time proof only. |
@@ -310,6 +310,9 @@ Scheduled runs use the release currently selected on the host:
   report it as a caveat.
 
 ## Natural-expiration proof (one-time)
+
+**Status:** deferred to [#316](https://github.com/TailTag-Game/tailtag/issues/316) after two attempts stopped before expiry. See
+the [Staging proof](../specs/2026-10-13-simulation-operations-staging-proof.md#natural-expiration-proof-ac25-deferred).
 
 `expiration-profile.json` with `expiration-safety.json` proves that an
 unrefreshed catch session expires at the server's real 12-hour lifetime, with
