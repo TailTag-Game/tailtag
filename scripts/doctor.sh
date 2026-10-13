@@ -290,6 +290,8 @@ check_mobile_devices() {
 check_mobile_configuration() {
   local config_path="apps/mobile/config/development.json"
   local check_output
+  local check_errors
+  local check_errors_file
   local check_status
   local origin
   local problem
@@ -299,8 +301,13 @@ check_mobile_configuration() {
     return
   fi
 
-  check_output="$(cd apps/mobile && fvm dart run tool/check_config.dart config/development.json 2>&1)"
+  # The tool prints the validated origin on stdout and problems on stderr; keep
+  # them apart so incidental tool output never becomes the probed origin.
+  check_errors_file="$(mktemp)"
+  check_output="$(cd apps/mobile && fvm dart run tool/check_config.dart config/development.json 2>"$check_errors_file")"
   check_status=$?
+  check_errors="$(cat "$check_errors_file")"
+  rm -f "$check_errors_file"
 
   if (( check_status == 2 )); then
     warn "Mobile configuration is missing; run: cp apps/mobile/config/development.example.json apps/mobile/config/development.json"
@@ -309,7 +316,7 @@ check_mobile_configuration() {
     fail "Mobile configuration is invalid"
     while IFS= read -r problem; do
       printf '      %s\n' "$problem"
-    done <<<"$check_output"
+    done <<<"$check_errors"
     return
   fi
 

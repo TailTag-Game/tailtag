@@ -170,7 +170,7 @@ Delivery failures have distinct primary surfaces:
 
 The TailTag V0 Flutter application scaffold is at `apps/mobile/`. The canonical domain is `tailtag.app`; its Android application ID and namespace and iOS bundle identifier are all `app.tailtag`. There is no legacy-app, `finnthepanther`, signing, store-continuity, migration, or compatibility obligation. The V0 target is Android API 26+ and iOS 15.1+. Phones are primary, while tablets remain compatible without a V0-specific optimization. A physical-device requirement is not part of baseline validation.
 
-Issue #131 supplies the scaffold, repository-owned `apps/mobile/.fvmrc` exact stable Flutter `3.47.1` pin, native identifiers and minimum-platform floors, and initial Android and iOS platform proof. Dart comes from that Flutter SDK and is not independently pinned. Flutter must never follow a moving channel. Any upgrade requires an explicit reviewed pull request. The upstream Flutter tag is `6655482ec06e547f90abf8ae7590466f4415978d` (bundling Dart `3.13.1`).
+Issue #131 supplies the scaffold, repository-owned `apps/mobile/.fvmrc` exact stable Flutter pin, native identifiers and minimum-platform floors, and initial Android and iOS platform proof. The pin is Flutter `3.47.2`: #131 committed `3.47.1`, and #154 upgraded it through a reviewed pull request. Dart comes from that Flutter SDK and is not independently pinned. Flutter must never follow a moving channel. Any upgrade requires an explicit reviewed pull request. The upstream Flutter tag is `d3b14c876900e553bc736ca19295fc09e3853e8e` (bundling Dart `3.13.2`).
 
 ### Structure, dependencies, routing, and state
 
@@ -200,7 +200,7 @@ Tests exercise feature behavior through the above owned boundaries: Riverpod ove
 
 ### Child-issue ownership and scope boundary
 
-Issue #131 owns the scaffold, identifiers/minimum-platform implementation, committed `apps/mobile/.fvmrc` exact Flutter `3.47.1` pin, and both platform builds/launches. Issue #132 owns root commands, `AppConfig` implementation, configuration inputs, Android emulator host mapping and API 28+ Local HTTP coverage, and diagnostics. Issue #133 owns CI. Issue #134 owns generator/client implementation and proof. Issue #135 owns live Clerk proof. Issue #136 owns independent clean-environment validation.
+Issue #131 owns the scaffold, identifiers/minimum-platform implementation, committed `apps/mobile/.fvmrc` exact Flutter pin, and both platform builds/launches. Issue #132 owns root commands, `AppConfig` implementation, configuration inputs, Android emulator host mapping and API 28+ Local HTTP coverage, and diagnostics. Issue #133 owns CI. Issue #134 owns generator/client implementation and proof. Issue #135 owns live Clerk proof. Issue #136 owns independent clean-environment validation.
 
 Issue #130 establishes only this architecture contract and ADR. It adds no application secret, Flutter scaffold, dependency, platform project, screen, command implementation, diagnostic implementation, product behavior, or `apps/mobile/` directory.
 

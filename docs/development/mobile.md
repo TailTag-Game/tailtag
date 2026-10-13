@@ -52,14 +52,14 @@ lockfile, confirm the validation results, and merge the pull request manually.
 
 ## Prerequisites
 
-All mobile contributors need the following. IDE choice is deliberately
-not mandated.
+All mobile contributors need the Common row plus the row for at least one
+target platform. IDE choice is deliberately not mandated.
 
 | Area | Required baseline | Notes |
 | --- | --- | --- |
 | Common | Git, FVM, the repository-pinned Flutter SDK, dependency resolution, the `make mobile-*` commands below, and one supported target | FVM selects Flutter `3.47.2` from `apps/mobile/.fvmrc`; use its bundled Dart `3.13.2`. |
-| Android | A compatible JDK, Android SDK and tooling, plus an Android API 26-or-newer emulator | Android is supported on Windows, Linux, and macOS. Android Studio provides the best-supported development experience, but equivalent command-line tooling is sufficient when `make mobile-doctor` reports the toolchain as usable. Flutter must be able to find the Android SDK: set `ANDROID_HOME` or run `fvm flutter config --android-sdk <path>` (`fvm flutter doctor -v` shows what it found). |
-| iOS | macOS, Xcode with its command-line tools selected, completed Xcode first-run/license setup, and an iOS 15.1-or-newer Simulator runtime | Xcode is required to install iOS Simulator runtimes. Android Studio with the Flutter plugin is recommended for running TailTag on those simulators. CocoaPods is required when native Flutter plugins require it. Windows and Linux contributors do not need Xcode or iOS support. |
+| Android target | A compatible JDK, Android SDK and tooling, plus an Android API 26-or-newer emulator | Required only for Android contributors. Android is supported on Windows, Linux, and macOS. Android Studio provides the best-supported development experience, but equivalent command-line tooling is sufficient when `make mobile-doctor` reports the toolchain as usable. Flutter must be able to find the Android SDK: set `ANDROID_HOME` or run `fvm flutter config --android-sdk <path>` (`fvm flutter doctor -v` shows what it found). |
+| iOS target | macOS, Xcode with its command-line tools selected, completed Xcode first-run/license setup, and an iOS 15.1-or-newer Simulator runtime | Xcode is required to install iOS Simulator runtimes. Android Studio with the Flutter plugin is recommended for running TailTag on those simulators. CocoaPods is required when native Flutter plugins require it. Windows and Linux contributors do not need Xcode or iOS support. |
 
 macOS contributors may validate either Android or iOS. Phones are the primary
 V0 UX target; tablets remain compatible but have no V0-specific optimization
@@ -217,8 +217,9 @@ storage.
 ## Windows raw commands
 
 Root Make commands support macOS and Linux hosts. On Windows, run these from
-`apps/mobile/`; `fvm flutter doctor` is the diagnostic equivalent of
-`make mobile-doctor`.
+`apps/mobile/`. No single command replaces `make mobile-doctor`:
+`fvm flutter doctor` checks only the Flutter toolchains and devices, so also
+validate the configuration and the host API separately.
 
 | Make target | Raw command |
 | --- | --- |
@@ -228,7 +229,7 @@ Root Make commands support macOS and Linux hosts. On Windows, run these from
 | `mobile-test` | `fvm flutter test` |
 | `mobile-check` | The three checks above, in that order |
 | `mobile-run` | `fvm dart run tool/check_config.dart config/development.json`, then `fvm flutter run -d <id> --dart-define-from-file=config/development.json` (for Android with Local configuration, first run `adb -s <id> reverse tcp:8000 tcp:8000`) |
-| `mobile-doctor` | `fvm flutter doctor` |
+| `mobile-doctor` | `fvm flutter doctor` (toolchains and devices); `fvm dart run tool/check_config.dart config/development.json` (configuration; prints the API origin); `curl -fsS --max-time 5 <origin>/health/live` (host API reachability) |
 
 iOS is not available on Windows.
 

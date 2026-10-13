@@ -551,6 +551,13 @@ expect_status 0 'expected an unreachable API to warn, not fail'
 assert_contains "$(find_line "$mobile_output" 'WARN' 'http://127.0.0.1:8000')" 'device'
 assert_no_line "$mobile_output" 'PASS' 'http://127.0.0.1:8000'
 
+# Valid configuration with an incidental stderr notice: the probe uses stdout only.
+new_mobile_fixture stderr-notice
+FAKE_CHECK_STDERR='notice: an incidental tool message' run_mobile
+expect_status 0 'expected a valid configuration with a stderr notice to pass'
+assert_contains "$mobile_calls" 'curl -fsS --max-time 5 http://127.0.0.1:8000/health/live'
+assert_not_contains "$mobile_calls" 'notice:'
+
 # Unknown arguments are rejected before any check runs.
 new_mobile_fixture bad-arg
 mobile_result="$(DOCTOR_ARGS=--bogus run_doctor "$mobile_fixture" env -u TAILTAG_DEVCONTAINER)"
