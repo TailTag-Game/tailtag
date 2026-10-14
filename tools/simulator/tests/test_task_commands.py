@@ -10,6 +10,11 @@ from pathlib import Path
 import pytest
 from report_support import literal_report, repository
 
+from tailtag_simulator.__main__ import (
+    FIXTURE_LAUNCHER_COMMAND,
+    INSPECTION_LAUNCHER_COMMAND,
+    LAUNCHER_COMMAND,
+)
 from tailtag_simulator.host_bridge import fixed_dispatch
 from tailtag_simulator.host_protocol import encode_frame
 
@@ -325,3 +330,19 @@ def test_simulator_semgrep_check_ignores_command_line_overrides_of_its_scope(
     assert result.returncode == 0, output
     assert replacement not in output
     assert f"{CHECKOUT}/.semgrep/simulator-rules" in output
+
+
+@pytest.mark.parametrize(
+    "command",
+    [LAUNCHER_COMMAND, FIXTURE_LAUNCHER_COMMAND, INSPECTION_LAUNCHER_COMMAND],
+    ids=["pool", "fixture", "inspection"],
+)
+def test_launchers_run_a_silent_task_the_taskfile_defines(command: list[str]) -> None:
+    """Launcher stdout must be the JSON result alone, from a task that exists."""
+    listing = run_task("--list-all", "--json", cwd=CHECKOUT, env=dict(os.environ))
+    assert listing.returncode == 0, listing.stderr
+    defined = {task["name"] for task in json.loads(listing.stdout)["tasks"]}
+
+    assert command[:2] == ["task", "-s"]
+    assert len(command) == 3
+    assert command[2] in defined
