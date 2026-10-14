@@ -151,6 +151,7 @@ class DefaultSmokeRuntime:
                 check=False,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 env={"API_BASE_URL": base_url},
                 timeout=_BASELINE_TIMEOUT_SECONDS,
             )

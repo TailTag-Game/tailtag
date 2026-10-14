@@ -148,6 +148,7 @@ def _query_deployment(deployment_id: str) -> Mapping[str, object]:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         shell=False,
         timeout=_LOOKUP_TIMEOUT_SECONDS,
     )

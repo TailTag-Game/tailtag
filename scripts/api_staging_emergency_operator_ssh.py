@@ -230,6 +230,7 @@ def _state(identity: dict[str, str], instance: str) -> str:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         shell=False,
         timeout=120,
     )
@@ -257,6 +258,7 @@ def _run(arguments: list[str]) -> subprocess.CompletedProcess[str]:
         arguments,
         check=False,
         text=True,
+        encoding="utf-8",
         shell=False,
         stdin=None,
         stdout=None,

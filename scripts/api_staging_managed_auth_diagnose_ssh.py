@@ -136,6 +136,7 @@ def _run(arguments: list[str]) -> subprocess.CompletedProcess[str]:
         stdout=None,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
         shell=False,
         timeout=_TIMEOUT_SECONDS,
     )

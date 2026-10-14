@@ -88,6 +88,7 @@ def _run(
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         shell=False,
         timeout=120,
     )
