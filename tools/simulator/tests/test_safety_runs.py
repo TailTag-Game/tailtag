@@ -339,7 +339,8 @@ def test_aborted_convention_cancels_work_and_applies_target_safe_finalization(
             guarded_convention(value, runtime, httpx.MockTransport(respond))
         )
         try:
-            await asyncio.wait_for(blocked.entered.wait(), 3)
+            # Generous startup allowance; slower runners (Windows CI) exceeded 3 s.
+            await asyncio.wait_for(blocked.entered.wait(), 30)
             await time.settle()
             changed = True
             if cause == "resource_saturation":
