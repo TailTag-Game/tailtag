@@ -301,25 +301,31 @@ tasks:
     cmds:
       - printf '%s\n' 'Validating the OpenAPI schema configuration...'
       - task: run-django-command
-        vars: {DJANGO_COMMAND: python manage.py spectacular --validate --file /dev/null}
+        # NUL is the Windows equivalent of /dev/null.
+        vars: {DJANGO_COMMAND: 'python manage.py spectacular --validate --file {{if eq OS "windows"}}NUL{{else}}/dev/null{{end}}'}
 
   api-gunicorn-check:
     desc: "Check the production Gunicorn configuration."
     cmds:
       - cmd: printf '%s\n' 'Checking the production Gunicorn configuration...'
         silent: true
-      - |-
-        DJANGO_SETTINGS_MODULE=config.settings.production \
-        DJANGO_SECRET_KEY=not-a-real-secret \
-        DATABASE_URL=postgresql://tailtag:tailtag@localhost:5432/tailtag \
-        DJANGO_ALLOWED_HOSTS=localhost \
-        DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost \
-        MEDIA_STORAGE_ENDPOINT_URL=https://media.example.test \
-        MEDIA_STORAGE_BUCKET_NAME=ci-media-bucket \
-        MEDIA_STORAGE_REGION=auto \
-        MEDIA_STORAGE_ACCESS_KEY_ID=ci-not-a-real-access-key \
-        MEDIA_STORAGE_SECRET_ACCESS_KEY=ci-not-a-real-secret-key \
-        {{.UV}} --directory services/api run --locked --no-sync gunicorn config.wsgi:application --check-config
+      # Gunicorn is Unix-only; say so on Windows instead of skipping silently.
+      - cmd: printf '%s\n' 'SKIP  Gunicorn does not run on Windows; CI checks the production Gunicorn configuration on Linux.'
+        silent: true
+        platforms: [windows]
+      - platforms: [linux, darwin]
+        cmd: |-
+          DJANGO_SETTINGS_MODULE=config.settings.production \
+          DJANGO_SECRET_KEY=not-a-real-secret \
+          DATABASE_URL=postgresql://tailtag:tailtag@localhost:5432/tailtag \
+          DJANGO_ALLOWED_HOSTS=localhost \
+          DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost \
+          MEDIA_STORAGE_ENDPOINT_URL=https://media.example.test \
+          MEDIA_STORAGE_BUCKET_NAME=ci-media-bucket \
+          MEDIA_STORAGE_REGION=auto \
+          MEDIA_STORAGE_ACCESS_KEY_ID=ci-not-a-real-access-key \
+          MEDIA_STORAGE_SECRET_ACCESS_KEY=ci-not-a-real-secret-key \
+          {{.UV}} --directory services/api run --locked --no-sync gunicorn config.wsgi:application --check-config
 
   # Runs a `uv run` command in the API project; the devcontainer takes its
   # database from Compose. DJANGO_COMMAND is passed by the calling task.
