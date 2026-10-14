@@ -98,6 +98,9 @@ def task_dry_run(
     )
 
 
+PLATFORM_IGNORED = " not for current platform - ignored"
+
+
 def dry_run_commands(dry_run: str) -> list[str]:
     """Return each command a go-task dry run would execute, continuations joined."""
     commands: list[list[str]] = []
@@ -113,7 +116,9 @@ def dry_run_commands(dry_run: str) -> list[str]:
         elif open_command:
             commands[-1].append(line)
 
-    return [
+    joined = [
         " ".join(part.removesuffix("\\").rstrip() for part in parts)
         for parts in commands
     ]
+    # go-task still lists commands whose `platforms:` exclude this OS; they never run.
+    return [command for command in joined if not command.endswith(PLATFORM_IGNORED)]

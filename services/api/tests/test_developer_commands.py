@@ -492,7 +492,12 @@ def test_check_composes_every_required_backend_validation() -> None:
         "manage.py check",
         "makemigrations --check --dry-run",
         "spectacular --validate",
-        "gunicorn config.wsgi:application --check-config",
+        # On Windows the Gunicorn step prints a SKIP line instead (G5).
+        *(
+            ()
+            if sys.platform == "win32"
+            else ("gunicorn config.wsgi:application --check-config",)
+        ),
     )
     positions = [
         next(index for index, command in enumerate(executed) if step in command)
@@ -600,9 +605,9 @@ def test_uv_override_selects_the_launcher_without_altering_the_semgrep_contract(
     validator_command = next(
         command for command in commands if SEMGREP_VALIDATOR.as_posix() in command
     )
-    assert validator_command[0] == str(custom_uv)
+    assert validator_command[0] == custom_uv.as_posix()
     for command in semgrep_scan_tokens(completed.stdout):
-        assert command[command.index("semgrep") - 6] == str(custom_uv)
+        assert command[command.index("semgrep") - 6] == custom_uv.as_posix()
     assert_semgrep_check_contract(completed.stdout)
     assert_semgrep_validator_precedes_fixture_scan(completed.stdout)
 
