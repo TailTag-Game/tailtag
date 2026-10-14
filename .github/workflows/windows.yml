@@ -78,6 +78,9 @@ jobs:
           $shell = "print('shell-' + 'ok')" | task api-shell
           Record 'api-shell' ([int](-not ($shell -match 'shell-ok')))
 
+          # Contributors run the server with local settings; production settings
+          # correctly fail readiness with this job's placeholder values.
+          $env:DJANGO_SETTINGS_MODULE = 'config.settings.local'
           $server = Start-Process -FilePath task -ArgumentList 'api-run' -PassThru -NoNewWindow
           $ready = $false
           foreach ($attempt in 1..60) {
@@ -120,7 +123,9 @@ jobs:
 
           task sim-setup; Record 'sim-setup' $LASTEXITCODE
           task sim-check; Record 'sim-check' $LASTEXITCODE
-          task sim-report-trend DIR=tools/simulator/baselines; Record 'sim-report-trend' $LASTEXITCODE
+          task sim-report-validate REPORT=tools/simulator/tests/data/report-v1-smoke.json; Record 'sim-report-validate' $LASTEXITCODE
+          task sim-report-evaluate REPORT=tools/simulator/tests/data/report-v2-convention.json; Record 'sim-report-evaluate' $LASTEXITCODE
+          task sim-report-trend DIR=tools/simulator/tests/data; Record 'sim-report-trend' $LASTEXITCODE
 
           Write-Host '--- summary'
           $results.GetEnumerator() | ForEach-Object { Write-Host ("{0}: {1}" -f $_.Key, $_.Value) }

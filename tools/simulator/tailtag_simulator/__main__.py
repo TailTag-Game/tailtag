@@ -519,6 +519,10 @@ async def _execute(args: argparse.Namespace) -> int:
         observe=report.cache_safety if report else None,
         persist=report.record_safety if report else None,
     )
+    if sys.platform == "win32":
+        # The Linux host runner sends SIGUSR1 to abort on resource saturation;
+        # Windows has neither that signal nor that runner.
+        return await _dispatch(args, config, report, safety)
     loop = asyncio.get_running_loop()
     previous = signal.getsignal(signal.SIGUSR1)
 
