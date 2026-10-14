@@ -17,10 +17,19 @@ DESCRIPTOR = "tools/simulator/tailtag_simulator/scenarios/smoke-v1.json"
 checkout = Path("../..").resolve()
 value = literal_report()["scenario"]
 entry = {**value["descriptor"], "descriptor_digest": value["descriptor_digest"]}
+import shutil
+
+DEPTH = sys.argv[1] if len(sys.argv) > 1 else "short"
+base = Path(tempfile.mkdtemp()).resolve()
+if DEPTH == "pytest-depth":
+    base = base / "pytest-of-runneradmin" / "pytest-0" / "test_catalog_check_treats_quot0"
+    base.mkdir(parents=True)
 root = repository(
-    Path(tempfile.mkdtemp()).resolve() / NAME,
+    base / NAME,
     {"Taskfile.yml": (checkout / "Taskfile.yml").read_text(), DESCRIPTOR: json.dumps(entry)},
 )
+longest = max((len(str(p)) for p in root.rglob("*")), default=0)
+print("depth:", DEPTH, "| root length:", len(str(root)), "| longest path in checkout:", longest)
 adapter = root.parent / "adapter.py"
 adapter.write_text(
     textwrap.dedent(
