@@ -8,7 +8,8 @@ import tempfile
 import textwrap
 from pathlib import Path
 
-sys.path.insert(0, "tests")
+# Run with tools/simulator as the working directory.
+sys.path[:0] = [".", "tests"]
 from report_support import literal_report, repository  # noqa: E402
 
 NAME = "checkout space ' apostrophe $(touch SENTINEL-dollar) `touch SENTINEL-backtick`"
