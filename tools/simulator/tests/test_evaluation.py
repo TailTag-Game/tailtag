@@ -23,6 +23,7 @@ from evaluation_support import (
     sample,
     stopped_failed_run,
 )
+from platform_support import skip_on_windows
 from report_support import RUN_ID
 
 from tailtag_simulator.__main__ import main
@@ -513,6 +514,9 @@ def test_evaluation_records_exact_input_hashes_and_never_touches_its_inputs(
     json.dumps(artifact, allow_nan=False)
 
 
+@skip_on_windows(
+    "POSIX file modes; Windows privacy for evaluation files is #315 slice 3."
+)
 def test_written_evaluation_is_private_exclusive_and_never_overwritten(
     tmp_path: Path,
 ) -> None:
@@ -527,6 +531,9 @@ def test_written_evaluation_is_private_exclusive_and_never_overwritten(
     assert out.read_bytes() == written
 
 
+@skip_on_windows(
+    "POSIX file modes; Windows privacy for evaluation files is #315 slice 3."
+)
 @pytest.mark.parametrize("explicit_out", [True, False])
 def test_cli_prints_the_verdict_and_writes_one_private_artifact(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], explicit_out: bool

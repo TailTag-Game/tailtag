@@ -5,7 +5,6 @@ import getpass
 import hashlib
 import importlib
 import json
-import socket
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -14,6 +13,7 @@ import httpx
 import pool_support
 import pytest
 from convention_support import CONFIG, BlockedHttp, Inspection, Rig, rig
+from network_support import forbid_connect
 from pool_support import POOL, RUN_ID, SECRET
 from report_support import literal_report, read_report
 
@@ -255,7 +255,7 @@ def test_v2_cli_rejects_invalid_nested_configuration_before_external_actions(
         reached.append("external")
         raise AssertionError("invalid nested configuration reached external work")
 
-    monkeypatch.setattr(socket.socket, "connect", trip)
+    forbid_connect(monkeypatch, trip)
     monkeypatch.setattr(subprocess, "Popen", trip)
     monkeypatch.setattr(getpass, "getpass", trip)
     assert (

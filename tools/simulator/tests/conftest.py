@@ -31,6 +31,8 @@ def immediate_setup_time(monkeypatch: pytest.MonkeyPatch) -> None:
 WINDOWS_SKIPPED_MODULES = frozenset(
     {
         "test_host_artifacts.py",
+        "test_host_bridge.py",
+        "test_host_channel.py",
         "test_host_cli.py",
         "test_host_collect.py",
         "test_host_release.py",

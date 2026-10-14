@@ -115,13 +115,6 @@ jobs:
       - name: Install pinned go-task
         uses: ./.github/actions/install-go-task-windows
 
-      # TEMPORARY diagnostic (#315 slice 1): show why report validation fails on Windows.
-      - name: Diagnose report validation (temporary)
-        continue-on-error: true
-        working-directory: tools/simulator
-        run: |
-          uv run --locked --no-sync python -c "import json; from pathlib import Path; from tailtag_simulator import reports; reports.validate_report(json.loads(Path('tests/data/report-v1-smoke.json').read_bytes().decode('utf-8')))"
-
       - name: Run simulator commands natively
         env:
           # TEMPORARY diagnostic (#315 slice 1): list failing tests compactly.
@@ -132,6 +125,8 @@ jobs:
           function Record($name, $code) { $results[$name] = $code; Write-Host "$name -> exit $code" }
 
           task sim-setup; Record 'sim-setup' $LASTEXITCODE
+          # TEMPORARY diagnostic (#315 slice 1): show why report validation fails on Windows.
+          uv --directory tools/simulator run --locked --no-sync python -c "import json; from pathlib import Path; from tailtag_simulator import reports; reports.validate_report(json.loads(Path('tests/data/report-v1-smoke.json').read_bytes().decode('utf-8')))"
           task sim-check; Record 'sim-check' $LASTEXITCODE
           task sim-report-validate REPORT=tools/simulator/tests/data/report-v1-smoke.json; Record 'sim-report-validate' $LASTEXITCODE
           task sim-report-evaluate REPORT=tools/simulator/tests/data/report-v2-convention.json; Record 'sim-report-evaluate' $LASTEXITCODE

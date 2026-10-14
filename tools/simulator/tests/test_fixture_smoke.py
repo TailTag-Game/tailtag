@@ -28,7 +28,6 @@ import asyncio
 import getpass
 import logging
 import re
-import socket
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -49,6 +48,7 @@ from fixture_support import (
     FixtureState,
     enrollment_body,
 )
+from network_support import forbid_connect
 from pool_support import (
     POOL,
     RUN_ID,
@@ -630,7 +630,7 @@ def test_cli_rejects_bad_input_and_offers_no_target_before_anything_is_reached(
 
     monkeypatch.setattr(getpass, "getpass", trip)  # the secret prompt
     monkeypatch.setattr(subprocess, "Popen", trip)  # any launcher child
-    monkeypatch.setattr(socket.socket, "connect", trip)  # any network call
+    forbid_connect(monkeypatch, trip)  # any network call
 
     try:
         code = main(["fixture-smoke", *arguments])

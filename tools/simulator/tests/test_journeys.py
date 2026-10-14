@@ -22,7 +22,6 @@ and release lines.
 import asyncio
 import getpass
 import re
-import socket
 import subprocess
 from dataclasses import dataclass
 from types import CoroutineType
@@ -51,6 +50,7 @@ from journey_support import (
     JourneyWorld,
     path_for,
 )
+from network_support import forbid_connect
 from pool_support import POOL, RUN_ID, SECRET, SHA, FakeChannel, Slot
 from reconciliation_support import (
     RECONCILIATION_LEAKS,
@@ -627,7 +627,7 @@ def test_cli_rejects_bad_input_before_anything_is_reached(
 
     monkeypatch.setattr(getpass, "getpass", trip)  # the secret prompt
     monkeypatch.setattr(subprocess, "Popen", trip)  # any launcher child
-    monkeypatch.setattr(socket.socket, "connect", trip)  # any network call
+    forbid_connect(monkeypatch, trip)  # any network call
 
     try:
         code = main(["journeys", *arguments])

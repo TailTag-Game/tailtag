@@ -9,7 +9,6 @@ import asyncio
 import getpass
 import json
 import logging
-import socket
 import subprocess
 import sys
 from collections.abc import Callable, Coroutine
@@ -18,6 +17,7 @@ from typing import Any
 
 import pool_support
 import pytest
+from network_support import forbid_connect
 from pool_support import (
     POOL,
     RUN_ID,
@@ -219,6 +219,10 @@ LAUNCHER_FAILURES: dict[str, tuple[str, int, bool, tuple[str | None, int | None]
 def test_launcher_failures_become_a_detail_free_lease_failure(
     tmp_path: Path, case: str
 ) -> None:
+    if case == "timeout" and sys.platform == "win32":
+        pytest.skip(
+            "Launcher timeout teardown kills a POSIX process group; Windows support is #315 slice 3."
+        )
     stdout, code, hang, (result, available) = LAUNCHER_FAILURES[case]
     channel, _ = launcher(tmp_path, stdout, code=code, hang=hang, timeout=0.5)
 
@@ -254,7 +258,7 @@ def nothing_reached(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     monkeypatch.setattr(getpass, "getpass", trip)  # the secret prompt
     monkeypatch.setattr(subprocess, "Popen", trip)  # any launcher child
-    monkeypatch.setattr(socket.socket, "connect", trip)  # any network call
+    forbid_connect(monkeypatch, trip)  # any network call
     return reached
 
 

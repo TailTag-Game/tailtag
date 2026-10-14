@@ -7,13 +7,13 @@ are substituted. Expected schema is the independently authored literal fixture.
 import hashlib
 import json
 import os
-import socket
 import subprocess
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from network_support import forbid_connect
 from report_support import (
     DATA,
     RUN_ID,
@@ -200,7 +200,7 @@ def test_report_validation_cli_is_offline_and_exposes_only_fixed_output(
         reached.append("external")
         raise AssertionError("offline validation touched an external boundary")
 
-    monkeypatch.setattr(socket.socket, "connect", trip)
+    forbid_connect(monkeypatch, trip)
     monkeypatch.setattr(subprocess, "Popen", trip)
     import getpass
 
@@ -549,7 +549,7 @@ def test_initial_cli_report_storage_failure_prevents_all_external_work(
         reached.append("external")
         raise AssertionError("initial report failure permitted external work")
 
-    monkeypatch.setattr(socket.socket, "connect", trip)
+    forbid_connect(monkeypatch, trip)
     monkeypatch.setattr(subprocess, "Popen", trip)
     monkeypatch.setattr(getpass, "getpass", trip)
     assert main([*arguments, "--report-dir", str(output)]) != 0
@@ -574,7 +574,7 @@ def test_accepted_cli_run_persists_failed_unknown_source_before_provider_work(
         reached.append("external")
         raise AssertionError("unknown provenance permitted external work")
 
-    monkeypatch.setattr(socket.socket, "connect", trip)
+    forbid_connect(monkeypatch, trip)
     monkeypatch.setattr(getpass, "getpass", trip)
     original: Any = subprocess.Popen
 
