@@ -9,7 +9,7 @@ Issue: [#230](https://github.com/TailTag-Game/tailtag/issues/230) (AC20, AC23, A
 - one weekend run;
 - first runs of the other rotating families.
 
-Soak and weekend have their first baselines. Hotspot, post-event and retry are too small to support thresholds under the #229 rules. The one-time 12-hour natural-expiration proof (AC25) was attempted twice. It is deferred to [#316](https://github.com/TailTag-Game/tailtag/issues/316) with the maintainer's approval.
+Soak and weekend have their first baselines. Hotspot, post-event and retry are too small to support thresholds under the #229 rules. The one-time 12-hour natural-expiration proof (AC25) was attempted three times and moved to [#316](https://github.com/TailTag-Game/tailtag/issues/316). On 2026-10-14 the maintainer replaced the real-clock run with deployed-source verification plus existing backend tests (see below).
 
 These runs are regression and correctness evidence. They make no capacity, SLO or production-readiness claim.
 
@@ -62,6 +62,7 @@ All times are UTC. The run window is 08:00–10:00. The nightly cycle and the we
 | `86b9d15b-e2ba-414b-b5d6-2816f7162a72` | host smoke (`journeys`) | 2 | 2026-10-11 20:28 | passed | correctness only | `ae8afb9b600c34279c349dac0acea271fc7f5094b65b44e0e3d3e7078d96739d` |
 | `eb53db23-7aa7-4f05-a066-aedeabce6a0d` | expiration | 2 | 2026-10-12 05:47 | aborted (`request_ceiling`), recovered | not evaluated | `5916efbeb2f9ce7791726e8ce8dcdf35443d18ea03b999424b176093b3fd166b` |
 | `3ec1520d-2576-48f3-b977-7c96cd8f3454` | expiration | 2 | 2026-10-13 02:57 | failed (`FAIL_LEASE`), recovered | not evaluated | `74a9afd95e1e1dc3fa0b14bc67ad168b211c2a553d33b5de815e4fdc780fbf16` |
+| `679426ed-c997-4acf-aa48-2c4aab7ffd44` | expiration | 2 | 2026-10-14 07:18 | interrupted (`supervision_lost`), recovered | not evaluated | `55a3b6096997eb2d10b4fcbef5a10df0ef83b2e89d76729c1f0213b71846a550` |
 
 Every passing run met all of the following:
 
@@ -111,6 +112,7 @@ Nothing resolved a hold automatically.
 | `8c4d5fcc` | Weekend attempt budget (above). | [#311](https://github.com/TailTag-Game/tailtag/pull/311) |
 | `eb53db23` | Staging safety checks (3 requests each, per poll and per 60 s lease heartbeat) reached the 10,000-request ceiling at 8.07 h. | Expiration poll changed from 10 s to 30 s, plus a guard test on every committed safety file ([#314](https://github.com/TailTag-Game/tailtag/pull/314)). |
 | `3ec1520d` | One of 537 lease-heartbeat relays returned `FAIL_LAUNCHER` at 9.39 h. Any single heartbeat failure is fatal. | Transient-failure tolerance is in scope for [#316](https://github.com/TailTag-Game/tailtag/issues/316). |
+| `679426ed` | No live health reply for 30 s at 2.2 h: six consecutive checks timed out. The bridge received the delayed checks in one burst (3 refused at capacity, 1 invalid), consistent with a stall on the SSH path or in the bridge. The Mac stayed awake and its Wi-Fi link was healthy. The cause was not isolated. | Lost-contact tolerance is in scope for [#316](https://github.com/TailTag-Game/tailtag/issues/316). |
 
 ## Baselines (AC20)
 
@@ -125,30 +127,39 @@ Nothing resolved a hold automatically.
 - **Initial thresholds:** derived only where an operation has at least 200 samples (p95) or 1,000 (p99). An empty thresholds file would still evaluate as `inconclusive`. So the three small families stay correctness-gated with `inconclusive` evaluations, as AC20 and the #229 refusal rules allow.
 - **Self-check:** before committing, both promoted runs were re-evaluated against their new baselines and came out `acceptable` (15/15 and 25/25 checks passed).
 
-## Natural-expiration proof (AC25): deferred
+## Natural-expiration proof (AC25)
 
-Two attended attempts used `expiration-profile.json` with `expiration-safety.json`:
+Three attended attempts used `expiration-profile.json` with `expiration-safety.json`:
 
 - one owner and one casual attendee;
 - the session is started once and never refreshed;
 - the confirmation is scheduled after the server's real `expires_at`.
 
-Both nights skipped the nightly cycle, as the guide requires.
+Each night skipped the nightly cycle, as the guide requires.
 
-| | `eb53db23` | `3ec1520d` |
-| --- | --- | --- |
-| Poll interval | 10 s | 30 s |
-| Stopped at | 29,049 s (8.07 h) | 33,801 s (9.39 h) |
-| Stop | `request_ceiling` | `FAIL_LEASE` |
-| Requests used | 10,000 / 10,000 | 4,974 / 10,000 |
-| Supervision health checks live | 5,807 / 5,808 | 6,755 / 6,755 |
-| Longest gap between live replies | 6.2 s | 5.3 s |
-| Probes / preflight checks passed | 2,873 / 462 | 1,122 / 536 |
-| Bridge health refused / close timeouts | 0 / 0 | 0 / 0 |
+| | `eb53db23` | `3ec1520d` | `679426ed` |
+| --- | --- | --- | --- |
+| Poll interval | 10 s | 30 s | 30 s |
+| Stopped at | 29,049 s (8.07 h) | 33,801 s (9.39 h) | 7,995 s (2.22 h) |
+| Stop | `request_ceiling` | `FAIL_LEASE` | `supervision_lost` |
+| Requests used | 10,000 / 10,000 | 4,974 / 10,000 | 1,203 / 10,000 |
+| Supervision health checks live | 5,807 / 5,808 | 6,755 / 6,755 | 1,592 / 1,598 |
+| Longest gap between live replies | 6.2 s | 5.3 s | 31.8 s |
+| Probes / preflight checks passed | 2,873 / 462 | 1,122 / 536 | 265 / 136 |
+| Bridge health refused / close timeouts | 0 / 0 | 0 / 0 | 3 / 0 |
 
-In both runs, Staging probes, supervision and finalization held for the whole run, and both were recovered (above). Both runs stopped before the session expired, so the real-clock expiry check on Staging remains unproven and is pending in [#316](https://github.com/TailTag-Game/tailtag/issues/316). Backend tests already cover the 12-hour expiry semantics.
+Every attempt stopped before the session expired. Staging probes and finalization held in all three, and each was recovered (above). With the maintainer's approval, AC25 and its AC26 line moved to [#316](https://github.com/TailTag-Game/tailtag/issues/316) after the second attempt.
 
-With the maintainer's approval, AC25 and its AC26 line move to [#316](https://github.com/TailTag-Game/tailtag/issues/316). That issue also carries heartbeat-failure tolerance and the AC14 unattended-scheduling follow-up.
+### Resolution (maintainer decision, 2026-10-14)
+
+The three attempts failed for three different reasons. A continuous 12.5 h run depends on the maintainer's connection for its whole duration, so no further attempts will be made. AC25 is met instead by deployed-source verification plus the existing backend tests:
+
+- **Deployed source.** Staging's `/health/identity` reported `source_sha` `e8aedd0d2b4e0e0787edf6bcafc7fbcbb95d4902` for every attempt. In that commit, the lifetime is the code constant `FURSUIT_CATCH_SESSION_LIFETIME = timedelta(hours=12)` in `services/api/conventions/catch_sessions.py`, applied at creation as `expires_at = now + FURSUIT_CATCH_SESSION_LIFETIME`. No setting or environment variable overrides it. `services/api/conventions` and `services/api/catches` are unchanged between that commit and the commit that records this decision.
+- **Backend tests.**
+  - `test_fursuit_catch_session_integrity.py` asserts `expires_at - started_at` equals 12 hours against an independent test constant.
+  - `test_catch_confirmation.py` rejects confirmation of an expired session, including at exactly `expires_at`, with `CatchTargetInvalidError` and no mutation. The API returns that error as `catch_target_unavailable`.
+
+The remaining gap is a real-clock observation on Staging. It would mainly catch a faulty Staging server clock. Heartbeat tolerance, lost-contact tolerance and unattended scheduling stay in scope for [#316](https://github.com/TailTag-Game/tailtag/issues/316).
 
 ## Evidence preservation and limits
 
