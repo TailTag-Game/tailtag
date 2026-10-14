@@ -12,7 +12,9 @@ vars:
 
 # Shared by the tasks that need the repository root or the root helper scripts.
 x-repository-root: &repository-root
-  sh: pwd
+  # pwd returns backslashes on Windows, which go-task's shell would read as
+  # escapes in unquoted words; Windows tools accept forward slashes.
+  sh: 'p=$(pwd); printf ''%s\n'' "${p//\\//}"'
 
 x-api-helpers: &api-helpers >-
   {{.REPOSITORY_ROOT}}/scripts/api_smoke.py
