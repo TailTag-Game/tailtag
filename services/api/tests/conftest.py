@@ -33,6 +33,7 @@ WINDOWS_SKIPPED_MODULES = frozenset(
         "test_replacement_candidate_origin.py",
         "test_replacement_migrate.py",
         "test_replacement_target_binding.py",
+        "test_staging_emergency_operator.py",
         "test_staging_emergency_operator_ssh.py",
         "test_staging_managed_auth_diagnose_ssh.py",
         "test_staging_managed_operator_recovery.py",

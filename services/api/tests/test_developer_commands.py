@@ -148,7 +148,7 @@ def semgrep_scan_tokens(dry_run: str) -> list[list[str]]:
         ), command
         tokens = shlex.split(command)
         reviewed_registry_targets = {
-            str(REPOSITORY_ROOT / helper)
+            (REPOSITORY_ROOT / helper).as_posix()
             for helper in (
                 "scripts/api_staging_registry_reconcile.py",
                 "scripts/api_staging_registry_reconcile_remote.py",
@@ -248,7 +248,7 @@ def assert_semgrep_check_contract(dry_run: str) -> None:
     assert len(blocking_commands) == 1
 
     for command in commands:
-        assert semgrep_config_operands(command) == [str(SEMGREP_RULES_DIRECTORY)]
+        assert semgrep_config_operands(command) == [SEMGREP_RULES_DIRECTORY.as_posix()]
         assert "--metrics=off" in command
         assert "--disable-version-check" in command
         baseline_index = command.index("--baseline-commit")
@@ -268,7 +268,9 @@ def assert_semgrep_check_contract(dry_run: str) -> None:
 
     fixture_command = fixture_commands[0]
     assert "--error" not in fixture_command
-    assert semgrep_target_operands(fixture_command) == {str(SEMGREP_FIXTURES_DIRECTORY)}
+    assert semgrep_target_operands(fixture_command) == {
+        SEMGREP_FIXTURES_DIRECTORY.as_posix()
+    }
 
     blocking_command = blocking_commands[0]
     assert "--error" in blocking_command
@@ -296,7 +298,7 @@ def assert_semgrep_validator_precedes_fixture_scan(dry_run: str) -> None:
             "--no-sync",
             "python",
         ]
-        and tokens[7] == str(SEMGREP_VALIDATOR)
+        and tokens[7] == SEMGREP_VALIDATOR.as_posix()
     ]
     assert len(validator_indexes) == 1
     validator_tokens = tokenized_commands[validator_indexes[0]]
@@ -310,11 +312,11 @@ def assert_semgrep_validator_precedes_fixture_scan(dry_run: str) -> None:
         "python",
     ]
     assert validator_tokens[7:] == [
-        str(SEMGREP_VALIDATOR),
+        SEMGREP_VALIDATOR.as_posix(),
         "--rules",
-        str(SEMGREP_RULES_DIRECTORY),
+        SEMGREP_RULES_DIRECTORY.as_posix(),
         "--fixtures",
-        str(SEMGREP_FIXTURES_DIRECTORY),
+        SEMGREP_FIXTURES_DIRECTORY.as_posix(),
     ]
 
     fixture_indexes = [
@@ -439,15 +441,17 @@ def test_semgrep_checker_allows_only_the_trusted_prefix_and_reviewed_targets() -
         "semgrep scan --config .semgrep/rules"
     )
     reviewed = [
-        str(REPOSITORY_ROOT / "scripts/api_staging_registry_reconcile.py"),
-        str(REPOSITORY_ROOT / "scripts/api_staging_registry_reconcile_remote.py"),
+        (REPOSITORY_ROOT / "scripts/api_staging_registry_reconcile.py").as_posix(),
+        (
+            REPOSITORY_ROOT / "scripts/api_staging_registry_reconcile_remote.py"
+        ).as_posix(),
     ]
     accepted = " ".join((command, ".semgrep/tests", *reviewed))
 
     assert semgrep_scan_tokens(as_dry_run(accepted)) == [shlex.split(accepted)]
     for rejected in (
         command.replace("SEMGREP_APP_TOKEN=", "SEMGREP_APP_TOKEN=secret"),
-        f"{accepted} {REPOSITORY_ROOT / 'scripts/api_staging_registry_unreviewed.py'}",
+        f"{accepted} {(REPOSITORY_ROOT / 'scripts/api_staging_registry_unreviewed.py').as_posix()}",
         f"{accepted} --registry=untrusted",
         "semgrep scan --config .semgrep/rules .semgrep/tests",
     ):
@@ -461,7 +465,7 @@ def test_semgrep_validator_preflight_rejects_a_second_python_execution() -> None
     validator = next(
         command
         for command in dry_run_commands(dry_run)
-        if shlex.split(command)[7:8] == [str(SEMGREP_VALIDATOR)]
+        if shlex.split(command)[7:8] == [SEMGREP_VALIDATOR.as_posix()]
     )
 
     with pytest.raises(AssertionError):
@@ -521,7 +525,7 @@ def test_semgrep_check_is_local_locked_noninteractive_and_credential_free() -> N
         if line.strip() and not line.lstrip().startswith(("echo ", "printf "))
     ]
     assert len(execution_lines) == 3
-    assert str(SEMGREP_VALIDATOR) in execution_lines[0]
+    assert SEMGREP_VALIDATOR.as_posix() in execution_lines[0]
     assert all("semgrep scan" in line for line in execution_lines[1:])
     for forbidden in (".env", "docker", "migrate"):
         assert forbidden not in dry_run.lower()
@@ -594,7 +598,7 @@ def test_uv_override_selects_the_launcher_without_altering_the_semgrep_contract(
 
     commands = [shlex.split(command) for command in dry_run_commands(completed.stdout)]
     validator_command = next(
-        command for command in commands if str(SEMGREP_VALIDATOR) in command
+        command for command in commands if SEMGREP_VALIDATOR.as_posix() in command
     )
     assert validator_command[0] == str(custom_uv)
     for command in semgrep_scan_tokens(completed.stdout):
