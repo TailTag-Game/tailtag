@@ -1,0 +1,89 @@
+# TEMPORARY (issue #315, AC5): verifies `task api-check` on native Windows.
+# Delete before merging PR #319. The refinement keeps no permanent Windows job.
+name: TEMP Windows api-check
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Native Windows api-check (temporary)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DATABASE_URL: postgresql://tailtag:tailtag@localhost:5432/tailtag
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      DJANGO_SECRET_KEY: ci-not-a-real-secret
+      DJANGO_ALLOWED_HOSTS: localhost
+      DJANGO_CSRF_TRUSTED_ORIGINS: http://localhost
+      MEDIA_STORAGE_ENDPOINT_URL: https://media.example.test
+      MEDIA_STORAGE_BUCKET_NAME: ci-media-bucket
+      MEDIA_STORAGE_REGION: auto
+      MEDIA_STORAGE_ACCESS_KEY_ID: ci-not-a-real-access-key
+      MEDIA_STORAGE_SECRET_ACCESS_KEY: ci-not-a-real-secret-key
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install locked uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.9.17"
+
+      - name: Install pinned go-task
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = 'task_windows_amd64.zip'
+          $expected = '27c0cd248c12cba03d8958d954a3df981c900be885ec9ce5f6a3cdc4e9a19316'
+          $work = Join-Path $env:RUNNER_TEMP 'go-task'
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/go-task/task/releases/download/v3.53.1/$archive" -OutFile "$work\$archive"
+          $actual = (Get-FileHash -Algorithm SHA256 "$work\$archive").Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "go-task checksum mismatch: $actual" }
+          Expand-Archive -Path "$work\$archive" -DestinationPath "$work\bin" -Force
+          "$work\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Start preinstalled PostgreSQL
+        env:
+          PGPASSWORD: root
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $service = Get-Service -Name 'postgresql*' | Select-Object -First 1
+          Set-Service -InputObject $service -StartupType Manual
+          Start-Service -InputObject $service
+          & "$env:PGBIN\pg_isready.exe" -h localhost -p 5432
+          & "$env:PGBIN\psql.exe" -h localhost -U postgres -c "SELECT version();"
+          & "$env:PGBIN\psql.exe" -h localhost -U postgres -c "CREATE ROLE tailtag LOGIN SUPERUSER PASSWORD 'tailtag';"
+          & "$env:PGBIN\createdb.exe" -h localhost -U postgres -O tailtag tailtag
+
+      - name: Run each api step natively, then task api-check
+        run: |
+          # Native means no POSIX shell: drop Git Bash tools and fail if sh or bash remain.
+          $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -and $_ -notmatch '\\Git\\(usr\\)?bin\\?$' -and $_ -notmatch '\\Git\\mingw64\\bin\\?$' }) -join ';'
+          $posix = Get-Command sh, bash -ErrorAction SilentlyContinue
+          if ($posix) { $posix | Format-Table Name, Source -AutoSize | Out-String | Write-Host; throw 'sh or bash is on PATH; this would not be a native run' }
+          task --version
+          task api-setup
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $results = @()
+          foreach ($step in 'api-format-check','api-lint-check','api-type-check','api-semgrep-check','api-test','api-django-check','api-migrations-check','api-schema-check','api-gunicorn-check') {
+            Write-Host "::group::$step"
+            task $step
+            $code = $LASTEXITCODE
+            Write-Host "::endgroup::"
+            $results += "{0}: exit {1}" -f $step, $code
+          }
+          Write-Host '--- per-step summary'
+          $results | ForEach-Object { Write-Host $_ }
+          Write-Host '--- task api-check'
+          task api-check
+          exit $LASTEXITCODE
