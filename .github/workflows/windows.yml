@@ -116,42 +116,12 @@ jobs:
         uses: ./.github/actions/install-go-task-windows
 
       - name: Run simulator commands natively
-        env:
-          # TEMPORARY diagnostic (#315 slice 1): list failing tests compactly.
-          PYTEST_ADDOPTS: -rfE --tb=line
         run: |
           . ./.github/actions/install-go-task-windows/require-native-shell.ps1
           $results = [ordered]@{}
           function Record($name, $code) { $results[$name] = $code; Write-Host "$name -> exit $code" }
 
           task sim-setup; Record 'sim-setup' $LASTEXITCODE
-          # TEMPORARY diagnostic (#315 slice 1): show which provenance and catalog checks reject on Windows.
-          $diagnostic = @'
-          import json, sys, tempfile, traceback
-          from pathlib import Path
-          sys.path.insert(0, "tests")
-          from report_support import literal_report, repository
-          from tailtag_simulator import provenance, scenarios
-          try:
-              provenance._host(Path("../..").resolve())
-              print("provenance: ok")
-          except Exception:
-              traceback.print_exc()
-          value = literal_report()["scenario"]
-          entry = {**value["descriptor"], "descriptor_digest": value["descriptor_digest"]}
-          name = "checkout space ' apostrophe $(touch SENTINEL-dollar) `touch SENTINEL-backtick`"
-          root = repository(Path(tempfile.mkdtemp()) / name, {"tools/simulator/tailtag_simulator/scenarios/smoke-v1.json": json.dumps(entry)})
-          long_root = root.resolve()
-          for label, candidate in (("native", long_root), ("forward-slash", Path(long_root.as_posix()))):
-              try:
-                  scenarios.validate_catalog(candidate)
-                  print("catalog", label, "ok:", candidate)
-              except Exception as error:
-                  print("catalog", label, type(error).__name__, "context:", repr(error.__context__), candidate)
-          '@
-          ($diagnostic -split "`n" | ForEach-Object { $_ -replace '^          ', '' }) -join "`n" | uv --directory tools/simulator run --locked --no-sync python -
-          uv --directory tools/simulator run --locked --no-sync python ../../.github/actions/install-go-task-windows/diag_catalog_windows.py
-          uv --directory tools/simulator run --locked --no-sync python ../../.github/actions/install-go-task-windows/diag_catalog_windows.py pytest-depth
           task sim-check; Record 'sim-check' $LASTEXITCODE
           # Report paths resolve inside tools/simulator, where uv runs the simulator.
           task sim-report-validate REPORT=tests/data/report-v1-smoke.json; Record 'sim-report-validate' $LASTEXITCODE
