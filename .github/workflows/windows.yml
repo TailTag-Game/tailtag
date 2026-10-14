@@ -150,6 +150,7 @@ jobs:
                   print("catalog", label, type(error).__name__, "context:", repr(error.__context__), candidate)
           '@
           ($diagnostic -split "`n" | ForEach-Object { $_ -replace '^          ', '' }) -join "`n" | uv --directory tools/simulator run --locked --no-sync python -
+          uv --directory tools/simulator run --locked --no-sync python ../../.github/actions/install-go-task-windows/diag_catalog_windows.py
           task sim-check; Record 'sim-check' $LASTEXITCODE
           # Report paths resolve inside tools/simulator, where uv runs the simulator.
           task sim-report-validate REPORT=tests/data/report-v1-smoke.json; Record 'sim-report-validate' $LASTEXITCODE
