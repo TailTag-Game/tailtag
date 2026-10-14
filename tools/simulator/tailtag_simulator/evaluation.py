@@ -673,7 +673,9 @@ def write_evaluation(artifact: Mapping[str, Any], out: Path) -> None:
     created = False
     try:
         text = json.dumps(artifact, indent=1, allow_nan=False) + "\n"
-        fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        fd = os.open(
+            out, os.O_WRONLY | os.O_CREAT | os.O_EXCL | reports.NO_FOLLOW, 0o600
+        )
         created = True
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             stream.write(text)
