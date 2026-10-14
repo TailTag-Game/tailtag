@@ -7,7 +7,6 @@ import hashlib
 import importlib
 import io
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -18,6 +17,9 @@ from types import ModuleType
 from typing import Any, NoReturn, Self, cast
 
 import pytest
+
+from tests.process_support import minimal_environment
+from tests.semgrep_support import task_dry_run
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = REPOSITORY_ROOT / "scripts" / "api_staging_reset_ssh.py"
@@ -314,7 +316,7 @@ def isolated_bootstrap(
 ) -> subprocess.CompletedProcess[str]:
     """Run the real bootstrap source under an isolated local interpreter."""
     environment = {
-        "PATH": os.environ["PATH"],
+        **minimal_environment(),
         "HOME": str(tmp_path),
         "TMPDIR": str(tmp_path),
         "RAILWAY_PROJECT_ID": PROJECT_ID,
@@ -550,7 +552,7 @@ def test_generated_bundle_initializes_all_installed_django_apps(
             str(bundle_root),
         ],
         cwd=tmp_path,
-        env={"PATH": os.environ["PATH"]},
+        env=minimal_environment(),
         capture_output=True,
         text=True,
         check=False,
@@ -2156,23 +2158,13 @@ def test_execute_remote_preserves_the_core_failure_when_its_second_preflight_cha
     assert events == ["quiesce", "reset", "resume", "quiesce"]
 
 
-def test_make_and_validation_matrices_include_the_ssh_operator() -> None:
+def test_task_and_validation_matrices_include_the_ssh_operator() -> None:
     """SSH-8: static checks and CI cannot omit the new repository-owned helper."""
-    completed_make = subprocess.run(
-        ["make", "-n", "api-staging-reset-ssh"],
-        cwd=REPOSITORY_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert completed_make.returncode == 0, completed_make.stderr
-    assert "api_staging_reset_ssh" in completed_make.stdout
-    assert "--confirm reset-tailtag-staging" in completed_make.stdout
+    dry_run = task_dry_run("api-staging-reset-ssh").stdout
+    assert "api_staging_reset_ssh" in dry_run
+    assert "--confirm reset-tailtag-staging" in dry_run
 
-    makefile = (REPOSITORY_ROOT / "Makefile").read_text()
     pyproject = (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml").read_text()
     relevance = (REPOSITORY_ROOT / "scripts" / "backend_ci_relevance.py").read_text()
-    assert "override STAGING_RESET_SSH_SCRIPT :=" in makefile
-    assert "$(STAGING_RESET_SSH_SCRIPT)" in makefile
     assert "scripts/api_staging_reset_ssh.py" in pyproject
     assert "scripts/api_staging_reset_ssh.py" in relevance

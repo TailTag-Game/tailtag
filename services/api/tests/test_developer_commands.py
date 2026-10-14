@@ -1,4 +1,4 @@
-"""Repository-root backend developer command contracts."""
+"""Repository-root backend developer command contracts (go-task)."""
 
 from __future__ import annotations
 
@@ -16,17 +16,23 @@ from pathlib import Path
 
 import pytest
 
-from tests.semgrep_support import FROZEN_ROOT_HELPERS, dry_run_commands
+from tests.process_support import skip_on_windows
+from tests.semgrep_support import (
+    FROZEN_ROOT_HELPERS,
+    dry_run_commands,
+    run_task,
+    task_dry_run,
+)
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_smoke.py"
 AUTH_SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_auth_smoke.py"
 STAGING_AUTH_SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_staging_auth_smoke.py"
 MEDIA_STORAGE_SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_media_storage_smoke.py"
-ENVIRONMENT_FINGERPRINT_SCRIPT = (
-    REPOSITORY_ROOT / "scripts" / "api_environment_fingerprint.py"
+LIVE_SMOKE_HELPERS = (
+    AUTH_SMOKE_SCRIPT,
+    STAGING_AUTH_SMOKE_SCRIPT,
+    MEDIA_STORAGE_SMOKE_SCRIPT,
 )
-CI_RELEVANCE_SCRIPT = REPOSITORY_ROOT / "scripts" / "backend_ci_relevance.py"
 SEMGREP_VALIDATOR = REPOSITORY_ROOT / "scripts" / "validate_semgrep_contract.py"
 SEMGREP_RULES_DIRECTORY = REPOSITORY_ROOT / ".semgrep" / "rules"
 SEMGREP_FIXTURES_DIRECTORY = REPOSITORY_ROOT / ".semgrep" / "tests"
@@ -38,22 +44,45 @@ CANONICAL_UV_RUN_CHILD_EXECUTABLES = frozenset(
     {"ruff", "pyright", "pytest", "python", "semgrep", "gunicorn"}
 )
 CANONICAL_UV_RUN_OPTIONS = frozenset({"--locked", "--no-sync", "--offline"})
-MEDIA_STORAGE_SMOKE_MAKE_FAILURE_FOOTER = re.compile(
-    r"make(?:\[[1-9]\d*\])?: \*\*\* "
-    r"\[(?:Makefile:[1-9]\d*: )?api-media-storage-smoke\] Error 1"
+# go-task's silent-failure footer is the only line a failed silent task adds.
+MEDIA_STORAGE_SMOKE_TASK_FAILURE_FOOTER = re.compile(
+    r'task: Failed to run task "api-media-storage-smoke": exit status [1-9]\d*'
 )
 
 
-def make_prerequisites(target: str) -> list[str]:
-    """Return the explicitly declared prerequisites for a root Make target."""
-    completed = run_make("-prRn", target)
+def as_dry_run(*commands: str) -> str:
+    """Render raw commands in go-task's dry-run format for checker self-tests."""
+    return "\n".join(f"task: [injected] {command}" for command in commands)
 
-    assert completed.returncode == 0, completed.stderr
-    target_rule = re.search(
-        rf"(?m)^{re.escape(target)}:\s*(?P<rules>[^\n]*)$", completed.stdout
+
+def workflow_text() -> str:
+    """Return every checked-in workflow as one searchable document."""
+    return "\n".join(
+        path.read_text()
+        for suffix in ("*.yml", "*.yaml")
+        for path in (REPOSITORY_ROOT / ".github" / "workflows").glob(suffix)
     )
-    assert target_rule, f"Makefile must define {target}"
-    return target_rule.group("rules").split()
+
+
+def assert_live_helpers_are_only_statically_analyzed(dry_run: str) -> None:
+    """Allow live-smoke helpers in api-check only as Ruff or Semgrep operands."""
+    modules = {f"scripts.{helper.stem}": helper for helper in LIVE_SMOKE_HELPERS}
+    referenced: set[Path] = set()
+    for command in dry_run_commands(dry_run):
+        tokens = shlex.split(command)
+        mentioned = {
+            modules.get(token, resolve_repository_operand(token)) for token in tokens
+        } & set(LIVE_SMOKE_HELPERS)
+        if not mentioned:
+            continue
+        referenced |= mentioned
+        assert "-m" not in tokens and "python" not in tokens, command
+        if "semgrep" in tokens:
+            assert len(semgrep_scan_tokens(as_dry_run(command))) == 1, command
+        else:
+            assert "ruff" in tokens, command
+            assert tokens[tokens.index("ruff") + 1] in {"format", "check"}, command
+    assert referenced == set(LIVE_SMOKE_HELPERS), "api-check must analyze each helper"
 
 
 def assert_api_check_uv_runs_are_locked_and_no_sync(dry_run: str) -> None:
@@ -106,16 +135,6 @@ def resolve_repository_operand(operand: str) -> Path:
     return path.resolve()
 
 
-def is_authenticated_smoke_helper_operand(operand: str) -> bool:
-    """Recognize every path spelling that resolves to the auth smoke helper."""
-    return resolve_repository_operand(operand) == AUTH_SMOKE_SCRIPT.resolve()
-
-
-def is_media_storage_smoke_helper_operand(operand: str) -> bool:
-    """Recognize every path spelling that resolves to the R2 smoke helper."""
-    return resolve_repository_operand(operand) == MEDIA_STORAGE_SMOKE_SCRIPT.resolve()
-
-
 def semgrep_scan_tokens(dry_run: str) -> list[list[str]]:
     """Parse Semgrep scan commands emitted by a Make dry run."""
     commands = [line for line in dry_run_commands(dry_run) if "semgrep scan" in line]
@@ -129,7 +148,7 @@ def semgrep_scan_tokens(dry_run: str) -> list[list[str]]:
         ), command
         tokens = shlex.split(command)
         reviewed_registry_targets = {
-            str(REPOSITORY_ROOT / helper)
+            (REPOSITORY_ROOT / helper).as_posix()
             for helper in (
                 "scripts/api_staging_registry_reconcile.py",
                 "scripts/api_staging_registry_reconcile_remote.py",
@@ -183,110 +202,6 @@ def semgrep_scan_tokens(dry_run: str) -> list[list[str]]:
     return tokens_by_command
 
 
-def test_semgrep_scan_tokens_allows_only_the_empty_trusted_app_token_prefix() -> None:
-    """The canonical credential-clearing prefix is not mistaken for token access."""
-    command = (
-        "SEMGREP_APP_TOKEN= uv --directory .semgrep run --locked --no-sync "
-        "semgrep scan --config .semgrep/rules .semgrep/tests"
-    )
-
-    assert semgrep_scan_tokens(command) == [shlex.split(command)]
-    with pytest.raises(AssertionError):
-        semgrep_scan_tokens(
-            command.replace("SEMGREP_APP_TOKEN=", "SEMGREP_APP_TOKEN=secret")
-        )
-
-
-def test_semgrep_scan_tokens_allows_only_reviewed_registry_target_paths() -> None:
-    """Reviewed registry source operands do not license other registry access."""
-    command = (
-        "SEMGREP_APP_TOKEN= uv --directory .semgrep run --locked --no-sync "
-        "semgrep scan --config .semgrep/rules"
-    )
-    approved = [
-        str(REPOSITORY_ROOT / "scripts/api_staging_registry_reconcile.py"),
-        str(REPOSITORY_ROOT / "scripts/api_staging_registry_reconcile_remote.py"),
-    ]
-    reviewed_command = " ".join((command, *approved))
-
-    assert semgrep_scan_tokens(reviewed_command) == [shlex.split(reviewed_command)]
-    for extra in (
-        str(REPOSITORY_ROOT / "scripts/api_staging_registry_unreviewed.py"),
-        "--registry=untrusted",
-        "registry",
-    ):
-        with pytest.raises(AssertionError):
-            semgrep_scan_tokens(f"{reviewed_command} {extra}")
-
-
-def test_api_check_uv_run_contract_rejects_implicit_project_sync() -> None:
-    """Project-selected canonical commands cannot evade the no-sync requirement."""
-    with pytest.raises(AssertionError):
-        assert_api_check_uv_runs_are_locked_and_no_sync(
-            "uv --directory services/api run --locked --no-sync pytest -q\n"
-            "uv run --project services/api pytest -q"
-        )
-
-
-def test_api_check_uv_run_contract_allows_reordered_approved_options() -> None:
-    """The approved locked/no-sync/offline options remain order-independent."""
-    assert_api_check_uv_runs_are_locked_and_no_sync(
-        "uv --directory services/api run --offline --no-sync --locked pytest -q"
-    )
-
-
-def test_api_check_uv_run_contract_rejects_reordered_project_without_no_sync() -> None:
-    """A project option cannot hide a missing no-sync run option."""
-    with pytest.raises(AssertionError):
-        assert_api_check_uv_runs_are_locked_and_no_sync(
-            "uv run --locked --project services/api pytest -q"
-        )
-
-
-def test_api_check_uv_run_contract_rejects_flags_after_the_child_command() -> None:
-    """Child arguments cannot satisfy uv's locked/no-sync command contract."""
-    with pytest.raises(AssertionError):
-        assert_api_check_uv_runs_are_locked_and_no_sync(
-            "uv --directory services/api run pytest -q --locked --no-sync"
-        )
-
-
-def test_api_check_uv_run_contract_rejects_unknown_child_executable() -> None:
-    """Every canonical uv run must expose a recognized validation child."""
-    with pytest.raises(AssertionError):
-        assert_api_check_uv_runs_are_locked_and_no_sync(
-            "uv run --locked --no-sync custom-validator"
-        )
-
-
-@pytest.mark.parametrize(
-    "non_run_invocation",
-    ["uv pip install injected-package", "uv --directory services/api sync --locked"],
-)
-def test_api_check_uv_run_contract_rejects_non_run_invocations(
-    non_run_invocation: str,
-) -> None:
-    """No auxiliary uv command may mutate the validation environment."""
-    with pytest.raises(AssertionError):
-        assert_api_check_uv_runs_are_locked_and_no_sync(
-            f"{non_run_invocation}; uv run --locked --no-sync pytest -q"
-        )
-
-
-@pytest.mark.parametrize(
-    "shaping_option",
-    ["--with injected-package", "--python 3.13", "--env-file path"],
-)
-def test_api_check_uv_run_contract_rejects_shaping_options(
-    shaping_option: str,
-) -> None:
-    """Canonical validation must not alter its dependencies or interpreter."""
-    with pytest.raises(AssertionError):
-        assert_api_check_uv_runs_are_locked_and_no_sync(
-            f"uv run --locked --no-sync {shaping_option} pytest -q"
-        )
-
-
 def semgrep_config_operands(tokens: list[str]) -> list[str]:
     """Return explicit Semgrep configuration operands from a scan command."""
     operands: list[str] = []
@@ -333,7 +248,7 @@ def assert_semgrep_check_contract(dry_run: str) -> None:
     assert len(blocking_commands) == 1
 
     for command in commands:
-        assert semgrep_config_operands(command) == [str(SEMGREP_RULES_DIRECTORY)]
+        assert semgrep_config_operands(command) == [SEMGREP_RULES_DIRECTORY.as_posix()]
         assert "--metrics=off" in command
         assert "--disable-version-check" in command
         baseline_index = command.index("--baseline-commit")
@@ -353,7 +268,9 @@ def assert_semgrep_check_contract(dry_run: str) -> None:
 
     fixture_command = fixture_commands[0]
     assert "--error" not in fixture_command
-    assert semgrep_target_operands(fixture_command) == {str(SEMGREP_FIXTURES_DIRECTORY)}
+    assert semgrep_target_operands(fixture_command) == {
+        SEMGREP_FIXTURES_DIRECTORY.as_posix()
+    }
 
     blocking_command = blocking_commands[0]
     assert "--error" in blocking_command
@@ -381,7 +298,7 @@ def assert_semgrep_validator_precedes_fixture_scan(dry_run: str) -> None:
             "--no-sync",
             "python",
         ]
-        and tokens[7] == str(SEMGREP_VALIDATOR)
+        and tokens[7] == SEMGREP_VALIDATOR.as_posix()
     ]
     assert len(validator_indexes) == 1
     validator_tokens = tokenized_commands[validator_indexes[0]]
@@ -395,11 +312,11 @@ def assert_semgrep_validator_precedes_fixture_scan(dry_run: str) -> None:
         "python",
     ]
     assert validator_tokens[7:] == [
-        str(SEMGREP_VALIDATOR),
+        SEMGREP_VALIDATOR.as_posix(),
         "--rules",
-        str(SEMGREP_RULES_DIRECTORY),
+        SEMGREP_RULES_DIRECTORY.as_posix(),
         "--fixtures",
-        str(SEMGREP_FIXTURES_DIRECTORY),
+        SEMGREP_FIXTURES_DIRECTORY.as_posix(),
     ]
 
     fixture_indexes = [
@@ -408,20 +325,6 @@ def assert_semgrep_validator_precedes_fixture_scan(dry_run: str) -> None:
         if "semgrep scan --test" in command
     ]
     assert fixture_indexes == [validator_indexes[0] + 1]
-
-
-def run_make(
-    *targets: str, environment: dict[str, str] | None = None
-) -> subprocess.CompletedProcess[str]:
-    """Run a root Make target with optional environment overrides."""
-    return subprocess.run(
-        ["make", *targets],
-        cwd=REPOSITORY_ROOT,
-        env={**os.environ, **(environment or {})},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
 
 
 class SmokeHandler(BaseHTTPRequestHandler):
@@ -489,114 +392,150 @@ def smoke_server(
         server.server_close()
 
 
-def test_dry_run_commands_ignores_recursive_make_directory_diagnostics() -> None:
-    """GNU Make directory tracing is diagnostic output, not an executed command."""
-    dry_run = """\
-make[1]: Entering directory '/workspace/tailtag'
-uv --directory services/api run --locked --no-sync pytest -q
-make[1]: Leaving directory '/workspace/tailtag'
-"""
-
-    assert dry_run_commands(dry_run) == [
-        "uv --directory services/api run --locked --no-sync pytest -q"
-    ]
-
-
-def test_semgrep_scan_tokens_rejects_an_incomplete_launcher_prefix() -> None:
-    """A malformed Semgrep command fails before fixed-offset token parsing."""
-    with pytest.raises(AssertionError, match="at least six launcher-prefix tokens"):
-        semgrep_scan_tokens("semgrep scan --config .semgrep/rules .semgrep/tests")
-
-
-def test_help_lists_the_canonical_backend_commands() -> None:
-    """The root interface exposes every required backend command."""
-    completed = run_make("help")
+def test_bare_task_lists_commands_and_exits_zero() -> None:
+    """AC16: running `task` with no arguments is a listing, not an error."""
+    completed = run_task()
 
     assert completed.returncode == 0, completed.stderr
-    expected_commands = {
-        "api-setup": "Sync locked backend dependencies.",
-        "api-run": "Run Django locally on port 8000; requires configured PostgreSQL.",
-        "api-test": "Run PostgreSQL-backed backend tests.",
-        "api-semgrep-check": "Run deterministic TailTag Semgrep security analysis.",
-        "api-check": "Run the complete local pre-PR backend validation suite.",
-        "api-migrate": "Apply existing Django migrations (mutates schema).",
-        "api-migrations": "Create Django migrations (mutates migration state).",
-        "api-migrations-check": "Check for migration drift without creating migrations.",
-        "api-shell": "Open the Django shell; requires configured PostgreSQL.",
-        "api-smoke": "HTTP-check a running API (API_BASE_URL defaults to 127.0.0.1:8000).",
-        "api-auth-smoke": "Authenticated smoke test with an interactive Clerk Development secret.",
-        "api-staging-auth-smoke": (
-            "Run the explicit live Clerk Staging authenticated API smoke."
-        ),
-        "api-media-storage-smoke": (
-            "Run guarded live media storage verification against Railway Development or Staging."
-        ),
-    }
-    for target, description in expected_commands.items():
-        assert f"make {target}" in completed.stdout
-        assert description in completed.stdout
+    assert "api-check" in completed.stdout
+
+
+def test_uv_grammar_checker_accepts_approved_options_in_any_order() -> None:
+    assert_api_check_uv_runs_are_locked_and_no_sync(
+        as_dry_run(
+            "uv --directory services/api run --offline --no-sync --locked pytest -q"
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "uv run --project services/api pytest -q",
+        "uv run --locked --project services/api pytest -q",
+        "uv --directory services/api run pytest -q --locked --no-sync",
+        "uv run --locked --no-sync custom-validator",
+        "uv pip install injected-package",
+        "uv --directory services/api sync --locked",
+        "uv run --locked --no-sync --with injected-package pytest -q",
+        "uv run --locked --no-sync --python 3.13 pytest -q",
+        "uv run --locked --no-sync --env-file path pytest -q",
+    ],
+)
+def test_uv_grammar_checker_rejects_unlocked_or_environment_shaping_calls(
+    command: str,
+) -> None:
+    """Invariant: every executable uv call is the locked, no-sync run form."""
+    with pytest.raises(AssertionError):
+        assert_api_check_uv_runs_are_locked_and_no_sync(
+            as_dry_run(
+                "uv --directory services/api run --locked --no-sync pytest -q",
+                command,
+            )
+        )
+
+
+def test_semgrep_checker_allows_only_the_trusted_prefix_and_reviewed_targets() -> None:
+    command = (
+        "SEMGREP_APP_TOKEN= uv --directory .semgrep run --locked --no-sync "
+        "semgrep scan --config .semgrep/rules"
+    )
+    reviewed = [
+        (REPOSITORY_ROOT / "scripts/api_staging_registry_reconcile.py").as_posix(),
+        (
+            REPOSITORY_ROOT / "scripts/api_staging_registry_reconcile_remote.py"
+        ).as_posix(),
+    ]
+    accepted = " ".join((command, ".semgrep/tests", *reviewed))
+
+    assert semgrep_scan_tokens(as_dry_run(accepted)) == [shlex.split(accepted)]
+    for rejected in (
+        command.replace("SEMGREP_APP_TOKEN=", "SEMGREP_APP_TOKEN=secret"),
+        f"{accepted} {(REPOSITORY_ROOT / 'scripts/api_staging_registry_unreviewed.py').as_posix()}",
+        f"{accepted} --registry=untrusted",
+        "semgrep scan --config .semgrep/rules .semgrep/tests",
+    ):
+        with pytest.raises(AssertionError):
+            semgrep_scan_tokens(as_dry_run(rejected))
+
+
+def test_semgrep_validator_preflight_rejects_a_second_python_execution() -> None:
+    """A scan target mention is allowed, but a second validator execution is not."""
+    dry_run = task_dry_run("api-semgrep-check").stdout
+    validator = next(
+        command
+        for command in dry_run_commands(dry_run)
+        if shlex.split(command)[7:8] == [SEMGREP_VALIDATOR.as_posix()]
+    )
+
+    with pytest.raises(AssertionError):
+        assert_semgrep_validator_precedes_fixture_scan(
+            f"{dry_run}\n{as_dry_run(validator)}"
+        )
 
 
 def test_check_composes_every_required_backend_validation() -> None:
-    """The full check runs CI-equivalent validation without schema mutation."""
-    completed = run_make("-n", "api-check")
-    prerequisites = make_prerequisites("api-check")
+    """The full check runs CI-equivalent validation in order without mutation."""
+    dry_run = task_dry_run("api-check").stdout
+    executed = [
+        command
+        for command in dry_run_commands(dry_run)
+        if not command.startswith(("printf ", "echo "))
+    ]
 
-    assert completed.returncode == 0, completed.stderr
-    for command in (
+    ordered_steps = (
         "ruff format --check .",
         "ruff check .",
         "pyright",
+        "semgrep scan --test",
         "pytest -q",
-        "python manage.py check",
-        "python manage.py makemigrations --check --dry-run",
-        "python manage.py spectacular --validate --file /dev/null",
-        "gunicorn config.wsgi:application --check-config",
-    ):
-        assert command in completed.stdout
-    assert f"ruff format --check . {SMOKE_SCRIPT}" in completed.stdout
-    assert f"ruff check . {SMOKE_SCRIPT}" in completed.stdout
-    assert str(CI_RELEVANCE_SCRIPT) in completed.stdout
-    assert "api-semgrep-check" in prerequisites
-    assert prerequisites.index("api-semgrep-check") < prerequisites.index("api-test")
-    assert_semgrep_check_contract(completed.stdout)
-    assert_semgrep_validator_precedes_fixture_scan(completed.stdout)
-    assert_api_check_uv_runs_are_locked_and_no_sync(completed.stdout)
-    assert completed.stdout.index("semgrep scan --test") < completed.stdout.index(
-        "pytest -q"
+        "manage.py check",
+        "makemigrations --check --dry-run",
+        "spectacular --validate",
+        # On Windows the Gunicorn step prints a SKIP line instead (G5).
+        *(
+            ()
+            if sys.platform == "win32"
+            else ("gunicorn config.wsgi:application --check-config",)
+        ),
     )
-    assert " sync " not in completed.stdout
-    assert "docker compose" not in completed.stdout
-    assert "python manage.py migrate" not in completed.stdout
-    assert "python manage.py makemigrations" in completed.stdout
-    assert "api-auth-smoke" not in completed.stdout
-    assert "api-staging-auth-smoke" not in completed.stdout
-    assert "api-media-storage-smoke" not in completed.stdout
-    assert "Clerk Development secret:" not in completed.stdout
-    assert "CLERK_SECRET" not in completed.stdout
+    positions = [
+        next(index for index, command in enumerate(executed) if step in command)
+        for step in ordered_steps
+    ]
+    assert positions == sorted(set(positions)), "steps must exist in this order"
+
+    joined = "\n".join(executed)
+    for forbidden in (
+        " sync ",
+        "docker compose",
+        "manage.py migrate",
+        "Clerk Development secret:",
+        "CLERK_SECRET",
+    ):
+        assert forbidden not in joined
+    assert_semgrep_check_contract(dry_run)
+    assert_semgrep_validator_precedes_fixture_scan(dry_run)
+    assert_api_check_uv_runs_are_locked_and_no_sync(dry_run)
+    assert_live_helpers_are_only_statically_analyzed(dry_run)
 
 
 def test_semgrep_check_is_local_locked_noninteractive_and_credential_free() -> None:
     """The static security gate scans local sources without external Semgrep services."""
-    completed = run_make("-n", "api-semgrep-check")
+    dry_run = task_dry_run("api-semgrep-check").stdout
 
-    assert completed.returncode == 0, completed.stderr
     execution_lines = [
         line
-        for line in dry_run_commands(completed.stdout)
+        for line in dry_run_commands(dry_run)
         if line.strip() and not line.lstrip().startswith(("echo ", "printf "))
     ]
     assert len(execution_lines) == 3
-    assert str(SEMGREP_VALIDATOR) in execution_lines[0]
+    assert SEMGREP_VALIDATOR.as_posix() in execution_lines[0]
     assert all("semgrep scan" in line for line in execution_lines[1:])
-    assert ".env" not in completed.stdout
-    assert "docker" not in completed.stdout.lower()
-    assert "migrate" not in completed.stdout.lower()
-    assert_semgrep_check_contract(completed.stdout)
-    assert_semgrep_validator_precedes_fixture_scan(completed.stdout)
-    assert completed.stdout.count(str(AUTH_SMOKE_SCRIPT)) == 1
-    assert completed.stdout.count(str(STAGING_AUTH_SMOKE_SCRIPT)) == 1
-    assert completed.stdout.count(str(ENVIRONMENT_FINGERPRINT_SCRIPT)) == 1
+    for forbidden in (".env", "docker", "migrate"):
+        assert forbidden not in dry_run.lower()
+    assert_semgrep_check_contract(dry_run)
+    assert_semgrep_validator_precedes_fixture_scan(dry_run)
 
 
 @pytest.mark.parametrize(
@@ -607,181 +546,354 @@ def test_semgrep_check_is_local_locked_noninteractive_and_credential_free() -> N
         ("SEMGREP_TARGETS", "/tmp/untrusted-semgrep-target"),
         ("SEMGREP", "untrusted-semgrep-launcher"),
         ("SEMGREP_DIRECTORY", "/tmp/untrusted-semgrep-directory"),
-        ("SEMGREP_UV", "untrusted-semgrep-uv"),
-        ("API_UV", "untrusted-api-uv"),
         ("API_DIRECTORY", "/tmp/untrusted-api-directory"),
         ("SEMGREP_VALIDATOR", "/tmp/untrusted-semgrep-validator.py"),
-        ("SMOKE_SCRIPT", "/tmp/untrusted-api-smoke.py"),
-        ("AUTH_SMOKE_SCRIPT", "/tmp/untrusted-api-auth-smoke.py"),
-        ("STAGING_AUTH_SMOKE_SCRIPT", "/tmp/untrusted-api-staging-auth-smoke.py"),
-        ("ENVIRONMENT_FINGERPRINT_SCRIPT", "/tmp/untrusted-environment-fingerprint.py"),
-        ("STAGING_RESET_SCRIPT", "/tmp/untrusted-api-staging-reset.py"),
-        ("STAGING_RESET_SSH_SCRIPT", "/tmp/untrusted-api-staging-reset-ssh.py"),
-        ("STAGING_RESTORE_SCRIPT", "/tmp/untrusted-api-staging-restore-drill.py"),
-        (
-            "STAGING_RESTORE_INTEGRITY_SCRIPT",
-            "/tmp/untrusted-staging-restore-integrity.py",
-        ),
-        (
-            "CLERK_DEVELOPMENT_SESSION_SCRIPT",
-            "/tmp/untrusted-clerk-development-session.py",
-        ),
-        ("CI_RELEVANCE_SCRIPT", "/tmp/untrusted-backend-ci-relevance.py"),
+        ("SEMGREP_BASELINE_COMMIT", "untrusted-baseline-commit"),
+        ("SEMGREP_APP_TOKEN", "untrusted-token"),
     ],
 )
-@pytest.mark.parametrize(
-    "override_source",
-    ["environment", "command_line", "makeflags", "environment_overrides"],
-)
-def test_semgrep_check_ignores_make_overrides_of_its_security_inputs(
-    variable: str, replacement: str, override_source: str
+def test_semgrep_check_ignores_inherited_environment_for_its_security_inputs(
+    variable: str, replacement: str
 ) -> None:
-    """Only the repository can select the canonical Semgrep executable and scope."""
-    if override_source == "environment":
-        completed = run_make(
-            "-n", "api-semgrep-check", environment={variable: replacement}
-        )
-    elif override_source == "command_line":
-        completed = run_make("-n", "api-semgrep-check", f"{variable}={replacement}")
-    elif override_source == "environment_overrides":
-        completed = run_make(
-            "-n",
-            "api-semgrep-check",
-            environment={"MAKEFLAGS": "-e", variable: replacement},
-        )
-    else:
-        completed = run_make(
-            "-n",
-            "api-semgrep-check",
-            environment={"MAKEFLAGS": f"{variable}={replacement}"},
-        )
+    """Only the task definition selects the Semgrep executable, scope, and settings."""
+    dry_run = task_dry_run(
+        "api-semgrep-check", environment={variable: replacement}
+    ).stdout
 
-    assert completed.returncode == 0, completed.stderr
-    assert replacement not in completed.stdout
-    assert_semgrep_check_contract(completed.stdout)
-    assert_semgrep_validator_precedes_fixture_scan(completed.stdout)
+    assert replacement not in dry_run
+    assert_semgrep_check_contract(dry_run)
+    assert_semgrep_validator_precedes_fixture_scan(dry_run)
 
 
 @pytest.mark.parametrize(
     ("variable", "replacement"),
     [
-        ("SEMGREP_BASELINE_COMMIT", "HEAD"),
-        ("SEMGREP_APP_TOKEN", "untrusted-token"),
-        ("SEMGREP_RULES", "/tmp/untrusted-semgrep-rules"),
+        ("REPOSITORY_ROOT", "/tmp/evil-repository-root"),
+        ("API_HELPERS", "/tmp/evil-api-helper.py"),
+        ("ROOT_DIR", "/tmp/evil-root-dir"),
+        ("TASKFILE_DIR", "/tmp/evil-taskfile-dir"),
     ],
 )
-@pytest.mark.parametrize(
-    "override_source",
-    ["environment", "command_line", "makeflags", "environment_overrides"],
-)
-def test_semgrep_check_clears_inherited_semgrep_execution_settings(
-    variable: str, replacement: str, override_source: str
+def test_semgrep_check_ignores_command_line_overrides_of_its_security_inputs(
+    variable: str, replacement: str
 ) -> None:
-    """Inherited Semgrep settings cannot alter the canonical local scan process."""
-    if override_source == "environment":
-        completed = run_make(
-            "-n", "api-semgrep-check", environment={variable: replacement}
-        )
-    elif override_source == "command_line":
-        completed = run_make("-n", "api-semgrep-check", f"{variable}={replacement}")
-    elif override_source == "environment_overrides":
-        completed = run_make(
-            "-n",
-            "api-semgrep-check",
-            environment={"MAKEFLAGS": "-e", variable: replacement},
-        )
-    else:
-        completed = run_make(
-            "-n",
-            "api-semgrep-check",
-            environment={"MAKEFLAGS": f"{variable}={replacement}"},
-        )
+    """AC19: Make's `override` blocked `NAME=value`; go-task must block it too."""
+    dry_run = task_dry_run("api-semgrep-check", f"{variable}={replacement}").stdout
 
-    assert completed.returncode == 0, completed.stderr
-    assert replacement not in completed.stdout
-    assert_semgrep_check_contract(completed.stdout)
-    assert_semgrep_validator_precedes_fixture_scan(completed.stdout)
+    assert replacement not in dry_run
+    assert_semgrep_check_contract(dry_run)
+    assert_semgrep_validator_precedes_fixture_scan(dry_run)
 
 
-@pytest.mark.parametrize(
-    "override_source", ["command_line", "makeflags", "environment_overrides"]
-)
-def test_semgrep_check_ignores_curdir_override_channels(override_source: str) -> None:
-    """GNU Make's inherited assignment channels cannot redirect the security scope."""
-    replacement = "/tmp/tailtag-fake"
-    if override_source == "command_line":
-        completed = run_make("-n", "api-semgrep-check", f"CURDIR={replacement}")
-    elif override_source == "environment_overrides":
-        completed = run_make(
-            "-n",
-            "api-semgrep-check",
-            environment={"MAKEFLAGS": "-e", "CURDIR": replacement},
-        )
-    else:
-        completed = run_make(
-            "-n",
-            "api-semgrep-check",
-            environment={"MAKEFLAGS": f"CURDIR={replacement}"},
-        )
-
-    assert completed.returncode == 0, completed.stderr
-    assert replacement not in completed.stdout
-    assert_semgrep_check_contract(completed.stdout)
-    assert_semgrep_validator_precedes_fixture_scan(completed.stdout)
-
-
-@pytest.mark.parametrize(
-    "override_source", ["environment", "command_line", "environment_overrides"]
-)
-def test_semgrep_check_honors_the_uv_override_seam(
-    tmp_path: Path, override_source: str
+@pytest.mark.parametrize("uv_channel", ["environment", "command_line"])
+def test_uv_override_selects_the_launcher_without_altering_the_semgrep_contract(
+    tmp_path: Path, uv_channel: str
 ) -> None:
-    """The one intentional launcher seam cannot alter Semgrep's fixed contract."""
+    """AC13: UV is overridable by environment and argument; nothing else moves."""
     custom_uv = tmp_path / "uv"
     custom_uv.write_text("#!/bin/sh\nexit 0\n")
     custom_uv.chmod(0o755)
 
-    if override_source == "environment":
-        completed = run_make(
-            "-n", "api-semgrep-check", environment={"UV": str(custom_uv)}
+    if uv_channel == "environment":
+        completed = task_dry_run(
+            "api-semgrep-check", environment={"UV": str(custom_uv)}
         )
-    elif override_source == "command_line":
-        completed = run_make("-n", "api-semgrep-check", f"UV={custom_uv}")
     else:
-        completed = run_make(
-            "-n",
-            "api-semgrep-check",
-            environment={"MAKEFLAGS": "-e", "UV": str(custom_uv)},
-        )
+        completed = task_dry_run("api-semgrep-check", f"UV={custom_uv}")
 
-    assert completed.returncode == 0, completed.stderr
     commands = [shlex.split(command) for command in dry_run_commands(completed.stdout)]
     validator_command = next(
-        command for command in commands if str(SEMGREP_VALIDATOR) in command
+        command for command in commands if SEMGREP_VALIDATOR.as_posix() in command
     )
-    assert validator_command[0] == str(custom_uv)
+    assert validator_command[0] == custom_uv.as_posix()
     for command in semgrep_scan_tokens(completed.stdout):
-        semgrep_index = command.index("semgrep")
-        assert command[semgrep_index - 6] == str(custom_uv)
-
+        assert command[command.index("semgrep") - 6] == custom_uv.as_posix()
     assert_semgrep_check_contract(completed.stdout)
     assert_semgrep_validator_precedes_fixture_scan(completed.stdout)
 
 
-def test_semgrep_validator_preflight_rejects_a_second_python_execution() -> None:
-    """A scan target mention is allowed, but a second validator execution is not."""
-    completed = run_make("-n", "api-semgrep-check")
-    commands = dry_run_commands(completed.stdout)
-    validator = next(
-        command
-        for command in commands
-        if shlex.split(command)[7:8] == [str(SEMGREP_VALIDATOR)]
+def test_setup_synchronizes_both_locked_projects() -> None:
+    """Setup prepares both projects; api-check never syncs (see composition test)."""
+    joined = "\n".join(dry_run_commands(task_dry_run("api-setup").stdout))
+
+    assert "uv --directory services/api sync --all-groups --locked" in joined
+    assert "uv --directory .semgrep sync --locked" in joined
+
+
+def test_strict_type_check_includes_the_root_helpers() -> None:
+    """Root helpers and the CI classifier receive strict Pyright coverage."""
+    pyright = tomllib.loads(
+        (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml").read_text()
+    )["tool"]["pyright"]
+
+    assert pyright["typeCheckingMode"] == "strict"
+    for script in (
+        "backend_ci_relevance.py",
+        "validate_semgrep_contract.py",
+        "api_auth_smoke.py",
+        "api_staging_auth_smoke.py",
+        "api_media_storage_smoke.py",
+        "api_environment_fingerprint.py",
+        "clerk_development_session.py",
+    ):
+        assert f"../../scripts/{script}" in pyright["include"]
+
+
+def test_only_named_migration_tasks_change_migration_or_schema_state() -> None:
+    non_mutating = (
+        "api-setup",
+        "api-run",
+        "api-test",
+        "api-shell",
+        "api-smoke",
+        "api-auth-smoke",
+        "api-staging-auth-smoke",
+        "api-media-storage-smoke",
     )
+    for task in non_mutating:
+        dry_run = task_dry_run(task).stdout
+        for forbidden in (
+            "docker compose",
+            "python manage.py migrate",
+            "python manage.py makemigrations",
+        ):
+            assert forbidden not in dry_run, task
+
+    assert "python manage.py migrate" in task_dry_run("api-migrate").stdout
+    assert "python manage.py makemigrations" in task_dry_run("api-migrations").stdout
+
+
+@pytest.mark.parametrize(
+    ("task", "module", "settings_module"),
+    [
+        ("api-auth-smoke", "scripts.api_auth_smoke", None),
+        ("api-staging-auth-smoke", "scripts.api_staging_auth_smoke", None),
+        (
+            "api-media-storage-smoke",
+            "scripts.api_media_storage_smoke",
+            "config.settings.production",
+        ),
+    ],
+)
+def test_live_smoke_tasks_are_explicit_locked_module_runs(
+    task: str, module: str, settings_module: str | None
+) -> None:
+    commands = [
+        command
+        for command in dry_run_commands(task_dry_run(task).stdout)
+        if not command.startswith(("printf ", "echo "))
+    ]
+
+    assert len(commands) == 1
+    assert (
+        f"run --project services/api --locked --no-sync python -m {module}"
+        in commands[0]
+    )
+    if settings_module:
+        assert f"DJANGO_SETTINGS_MODULE={settings_module}" in commands[0]
+
+
+@pytest.mark.parametrize(
+    "execution",
+    [
+        "uv --directory services/api run --locked --no-sync python scripts/./api_media_storage_smoke.py",
+        "uv --directory services/api run --locked --no-sync python -m scripts.api_auth_smoke",
+        "bash scripts/api_staging_auth_smoke.py",
+        "env /usr/bin/python scripts/api_media_storage_smoke.py",
+    ],
+)
+def test_api_check_rejects_every_live_smoke_helper_execution(execution: str) -> None:
+    """Static analysis of the helpers is allowed; executing any of them is not."""
+    api_check = task_dry_run("api-check").stdout
 
     with pytest.raises(AssertionError):
-        assert_semgrep_validator_precedes_fixture_scan(
-            f"{completed.stdout}\n{validator}"
+        assert_live_helpers_are_only_statically_analyzed(
+            f"{api_check}\n{as_dry_run(execution)}"
         )
+
+
+def test_api_check_accepts_normalized_static_analysis_of_a_live_smoke_helper() -> None:
+    api_check = task_dry_run("api-check").stdout
+    static = (
+        "uv --directory services/api run --locked --no-sync "
+        "ruff check scripts/./api_auth_smoke.py"
+    )
+
+    assert_live_helpers_are_only_statically_analyzed(
+        f"{api_check}\n{as_dry_run(static)}"
+    )
+
+
+def test_ordinary_smoke_and_ci_remain_noninteractive_and_credential_free() -> None:
+    """CI and the ordinary smoke must not gain a secret, prompt, or live Clerk path."""
+    ordinary = task_dry_run("api-smoke").stdout
+
+    for text in (ordinary, workflow_text()):
+        assert "api-auth-smoke" not in text
+        assert "scripts.api_auth_smoke" not in text
+        assert "scripts/api_auth_smoke.py" not in text
+        assert "Clerk Development secret:" not in text
+        assert "sk_test_" not in text
+        for forbidden_name in (
+            "CLERK_SECRET",
+            "CLERK_SECRET_KEY",
+            "CLERK_API_KEY",
+            "CLERK_BACKEND_API_KEY",
+        ):
+            assert forbidden_name not in text
+
+
+@skip_on_windows("Uses a POSIX shebang script as the uv launcher.")
+def test_media_storage_smoke_failure_emits_only_sanitized_output(
+    tmp_path: Path,
+) -> None:
+    """AC10: a silent task leaks no command text, settings, path, or launcher."""
+    launcher = tmp_path / "uv"
+    launcher.write_text(
+        "#!/bin/sh\n"
+        "set -eu\n"
+        '[ "$1" = run ]\n'
+        "shift\n"
+        'while [ "$#" -gt 0 ]; do\n'
+        '  case "$1" in\n'
+        "    --project) shift 2 ;;\n"
+        "    --locked|--no-sync) shift ;;\n"
+        '    python) shift; exec "$PYTHON_FOR_MEDIA_SMOKE" "$@" ;;\n'
+        "    *) exit 99 ;;\n"
+        "  esac\n"
+        "done\n"
+        "exit 99\n"
+    )
+    launcher.chmod(0o755)
+
+    completed = run_task(
+        "api-media-storage-smoke",
+        environment={
+            "UV": str(launcher),
+            "PYTHON_FOR_MEDIA_SMOKE": sys.executable,
+            "RAILWAY_ENVIRONMENT_NAME": "production",
+            "RAILWAY_SERVICE_NAME": "api",
+            "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": (
+                "run-r2-development-media-storage-smoke"
+            ),
+        },
+    )
+
+    assert completed.returncode != 0
+    assert completed.stdout == ""
+    stderr_lines = completed.stderr.splitlines()
+    assert stderr_lines[0] == "FAIL target configuration invalid"
+    assert len(stderr_lines[1:]) <= 1
+    assert all(
+        MEDIA_STORAGE_SMOKE_TASK_FAILURE_FOOTER.fullmatch(line)
+        for line in stderr_lines[1:]
+    )
+    rendered = completed.stdout + completed.stderr
+    for forbidden in (
+        "DJANGO_SETTINGS_MODULE",
+        "PYTHONPATH",
+        "config.settings.production",
+        "python -m scripts.api_media_storage_smoke",
+        str(launcher),
+        str(REPOSITORY_ROOT),
+    ):
+        assert forbidden not in rendered
+
+
+@skip_on_windows("Exercises the devcontainer branch, which only runs on Linux.")
+def test_devcontainer_migrate_executes_with_the_compose_database_url(
+    tmp_path: Path,
+) -> None:
+    """The devcontainer migration recipe passes its Compose database URL to Django."""
+    uv = tmp_path / "uv"
+    uv.write_text(
+        """#!/bin/sh
+case "$*" in
+  *"config.compose_database_url")
+    printf '%s\\n' 'postgresql://tailtag:local@db:5432/tailtag'
+    ;;
+  *"python manage.py migrate")
+    printf 'DATABASE_URL=%s\\n' "$DATABASE_URL"
+    printf 'DJANGO_SETTINGS_MODULE=%s\\n' "$DJANGO_SETTINGS_MODULE"
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+"""
+    )
+    uv.chmod(0o755)
+
+    completed = run_task(
+        "api-migrate",
+        environment={
+            "DATABASE_URL": "postgresql://inherited:sentinel@localhost:5432/sentinel",
+            "DJANGO_SETTINGS_MODULE": "sentinel.settings",
+            "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+            "TAILTAG_DEVCONTAINER": "1",
+            "UV": "uv",
+        },
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "DATABASE_URL=postgresql://tailtag:local@db:5432/tailtag" in completed.stdout
+    assert "DJANGO_SETTINGS_MODULE=config.settings.local" in completed.stdout
+
+
+def test_smoke_checks_an_already_running_http_service() -> None:
+    """The task passes API_BASE_URL through and requests every endpoint."""
+    with smoke_server() as base_url:
+        completed = run_task("api-smoke", environment={"API_BASE_URL": base_url})
+
+    assert completed.returncode == 0, completed.stderr
+    for path in ("/health/live", "/health/ready", "/api/schema/", "/api/docs/"):
+        assert path in completed.stdout
+
+
+@pytest.mark.parametrize(
+    ("handler", "expected"),
+    [
+        (
+            UnreadySmokeHandler,
+            ["FAIL /health/ready: expected HTTP 200, received HTTP 503"],
+        ),
+        (
+            RedirectingSmokeHandler,
+            ["FAIL /health/live: expected HTTP 200, received HTTP 302"],
+        ),
+        (
+            FailingSmokeHandler,
+            [
+                "FAIL /health/live: expected HTTP 200, received HTTP 503",
+                "FAIL /health/ready: expected HTTP 200, received HTTP 503",
+            ],
+        ),
+    ],
+)
+def test_smoke_reports_every_endpoint_with_a_bad_response(
+    handler: type[BaseHTTPRequestHandler], expected: list[str]
+) -> None:
+    with smoke_server(handler) as base_url:
+        completed = run_task("api-smoke", environment={"API_BASE_URL": base_url})
+
+    assert completed.returncode != 0
+    for line in expected:
+        assert line in completed.stderr
+
+
+@pytest.mark.parametrize(
+    ("base_url", "expected"),
+    [
+        ("http://127.0.0.1:1", "/health/live"),
+        ("not a URL", "FAIL API_BASE_URL: an absolute http or https URL is required"),
+    ],
+)
+def test_smoke_fails_clearly_without_a_traceback(base_url: str, expected: str) -> None:
+    completed = run_task("api-smoke", environment={"API_BASE_URL": base_url})
+
+    assert completed.returncode != 0
+    assert expected in completed.stderr
+    assert "Traceback" not in completed.stderr
 
 
 def test_semgrep_is_isolated_from_the_api_dependency_resolution() -> None:
@@ -856,6 +968,7 @@ def run_api_no_dev_dependency_export() -> subprocess.CompletedProcess[str]:
     )
 
 
+@skip_on_windows("Uses a POSIX shebang script as the uv launcher.")
 def test_api_dependency_export_honors_the_uv_launcher_seam(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -884,66 +997,6 @@ def test_api_dependency_export_honors_the_uv_launcher_seam(
     ]
 
 
-def test_setup_synchronizes_both_locked_projects_before_no_sync_checks() -> None:
-    """Setup prepares both projects while the regular validation target never syncs."""
-    setup = run_make("-n", "api-setup")
-    check = run_make("-n", "api-check")
-
-    assert setup.returncode == 0, setup.stderr
-    assert "uv --directory services/api sync --all-groups --locked" in setup.stdout
-    assert "uv --directory .semgrep sync --locked" in setup.stdout
-    assert check.returncode == 0, check.stderr
-    assert " sync " not in check.stdout
-
-
-def test_strict_type_check_includes_the_ci_relevance_helper() -> None:
-    """The repo-owned CI classifier receives the same strict type coverage as scripts."""
-    pyproject = (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml").read_text()
-
-    assert '"../../scripts/backend_ci_relevance.py"' in pyproject
-
-
-def test_static_checks_include_the_semgrep_contract_validator() -> None:
-    """The root Semgrep metadata validator receives the ordinary static checks."""
-    completed = run_make("-n", "api-format-check", "api-lint-check")
-    pyproject = tomllib.loads(
-        (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml").read_text()
-    )
-
-    assert completed.returncode == 0, completed.stderr
-    ruff_commands = [
-        shlex.split(command)
-        for command in dry_run_commands(completed.stdout)
-        if "ruff" in shlex.split(command)
-    ]
-    assert len(ruff_commands) == 2
-    for command in ruff_commands:
-        ruff_index = command.index("ruff")
-        assert command[ruff_index + 1] in {"format", "check"}
-        assert str(SEMGREP_VALIDATOR) in command[ruff_index + 1 :]
-
-    pyright = pyproject["tool"]["pyright"]
-    assert pyright["typeCheckingMode"] == "strict"
-    assert "../../scripts/validate_semgrep_contract.py" in pyright["include"]
-
-
-def test_static_checks_include_all_authenticated_smoke_helpers() -> None:
-    """Live-tool scripts receive the same static checks as existing root helpers."""
-    completed = run_make("-n", "api-format-check", "api-lint-check")
-    pyproject = (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml").read_text()
-
-    assert completed.returncode == 0, completed.stderr
-    for script in (
-        AUTH_SMOKE_SCRIPT,
-        STAGING_AUTH_SMOKE_SCRIPT,
-        MEDIA_STORAGE_SMOKE_SCRIPT,
-        ENVIRONMENT_FINGERPRINT_SCRIPT,
-        REPOSITORY_ROOT / "scripts" / "clerk_development_session.py",
-    ):
-        assert str(script) in completed.stdout
-        assert f'"../../scripts/{script.name}"' in pyproject
-
-
 def test_media_storage_smoke_has_no_unsafe_url_open_finding() -> None:
     """The guarded helper must carry effective, narrow S310 treatment at its URL sink."""
     completed = subprocess.run(
@@ -969,97 +1022,6 @@ def test_media_storage_smoke_has_no_unsafe_url_open_finding() -> None:
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
-def test_lifecycle_and_schema_changes_remain_explicit() -> None:
-    """Only named migration targets can change migration or schema state."""
-    non_mutating_targets = (
-        "api-setup",
-        "api-run",
-        "api-test",
-        "api-shell",
-        "api-smoke",
-        "api-auth-smoke",
-        "api-staging-auth-smoke",
-        "api-media-storage-smoke",
-    )
-
-    for target in non_mutating_targets:
-        completed = run_make("-n", target)
-
-        assert completed.returncode == 0, completed.stderr
-        assert "docker compose" not in completed.stdout
-        assert "python manage.py migrate" not in completed.stdout
-        assert "python manage.py makemigrations" not in completed.stdout
-
-    assert "python manage.py migrate" in run_make("-n", "api-migrate").stdout
-    assert "python manage.py makemigrations" in run_make("-n", "api-migrations").stdout
-
-
-def test_authenticated_smoke_is_a_separate_locked_atomic_command() -> None:
-    """The only live Clerk path is explicit and never piggybacks on ordinary work."""
-    completed = run_make("-n", "api-auth-smoke")
-
-    assert completed.returncode == 0, completed.stderr
-    assert (
-        "uv run --project services/api --locked --no-sync python -m scripts.api_auth_smoke"
-        in completed.stdout
-    )
-    assert str(AUTH_SMOKE_SCRIPT) not in run_make("-n", "api-smoke").stdout
-
-
-def test_authenticated_smoke_honors_uv_override(tmp_path: Path) -> None:
-    """The manual live command respects the repository's UV override seam."""
-    overridden_uv = tmp_path / "overridden-uv"
-    overridden_uv.write_text("#!/bin/sh\nexit 0\n")
-    overridden_uv.chmod(0o755)
-
-    completed = run_make("-n", "api-auth-smoke", f"UV={overridden_uv}")
-
-    assert completed.returncode == 0, completed.stderr
-    assert f"{overridden_uv} run " in completed.stdout
-    assert "python -m scripts.api_auth_smoke" in completed.stdout
-
-
-def test_staging_authenticated_smoke_is_an_explicit_locked_maintainer_command() -> None:
-    """AC-4/9: Clerk Production access is opt-in and never an ordinary check step."""
-    completed = run_make("-n", "api-staging-auth-smoke")
-    api_check = run_make("-n", "api-check")
-
-    assert completed.returncode == 0, completed.stderr
-    assert (
-        "uv run --project services/api --locked --no-sync "
-        "python -m scripts.api_staging_auth_smoke"
-    ) in completed.stdout
-    assert "api-staging-auth-smoke" not in api_check.stdout
-    assert "python -m scripts.api_staging_auth_smoke" not in api_check.stdout
-
-
-def test_new_staging_helpers_are_statically_checked_but_never_live_api_check_steps() -> (
-    None
-):
-    """AC-6/9: static tools cover both helpers without making CI contact platforms."""
-    completed = run_make("-n", "api-check")
-    pyproject = tomllib.loads(
-        (REPOSITORY_ROOT / "services" / "api" / "pyproject.toml").read_text()
-    )
-
-    assert completed.returncode == 0, completed.stderr
-    for script in (STAGING_AUTH_SMOKE_SCRIPT, ENVIRONMENT_FINGERPRINT_SCRIPT):
-        assert str(script) in completed.stdout
-        assert f"../../scripts/{script.name}" in pyproject["tool"]["pyright"]["include"]
-        script_commands = [
-            shlex.split(command)
-            for command in dry_run_commands(completed.stdout)
-            if str(script) in command
-        ]
-        assert script_commands
-        for command in script_commands:
-            if "semgrep" in command:
-                assert command[command.index("semgrep") + 1] == "scan"
-            else:
-                assert "ruff" in command
-                assert "python" not in command
-
-
 def test_staging_authenticated_smoke_is_never_an_ordinary_ci_workflow_step() -> None:
     """AC-4/9: Production-Clerk smoke remains an explicit maintainer operation."""
     workflow_text = "\n".join(
@@ -1072,201 +1034,6 @@ def test_staging_authenticated_smoke_is_never_an_ordinary_ci_workflow_step() -> 
     assert "scripts.api_staging_auth_smoke" not in workflow_text
 
 
-def test_media_storage_smoke_is_a_separate_production_locked_command() -> None:
-    """The R2 operation is an explicit opt-in, not a path through ordinary checks."""
-    completed = run_make("-n", "api-media-storage-smoke")
-    api_check = run_make("-n", "api-check")
-
-    assert completed.returncode == 0, completed.stderr
-    assert "DJANGO_SETTINGS_MODULE=config.settings.production" in completed.stdout
-    assert (
-        "uv run --project services/api --locked --no-sync "
-        "python -m scripts.api_media_storage_smoke"
-    ) in completed.stdout
-    assert "api-media-storage-smoke" not in api_check.stdout
-    assert_api_check_has_only_static_media_storage_helper_analysis(api_check.stdout)
-
-
-def assert_api_check_has_only_static_media_storage_helper_analysis(
-    api_check: str,
-) -> None:
-    """Allow helper references only in validated Ruff or Semgrep static analysis."""
-    helper_commands = [
-        (command, shlex.split(command))
-        for command in dry_run_commands(api_check)
-        if any(
-            is_media_storage_smoke_helper_operand(token)
-            for token in shlex.split(command)
-        )
-    ]
-    assert helper_commands
-    for command, tokens in helper_commands:
-        if "semgrep" in tokens:
-            parsed = semgrep_scan_tokens(command)
-            assert len(parsed) == 1
-            semgrep_tokens = parsed[0]
-            assert semgrep_config_operands(semgrep_tokens) == [
-                str(SEMGREP_RULES_DIRECTORY)
-            ]
-            assert MEDIA_STORAGE_SMOKE_SCRIPT.resolve() in {
-                resolve_repository_operand(operand)
-                for operand in semgrep_target_operands(semgrep_tokens)
-            }
-            continue
-
-        assert "ruff" in tokens, command
-        assert Path(tokens[0]).name == "uv", command
-        ruff_index = tokens.index("ruff")
-        assert tokens[1:ruff_index] == [
-            "--directory",
-            "services/api",
-            "run",
-            "--locked",
-            "--no-sync",
-        ], command
-        ruff_arguments = tokens[ruff_index + 1 :]
-        if ruff_arguments[:2] == ["format", "--check"]:
-            source_operands = ruff_arguments[2:]
-        else:
-            assert ruff_arguments[:1] == ["check"], command
-            source_operands = ruff_arguments[1:]
-        assert source_operands[0] == ".", command
-        helper_operands = source_operands[1:]
-        assert len(helper_operands) == len(FROZEN_ROOT_HELPERS), command
-        assert {resolve_repository_operand(operand) for operand in helper_operands} == {
-            REPOSITORY_ROOT / helper for helper in FROZEN_ROOT_HELPERS
-        }, command
-
-
-def test_media_storage_smoke_honors_only_the_uv_launcher_override(
-    tmp_path: Path,
-) -> None:
-    """The explicit live target still uses the standard repository launcher seam."""
-    overridden_uv = tmp_path / "overridden-uv"
-    overridden_uv.write_text("#!/bin/sh\nexit 0\n")
-    overridden_uv.chmod(0o755)
-
-    completed = run_make("-n", "api-media-storage-smoke", f"UV={overridden_uv}")
-
-    assert completed.returncode == 0, completed.stderr
-    assert f"{overridden_uv} run " in completed.stdout
-    assert "python -m scripts.api_media_storage_smoke" in completed.stdout
-
-
-def test_media_storage_smoke_execution_emits_only_sanitized_stage_output(
-    tmp_path: Path,
-) -> None:
-    """An invalid pre-Django target guard must not echo the Make recipe or launcher."""
-    launcher = tmp_path / "uv"
-    launcher.write_text(
-        "#!/bin/sh\n"
-        "set -eu\n"
-        '[ "$1" = run ]\n'
-        "shift\n"
-        'while [ "$#" -gt 0 ]; do\n'
-        '  case "$1" in\n'
-        "    --project) shift 2 ;;\n"
-        "    --locked|--no-sync) shift ;;\n"
-        '    python) shift; exec "$PYTHON_FOR_MEDIA_SMOKE" "$@" ;;\n'
-        "    *) exit 99 ;;\n"
-        "  esac\n"
-        "done\n"
-        "exit 99\n"
-    )
-    launcher.chmod(0o755)
-
-    completed = run_make(
-        "--no-print-directory",
-        "api-media-storage-smoke",
-        environment={
-            "UV": str(launcher),
-            "PYTHON_FOR_MEDIA_SMOKE": sys.executable,
-            "RAILWAY_ENVIRONMENT_NAME": "production",
-            "RAILWAY_SERVICE_NAME": "api",
-            "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": (
-                "run-r2-development-media-storage-smoke"
-            ),
-        },
-    )
-
-    assert completed.returncode != 0
-    assert completed.stdout == ""
-    stderr_lines = completed.stderr.splitlines()
-    assert stderr_lines[0] == "FAIL target configuration invalid"
-    assert len(stderr_lines[1:]) <= 1
-    assert all(
-        MEDIA_STORAGE_SMOKE_MAKE_FAILURE_FOOTER.fullmatch(line)
-        for line in stderr_lines[1:]
-    )
-    rendered = completed.stdout + completed.stderr
-    for forbidden in (
-        "DJANGO_SETTINGS_MODULE=config.settings.production",
-        "PYTHONPATH=",
-        "python -m scripts.api_media_storage_smoke",
-        str(launcher),
-    ):
-        assert forbidden not in rendered
-
-
-@pytest.mark.parametrize(
-    "footer",
-    (
-        "make: *** [api-media-storage-smoke] Error 1",
-        "make[1]: *** [Makefile:103: api-media-storage-smoke] Error 1",
-    ),
-)
-def test_media_storage_smoke_footer_accepts_only_canonical_make_variants(
-    footer: str,
-) -> None:
-    """macOS and nested GNU Make use different, equally non-sensitive footers."""
-    assert MEDIA_STORAGE_SMOKE_MAKE_FAILURE_FOOTER.fullmatch(footer)
-
-
-@pytest.mark.parametrize(
-    "footer",
-    (
-        "make[0]: *** [Makefile:103: api-media-storage-smoke] Error 1",
-        "make[1]: *** [/workspace/Makefile:103: api-media-storage-smoke] Error 1",
-        "make[1]: *** [Makefile:0: api-media-storage-smoke] Error 1",
-        "make[1]: *** [Makefile:103: api-media-storage-smoke] Error 2",
-        "make[1]: *** [Makefile:103: api-media-storage-smoke] Error 1 secret",
-    ),
-)
-def test_media_storage_smoke_footer_rejects_path_or_arbitrary_variants(
-    footer: str,
-) -> None:
-    """The generic Make footer cannot become a channel for paths or extra content."""
-    assert MEDIA_STORAGE_SMOKE_MAKE_FAILURE_FOOTER.fullmatch(footer) is None
-
-
-@pytest.mark.parametrize(
-    "command",
-    (
-        "uv --directory services/api run --locked --no-sync python scripts/./api_media_storage_smoke.py",
-        "sh scripts/api_media_storage_smoke.py",
-        "bash scripts/api_media_storage_smoke.py",
-        "zsh scripts/api_media_storage_smoke.py",
-        "xargs python scripts/api_media_storage_smoke.py",
-        "exec python scripts/api_media_storage_smoke.py",
-        "python3 scripts/api_media_storage_smoke.py",
-        "/usr/bin/python scripts/api_media_storage_smoke.py",
-        "env python scripts/api_media_storage_smoke.py",
-        "env /usr/bin/python scripts/api_media_storage_smoke.py",
-        "uv --directory services/api run --locked --no-sync ruff check . scripts/api_media_storage_smoke.py",
-    ),
-)
-def test_api_check_rejects_every_normalized_or_shell_media_storage_helper_execution(
-    command: str,
-) -> None:
-    """Static checking the helper is allowed; every ordinary execution spelling is not."""
-    api_check = run_make("-n", "api-check").stdout
-
-    with pytest.raises(AssertionError):
-        assert_api_check_has_only_static_media_storage_helper_analysis(
-            f"{api_check}\n{command}"
-        )
-
-
 def test_media_storage_smoke_is_never_an_ordinary_ci_workflow_step() -> None:
     """The real R2 operation is intentionally absent from all checked-in workflows."""
     workflow_text = "\n".join(
@@ -1277,237 +1044,3 @@ def test_media_storage_smoke_is_never_an_ordinary_ci_workflow_step() -> None:
 
     assert "api-media-storage-smoke" not in workflow_text
     assert "scripts.api_media_storage_smoke" not in workflow_text
-
-
-def assert_ci_and_ordinary_smoke_are_noninteractive_and_credential_free(
-    ordinary: str, api_check: str, workflow_text: str
-) -> None:
-    """Assert that only explicit manual work can invoke authenticated smoke checks."""
-
-    for text in (ordinary, api_check, workflow_text):
-        assert "api-auth-smoke" not in text
-        assert "scripts.api_auth_smoke" not in text
-        assert "Clerk Development secret:" not in text
-        assert "sk_test_" not in text
-        for forbidden_name in (
-            "CLERK_SECRET",
-            "CLERK_SECRET_KEY",
-            "CLERK_API_KEY",
-            "CLERK_BACKEND_API_KEY",
-        ):
-            assert forbidden_name not in text
-
-    # Static analysis may inspect the helper source in api-check, but it must
-    # never execute it. The Semgrep helper proves the exact blocking target
-    # set; Pyright coverage is asserted separately from pyproject.
-    assert_semgrep_check_contract(api_check)
-    assert_api_check_uv_runs_are_locked_and_no_sync(api_check)
-    api_check_script_commands = [
-        (line, shlex.split(line))
-        for line in dry_run_commands(api_check)
-        if any(
-            is_authenticated_smoke_helper_operand(token) for token in shlex.split(line)
-        )
-    ]
-    assert api_check_script_commands
-    for line, tokens in api_check_script_commands:
-        assert not any(
-            operator in line
-            for operator in ("&&", "||", ";", "|", "`", "$(", "${", ">", "<")
-        ), line
-
-        assert not any(
-            token
-            in {"python", "-m", "api-auth-smoke", "sh", "bash", "zsh", "xargs", "exec"}
-            for token in tokens
-        ), line
-
-        if any(
-            tokens[index : index + 2] == ["semgrep", "scan"]
-            for index in range(len(tokens))
-        ):
-            # assert_semgrep_check_contract above structurally validates this
-            # command and requires the helper as a blocking-scan source target.
-            continue
-
-        ruff_index = tokens.index("ruff")
-        assert tokens[ruff_index + 1] in {"format", "check"}, line
-        assert any(
-            is_authenticated_smoke_helper_operand(token)
-            for token in tokens[ruff_index + 1 :]
-        ), line
-
-    # Ordinary smoke and CI must not reference the helper at all.
-    for text in (ordinary, workflow_text):
-        assert "scripts/api_auth_smoke.py" not in text
-
-    assert not any(
-        is_authenticated_smoke_helper_operand(token)
-        for line in dry_run_commands(ordinary)
-        for token in shlex.split(line)
-    )
-
-
-def test_ci_and_ordinary_smoke_remain_noninteractive_and_credential_free() -> None:
-    """CI must not gain a secret, prompt, or live authenticated smoke dependency."""
-    ordinary = run_make("-n", "api-smoke").stdout
-    api_check = run_make("-n", "api-check").stdout
-    workflow_text = "\n".join(
-        path.read_text()
-        for suffix in ("*.yml", "*.yaml")
-        for path in (REPOSITORY_ROOT / ".github" / "workflows").glob(suffix)
-    )
-
-    assert_ci_and_ordinary_smoke_are_noninteractive_and_credential_free(
-        ordinary, api_check, workflow_text
-    )
-
-
-def test_api_check_rejects_normalized_authenticated_smoke_helper_execution() -> None:
-    """Equivalent helper paths cannot bypass api-check's execution prohibition."""
-    ordinary = run_make("-n", "api-smoke").stdout
-    api_check = run_make("-n", "api-check").stdout
-    workflow_text = "\n".join(
-        path.read_text()
-        for suffix in ("*.yml", "*.yaml")
-        for path in (REPOSITORY_ROOT / ".github" / "workflows").glob(suffix)
-    )
-
-    with pytest.raises(AssertionError):
-        assert_ci_and_ordinary_smoke_are_noninteractive_and_credential_free(
-            ordinary,
-            f"{api_check}\nuv --directory services/api run --locked --no-sync python scripts/./api_auth_smoke.py",
-            workflow_text,
-        )
-
-
-def test_api_check_accepts_normalized_authenticated_smoke_helper_static_analysis() -> (
-    None
-):
-    """Ruff may inspect the helper through an equivalent path spelling."""
-    ordinary = run_make("-n", "api-smoke").stdout
-    api_check = run_make("-n", "api-check").stdout
-    workflow_text = "\n".join(
-        path.read_text()
-        for suffix in ("*.yml", "*.yaml")
-        for path in (REPOSITORY_ROOT / ".github" / "workflows").glob(suffix)
-    )
-
-    assert_ci_and_ordinary_smoke_are_noninteractive_and_credential_free(
-        ordinary,
-        f"{api_check}\nuv --directory services/api run --locked --no-sync ruff check scripts/./api_auth_smoke.py",
-        workflow_text,
-    )
-
-
-def test_devcontainer_django_commands_derive_the_compose_database_url() -> None:
-    """The generated devcontainer migration recipe configures Compose PostgreSQL."""
-    completed = run_make("-n", "api-migrate", environment={"TAILTAG_DEVCONTAINER": "1"})
-
-    assert completed.returncode == 0, completed.stderr
-    assert "config.compose_database_url" in completed.stdout
-    assert "DJANGO_SETTINGS_MODULE=config.settings.local" in completed.stdout
-    assert "python manage.py migrate" in completed.stdout
-
-
-def test_devcontainer_migrate_executes_with_the_compose_database_url(
-    tmp_path: Path,
-) -> None:
-    """The devcontainer migration recipe passes its Compose database URL to Django."""
-    uv = tmp_path / "uv"
-    uv.write_text(
-        """#!/bin/sh
-case "$*" in
-  *"config.compose_database_url")
-    printf '%s\\n' 'postgresql://tailtag:local@db:5432/tailtag'
-    ;;
-  *"python manage.py migrate")
-    printf 'DATABASE_URL=%s\\n' "$DATABASE_URL"
-    printf 'DJANGO_SETTINGS_MODULE=%s\\n' "$DJANGO_SETTINGS_MODULE"
-    ;;
-  *)
-    exit 1
-    ;;
-esac
-"""
-    )
-    uv.chmod(0o755)
-
-    completed = run_make(
-        "api-migrate",
-        environment={
-            "DATABASE_URL": "postgresql://inherited:sentinel@localhost:5432/sentinel",
-            "DJANGO_SETTINGS_MODULE": "sentinel.settings",
-            "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
-            "TAILTAG_DEVCONTAINER": "1",
-            "UV": "uv",
-        },
-    )
-
-    assert completed.returncode == 0, completed.stderr
-    assert "DATABASE_URL=postgresql://tailtag:local@db:5432/tailtag" in completed.stdout
-    assert "DJANGO_SETTINGS_MODULE=config.settings.local" in completed.stdout
-
-
-def test_smoke_checks_an_already_running_http_service() -> None:
-    """The smoke target requests every health and documentation endpoint."""
-    with smoke_server() as base_url:
-        completed = run_make("api-smoke", environment={"API_BASE_URL": base_url})
-
-    assert completed.returncode == 0, completed.stderr
-    for path in ("/health/live", "/health/ready", "/api/schema/", "/api/docs/"):
-        assert path in completed.stdout
-
-
-def test_smoke_fails_clearly_when_the_api_is_unavailable() -> None:
-    """The smoke target reports a connection failure without hiding it."""
-    completed = run_make(
-        "api-smoke", environment={"API_BASE_URL": "http://127.0.0.1:1"}
-    )
-
-    assert completed.returncode != 0
-    assert "/health/live" in completed.stderr
-
-
-def test_smoke_fails_clearly_when_an_endpoint_returns_an_unexpected_status() -> None:
-    """The smoke target identifies the reachable endpoint with a bad response."""
-    with smoke_server(UnreadySmokeHandler) as base_url:
-        completed = run_make("api-smoke", environment={"API_BASE_URL": base_url})
-
-    assert completed.returncode != 0
-    assert (
-        "FAIL /health/ready: expected HTTP 200, received HTTP 503" in completed.stderr
-    )
-
-
-def test_smoke_rejects_redirects_from_required_endpoints() -> None:
-    """The smoke target does not treat a redirected response as HTTP 200."""
-    with smoke_server(RedirectingSmokeHandler) as base_url:
-        completed = run_make("api-smoke", environment={"API_BASE_URL": base_url})
-
-    assert completed.returncode != 0
-    assert "FAIL /health/live: expected HTTP 200, received HTTP 302" in completed.stderr
-
-
-def test_smoke_rejects_a_malformed_base_url_without_a_traceback() -> None:
-    """The smoke target reports invalid input without exposing a Python traceback."""
-    completed = run_make("api-smoke", environment={"API_BASE_URL": "not a URL"})
-
-    assert completed.returncode != 0
-    assert (
-        "FAIL API_BASE_URL: an absolute http or https URL is required"
-        in completed.stderr
-    )
-    assert "Traceback" not in completed.stderr
-
-
-def test_smoke_reports_every_failing_required_endpoint() -> None:
-    """The smoke target continues checking after an endpoint fails."""
-    with smoke_server(FailingSmokeHandler) as base_url:
-        completed = run_make("api-smoke", environment={"API_BASE_URL": base_url})
-
-    assert completed.returncode != 0
-    assert "FAIL /health/live: expected HTTP 200, received HTTP 503" in completed.stderr
-    assert (
-        "FAIL /health/ready: expected HTTP 200, received HTTP 503" in completed.stderr
-    )

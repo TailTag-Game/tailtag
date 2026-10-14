@@ -86,9 +86,13 @@ jobs:
           uv --directory services/api sync --all-groups --locked
           uv --directory .semgrep sync --locked
 
+      - name: Install pinned go-task
+        if: steps.relevance.outputs.backend_relevant == 'true'
+        uses: ./.github/actions/install-go-task
+
       - name: Run canonical API validation
         if: steps.relevance.outputs.backend_relevant == 'true'
-        run: make api-check
+        run: task api-check
 
       - name: Report skipped backend validation
         if: steps.relevance.outputs.backend_relevant != 'true'

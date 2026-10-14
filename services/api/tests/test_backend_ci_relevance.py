@@ -45,7 +45,7 @@ def classify_paths(tmp_path: Path, paths: list[str]) -> bool:
         (["services/api/tests/test_health.py"], True),
         (["services/api/uv.lock"], True),
         (["services/api/compose.yaml"], True),
-        (["Makefile"], True),
+        (["Taskfile.yml"], True),
         (["scripts/api_smoke.py"], True),
         (["scripts/api_auth_smoke.py"], True),
         (["scripts/api_replacement_auth_smoke.py"], True),

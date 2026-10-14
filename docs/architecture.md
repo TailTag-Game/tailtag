@@ -30,7 +30,7 @@ the maintained [Staging runbook](development/staging.md).
 
 ## Backend phases
 
-Phase 0 established the clean `services/api` foundation and local contributor environment. Phase 1 now has authoritative backend CI and pre-merge GitHub validation through `make api-check`, its persistent Railway development environment, an explicit Railway pre-deploy migration step, post-deploy HTTP smoke verification, and an enforced normal-contributor delivery path from protected `main` to Railway development. This document does not define production deployment configuration or product application behavior.
+Phase 0 established the clean `services/api` foundation and local contributor environment. Phase 1 now has authoritative backend CI and pre-merge GitHub validation through `task api-check`, its persistent Railway development environment, an explicit Railway pre-deploy migration step, post-deploy HTTP smoke verification, and an enforced normal-contributor delivery path from protected `main` to Railway development. This document does not define production deployment configuration or product application behavior.
 
 ## Shared Railway development environment
 
@@ -69,7 +69,7 @@ and may run the command again. Django records applied migrations, so an
 already-current schema normally makes a subsequent invocation a no-op.
 
 The Docker CMD, Gunicorn process, Django startup, health endpoints, and local
-`make api-run` command do not run migrations. A non-zero pre-deploy command
+`task api-run` command do not run migrations. A non-zero pre-deploy command
 fails the candidate deployment before it becomes active; deployment state and
 deployment logs provide the diagnostic record. See the maintained
 [backend development delivery operations](development/backend-delivery-operations.md)
@@ -87,7 +87,7 @@ observed verification boundary.
 
 Railway evaluates API deployment relevance independently from the broader CI
 relevance contract. Its only API watch path is `services/api/**`. Therefore,
-changes only to the root `Makefile`, `scripts/api_smoke.py`,
+changes only to the root `Taskfile.yml`, `scripts/api_smoke.py`,
 `.github/workflows/api.yml`, documentation, or a future frontend do not
 create an unnecessary API deployment unless a later approved runtime build
 change makes one of those paths directly relevant.
@@ -104,7 +104,7 @@ For normal contributor delivery, the active `Protect main` GitHub ruleset
 requires a pull request, one approval, resolved review conversations, squash
 merge, and the stable `API foundation checks` status check. That check exists
 on every pull request: relevant pull requests run the canonical
-`make api-check`, while irrelevant ones complete through the explicit
+`task api-check`, while irrelevant ones complete through the explicit
 successful skip path. The same workflow also runs for every push to `main`,
 using the same job and canonical command, so Railway Wait for CI validates the
 resulting `main` commit before deploying it.
@@ -124,7 +124,7 @@ The dedicated GitHub Actions post-deploy smoke workflow reacts only when the
 observed Railway GitHub integration reports a `success` deployment status for
 `TailTag / development` created by `railway-app[bot]`. It also supports a manual
 rerun. Both paths use the non-secret repository Actions variable
-`TAILTAG_DEVELOPMENT_API_BASE_URL` and invoke `make api-smoke` against the
+`TAILTAG_DEVELOPMENT_API_BASE_URL` and invoke `task api-smoke` against the
 already-running public API; they neither deploy, migrate, provision PostgreSQL,
 nor control Railway. A smoke failure is a clear failed Actions run with
 endpoint-level diagnostics, not an automatic rollback or redeploy.
@@ -188,7 +188,7 @@ A generated, low-level OpenAPI client and DTO layer may model the wire API, but 
 
 TailTag owns a typed `AppConfig` populated from compile-time Dart defines. Selecting a local versus Railway Development API is configuration rather than flavors or schemes. Compile-time values embedded in an application are not secrets. This does not repurpose the existing backend-smoke `TAILTAG_DEVELOPMENT_API_BASE_URL` variable or the fixed `http://localhost:3000` auth-tooling origin as the mobile configuration contract.
 
-The approved Local API root is `http://127.0.0.1:8000` on the contributor host. Android emulators and USB-connected Android devices reach it through `adb reverse`, which `make mobile-run` applies, so the app keeps the same root. Dart-owned sockets are not governed by Android network security configuration or iOS App Transport Security, so no cleartext policy is configured; a future platform-owned HTTP client must add a debug-only, host-scoped policy and must not enable cleartext release-wide. See [the mobile contributor guide](development/mobile.md). Authenticated Local testing requires HTTPS termination or the HTTPS Railway Development API.
+The approved Local API root is `http://127.0.0.1:8000` on the contributor host. Android emulators and USB-connected Android devices reach it through `adb reverse`, which `task mobile-run` applies, so the app keeps the same root. Dart-owned sockets are not governed by Android network security configuration or iOS App Transport Security, so no cleartext policy is configured; a future platform-owned HTTP client must add a debug-only, host-scoped policy and must not enable cleartext release-wide. See [the mobile contributor guide](development/mobile.md). Authenticated Local testing requires HTTPS termination or the HTTPS Railway Development API.
 
 `clerk_flutter` is contained behind an injectable TailTag-owned auth/session interface. Clerk owns session persistence and token refresh; TailTag must not create a separate persistent bearer-token store, and product features receive no Clerk types. It is an initial beta SDK direction to be reassessed in #135, not a dependency pin here.
 
@@ -239,11 +239,11 @@ Accepted backend and mobile architecture choices do not settle every V0/V1 detai
 
 ## Verification architecture
 
-`scripts/doctor.sh` validates the local Git/GitHub setup, repository location, remote, branch, working-tree state, required backend/devcontainer artifacts, and host Docker/Compose readiness. Inside the TailTag devcontainer it additionally checks the selected Python version, `uv`, locked dependencies, canonical Make commands, and non-mutating PostgreSQL connectivity. The API workflow (`.github/workflows/api.yml`) runs on pull requests, pushes to `main`, and manual dispatches. On a pull request, its relevance classifier runs the canonical root `make api-check` validation contract only when the change can affect backend validation; otherwise the same stable job reports the explicit successful skip. On a push to `main`, it force-runs that same contract for Railway Wait for CI.
+`scripts/doctor.sh` validates the local Git/GitHub setup, repository location, remote, branch, working-tree state, required backend/devcontainer artifacts, and host Docker/Compose readiness. Inside the TailTag devcontainer it additionally checks the selected Python version, `uv`, locked dependencies, canonical task commands, and non-mutating PostgreSQL connectivity. The API workflow (`.github/workflows/api.yml`) runs on pull requests, pushes to `main`, and manual dispatches. On a pull request, its relevance classifier runs the canonical root `task api-check` validation contract only when the change can affect backend validation; otherwise the same stable job reports the explicit successful skip. On a push to `main`, it force-runs that same contract for Railway Wait for CI.
 
-Setup in the Makefile, CI, and devcontainer synchronizes both locked projects:
+Setup in the Taskfile, CI, and devcontainer synchronizes both locked projects:
 the API and the separate non-package Semgrep CE project. CI then runs exactly
-one validation command, `make api-check`; the no-sync contract performs Ruff
+one validation command, `task api-check`; the no-sync contract performs Ruff
 formatting and linting, strict Pyright, deterministic TailTag-owned Semgrep
 rule-fixture analysis and local blocking scan, PostgreSQL-backed pytest, Django
 checks, migration drift, drf-spectacular configuration validation, and Gunicorn

@@ -6,8 +6,8 @@ reference—including configuration, database lifecycle, commands, and
 troubleshooting—see the [API README](../../services/api/README.md).
 
 For the Flutter app at `apps/mobile/`, see [Mobile contributor
-environment](mobile.md): host-side `make mobile-setup`, `make mobile-check`,
-`make mobile-doctor`, and `make mobile-run DEVICE=<id>`, plus configuration and
+environment](mobile.md): host-side `task mobile-setup`, `task mobile-check`,
+`task mobile-doctor`, and `task mobile-run DEVICE=<id>`, plus configuration and
 Local/Railway Development connectivity. The backend flow below is separate and
 runs in the devcontainer.
 
@@ -88,27 +88,27 @@ Inside the devcontainer, confirm the backend environment:
 Then use the canonical repository-root commands to prepare and verify the API:
 
 ```bash
-make api-migrate
-make api-run
+task api-migrate
+task api-run
 ```
 
-Leave `make api-run` running. In another devcontainer terminal, verify the
+Leave `task api-run` running. In another devcontainer terminal, verify the
 running service:
 
 ```bash
-make api-smoke
+task api-smoke
 ```
 
 During development, run:
 
 ```bash
-make api-test
+task api-test
 ```
 
 Before opening or updating a pull request, run:
 
 ```bash
-make api-check
+task api-check
 ```
 
 Migrations are always explicit; neither opening the devcontainer nor running
@@ -119,25 +119,48 @@ explain the expected outcomes and operating details.
 
 ## Secondary supported path: native Django with Compose PostgreSQL
 
-The supported native alternative is deliberately narrow: host Python 3.13 and
-`uv`, plus Docker with the Compose plugin. PostgreSQL 17 is supplied by this
+The supported native alternative is deliberately narrow: host Python 3.13,
+`uv`, and [go-task](https://taskfile.dev), plus Docker with the Compose plugin. PostgreSQL 17 is supplied by this
 repository's Compose `db` service; Django runs on the host and consumes
 `services/api/.env`.
 
-Start the database service, then use the same root `make api-*` commands shown
+Start the database service, then use the same root `task api-*` commands shown
 above:
 
 ```bash
 docker compose -f services/api/compose.yaml up -d db
-make api-setup
-make api-migrate
-make api-run
+task api-setup
+task api-migrate
+task api-run
 ```
 
 This is not support for host-installed PostgreSQL, SQLite, other Python
 versions, or arbitrary environment managers. See [Supported native
 workflow](../../services/api/README.md#supported-native-workflow) for the
 configuration and lifecycle details.
+
+### Native Windows
+
+The same native path works from PowerShell on Windows, with no Git Bash or
+other POSIX shell. Install `uv`, go-task 3.53.1, and Docker Desktop, then run
+the same commands from the repository root:
+
+```powershell
+docker compose -f services/api/compose.yaml up -d db
+task api-setup
+task api-check
+```
+
+On Windows, `task api-check` differs in two visible ways:
+
+- `api-gunicorn-check` prints a `SKIP` line, because Gunicorn runs only on
+  Unix. CI checks the production Gunicorn configuration on Linux.
+- `api-test` does not collect the POSIX-only operator tooling modules (pty and
+  termios sessions, SSH relays, owner-and-mode checks). The pytest header lists
+  them. A few individual tests are skipped with a stated reason.
+
+`scripts/doctor.sh`, the simulator `sim-*` tasks, the Staging operator tasks,
+and the [mobile commands](mobile.md) still need macOS or Linux.
 
 ## Contribute changes
 

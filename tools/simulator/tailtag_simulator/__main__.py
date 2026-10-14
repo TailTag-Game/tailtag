@@ -49,19 +49,10 @@ from tailtag_simulator.scenarios import ScenarioRejected
 from tailtag_simulator.smoke import run_smoke
 from tailtag_simulator.traffic_config import resolve_traffic_config
 
-LAUNCHER_COMMAND = ["make", "-s", "--no-print-directory", "api-sim-pool-ssh"]
-FIXTURE_LAUNCHER_COMMAND = [
-    "make",
-    "-s",
-    "--no-print-directory",
-    "api-sim-fixture-ssh",
-]
-INSPECTION_LAUNCHER_COMMAND = [
-    "make",
-    "-s",
-    "--no-print-directory",
-    "api-sim-inspect-ssh",
-]
+# `task -s` keeps launcher stdout to the child's JSON result alone.
+LAUNCHER_COMMAND = ["task", "-s", "api-sim-pool-ssh"]
+FIXTURE_LAUNCHER_COMMAND = ["task", "-s", "api-sim-fixture-ssh"]
+INSPECTION_LAUNCHER_COMMAND = ["task", "-s", "api-sim-inspect-ssh"]
 
 
 def _repository_root() -> Path:

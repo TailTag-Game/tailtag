@@ -91,7 +91,7 @@ create_repository_fixture() {
     "$fixture/scripts-doctor-placeholder"
   mkdir -p "$fixture/scripts"
   cp "$doctor_script" "$fixture/scripts/doctor.sh"
-  printf 'help:\n\t@:\n' >"$fixture/Makefile"
+  printf "version: '3'\\ntasks:\\n  default:\\n    cmds:\\n      - 'true'\\n" >"$fixture/Taskfile.yml"
   printf '[project]\nrequires-python = ">=3.13,<3.14"\n' >"$fixture/services/api/pyproject.toml"
 }
 
@@ -116,6 +116,12 @@ case "$1 ${2:-}" in
   "compose version") exit "${FAKE_DOCKER_COMPOSE_STATUS:-0}" ;;
   *) exit 0 ;;
 esac
+EOF
+  cat >"$tools_directory/task" <<'EOF'
+#!/usr/bin/env bash
+# Only a parsing command proves the Taskfile loads; --version does not.
+[[ "$*" == "--list-all" ]] || exit 2
+exit "${FAKE_TASK_LIST_STATUS:-0}"
 EOF
   cat >"$tools_directory/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -246,9 +252,15 @@ assert_contains "$container_output" 'PASS  Python 3.13 matches the required vers
 assert_contains "$container_output" 'PASS  uv is available'
 assert_contains "$container_output" 'PASS  Locked backend dependencies are usable'
 assert_contains "$container_output" 'PASS  PostgreSQL is reachable from the backend environment'
-assert_contains "$container_output" 'PASS  Canonical backend Make commands are available'
+assert_contains "$container_output" 'PASS  Canonical backend task commands are available'
 assert_not_contains "$container_output" 'Docker daemon'
 assert_contains "$container_output" 'Mobile checks: run ./scripts/doctor.sh --mobile on the host.'
+
+invalid_taskfile_result="$(FAKE_TASK_LIST_STATUS=109 run_doctor "$container_fixture" env TAILTAG_DEVCONTAINER=1)"
+invalid_taskfile_status="${invalid_taskfile_result%%$'\n'*}"
+invalid_taskfile_output="${invalid_taskfile_result#*$'\n'}"
+[[ "$invalid_taskfile_status" == "1" ]] || fail 'expected an unparseable Taskfile to fail'
+assert_contains "$invalid_taskfile_output" 'FAIL  Canonical backend task commands are unavailable; verify go-task is installed and the root Taskfile.yml parses'
 
 wrong_python_result="$(FAKE_PYTHON_VERSION=3.12 run_doctor "$container_fixture" env TAILTAG_DEVCONTAINER=1)"
 wrong_python_status="${wrong_python_result%%$'\n'*}"

@@ -98,7 +98,7 @@ confirmation prompt, type the exact non-secret phrase
 command argument or environment variable, or record it in shell history, logs,
 issues, pull requests, or committed evidence. No Clerk secret is required. Do
 not set `DJANGO_SUPERUSER_PASSWORD`, add Railway credential
-variables, create a Make target or script, or run this command automatically in
+variables, create a task or script, or run this command automatically in
 build, pre-deploy, startup, health checks, or Gunicorn.
 
 If the command rejects the target, stop and verify the linked Railway workspace,
@@ -188,7 +188,7 @@ Keep the boundaries distinct:
 - Railway owns image build, pre-deploy migration execution, application
   startup, and its `/health/ready` platform health check.
 - The GitHub `Post-deploy development smoke` workflow observes a successful
-  Railway deployment event and runs `make api-smoke` against the public API. It
+  Railway deployment event and runs `task api-smoke` against the public API. It
   does not deploy, migrate, redeploy, or roll back the service.
 
 ## Redeploy the current revision
@@ -333,10 +333,10 @@ must complete this order for Railway `development`:
 
    ```bash
    TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM=run-r2-development-media-storage-smoke \
-   railway run --service api --environment development -- make api-media-storage-smoke
+   railway run --service api --environment development -- task api-media-storage-smoke
    ```
 
-   This opt-in command is entirely separate from `make api-check` and ordinary
+   This opt-in command is entirely separate from `task api-check` and ordinary
    CI. It fails closed unless the Railway identity is exactly
    `development`/`api`, the fixed confirmation value is present,
    `DJANGO_SETTINGS_MODULE=config.settings.production` is in use, and the
@@ -356,7 +356,7 @@ must complete this order for Railway `development`:
    rendered variable values or other storage details:
 
    ```text
-   command: make api-media-storage-smoke
+   command: task api-media-storage-smoke
    target: development/api
    branch/revision: <checked-out-branch> / <revision>
    stages: upload PASS; existence PASS; presigned-byte PASS; delete PASS
@@ -419,7 +419,7 @@ or forward-recovery decision.
 | Other `RAILWAY_*` values | Platform-owned variables; do not manually duplicate them unless an approved design explicitly requires a user-configured Railway behavior variable. |
 
 After the paired replacement Development deployment passes identity and readiness
-checks, run `make api-replacement-auth-smoke` from the repository root with fresh
+checks, run `task api-replacement-auth-smoke` from the repository root with fresh
 ordinary Clerk sessions for the replacement Development and Staging apps. The
 command uses the locked backend environment and hidden token prompts. Require
 both same-environment `/api/me/` checks and both cross-environment denials

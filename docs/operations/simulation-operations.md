@@ -71,10 +71,10 @@ identities, seed 0). It covers the canonical public journeys and their
 expected rejections, then reconciliation, cleanup and release.
 
 ```sh
-make sim-host-prepare PROFILE="$TRANSFER/smoke-profile.json" \
+task sim-host-prepare PROFILE="$TRANSFER/smoke-profile.json" \
   SAFETY_CONFIG="$SIM_REPO_ROOT/tools/simulator/host/safety.json" \
   RELEASE="$TRANSFER/release.json" MANIFEST="$TRANSFER/smoke-manifest.json"
-make sim-host-run MANIFEST="$TRANSFER/smoke-manifest.json" HOST=tailtag-sim \
+task sim-host-run MANIFEST="$TRANSFER/smoke-manifest.json" HOST=tailtag-sim \
   HOST_ROOT=/srv/tailtag-simulator
 ```
 
@@ -109,7 +109,7 @@ admitted; the host refuses overlapping runs.
 and the full persona mix. It stays inside the standard host ceilings: 50
 identities, ten actors and in-flight requests, 900 s setup and execution, and
 600 s finalization. It needs pool `host228` expanded to 50 identities
-(`make sim-pool-provision POOL=host228 SIZE=50`, separately authorized).
+(`task sim-pool-provision POOL=host228 SIZE=50`, separately authorized).
 
 ## Profile assumptions
 
@@ -217,8 +217,8 @@ Failures fail closed:
    hash-verified procedure.
 3. Follow the [exact-run recovery](simulation-host.md#recovery-and-refusal-handling):
    - verify the target identity;
-   - inspect `make sim-retained` and `make sim-pool-status`;
-   - run `make sim-cleanup` for the exact run;
+   - inspect `task sim-retained` and `task sim-pool-status`;
+   - run `task sim-cleanup` for the exact run;
    - resolve the hold with a trusted receipt.
 4. Record the cause before resuming. A failed smoke means the promoted build
    needs investigation before any nightly run.
@@ -250,7 +250,7 @@ Collect at least every 6 days. The cadence above collects on Wednesday and
 Sunday.
 
 ```sh
-make sim-host-collect HOST=tailtag-sim HOST_ROOT=/srv/tailtag-simulator \
+task sim-host-collect HOST=tailtag-sim HOST_ROOT=/srv/tailtag-simulator \
   RELEASE="$TRANSFER/release.json" ARCHIVE="$ARCHIVE"
 ```
 
@@ -281,7 +281,7 @@ A run that fails verification leaves nothing behind and makes the command exit
 nonzero. Investigate before collecting again. Keep `ARCHIVE` owner-private and
 outside Git.
 
-Trend over the archive with `make sim-report-trend DIR="$ARCHIVE"`.
+Trend over the archive with `task sim-report-trend DIR="$ARCHIVE"`.
 
 ## Baselines
 
@@ -290,8 +290,9 @@ promote the first reviewed passing run of each nightly family and the weekend
 profile:
 
 1. Review the collected report, its evaluation and any backend context.
-2. Run `make sim-baseline-promote REPORT=… HOST_COMPANION=… RATIONALE="…"
-   INITIAL_THRESHOLDS=1` on the maintainer machine. See
+2. Run `RATIONALE='…' task sim-baseline-promote REPORT=… HOST_COMPANION=…
+   INITIAL_THRESHOLDS=1` on the maintainer machine. The rationale is taken from
+   the environment so go-task does not alter it. See
    [Promote a baseline](../../tools/simulator/README.md#promote-a-baseline).
 3. Open a pull request with the baseline and thresholds files. Promotion takes
    effect only when it merges.

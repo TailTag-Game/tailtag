@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from collections.abc import Generator
@@ -26,6 +25,7 @@ from tests.clerk_settings_contract import (
 from tests.clerk_settings_contract import (
     valid_clerk_public_key as _valid_clerk_public_key,  # noqa: F401  # pyright: ignore[reportUnusedImport]
 )
+from tests.process_support import minimal_environment
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 LOCAL_ENVIRONMENT_FILE = SERVICE_ROOT / ".env"
@@ -83,7 +83,7 @@ def import_local_settings(
         ],
         cwd=SERVICE_ROOT,
         env={
-            "PATH": os.environ["PATH"],
+            **minimal_environment(),
             "DJANGO_SETTINGS_MODULE": "config.settings.local",
         },
         capture_output=True,

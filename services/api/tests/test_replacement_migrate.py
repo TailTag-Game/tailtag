@@ -20,6 +20,7 @@ import psycopg
 import pytest
 from psycopg import sql
 
+from tests.process_support import minimal_environment
 from tests.test_production_settings import VALID_ENVIRONMENT
 
 PROJECT = "a1111111-1111-4111-8111-111111111111"
@@ -96,7 +97,7 @@ def _environment(
     database_url: str, overrides: Mapping[str, str] | None = None
 ) -> dict[str, str]:
     return {
-        "PATH": os.environ.get("PATH", ""),
+        **minimal_environment(),
         "PYTHONPATH": str(API_ROOT),
         "DJANGO_SETTINGS_MODULE": "config.settings.production",
         **VALID_ENVIRONMENT,

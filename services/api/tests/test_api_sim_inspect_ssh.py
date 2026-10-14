@@ -11,7 +11,6 @@ import ast
 import importlib
 import io
 import json
-import os
 import subprocess
 import sys
 from collections.abc import Callable
@@ -20,6 +19,8 @@ from types import ModuleType
 from typing import Any
 
 import pytest
+
+from tests.process_support import minimal_environment
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 if str(REPOSITORY_ROOT) not in sys.path:
@@ -324,7 +325,7 @@ def test_real_bootstrap_reaches_the_inspection_entry_point_and_prints_one_line(
     """R-9: outside Staging, the real bootstrap answers FAIL_TARGET through the remote."""
     api_root = REPOSITORY_ROOT / "services" / "api"
     environment = {
-        "PATH": os.environ["PATH"],
+        **minimal_environment(),
         "HOME": str(tmp_path),
         "TMPDIR": str(tmp_path),
         "DATABASE_URL": "postgresql://tailtag:tailtag@localhost:5432/tailtag",

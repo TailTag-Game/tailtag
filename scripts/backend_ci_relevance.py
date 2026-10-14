@@ -8,7 +8,7 @@ from pathlib import Path
 
 BACKEND_RELEVANT_PREFIXES = ("services/api/", ".semgrep/")
 BACKEND_RELEVANT_FILES = {
-    "Makefile",
+    "Taskfile.yml",
     "scripts/api_smoke.py",
     "scripts/api_auth_smoke.py",
     "scripts/api_replacement_auth_smoke.py",

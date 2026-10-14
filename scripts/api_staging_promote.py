@@ -709,7 +709,7 @@ def main() -> int:
         _persist(record)
         smoke_environment = dict(os.environ)
         smoke_environment["API_BASE_URL"] = "https://staging.tailtag.app"
-        smoke = _run(["make", "api-smoke"], env=smoke_environment, cwd=_REPOSITORY_ROOT)
+        smoke = _run(["task", "api-smoke"], env=smoke_environment, cwd=_REPOSITORY_ROOT)
         if smoke.returncode != 0:
             record["smoke_outcome"] = "FAILED"
             record["overall_outcome"] = "FAILED"

@@ -1,0 +1,24 @@
+name: Install pinned go-task
+description: Install go-task 3.53.1 from its release archive, verified against a pinned SHA-256. Linux x86_64 runners only.
+
+runs:
+  using: composite
+  steps:
+    - name: Download and verify go-task
+      shell: bash
+      run: |
+        set -euo pipefail
+        version="3.53.1"
+        archive="task_linux_amd64.tar.gz"
+        sha256="a54a408f6861ff921f6e87774180db31bacd8c1e7c944ca696db9fea49a82fc7"
+        work="$(mktemp -d)"
+        curl --fail --silent --show-error --location \
+          --output "$work/$archive" \
+          "https://github.com/go-task/task/releases/download/v${version}/${archive}"
+        echo "${sha256}  $work/$archive" | sha256sum --check --strict -
+        tar -xzf "$work/$archive" -C "$work" task
+        mkdir -p "$RUNNER_TEMP/bin"
+        install -m 0755 "$work/task" "$RUNNER_TEMP/bin/task"
+        echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+        "$RUNNER_TEMP/bin/task" --version
+        rm -rf "$work"

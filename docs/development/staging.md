@@ -155,7 +155,7 @@ uv --directory services/api run --locked --no-sync python ../../scripts/api_stag
 
 The confirmation authorizes this one exact-SHA Staging submission, not recovery
 or configuration changes. The command is opt-in and is never invoked by ordinary
-CI, `make api-check`, application startup or a health check.
+CI, `task api-check`, application startup or a health check.
 
 ### Expected operation and evidence
 
@@ -348,7 +348,7 @@ For a future qualifying pair:
 ## Opt-in verification procedures
 
 These are maintainer-only live operations, separate from ordinary CI and
-`make api-check`. First verify the Railway context and stop if it is not the
+`task api-check`. First verify the Railway context and stop if it is not the
 workspace, project, environment, and service listed above. Use explicit
 selectors, not a guessed linked context.
 
@@ -515,19 +515,19 @@ After privately configuring the verified Staging values and deploying the empty
 sentinel schema, invoke the separate provisioning operation from repository root:
 
 ```sh
-make api-staging-reset-provision
+task api-staging-reset-provision
 ```
 
 For subsequent maintenance resets inside a verified native Staging environment, use:
 
 ```sh
-make api-staging-reset
+task api-staging-reset
 ```
 
 For the approved private-network Staging API, the maintained operator command is:
 
 ```sh
-make api-staging-reset-ssh
+task api-staging-reset-ssh
 ```
 
 Its native equivalent is `python -m scripts.api_staging_reset_ssh --confirm reset-tailtag-staging`,
@@ -542,7 +542,7 @@ These targets supply their distinct exact CLI confirmations. Native equivalents
 are `python -m scripts.api_staging_reset --provision --confirm provision-tailtag-staging-reset`
 and `python -m scripts.api_staging_reset --confirm reset-tailtag-staging`, using the
 locked API environment, production settings and repository/API Python paths as
-defined in the Makefile. Do not pass credentials or private identity values as
+defined in the Taskfile. Do not pass credentials or private identity values as
 arguments. Invocation is a deliberate maintenance action, not a scheduled task
 installed by this work item.
 
@@ -791,7 +791,7 @@ URL. It checks the existing health, schema, and docs contract; it does not
 deploy or change Staging or establish the #203 identity/target-safety contract.
 
 ```bash
-API_BASE_URL=https://staging.tailtag.app make api-smoke
+API_BASE_URL=https://staging.tailtag.app task api-smoke
 ```
 
 The following configuration-fingerprint, media-smoke, and Clerk-smoke
@@ -825,7 +825,7 @@ project. Its cleanup and final absence check were mandatory:
 DJANGO_SETTINGS_MODULE=config.settings.production \
 TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM=run-r2-staging-media-storage-smoke \
 railway run --project 85324de4-be6a-49c3-a3f9-6cac13877849 --no-local --service api --environment staging -- \
-make api-media-storage-smoke
+task api-media-storage-smoke
 ```
 
 Do not share object keys, bucket names, presigned URLs, signatures, response
@@ -860,7 +860,7 @@ API_BASE_URL=https://staging.tailtag.app \
 TAILTAG_STAGING_API_BASE_URL=https://staging.tailtag.app \
 CLERK_STAGING_SMOKE_USER_ID="$CLERK_STAGING_SMOKE_USER_ID" \
 railway run --project 85324de4-be6a-49c3-a3f9-6cac13877849 --no-local --service api --environment staging -- \
-make api-staging-auth-smoke
+task api-staging-auth-smoke
 unset CLERK_STAGING_SMOKE_USER_ID
 ```
 

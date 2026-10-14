@@ -1,0 +1,716 @@
+# TailTag developer commands. Run `task --list` to see them.
+#
+# The security-relevant inputs (repository root, Semgrep rules, fixtures,
+# targets, and directories) are task-level variables or literals, never global
+# variables: go-task lets `NAME=value` on the command line override global
+# variables and its own ROOT_DIR/TASKFILE_DIR, but not task-level variables.
+# Only UV is intentionally overridable (environment or `UV=...`).
+version: '3'
+
+vars:
+  # Every use applies toSlash: an unquoted Windows path such as C:\tools\uv.exe
+  # would otherwise lose its backslashes in go-task's shell.
+  UV: '{{env "UV" | default "uv"}}'
+
+# Shared by the tasks that need the repository root or the root helper scripts.
+x-repository-root: &repository-root
+  # pwd returns backslashes on Windows, which go-task's shell would read as
+  # escapes in unquoted words; Windows tools accept forward slashes.
+  sh: 'p=$(pwd); printf ''%s\n'' "${p//\\//}"'
+
+x-api-helpers: &api-helpers >-
+  {{.REPOSITORY_ROOT}}/scripts/api_smoke.py
+  {{.REPOSITORY_ROOT}}/scripts/api_auth_smoke.py
+  {{.REPOSITORY_ROOT}}/scripts/api_replacement_auth_smoke.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_auth_smoke.py
+  {{.REPOSITORY_ROOT}}/scripts/api_environment_fingerprint.py
+  {{.REPOSITORY_ROOT}}/scripts/api_media_storage_smoke.py
+  {{.REPOSITORY_ROOT}}/scripts/api_deployment_identity.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_promote.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_preflight.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_operator_inspect.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_operator_matrix.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_operator_matrix_ssh.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_fixture_diagnose.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_managed_auth_diagnose.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_managed_auth_diagnose_ssh.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_managed_operator_replace_ssh.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_managed_password_rotate_ssh.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_operator_inspect_ssh.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_operator_lifecycle_ssh.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_operator_restart_ssh.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_registry_reconcile.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_registry_reconcile_remote.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_emergency_operator_ssh.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_emergency_operator_decommission_ssh.py
+  {{.REPOSITORY_ROOT}}/scripts/api_development_delivery_event.py
+  {{.REPOSITORY_ROOT}}/scripts/api_sim_pool_ssh.py
+  {{.REPOSITORY_ROOT}}/scripts/api_sim_fixture_ssh.py
+  {{.REPOSITORY_ROOT}}/scripts/api_sim_inspect_ssh.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_reset.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_reset_ssh.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_restore_drill.py
+  {{.REPOSITORY_ROOT}}/scripts/staging_restore_integrity.py
+  {{.REPOSITORY_ROOT}}/scripts/clerk_development_session.py
+  {{.REPOSITORY_ROOT}}/scripts/backend_ci_relevance.py
+  {{.REPOSITORY_ROOT}}/scripts/validate_semgrep_contract.py
+
+tasks:
+  default:
+    cmds:
+      - task: help
+
+  help:
+    desc: "List the canonical developer commands."
+    silent: true
+    cmds:
+      - '{{.TASK_EXE}} --list'
+
+  api-setup:
+    desc: "Sync locked backend dependencies."
+    cmds:
+      - cmd: printf '%s\n' 'Synchronizing locked backend dependencies...'
+        silent: true
+      - '{{.UV | toSlash}} --directory services/api sync --all-groups --locked'
+      - '{{.UV | toSlash}} --directory .semgrep sync --locked'
+
+  api-run:
+    desc: "Run Django locally on port 8000; requires configured PostgreSQL."
+    silent: true
+    cmds:
+      - printf '%s\n' 'Starting Django development server on port 8000...'
+      - task: run-django-command
+        vars: {DJANGO_COMMAND: python manage.py runserver 0.0.0.0:8000}
+
+  api-semgrep-check:
+    desc: "Run deterministic TailTag Semgrep security analysis."
+    vars:
+      REPOSITORY_ROOT: *repository-root
+      API_HELPERS: *api-helpers
+    cmds:
+      - cmd: printf '%s\n' 'Testing TailTag Semgrep rules...'
+        silent: true
+      - '{{.UV | toSlash}} --directory services/api run --locked --no-sync python {{.REPOSITORY_ROOT}}/scripts/validate_semgrep_contract.py --rules {{.REPOSITORY_ROOT}}/.semgrep/rules --fixtures {{.REPOSITORY_ROOT}}/.semgrep/tests'
+      - |-
+        SEMGREP_SEND_METRICS=off SEMGREP_ENABLE_VERSION_CHECK=0 SEMGREP_BASELINE_COMMIT= SEMGREP_APP_TOKEN= SEMGREP_RULES= \
+          {{.UV | toSlash}} --directory .semgrep run --locked --no-sync semgrep scan --test \
+          --config {{.REPOSITORY_ROOT}}/.semgrep/rules \
+          --baseline-commit '' \
+          --metrics=off \
+          --disable-version-check \
+          {{.REPOSITORY_ROOT}}/.semgrep/tests
+      - cmd: printf '%s\n' 'Running TailTag Semgrep security analysis...'
+        silent: true
+      - |-
+        SEMGREP_SEND_METRICS=off SEMGREP_ENABLE_VERSION_CHECK=0 SEMGREP_BASELINE_COMMIT= SEMGREP_APP_TOKEN= SEMGREP_RULES= \
+          {{.UV | toSlash}} --directory .semgrep run --locked --no-sync semgrep scan \
+          --config {{.REPOSITORY_ROOT}}/.semgrep/rules \
+          --baseline-commit '' \
+          --error \
+          --metrics=off \
+          --disable-version-check \
+          {{.REPOSITORY_ROOT}}/services/api {{.API_HELPERS}}
+
+  api-test:
+    desc: "Run PostgreSQL-backed backend tests."
+    silent: true
+    cmds:
+      - printf '%s\n' 'Running backend tests...'
+      - task: run-django-command
+        vars: {DJANGO_COMMAND: pytest -q}
+
+  api-migrate:
+    desc: "Apply existing Django migrations (mutates schema)."
+    silent: true
+    cmds:
+      - printf '%s\n' 'Applying existing Django migrations...'
+      - task: run-django-command
+        vars: {DJANGO_COMMAND: python manage.py migrate}
+
+  api-migrations:
+    desc: "Create Django migrations (mutates migration state)."
+    silent: true
+    cmds:
+      - printf '%s\n' 'Creating Django migrations from model changes...'
+      - task: run-django-command
+        vars: {DJANGO_COMMAND: python manage.py makemigrations}
+
+  api-migrations-check:
+    desc: "Check for migration drift without creating migrations."
+    silent: true
+    cmds:
+      - printf '%s\n' 'Checking for Django migration drift...'
+      - task: run-django-command
+        vars: {DJANGO_COMMAND: python manage.py makemigrations --check --dry-run}
+
+  api-shell:
+    desc: "Open the Django shell; requires configured PostgreSQL."
+    silent: true
+    cmds:
+      - printf '%s\n' 'Opening the Django shell...'
+      - task: run-django-command
+        vars: {DJANGO_COMMAND: python manage.py shell}
+
+  api-smoke:
+    desc: "HTTP-check a running API (API_BASE_URL defaults to 127.0.0.1:8000)."
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - cmd: printf '%s\n' 'Smoke-testing the already-running API...'
+        silent: true
+      - '{{.UV | toSlash}} --directory services/api run python {{.REPOSITORY_ROOT}}/scripts/api_smoke.py'
+
+  api-auth-smoke:
+    desc: "Authenticated smoke test with an interactive Clerk Development secret."
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV | toSlash}} run --project services/api --locked --no-sync python -m scripts.api_auth_smoke'
+
+  api-staging-auth-smoke:
+    desc: "Run the explicit live Clerk Staging authenticated API smoke."
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV | toSlash}} run --project services/api --locked --no-sync python -m scripts.api_staging_auth_smoke'
+
+  api-replacement-auth-smoke:
+    desc: "Run the interactive replacement Development/Staging authenticated API smoke."
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV | toSlash}} run --project services/api --locked --no-sync python -m scripts.api_replacement_auth_smoke'
+
+  api-staging-reset:
+    desc: "Run the explicitly confirmed guarded Staging rehearsal reset."
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - 'DJANGO_SETTINGS_MODULE=config.settings.production PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV | toSlash}} run --project services/api --locked --no-sync python -m scripts.api_staging_reset --confirm reset-tailtag-staging'
+
+  api-staging-reset-ssh:
+    desc: "Run the confirmed guarded Staging reset through its pinned Railway SSH instance."
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV | toSlash}} run --project services/api --locked --no-sync python -m scripts.api_staging_reset_ssh --confirm reset-tailtag-staging'
+
+  api-staging-reset-provision:
+    desc: "Provision the Staging reset sentinel after explicit confirmation."
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - 'DJANGO_SETTINGS_MODULE=config.settings.production PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV | toSlash}} run --project services/api --locked --no-sync python -m scripts.api_staging_reset --provision --confirm provision-tailtag-staging-reset'
+
+  api-staging-reset-provision-ssh:
+    desc: "Provision the replacement Staging reset sentinel on the pinned Railway instance."
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV | toSlash}} run --project services/api --locked --no-sync python -m scripts.api_staging_reset_ssh --provision --confirm provision-tailtag-staging-reset'
+
+  api-sim-pool-ssh:
+    desc: "Run one synthetic identity pool request (JSON on stdin) through the pinned Staging instance."
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV | toSlash}} run --project services/api --locked --no-sync python -m scripts.api_sim_pool_ssh'
+
+  api-sim-fixture-ssh:
+    desc: "Run one simulation fixture request (JSON on stdin) through the pinned Staging instance."
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV | toSlash}} run --project services/api --locked --no-sync python -m scripts.api_sim_fixture_ssh'
+
+  api-sim-inspect-ssh:
+    desc: "Run one read-only simulation inspection request (JSON on stdin) through the pinned Staging instance."
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV | toSlash}} run --project services/api --locked --no-sync python -m scripts.api_sim_inspect_ssh'
+
+  api-staging-restore-drill:
+    desc: "Run the confirmed isolated Staging PostgreSQL backup restore drill."
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV | toSlash}} run --project services/api --locked --no-sync python -m scripts.api_staging_restore_drill --confirm restore-tailtag-staging-backup'
+
+  # Silent so a failure prints only go-task's footer, never the command text.
+  api-media-storage-smoke:
+    desc: "Run guarded live media storage verification against Railway Development or Staging."
+    silent: true
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - |-
+        DJANGO_SETTINGS_MODULE=config.settings.production \
+        PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" \
+        {{.UV | toSlash}} run --project services/api --locked --no-sync python -m scripts.api_media_storage_smoke
+
+  api-check:
+    desc: "Run the complete local pre-PR backend validation suite."
+    cmds:
+      - task: api-format-check
+      - task: api-lint-check
+      - task: api-type-check
+      - task: api-semgrep-check
+      - task: api-test
+      - task: api-django-check
+      - task: api-migrations-check
+      - task: api-schema-check
+      - task: api-gunicorn-check
+      - cmd: printf '%s\n' 'Backend pre-PR validation completed.'
+        silent: true
+
+  api-format-check:
+    desc: "Check Ruff formatting for the backend and the root helper scripts."
+    vars:
+      REPOSITORY_ROOT: *repository-root
+      API_HELPERS: *api-helpers
+    cmds:
+      - cmd: printf '%s\n' 'Checking Ruff formatting...'
+        silent: true
+      - '{{.UV | toSlash}} --directory services/api run --locked --no-sync ruff format --check . {{.API_HELPERS}}'
+
+  api-lint-check:
+    desc: "Run Ruff lint for the backend and the root helper scripts."
+    vars:
+      REPOSITORY_ROOT: *repository-root
+      API_HELPERS: *api-helpers
+    cmds:
+      - cmd: printf '%s\n' 'Running Ruff lint...'
+        silent: true
+      - '{{.UV | toSlash}} --directory services/api run --locked --no-sync ruff check . {{.API_HELPERS}}'
+
+  api-type-check:
+    desc: "Run strict Pyright for the backend."
+    cmds:
+      - cmd: printf '%s\n' 'Running strict Pyright...'
+        silent: true
+      - '{{.UV | toSlash}} --directory services/api run --locked --no-sync pyright'
+
+  api-django-check:
+    desc: "Run the Django system checks."
+    silent: true
+    cmds:
+      - printf '%s\n' 'Running Django system checks...'
+      - task: run-django-command
+        vars: {DJANGO_COMMAND: python manage.py check}
+
+  api-schema-check:
+    desc: "Validate the OpenAPI schema configuration."
+    silent: true
+    cmds:
+      - printf '%s\n' 'Validating the OpenAPI schema configuration...'
+      - task: run-django-command
+        # NUL is the Windows equivalent of /dev/null.
+        vars: {DJANGO_COMMAND: 'python manage.py spectacular --validate --file {{if eq OS "windows"}}NUL{{else}}/dev/null{{end}}'}
+
+  api-gunicorn-check:
+    desc: "Check the production Gunicorn configuration."
+    cmds:
+      - cmd: printf '%s\n' 'Checking the production Gunicorn configuration...'
+        silent: true
+      # Gunicorn is Unix-only; say so on Windows instead of skipping silently.
+      - cmd: printf '%s\n' 'SKIP  Gunicorn does not run on Windows; CI checks the production Gunicorn configuration on Linux.'
+        silent: true
+        platforms: [windows]
+      - platforms: [linux, darwin]
+        cmd: |-
+          DJANGO_SETTINGS_MODULE=config.settings.production \
+          DJANGO_SECRET_KEY=not-a-real-secret \
+          DATABASE_URL=postgresql://tailtag:tailtag@localhost:5432/tailtag \
+          DJANGO_ALLOWED_HOSTS=localhost \
+          DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost \
+          MEDIA_STORAGE_ENDPOINT_URL=https://media.example.test \
+          MEDIA_STORAGE_BUCKET_NAME=ci-media-bucket \
+          MEDIA_STORAGE_REGION=auto \
+          MEDIA_STORAGE_ACCESS_KEY_ID=ci-not-a-real-access-key \
+          MEDIA_STORAGE_SECRET_ACCESS_KEY=ci-not-a-real-secret-key \
+          {{.UV | toSlash}} --directory services/api run --locked --no-sync gunicorn config.wsgi:application --check-config
+
+  # Runs a `uv run` command in the API project; the devcontainer takes its
+  # database from Compose. DJANGO_COMMAND is passed by the calling task.
+  run-django-command:
+    internal: true
+    silent: true
+    cmds:
+      - |-
+        if [ "${TAILTAG_DEVCONTAINER:-}" = "1" ]; then \
+          DATABASE_URL="$({{.UV | toSlash}} --directory services/api run --locked --no-sync python -m config.compose_database_url)" \
+          DJANGO_SETTINGS_MODULE=config.settings.local \
+          {{.UV | toSlash}} --directory services/api run --locked --no-sync {{.DJANGO_COMMAND}}; \
+        else \
+          {{.UV | toSlash}} --directory services/api run --locked --no-sync {{.DJANGO_COMMAND}}; \
+        fi
+
+  # Mobile commands are POSIX-only by design.
+  mobile-host-guard:
+    internal: true
+    silent: true
+    cmds:
+      - |-
+        test "${TAILTAG_DEVCONTAINER:-}" != "1" || { printf '%s\n' 'Mobile commands run on the host, not in the TailTag devcontainer.' >&2; exit 1; }
+
+  # Fail instead of letting FVM silently download a missing pinned SDK.
+  mobile-sdk-guard:
+    internal: true
+    silent: true
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - |-
+        command -v fvm >/dev/null 2>&1 || { printf '%s\n' 'FVM is not installed; install it: https://fvm.app/documentation/getting-started/installation' >&2; exit 1; }; \
+        pinned="$(sed -nE 's/.*"flutter"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' '{{.REPOSITORY_ROOT}}/apps/mobile/.fvmrc' | head -n 1)"; \
+        test -n "$pinned" || { printf '%s\n' 'Could not read the pinned Flutter version from apps/mobile/.fvmrc.' >&2; exit 1; }; \
+        fvm api list --compress | tr -d ' \t\r\n' | sed -e 's/.*"versions":\[//' -e 's/\],"projects".*//' | grep -Fq "\"name\":\"$pinned\"" || { \
+          printf 'Flutter %s (pinned in apps/mobile/.fvmrc) is not installed; run: (cd apps/mobile && fvm install)\n' "$pinned" >&2; exit 1; }
+
+  mobile-setup:
+    desc: "Install locked Flutter dependencies (host; needs FVM and the pinned SDK)."
+    silent: true
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - task: mobile-host-guard
+      - task: mobile-sdk-guard
+      - printf '%s\n' 'Installing locked Flutter dependencies...'
+      - cd '{{.REPOSITORY_ROOT}}/apps/mobile' && fvm flutter pub get --enforce-lockfile
+
+  mobile-run:
+    desc: "Run the app on a connected Android or iOS target: DEVICE=id (host; see fvm flutter devices)."
+    silent: true
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - task: mobile-host-guard
+      - task: mobile-sdk-guard
+      - DEVICE='{{.DEVICE | default "" | replace "'" "'\"'\"'"}}' '{{.REPOSITORY_ROOT}}/scripts/mobile_run.sh'
+
+  mobile-format-check:
+    desc: "Check Dart formatting without changing files (host)."
+    silent: true
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - task: mobile-host-guard
+      - printf '%s\n' 'Checking Dart formatting...'
+      - cd '{{.REPOSITORY_ROOT}}/apps/mobile' && fvm dart format --output=none --set-exit-if-changed .
+
+  mobile-analyze:
+    desc: "Run Flutter static analysis (host)."
+    silent: true
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - task: mobile-host-guard
+      - printf '%s\n' 'Running Flutter analysis...'
+      - cd '{{.REPOSITORY_ROOT}}/apps/mobile' && fvm flutter analyze
+
+  mobile-test:
+    desc: "Run the Flutter unit and widget tests (host)."
+    silent: true
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - task: mobile-host-guard
+      - printf '%s\n' 'Running Flutter tests...'
+      - cd '{{.REPOSITORY_ROOT}}/apps/mobile' && fvm flutter test
+
+  mobile-check:
+    desc: "Run mobile format, analyze, and test checks; does not build (host)."
+    cmds:
+      - task: mobile-format-check
+      - task: mobile-analyze
+      - task: mobile-test
+      - cmd: printf '%s\n' 'Mobile validation completed.'
+        silent: true
+
+  mobile-doctor:
+    desc: "Diagnose the Flutter contributor environment (host)."
+    silent: true
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - task: mobile-host-guard
+      - cd '{{.REPOSITORY_ROOT}}' && ./scripts/doctor.sh --mobile
+
+  sim-setup:
+    desc: "Sync locked simulator dependencies."
+    cmds:
+      - cmd: printf '%s\n' 'Synchronizing locked simulator dependencies...'
+        silent: true
+      - '{{.UV | toSlash}} --directory tools/simulator sync --all-groups --locked'
+      - '{{.UV | toSlash}} --directory .semgrep sync --locked'
+
+  sim-check:
+    desc: "Run the complete local simulator validation suite."
+    cmds:
+      - task: sim-host-bootstrap-check
+      - task: sim-catalog-check
+      - task: sim-format-check
+      - task: sim-lint-check
+      - task: sim-type-check
+      - task: sim-test
+      - task: sim-semgrep-check
+      - cmd: printf '%s\n' 'Simulator validation completed.'
+        silent: true
+
+  sim-smoke:
+    desc: "Run the manual authenticated smoke: TARGET=local|staging [BASE_URL=...]."
+    cmds:
+      - cmd: >-
+          test -n "{{.TARGET}}" || { printf '%s\n' 'TARGET is required: local or staging.' >&2; exit 2; }
+        silent: true
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator smoke --target '{{.TARGET | default "" | replace "'" "'\"'\"'"}}' {{if .BASE_URL}}--base-url '{{.BASE_URL | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .VERSION}}--scenario-version '{{.VERSION | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .SEED}}--seed '{{.SEED | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .REPORT_DIR}}--report-dir '{{.REPORT_DIR | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .SAFETY_CONFIG}}--safety-config '{{.SAFETY_CONFIG | replace "'" "'\"'\"'"}}'{{end}}
+
+  sim-pool-provision:
+    desc: "Provision or expand the Staging identity pool: POOL=name SIZE=n (host only)."
+    cmds:
+      - cmd: >-
+          test -n "{{.POOL}}" -a -n "{{.SIZE}}" || { printf '%s\n' 'POOL and SIZE are required.' >&2; exit 2; }
+        silent: true
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator pool provision --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' --size '{{.SIZE | default "" | replace "'" "'\"'\"'"}}'
+
+  sim-pool-status:
+    desc: "Show Staging identity pool counts: POOL=name (host only)."
+    cmds:
+      - cmd: >-
+          test -n "{{.POOL}}" || { printf '%s\n' 'POOL is required.' >&2; exit 2; }
+        silent: true
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator pool status --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}'
+
+  sim-pool-readmit:
+    desc: "Re-admit a repaired quarantined identity: POOL=name INDEX=n (host only)."
+    cmds:
+      - cmd: >-
+          test -n "{{.POOL}}" -a -n "{{.INDEX}}" || { printf '%s\n' 'POOL and INDEX are required.' >&2; exit 2; }
+        silent: true
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator pool readmit --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' --index '{{.INDEX | default "" | replace "'" "'\"'\"'"}}'
+
+  sim-pool-smoke:
+    desc: "Run the Staging identity pool smoke: POOL=name COUNT=n (host only)."
+    cmds:
+      - cmd: >-
+          test -n "{{.POOL}}" -a -n "{{.COUNT}}" || { printf '%s\n' 'POOL and COUNT are required.' >&2; exit 2; }
+        silent: true
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator pool-smoke --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' --count '{{.COUNT | default "" | replace "'" "'\"'\"'"}}' {{if .VERSION}}--scenario-version '{{.VERSION | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .SEED}}--seed '{{.SEED | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .REPORT_DIR}}--report-dir '{{.REPORT_DIR | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .SAFETY_CONFIG}}--safety-config '{{.SAFETY_CONFIG | replace "'" "'\"'\"'"}}'{{end}}
+
+  sim-fixture-smoke:
+    desc: "Run the Staging fixture smoke: POOL=name [OWNERS=n FURSUITS=k CATCHERS=m] (host only)."
+    cmds:
+      - cmd: >-
+          test -n "{{.POOL}}" || { printf '%s\n' 'POOL is required.' >&2; exit 2; }
+        silent: true
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator fixture-smoke --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' {{if .OWNERS}}--owners '{{.OWNERS | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .FURSUITS}}--fursuits '{{.FURSUITS | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .CATCHERS}}--catchers '{{.CATCHERS | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .VERSION}}--scenario-version '{{.VERSION | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .SEED}}--seed '{{.SEED | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .REPORT_DIR}}--report-dir '{{.REPORT_DIR | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .SAFETY_CONFIG}}--safety-config '{{.SAFETY_CONFIG | replace "'" "'\"'\"'"}}'{{end}}
+
+  sim-journeys:
+    desc: "Run the Staging acceptance journeys: POOL=name (host only; leases 7 identities)."
+    cmds:
+      - cmd: >-
+          test -n "{{.POOL}}" || { printf '%s\n' 'POOL is required.' >&2; exit 2; }
+        silent: true
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator journeys --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' {{if .VERSION}}--scenario-version '{{.VERSION | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .SEED}}--seed '{{.SEED | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .REPORT_DIR}}--report-dir '{{.REPORT_DIR | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .SAFETY_CONFIG}}--safety-config '{{.SAFETY_CONFIG | replace "'" "'\"'\"'"}}'{{end}}
+
+  sim-convention:
+    desc: "Run convention workloads: POOL=name FAMILY=baseline [CONFIG=path VERSION=1|2 SEED=0 REPORT_DIR=path]."
+    cmds:
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator convention --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' --family '{{.FAMILY | default "" | replace "'" "'\"'\"'"}}' {{if .CONFIG}}--config '{{.CONFIG | replace "'" "'\"'\"'"}}'{{end}} {{if .VERSION}}--scenario-version '{{.VERSION | replace "'" "'\"'\"'"}}'{{end}} {{if .SEED}}--seed '{{.SEED | replace "'" "'\"'\"'"}}'{{end}} {{if .REPORT_DIR}}--report-dir '{{.REPORT_DIR | replace "'" "'\"'\"'"}}'{{end}} {{if .SAFETY_CONFIG}}--safety-config '{{.SAFETY_CONFIG | replace "'" "'\"'\"'"}}'{{end}} {{if has .UNATTENDED (list "1" "true" "yes")}}--unattended{{end}}
+
+  sim-cleanup:
+    desc: "Clean one Staging simulation run and readmit its identities: POOL=name RUN_ID=id (host only)."
+    cmds:
+      - cmd: >-
+          test -n "{{.POOL}}" -a -n "{{.RUN_ID}}" || { printf '%s\n' 'POOL and RUN_ID are required.' >&2; exit 2; }
+        silent: true
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator cleanup --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' --run-id '{{.RUN_ID | default "" | replace "'" "'\"'\"'"}}'
+
+  sim-retained:
+    desc: "List retained and unfinished Staging simulation runs (host only)."
+    cmds:
+      - '{{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator retained'
+
+  sim-image:
+    desc: "Build verified clean simulator source: [PLATFORM=linux/amd64 for the host]."
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator.provenance build --root '{{.REPOSITORY_ROOT | replace "'" "'\"'\"'"}}' --tag 'tailtag-simulator:local' {{if .PLATFORM}}--platform '{{.PLATFORM | replace "'" "'\"'\"'"}}'{{end}}
+
+  sim-host-prepare:
+    desc: "Prepare a private host manifest: PROFILE=path SAFETY_CONFIG=path RELEASE=path MANIFEST=path."
+    cmds:
+      - cmd: >-
+          test -n '{{.PROFILE | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.SAFETY_CONFIG | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.MANIFEST | default "" | replace "'" "'\"'\"'"}}' || { printf '%s\n' 'PROFILE, SAFETY_CONFIG, RELEASE and MANIFEST are required.' >&2; exit 2; }
+        silent: true
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator.host_operator prepare --profile '{{.PROFILE | default "" | replace "'" "'\"'\"'"}}' --safety-config '{{.SAFETY_CONFIG | default "" | replace "'" "'\"'\"'"}}' --release '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}' --output '{{.MANIFEST | default "" | replace "'" "'\"'\"'"}}'
+
+  sim-host-run:
+    desc: "Run the foreground maintainer host session: MANIFEST=path HOST=ssh-alias HOST_ROOT=absolute-path [STATE_DIR=path]."
+    cmds:
+      - cmd: >-
+          test -n '{{.MANIFEST | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.HOST | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.HOST_ROOT | default "" | replace "'" "'\"'\"'"}}' || { printf '%s\n' 'MANIFEST, HOST and HOST_ROOT are required.' >&2; exit 2; }
+        silent: true
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator.host_operator run --manifest '{{.MANIFEST | default "" | replace "'" "'\"'\"'"}}' --host '{{.HOST | default "" | replace "'" "'\"'\"'"}}' --host-root '{{.HOST_ROOT | default "" | replace "'" "'\"'\"'"}}' {{if .STATE_DIR}}--state-dir '{{.STATE_DIR | replace "'" "'\"'\"'"}}'{{end}}
+
+  sim-host-collect:
+    desc: "Copy verified settled host evidence into a local archive: HOST=ssh-alias HOST_ROOT=absolute-path RELEASE=path ARCHIVE=path [BASELINES=path]."
+    cmds:
+      - cmd: >-
+          test -n '{{.HOST | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.HOST_ROOT | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.ARCHIVE | default "" | replace "'" "'\"'\"'"}}' || { printf '%s\n' 'HOST, HOST_ROOT, RELEASE and ARCHIVE are required.' >&2; exit 2; }
+        silent: true
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator.host_operator collect --host '{{.HOST | default "" | replace "'" "'\"'\"'"}}' --host-root '{{.HOST_ROOT | default "" | replace "'" "'\"'\"'"}}' --release '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}' --archive '{{.ARCHIVE | default "" | replace "'" "'\"'\"'"}}' {{if .BASELINES}}--baselines-dir '{{.BASELINES | replace "'" "'\"'\"'"}}'{{end}}
+
+  sim-host-release-export:
+    desc: "Export an immutable image and metadata: IMAGE_ID=sha256:id ARCHIVE=path RELEASE=path."
+    cmds:
+      - cmd: >-
+          test -n '{{.IMAGE_ID | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.ARCHIVE | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}' || { printf '%s\n' 'IMAGE_ID, ARCHIVE and RELEASE are required.' >&2; exit 2; }
+        silent: true
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator.host_release export --image '{{.IMAGE_ID | default "" | replace "'" "'\"'\"'"}}' --archive '{{.ARCHIVE | default "" | replace "'" "'\"'\"'"}}' --metadata '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}'
+
+  sim-host-release-load:
+    desc: "Verify/load an immutable host image archive: ARCHIVE=path RELEASE=path (Docker required)."
+    cmds:
+      - cmd: >-
+          test -n '{{.ARCHIVE | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}' || { printf '%s\n' 'ARCHIVE and RELEASE are required.' >&2; exit 2; }
+        silent: true
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator.host_release load --archive '{{.ARCHIVE | default "" | replace "'" "'\"'\"'"}}' --metadata '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}'
+
+  sim-host-bootstrap-check:
+    desc: "Check secret-free host bootstrap syntax without executing it."
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - >-
+        bash -n '{{.REPOSITORY_ROOT | replace "'" "'\"'\"'"}}/tools/simulator/host/bootstrap.sh'
+
+  sim-catalog-check:
+    desc: "Validate scenario descriptors and their Git history."
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -c 'import sys; from pathlib import Path; from tailtag_simulator.scenarios import validate_catalog; validate_catalog(Path(sys.argv[1]))' '{{.REPOSITORY_ROOT | replace "'" "'\"'\"'"}}'
+
+  sim-report-validate:
+    desc: "Validate an existing report offline: REPORT=path."
+    cmds:
+      - cmd: >-
+          test -n "{{.REPORT}}" || { printf '%s\n' 'REPORT is required.' >&2; exit 2; }
+        silent: true
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator report validate '{{.REPORT | default "" | replace "'" "'\"'\"'"}}'
+
+  sim-report-evaluate:
+    desc: "Evaluate a report offline: REPORT=path [HOST_COMPANION=path CONTEXT=path OUT=path]."
+    cmds:
+      - cmd: >-
+          test -n "{{.REPORT}}" || { printf '%s\n' 'REPORT is required.' >&2; exit 2; }
+        silent: true
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator report evaluate '{{.REPORT | default "" | replace "'" "'\"'\"'"}}' {{if .HOST_COMPANION}}--host-companion '{{.HOST_COMPANION | replace "'" "'\"'\"'"}}'{{end}} {{if .CONTEXT}}--context '{{.CONTEXT | replace "'" "'\"'\"'"}}'{{end}} {{if .OUT}}--out '{{.OUT | replace "'" "'\"'\"'"}}'{{end}}
+
+  sim-report-trend:
+    desc: "Show the run trend for archived reports offline: DIR=path."
+    cmds:
+      - cmd: >-
+          test -n "{{.DIR}}" || { printf '%s\n' 'DIR is required.' >&2; exit 2; }
+        silent: true
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator report trend '{{.DIR | default "" | replace "'" "'\"'\"'"}}'
+
+  # RATIONALE comes from the environment: go-task re-renders {{ }} in command
+  # line variable values. The first guard compares the template variable with
+  # the environment, so only a command-line value (which differs) is rejected.
+  sim-baseline-promote:
+    desc: "Promote a reviewed baseline: REPORT=path [HOST_COMPANION=path CONTEXT=path INITIAL_THRESHOLDS=1] with RATIONALE=text in the environment."
+    cmds:
+      - cmd: >-
+          {{if ne (.RATIONALE | default "") (env "RATIONALE")}}printf '%s\n' 'RATIONALE must be set in the environment, not as an argument.' >&2; exit 2{{else}}true{{end}}
+        silent: true
+      - cmd: >-
+          test -n "{{.REPORT}}" || { printf '%s\n' 'REPORT is required.' >&2; exit 2; }
+        silent: true
+      - cmd: >-
+          test -n "$RATIONALE" || { printf '%s\n' 'RATIONALE is required.' >&2; exit 2; }
+        silent: true
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator baseline promote '{{.REPORT | default "" | replace "'" "'\"'\"'"}}' --rationale "$RATIONALE" {{if .HOST_COMPANION}}--host-companion '{{.HOST_COMPANION | replace "'" "'\"'\"'"}}'{{end}} {{if .CONTEXT}}--context '{{.CONTEXT | replace "'" "'\"'\"'"}}'{{end}} {{if .INITIAL_THRESHOLDS}}--initial-thresholds{{end}}
+
+  sim-format-check:
+    desc: "Check simulator Ruff formatting."
+    cmds:
+      - cmd: printf '%s\n' 'Checking simulator Ruff formatting...'
+        silent: true
+      - '{{.UV | toSlash}} --directory tools/simulator run --locked --no-sync ruff format --no-cache --check .'
+
+  sim-lint-check:
+    desc: "Run simulator Ruff lint."
+    cmds:
+      - cmd: printf '%s\n' 'Running simulator Ruff lint...'
+        silent: true
+      - '{{.UV | toSlash}} --directory tools/simulator run --locked --no-sync ruff check --no-cache .'
+
+  sim-type-check:
+    desc: "Run simulator strict Pyright."
+    cmds:
+      - cmd: printf '%s\n' 'Running simulator strict Pyright...'
+        silent: true
+      - '{{.UV | toSlash}} --directory tools/simulator run --locked --no-sync pyright'
+
+  sim-test:
+    desc: "Run the simulator tests."
+    cmds:
+      - cmd: printf '%s\n' 'Running simulator tests...'
+        silent: true
+      - '{{.UV | toSlash}} --directory tools/simulator run --locked --no-sync pytest -q -p no:cacheprovider'
+
+  sim-semgrep-check:
+    desc: "Run the simulator Semgrep rule tests and boundary analysis."
+    vars:
+      REPOSITORY_ROOT: *repository-root
+      # Explicit files, not a directory, so untracked new modules are still scanned.
+      SIM_SEMGREP_TARGETS:
+        sh: echo {{.REPOSITORY_ROOT}}/tools/simulator/tailtag_simulator/*.py
+    cmds:
+      - cmd: printf '%s\n' 'Testing simulator Semgrep rules...'
+        silent: true
+      - '{{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python {{.REPOSITORY_ROOT}}/scripts/validate_semgrep_contract.py --rules {{.REPOSITORY_ROOT}}/.semgrep/simulator-rules --fixtures {{.REPOSITORY_ROOT}}/.semgrep/simulator-tests'
+      - |-
+        SEMGREP_SEND_METRICS=off SEMGREP_ENABLE_VERSION_CHECK=0 SEMGREP_BASELINE_COMMIT= SEMGREP_APP_TOKEN= SEMGREP_RULES= \
+          {{.UV | toSlash}} --directory .semgrep run --locked --no-sync semgrep scan --test \
+          --config {{.REPOSITORY_ROOT}}/.semgrep/simulator-rules \
+          --baseline-commit '' \
+          --metrics=off \
+          --disable-version-check \
+          {{.REPOSITORY_ROOT}}/.semgrep/simulator-tests
+      - cmd: printf '%s\n' 'Running simulator Semgrep boundary analysis...'
+        silent: true
+      - |-
+        SEMGREP_SEND_METRICS=off SEMGREP_ENABLE_VERSION_CHECK=0 SEMGREP_BASELINE_COMMIT= SEMGREP_APP_TOKEN= SEMGREP_RULES= \
+          {{.UV | toSlash}} --directory .semgrep run --locked --no-sync semgrep scan \
+          --config {{.REPOSITORY_ROOT}}/.semgrep/rules \
+          --config {{.REPOSITORY_ROOT}}/.semgrep/simulator-rules \
+          --baseline-commit '' \
+          --error \
+          --metrics=off \
+          --disable-version-check \
+          {{.SIM_SEMGREP_TARGETS}}

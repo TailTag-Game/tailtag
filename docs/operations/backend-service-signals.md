@@ -154,7 +154,7 @@ Recorded on 2026-09-30 against Development deployment `2ffd2190` of `main` at
 read-only: 5 each of `/health/live` and `/health/ready`, 25 unauthenticated
 `/api/conventions/<id>/` (401), 10 `/api/schema/`, one `HEAD /api/schema/`,
 3 requests to an unknown path carrying a unique marker, and one authenticated
-`/api/me/` from `make api-auth-smoke`. Sentry was read through its API and the
+`/api/me/` from `task api-auth-smoke`. Sentry was read through its API and the
 monitor builder; Railway logs through the CLI.
 
 - **D-4 passed.** Transactions are named by route, for example

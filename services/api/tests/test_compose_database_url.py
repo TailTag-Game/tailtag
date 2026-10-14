@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
+
+from tests.process_support import minimal_environment
 
 
 def test_compose_database_url_percent_encodes_reserved_password_characters() -> None:
@@ -13,7 +14,7 @@ def test_compose_database_url_percent_encodes_reserved_password_characters() -> 
         [sys.executable, "-m", "config.compose_database_url"],
         cwd=".",
         env={
-            "PATH": os.environ["PATH"],
+            **minimal_environment(),
             "POSTGRES_DB": "tailtag",
             "POSTGRES_USER": "tailtag",
             "POSTGRES_PASSWORD": "pa/ss?word#%25",

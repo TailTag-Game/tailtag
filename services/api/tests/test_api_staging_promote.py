@@ -430,7 +430,7 @@ class PromotionSubprocess:
         if command and command[-1].endswith("api_deployment_identity.py"):
             assert options.get("input") == self.ssh_stdout
             return completed(self.joined_identity)
-        if command == ("make", "api-smoke"):
+        if command == ("task", "api-smoke"):
             environment = cast(Mapping[str, str], options.get("env", {}))
             assert environment.get("API_BASE_URL") == "https://staging.tailtag.app"
             if self.expected_smoke_cwd is not None:
@@ -632,7 +632,7 @@ def test_main_accepts_a_valid_older_main_ancestor_and_completes_the_exact_d_flow
     )
     assert mutation_index < observation_index
     assert any(command[:2] == ("railway", "ssh") for command in calls)
-    assert any(command == ("make", "api-smoke") for command in calls)
+    assert any(command == ("task", "api-smoke") for command in calls)
     captured = capsys.readouterr()
     assert_sanitized(captured.out, captured.err, path.read_bytes())
 
@@ -876,7 +876,7 @@ def test_main_fails_closed_for_skipped_error_or_missing_migration_evidence(
     assert record["overall_outcome"] != "SUCCEEDED"
     assert runner.mutation_count == 1
     assert not any(command[:2] == ("railway", "ssh") for command in runner.calls)
-    assert not any(command == ("make", "api-smoke") for command in runner.calls)
+    assert not any(command == ("task", "api-smoke") for command in runner.calls)
     captured = capsys.readouterr()
     assert_sanitized(captured.out, captured.err, path.read_bytes())
 
@@ -939,7 +939,7 @@ def test_main_records_terminal_failed_predeploy_migration_as_failed(
     assert record["migration_outcome"] == "FAILED"
     assert record["overall_outcome"] == "OR7_HANDOFF"
     assert not any(command[:2] == ("railway", "ssh") for command in runner.calls)
-    assert not any(command == ("make", "api-smoke") for command in runner.calls)
+    assert not any(command == ("task", "api-smoke") for command in runner.calls)
     assert runner.mutation_count == 1
     captured = capsys.readouterr()
     assert_sanitized(captured.out, captured.err, path.read_bytes())
@@ -1019,7 +1019,7 @@ def test_main_rejects_malformed_or_sensitive_deployment_timestamps_before_identi
     assert record["deployment_timestamp"] is None
     assert record["overall_outcome"] != "SUCCEEDED"
     assert not any(command[:2] == ("railway", "ssh") for command in runner.calls)
-    assert not any(command == ("make", "api-smoke") for command in runner.calls)
+    assert not any(command == ("task", "api-smoke") for command in runner.calls)
     captured = capsys.readouterr()
     assert_sanitized(captured.out, captured.err, path.read_bytes())
 
@@ -1101,7 +1101,7 @@ def test_main_rejects_a_joined_identity_for_the_wrong_image_source_before_smoke(
 
     record = read_evidence(path)
     assert record["identity_outcome"] != "SUCCEEDED"
-    assert not any(command == ("make", "api-smoke") for command in runner.calls)
+    assert not any(command == ("task", "api-smoke") for command in runner.calls)
 
 
 def test_main_stops_after_failed_smoke_without_declaring_the_deployment_active(
@@ -1133,7 +1133,7 @@ def test_main_runs_canonical_smoke_from_the_repository_root_when_started_in_api(
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """AC-8: documented uv --directory startup must not leave make in services/api."""
+    """AC-8: documented uv --directory startup must not leave task in services/api."""
     path = evidence_file(tmp_path)
     runner = PromotionSubprocess(path, expected_smoke_cwd=tmp_path)
     monkeypatch.chdir(REPOSITORY_ROOT / "services" / "api")
@@ -1377,7 +1377,7 @@ def test_main_rejects_ssh_identity_for_another_deployment_before_exact_join(
     assert not any(
         command[-1].endswith("api_deployment_identity.py") for command in runner.calls
     )
-    assert not any(command == ("make", "api-smoke") for command in runner.calls)
+    assert not any(command == ("task", "api-smoke") for command in runner.calls)
 
 
 def test_main_accepts_completed_required_events_with_null_payloads(
@@ -1534,7 +1534,7 @@ def test_main_stops_on_a_repeated_event_cursor_without_identity_or_smoke(
     assert read_evidence(path)["overall_outcome"] == "INDETERMINATE"
     assert runner.observation_count == 2
     assert not any(command[:2] == ("railway", "ssh") for command in runner.calls)
-    assert not any(command == ("make", "api-smoke") for command in runner.calls)
+    assert not any(command == ("task", "api-smoke") for command in runner.calls)
 
 
 def test_main_sanitizes_unknown_argument_before_any_subprocess(

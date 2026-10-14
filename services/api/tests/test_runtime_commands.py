@@ -125,7 +125,11 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
         assert "COPY --chown=tailtag:tailtag . ./" in stage
         assert "USER tailtag" in stage
     assert "RUN uv sync --locked --no-install-project" in development
-    assert "apt-get install --no-install-recommends -y git make" in development
+    # The development image carries the pinned, checksum-verified go-task.
+    assert "make" not in development.replace("makemigrations", "")
+    assert "3.53.1" in development
+    assert "sha256" in development.lower()
+    assert "3.53.1" not in production
     assert "RUN uv sync --locked --no-dev --no-install-project" in production
     production_copy_index = production.index("COPY --chown=tailtag:tailtag . ./")
     static_collection = (
@@ -231,16 +235,16 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
     workflow = (REPOSITORY_ROOT / ".github/workflows/api.yml").read_text()
 
     canonical_contributor_commands = [
-        "make api-setup",
-        "make api-run",
-        "make api-test",
-        "make api-semgrep-check",
-        "make api-check",
-        "make api-migrate",
-        "make api-migrations",
-        "make api-migrations-check",
-        "make api-shell",
-        "make api-smoke",
+        "task api-setup",
+        "task api-run",
+        "task api-test",
+        "task api-semgrep-check",
+        "task api-check",
+        "task api-migrate",
+        "task api-migrations",
+        "task api-migrations-check",
+        "task api-shell",
+        "task api-smoke",
     ]
     for command in canonical_contributor_commands:
         assert command in readme
@@ -255,7 +259,7 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
     assert "uv --directory services/api run python manage.py createsuperuser" in readme
 
     assert "name: API foundation checks" in workflow
-    assert "run: make api-check" in workflow
+    assert "run: task api-check" in workflow
     assert_api_workflow_least_privilege(workflow)
     for duplicated_command in (
         "uv run pytest -q",
@@ -317,7 +321,7 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
     assert "    paths-ignore:" not in push_configuration
     assert "workflow_dispatch:" in workflow
     assert workflow.count("name: API foundation checks") == 1
-    assert workflow.count("run: make api-check") == 1
+    assert workflow.count("run: task api-check") == 1
     assert "scripts/backend_ci_relevance.py" in workflow
     assert "--force-run" in workflow
     assert (
@@ -338,7 +342,7 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
     api_job = yaml_mapping_contents(
         yaml_mapping_contents(workflow, "jobs", 0), "api", 2
     )
-    validation_index = api_job.index("run: make api-check")
+    validation_index = api_job.index("run: task api-check")
     for setup_command in (
         "uv --directory services/api sync --all-groups --locked",
         "uv --directory .semgrep sync --locked",
@@ -356,13 +360,13 @@ OPERATOR_PROCEDURE = (
 )
 OPERATOR_AUTOMATION_PROHIBITIONS = (
     (
-        "Do not add a Make target or script, set a `DJANGO_SUPERUSER_PASSWORD`, "
+        "Do not add a task or script, set a `DJANGO_SUPERUSER_PASSWORD`, "
         "configure Railway credential variables, or run the command automatically "
         "during build, pre-deploy, startup, health checks, or Gunicorn."
     ),
     (
         "Do not set `DJANGO_SUPERUSER_PASSWORD`, add Railway credential variables, "
-        "create a Make target or script, or run this command automatically in build, "
+        "create a task or script, or run this command automatically in build, "
         "pre-deploy, startup, health checks, or Gunicorn."
     ),
 )

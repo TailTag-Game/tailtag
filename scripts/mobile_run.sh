@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs the TailTag mobile app on one explicitly chosen Android or iOS target.
-# Usage: DEVICE=<id> ./scripts/mobile_run.sh   (or: make mobile-run DEVICE=<id>)
+# Usage: DEVICE=<id> ./scripts/mobile_run.sh   (or: task mobile-run DEVICE=<id>)
 
 set -euo pipefail
 
@@ -52,7 +52,7 @@ if [[ -z "$platform" ]]; then
 
   (cd "$mobile_directory" && fvm flutter devices) || true
   printf '\n%s\n' 'Start one with: fvm flutter emulators --launch <emulator-id>'
-  printf '%s\n' 'Then run: make mobile-run DEVICE=<id>'
+  printf '%s\n' 'Then run: task mobile-run DEVICE=<id>'
   exit 1
 fi
 

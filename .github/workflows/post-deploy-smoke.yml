@@ -101,10 +101,13 @@ jobs:
         with:
           version: "0.9.17"
 
+      - name: Install pinned go-task
+        uses: ./.github/actions/install-go-task
+
       - name: Run canonical HTTP smoke verification
         env:
           API_BASE_URL: ${{ vars.TAILTAG_DEVELOPMENT_API_BASE_URL }}
         run: |
           set -euo pipefail
           uv --directory services/api sync --locked --no-dev
-          API_BASE_URL="$API_BASE_URL" make api-smoke
+          API_BASE_URL="$API_BASE_URL" task api-smoke

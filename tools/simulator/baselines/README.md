@@ -17,7 +17,9 @@ claims.
 
 ## Changing a baseline
 
-1. Run `make sim-baseline-promote` on a reviewed, archived report. The command
+1. Run `RATIONALE='<text>' task sim-baseline-promote REPORT=<path>` on a reviewed,
+   archived report (the rationale is taken from the environment so go-task does
+   not alter it). The command
    refuses any run that did not pass, failed correctness, breached or regressed,
    saturated the generator, or cannot be compared. A refused run writes nothing.
 2. Open a pull request with only the changed files from this directory. In the
