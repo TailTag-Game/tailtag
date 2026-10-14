@@ -139,6 +139,29 @@ versions, or arbitrary environment managers. See [Supported native
 workflow](../../services/api/README.md#supported-native-workflow) for the
 configuration and lifecycle details.
 
+### Native Windows
+
+The same native path works from PowerShell on Windows, with no Git Bash or
+other POSIX shell. Install `uv`, go-task 3.53.1, and Docker Desktop, then run
+the same commands from the repository root:
+
+```powershell
+docker compose -f services/api/compose.yaml up -d db
+task api-setup
+task api-check
+```
+
+On Windows, `task api-check` differs in two visible ways:
+
+- `api-gunicorn-check` prints a `SKIP` line, because Gunicorn runs only on
+  Unix. CI checks the production Gunicorn configuration on Linux.
+- `api-test` does not collect the POSIX-only operator tooling modules (pty and
+  termios sessions, SSH relays, owner-and-mode checks). The pytest header lists
+  them. A few individual tests are skipped with a stated reason.
+
+`scripts/doctor.sh`, the simulator `sim-*` tasks, the Staging operator tasks,
+and the [mobile commands](mobile.md) still need macOS or Linux.
+
 ## Contribute changes
 
 Configure the name and email recorded in your commits if needed:
