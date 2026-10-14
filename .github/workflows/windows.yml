@@ -1,0 +1,127 @@
+# Native Windows parity for Taskfile commands (issue #315). Runs in PowerShell
+# with Git Bash tools removed from PATH, so a pass means no POSIX shell helped.
+name: Windows parity
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  api:
+    name: Windows API commands
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      DATABASE_URL: postgresql://tailtag:tailtag@localhost:5432/tailtag
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      DJANGO_SECRET_KEY: ci-not-a-real-secret
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+      DJANGO_CSRF_TRUSTED_ORIGINS: http://localhost
+      MEDIA_STORAGE_ENDPOINT_URL: https://media.example.test
+      MEDIA_STORAGE_BUCKET_NAME: ci-media-bucket
+      MEDIA_STORAGE_REGION: auto
+      MEDIA_STORAGE_ACCESS_KEY_ID: ci-not-a-real-access-key
+      MEDIA_STORAGE_SECRET_ACCESS_KEY: ci-not-a-real-secret-key
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install locked uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.9.17"
+
+      - name: Install pinned go-task
+        uses: ./.github/actions/install-go-task-windows
+
+      - name: Start preinstalled PostgreSQL
+        env:
+          PGPASSWORD: root
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $service = Get-Service -Name 'postgresql*' | Select-Object -First 1
+          Set-Service -InputObject $service -StartupType Manual
+          Start-Service -InputObject $service
+          & "$env:PGBIN\pg_isready.exe" -h localhost -p 5432
+          & "$env:PGBIN\psql.exe" -h localhost -U postgres -c "CREATE ROLE tailtag LOGIN SUPERUSER PASSWORD 'tailtag';"
+          & "$env:PGBIN\createdb.exe" -h localhost -U postgres -O tailtag tailtag
+
+      - name: Require a native shell
+        run: ./.github/actions/install-go-task-windows/require-native-shell.ps1
+
+      - name: Run API commands natively
+        run: |
+          . ./.github/actions/install-go-task-windows/require-native-shell.ps1
+          $results = [ordered]@{}
+          function Record($name, $code) { $results[$name] = $code; Write-Host "$name -> exit $code" }
+
+          task api-setup; Record 'api-setup' $LASTEXITCODE
+          task api-check; Record 'api-check' $LASTEXITCODE
+          task api-migrate; Record 'api-migrate' $LASTEXITCODE
+          task api-migrations; Record 'api-migrations' $LASTEXITCODE
+          $dirty = git status --porcelain
+          Record 'api-migrations created no files' ([int][bool]$dirty)
+          $shell = "print('shell-' + 'ok')" | task api-shell
+          Record 'api-shell' ([int](-not ($shell -match 'shell-ok')))
+
+          $server = Start-Process -FilePath task -ArgumentList 'api-run' -PassThru -NoNewWindow
+          $ready = $false
+          foreach ($attempt in 1..60) {
+            try { if ((Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/health/live).StatusCode -eq 200) { $ready = $true; break } } catch { }
+            Start-Sleep -Seconds 2
+          }
+          Record 'api-run serves /health/live' ([int](-not $ready))
+          task api-smoke; Record 'api-smoke' $LASTEXITCODE
+          taskkill /PID $server.Id /T /F | Out-Null
+
+          Write-Host '--- summary'
+          $results.GetEnumerator() | ForEach-Object { Write-Host ("{0}: {1}" -f $_.Key, $_.Value) }
+          if ($results.Values | Where-Object { $_ -ne 0 }) { exit 1 }
+
+  simulator:
+    name: Windows simulator commands
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install locked uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.9.17"
+
+      - name: Install pinned go-task
+        uses: ./.github/actions/install-go-task-windows
+
+      - name: Run simulator commands natively
+        run: |
+          . ./.github/actions/install-go-task-windows/require-native-shell.ps1
+          $results = [ordered]@{}
+          function Record($name, $code) { $results[$name] = $code; Write-Host "$name -> exit $code" }
+
+          task sim-setup; Record 'sim-setup' $LASTEXITCODE
+          task sim-check; Record 'sim-check' $LASTEXITCODE
+          task sim-report-trend DIR=tools/simulator/baselines; Record 'sim-report-trend' $LASTEXITCODE
+
+          Write-Host '--- summary'
+          $results.GetEnumerator() | ForEach-Object { Write-Host ("{0}: {1}" -f $_.Key, $_.Value) }
+          if ($results.Values | Where-Object { $_ -ne 0 }) { exit 1 }
