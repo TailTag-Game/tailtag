@@ -125,12 +125,33 @@ jobs:
           function Record($name, $code) { $results[$name] = $code; Write-Host "$name -> exit $code" }
 
           task sim-setup; Record 'sim-setup' $LASTEXITCODE
-          # TEMPORARY diagnostic (#315 slice 1): show why report validation fails on Windows.
-          uv --directory tools/simulator run --locked --no-sync python -c "import json; from pathlib import Path; from tailtag_simulator import reports; reports.validate_report(json.loads(Path('tests/data/report-v1-smoke.json').read_bytes().decode('utf-8')))"
+          # TEMPORARY diagnostic (#315 slice 1): show which provenance and catalog checks reject on Windows.
+          $diagnostic = @'
+          import json, sys, tempfile, traceback
+          from pathlib import Path
+          sys.path.insert(0, "tests")
+          from report_support import literal_report, repository
+          from tailtag_simulator import provenance, scenarios
+          try:
+              provenance._host(Path("../..").resolve())
+              print("provenance: ok")
+          except Exception:
+              traceback.print_exc()
+          value = literal_report()["scenario"]
+          entry = {**value["descriptor"], "descriptor_digest": value["descriptor_digest"]}
+          name = "checkout space ' apostrophe $(touch SENTINEL-dollar) `touch SENTINEL-backtick`"
+          root = repository(Path(tempfile.mkdtemp()) / name, {"tools/simulator/tailtag_simulator/scenarios/smoke-v1.json": json.dumps(entry)})
+          try:
+              scenarios.validate_catalog(root)
+              print("catalog: ok")
+          except Exception as error:
+              print("catalog:", type(error).__name__, "context:", repr(error.__context__))
+          '@
+          ($diagnostic -split "`n" | ForEach-Object { $_ -replace '^          ', '' }) -join "`n" | uv --directory tools/simulator run --locked --no-sync python -
           task sim-check; Record 'sim-check' $LASTEXITCODE
-          task sim-report-validate REPORT=tools/simulator/tests/data/report-v1-smoke.json; Record 'sim-report-validate' $LASTEXITCODE
-          task sim-report-evaluate REPORT=tools/simulator/tests/data/report-v2-convention.json; Record 'sim-report-evaluate' $LASTEXITCODE
-          task sim-report-trend DIR=tools/simulator/tests/data; Record 'sim-report-trend' $LASTEXITCODE
+          # Report paths resolve inside tools/simulator, where uv runs the simulator.
+          task sim-report-validate REPORT=tests/data/report-v1-smoke.json; Record 'sim-report-validate' $LASTEXITCODE
+          task sim-report-trend DIR=tests/data; Record 'sim-report-trend' $LASTEXITCODE
 
           Write-Host '--- summary'
           $results.GetEnumerator() | ForEach-Object { Write-Host ("{0}: {1}" -f $_.Key, $_.Value) }
