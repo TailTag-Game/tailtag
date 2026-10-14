@@ -174,6 +174,18 @@ def test_unapproved_nested_fields_cannot_enter_a_report(path: tuple[str, ...]) -
         "[" * 1000 + "0" + "]" * 1000,
         DATA.read_text() + " " * 2_000_000,
     ],
+    # Short ids: pytest puts the test id in an environment variable, which
+    # Windows limits to 32767 characters.
+    ids=[
+        "duplicate-schema-version",
+        "duplicate-seed",
+        "nan",
+        "infinity",
+        "negative-infinity",
+        "truncated",
+        "deep",
+        "oversize",
+    ],
 )
 def test_reader_rejects_ambiguous_malformed_deep_or_oversized_json_safely(
     tmp_path: Path, body: str

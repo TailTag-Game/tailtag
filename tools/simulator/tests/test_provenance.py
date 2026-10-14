@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from platform_support import skip_on_windows
 from report_support import DATA, commit, git, literal_report, repository
 
 from tailtag_simulator import provenance
@@ -334,6 +335,9 @@ def test_failed_docker_build_cleans_its_context_and_sanitizes_stderr(
     assert "SENTINEL" not in output.out + output.err
 
 
+@skip_on_windows(
+    "Exercises the Linux container layout, which Windows never runs natively."
+)
 def test_packaged_layout_resolves_source_and_runs_offline_cli_without_host_checkout(
     source_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
