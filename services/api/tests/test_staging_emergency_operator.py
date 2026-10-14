@@ -46,6 +46,7 @@ from operator_audit.models import (
 )
 from profiles.models import PlayerProfile
 from rehearsal.models import StagingResetIdentity
+from tests.process_support import minimal_environment
 
 COMMAND_MODULE = "accounts.management.commands.bootstrap_staging_emergency_operator"
 COMMAND_NAME = "bootstrap_staging_emergency_operator"
@@ -1076,7 +1077,7 @@ def test_command_parser_never_echoes_identifier_or_password_arguments(
     completed = subprocess.run(
         [sys.executable, "manage.py", COMMAND_NAME, *arguments],
         cwd=API_ROOT,
-        env={"PATH": os.environ["PATH"]},
+        env=minimal_environment(),
         capture_output=True,
         text=True,
         check=False,
@@ -1636,7 +1637,7 @@ def test_emergency_decommission_parser_never_echoes_identity_or_secret_arguments
     completed = subprocess.run(
         [sys.executable, "manage.py", DECOMMISSION_COMMAND, *arguments],
         cwd=API_ROOT,
-        env={"PATH": os.environ["PATH"]},
+        env=minimal_environment(),
         capture_output=True,
         text=True,
         check=False,

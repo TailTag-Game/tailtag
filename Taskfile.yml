@@ -163,77 +163,77 @@ tasks:
     vars:
       REPOSITORY_ROOT: *repository-root
     cmds:
-      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}:{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_auth_smoke'
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_auth_smoke'
 
   api-staging-auth-smoke:
     desc: "Run the explicit live Clerk Staging authenticated API smoke."
     vars:
       REPOSITORY_ROOT: *repository-root
     cmds:
-      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}:{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_staging_auth_smoke'
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_staging_auth_smoke'
 
   api-replacement-auth-smoke:
     desc: "Run the interactive replacement Development/Staging authenticated API smoke."
     vars:
       REPOSITORY_ROOT: *repository-root
     cmds:
-      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}:{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_replacement_auth_smoke'
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_replacement_auth_smoke'
 
   api-staging-reset:
     desc: "Run the explicitly confirmed guarded Staging rehearsal reset."
     vars:
       REPOSITORY_ROOT: *repository-root
     cmds:
-      - 'DJANGO_SETTINGS_MODULE=config.settings.production PYTHONPATH="{{.REPOSITORY_ROOT}}:{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_staging_reset --confirm reset-tailtag-staging'
+      - 'DJANGO_SETTINGS_MODULE=config.settings.production PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_staging_reset --confirm reset-tailtag-staging'
 
   api-staging-reset-ssh:
     desc: "Run the confirmed guarded Staging reset through its pinned Railway SSH instance."
     vars:
       REPOSITORY_ROOT: *repository-root
     cmds:
-      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}:{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_staging_reset_ssh --confirm reset-tailtag-staging'
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_staging_reset_ssh --confirm reset-tailtag-staging'
 
   api-staging-reset-provision:
     desc: "Provision the Staging reset sentinel after explicit confirmation."
     vars:
       REPOSITORY_ROOT: *repository-root
     cmds:
-      - 'DJANGO_SETTINGS_MODULE=config.settings.production PYTHONPATH="{{.REPOSITORY_ROOT}}:{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_staging_reset --provision --confirm provision-tailtag-staging-reset'
+      - 'DJANGO_SETTINGS_MODULE=config.settings.production PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_staging_reset --provision --confirm provision-tailtag-staging-reset'
 
   api-staging-reset-provision-ssh:
     desc: "Provision the replacement Staging reset sentinel on the pinned Railway instance."
     vars:
       REPOSITORY_ROOT: *repository-root
     cmds:
-      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}:{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_staging_reset_ssh --provision --confirm provision-tailtag-staging-reset'
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_staging_reset_ssh --provision --confirm provision-tailtag-staging-reset'
 
   api-sim-pool-ssh:
     desc: "Run one synthetic identity pool request (JSON on stdin) through the pinned Staging instance."
     vars:
       REPOSITORY_ROOT: *repository-root
     cmds:
-      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}:{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_sim_pool_ssh'
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_sim_pool_ssh'
 
   api-sim-fixture-ssh:
     desc: "Run one simulation fixture request (JSON on stdin) through the pinned Staging instance."
     vars:
       REPOSITORY_ROOT: *repository-root
     cmds:
-      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}:{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_sim_fixture_ssh'
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_sim_fixture_ssh'
 
   api-sim-inspect-ssh:
     desc: "Run one read-only simulation inspection request (JSON on stdin) through the pinned Staging instance."
     vars:
       REPOSITORY_ROOT: *repository-root
     cmds:
-      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}:{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_sim_inspect_ssh'
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_sim_inspect_ssh'
 
   api-staging-restore-drill:
     desc: "Run the confirmed isolated Staging PostgreSQL backup restore drill."
     vars:
       REPOSITORY_ROOT: *repository-root
     cmds:
-      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}:{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_staging_restore_drill --confirm restore-tailtag-staging-backup'
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_staging_restore_drill --confirm restore-tailtag-staging-backup'
 
   # Silent so a failure prints only go-task's footer, never the command text.
   api-media-storage-smoke:
@@ -244,7 +244,7 @@ tasks:
     cmds:
       - |-
         DJANGO_SETTINGS_MODULE=config.settings.production \
-        PYTHONPATH="{{.REPOSITORY_ROOT}}:{{.REPOSITORY_ROOT}}/services/api" \
+        PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" \
         {{.UV}} run --project services/api --locked --no-sync python -m scripts.api_media_storage_smoke
 
   api-check:

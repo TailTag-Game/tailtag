@@ -23,6 +23,7 @@ from django.db import IntegrityError, close_old_connections, connection
 from psycopg import sql
 
 from accounts.models import User
+from tests.process_support import minimal_environment
 
 COMMAND_MODULE = "accounts.management.commands.bootstrap_staging_operator"
 COMMAND_NAME = "bootstrap_staging_operator"
@@ -64,7 +65,7 @@ def run_invalid_command_arguments(
     return subprocess.run(
         [sys.executable, "manage.py", COMMAND_NAME, *arguments],
         cwd=API_ROOT,
-        env={"PATH": os.environ["PATH"]},
+        env=minimal_environment(),
         capture_output=True,
         text=True,
         check=False,

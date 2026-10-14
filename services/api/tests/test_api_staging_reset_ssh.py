@@ -7,7 +7,6 @@ import hashlib
 import importlib
 import io
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -19,6 +18,7 @@ from typing import Any, NoReturn, Self, cast
 
 import pytest
 
+from tests.process_support import minimal_environment
 from tests.semgrep_support import task_dry_run
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -316,7 +316,7 @@ def isolated_bootstrap(
 ) -> subprocess.CompletedProcess[str]:
     """Run the real bootstrap source under an isolated local interpreter."""
     environment = {
-        "PATH": os.environ["PATH"],
+        **minimal_environment(),
         "HOME": str(tmp_path),
         "TMPDIR": str(tmp_path),
         "RAILWAY_PROJECT_ID": PROJECT_ID,
@@ -552,7 +552,7 @@ def test_generated_bundle_initializes_all_installed_django_apps(
             str(bundle_root),
         ],
         cwd=tmp_path,
-        env={"PATH": os.environ["PATH"]},
+        env=minimal_environment(),
         capture_output=True,
         text=True,
         check=False,

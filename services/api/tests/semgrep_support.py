@@ -55,9 +55,13 @@ def task_environment(overrides: dict[str, str] | None = None) -> dict[str, str]:
 
     GitHub Actions makes go-task emit ANSI colors and `::error` annotations, so
     the parent's GITHUB_ACTIONS is dropped and colors are disabled explicitly.
+    An inherited UV (set by some CI images) is dropped too, because the
+    Taskfile honors it; tests that exercise UV pass it as an override.
     """
     environment = {
-        name: value for name, value in os.environ.items() if name != "GITHUB_ACTIONS"
+        name: value
+        for name, value in os.environ.items()
+        if name not in {"GITHUB_ACTIONS", "UV"}
     }
     return {**environment, "NO_COLOR": "1", **(overrides or {})}
 

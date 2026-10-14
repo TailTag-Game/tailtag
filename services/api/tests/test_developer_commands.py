@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.process_support import skip_on_windows
 from tests.semgrep_support import (
     FROZEN_ROOT_HELPERS,
     dry_run_commands,
@@ -733,6 +734,7 @@ def test_ordinary_smoke_and_ci_remain_noninteractive_and_credential_free() -> No
             assert forbidden_name not in text
 
 
+@skip_on_windows("Uses a POSIX shebang script as the uv launcher.")
 def test_media_storage_smoke_failure_emits_only_sanitized_output(
     tmp_path: Path,
 ) -> None:
@@ -789,6 +791,7 @@ def test_media_storage_smoke_failure_emits_only_sanitized_output(
         assert forbidden not in rendered
 
 
+@skip_on_windows("Exercises the devcontainer branch, which only runs on Linux.")
 def test_devcontainer_migrate_executes_with_the_compose_database_url(
     tmp_path: Path,
 ) -> None:
@@ -956,6 +959,7 @@ def run_api_no_dev_dependency_export() -> subprocess.CompletedProcess[str]:
     )
 
 
+@skip_on_windows("Uses a POSIX shebang script as the uv launcher.")
 def test_api_dependency_export_honors_the_uv_launcher_seam(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

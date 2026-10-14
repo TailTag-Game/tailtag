@@ -10,6 +10,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from tests.process_support import skip_on_windows
 from tests.semgrep_support import (
     FROZEN_ROOT_HELPERS,
     dry_run_commands,
@@ -73,7 +74,7 @@ def test_canonical_ruff_commands_include_all_reviewed_root_helpers() -> None:
         missing = {
             helper
             for helper in FROZEN_ROOT_HELPERS
-            if str(REPOSITORY_ROOT / helper) not in checked
+            if (REPOSITORY_ROOT / helper).as_posix() not in checked
         }
         assert not missing, (
             f"{target} excludes reviewed root helpers: {sorted(missing)}"
@@ -230,6 +231,9 @@ def test_canonical_main_scan_reports_exact_frozen_tracked_scope() -> None:
     assert any(path.name.startswith("test_") for path in scanned)
 
 
+@skip_on_windows(
+    "Symlinks the project virtualenvs into a clone; Windows restricts symlinks."
+)
 def test_inherited_baseline_cannot_suppress_the_canonical_task_scan(
     tmp_path: Path,
 ) -> None:

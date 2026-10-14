@@ -5,7 +5,6 @@ from __future__ import annotations
 import importlib
 import io
 import json
-import os
 import subprocess
 import sys
 from collections.abc import Callable
@@ -14,6 +13,8 @@ from types import ModuleType
 from typing import Any
 
 import pytest
+
+from tests.process_support import minimal_environment
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 if str(REPOSITORY_ROOT) not in sys.path:
@@ -274,7 +275,7 @@ def test_remote_bootstrap_prints_exactly_one_fixed_json_line(
     """P-12/P-7: the real bootstrap emits one fixed object and nothing else."""
     api_root = REPOSITORY_ROOT / "services" / "api"
     environment = {
-        "PATH": os.environ["PATH"],
+        **minimal_environment(),
         "HOME": str(tmp_path),
         "TMPDIR": str(tmp_path),
         "DATABASE_URL": "postgresql://tailtag:tailtag@localhost:5432/tailtag",

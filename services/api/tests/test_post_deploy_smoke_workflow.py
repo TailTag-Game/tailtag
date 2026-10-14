@@ -17,6 +17,8 @@ from typing import NoReturn
 import pytest
 from pytest import MonkeyPatch
 
+from tests.process_support import skip_on_windows
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "post-deploy-smoke.yml"
 if str(REPOSITORY_ROOT) not in sys.path:
@@ -352,6 +354,7 @@ def test_workflow_classifies_file_event_before_source_checkout_or_smoke() -> Non
     assert "--development-current" in workflow
 
 
+@skip_on_windows("Runs the workflow's bash step, which only runs on Linux runners.")
 def test_display_label_and_sha_alone_cannot_trigger_attributed_smoke(
     tmp_path: Path,
 ) -> None:
@@ -365,6 +368,7 @@ def test_display_label_and_sha_alone_cannot_trigger_attributed_smoke(
     assert values.get("checkout_ref") == ""
 
 
+@skip_on_windows("Runs the workflow's bash step, which only runs on Linux runners.")
 def test_manual_dispatch_does_not_label_the_workflow_revision_as_a_deployment(
     tmp_path: Path,
 ) -> None:

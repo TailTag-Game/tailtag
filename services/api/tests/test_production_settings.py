@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from collections.abc import Mapping
@@ -26,6 +25,7 @@ from tests.clerk_settings_contract import (
 from tests.clerk_settings_contract import (
     valid_clerk_public_key as _valid_clerk_public_key,  # noqa: F401  # pyright: ignore[reportUnusedImport]
 )
+from tests.process_support import minimal_environment
 
 REQUIRED_SETTINGS = (
     "DATABASE_URL",
@@ -130,7 +130,7 @@ def run_settings_import(
         ],
         cwd=".",
         env={
-            "PATH": os.environ["PATH"],
+            **minimal_environment(),
             "DJANGO_SETTINGS_MODULE": "config.settings.production",
             **environment,
         },

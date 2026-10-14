@@ -57,6 +57,7 @@ from tests.observability_test_support import (
     identity,
     sentry_capturing,
 )
+from tests.process_support import skip_on_windows
 from tests.test_health import LOCAL_STORAGES, configure_local_profile
 from tests.test_media_storage import FakeS3Client, StaticClientFactory
 
@@ -360,6 +361,9 @@ def test_a_real_login_refusal_is_rejected(
     _assert_one_attempt(observed, "failed", reason)
 
 
+@skip_on_windows(
+    "Windows reports a refused local connection as a timeout, not unreachable."
+)
 @pytest.mark.django_db
 def test_a_real_refused_connection_is_unreachable(observed: Observed) -> None:
     """AC-3: libpq's refused-connection wording, from a port nothing listens on."""
