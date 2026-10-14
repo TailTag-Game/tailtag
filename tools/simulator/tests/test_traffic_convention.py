@@ -344,7 +344,7 @@ def test_successful_cli_v2_forwards_version_to_real_runner(
     ):
         for path in directory.rglob("*"):
             if path.is_file() and path.suffix in {".py", ".json", ".jpg"}:
-                files[f"{destination}/{path.relative_to(directory)}"] = (
+                files[f"{destination}/{path.relative_to(directory).as_posix()}"] = (
                     path.read_bytes()
                 )
     for name, content in files.items():

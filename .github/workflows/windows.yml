@@ -141,11 +141,13 @@ jobs:
           entry = {**value["descriptor"], "descriptor_digest": value["descriptor_digest"]}
           name = "checkout space ' apostrophe $(touch SENTINEL-dollar) `touch SENTINEL-backtick`"
           root = repository(Path(tempfile.mkdtemp()) / name, {"tools/simulator/tailtag_simulator/scenarios/smoke-v1.json": json.dumps(entry)})
-          try:
-              scenarios.validate_catalog(root)
-              print("catalog: ok")
-          except Exception as error:
-              print("catalog:", type(error).__name__, "context:", repr(error.__context__))
+          long_root = root.resolve()
+          for label, candidate in (("native", long_root), ("forward-slash", Path(long_root.as_posix()))):
+              try:
+                  scenarios.validate_catalog(candidate)
+                  print("catalog", label, "ok:", candidate)
+              except Exception as error:
+                  print("catalog", label, type(error).__name__, "context:", repr(error.__context__), candidate)
           '@
           ($diagnostic -split "`n" | ForEach-Object { $_ -replace '^          ', '' }) -join "`n" | uv --directory tools/simulator run --locked --no-sync python -
           task sim-check; Record 'sim-check' $LASTEXITCODE
