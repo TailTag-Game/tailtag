@@ -311,8 +311,11 @@ Scheduled runs use the release currently selected on the host:
 
 ## Natural-expiration proof (one-time)
 
-**Status:** deferred to [#316](https://github.com/TailTag-Game/tailtag/issues/316) after two attempts stopped before expiry. See
-the [Staging proof](../specs/2026-10-13-simulation-operations-staging-proof.md#natural-expiration-proof-ac25-deferred).
+**Status:** not run. Three attempts stopped before expiry, and on 2026-10-14
+the maintainer replaced this run with deployed-source verification plus
+backend tests ([#316](https://github.com/TailTag-Game/tailtag/issues/316)). See
+the [Staging proof](../specs/2026-10-13-simulation-operations-staging-proof.md#natural-expiration-proof-ac25).
+The profile stays available but needs fresh live authorization.
 
 `expiration-profile.json` with `expiration-safety.json` proves that an
 unrefreshed catch session expires at the server's real 12-hour lifetime, with
