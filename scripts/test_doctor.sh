@@ -119,7 +119,9 @@ esac
 EOF
   cat >"$tools_directory/task" <<'EOF'
 #!/usr/bin/env bash
-exit 0
+# Only a parsing command proves the Taskfile loads; --version does not.
+[[ "$*" == "--list-all" ]] || exit 2
+exit "${FAKE_TASK_LIST_STATUS:-0}"
 EOF
   cat >"$tools_directory/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -253,6 +255,12 @@ assert_contains "$container_output" 'PASS  PostgreSQL is reachable from the back
 assert_contains "$container_output" 'PASS  Canonical backend task commands are available'
 assert_not_contains "$container_output" 'Docker daemon'
 assert_contains "$container_output" 'Mobile checks: run ./scripts/doctor.sh --mobile on the host.'
+
+invalid_taskfile_result="$(FAKE_TASK_LIST_STATUS=109 run_doctor "$container_fixture" env TAILTAG_DEVCONTAINER=1)"
+invalid_taskfile_status="${invalid_taskfile_result%%$'\n'*}"
+invalid_taskfile_output="${invalid_taskfile_result#*$'\n'}"
+[[ "$invalid_taskfile_status" == "1" ]] || fail 'expected an unparseable Taskfile to fail'
+assert_contains "$invalid_taskfile_output" 'FAIL  Canonical backend task commands are unavailable; verify go-task is installed and the root Taskfile.yml parses'
 
 wrong_python_result="$(FAKE_PYTHON_VERSION=3.12 run_doctor "$container_fixture" env TAILTAG_DEVCONTAINER=1)"
 wrong_python_status="${wrong_python_result%%$'\n'*}"

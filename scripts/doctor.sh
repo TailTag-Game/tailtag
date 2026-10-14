@@ -206,10 +206,10 @@ with connection.cursor() as cursor:
     fail "uv is not installed in the TailTag devcontainer"
   fi
 
-  if command -v task >/dev/null 2>&1 && task --version >/dev/null 2>&1; then
+  if command -v task >/dev/null 2>&1 && task --list-all >/dev/null 2>&1; then
     pass "Canonical backend task commands are available"
   else
-    fail "Canonical backend task commands are unavailable; verify go-task is installed and the root Taskfile.yml exists"
+    fail "Canonical backend task commands are unavailable; verify go-task is installed and the root Taskfile.yml parses"
   fi
 }
 
