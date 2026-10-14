@@ -141,6 +141,45 @@ def test_convention_passes_awkward_values_as_arguments_and_honors_uv_override(
 
 
 @pytest.mark.parametrize(
+    ("task", "names"),
+    [
+        ("sim-smoke", ["TARGET", "BASE_URL", "VERSION", "SEED", "REPORT_DIR"]),
+        ("sim-pool-provision", ["POOL", "SIZE"]),
+        ("sim-pool-status", ["POOL"]),
+        ("sim-pool-readmit", ["POOL", "INDEX"]),
+        ("sim-pool-smoke", ["POOL", "COUNT", "VERSION", "SEED", "REPORT_DIR"]),
+        (
+            "sim-fixture-smoke",
+            ["POOL", "OWNERS", "FURSUITS", "CATCHERS", "VERSION", "SEED", "REPORT_DIR"],
+        ),
+        ("sim-journeys", ["POOL", "VERSION", "SEED", "REPORT_DIR"]),
+        ("sim-cleanup", ["POOL", "RUN_ID"]),
+        ("sim-report-validate", ["REPORT"]),
+    ],
+)
+def test_operator_values_with_single_quotes_reach_the_launcher_intact(
+    tmp_path: Path, task: str, names: list[str]
+) -> None:
+    """A quote in any operator value stays one argument instead of ending the word."""
+    adapter = recording_adapter(tmp_path)
+    output = tmp_path / "arguments.json"
+    environment = {**os.environ, "UV": str(adapter), "SIM_TEST_ARGUMENTS": str(output)}
+    values = {name: f"{name.lower()} o'clock" for name in names}
+
+    result = run_task(
+        task,
+        *(f"{name}={value}" for name, value in values.items()),
+        cwd=CHECKOUT,
+        env=environment,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    recorded = json.loads(output.read_text())
+    for value in values.values():
+        assert value in recorded
+
+
+@pytest.mark.parametrize(
     ("task", "arguments", "message"),
     [
         ("sim-smoke", [], "TARGET is required: local or staging."),
