@@ -155,8 +155,10 @@ The local API commands (`api-migrate`, `api-migrations`, `api-run`,
 `api-shell`, and `api-smoke`) work the same way, as do the offline simulator
 commands: `sim-setup`, `sim-check`, `sim-report-validate`, and
 `sim-report-trend`. CI runs all of these natively on Windows on every pull
-request. `sim-smoke` should also work, but it has not yet been run against a
-live API on Windows.
+request. `sim-report-evaluate` and `sim-baseline-promote` also run natively;
+CI exercises their code through the simulator tests rather than as commands,
+because they need a real archived run report. `sim-smoke` should also work,
+but it has not yet been run against a live API on Windows.
 
 A few checks differ visibly on Windows:
 

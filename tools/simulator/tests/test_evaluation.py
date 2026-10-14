@@ -3,6 +3,7 @@
 import hashlib
 import json
 import stat
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +24,6 @@ from evaluation_support import (
     sample,
     stopped_failed_run,
 )
-from platform_support import skip_on_windows
 from report_support import RUN_ID
 
 from tailtag_simulator.__main__ import main
@@ -514,16 +514,15 @@ def test_evaluation_records_exact_input_hashes_and_never_touches_its_inputs(
     json.dumps(artifact, allow_nan=False)
 
 
-@skip_on_windows(
-    "POSIX file modes; Windows privacy for evaluation files is #315 slice 3."
-)
 def test_written_evaluation_is_private_exclusive_and_never_overwritten(
     tmp_path: Path,
 ) -> None:
     artifact = run(build(tmp_path))
     out = tmp_path / "evaluation.json"
     write_evaluation(artifact, out)
-    assert stat.S_IMODE(out.stat().st_mode) == 0o600
+    # POSIX mode bits; Windows privacy for evaluation files is #315 slice 3.
+    if sys.platform != "win32":
+        assert stat.S_IMODE(out.stat().st_mode) == 0o600
     assert json.loads(out.read_text()) == json.loads(json.dumps(artifact))
     written = out.read_bytes()
     with pytest.raises((EvaluationFailed, OSError)):
@@ -531,9 +530,6 @@ def test_written_evaluation_is_private_exclusive_and_never_overwritten(
     assert out.read_bytes() == written
 
 
-@skip_on_windows(
-    "POSIX file modes; Windows privacy for evaluation files is #315 slice 3."
-)
 @pytest.mark.parametrize("explicit_out", [True, False])
 def test_cli_prints_the_verdict_and_writes_one_private_artifact(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], explicit_out: bool
@@ -549,7 +545,9 @@ def test_cli_prints_the_verdict_and_writes_one_private_artifact(
         if explicit_out
         else list(inputs.report.parent.glob(f"{RUN_ID}.evaluation-*.json"))
     )
-    assert stat.S_IMODE(written.stat().st_mode) == 0o600
+    # POSIX mode bits; Windows privacy for evaluation files is #315 slice 3.
+    if sys.platform != "win32":
+        assert stat.S_IMODE(written.stat().st_mode) == 0o600
     assert json.loads(written.read_text())["verdict"] == "acceptable"
 
 
