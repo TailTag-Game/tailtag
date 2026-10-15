@@ -267,3 +267,5 @@ live Clerk; and issue #136 independently validates clean onboarding.
   and [Android network security configuration](https://developer.android.com/privacy-and-security/security-config)
 - [Dart compile-time configuration](https://dart.dev/libraries/core/environment-declarations)
   and [app-embedded values](https://docs.flutter.dev/deployment/obfuscate)
+
+<!-- Throwaway proof for #133 (AC5): a docs-only change must skip mobile CI. -->
