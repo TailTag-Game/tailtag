@@ -2,7 +2,7 @@
 
 This runbook implements the [approved #228 contract](../specs/2026-10-08-external-simulation-host.md) and [implementation plan](../specs/2026-10-08-external-simulation-host-implementation-plan.md). The [native Staging proof](../specs/2026-10-10-external-simulation-host-staging-proof.md) records completed live normal, controlled-stop and public-path milestones; private provider inventory remains pending. Local implementation and offline verification alone do not establish live acceptance. Provisioning and Staging traffic require separate explicit authorization; do not close #228 until the external evidence below is collected. CI validates/builds only and never starts sustained load.
 
-The host workflow (`sim-host-prepare`, `sim-host-run`, `sim-host-collect`, `sim-host-release-export`, `sim-host-release-load`) needs macOS or Linux on the maintainer machine; WSL works. It relays Unix-domain sockets over OpenSSH stream-local forwards, uses `fcntl` locks, and walks evidence trees with directory descriptors. On native Windows these tasks print `FAIL  The simulation host workflow needs macOS or Linux (WSL works)` and exit 1. `sim-image` and the offline simulator tasks run natively on Windows.
+The host workflow (`sim-host-prepare`, `sim-host-run`, `sim-host-collect`, `sim-host-release-export`, `sim-host-release-load`) needs macOS or Linux on the maintainer machine; WSL works. It relays Unix-domain sockets over OpenSSH stream-local forwards, uses `fcntl` locks, and walks evidence trees with directory descriptors. On native Windows these tasks print `FAIL  The simulation host workflow needs macOS or Linux (WSL works)` and fail. `sim-image` and the offline simulator tasks run natively on Windows.
 
 ## Host selection and private inventory
 

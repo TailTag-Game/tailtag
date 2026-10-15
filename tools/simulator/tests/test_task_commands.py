@@ -385,7 +385,8 @@ def test_host_tasks_fail_fast_on_windows_and_are_unchanged_elsewhere(task: str) 
     exit code (G12), so the message, not the code, tells them apart. Elsewhere a
     dry run must still show the real launcher command and not the Windows
     message.
-    Catches: a missing platforms split, a wrong exit code, or a changed message.
+    Catches: a missing platforms split, reaching the argument guard, or a changed
+    message.
     """
     environment = {k: v for k, v in os.environ.items() if k != "UV"}
     if sys.platform == "win32":

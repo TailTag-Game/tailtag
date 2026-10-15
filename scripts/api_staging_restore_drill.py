@@ -288,10 +288,13 @@ class _ChunkReader:
             while not self._stopped.is_set():
                 chunk = stream.read1(size)
                 self.total += len(chunk)
-                self._put(chunk)
                 if not chunk:
+                    # Mark the end before handing off the end marker, so a
+                    # consumer that sees the marker always sees the end too.
                     self.at_end = True
+                    self._put(chunk)
                     return
+                self._put(chunk)
         except BaseException as error:  # noqa: BLE001 - passed to the consumer
             self.error = error
             self._put(error)

@@ -286,8 +286,9 @@ def test_a_grandchild_that_breaks_away_from_an_inner_job_is_still_killed() -> No
 def test_attach_to_an_exited_process_fails_closed() -> None:
     """Process trees (attach): if the child cannot be put in the job, attach raises.
 
-    Catches: attach swallowing an AssignProcessToJobObject or ResumeThread
-    failure, which would leave a caller believing the tree is contained.
+    Catches: attach swallowing an AssignProcessToJobObject failure, which would
+    leave a caller believing the tree is contained. The suspended-thread checks
+    are covered by the test below.
     """
     process = subprocess.Popen([sys.executable, "-c", "pass"], **_options())
     process.kill()
@@ -298,3 +299,27 @@ def test_attach_to_an_exited_process_fails_closed() -> None:
             tree.attach(process.pid)
     finally:
         tree.close()
+
+
+@windows_only
+def test_attach_to_a_process_that_was_not_suspended_fails_closed_and_kills_it() -> None:
+    """Process trees (attach): the suspended-thread checks fail closed.
+
+    The child is started without ``spawn_options()``, so it is already running.
+    ResumeThread then reports a previous suspend count of 0 instead of exactly 1
+    (and a child with extra threads fails the single-thread check too).
+    Catches: attach accepting a resume count other than 1, and attach leaving
+    an uncontained child running after it fails.
+    """
+    process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    tree = ProcessTree()
+    try:
+        with pytest.raises(OSError):
+            tree.attach(process.pid)
+        # attach itself must have terminated the child; this test does not.
+        assert process.wait(timeout=20) is not None
+    finally:
+        tree.close()
+        if process.poll() is None:
+            process.kill()
+            process.wait(20)

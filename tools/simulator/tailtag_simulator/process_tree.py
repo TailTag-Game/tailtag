@@ -54,7 +54,10 @@ class ProcessTree:
     def attach(self, pid: int) -> None:
         """Contain the freshly spawned child ``pid``; on Windows, let it run afterwards.
 
-        Raises ``OSError`` after terminating the child when it cannot be contained.
+        Raises ``OSError`` when the child cannot be contained. The child is
+        terminated when its process could be opened; callers still kill and wait
+        their own process handle on any exception, because a child that could not
+        be opened is left suspended.
         """
         if sys.platform == "win32":
             self._job = _attach_to_new_job(pid)

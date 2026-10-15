@@ -184,7 +184,7 @@ A few checks differ visibly on Windows:
 - `sim-host-prepare`, `sim-host-run`, `sim-host-collect`,
   `sim-host-release-export`, and `sim-host-release-load` print
   `FAIL  The simulation host workflow needs macOS or Linux (WSL works)` and
-  exit 1. That workflow relays Unix-domain sockets over OpenSSH, uses `fcntl`
+  fail. That workflow relays Unix-domain sockets over OpenSSH, uses `fcntl`
   locks, and walks evidence trees with directory descriptors, so it has no
   faithful Windows equivalent. See [External Staging simulation
   host](../operations/simulation-host.md).

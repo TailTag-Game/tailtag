@@ -322,8 +322,10 @@ baseline data, are named and left alone.
      count of exactly 1.
 
   The child cannot run before it is in the job. If any step fails, `attach`
-  terminates the child and raises. The pid stays valid during attach, because
-  the caller's `Popen` object holds the process handle open.
+  raises, terminating the child when its process could be opened. Callers
+  still kill and wait their own process handle on any `attach` exception. The
+  pid stays valid during attach, because the caller's `Popen` object holds the
+  process handle open.
 - **Caller discipline.** There is no `await` between spawning the child and
   calling `attach`. `attach` runs before the `try` block that kills on
   `BaseException`.
