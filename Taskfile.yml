@@ -1,3 +1,4 @@
+# Throwaway proof for #133 (AC9): a shared-root-only change must run mobile CI.
 # TailTag developer commands. Run `task --list` to see them.
 #
 # The security-relevant inputs (repository root, Semgrep rules, fixtures,
