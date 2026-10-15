@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import cast
 
@@ -29,6 +30,10 @@ FVM_MISSING = (
 )
 PIN_UNREADABLE = "Could not read the pinned Flutter version from apps/mobile/.fvmrc."
 PINNED_FLUTTER = re.compile(r'"flutter"\s*:\s*"([^"]+)"')
+# A hung tool (a stuck Docker daemon, a stalled network) fails its check instead
+# of blocking doctor; 124 is the status `timeout` reports.
+COMMAND_TIMEOUT_SECONDS = 120.0
+TIMED_OUT = 124
 
 
 def configure_output() -> None:
@@ -46,6 +51,48 @@ def configure_output() -> None:
 def host_os() -> str:
     """Return Darwin, Linux, or Windows; TAILTAG_DOCTOR_HOST_OS overrides it for tests."""
     return os.environ.get("TAILTAG_DOCTOR_HOST_OS") or platform.system()
+
+
+def command_timeout() -> float:
+    """Return how long one tool may run; TAILTAG_DOCTOR_COMMAND_TIMEOUT overrides it for tests."""
+    configured = os.environ.get("TAILTAG_DOCTOR_COMMAND_TIMEOUT")
+    return float(configured) if configured else COMMAND_TIMEOUT_SECONDS
+
+
+def run_command(
+    command: Sequence[str],
+    *,
+    cwd: str | None = None,
+    env: Mapping[str, str] | None = None,
+    merge_stderr: bool = False,
+) -> tuple[int, str, str]:
+    """Run a tool and return its status, stdout, and stderr decoded as UTF-8.
+
+    The status is 127 when the tool cannot start and TIMED_OUT when it runs past
+    `command_timeout()`. A timed-out tool is killed without reading the rest of its
+    output, because a process it started may still hold that output open.
+    """
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT if merge_stderr else subprocess.PIPE,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except OSError as error:
+        return 127, "", str(error)
+    timeout = command_timeout()
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        return TIMED_OUT, "", f"{command[0]} timed out after {timeout:g} seconds"
+    return process.returncode, stdout or "", stderr or ""
 
 
 def find_fvm() -> str | None:
@@ -81,18 +128,8 @@ def sdk_installed(fvm: str, version: str) -> bool:
 
     Entries under `projects` and versions that merely share a prefix do not count.
     """
-    try:
-        completed = subprocess.run(
-            [fvm, "api", "list", "--compress"],
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-        )
-    except OSError:
-        return False
-    document = parse_json(completed.stdout, "{")
+    _, listing, _ = run_command([fvm, "api", "list", "--compress"])
+    document = parse_json(listing, "{")
     if not isinstance(document, dict):
         return False
     versions = cast("dict[str, object]", document).get("versions")

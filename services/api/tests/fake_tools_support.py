@@ -90,6 +90,7 @@ DEFAULTS: dict[str, object] = {
     "branch": "chore/test",
     "dirty": False,
     "docker_info_status": 0,
+    "docker_info_seconds": 0,
     "docker_compose_status": 0,
     "task_list_status": 0,
     "gh_auth_status": 1,
@@ -114,6 +115,7 @@ PRELUDE = """
 import json
 import os
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(HERE, "config.json"), encoding="utf-8") as _handle:
@@ -157,6 +159,7 @@ elif args[:1] == ["status"] and CONFIG["dirty"]:
     "docker": """
 args = sys.argv[1:]
 if args[:1] == ["info"]:
+    time.sleep(CONFIG["docker_info_seconds"])
     sys.exit(CONFIG["docker_info_status"])
 if args[:2] == ["compose", "version"]:
     sys.exit(CONFIG["docker_compose_status"])

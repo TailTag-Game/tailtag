@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 import re
 import shutil
-import subprocess
 import sys
 from collections.abc import Sequence
 from http.client import HTTPException
@@ -62,7 +61,7 @@ IOS_HINT = (
 
 
 class Result:
-    """The outcome of one external command; status 127 when it could not start."""
+    """The outcome of one external command; 127 when it could not start, 124 on timeout."""
 
     def __init__(self, status: int, stdout: str = "", stderr: str = "") -> None:
         self.status = status
@@ -77,22 +76,10 @@ def run(
     env: dict[str, str] | None = None,
     merge_stderr: bool = False,
 ) -> Result:
-    """Run a command, decoding its output as UTF-8, and never raise for a failure."""
-    try:
-        completed = subprocess.run(
-            command,
-            cwd=cwd,
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT if merge_stderr else subprocess.PIPE,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-        )
-    except OSError as error:
-        return Result(127, stderr=str(error))
-    return Result(completed.returncode, completed.stdout or "", completed.stderr or "")
+    """Run a command with a timeout, decoding its output as UTF-8; never raise."""
+    return Result(
+        *fvm_sdk.run_command(command, cwd=cwd, env=env, merge_stderr=merge_stderr)
+    )
 
 
 class Report:

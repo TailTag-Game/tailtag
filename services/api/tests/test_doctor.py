@@ -22,6 +22,7 @@ import shutil
 import socket
 import subprocess
 import threading
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -62,9 +63,15 @@ class DoctorFixture:
     scratch: Path
 
     def run(
-        self, *arguments: str, devcontainer: bool = False, host_os: str = "Darwin"
+        self,
+        *arguments: str,
+        devcontainer: bool = False,
+        host_os: str = "Darwin",
+        command_timeout: str | None = None,
     ) -> Outcome:
         extra = {"TAILTAG_DEVCONTAINER": "1"} if devcontainer else {}
+        if command_timeout is not None:
+            extra["TAILTAG_DOCTOR_COMMAND_TIMEOUT"] = command_timeout
         return run_script(
             DOCTOR,
             arguments,
@@ -309,6 +316,24 @@ def test_host_mode_reports_each_condition(
     setup(fixture)
 
     assert_outcome(fixture.run(), expect)
+
+
+def test_a_hung_tool_fails_its_check_instead_of_hanging_doctor(tmp_path: Path) -> None:
+    fixture = make_fixture(tmp_path)
+    fixture.tools.configure(docker_info_seconds=30)
+    started = time.monotonic()
+
+    outcome = fixture.run(command_timeout="1")
+
+    assert time.monotonic() - started < 20
+    assert_outcome(
+        outcome,
+        Expect(
+            1,
+            ("FAIL  Docker daemon is unavailable; start Docker and try again",),
+            lines=(("PASS", "Docker Compose is available"),),
+        ),
+    )
 
 
 def test_devcontainer_mode_passes_and_runs_only_backend_checks(tmp_path: Path) -> None:
