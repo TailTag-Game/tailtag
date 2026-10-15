@@ -1,21 +1,40 @@
 name: Install pinned go-task
-description: Install go-task 3.53.1 from its release archive, verified against a pinned SHA-256. Linux x86_64 runners only.
+description: Install go-task 3.53.1 from its release archive, verified against a pinned SHA-256. Linux x86_64 and macOS arm64 runners only.
 
 runs:
   using: composite
   steps:
     - name: Download and verify go-task
       shell: bash
+      env:
+        RUNNER_OS_NAME: ${{ runner.os }}
+        RUNNER_ARCH_NAME: ${{ runner.arch }}
       run: |
         set -euo pipefail
         version="3.53.1"
-        archive="task_linux_amd64.tar.gz"
-        sha256="a54a408f6861ff921f6e87774180db31bacd8c1e7c944ca696db9fea49a82fc7"
+        case "${RUNNER_OS_NAME}-${RUNNER_ARCH_NAME}" in
+          Linux-X64)
+            archive="task_linux_amd64.tar.gz"
+            sha256="a54a408f6861ff921f6e87774180db31bacd8c1e7c944ca696db9fea49a82fc7"
+            ;;
+          macOS-ARM64)
+            archive="task_darwin_arm64.tar.gz"
+            sha256="85d2d96c2380b33d7855b07b3f7a20dc7ca0eda999a26efa0fb5f6f32b366cd7"
+            ;;
+          *)
+            echo "::error::install-go-task supports Linux X64 and macOS ARM64 runners only, not ${RUNNER_OS_NAME} ${RUNNER_ARCH_NAME}."
+            exit 1
+            ;;
+        esac
         work="$(mktemp -d)"
         curl --fail --silent --show-error --location \
           --output "$work/$archive" \
           "https://github.com/go-task/task/releases/download/v${version}/${archive}"
-        echo "${sha256}  $work/$archive" | sha256sum --check --strict -
+        if [ "${RUNNER_OS_NAME}" = "macOS" ]; then
+          echo "${sha256}  $work/$archive" | shasum -a 256 --check --strict -
+        else
+          echo "${sha256}  $work/$archive" | sha256sum --check --strict -
+        fi
         tar -xzf "$work/$archive" -C "$work" task
         mkdir -p "$RUNNER_TEMP/bin"
         install -m 0755 "$work/task" "$RUNNER_TEMP/bin/task"
