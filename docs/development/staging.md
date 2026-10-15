@@ -359,13 +359,19 @@ bindings only from owner-only files, so set up the private location first.
 
   ```powershell
   New-Item -ItemType Directory -Force "$HOME\.config\tailtag" | Out-Null
+  icacls "$HOME\.config\tailtag" /reset
   icacls "$HOME\.config\tailtag" /setowner "$env:USERNAME"
   icacls "$HOME\.config\tailtag" /inheritance:r /grant:r "${env:USERNAME}:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F"
+  icacls "$HOME\.config\tailtag"
   ```
 
-  The `/setowner` line matters in an elevated shell, where new folders are
-  owned by `Administrators`; it is harmless otherwise. Files created in that
-  folder afterwards inherit only those three entries.
+  `/reset` drops any explicit grants a reused folder already carries, so the
+  next line leaves exactly three entries. The `/setowner` line matters in an
+  elevated shell, where new folders are owned by `Administrators`; it is
+  harmless otherwise. The last line must list only your account,
+  `NT AUTHORITY\SYSTEM`, and `BUILTIN\Administrators`; store configuration
+  there only after it does. Files created in that folder afterwards inherit
+  only those three entries.
 - **Rule.** The owner must be you. The only access entries allowed are for you,
   `SYSTEM`, and `Administrators`; any other account or group (`Users`,
   `Authenticated Users`, `CREATOR OWNER`, and so on) is refused, even where it

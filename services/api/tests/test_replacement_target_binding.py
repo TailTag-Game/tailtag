@@ -244,12 +244,6 @@ def test_loader_rejects_missing_symlink_and_wrong_modes(
         binding, lambda: binding.load_local_manifest(path.parent / "missing.json")
     )
 
-    if sys.platform == "win32":
-        acl.require_symlinks(tmp_path)
-    alias = path.parent / "alias.json"
-    alias.symlink_to(path)
-    _assert_fixed_denial(binding, lambda: binding.load_local_manifest(alias))
-
     path.chmod(0o644)
     if sys.platform == "win32":
         acl.make_owner_only(path, extra_aces="(A;;FR;;;BU)")
@@ -261,6 +255,15 @@ def test_loader_rejects_missing_symlink_and_wrong_modes(
     if sys.platform == "win32":
         acl.make_owner_only(path.parent, container=True, extra_aces="(A;;FR;;;BU)")
     _assert_fixed_denial(binding, lambda: binding.load_local_manifest(path))
+
+    # Last, because an account that cannot create symlinks skips from here.
+    path.parent.chmod(0o700)
+    if sys.platform == "win32":
+        acl.make_owner_only(path.parent, container=True)
+        acl.require_symlinks(tmp_path)
+    alias = path.parent / "alias.json"
+    alias.symlink_to(path)
+    _assert_fixed_denial(binding, lambda: binding.load_local_manifest(alias))
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX uid ownership")

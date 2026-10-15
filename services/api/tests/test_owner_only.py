@@ -58,10 +58,11 @@ def _private_file(path: Path, data: bytes = CONTENT) -> None:
 
 
 def _documented_icacls_recipe(folder: Path) -> None:
-    """The staging.md operator recipe: set the owner, then drop inheritance and grant."""
+    """The staging.md operator recipe: reset, set the owner, drop inheritance, grant."""
     sid = acl.token_user_sid()
     grants = [f"*{sid}:(OI)(CI)F", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F"]
     for command in (
+        ["icacls", str(folder), "/reset"],
         ["icacls", str(folder), "/setowner", f"*{sid}"],
         ["icacls", str(folder), "/inheritance:r", "/grant:r", *grants],
     ):
@@ -299,6 +300,13 @@ def _accept_inherited_entries(
     """D6: a file whose only entries were inherited from a verified folder."""
     folder = root / "inherited"
     folder.mkdir()
+    # A reused folder may already carry an explicit grant to another account;
+    # the recipe must remove it, not just add the three allowed entries.
+    subprocess.run(
+        ["icacls", str(folder), "/grant", "*S-1-5-32-545:(OI)(CI)R"],
+        check=True,
+        capture_output=True,
+    )
     _documented_icacls_recipe(folder)
     inherited = folder / "manifest.json"
     inherited.write_bytes(CONTENT)

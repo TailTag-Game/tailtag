@@ -444,12 +444,18 @@ other account can write to it.
 
 ```powershell
 New-Item -ItemType Directory -Force "$HOME\.config\tailtag" | Out-Null
+icacls "$HOME\.config\tailtag" /reset
 icacls "$HOME\.config\tailtag" /setowner "$env:USERNAME"
 icacls "$HOME\.config\tailtag" /inheritance:r /grant:r "${env:USERNAME}:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F"
+icacls "$HOME\.config\tailtag"
 ```
 
-The `/setowner` line matters in an elevated shell, where new folders are owned
-by `Administrators`; it is harmless otherwise.
+`/reset` drops any explicit grants a reused folder already carries; without it,
+`/grant:r` would replace grants only for the three named accounts and leave any
+other explicit grant in place. The `/setowner` line matters in an elevated
+shell, where new folders are owned by `Administrators`; it is harmless
+otherwise. The final `icacls` line shows the result, which must list only those
+three entries before configuration is stored.
 
 Files created in that folder afterwards inherit only those three entries.
 

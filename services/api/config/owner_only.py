@@ -105,6 +105,7 @@ def _open_posix(path: Path, max_bytes: int) -> BinaryIO:
 if sys.platform == "win32":
     # Win32 values, named as in the Windows SDK headers.
     _READ_CONTROL = 0x00020000
+    _FILE_LIST_DIRECTORY = 0x1
     _FILE_READ_ATTRIBUTES = 0x80
     _GENERIC_READ = 0x80000000
     _GENERIC_WRITE = 0x40000000
@@ -471,10 +472,12 @@ if sys.platform == "win32":
     def _open_windows(path: Path, max_bytes: int) -> BinaryIO:
         token_sid = _token_user_sid()
         # Holding the folder without FILE_SHARE_DELETE keeps it from being renamed
-        # or deleted until the file has been opened and checked.
+        # or deleted until the file has been opened and checked. Windows enforces
+        # share modes only for handles that request data access, so the handle
+        # asks for FILE_LIST_DIRECTORY as well as the access it reads.
         parent = _open_handle(
             path.parent,
-            _READ_CONTROL | _FILE_READ_ATTRIBUTES,
+            _FILE_LIST_DIRECTORY | _READ_CONTROL | _FILE_READ_ATTRIBUTES,
             _FILE_SHARE_READ | _FILE_SHARE_WRITE,
             _FILE_FLAG_BACKUP_SEMANTICS,
         )
