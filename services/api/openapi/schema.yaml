@@ -1,0 +1,2183 @@
+openapi: 3.0.3
+info:
+  title: TailTag API
+  version: 0.1.0
+  description: TailTag V0 API foundation.
+paths:
+  /api/catches/:
+    get:
+      operationId: catch_history_list
+      description: Returns only the authenticated player's Catch history ordered by
+        -caught_at then -id. catch_count is the total number of matching Catch rows
+        before pagination. Each supported query parameter may appear at most once;
+        unknown query parameters are rejected.
+      parameters:
+      - in: query
+        name: convention_id
+        schema:
+          type: integer
+          minimum: 1
+        description: Optional positive ASCII decimal Convention identifier.
+        explode: true
+        style: form
+        required: false
+      - in: query
+        name: page
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+        description: Optional positive ASCII decimal page number; defaults to 1.
+        explode: true
+        style: form
+        required: false
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+        description: Optional positive ASCII decimal page size from 1 through 100;
+          defaults to 20.
+        explode: true
+        style: form
+        required: false
+      tags:
+      - catches
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchHistoryResponseSchema'
+          description: Returns the current player's matching Catch rows. An existing
+            Convention with no catches returns 200 with empty results.
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - invalid_query
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: The catch-history query is invalid.
+        '401':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Authentication is required.
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - convention_not_found
+                    - invalid_page
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: A missing Convention returns 404; an out-of-range page also
+            returns 404.
+        '500':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - server_error
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: A photo signing failure returns a sanitized 500 for the whole
+            request.
+  /api/catches/confirm/:
+    post:
+      operationId: catch_confirm
+      description: Delegate one opaque credential to the sole catch-write authority.
+      tags:
+      - catches
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CatchConfirmationRequestSchema'
+        required: true
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchConfirmationResponseSchema'
+          description: ''
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchConfirmationResponseSchema'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  payload:
+                    type: array
+                    items:
+                      type: string
+                required:
+                - payload
+          description: The supplied catch credential payload is invalid.
+        '401':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Authentication credentials were not provided.
+        '403':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - catcher_ineligible
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: Request not permitted.
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - catch_target_unavailable
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: The target is unavailable; privacy-collapsed outcomes are indistinguishable.
+        '409':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - active_convention_mismatch
+                    - self_catch_not_allowed
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: The catch cannot be confirmed in the active convention.
+        '500':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - server_error
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: An unexpected error occurred.
+  /api/conventions/:
+    get:
+      operationId: conventions_list
+      description: Retrieve a list of conventions with safe public fields for enrollment.
+      summary: List conventions
+      tags:
+      - conventions
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Convention'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Authentication credentials were not provided or are invalid.
+  /api/conventions/{convention_id}/catch-credentials/resolve/:
+    post:
+      operationId: convention_fursuit_catch_credential_resolve
+      description: Resolve an opaque catch credential to a safe current preview only.
+        This is not catch authorization; future Wave 3 catch writes must submit and
+        independently revalidate the original payload.
+      parameters:
+      - in: path
+        name: convention_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - conventions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                payload:
+                  type: string
+                  pattern: ^tailtag:catch:v1:[A-Za-z0-9_-]{43}$
+              required:
+              - payload
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  convention_id:
+                    type: integer
+                    readOnly: true
+                  fursuit:
+                    type: object
+                    additionalProperties: false
+                    readOnly: true
+                    properties:
+                      tailtag_id:
+                        type: string
+                        format: uuid
+                        readOnly: true
+                      name:
+                        type: string
+                        readOnly: true
+                      photo_url:
+                        type: string
+                        format: uri
+                        readOnly: true
+                    required:
+                    - tailtag_id
+                    - name
+                    - photo_url
+                required:
+                - convention_id
+                - fursuit
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  payload:
+                    type: array
+                    items:
+                      type: string
+                required:
+                - payload
+          description: The supplied catch credential payload is invalid.
+        '401':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Authentication credentials were not provided.
+        '403':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: The player profile is not eligible for participation.
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Catch credential not found.
+        '405':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Method not allowed.
+  /api/conventions/{convention_id}/fursuit-activations/:
+    get:
+      operationId: convention_fursuit_activations_list
+      description: Return existing owner selections in ascending fursuit_id order.
+        is_active is the stored selection; is_eligible is computed from current upstream
+        state. Operational participation requires both.
+      parameters:
+      - in: path
+        name: convention_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - conventions
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    fursuit_id:
+                      type: integer
+                      readOnly: true
+                    convention_id:
+                      type: integer
+                      readOnly: true
+                    is_active:
+                      type: boolean
+                      readOnly: true
+                    is_eligible:
+                      type: boolean
+                      readOnly: true
+                    activated_at:
+                      type: string
+                      format: date-time
+                      readOnly: true
+                    deactivated_at:
+                      type: string
+                      format: date-time
+                      nullable: true
+                      readOnly: true
+                  required:
+                  - fursuit_id
+                  - convention_id
+                  - is_active
+                  - is_eligible
+                  - activated_at
+                  - deactivated_at
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Authentication credentials were not provided.
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: The requested resource was not found.
+        '405':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Method not allowed.
+  /api/conventions/{convention_id}/fursuit-activations/{fursuit_id}/:
+    put:
+      operationId: convention_fursuit_activations_set_state
+      description: Idempotently set the stored is_active owner selection. is_eligible
+        is computed from current upstream state; operational participation requires
+        both the stored selection and computed eligibility.
+      parameters:
+      - in: path
+        name: convention_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: fursuit_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - conventions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                is_active:
+                  type: boolean
+              required:
+              - is_active
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  fursuit_id:
+                    type: integer
+                    readOnly: true
+                  convention_id:
+                    type: integer
+                    readOnly: true
+                  is_active:
+                    type: boolean
+                    readOnly: true
+                  is_eligible:
+                    type: boolean
+                    readOnly: true
+                  activated_at:
+                    type: string
+                    format: date-time
+                    readOnly: true
+                  deactivated_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    readOnly: true
+                required:
+                - fursuit_id
+                - convention_id
+                - is_active
+                - is_eligible
+                - activated_at
+                - deactivated_at
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  is_active:
+                    type: array
+                    items:
+                      type: string
+                required:
+                - is_active
+          description: The supplied activation state is invalid.
+        '401':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Authentication credentials were not provided.
+        '403':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: The player profile is not eligible for participation.
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: The requested resource was not found.
+        '405':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Method not allowed.
+  /api/conventions/{convention_id}/fursuit-activations/{fursuit_id}/catch-credential/:
+    get:
+      operationId: convention_fursuit_catch_credential_get
+      description: Return the owner's current opaque catch credential, creating it
+        lazily when absent. This does not start a catch session and is not catch authorization.
+      parameters:
+      - in: path
+        name: convention_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: fursuit_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - conventions
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  payload:
+                    type: string
+                    pattern: ^tailtag:catch:v1:[A-Za-z0-9_-]{43}$
+                required:
+                - payload
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: The supplied activation state is invalid.
+        '401':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Authentication credentials were not provided.
+        '403':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: The player profile is not eligible for participation.
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: The requested resource was not found.
+        '405':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Method not allowed.
+  /api/conventions/{convention_id}/fursuit-activations/{fursuit_id}/catch-credential/rotate/:
+    post:
+      operationId: convention_fursuit_catch_credential_rotate
+      description: Revoke the owner's current opaque catch credential and create a
+        replacement. The request accepts zero body bytes only and is not catch authorization.
+      parameters:
+      - in: path
+        name: convention_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: fursuit_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - conventions
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  payload:
+                    type: string
+                    pattern: ^tailtag:catch:v1:[A-Za-z0-9_-]{43}$
+                required:
+                - payload
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: The supplied activation state is invalid.
+        '401':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Authentication credentials were not provided.
+        '403':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: The player profile is not eligible for participation.
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: The requested resource was not found.
+        '405':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Method not allowed.
+  /api/conventions/{convention_id}/fursuit-activations/{fursuit_id}/catch-session/:
+    put:
+      operationId: convention_fursuit_catch_session_set_state
+      description: Idempotently set the desired current catchability. A live session
+        has a fixed 12-hour expiration; is_active is computed from unexpired session
+        state and current operational participation. This endpoint is not catch authorization
+        and catch creation must revalidate its own requirements.
+      parameters:
+      - in: path
+        name: convention_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: fursuit_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - conventions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                is_active:
+                  type: boolean
+              required:
+              - is_active
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: The canonical desired catch-session state.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  fursuit_id:
+                    type: integer
+                    readOnly: true
+                  convention_id:
+                    type: integer
+                    readOnly: true
+                  is_active:
+                    type: boolean
+                    readOnly: true
+                  started_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    readOnly: true
+                  expires_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    readOnly: true
+                  ended_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    readOnly: true
+                  end_reason:
+                    type: string
+                    nullable: true
+                    enum:
+                    - owner
+                    - operator
+                    - eligibility_lost
+                    - expired
+                    readOnly: true
+                required:
+                - fursuit_id
+                - convention_id
+                - is_active
+                - started_at
+                - expires_at
+                - ended_at
+                - end_reason
+        '400':
+          description: The supplied activation state is invalid.
+        '401':
+          description: Authentication credentials were not provided.
+        '403':
+          description: The player profile is not eligible for participation.
+        '404':
+          description: The requested resource was not found.
+        '405':
+          description: Method not allowed.
+  /api/conventions/{id}/:
+    get:
+      operationId: conventions_retrieve
+      description: Retrieve convention details by internal ID.
+      summary: Retrieve convention
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - conventions
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Convention'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Authentication credentials were not provided or are invalid.
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: No convention found matching the given ID.
+  /api/conventions/active/:
+    get:
+      operationId: conventions_active_retrieve
+      description: Retrieve the authenticated player's currently selected active convention
+        enrollment, if any.
+      summary: Get active convention
+      tags:
+      - conventions
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActiveConventionResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Authentication credentials were not provided or are invalid.
+    put:
+      operationId: conventions_active_update
+      description: Explicitly select an enrolled active convention as the player's
+        active gameplay context.
+      summary: Select active convention
+      tags:
+      - conventions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SelectActiveConventionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SelectActiveConventionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SelectActiveConventionRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActiveConventionResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  convention_id:
+                    type: array
+                    items:
+                      type: string
+          description: Convention does not exist, is not enrolled, or is not in an
+            active playable state.
+        '401':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Authentication credentials were not provided or are invalid.
+        '403':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: The player profile is not eligible for participation.
+    delete:
+      operationId: conventions_active_destroy
+      description: Clear the authenticated player's active convention selection.
+      summary: Clear active convention
+      tags:
+      - conventions
+      security:
+      - BearerAuth: []
+      responses:
+        '204':
+          description: Active convention selection was cleared.
+        '401':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Authentication credentials were not provided or are invalid.
+        '403':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: The player profile is not eligible for participation.
+  /api/conventions/enrollments/:
+    get:
+      operationId: conventions_enrollments_list
+      description: Retrieve a list of all convention enrollments for the authenticated
+        player.
+      summary: List convention enrollments
+      tags:
+      - conventions
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ConventionEnrollment'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Authentication credentials were not provided or are invalid.
+    post:
+      operationId: conventions_enrollments_create
+      description: Enroll the authenticated player into an active convention. Idempotent
+        on retry.
+      summary: Enroll in convention
+      tags:
+      - conventions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConventionEnrollRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ConventionEnrollRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ConventionEnrollRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConventionEnrollment'
+          description: User was already enrolled; existing enrollment returned.
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConventionEnrollment'
+          description: Successfully enrolled in the convention.
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  convention_id:
+                    type: array
+                    items:
+                      type: string
+          description: Convention is not open for enrollment.
+        '401':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Authentication credentials were not provided or are invalid.
+        '403':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: The player profile is not eligible for participation.
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: No convention found matching the given ID.
+  /api/fursuits/:
+    get:
+      operationId: fursuits_list
+      description: List owned records or create one required-photo record.
+      tags:
+      - fursuits
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    id:
+                      type: integer
+                      readOnly: true
+                    tailtag_id:
+                      type: string
+                      format: uuid
+                      readOnly: true
+                    name:
+                      type: string
+                    photo_url:
+                      type: string
+                      format: uri
+                      readOnly: true
+                    is_enabled:
+                      type: boolean
+                      readOnly: true
+                  required:
+                  - id
+                  - tailtag_id
+                  - name
+                  - photo_url
+                  - is_enabled
+          description: ''
+        '401':
+          description: Authentication credentials were not provided.
+        '405':
+          description: Method not allowed.
+        '500':
+          description: An unexpected server error occurred.
+    post:
+      operationId: fursuits_create
+      description: List owned records or create one required-photo record.
+      tags:
+      - fursuits
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                photo:
+                  type: string
+                  format: binary
+              required:
+              - name
+              - photo
+      security:
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  id:
+                    type: integer
+                    readOnly: true
+                  tailtag_id:
+                    type: string
+                    format: uuid
+                    readOnly: true
+                  name:
+                    type: string
+                  photo_url:
+                    type: string
+                    format: uri
+                    readOnly: true
+                  is_enabled:
+                    type: boolean
+                    readOnly: true
+                required:
+                - id
+                - tailtag_id
+                - name
+                - photo_url
+                - is_enabled
+          description: ''
+        '400':
+          description: The supplied fursuit data is invalid.
+        '401':
+          description: Authentication credentials were not provided.
+        '403':
+          description: The player profile is not eligible.
+        '405':
+          description: Method not allowed.
+        '500':
+          description: An unexpected server error occurred.
+  /api/fursuits/{id}/:
+    get:
+      operationId: fursuits_retrieve
+      description: Retrieve or rename a private player record.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - fursuits
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  id:
+                    type: integer
+                    readOnly: true
+                  tailtag_id:
+                    type: string
+                    format: uuid
+                    readOnly: true
+                  name:
+                    type: string
+                  photo_url:
+                    type: string
+                    format: uri
+                    readOnly: true
+                  is_enabled:
+                    type: boolean
+                    readOnly: true
+                required:
+                - id
+                - tailtag_id
+                - name
+                - photo_url
+                - is_enabled
+          description: ''
+        '401':
+          description: Authentication credentials were not provided.
+        '404':
+          description: The fursuit was not found.
+        '405':
+          description: Method not allowed.
+        '500':
+          description: An unexpected server error occurred.
+    patch:
+      operationId: fursuits_update_name
+      description: Retrieve or rename a private player record.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - fursuits
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+              required:
+              - name
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  id:
+                    type: integer
+                    readOnly: true
+                  tailtag_id:
+                    type: string
+                    format: uuid
+                    readOnly: true
+                  name:
+                    type: string
+                  photo_url:
+                    type: string
+                    format: uri
+                    readOnly: true
+                  is_enabled:
+                    type: boolean
+                    readOnly: true
+                required:
+                - id
+                - tailtag_id
+                - name
+                - photo_url
+                - is_enabled
+          description: ''
+        '400':
+          description: The supplied fursuit data is invalid.
+        '401':
+          description: Authentication credentials were not provided.
+        '403':
+          description: The player profile is not eligible.
+        '404':
+          description: The fursuit was not found.
+        '405':
+          description: Method not allowed.
+        '500':
+          description: An unexpected server error occurred.
+  /api/fursuits/{id}/photo/:
+    put:
+      operationId: fursuits_replace_photo
+      description: Replace the required photo of a private player record.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - fursuits
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                photo:
+                  type: string
+                  format: binary
+              required:
+              - photo
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  id:
+                    type: integer
+                    readOnly: true
+                  tailtag_id:
+                    type: string
+                    format: uuid
+                    readOnly: true
+                  name:
+                    type: string
+                  photo_url:
+                    type: string
+                    format: uri
+                    readOnly: true
+                  is_enabled:
+                    type: boolean
+                    readOnly: true
+                required:
+                - id
+                - tailtag_id
+                - name
+                - photo_url
+                - is_enabled
+          description: ''
+        '400':
+          description: The supplied fursuit data is invalid.
+        '401':
+          description: Authentication credentials were not provided.
+        '403':
+          description: The player profile is not eligible.
+        '404':
+          description: The fursuit was not found.
+        '405':
+          description: Method not allowed.
+        '500':
+          description: An unexpected server error occurred.
+  /api/me/:
+    get:
+      operationId: me_retrieve
+      description: Return the authenticated TailTag application-user identity.
+      tags:
+      - me
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                required:
+                - id
+                additionalProperties: false
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: ''
+  /api/profile/:
+    get:
+      operationId: profile_retrieve
+      description: Read or mutate the authenticated user's private player profile.
+      tags:
+      - profile
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  handle:
+                    type: string
+                    nullable: true
+                    readOnly: true
+                  display_name:
+                    type: string
+                    nullable: true
+                    readOnly: true
+                  avatar_url:
+                    type: string
+                    format: uri
+                    nullable: true
+                    readOnly: true
+                  onboarding_complete:
+                    type: boolean
+                    readOnly: true
+                  is_enabled:
+                    type: boolean
+                    readOnly: true
+                required:
+                - handle
+                - display_name
+                - avatar_url
+                - onboarding_complete
+                - is_enabled
+          description: ''
+        '401':
+          description: Authentication credentials were not provided.
+        '403':
+          description: Authentication credentials were not accepted.
+    put:
+      operationId: profile_update
+      description: Completely replace handle and display_name while preserving the
+        independently managed avatar state.
+      tags:
+      - profile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfilePut'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProfilePut'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProfilePut'
+        required: true
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  handle:
+                    type: string
+                    nullable: true
+                    readOnly: true
+                  display_name:
+                    type: string
+                    nullable: true
+                    readOnly: true
+                  avatar_url:
+                    type: string
+                    format: uri
+                    nullable: true
+                    readOnly: true
+                  onboarding_complete:
+                    type: boolean
+                    readOnly: true
+                  is_enabled:
+                    type: boolean
+                    readOnly: true
+                required:
+                - handle
+                - display_name
+                - avatar_url
+                - onboarding_complete
+                - is_enabled
+          description: ''
+        '400':
+          description: The supplied profile fields are invalid.
+        '401':
+          description: Authentication credentials were not provided.
+        '403':
+          description: The player profile is disabled.
+    patch:
+      operationId: profile_partial_update
+      description: Read or mutate the authenticated user's private player profile.
+      tags:
+      - profile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedProfilePatch'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedProfilePatch'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedProfilePatch'
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  handle:
+                    type: string
+                    nullable: true
+                    readOnly: true
+                  display_name:
+                    type: string
+                    nullable: true
+                    readOnly: true
+                  avatar_url:
+                    type: string
+                    format: uri
+                    nullable: true
+                    readOnly: true
+                  onboarding_complete:
+                    type: boolean
+                    readOnly: true
+                  is_enabled:
+                    type: boolean
+                    readOnly: true
+                required:
+                - handle
+                - display_name
+                - avatar_url
+                - onboarding_complete
+                - is_enabled
+          description: ''
+        '400':
+          description: The supplied profile fields are invalid.
+        '401':
+          description: Authentication credentials were not provided.
+        '403':
+          description: The player profile is disabled.
+  /api/profile/avatar/:
+    put:
+      operationId: profile_avatar_update
+      description: Replace the independently managed avatar using multipart/form-data.
+      tags:
+      - profile
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AvatarPut'
+        required: true
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  handle:
+                    type: string
+                    nullable: true
+                    readOnly: true
+                  display_name:
+                    type: string
+                    nullable: true
+                    readOnly: true
+                  avatar_url:
+                    type: string
+                    format: uri
+                    nullable: true
+                    readOnly: true
+                  onboarding_complete:
+                    type: boolean
+                    readOnly: true
+                  is_enabled:
+                    type: boolean
+                    readOnly: true
+                required:
+                - handle
+                - display_name
+                - avatar_url
+                - onboarding_complete
+                - is_enabled
+          description: ''
+        '400':
+          description: The uploaded avatar is invalid.
+        '401':
+          description: Authentication credentials were not provided.
+        '403':
+          description: The player profile is disabled.
+    delete:
+      operationId: profile_avatar_destroy
+      description: Mutate the authenticated user's independently managed avatar.
+      tags:
+      - profile
+      security:
+      - BearerAuth: []
+      responses:
+        '204':
+          description: The avatar was removed.
+        '401':
+          description: Authentication credentials were not provided.
+        '403':
+          description: The player profile is disabled.
+  /api/schema/:
+    get:
+      operationId: schema_retrieve
+      description: |-
+        OpenApi3 schema for this API. Format can be selected via content negotiation.
+
+        - YAML: application/vnd.oai.openapi
+        - JSON: application/vnd.oai.openapi+json
+      parameters:
+      - in: query
+        name: format
+        schema:
+          type: string
+          enum:
+          - json
+          - yaml
+      - in: query
+        name: lang
+        schema:
+          type: string
+          enum:
+          - af
+          - ar
+          - ar-dz
+          - ast
+          - az
+          - be
+          - bg
+          - bn
+          - br
+          - bs
+          - ca
+          - ckb
+          - cs
+          - cy
+          - da
+          - de
+          - dsb
+          - el
+          - en
+          - en-au
+          - en-gb
+          - eo
+          - es
+          - es-ar
+          - es-co
+          - es-mx
+          - es-ni
+          - es-ve
+          - et
+          - eu
+          - fa
+          - fi
+          - fr
+          - fy
+          - ga
+          - gd
+          - gl
+          - he
+          - hi
+          - hr
+          - hsb
+          - ht
+          - hu
+          - hy
+          - ia
+          - id
+          - ig
+          - io
+          - is
+          - it
+          - ja
+          - ka
+          - kab
+          - kk
+          - km
+          - kn
+          - ko
+          - ky
+          - lb
+          - lt
+          - lv
+          - mk
+          - ml
+          - mn
+          - mr
+          - ms
+          - my
+          - nb
+          - ne
+          - nl
+          - nn
+          - os
+          - pa
+          - pl
+          - pt
+          - pt-br
+          - ro
+          - ru
+          - sk
+          - sl
+          - sq
+          - sr
+          - sr-latn
+          - sv
+          - sw
+          - ta
+          - te
+          - tg
+          - th
+          - tk
+          - tr
+          - tt
+          - udm
+          - ug
+          - uk
+          - ur
+          - uz
+          - vi
+          - zh-hans
+          - zh-hant
+      tags:
+      - schema
+      security:
+      - BearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/vnd.oai.openapi:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/yaml:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/vnd.oai.openapi+json:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+components:
+  schemas:
+    ActiveConventionResponse:
+      type: object
+      description: Response wrapper for active convention enrollment query.
+      properties:
+        enrollment:
+          allOf:
+          - $ref: '#/components/schemas/ConventionEnrollment'
+          nullable: true
+      required:
+      - enrollment
+      additionalProperties: false
+    AvatarPut:
+      type: object
+      properties:
+        avatar:
+          type: string
+          format: binary
+      required:
+      - avatar
+    CatchConfirmationRequestSchema:
+      type: object
+      additionalProperties: false
+      properties:
+        payload:
+          type: string
+          pattern: ^tailtag:catch:v1:[A-Za-z0-9_-]{43}$
+      required:
+      - payload
+    CatchConfirmationResponseSchema:
+      type: object
+      additionalProperties: false
+      properties:
+        outcome:
+          allOf:
+          - $ref: '#/components/schemas/OutcomeEnum'
+          readOnly: true
+        catch:
+          type: object
+          additionalProperties: false
+          readOnly: true
+          properties:
+            id:
+              type: integer
+              readOnly: true
+            caught_at:
+              type: string
+              format: date-time
+              readOnly: true
+            convention_id:
+              type: integer
+              readOnly: true
+            fursuit:
+              type: object
+              additionalProperties: false
+              readOnly: true
+              properties:
+                tailtag_id:
+                  type: string
+                  format: uuid
+                  readOnly: true
+                name:
+                  type: string
+                  readOnly: true
+                photo_url:
+                  type: string
+                  format: uri
+                  readOnly: true
+              required:
+              - tailtag_id
+              - name
+              - photo_url
+          required:
+          - id
+          - caught_at
+          - convention_id
+          - fursuit
+      required:
+      - outcome
+      - catch
+    CatchHistoryResponseSchema:
+      type: object
+      additionalProperties: false
+      properties:
+        catch_count:
+          type: integer
+          minimum: 0
+        next:
+          type: string
+          format: uri
+          nullable: true
+        previous:
+          type: string
+          format: uri
+          nullable: true
+        results:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              id:
+                type: integer
+                readOnly: true
+              fursuit:
+                type: object
+                additionalProperties: false
+                properties:
+                  id:
+                    type: integer
+                    readOnly: true
+                  name:
+                    type: string
+                    readOnly: true
+                  photo_url:
+                    type: string
+                    format: uri
+                    readOnly: true
+                required:
+                - id
+                - name
+                - photo_url
+              convention:
+                type: object
+                additionalProperties: false
+                properties:
+                  id:
+                    type: integer
+                    readOnly: true
+                  name:
+                    type: string
+                    readOnly: true
+                required:
+                - id
+                - name
+              caught_at:
+                type: string
+                format: date-time
+                readOnly: true
+            required:
+            - id
+            - fursuit
+            - convention
+            - caught_at
+      required:
+      - catch_count
+      - next
+      - previous
+      - results
+    Convention:
+      type: object
+      description: Serializer exposing safe, read-only convention representation.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+          description: The official name of the convention.
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          readOnly: true
+          description: |-
+            Operational lifecycle state of the convention.
+
+            * `draft` - Draft
+            * `active` - Active
+            * `paused` - Paused
+            * `completed` - Completed
+            * `cancelled` - Cancelled
+        start_date:
+          type: string
+          format: date
+          readOnly: true
+          description: Start date of the convention.
+        end_date:
+          type: string
+          format: date
+          readOnly: true
+          description: End date of the convention.
+      required:
+      - end_date
+      - id
+      - name
+      - start_date
+      - status
+      additionalProperties: false
+    ConventionEnrollRequest:
+      type: object
+      description: Request serializer for enrolling into an active convention.
+      properties:
+        convention_id:
+          type: integer
+          minimum: 1
+        set_active:
+          type: boolean
+          default: false
+      required:
+      - convention_id
+      additionalProperties: false
+    ConventionEnrollment:
+      type: object
+      description: Serializer for convention enrollments.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        convention:
+          allOf:
+          - $ref: '#/components/schemas/Convention'
+          readOnly: true
+        is_active:
+          type: boolean
+          readOnly: true
+          description: Whether this convention is the player's selected active gameplay
+            convention.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - convention
+      - created_at
+      - id
+      - is_active
+      additionalProperties: false
+    OutcomeEnum:
+      type: string
+      enum:
+      - created
+      - already_caught
+    PatchedProfilePatch:
+      type: object
+      properties:
+        handle:
+          type: string
+        display_name:
+          type: string
+      additionalProperties: false
+    ProfilePut:
+      type: object
+      properties:
+        handle:
+          type: string
+        display_name:
+          type: string
+      required:
+      - display_name
+      - handle
+      additionalProperties: false
+    SelectActiveConventionRequest:
+      type: object
+      description: Request serializer for selecting an active convention.
+      properties:
+        convention_id:
+          type: integer
+          minimum: 1
+      required:
+      - convention_id
+      additionalProperties: false
+    StatusEnum:
+      enum:
+      - draft
+      - active
+      - paused
+      - completed
+      - cancelled
+      type: string
+      description: |-
+        * `draft` - Draft
+        * `active` - Active
+        * `paused` - Paused
+        * `completed` - Completed
+        * `cancelled` - Cancelled
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer

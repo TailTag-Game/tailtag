@@ -491,7 +491,8 @@ def test_check_composes_every_required_backend_validation() -> None:
         "pytest -q",
         "manage.py check",
         "makemigrations --check --dry-run",
-        "spectacular --validate",
+        # Validates the schema, then compares it with the committed snapshot.
+        "config.openapi_snapshot --check",
         # On Windows the Gunicorn step prints a SKIP line instead (G5).
         *(
             ()

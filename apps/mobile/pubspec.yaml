@@ -6,11 +6,19 @@ version: 0.1.0+1
 environment:
   sdk: ^3.13.1
 
+# The generated API client joins the app's pub workspace (one lockfile).
+workspace:
+  - packages/tailtag_api
+
 dependencies:
   flutter:
     sdk: flutter
   flutter_riverpod: ^3.4.3
   go_router: ^18.0.1
+  http: ^1.6.0
+  tailtag_api:
+    path: packages/tailtag_api
+  tonik_util: ^0.10.0
 
 dev_dependencies:
   flutter_test:

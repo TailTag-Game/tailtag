@@ -14,13 +14,15 @@ need macOS with Xcode):
 
 - `task mobile-setup` installs locked dependencies (needs FVM and the pinned
   SDK; run `fvm install` here once).
-- `task mobile-check` runs format, analysis, and tests; it does not build.
+- `task mobile-check` checks the generated API client against the OpenAPI
+  snapshot, then runs format, analysis, and tests; it does not build.
+- `task mobile-api-generate` regenerates the API client after a contract change.
 - `task mobile-doctor` diagnoses the environment.
 - `task mobile-run DEVICE=<id>` launches the app on one connected Android or iOS
   target, using `config/development.json` copied from
   `config/development.example.json`.
 
-Setup, configuration, and local connectivity are in
-[Mobile contributor environment](../../docs/development/mobile.md). CI;
-API/OpenAPI integration; and Clerk integration remain assigned to issues
-#133–#135.
+Setup, configuration, local connectivity, CI, and the API contract and client
+conventions are in
+[Mobile contributor environment](../../docs/development/mobile.md). Clerk
+integration remains assigned to issue #135.

@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      mobile: ${{ steps.filter.outputs.mobile || steps.skip-filter.outputs.mobile }}
+      mobile: ${{ steps.filter.outputs.mobile == 'true' || steps.filter.outputs.schema == 'true' || steps.skip-filter.outputs.mobile }}
     steps:
       - name: Detect mobile app changes
         id: filter
@@ -26,8 +26,11 @@ jobs:
           # Deny-list, so an unknown or new path fails safe by running mobile
           # CI. With `every`, a file matches only if it matches all patterns:
           # `**` plus the negations means "any file not excluded below".
-          # Only paths that cannot affect the mobile app are excluded. #134
-          # must carve its OpenAPI schema path out of `services/api/**`.
+          # Only paths that cannot affect the mobile app are excluded. The one
+          # exception inside `services/api/**` is the committed OpenAPI schema
+          # snapshot, the input to the generated mobile API client: the
+          # separate `schema` filter runs mobile CI for it, while the rest of
+          # `services/api/**` stays excluded.
           predicate-quantifier: 'every'
           filters: |
             mobile:
@@ -42,6 +45,8 @@ jobs:
               - '!.github/workflows/api.yml'
               - '!.github/workflows/simulator.yml'
               - '!.github/workflows/post-deploy-smoke.yml'
+            schema:
+              - 'services/api/openapi/**'
       - name: Skip mobile app change detection
         id: skip-filter
         if: github.event_name != 'pull_request'

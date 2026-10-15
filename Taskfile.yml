@@ -56,6 +56,7 @@ x-api-helpers: &api-helpers >-
   {{.REPOSITORY_ROOT}}/scripts/doctor.py
   {{.REPOSITORY_ROOT}}/scripts/fvm_sdk.py
   {{.REPOSITORY_ROOT}}/scripts/mobile_run.py
+  {{.REPOSITORY_ROOT}}/scripts/mobile_openapi.py
   {{.REPOSITORY_ROOT}}/scripts/validate_semgrep_contract.py
 
 tasks:
@@ -302,14 +303,21 @@ tasks:
       - task: run-django-command
         vars: {DJANGO_COMMAND: python manage.py check}
 
-  api-schema-check:
-    desc: "Validate the OpenAPI schema configuration."
+  api-schema:
+    desc: "Regenerate the committed OpenAPI schema snapshot (services/api/openapi/schema.yaml)."
     silent: true
     cmds:
-      - printf '%s\n' 'Validating the OpenAPI schema configuration...'
+      - printf '%s\n' 'Regenerating the OpenAPI schema snapshot...'
       - task: run-django-command
-        # NUL is the Windows equivalent of /dev/null.
-        vars: {DJANGO_COMMAND: 'python manage.py spectacular --validate --file {{if eq OS "windows"}}NUL{{else}}/dev/null{{end}}'}
+        vars: {DJANGO_COMMAND: python -m config.openapi_snapshot --write}
+
+  api-schema-check:
+    desc: "Validate the OpenAPI schema and check the committed snapshot is current."
+    silent: true
+    cmds:
+      - printf '%s\n' 'Validating the OpenAPI schema and its committed snapshot...'
+      - task: run-django-command
+        vars: {DJANGO_COMMAND: python -m config.openapi_snapshot --check}
 
   api-gunicorn-check:
     desc: "Check the production Gunicorn configuration."
@@ -394,6 +402,28 @@ tasks:
       - task: mobile-sdk-guard
       - DEVICE='{{.DEVICE | default "" | replace "'" "'\"'\"'"}}' {{.UV | toSlash}} run --no-project python "{{.REPOSITORY_ROOT}}/scripts/mobile_run.py"
 
+  mobile-api-generate:
+    desc: "Regenerate the Dart API client package from the OpenAPI snapshot (host)."
+    silent: true
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - task: mobile-host-guard
+      - task: mobile-sdk-guard
+      - printf '%s\n' 'Regenerating the Dart API client...'
+      - '{{.UV | toSlash}} run --no-project python "{{.REPOSITORY_ROOT}}/scripts/mobile_openapi.py" generate'
+
+  mobile-api-check:
+    desc: "Check the committed Dart API client matches the OpenAPI snapshot (host)."
+    silent: true
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - task: mobile-host-guard
+      - task: mobile-sdk-guard
+      - printf '%s\n' 'Checking the Dart API client against the OpenAPI snapshot...'
+      - '{{.UV | toSlash}} run --no-project python "{{.REPOSITORY_ROOT}}/scripts/mobile_openapi.py" check'
+
   mobile-format-check:
     desc: "Check Dart formatting without changing files (host)."
     silent: true
@@ -427,6 +457,7 @@ tasks:
   mobile-check:
     desc: "Run mobile format, analyze, and test checks; does not build (host)."
     cmds:
+      - task: mobile-api-check
       - task: mobile-format-check
       - task: mobile-analyze
       - task: mobile-test
