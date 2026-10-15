@@ -21,18 +21,14 @@ def deterministic_storage(settings: SettingsWrapper) -> None:
     }
 
 
-# These modules exercise POSIX-only operator tooling: pty/termios sessions,
-# gunicorn (fcntl), owner-and-mode checks (os.getuid, 0o700), and SSH relays.
-# They cannot run on native Windows; Linux CI runs them. The report header
-# names them so the skip is visible.
+# These modules exercise operator tooling that stays POSIX-only by maintainer
+# decision D2 (issue #315 slice 3): pty/termios sessions, gunicorn (fcntl), and
+# the operator scripts that no Taskfile task runs. They cannot run on native
+# Windows; Linux CI runs them. The report header names them so the skip is
+# visible.
 WINDOWS_SKIPPED_MODULES = frozenset(
     {
-        "test_api_staging_reset_ssh.py",
-        "test_api_staging_restore_drill.py",
         "test_http_runtime_telemetry.py",
-        "test_replacement_candidate_origin.py",
-        "test_replacement_migrate.py",
-        "test_replacement_target_binding.py",
         "test_staging_emergency_operator.py",
         "test_staging_emergency_operator_ssh.py",
         "test_staging_managed_auth_diagnose_ssh.py",

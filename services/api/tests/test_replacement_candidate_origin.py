@@ -20,6 +20,7 @@ from pytest import MonkeyPatch
 from authentication.clerk import ClerkVerificationConfiguration
 from config import replacement_target_binding
 from health.configuration import validate_configuration
+from tests import windows_acl_support as acl
 from tests.clerk_settings_contract import (
     valid_clerk_public_key as _valid_clerk_public_key,  # noqa: F401  # pyright: ignore[reportUnusedImport]
 )
@@ -126,6 +127,9 @@ def _manifest(tmp_path: Path, *, hostname: object = CANDIDATE_HOST) -> Path:
         )
     )
     path.chmod(0o600)
+    if sys.platform == "win32":
+        acl.make_owner_only(path.parent, container=True)
+        acl.make_owner_only(path)
     return path
 
 
@@ -256,6 +260,8 @@ def test_candidate_origin_rejects_unsafe_manifest_mode(
     path = _manifest(tmp_path)
     _candidate_binding(monkeypatch, path)
     path.chmod(0o644)
+    if sys.platform == "win32":
+        acl.make_owner_only(path, extra_aces="(A;;FR;;;BU)")
     _assert_binding_denied(replacement_target_binding.load_candidate_origin)
 
 
@@ -744,9 +750,13 @@ def test_development_origin_rejects_unsafe_or_ambiguous_manifest(
     path = _development_manifest(tmp_path)
     _development_binding(monkeypatch, path)
     path.chmod(0o644)
+    if sys.platform == "win32":
+        acl.make_owner_only(path, extra_aces="(A;;FR;;;BU)")
     _assert_binding_denied(replacement_target_binding.load_development_candidate_origin)
 
     path.chmod(0o600)
+    if sys.platform == "win32":
+        acl.make_owner_only(path)
     document = path.read_text()
     path.write_text(
         document[:-1] + ',"rebuild_development_api_domain":"other-api.up.railway.app"}'

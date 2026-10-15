@@ -7,11 +7,14 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
-import os
 import re
 import socket
+import subprocess
 import sys
+import threading
+import time
 import urllib.request
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -19,8 +22,15 @@ from typing import Any, NoReturn, Self, cast
 
 import pytest
 
+from tests import windows_acl_support as acl
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = REPOSITORY_ROOT / "scripts" / "api_staging_restore_drill.py"
+DOCKER_ENDPOINT = (
+    "npipe:////./pipe/docker_engine"
+    if sys.platform == "win32"
+    else "unix:///private/docker.sock"
+)
 SENSITIVE = "postgresql://private-user:private-password@private-host/private-db"
 REVIEWED_SCHEMA_SHA = "f16ff7527059e32d2cca15038e55ba406aa35381"
 REPLACEMENT_IDS = (
@@ -802,66 +812,153 @@ def test_recovery_readiness_probe_cannot_outlast_its_remaining_budget(
     assert timeouts == [5.0, 1.25]
 
 
-@dataclass
-class DumpProcess:
-    """Subprocess double for an archive producer or Docker receiver."""
+REAL_POPEN = subprocess.Popen
+ARCHIVE = b"custom-format-archive"
+SLEEP = "import time; time.sleep(600)"
+DUMP_ARCHIVE = (
+    f"import sys; sys.stdout.buffer.write({ARCHIVE!r}); sys.stdout.buffer.flush()"
+)
+# Crashes after a partial archive, as pg_dump would when its connection drops.
+DUMP_CRASH = (
+    "import sys; sys.stdout.buffer.write(b'x' * 100000); "
+    "sys.stdout.buffer.flush(); sys.exit(1)"
+)
+# Exits successfully after reading a little, as a receiver that failed silently.
+RECEIVER_QUITS = "import sys; sys.stdin.buffer.read(1024)"
+TUNNEL_PARTIAL = (
+    "import sys, time\n"
+    "sys.stdout.write('Host: 127.0.0.1\\nPort: 54321\\nUser: pos')\n"
+    "sys.stdout.flush()\n"
+    "time.sleep(0.3)\n"
+    "sys.stdout.write('tgres\\nPassword: private-password\\nDatabase: railway\\n"
+    "URL: postgresql://synthetic\\n')\n"
+    "sys.stdout.flush()\n"
+    "time.sleep(600)\n"
+)
 
-    stdout: object | None = None
-    stdin: object | None = None
-    returncode: int = 0
-    events: list[str] = field(default_factory=list)
 
-    def wait(self, timeout: object = None) -> int:
-        self.events.append("wait")
-        return self.returncode
+def receiver_records_to(path: Path) -> str:
+    return (
+        "import sys\n"
+        f"with open({str(path)!r}, 'wb') as output:\n"
+        "    output.write(sys.stdin.buffer.read())\n"
+    )
 
-    def poll(self) -> int | None:
-        self.events.append("poll")
-        return None
 
-    def terminate(self) -> None:
-        self.events.append("terminate")
+def dump_floods_and_logs_progress(path: Path) -> str:
+    return (
+        "import sys\n"
+        "block = b'x' * 65536\n"
+        "written = 0\n"
+        "for _ in range(1024):\n"
+        "    sys.stdout.buffer.write(block)\n"
+        "    sys.stdout.buffer.flush()\n"
+        "    written += len(block)\n"
+        f"    open({str(path)!r}, 'w').write(str(written))\n"
+    )
 
-    def kill(self) -> None:
-        self.events.append("kill")
+
+@pytest.fixture
+def children() -> Iterator[list[Any]]:
+    """Real child processes started through the drill; none may outlive a test."""
+    started: list[Any] = []
+    yield started
+    for process in started:
+        if process.poll() is None:
+            process.kill()
+        process.wait(10)
+        for stream in (process.stdin, process.stdout):
+            if stream is not None:
+                stream.close()
+
+
+def run_real_children(
+    monkeypatch: pytest.MonkeyPatch,
+    drill: ModuleType,
+    started: list[Any],
+    scripts: dict[str, str],
+) -> list[tuple[tuple[str, ...], object]]:
+    """Run a tiny Python child in place of pg_dump, docker, or railway.
+
+    Only the external executables are substituted; pipes, process groups or
+    job objects, and every kwarg the drill passes are real.
+    """
+    calls: list[tuple[tuple[str, ...], object]] = []
+
+    def popen(command: tuple[str, ...], **kwargs: Any) -> Any:
+        calls.append((command, kwargs.get("env")))
+        process = REAL_POPEN([sys.executable, "-c", scripts[command[0]]], **kwargs)
+        started.append(process)
+        return process
+
+    monkeypatch.setattr(drill.subprocess, "Popen", popen)
+    return calls
+
+
+def fast_clock(
+    monkeypatch: pytest.MonkeyPatch, drill: ModuleType, factor: int = 2000
+) -> None:
+    """Make the drill's deadlines elapse quickly without touching real waits."""
+    real_time = time
+    start = real_time.monotonic()
+    monkeypatch.setattr(
+        drill,
+        "time",
+        SimpleNamespace(
+            **{
+                **vars(real_time),
+                "monotonic": lambda: start + (real_time.monotonic() - start) * factor,
+            }
+        ),
+    )
+
+
+def with_watchdog(operation: Callable[[], Any], timeout: float = 60) -> Any:
+    """Fail, instead of hanging the suite, if the operation never returns."""
+    outcome: dict[str, Any] = {}
+
+    def target() -> None:
+        try:
+            outcome["value"] = operation()
+        except BaseException as error:  # noqa: BLE001 - re-raised below
+            outcome["error"] = error
+
+    worker = threading.Thread(target=target, daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        pytest.fail("operation hung instead of returning or being denied")
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome["value"]
 
 
 def test_pg_dump_uses_the_exported_snapshot_and_streams_only_to_the_fixed_target(
-    drill: ModuleType, monkeypatch: pytest.MonkeyPatch
+    drill: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    children: list[Any],
+    tmp_path: Path,
 ) -> None:
-    """AC-3/4: no host archive or alternate restore destination is available."""
-    archive = b"custom-format-archive"
-    dump_read, dump_write = os.pipe()
-    receiver_read, receiver_write = os.pipe()
-    os.write(dump_write, archive)
-    os.close(dump_write)
-    dump_output = os.fdopen(dump_read, "rb", buffering=0)
-    receiver_input = os.fdopen(receiver_write, "wb", buffering=0)
-    dump = DumpProcess(stdout=dump_output)
-    receiver = DumpProcess(stdin=receiver_input)
-    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
-
-    def popen(*args: object, **kwargs: object) -> DumpProcess:
-        calls.append((args, kwargs))
-        return dump if len(calls) == 1 else receiver
-
-    monkeypatch.setattr(drill.subprocess, "Popen", popen)
+    """AC-3/4, S3-5: no host archive or alternate destination; every byte arrives."""
+    received = tmp_path / "received.bin"
+    calls = run_real_children(
+        monkeypatch,
+        drill,
+        children,
+        {"pg_dump": DUMP_ARCHIVE, "docker": receiver_records_to(received)},
+    )
     container_id = "e" * 64
-    snapshot = SimpleNamespace(snapshot="private-snapshot-token")
 
-    try:
-        transferred = drill.dump_snapshot_to_target(
-            tunnel_details(drill), snapshot, container_id
+    transferred = with_watchdog(
+        lambda: drill.dump_snapshot_to_target(
+            tunnel_details(drill),
+            SimpleNamespace(snapshot="private-snapshot-token"),
+            container_id,
         )
-        received = os.read(receiver_read, len(archive) + 1)
-    finally:
-        dump_output.close()
-        if not receiver_input.closed:
-            receiver_input.close()
-        os.close(receiver_read)
+    )
 
-    dump_command = cast(tuple[str, ...], calls[0][0][0])
-    receiver_command = cast(tuple[str, ...], calls[1][0][0])
+    dump_command = calls[0][0]
+    receiver_command = calls[1][0]
     assert "--format=custom" in dump_command
     assert "--no-owner" in dump_command and "--no-acl" in dump_command
     assert ("--snapshot", "private-snapshot-token") == tuple(
@@ -870,151 +967,204 @@ def test_pg_dump_uses_the_exported_snapshot_and_streams_only_to_the_fixed_target
     assert SENSITIVE not in " ".join(map(str, dump_command))
     assert receiver_command[:4] == ("docker", "exec", "-i", container_id)
     assert receiver_command[-1] == "cat > /backup/recovery.dump"
-    assert received == archive
-    assert receiver_input.closed is True
-    assert transferred == len(archive)
+    assert received.read_bytes() == ARCHIVE
+    assert transferred == len(ARCHIVE)
 
 
-def test_dump_stream_error_terminates_both_processes_without_creating_a_recovery_target(
-    drill: ModuleType, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("dump_script", "receiver_script"),
+    (
+        pytest.param(DUMP_CRASH, "receiver", id="dump-crashes-partway"),
+        pytest.param("flood", RECEIVER_QUITS, id="receiver-exits-zero-partway"),
+    ),
+)
+def test_a_failure_partway_through_the_stream_is_a_denial_never_success(
+    drill: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    children: list[Any],
+    tmp_path: Path,
+    dump_script: str,
+    receiver_script: str,
 ) -> None:
-    """AC-3/8: a partial archive cannot continue to restore and both streams stop."""
-    dump_read, dump_write = os.pipe()
-    receiver_read, receiver_write = os.pipe()
-    dump_output = os.fdopen(dump_read, "rb", buffering=0)
-    receiver_input = os.fdopen(receiver_write, "wb", buffering=0)
-    dump = DumpProcess(stdout=dump_output)
-    receiver = DumpProcess(stdin=receiver_input)
-    processes = iter((dump, receiver))
-    monkeypatch.setattr(
-        drill.subprocess, "Popen", lambda *_args, **_kwargs: next(processes)
-    )
-    monkeypatch.setattr(
-        drill.select,
-        "select",
-        lambda readable, writable, errors, _timeout: (list(readable), [], list(errors)),
-    )
+    """AC-3/8, S3-5: a truncated archive cannot be reported as a completed dump.
 
-    def broken_read(descriptor: int, _size: int) -> bytes:
-        assert descriptor == dump_output.fileno()
-        raise OSError("private stream failure")
+    The writer failing silently is the dangerous case: the receiver's stdin
+    closes, the receiver exits 0 with a truncated file, and the reader still
+    reached its end. Catches: a writer-thread failure that is not re-raised,
+    and success judged only from exit codes.
+    """
+    received = tmp_path / "received.bin"
+    scripts = {
+        "pg_dump": (
+            dump_floods_and_logs_progress(tmp_path / "progress")
+            if dump_script == "flood"
+            else dump_script
+        ),
+        "docker": (
+            receiver_records_to(received)
+            if receiver_script == "receiver"
+            else receiver_script
+        ),
+    }
+    run_real_children(monkeypatch, drill, children, scripts)
 
-    monkeypatch.setattr(drill.os, "read", broken_read)
-
-    try:
-        with pytest.raises(OSError):
-            drill.dump_snapshot_to_target(
+    with pytest.raises(drill.DrillDenied):
+        with_watchdog(
+            lambda: drill.dump_snapshot_to_target(
                 tunnel_details(drill), SimpleNamespace(snapshot="snapshot"), "f" * 64
             )
-    finally:
-        dump_output.close()
-        if not receiver_input.closed:
-            receiver_input.close()
-        os.close(dump_write)
-        os.close(receiver_read)
+        )
 
-    assert "terminate" in dump.events and "wait" in dump.events
-    assert "terminate" in receiver.events and "wait" in receiver.events
+    assert all(process.wait(20) is not None for process in children)
 
 
-def test_blocked_receiver_does_not_allow_the_pending_dump_buffer_to_grow(
-    drill: ModuleType, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "blocked_receiver", (False, True), ids=("silent-dump", "blocked-receiver")
+)
+def test_a_stalled_stream_observes_the_total_deadline_and_stops_both_children(
+    drill: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    children: list[Any],
+    tmp_path: Path,
+    blocked_receiver: bool,
 ) -> None:
-    """AC-3/8 RELIABILITY: while a receiver is blocked, the pump reads at most one chunk."""
-    dump_read, dump_write = os.pipe()
-    receiver_read, receiver_write = os.pipe()
-    dump_output = os.fdopen(dump_read, "rb", buffering=0)
-    receiver_input = os.fdopen(receiver_write, "wb", buffering=0)
-    dump_fd = dump_output.fileno()
-    receiver_fd = receiver_input.fileno()
-    dump = DumpProcess(stdout=dump_output)
-    receiver = DumpProcess(stdin=receiver_input)
-    processes = iter((dump, receiver))
-    select_calls: list[tuple[list[int], list[int], float]] = []
-    reads: list[int] = []
-    clock = iter((0.0, 0.0, 0.0, 1801.0))
+    """AC-3/8 RELIABILITY, S3-5: open but silent pipes time out; the buffer stays bounded.
 
-    def select_receiver_blocked(
-        readable: list[int], writable: list[int], _errors: list[int], timeout: float
-    ) -> tuple[list[int], list[int], list[int]]:
-        select_calls.append((readable, writable, timeout))
-        if readable:
-            return ([dump_fd], [], [])
-        return ([], [], [])
-
-    def one_chunk(descriptor: int, size: int) -> bytes:
-        assert descriptor == dump_fd
-        reads.append(size)
-        return b"x" * size
-
-    monkeypatch.setattr(
-        drill.subprocess, "Popen", lambda *_args, **_kwargs: next(processes)
+    A producer that never writes, or a receiver that never reads, must end in
+    the existing denial with both children stopped. With a blocked receiver
+    the host may hold roughly one chunk, so the flooding dump is stopped far
+    short of its 64 MiB. Catches: a missing main-thread deadline, children left
+    running, and an unbounded queue between the reader and writer.
+    """
+    progress = tmp_path / "progress"
+    run_real_children(
+        monkeypatch,
+        drill,
+        children,
+        {
+            "pg_dump": (
+                dump_floods_and_logs_progress(progress) if blocked_receiver else SLEEP
+            ),
+            "docker": SLEEP,
+        },
     )
-    monkeypatch.setattr(drill.select, "select", select_receiver_blocked)
-    monkeypatch.setattr(drill.os, "read", one_chunk)
-    monkeypatch.setattr(drill.time, "monotonic", lambda: next(clock))
-    try:
-        with pytest.raises(drill.DrillDenied, match="custom dump timed out"):
-            drill.dump_snapshot_to_target(
-                tunnel_details(drill),
-                SimpleNamespace(snapshot="snapshot"),
-                "f" * 64,
+    fast_clock(monkeypatch, drill)
+
+    with pytest.raises(drill.DrillDenied, match="custom dump timed out"):
+        with_watchdog(
+            lambda: drill.dump_snapshot_to_target(
+                tunnel_details(drill), SimpleNamespace(snapshot="snapshot"), "f" * 64
             )
-    finally:
-        dump_output.close()
-        if not receiver_input.closed:
-            receiver_input.close()
-        os.close(dump_write)
-        os.close(receiver_read)
+        )
 
-    assert reads == [1024 * 1024]
-    assert select_calls == [([dump_fd], [], 1), ([], [receiver_fd], 1)]
-    assert "terminate" in dump.events and "wait" in dump.events
-    assert "terminate" in receiver.events and "wait" in receiver.events
+    assert all(process.wait(20) is not None for process in children)
+    if blocked_receiver:
+        assert int(progress.read_text() or "0") < 8 * 1024 * 1024
 
 
-def test_dump_stream_stall_observes_the_total_deadline_and_cleans_both_processes(
-    drill: ModuleType, monkeypatch: pytest.MonkeyPatch
+def drill_tunnel_environment(
+    monkeypatch: pytest.MonkeyPatch, drill: ModuleType
 ) -> None:
-    """AC-3/8 RELIABILITY: an open but silent pipe times out without retaining either child."""
-    dump_read, dump_write = os.pipe()
-    receiver_read, receiver_write = os.pipe()
-    dump_output = os.fdopen(dump_read, "rb", buffering=0)
-    receiver_input = os.fdopen(receiver_write, "wb", buffering=0)
-    dump_fd = dump_output.fileno()
-    dump = DumpProcess(stdout=dump_output)
-    receiver = DumpProcess(stdin=receiver_input)
-    processes = iter((dump, receiver))
-    select_calls: list[tuple[object, object, object, object]] = []
-    clock = iter((0.0, 1799.0, 1801.0))
+    monkeypatch.setattr(drill, "_target_ids", lambda: REPLACEMENT_IDS)
+    monkeypatch.setattr(drill, "verify_railway_identity", lambda: None)
 
-    def select_never_ready(
-        readable: object, writable: object, errors: object, timeout: object
-    ) -> tuple[list[object], list[object], list[object]]:
-        select_calls.append((readable, writable, errors, timeout))
-        return ([], [], [])
 
-    monkeypatch.setattr(
-        drill.subprocess, "Popen", lambda *_args, **_kwargs: next(processes)
+def test_tunnel_details_arrive_in_pieces_and_the_tunnel_stays_open_afterwards(
+    drill: ModuleType, monkeypatch: pytest.MonkeyPatch, children: list[Any]
+) -> None:
+    """AC-1/2, S3-5: details split across writes parse, and the tunnel outlives the read.
+
+    Catches: a tunnel reader that needs select or blocks for a full buffer, a
+    reader that closes or drains the tunnel's stdout after parsing, and one
+    that cannot assemble a partial line.
+    """
+    drill_tunnel_environment(monkeypatch, drill)
+    run_real_children(monkeypatch, drill, children, {"railway": TUNNEL_PARTIAL})
+
+    tunnel, details = with_watchdog(drill.open_railway_tunnel)
+
+    assert (details.host, details.port, details.user) == (
+        "127.0.0.1",
+        54321,
+        "postgres",
     )
-    monkeypatch.setattr(drill.select, "select", select_never_ready)
-    monkeypatch.setattr(drill.time, "monotonic", lambda: next(clock))
-    try:
-        with pytest.raises(drill.DrillDenied, match="custom dump timed out"):
-            drill.dump_snapshot_to_target(
-                tunnel_details(drill),
-                SimpleNamespace(snapshot="snapshot"),
-                "f" * 64,
-            )
-    finally:
-        dump_output.close()
-        receiver_input.close()
-        os.close(dump_write)
-        os.close(receiver_read)
+    assert tunnel.poll() is None
+    assert tunnel.stdout is not None and not tunnel.stdout.closed
+    assert drill.cleanup_task_resources((tunnel,), ()) is True
+    assert tunnel.wait(20) is not None
 
-    assert select_calls == [([dump_fd], [], [], 1)]
-    assert "terminate" in dump.events and "wait" in dump.events
-    assert "terminate" in receiver.events and "wait" in receiver.events
+
+@pytest.mark.parametrize(
+    "script",
+    ("print('not a tunnel')", SLEEP),
+    ids=("garbage-then-exit", "silent-until-deadline"),
+)
+def test_a_tunnel_that_never_yields_details_is_denied_and_reaped(
+    drill: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    children: list[Any],
+    script: str,
+) -> None:
+    """AC-1/8, S3-5: no details means a denial within the deadline and no leftover tunnel."""
+    drill_tunnel_environment(monkeypatch, drill)
+    run_real_children(monkeypatch, drill, children, {"railway": script})
+    fast_clock(monkeypatch, drill)
+
+    with pytest.raises(drill.DrillDenied, match="Railway tunnel unavailable"):
+        with_watchdog(drill.open_railway_tunnel)
+
+    assert all(process.wait(20) is not None for process in children)
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "accepted_on_posix", "accepted_on_windows"),
+    (
+        ("unix:///private/docker.sock", True, False),
+        ("npipe:////./pipe/docker_engine", False, True),
+        ("npipe:////./pipe/docker.desktop-linux", False, True),
+        ("npipe:////host/pipe/docker_engine", False, False),
+        ("npipe:///./pipe/docker_engine", False, False),
+        ("npipe://./pipe/docker_engine", False, False),
+        ("npipe:////./pipe/", False, False),
+        ("npipe:////./pipe/docker/engine", False, False),
+        ("npipe:////./pipe/docker engine", False, False),
+        ("npipe:////./pipe/docker_engine/", False, False),
+        ("tcp://127.0.0.1:2375", False, False),
+        ("", False, False),
+    ),
+)
+def test_docker_endpoint_must_be_a_local_socket_or_pipe_for_this_platform(
+    drill: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    endpoint: str,
+    accepted_on_posix: bool,
+    accepted_on_windows: bool,
+) -> None:
+    """D4, S3-7: the Staging dump can only reach a local Docker daemon.
+
+    The endpoint check precedes everything else in preflight, so acceptance is
+    observed as the next step (the tool-version probe) being reached.
+    Catches: accepting a remote npipe host, accepting malformed npipe variants
+    through a prefix match, accepting unix:// on Windows, and breaking POSIX.
+    """
+    reached: list[str] = []
+    monkeypatch.setattr(drill, "_target_ids", lambda: REPLACEMENT_IDS)
+    monkeypatch.setattr(
+        drill, "_run", lambda *_args, **_kwargs: SimpleNamespace(stdout=endpoint + "\n")
+    )
+
+    def tool_versions() -> NoReturn:
+        reached.append("tool versions")
+        raise drill.DrillDenied("unavailable")
+
+    monkeypatch.setattr(drill, "_tool_versions", tool_versions)
+    monkeypatch.setattr(drill, "write_sanitized_evidence", lambda *_args: None)
+
+    with pytest.raises(drill.DrillDenied, match="restore drill failed at PREFLIGHT"):
+        drill.run_drill()
+
+    accepted = accepted_on_windows if sys.platform == "win32" else accepted_on_posix
+    assert (reached == ["tool versions"]) is accepted
 
 
 def test_command_runner_sets_a_bounded_default_subprocess_deadline(
@@ -1113,6 +1263,13 @@ def test_evidence_writer_persists_only_the_fixed_sanitized_allowlist(
     drill.write_sanitized_evidence(destination, evidence)
 
     assert json.loads(destination.read_text()) == evidence
+    # S3-6: durable evidence is private on every platform.
+    if sys.platform == "win32":
+        access = acl.read_access(destination)
+        assert access.protected
+        assert len(access.entries) == 3
+    else:
+        assert (destination.stat().st_mode & 0o777) == 0o600
 
 
 def test_evidence_writer_refuses_to_overwrite_an_existing_durable_record(
@@ -1139,7 +1296,7 @@ def test_runner_uses_a_distinct_timestamped_evidence_path_for_each_attempt(
     monkeypatch.setattr(
         drill,
         "_run",
-        lambda *_args, **_kwargs: SimpleNamespace(stdout="unix:///private/docker.sock"),
+        lambda *_args, **_kwargs: SimpleNamespace(stdout=DOCKER_ENDPOINT),
     )
     monkeypatch.setattr(
         drill,
@@ -1268,7 +1425,7 @@ def install_runner_preflight(
     monkeypatch.setattr(
         drill,
         "_run",
-        lambda *_args, **_kwargs: SimpleNamespace(stdout="unix:///private/docker.sock"),
+        lambda *_args, **_kwargs: SimpleNamespace(stdout=DOCKER_ENDPOINT),
     )
     monkeypatch.setattr(drill, "verify_railway_identity", lambda: None)
     monkeypatch.setattr(drill, "_verify_exact_deployment", lambda _identity: None)
