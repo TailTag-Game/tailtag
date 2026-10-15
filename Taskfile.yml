@@ -558,46 +558,76 @@ tasks:
     desc: "Prepare a private host manifest: PROFILE=path SAFETY_CONFIG=path RELEASE=path MANIFEST=path."
     cmds:
       - cmd: >-
+          printf '%s\n' 'FAIL  The simulation host workflow needs macOS or Linux (WSL works); see docs/operations/simulation-host.md.'; exit 1
+        silent: true
+        platforms: [windows]
+      - cmd: >-
           test -n '{{.PROFILE | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.SAFETY_CONFIG | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.MANIFEST | default "" | replace "'" "'\"'\"'"}}' || { printf '%s\n' 'PROFILE, SAFETY_CONFIG, RELEASE and MANIFEST are required.' >&2; exit 2; }
         silent: true
-      - >-
-        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator.host_operator prepare --profile '{{.PROFILE | default "" | replace "'" "'\"'\"'"}}' --safety-config '{{.SAFETY_CONFIG | default "" | replace "'" "'\"'\"'"}}' --release '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}' --output '{{.MANIFEST | default "" | replace "'" "'\"'\"'"}}'
+        platforms: [linux, darwin]
+      - platforms: [linux, darwin]
+        cmd: >-
+          {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator.host_operator prepare --profile '{{.PROFILE | default "" | replace "'" "'\"'\"'"}}' --safety-config '{{.SAFETY_CONFIG | default "" | replace "'" "'\"'\"'"}}' --release '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}' --output '{{.MANIFEST | default "" | replace "'" "'\"'\"'"}}'
 
   sim-host-run:
     desc: "Run the foreground maintainer host session: MANIFEST=path HOST=ssh-alias HOST_ROOT=absolute-path [STATE_DIR=path]."
     cmds:
       - cmd: >-
+          printf '%s\n' 'FAIL  The simulation host workflow needs macOS or Linux (WSL works); see docs/operations/simulation-host.md.'; exit 1
+        silent: true
+        platforms: [windows]
+      - cmd: >-
           test -n '{{.MANIFEST | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.HOST | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.HOST_ROOT | default "" | replace "'" "'\"'\"'"}}' || { printf '%s\n' 'MANIFEST, HOST and HOST_ROOT are required.' >&2; exit 2; }
         silent: true
-      - >-
-        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator.host_operator run --manifest '{{.MANIFEST | default "" | replace "'" "'\"'\"'"}}' --host '{{.HOST | default "" | replace "'" "'\"'\"'"}}' --host-root '{{.HOST_ROOT | default "" | replace "'" "'\"'\"'"}}' {{if .STATE_DIR}}--state-dir '{{.STATE_DIR | replace "'" "'\"'\"'"}}'{{end}}
+        platforms: [linux, darwin]
+      - platforms: [linux, darwin]
+        cmd: >-
+          {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator.host_operator run --manifest '{{.MANIFEST | default "" | replace "'" "'\"'\"'"}}' --host '{{.HOST | default "" | replace "'" "'\"'\"'"}}' --host-root '{{.HOST_ROOT | default "" | replace "'" "'\"'\"'"}}' {{if .STATE_DIR}}--state-dir '{{.STATE_DIR | replace "'" "'\"'\"'"}}'{{end}}
 
   sim-host-collect:
     desc: "Copy verified settled host evidence into a local archive: HOST=ssh-alias HOST_ROOT=absolute-path RELEASE=path ARCHIVE=path [BASELINES=path]."
     cmds:
       - cmd: >-
+          printf '%s\n' 'FAIL  The simulation host workflow needs macOS or Linux (WSL works); see docs/operations/simulation-host.md.'; exit 1
+        silent: true
+        platforms: [windows]
+      - cmd: >-
           test -n '{{.HOST | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.HOST_ROOT | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.ARCHIVE | default "" | replace "'" "'\"'\"'"}}' || { printf '%s\n' 'HOST, HOST_ROOT, RELEASE and ARCHIVE are required.' >&2; exit 2; }
         silent: true
-      - >-
-        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator.host_operator collect --host '{{.HOST | default "" | replace "'" "'\"'\"'"}}' --host-root '{{.HOST_ROOT | default "" | replace "'" "'\"'\"'"}}' --release '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}' --archive '{{.ARCHIVE | default "" | replace "'" "'\"'\"'"}}' {{if .BASELINES}}--baselines-dir '{{.BASELINES | replace "'" "'\"'\"'"}}'{{end}}
+        platforms: [linux, darwin]
+      - platforms: [linux, darwin]
+        cmd: >-
+          {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator.host_operator collect --host '{{.HOST | default "" | replace "'" "'\"'\"'"}}' --host-root '{{.HOST_ROOT | default "" | replace "'" "'\"'\"'"}}' --release '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}' --archive '{{.ARCHIVE | default "" | replace "'" "'\"'\"'"}}' {{if .BASELINES}}--baselines-dir '{{.BASELINES | replace "'" "'\"'\"'"}}'{{end}}
 
   sim-host-release-export:
     desc: "Export an immutable image and metadata: IMAGE_ID=sha256:id ARCHIVE=path RELEASE=path."
     cmds:
       - cmd: >-
+          printf '%s\n' 'FAIL  The simulation host workflow needs macOS or Linux (WSL works); see docs/operations/simulation-host.md.'; exit 1
+        silent: true
+        platforms: [windows]
+      - cmd: >-
           test -n '{{.IMAGE_ID | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.ARCHIVE | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}' || { printf '%s\n' 'IMAGE_ID, ARCHIVE and RELEASE are required.' >&2; exit 2; }
         silent: true
-      - >-
-        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator.host_release export --image '{{.IMAGE_ID | default "" | replace "'" "'\"'\"'"}}' --archive '{{.ARCHIVE | default "" | replace "'" "'\"'\"'"}}' --metadata '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}'
+        platforms: [linux, darwin]
+      - platforms: [linux, darwin]
+        cmd: >-
+          {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator.host_release export --image '{{.IMAGE_ID | default "" | replace "'" "'\"'\"'"}}' --archive '{{.ARCHIVE | default "" | replace "'" "'\"'\"'"}}' --metadata '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}'
 
   sim-host-release-load:
     desc: "Verify/load an immutable host image archive: ARCHIVE=path RELEASE=path (Docker required)."
     cmds:
       - cmd: >-
+          printf '%s\n' 'FAIL  The simulation host workflow needs macOS or Linux (WSL works); see docs/operations/simulation-host.md.'; exit 1
+        silent: true
+        platforms: [windows]
+      - cmd: >-
           test -n '{{.ARCHIVE | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}' || { printf '%s\n' 'ARCHIVE and RELEASE are required.' >&2; exit 2; }
         silent: true
-      - >-
-        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator.host_release load --archive '{{.ARCHIVE | default "" | replace "'" "'\"'\"'"}}' --metadata '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}'
+        platforms: [linux, darwin]
+      - platforms: [linux, darwin]
+        cmd: >-
+          {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator.host_release load --archive '{{.ARCHIVE | default "" | replace "'" "'\"'\"'"}}' --metadata '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}'
 
   sim-host-bootstrap-check:
     desc: "Check secret-free host bootstrap syntax without executing it."

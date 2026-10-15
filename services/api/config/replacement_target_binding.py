@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
-import os
 import re
-import stat
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Final, cast
+
+from config.owner_only import open_owner_only_file
 
 _ERROR: Final = "Replacement target binding unavailable"
 _UUID: Final = re.compile(
@@ -127,30 +128,10 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 def _read_local_manifest(path: Path) -> dict[str, object]:
     """Read one owner-only, non-symlink manifest without exposing its values."""
     try:
-        parent = path.parent.lstat()
-        if (
-            not stat.S_ISDIR(parent.st_mode)
-            or parent.st_uid != os.getuid()
-            or stat.S_IMODE(parent.st_mode) != 0o700
-        ):
-            raise TargetBindingError
-        flags = os.O_RDONLY | os.O_NOFOLLOW
-        descriptor = os.open(path, flags)
-        try:
-            metadata = os.fstat(descriptor)
-            if (
-                not stat.S_ISREG(metadata.st_mode)
-                or metadata.st_uid != os.getuid()
-                or stat.S_IMODE(metadata.st_mode) != 0o600
-                or metadata.st_size > 65536
-            ):
-                raise TargetBindingError
-            with os.fdopen(descriptor, "r", encoding="utf-8") as stream:
-                descriptor = -1
-                document: object = json.load(stream, object_pairs_hook=_unique_object)
-        finally:
-            if descriptor != -1:
-                os.close(descriptor)
+        with io.TextIOWrapper(
+            open_owner_only_file(path, max_bytes=65536), encoding="utf-8"
+        ) as stream:
+            document: object = json.load(stream, object_pairs_hook=_unique_object)
         if not isinstance(document, dict):
             raise TargetBindingError
         return cast(dict[str, object], document)

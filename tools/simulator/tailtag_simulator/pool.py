@@ -12,16 +12,14 @@ handle, token, secret, or response text is ever written.
 
 import asyncio
 import json
-import os
 import re
-import signal
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Protocol, cast
+from typing import Any, Final, Protocol, cast
 
 import httpx
 
@@ -52,6 +50,7 @@ from tailtag_simulator.phases import (
     observe_identity,
     reconcile,
 )
+from tailtag_simulator.process_tree import ProcessTree, spawn_options
 from tailtag_simulator.reports import RunReport
 from tailtag_simulator.safety import SafetyAborted, SafetyRuntime, active_runtime
 from tailtag_simulator.smoke import StageFailed, attribute, guarded_stage
@@ -128,17 +127,29 @@ async def run_launcher(
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
-        start_new_session=True,
+        **cast(dict[str, Any], spawn_options()),
     )
+    # No await between the spawn and attach: on Windows the child starts
+    # suspended and only runs once it is inside the job.
+    tree = ProcessTree()
     try:
-        output, _ = await asyncio.wait_for(
-            process.communicate(request), timeout_seconds
-        )
+        tree.attach(process.pid)
     except BaseException:
-        with suppress(ProcessLookupError):
-            os.killpg(process.pid, signal.SIGKILL)
+        process.kill()
         await process.wait()
+        tree.close()
         raise
+    try:
+        try:
+            output, _ = await asyncio.wait_for(
+                process.communicate(request), timeout_seconds
+            )
+        except BaseException:
+            tree.kill()
+            await process.wait()
+            raise
+    finally:
+        tree.close()
     if len(output) > MAX_LAUNCHER_OUTPUT_BYTES:
         raise ValueError
     parsed = json.loads(output)
