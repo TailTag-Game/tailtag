@@ -67,13 +67,15 @@ requirement. Launching on a physical device is permitted, but optional.
 
 ## Commands
 
-Root `task mobile-*` commands support macOS and Linux hosts and run Flutter and
-Dart through FVM. They sit beside the backend `task api-*` commands in the same
+Root `task mobile-*` commands support Windows, macOS, and Linux hosts and run
+Flutter and Dart through FVM. iOS targets need macOS with Xcode. They sit beside the backend `task api-*` commands in the same
 root `Taskfile.yml` (`task help` lists both) but run on the host: the `api-*`
 commands run in the TailTag devcontainer, while every `mobile-*` command fails
 immediately with a "run on the host" message when `TAILTAG_DEVCONTAINER=1`.
-Windows contributors use the raw commands in the
-[Windows table](#windows-raw-commands).
+On Windows they run from PowerShell with `uv` and go-task installed, and with no
+Git Bash or other POSIX shell. CI runs `mobile-setup`, `mobile-check`, and
+`mobile-doctor` natively on Windows with no device attached. `mobile-run` is
+covered by tests that use fake tools, not by a real device on Windows.
 
 | Command | What it does | Kind |
 | --- | --- | --- |
@@ -82,7 +84,7 @@ Windows contributors use the raw commands in the
 | `task mobile-analyze` | `fvm flutter analyze` | Deterministic |
 | `task mobile-test` | `fvm flutter test` (no configuration needed) | Deterministic |
 | `task mobile-check` | Runs `mobile-format-check`, `mobile-analyze`, and `mobile-test`. It does **not** build; CI builds the Android and iOS artifacts. | Deterministic |
-| `task mobile-doctor` | Same as `./scripts/doctor.sh --mobile`: diagnoses FVM, the pinned SDK, platform toolchains, devices, configuration, and API reachability. | Deterministic diagnosis; the API probe is live |
+| `task mobile-doctor` | Same checks as `task doctor`, plus the host-only mobile section: diagnoses FVM, the pinned SDK, platform toolchains, devices, configuration, and API reachability. | Deterministic diagnosis; the API probe is live |
 | `task mobile-run DEVICE=<id>` | Validates configuration, applies `adb reverse` for Android with Local configuration, then runs `fvm flutter run -d <id>` with the configuration file. | Interactive and live |
 
 `mobile-run` is intentionally interactive, and the API reachability check in
@@ -90,9 +92,9 @@ Windows contributors use the raw commands in the
 API. Later Clerk proof (#135) is likewise live. Everything else is
 deterministic and safe to script.
 
-`./scripts/doctor.sh` without `--mobile` is unchanged apart from a hint line;
-`--mobile` adds the host-only mobile section after the repository checks. It
-reports a missing FVM, a missing pinned SDK, no usable Android or iOS toolchain,
+`task doctor` without `--mobile` diagnoses the repository and backend
+environment only; `task mobile-doctor` adds the host-only mobile section after
+the repository checks. It reports a missing FVM, a missing pinned SDK, no usable Android or iOS toolchain,
 and invalid configuration as failures. It reports one missing platform
 toolchain (iOS is reported as not applicable off macOS), no available
 device or emulator, missing configuration, and an unreachable API as warnings,
@@ -184,7 +186,7 @@ not used, because the Local API rejects that host. `adb reverse` requires
 `adb` on `PATH` (Android SDK platform-tools); `task mobile-run` stops with
 guidance if it is missing.
 
-The reachability probe in `task mobile-doctor` runs `curl` from the host. A
+The reachability probe in `task mobile-doctor` makes an HTTP request from the host. A
 passing probe shows the host can reach the API; it does not prove a device can.
 
 The authentication transport rule is invariant across environments: attach a
@@ -213,25 +215,6 @@ host-scoped cleartext policy and must never enable cleartext release-wide.
 `clerk_flutter` is the initial SDK direction. Clerk owns session/token refresh
 and persistence; TailTag will not create separate persistent bearer-token
 storage.
-
-## Windows raw commands
-
-Root task mobile commands support macOS and Linux hosts only. On Windows, run these from
-`apps/mobile/`. No single command replaces `task mobile-doctor`:
-`fvm flutter doctor` checks only the Flutter toolchains and devices, so also
-validate the configuration and the host API separately.
-
-| Task | Raw command |
-| --- | --- |
-| `mobile-setup` | `fvm flutter pub get --enforce-lockfile` |
-| `mobile-format-check` | `fvm dart format --output=none --set-exit-if-changed .` |
-| `mobile-analyze` | `fvm flutter analyze` |
-| `mobile-test` | `fvm flutter test` |
-| `mobile-check` | The three checks above, in that order |
-| `mobile-run` | `fvm dart run tool/check_config.dart config/development.json`, then `fvm flutter run -d <id> --dart-define-from-file=config/development.json` (for Android with Local configuration, first run `adb -s <id> reverse tcp:8000 tcp:8000`) |
-| `mobile-doctor` | `fvm flutter doctor` (toolchains and devices); `fvm dart run tool/check_config.dart config/development.json` (configuration; prints the API origin); `curl -fsS --max-time 5 <origin>/health/live` (host API reachability) |
-
-iOS is not available on Windows.
 
 ## Scope and references
 

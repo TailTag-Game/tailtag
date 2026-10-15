@@ -9,8 +9,8 @@ the identifier `app.tailtag`.
 The current UI is only a neutral scaffold proving startup, routing, and
 Riverpod composition.
 
-Run these from the repository root on macOS or Linux (Windows uses the raw
-`fvm` commands in the guide):
+Run these from the repository root on Windows, macOS, or Linux (iOS targets
+need macOS with Xcode):
 
 - `task mobile-setup` installs locked dependencies (needs FVM and the pinned
   SDK; run `fvm install` here once).
@@ -20,7 +20,7 @@ Run these from the repository root on macOS or Linux (Windows uses the raw
   target, using `config/development.json` copied from
   `config/development.example.json`.
 
-Setup, configuration, local connectivity, and the Windows command table are in
+Setup, configuration, and local connectivity are in
 [Mobile contributor environment](../../docs/development/mobile.md). CI;
 API/OpenAPI integration; and Clerk integration remain assigned to issues
 #133–#135.

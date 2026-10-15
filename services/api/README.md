@@ -658,8 +658,9 @@ delivery chain owns those separate responsibilities.
 
 Use the commands for distinct purposes:
 
-- `./scripts/doctor.sh` diagnoses environment readiness; it does not repair or
-  mutate the environment.
+- `task doctor` diagnoses environment readiness; it does not repair or mutate
+  the environment. On macOS and Linux, `./scripts/doctor.sh` runs the same
+  checks.
 - `task api-test` is the normal feedback loop while developing.
 - `task api-smoke` verifies an already-running API over HTTP.
 - `task api-check` is the pre-pull-request validation suite.
@@ -680,7 +681,7 @@ Its post-create hook synchronizes locked dependencies. It does not apply
 migrations or make schema changes. Inside the devcontainer, run:
 
 ```bash
-./scripts/doctor.sh
+task doctor
 task api-migrate
 task api-run
 ```
@@ -944,9 +945,9 @@ apply the recovery for the supported workflow.
 
 | Symptom | Likely cause and diagnostic | Safe recovery |
 | --- | --- | --- |
-| `doctor.sh` reports Docker or Compose `FAIL` | Docker CLI is missing, daemon is stopped, or the Compose plugin is unavailable. Re-run `./scripts/doctor.sh` after checking Docker Desktop/Engine. | Install or start a compatible Docker Engine with Compose, then re-run doctor. A missing Dev Container CLI is only a `WARN` when a compatible editor is used. |
-| Devcontainer cannot open or build | Docker/Compose is unhealthy, or `services/api/.env` is missing. Check host `./scripts/doctor.sh` and the editor's devcontainer build output. | Restore Docker/Compose, create `.env` from the template, then rebuild or reopen the container. |
-| Devcontainer post-create dependency sync fails | Locked dependencies could not synchronize. Inside the container, run `./scripts/doctor.sh` to distinguish dependency and database readiness. | Resolve the reported environment problem, then run `task api-setup`; reopen or rebuild only if the editor environment itself is stale. |
+| `task doctor` reports Docker or Compose `FAIL` | Docker CLI is missing, daemon is stopped, or the Compose plugin is unavailable. Re-run `task doctor` after checking Docker Desktop/Engine. | Install or start a compatible Docker Engine with Compose, then re-run doctor. A missing Dev Container CLI is only a `WARN` when a compatible editor is used. |
+| Devcontainer cannot open or build | Docker/Compose is unhealthy, or `services/api/.env` is missing. Check host `task doctor` and the editor's devcontainer build output. | Restore Docker/Compose, create `.env` from the template, then rebuild or reopen the container. |
+| Devcontainer post-create dependency sync fails | Locked dependencies could not synchronize. Inside the container, run `task doctor` to distinguish dependency and database readiness. | Resolve the reported environment problem, then run `task api-setup`; reopen or rebuild only if the editor environment itself is stale. |
 | Django reports missing configuration or an invalid `DATABASE_URL` | `services/api/.env` is missing, incomplete, or malformed. | Recopy the template if appropriate and edit only local values. Do not paste `.env` contents into logs or commit the file. |
 | Database is unreachable or unhealthy | The `db` service is not running or has failed its health check. Run `docker compose -f services/api/compose.yaml ps` and `docker compose -f services/api/compose.yaml logs db`. | Start it with `docker compose -f services/api/compose.yaml up -d db`, then retry the canonical command. |
 | Port 5432 is already in use | Another host process is using the published PostgreSQL port. Check the host process or Compose output. | Stop or reconfigure the conflicting local process; do not substitute a host-installed PostgreSQL workflow. |
@@ -955,7 +956,7 @@ apply the recovery for the supported workflow.
 | `/health/ready` is unavailable or `task api-smoke` fails | The service is not running, PostgreSQL is not ready, or the target URL/status is wrong. Run `task api-smoke` against the running service and inspect `db` status/logs. | Start or repair the intended service/database, then rerun smoke. Use `API_BASE_URL` only for another already-running target. |
 | Local database state must be discarded | The named volume intentionally persists through normal stops and rebuilds. | Use the destructive `down --volumes` command in [PostgreSQL lifecycle](#postgresql-lifecycle), then explicitly run `task api-migrate`. |
 
-`FAIL` from `doctor.sh` means a required condition for the environment it is
+`FAIL` from `task doctor` means a required condition for the environment it is
 checking is absent. `WARN` is advisory and does not cause the command to fail.
 
 ## Validation boundary

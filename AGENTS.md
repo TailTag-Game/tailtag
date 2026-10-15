@@ -31,4 +31,4 @@ The completed Django POC remains historical evaluation evidence. Its POC-only ro
 
 Work on a focused branch and follow `CONTRIBUTING.md`. Keep business rules server-controlled, avoid premature microservices and unnecessary abstractions, and do not broaden an issue’s scope. Preserve unrelated work. Do not modify application behavior when the task is documentation-only.
 
-Run the narrowest relevant checks while working and the repository’s required validation before completion. For documentation changes, run `./scripts/doctor.sh` and `git diff --check`, and report any unavailable checks. Never expose secrets or personal data.
+Run the narrowest relevant checks while working and the repository’s required validation before completion. For documentation changes, run `task doctor` and `git diff --check`, and report any unavailable checks. Never expose secrets or personal data.
