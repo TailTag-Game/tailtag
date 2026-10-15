@@ -1,12 +1,9 @@
 name: Mobile App Build Test
 on:
   pull_request:
-  push: # Quick post-push compile test
+  push: # Post-merge compile test; no paths list, so every push to main runs.
     branches:
       - main
-    paths:
-      - 'apps/mobile/**'
-      - '.github/workflows/mobile-build-test.yml'
   workflow_dispatch:
 
 permissions:
@@ -17,6 +14,7 @@ jobs:
   changes:
     name: Detect mobile changes
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       mobile: ${{ steps.filter.outputs.mobile || steps.skip-filter.outputs.mobile }}
     steps:
@@ -25,10 +23,25 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
+          # Deny-list, so an unknown or new path fails safe by running mobile
+          # CI. With `every`, a file matches only if it matches all patterns:
+          # `**` plus the negations means "any file not excluded below".
+          # Only paths that cannot affect the mobile app are excluded. #134
+          # must carve its OpenAPI schema path out of `services/api/**`.
+          predicate-quantifier: 'every'
           filters: |
             mobile:
-              - 'apps/mobile/**'
-              - '.github/workflows/mobile-build-test.yml'
+              - '**'
+              - '!services/api/**'
+              - '!tools/simulator/**'
+              - '!.semgrep/**'
+              - '!docs/**'
+              - '!*.md'
+              - '!scripts/api_*'
+              - '!scripts/staging_*'
+              - '!.github/workflows/api.yml'
+              - '!.github/workflows/simulator.yml'
+              - '!.github/workflows/post-deploy-smoke.yml'
       - name: Skip mobile app change detection
         id: skip-filter
         if: github.event_name != 'pull_request'
@@ -39,9 +52,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.mobile == 'true'
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/mobile
+    timeout-minutes: 30
     steps:
       - name: Clone repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -53,43 +64,126 @@ jobs:
           cache: gradle
       - name: Java sanity check
         run: java --version
-      - name: Set up Flutter
+      - name: Install locked uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.9.17"
+      - name: Install pinned go-task
+        uses: ./.github/actions/install-go-task
+      # Provides Dart for installing FVM. FVM then installs its own copy of the
+      # same pinned SDK, which is what the task guards require.
+      - name: Set up Flutter (provides Dart)
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version-file: apps/mobile/.fvmrc
           cache: true
+      - name: Install pinned FVM and the pinned Flutter SDK
+        working-directory: apps/mobile
+        run: |
+          set -euo pipefail
+          dart pub global activate fvm 4.3.1
+          echo "${PUB_CACHE:-$HOME/.pub-cache}/bin" >> "$GITHUB_PATH"
+          export PATH="${PUB_CACHE:-$HOME/.pub-cache}/bin:$PATH"
+          fvm --version
+          fvm install --skip-pub-get
       - name: Install dependencies
-        run: flutter pub get --enforce-lockfile
-      - name: Code format validation
-        run: dart format --output=none --set-exit-if-changed .
-      - name: Lint and analyze
-        run: flutter analyze
-      - name: Run tests
-        run: flutter test
+        id: setup
+        run: task mobile-setup
+      - name: Format, analyze, and test
+        id: check
+        run: task mobile-check
       - name: Build APK
-        run: flutter build apk
+        id: apk
+        working-directory: apps/mobile
+        run: fvm flutter build apk
       - name: Build AAB
-        run: flutter build appbundle
+        id: aab
+        working-directory: apps/mobile
+        run: fvm flutter build appbundle
+      - name: Point to the local command
+        if: failure()
+        env:
+          SETUP_OUTCOME: ${{ steps.setup.outcome }}
+          CHECK_OUTCOME: ${{ steps.check.outcome }}
+          APK_OUTCOME: ${{ steps.apk.outcome }}
+          AAB_OUTCOME: ${{ steps.aab.outcome }}
+        run: |
+          if [ "$SETUP_OUTCOME" = "failure" ]; then
+            cmd="task mobile-setup (repository root)"
+          elif [ "$CHECK_OUTCOME" = "failure" ]; then
+            cmd="task mobile-check (repository root)"
+          elif [ "$APK_OUTCOME" = "failure" ]; then
+            cmd="fvm flutter build apk (in apps/mobile)"
+          elif [ "$AAB_OUTCOME" = "failure" ]; then
+            cmd="fvm flutter build appbundle (in apps/mobile)"
+          else
+            cmd="task mobile-doctor (repository root); see docs/development/mobile.md"
+          fi
+          echo "::error title=Android Build Test failed::Reproduce locally with: ${cmd}"
+          {
+            echo "### Android Build Test failed"
+            echo
+            echo "Reproduce locally with: \`${cmd}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   ios:
     name: iOS Build Test
     needs: changes
     if: needs.changes.outputs.mobile == 'true'
     runs-on: macos-latest
-    defaults:
-      run:
-        working-directory: apps/mobile
+    timeout-minutes: 30
     steps:
       - name: Clone repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Set up Flutter
+      - name: Install locked uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.9.17"
+      - name: Install pinned go-task
+        uses: ./.github/actions/install-go-task
+      # Provides Dart for installing FVM. FVM then installs its own copy of the
+      # same pinned SDK, which is what the task guards require.
+      - name: Set up Flutter (provides Dart)
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version-file: apps/mobile/.fvmrc
           cache: true
+      - name: Install pinned FVM and the pinned Flutter SDK
+        working-directory: apps/mobile
+        run: |
+          set -euo pipefail
+          dart pub global activate fvm 4.3.1
+          echo "${PUB_CACHE:-$HOME/.pub-cache}/bin" >> "$GITHUB_PATH"
+          export PATH="${PUB_CACHE:-$HOME/.pub-cache}/bin:$PATH"
+          fvm --version
+          fvm install --skip-pub-get
       - name: Install dependencies
-        run: flutter pub get --enforce-lockfile
+        id: setup
+        run: task mobile-setup
       - name: Build App
-        run: flutter build ios --release --no-codesign
+        id: build
+        working-directory: apps/mobile
+        run: fvm flutter build ios --release --no-codesign
+      - name: Point to the local command
+        if: failure()
+        env:
+          SETUP_OUTCOME: ${{ steps.setup.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+        run: |
+          if [ "$SETUP_OUTCOME" = "failure" ]; then
+            cmd="task mobile-setup (repository root)"
+          elif [ "$BUILD_OUTCOME" = "failure" ]; then
+            cmd="fvm flutter build ios --release --no-codesign (in apps/mobile, on macOS)"
+          else
+            cmd="task mobile-doctor (repository root); see docs/development/mobile.md"
+          fi
+          echo "::error title=iOS Build Test failed::Reproduce locally with: ${cmd}"
+          {
+            echo "### iOS Build Test failed"
+            echo
+            echo "Reproduce locally with: \`${cmd}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   mobile-validation:
     name: Mobile validation
     needs:
@@ -98,6 +192,7 @@ jobs:
       - ios
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Validate build status
         env:

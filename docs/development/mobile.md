@@ -43,12 +43,46 @@ fvm flutter analyze
 fvm flutter test
 ```
 
+Dependabot cannot update the Flutter SDK pin in `apps/mobile/.fvmrc`; change it
+by hand in a reviewed pull request. `pubspec.lock` is committed and CI enforces
+it with `--enforce-lockfile`. The weekly grouped Pub updates above need no
+further configuration.
+
 Before merge, the required GitHub `Mobile validation` check must pass. For a
 mobile dependency update, that check enforces the lockfile, formatting,
-analysis, and tests; builds Android APK and app bundle artifacts; and builds an
-unsigned release iOS application. TailTag does not automatically merge
-dependency updates. A maintainer must review the manifest and generated
-lockfile, confirm the validation results, and merge the pull request manually.
+analysis, and tests, and builds the Android and iOS artifacts described under
+[Continuous integration](#continuous-integration). TailTag does not
+automatically merge dependency updates. A maintainer must review the manifest
+and generated lockfile, confirm the validation results, and merge the pull
+request manually.
+
+## Continuous integration
+
+`Mobile validation` aggregates two jobs. Both install uv, go-task, and FVM, then
+the Flutter SDK pinned in `apps/mobile/.fvmrc`, and run the same root `task`
+commands you run locally:
+
+| Job | Runner | CI runs | Local equivalent |
+| --- | --- | --- | --- |
+| `Android Build Test` | Linux | `task mobile-setup`, `task mobile-check`, then unsigned release builds | `task mobile-setup`, `task mobile-check`, then from `apps/mobile/`: `fvm flutter build apk` and `fvm flutter build appbundle` |
+| `iOS Build Test` | macOS | `task mobile-setup`, then an unsigned release device build | `task mobile-setup`, then from `apps/mobile/` on macOS: `fvm flutter build ios --release --no-codesign` |
+
+On failure, each job writes a summary and an annotation naming the local command
+to reproduce it.
+
+The iOS build is an unsigned release device build. It proves that the app
+compiles and links only: it does no signing, launch, or simulator tests. Widget
+tests run once, in the Linux job. Signing, TestFlight, and store distribution
+are out of scope.
+
+`Detect mobile changes` skips both platform jobs for a pull request that
+changes only files that cannot affect the mobile app: `services/api/`,
+`tools/simulator/`, `.semgrep/`, `docs/`, root `*.md` files, `scripts/api_*`,
+`scripts/staging_*`, and the api, simulator, and post-deploy-smoke workflows.
+Any other path, including a new or unknown one, runs them, so the filter fails
+safe. Every push to `main` and every manual dispatch runs both jobs. Issue #134
+must carve its OpenAPI schema path out of the `services/api/` exclusion in
+`.github/workflows/mobile-build-test.yml`.
 
 ## Prerequisites
 
@@ -218,10 +252,10 @@ storage.
 
 ## Scope and references
 
-Issue #130 documented the contract, #131 implemented the scaffold, and #132
-adds the commands, configuration, and diagnostics above. Issue #133 adds CI;
-issue #134 adds OpenAPI and the API client; issue #135 proves live Clerk; and
-issue #136 independently validates clean onboarding.
+Issue #130 documented the contract, #131 implemented the scaffold, #132
+added the commands, configuration, and diagnostics above, and #133 delivered
+the CI above. Issue #134 adds OpenAPI and the API client; issue #135 proves
+live Clerk; and issue #136 independently validates clean onboarding.
 
 - [FVM project configuration](https://fvm.app/documentation/getting-started/configuration)
   and [basic commands](https://fvm.app/documentation/guides/basic-commands)
