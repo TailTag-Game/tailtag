@@ -14,3 +14,6 @@ import UIKit
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
   }
 }
+
+// Throwaway #133 fault: Swift compile error.
+let ciFault: Int = "not an int"
