@@ -5,8 +5,6 @@ import json
 import math
 import os
 import re
-import sys
-import tempfile
 import time
 import uuid
 from collections.abc import Callable, Mapping
@@ -22,6 +20,7 @@ from tailtag_simulator.limits import (
     REQUEST_TIMEOUT_SECONDS,
     RETENTION_CAP,
 )
+from tailtag_simulator.owner_only import create_private_file
 from tailtag_simulator.safety import SafetyRuntime
 from tailtag_simulator.scenarios import (
     JOURNEYS,
@@ -30,10 +29,6 @@ from tailtag_simulator.scenarios import (
     resolve_scenario,
 )
 from tailtag_simulator.targets import STAGING_ORIGIN
-
-# Exclusive creation already refuses an existing path, including a symlink.
-# POSIX also refuses to follow one; Windows has no O_NOFOLLOW.
-NO_FOLLOW = 0 if sys.platform == "win32" else os.O_NOFOLLOW
 
 STAGES = (
     "provenance",
@@ -863,12 +858,13 @@ class RunReport:
         validate_report(self._value)
         reserved = False
         try:
-            if any(p.is_symlink() for p in (output_dir, *output_dir.parents)):
+            if any(
+                p.is_symlink() or p.is_junction()
+                for p in (output_dir, *output_dir.parents)
+            ):
                 raise ReportFailed
             output_dir.mkdir(parents=True, exist_ok=True)
-            fd = os.open(
-                self._path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | NO_FOLLOW, 0o600
-            )
+            fd = create_private_file(self._path)
             reserved = True
             os.close(fd)
             self._snapshot(initial=True)
@@ -938,8 +934,10 @@ class RunReport:
             _require(len(data) <= 1024 * 1024)
             if self._path.is_symlink() or not self._path.is_file():
                 raise ReportFailed
-            fd, name = tempfile.mkstemp(prefix=".snapshot-", dir=self._path.parent)
-            temporary = Path(name)
+            # Private from creation: on Windows a replaced file keeps the
+            # temporary file's access list, so it cannot be a plain mkstemp.
+            temporary = self._path.with_name(f".snapshot-{uuid.uuid4().hex}.tmp")
+            fd = create_private_file(temporary)
             with os.fdopen(fd, "wb") as stream:
                 stream.write(data)
                 stream.flush()

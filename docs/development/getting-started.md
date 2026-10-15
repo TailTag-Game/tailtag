@@ -178,14 +178,45 @@ A few checks differ visibly on Windows:
   because `bootstrap.sh` provisions an Ubuntu host and its syntax check needs
   bash. CI checks it on Linux.
 - `api-test` and the simulator tests do not collect the POSIX-only operator
-  and host tooling modules (pty and termios sessions, SSH relays, owner-and-mode
-  checks). The pytest header lists them. A few individual tests are skipped
+  and host tooling modules (pty and termios sessions, SSH relays, the host
+  runner). The pytest header lists them. A few individual tests are skipped
   with a stated reason.
+- `sim-host-prepare`, `sim-host-run`, `sim-host-collect`,
+  `sim-host-release-export`, and `sim-host-release-load` print
+  `FAIL  The simulation host workflow needs macOS or Linux (WSL works)` and
+  fail. That workflow relays Unix-domain sockets over OpenSSH, uses `fcntl`
+  locks, and walks evidence trees with directory descriptors, so it has no
+  faithful Windows equivalent. See [External Staging simulation
+  host](../operations/simulation-host.md).
 
-The Staging operator tasks and the simulator's Staging and host operations (`sim-pool-*`,
-`sim-fixture-smoke`, `sim-journeys`, `sim-convention`, `sim-cleanup`,
-`sim-retained`, `sim-host-*`, and `sim-image`) still need macOS or Linux.
-Native Windows support for them is in progress (#315).
+#### Staging operator and simulator Staging tasks
+
+These tasks also run natively on Windows: `api-replacement-auth-smoke`,
+`api-staging-reset-ssh`, `api-staging-reset-provision-ssh`,
+`api-staging-restore-drill`, the `sim-pool-*` tasks, `sim-fixture-smoke`,
+`sim-journeys`, `sim-convention`, `sim-cleanup`, `sim-retained`, and
+`sim-image`. Windows CI exercises their file-access checks, process-tree
+cleanup, and restore-drill streaming with local files and fake commands. It
+does not run a live Staging reset, restore drill, or simulation against
+Railway, so those runs are not verified on Windows.
+
+- **Private files.** The tooling reads Staging secrets and bindings only from
+  owner-only files. On Windows that means the owner is you, and the only
+  access entries belong to you, `SYSTEM`, and `Administrators`; any other
+  account or group, and any symlink or junction, is refused. Files the tooling
+  creates get exactly that access list. The setup is in [Windows operator
+  setup](staging.md#windows-operator-setup).
+- **Checkout location.** Clone TailTag under `%USERPROFILE%`, for example
+  `$HOME\repos\tailtag`, and keep `uv` and its cache in their default per-user
+  locations. Do not use a folder under a drive root such as `C:\src` unless no
+  other account can write to it: these tasks run Python from the checkout and
+  its virtual environment, so anyone who can write there can run code as you.
+  The tooling does not check this.
+- **Docker.** The restore drill accepts only a local Docker named pipe
+  (`npipe:////./pipe/<name>`, which Docker Desktop uses) on Windows.
+- **Still POSIX-only.** Operator scripts that no task runs stay POSIX-only, as
+  do their tests: the operator matrix, managed-auth diagnosis, password
+  rotation, the emergency operator, and restart.
 
 ## Contribute changes
 

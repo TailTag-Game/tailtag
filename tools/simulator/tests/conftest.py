@@ -24,9 +24,11 @@ def immediate_setup_time(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-# Host operator and runner modules import fcntl and pwd and enforce POSIX
-# owner-only permissions. Native Windows support for them waits on the approved
-# ACL design (issue #315, slice 3). Linux CI runs them; the report header names
+# The simulation host workflow needs macOS or Linux (maintainer decision D1,
+# issue #315 slice 3): it relays Unix-domain sockets over OpenSSH stream-local
+# forwards, uses fcntl locks, and walks evidence trees with directory
+# descriptors. These modules stay POSIX-only by design; the sim-host-* tasks
+# fail fast on Windows instead. Linux CI runs them; the report header names
 # them so the skip is visible.
 WINDOWS_SKIPPED_MODULES = frozenset(
     {

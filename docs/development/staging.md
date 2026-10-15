@@ -345,6 +345,52 @@ For a future qualifying pair:
 7. Restore A's source through #202 exact-SHA promotion, never a second rollback,
    and verify that restoration as its own exact deployment.
 
+### Windows operator setup
+
+The Staging operator tasks run natively on Windows (#315). They read secrets and
+bindings only from owner-only files, so set up the private location first.
+
+- **Checkout.** Clone TailTag under `%USERPROFILE%` and keep `uv` and its cache
+  in their default per-user locations. Do not use a folder under a drive root,
+  such as `C:\src`, unless no other account can write to it: the tasks run
+  Python from the checkout and its virtual environment. This is documented, not
+  checked.
+- **Configuration folder.** The equivalent of `mkdir -m 700` and `chmod 600`:
+
+  ```powershell
+  New-Item -ItemType Directory -Force "$HOME\.config\tailtag" | Out-Null
+  icacls "$HOME\.config\tailtag" /reset
+  icacls "$HOME\.config\tailtag" /setowner "$env:USERNAME"
+  icacls "$HOME\.config\tailtag" /inheritance:r /grant:r "${env:USERNAME}:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F"
+  icacls "$HOME\.config\tailtag"
+  ```
+
+  `/reset` drops any explicit grants a reused folder already carries, so the
+  next line leaves exactly three entries. The `/setowner` line matters in an
+  elevated shell, where new folders are owned by `Administrators`; it is
+  harmless otherwise. The last line must list only your account,
+  `NT AUTHORITY\SYSTEM`, and `BUILTIN\Administrators`; store configuration
+  there only after it does. Files created in that folder afterwards inherit
+  only those three entries.
+- **Rule.** The owner must be you. The only access entries allowed are for you,
+  `SYSTEM`, and `Administrators`; any other account or group (`Users`,
+  `Authenticated Users`, `CREATOR OWNER`, and so on) is refused, even where it
+  contains only you. A symlink, junction, or other reparse point on the file or
+  its folder is refused, as is a file over the size limit.
+- **Inspect and fix.** `icacls <file>` lists the access entries, and `Get-Acl
+  <file> | Format-List Owner` shows the owner. A refused file gets the same
+  short failure as on POSIX. If the owner is wrong, for example because the file
+  was created from an elevated shell, run `icacls <file> /setowner
+  "$env:USERNAME"`. Remove other entries with `icacls <file> /remove <name>` or
+  repeat the `/inheritance:r /grant:r` command on the file.
+- **Docker.** The restore drill accepts only `npipe:////./pipe/<name>` as the
+  Docker endpoint on Windows; a remote pipe host is refused.
+- **Evidence.** Files the tools create (restore-drill evidence, simulator
+  reports and evaluations) get the same three-entry access list, with
+  inheritance off.
+
+Live Staging runs from Windows are not verified by CI.
+
 ## Opt-in verification procedures
 
 These are maintainer-only live operations, separate from ordinary CI and

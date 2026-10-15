@@ -18,6 +18,7 @@ from typing import Any, NoReturn, Self, cast
 
 import pytest
 
+from tests import windows_acl_support as acl
 from tests.process_support import minimal_environment
 from tests.semgrep_support import task_dry_run
 
@@ -141,6 +142,8 @@ def write_configuration(path: Path, values: Mapping[str, str]) -> None:
         + "\n"
     )
     path.chmod(0o600)
+    if sys.platform == "win32":
+        acl.protect_tree(path.parent, path)
 
 
 def install_synthetic_replacement_manifest(
@@ -160,6 +163,8 @@ def install_synthetic_replacement_manifest(
     private_file = private_dir / "staging-clean-rebuild-targets.json"
     private_file.write_text(json.dumps(selectors))
     private_file.chmod(0o600)
+    if sys.platform == "win32":
+        acl.protect_tree(private_dir, private_file)
     monkeypatch.setattr(binding, "_MANIFEST_PATH", private_file)
     monkeypatch.setattr(
         binding,
@@ -315,6 +320,10 @@ def isolated_bootstrap(
     bootstrap: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run the real bootstrap source under an isolated local interpreter."""
+    if sys.platform == "win32":
+        # The bootstrap runs inside the Linux Railway container (/tmp, HOME,
+        # TMPDIR); it stays POSIX by design (spec Non-goals, D2).
+        pytest.skip("remote bootstrap is container-side POSIX code")
     environment = {
         **minimal_environment(),
         "HOME": str(tmp_path),
@@ -402,8 +411,12 @@ def mutate_configuration(path: Path, mutation: str) -> None:
     """Apply one focused malformed-file mutation while preserving other bindings."""
     if mutation == "file-mode":
         path.chmod(0o644)
+        if sys.platform == "win32":
+            acl.make_owner_only(path, extra_aces="(A;;FR;;;BU)")
     elif mutation == "directory-mode":
         path.parent.chmod(0o755)
+        if sys.platform == "win32":
+            acl.make_owner_only(path.parent, container=True, extra_aces="(A;;FR;;;BU)")
     elif mutation == "evaluated-value":
         write_configuration(path, configuration(TAILTAG_STAGING_RESET_ID="$(unsafe)"))
     elif mutation == "quoted-value":
@@ -476,6 +489,8 @@ def test_read_configuration_rejects_symbolic_links(
     staging_ssh: ModuleType, tmp_path: Path, link_parent: bool
 ) -> None:
     """SSH-2: links cannot redirect an operator-owned configuration read."""
+    if sys.platform == "win32":
+        acl.require_symlinks(tmp_path)
     target = tmp_path / "target" / "staging-reset.env"
     write_configuration(target, configuration())
     path = tmp_path / "operator" / "staging-reset.env"
@@ -594,6 +609,8 @@ def test_build_bundle_rejects_a_symlink_or_unsafe_member_source(
     staging_ssh: ModuleType, tmp_path: Path
 ) -> None:
     """SSH-4: a repository path cannot smuggle a link or traversal into the archive."""
+    if sys.platform == "win32":
+        acl.require_symlinks(tmp_path)
     (tmp_path / "services" / "api" / "safe").mkdir(parents=True)
     (tmp_path / "scripts").mkdir()
     (tmp_path / "services" / "api" / "safe" / "module.py").write_text("pass\n")

@@ -20,6 +20,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Final, NoReturn, cast
 
+from config.owner_only import open_owner_only_file
+
 __all__ = [
     "_BOOTSTRAP",
     "_build_bundle",
@@ -367,26 +369,10 @@ def _runtime_database_fingerprint() -> str:
 
 def _read_configuration(path: Path) -> dict[str, str]:
     try:
-        parent = path.parent
-        parent_status = parent.lstat()
-        file_status = path.lstat()
-        if (
-            stat.S_ISLNK(parent_status.st_mode)
-            or stat.S_ISLNK(file_status.st_mode)
-            or not stat.S_ISDIR(parent_status.st_mode)
-            or not stat.S_ISREG(file_status.st_mode)
-        ):
-            raise TypeError
-        if (
-            parent_status.st_uid != os.getuid()
-            or file_status.st_uid != os.getuid()
-            or stat.S_IMODE(parent_status.st_mode) != 0o700
-            or stat.S_IMODE(file_status.st_mode) != 0o600
-            or file_status.st_size > 16 * 1024
-        ):
-            raise TypeError
         values: dict[str, str] = {}
-        for line in path.read_text(encoding="utf-8").splitlines():
+        with open_owner_only_file(path, max_bytes=16 * 1024) as stream:
+            text = stream.read().decode("utf-8")
+        for line in text.splitlines():
             if not line or line.startswith("#"):
                 continue
             if line.count("=") != 1:

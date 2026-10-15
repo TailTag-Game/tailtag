@@ -7,7 +7,9 @@ are substituted. Expected schema is the independently authored literal fixture.
 import hashlib
 import json
 import os
+import stat
 import subprocess
+import sys
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -27,6 +29,7 @@ from report_support import (
     recorder,
     repository,
 )
+from windows_acl_support import assert_private_access
 
 from tailtag_simulator.__main__ import main
 from tailtag_simulator.client import MAX_RESPONSE_BYTES, REQUEST_TIMEOUT_SECONDS
@@ -429,6 +432,75 @@ def test_reservation_never_overwrites_existing_evidence_or_symlinks(
     with pytest.raises(ReportFailed):
         RunReport(tmp_path, "smoke", config={"target": "staging"}, run_id=RUN_ID)
     assert prior.read_text() == path.read_text() == "SENTINEL-prior-evidence"
+
+
+def _assert_private(path: Path) -> None:
+    if sys.platform == "win32":
+        assert_private_access(path)
+    else:
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_report_stays_private_from_reservation_through_snapshot_replacement(
+    tmp_path: Path,
+) -> None:
+    """S3-6: every snapshot's replacement file is created private, not just the first.
+
+    Catches: a snapshot written through mkstemp (Windows ignores its mode, so the
+    replaced report would carry the folder's inherited access list).
+    """
+    report = recorder(tmp_path)
+    _assert_private(report.path)
+
+    report.begin("target")
+    report.end("target", "passed")
+
+    assert not report.write_failed
+    _assert_private(report.path)
+    assert [p.name for p in tmp_path.iterdir()] == [report.path.name]
+
+
+@pytest.mark.parametrize(
+    "link_kind",
+    [
+        "symlink",
+        pytest.param(
+            "junction",
+            marks=pytest.mark.skipif(
+                sys.platform != "win32", reason="junctions are Windows reparse points"
+            ),
+        ),
+    ],
+)
+def test_report_directory_below_a_link_is_refused_without_writing_through_it(
+    tmp_path: Path, link_kind: str
+) -> None:
+    """S3-6: ancestors that are symlinks or (on Windows) junctions are refused.
+
+    Catches: an ancestor check that only knows symlinks, so a junction planted by
+    another account redirects evidence into a directory it controls.
+    """
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link"
+    if link_kind == "junction":
+        subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(link), str(real)],
+            check=True,
+            capture_output=True,
+        )
+    else:
+        try:
+            link.symlink_to(real, target_is_directory=True)
+        except OSError:
+            pytest.skip("creating symlinks needs an elevated Windows account")
+
+    with pytest.raises(ReportFailed):
+        RunReport(
+            link / "reports", "smoke", config={"target": "staging"}, run_id=RUN_ID
+        )
+
+    assert list(real.iterdir()) == []
 
 
 def test_initial_storage_failure_is_detail_free_and_cannot_create_a_run(

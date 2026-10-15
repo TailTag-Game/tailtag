@@ -12,18 +12,18 @@ import hashlib
 import importlib
 import json
 import os
+import queue
 import re
-import select
-import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from io import StringIO, UnsupportedOperation
+from io import StringIO
 from pathlib import Path
 from shutil import rmtree
 from typing import Any, cast
@@ -31,6 +31,9 @@ from typing import Any, cast
 from scripts.api_staging_reset_ssh import (
     _target_ids,  # pyright: ignore[reportPrivateUsage]
 )
+
+from config.owner_only import create_private_file
+from config.process_tree import ProcessTree, spawn_options
 
 CONFIRMATION = "restore-tailtag-staging-backup"
 POSTGRES_IMAGE = "postgres:18"
@@ -227,6 +230,119 @@ def verify_railway_identity() -> None:
         raise DrillDenied("Railway identity mismatch")
 
 
+_CHUNK_BYTES = 1024 * 1024
+_DOCKER_PIPE = re.compile(r"npipe:////\./pipe/[A-Za-z0-9_.-]+")
+_process_trees: dict[int, ProcessTree] = {}
+
+
+def _spawn(command: Sequence[str], **kwargs: Any) -> subprocess.Popen[bytes]:
+    """Start a child inside its own process tree, so cleanup can stop all of it."""
+    process = subprocess.Popen(command, **kwargs, **spawn_options())
+    tree = ProcessTree()
+    try:
+        tree.attach(process.pid)
+    except BaseException:
+        # A failed attach may leave a suspended child that nothing else owns.
+        process.kill()
+        process.wait()
+        tree.close()
+        raise
+    _process_trees[process.pid] = tree
+    return process
+
+
+def _release_tree(process: object) -> ProcessTree | None:
+    """Forget a child's tree; the caller stops and closes it."""
+    pid = getattr(process, "pid", None)
+    return _process_trees.pop(pid, None) if isinstance(pid, int) else None
+
+
+class _ChunkReader:
+    """Read a pipe on a daemon thread, handing out one chunk at a time.
+
+    The queue holds one chunk, so a slow consumer stops the reader instead of
+    letting the host buffer grow. A read error is re-raised to the consumer as
+    ``DrillDenied(failure)``. ``stop`` ends the thread after its current read;
+    a thread blocked on a silent pipe ends when the pipe closes.
+    """
+
+    def __init__(self, stream: Any, size: int, failure: str) -> None:
+        self._queue: queue.Queue[bytes | BaseException] = queue.Queue(maxsize=1)
+        self._stopped = threading.Event()
+        self._failure = failure
+        self.error: BaseException | None = None
+        self.total = 0
+        self.at_end = False
+        threading.Thread(target=self._run, args=(stream, size), daemon=True).start()
+
+    def _put(self, item: bytes | BaseException) -> None:
+        while not self._stopped.is_set():
+            try:
+                self._queue.put(item, timeout=0.25)
+                return
+            except queue.Full:
+                pass
+
+    def _run(self, stream: Any, size: int) -> None:
+        try:
+            while not self._stopped.is_set():
+                chunk = stream.read1(size)
+                self.total += len(chunk)
+                if not chunk:
+                    # Mark the end before handing off the end marker, so a
+                    # consumer that sees the marker always sees the end too.
+                    self.at_end = True
+                    self._put(chunk)
+                    return
+                self._put(chunk)
+        except BaseException as error:  # noqa: BLE001 - passed to the consumer
+            self.error = error
+            self._put(error)
+
+    def get(self, timeout: float) -> bytes | None:
+        """Return the next chunk, b"" at end of stream, or None when nothing arrived."""
+        try:
+            item = self._queue.get(timeout=timeout)
+        except queue.Empty:
+            return None
+        if isinstance(item, BaseException):
+            raise DrillDenied(self._failure) from None
+        return item
+
+    def stop(self) -> None:
+        self._stopped.set()
+
+
+class _ChunkWriter:
+    """Write a reader's chunks to a pipe on a daemon thread, counting what it wrote."""
+
+    def __init__(self, source: _ChunkReader, stream: Any) -> None:
+        self._source = source
+        self._stopped = threading.Event()
+        self.finished = threading.Event()
+        self.error: BaseException | None = None
+        self.total = 0
+        threading.Thread(target=self._run, args=(stream,), daemon=True).start()
+
+    def _run(self, stream: Any) -> None:
+        try:
+            while not self._stopped.is_set():
+                chunk = self._source.get(0.25)
+                if chunk is None:
+                    continue
+                if not chunk:
+                    self.finished.set()
+                    return
+                stream.write(chunk)
+                stream.flush()
+                self.total += len(chunk)
+        except BaseException as error:  # noqa: BLE001 - passed to the main thread
+            self.error = error
+
+    def stop(self) -> None:
+        self._stopped.set()
+
+
 def open_railway_tunnel(
     target_ids: tuple[str, str, str, str] | None = None,
 ) -> tuple[Any, TunnelDetails]:
@@ -237,7 +353,7 @@ def open_railway_tunnel(
     """
     project_id, environment_id, _, _ = _pinned_target_ids(target_ids)
     verify_railway_identity()
-    tunnel = subprocess.Popen(
+    tunnel = _spawn(
         (
             "railway",
             "connect",
@@ -251,34 +367,38 @@ def open_railway_tunnel(
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        start_new_session=True,
     )
     if tunnel.stdout is None:
         cleanup_task_resources((tunnel,), ())
         raise DrillDenied("Railway tunnel stream unavailable")
-    # Read bounded bytes so a partial line cannot block past the deadline.
+    # Read bounded chunks on a thread so a partial line cannot block past the deadline.
     output = bytearray()
     deadline = time.monotonic() + 30
+    reader = _ChunkReader(tunnel.stdout, 1024, "Railway tunnel unavailable")
     try:
         while time.monotonic() < deadline:
-            ready, _, _ = select.select([tunnel.stdout], [], [], 0.25)
-            chunk = os.read(tunnel.stdout.fileno(), 1024) if ready else b""
+            chunk = reader.get(0.25)
             if chunk:
                 output.extend(chunk)
                 if len(output) > 4096:
                     raise DrillDenied("invalid tunnel details")
                 try:
-                    return tunnel, parse_tunnel_details(
+                    details = parse_tunnel_details(
                         output.decode("utf-8", errors="replace")
                     )
                 except DrillDenied:
-                    pass
-            elif tunnel.poll() is not None:
+                    continue
+                # The tunnel's stdout stays open for the tunnel's lifetime.
+                reader.stop()
+                return tunnel, details
+            if chunk == b"" or (chunk is None and tunnel.poll() is not None):
                 break
     except BaseException:  # Every tunnel parse failure must reap the process.
+        reader.stop()
         if not cleanup_task_resources((tunnel,), ()):
             raise DrillDenied("Railway tunnel cleanup could not be verified") from None
         raise
+    reader.stop()
     if not cleanup_task_resources((tunnel,), ()):
         raise DrillDenied("Railway tunnel cleanup could not be verified")
     raise DrillDenied("Railway tunnel unavailable")
@@ -377,9 +497,10 @@ def dump_snapshot_to_target(
     }
     dump: subprocess.Popen[bytes] | None = None
     receiver: subprocess.Popen[bytes] | None = None
-    transferred = 0
+    reader: _ChunkReader | None = None
+    writer: _ChunkWriter | None = None
     try:
-        dump = subprocess.Popen(
+        dump = _spawn(
             (
                 "pg_dump",
                 "--host",
@@ -400,9 +521,8 @@ def dump_snapshot_to_target(
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             env={**os.environ, **environment},
-            start_new_session=True,
         )
-        receiver = subprocess.Popen(
+        receiver = _spawn(
             (
                 "docker",
                 "exec",
@@ -415,57 +535,30 @@ def dump_snapshot_to_target(
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True,
         )
         if dump.stdout is None or receiver.stdin is None:
             raise DrillDenied("dump stream unavailable")
         deadline = time.monotonic() + 1800
+        # One reader and one writer thread joined by a one-chunk queue keep the
+        # host buffer bounded; the main thread only watches the deadline.
+        reader = _ChunkReader(dump.stdout, _CHUNK_BYTES, "custom dump stream failed")
+        writer = _ChunkWriter(reader, receiver.stdin)
+        while not writer.finished.is_set():
+            if writer.error is not None or reader.error is not None:
+                raise DrillDenied("custom dump stream failed")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise DrillDenied("custom dump timed out")
+            writer.finished.wait(min(0.25, remaining))
+        # Without this, a writer that quit early could leave a truncated dump
+        # that the receiver still reports as a success.
+        transferred = writer.total
+        if not reader.at_end or reader.total != transferred:
+            raise DrillDenied("custom dump stream failed")
         try:
-            dump_fd = dump.stdout.fileno()
-            receiver_fd = receiver.stdin.fileno()
-            os.set_blocking(dump_fd, False)
-            os.set_blocking(receiver_fd, False)
-        except (AttributeError, OSError, UnsupportedOperation):
-            raise DrillDenied("dump stream does not expose OS pipes") from None
-        pending = bytearray()
-        end_of_dump = False
-        try:
-            while not end_of_dump or pending:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise DrillDenied("custom dump timed out")
-                # Do not read another chunk until the receiver consumes the
-                # current one; the host buffer is bounded to one chunk.
-                readable = [dump_fd] if not end_of_dump and not pending else []
-                writable = [receiver_fd] if pending else []
-                readable, writable, _ = select.select(
-                    readable, writable, [], min(1, remaining)
-                )
-                if dump_fd in readable:
-                    try:
-                        chunk = os.read(dump_fd, 1024 * 1024)
-                    except BlockingIOError:
-                        chunk = None
-                    if chunk is None:
-                        pass
-                    elif chunk:
-                        pending.extend(chunk)
-                    else:
-                        end_of_dump = True
-                if receiver_fd in writable:
-                    try:
-                        written = os.write(receiver_fd, pending)
-                    except BlockingIOError:
-                        written = 0
-                    if written < 0:
-                        raise DrillDenied("custom dump stream failed")
-                    if written:
-                        del pending[:written]
-                        transferred += written
-        finally:
-            os.set_blocking(dump_fd, True)
-            os.set_blocking(receiver_fd, True)
-        receiver.stdin.close()
+            receiver.stdin.close()
+        except OSError:
+            raise DrillDenied("custom dump stream failed") from None
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise DrillDenied("custom dump timed out")
@@ -480,6 +573,14 @@ def dump_snapshot_to_target(
         if not cleanup_task_resources((dump, receiver), ()):
             raise DrillDenied("dump process cleanup could not be verified") from None
         raise
+    finally:
+        for thread in (reader, writer):
+            if thread is not None:
+                thread.stop()
+        for process in (dump, receiver):
+            tree = _release_tree(process)
+            if tree is not None:
+                tree.close()
 
 
 def validate_archive(container_id: str) -> None:
@@ -667,11 +768,11 @@ def cleanup_task_resources(
         return command_runner(command, **kwargs)
 
     for process in processes:
+        tree = _release_tree(process)
         try:
             if process is not None and process.poll() is None:
-                pid = getattr(process, "pid", None)
-                if isinstance(pid, int) and pid > 0:
-                    os.killpg(pid, signal.SIGTERM)
+                if tree is not None:
+                    tree.terminate()
                 else:
                     process.terminate()
                 process.wait(timeout=10)
@@ -679,14 +780,17 @@ def cleanup_task_resources(
             complete = False
             if process is not None:
                 try:
-                    pid = getattr(process, "pid", None)
-                    if isinstance(pid, int) and pid > 0:
-                        os.killpg(pid, signal.SIGKILL)
+                    if tree is not None:
+                        tree.kill()
                     else:
                         process.kill()
                     process.wait(timeout=10)
                 except Exception:  # noqa: BLE001
                     complete = False
+        finally:
+            if tree is not None:
+                # On Windows, closing the job also stops any surviving descendant.
+                tree.close()
     for container_id in container_ids:
         if not isinstance(container_id, str) or not re.fullmatch(
             r"[0-9a-f]{64}", container_id
@@ -1280,8 +1384,16 @@ def run_drill() -> int:
         context = _run(
             "docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"
         )
-        if not context.stdout.strip().startswith("unix://"):
-            raise DrillDenied("Docker context is not a local Unix socket")
+        endpoint = context.stdout.strip()
+        local_endpoint = (
+            _DOCKER_PIPE.fullmatch(endpoint) is not None
+            if sys.platform == "win32"
+            else endpoint.startswith("unix://")
+        )
+        if not local_endpoint:
+            raise DrillDenied(
+                "Docker context is not a local Unix socket or Windows named pipe"
+            )
         tool_versions = _tool_versions()
         before = _active_staging_identity()
         verify_railway_identity()
@@ -1661,7 +1773,7 @@ def write_sanitized_evidence(path: Path, evidence: Mapping[str, object]) -> None
     linked = False
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        descriptor = create_private_file(temporary)
         with os.fdopen(descriptor, "wb") as output:
             output.write(encoded)
             output.flush()
@@ -1671,11 +1783,14 @@ def write_sanitized_evidence(path: Path, evidence: Mapping[str, object]) -> None
         os.link(temporary, path)
         linked = True
         temporary.unlink()
-        directory = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        # Windows cannot fsync a directory. NTFS journals metadata, so the link
+        # is durable once it exists.
+        if sys.platform != "win32":
+            directory = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
     except (OSError, TypeError, ValueError):
         if linked:
             try:

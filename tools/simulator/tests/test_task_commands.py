@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -359,3 +360,52 @@ def test_launchers_run_a_silent_task_the_taskfile_defines(command: list[str]) ->
     assert command[:2] == ["task", "-s"]
     assert len(command) == 3
     assert command[2] in defined
+
+
+HOST_FAIL_LINE = (
+    "FAIL  The simulation host workflow needs macOS or Linux (WSL works); "
+    "see docs/operations/simulation-host.md."
+)
+HOST_TASKS = [
+    "sim-host-prepare",
+    "sim-host-run",
+    "sim-host-collect",
+    "sim-host-release-export",
+    "sim-host-release-load",
+]
+
+
+@pytest.mark.parametrize("task", HOST_TASKS)
+def test_host_tasks_fail_fast_on_windows_and_are_unchanged_elsewhere(task: str) -> None:
+    """D1, S3-8: no faithful Windows equivalent exists, so say so and exit 1.
+
+    On Windows the real task runs with no arguments: it must fail with the exact
+    line, before the missing-argument guard and without a crash inside fcntl or
+    directory-descriptor code. go-task reports any failed command as its own
+    exit code (G12), so the message, not the code, tells them apart. Elsewhere a
+    dry run must still show the real launcher command and not the Windows
+    message.
+    Catches: a missing platforms split, reaching the argument guard, or a changed
+    message.
+    """
+    environment = {k: v for k, v in os.environ.items() if k != "UV"}
+    if sys.platform == "win32":
+        result = run_task(task, cwd=CHECKOUT, env=environment)
+        output = result.stdout + result.stderr
+        assert result.returncode != 0, output
+        assert HOST_FAIL_LINE in output.splitlines()
+        assert "are required" not in output
+        return
+
+    dry = run_task("--dry", task, cwd=CHECKOUT, env=environment)
+    assert dry.returncode == 0, dry.stderr
+    assert HOST_FAIL_LINE not in dry.stdout + dry.stderr
+    assert "tailtag_simulator.host_" in dry.stdout + dry.stderr
+    block = re.search(
+        rf"^  {task}:\n(.*?)(?=^  \S|\Z)",
+        (CHECKOUT / "Taskfile.yml").read_text(),
+        re.MULTILINE | re.DOTALL,
+    )
+    assert block is not None
+    assert "platforms: [windows]" in block.group(1)
+    assert "needs macOS or Linux (WSL works)" in block.group(1)

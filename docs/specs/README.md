@@ -6,6 +6,8 @@ Small, reversible changes with clear acceptance criteria do not need a spec. Spe
 
 ## Current V0 specifications
 
+- [Windows owner-only files and process trees](2026-10-15-windows-owner-only-files-and-process-trees.md) — #315 slice 3 Windows access-list rule, private creation, Job Object process trees, and simulation-host fail-fast
+  ([implementation plan](2026-10-15-windows-owner-only-files-and-process-trees-implementation-plan.md))
 - [Flutter contributor tooling, configuration, and diagnostics](2026-10-12-mobile-contributor-tooling.md) — #132 frozen `make mobile-*`, `AppConfig`, and `doctor.sh --mobile` contract
   ([implementation plan](2026-10-12-mobile-contributor-tooling-implementation-plan.md))
 - [Synthetic simulation identity pool](2026-10-02-synthetic-identity-pool.md) — #219 durable Staging synthetic identities, ticket and cookie token path, leases, and #200/#218 amendments

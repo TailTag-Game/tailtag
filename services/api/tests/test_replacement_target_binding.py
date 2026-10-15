@@ -10,6 +10,7 @@ import hashlib
 import importlib
 import json
 import os
+import sys
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import ModuleType
@@ -17,6 +18,8 @@ from typing import Final
 
 import pytest
 from pytest import MonkeyPatch
+
+from tests import windows_acl_support as acl
 
 PROJECT: Final = "a1111111-1111-4111-8111-111111111111"
 DEVELOPMENT: Final = "22222222-2222-4222-8222-222222222222"
@@ -171,6 +174,9 @@ def _private_manifest(tmp_path: Path, data: str | Mapping[str, object]) -> Path:
     path = parent / "staging-clean-rebuild-targets.json"
     path.write_text(data if isinstance(data, str) else json.dumps(data))
     path.chmod(0o600)
+    if sys.platform == "win32":
+        acl.make_owner_only(parent, container=True)
+        acl.make_owner_only(path)
     return path
 
 
@@ -238,24 +244,68 @@ def test_loader_rejects_missing_symlink_and_wrong_modes(
         binding, lambda: binding.load_local_manifest(path.parent / "missing.json")
     )
 
+    path.chmod(0o644)
+    if sys.platform == "win32":
+        acl.make_owner_only(path, extra_aces="(A;;FR;;;BU)")
+    _assert_fixed_denial(binding, lambda: binding.load_local_manifest(path))
+    path.chmod(0o600)
+    if sys.platform == "win32":
+        acl.make_owner_only(path)
+    path.parent.chmod(0o755)
+    if sys.platform == "win32":
+        acl.make_owner_only(path.parent, container=True, extra_aces="(A;;FR;;;BU)")
+    _assert_fixed_denial(binding, lambda: binding.load_local_manifest(path))
+
+    # Last, because an account that cannot create symlinks skips from here.
+    path.parent.chmod(0o700)
+    if sys.platform == "win32":
+        acl.make_owner_only(path.parent, container=True)
+        acl.require_symlinks(tmp_path)
     alias = path.parent / "alias.json"
     alias.symlink_to(path)
     _assert_fixed_denial(binding, lambda: binding.load_local_manifest(alias))
 
-    path.chmod(0o644)
-    _assert_fixed_denial(binding, lambda: binding.load_local_manifest(path))
-    path.chmod(0o600)
-    path.parent.chmod(0o755)
-    _assert_fixed_denial(binding, lambda: binding.load_local_manifest(path))
 
-
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX uid ownership")
 def test_loader_rejects_wrong_owner_without_exposing_path_or_values(
     binding: ModuleType, monkeypatch: MonkeyPatch, tmp_path: Path
 ) -> None:
     """T-2/T-8: current-process owner is part of the private-file boundary."""
     path = _private_manifest(tmp_path, SELECTORS)
     current_uid = os.getuid()
-    monkeypatch.setattr(binding.os, "getuid", lambda: current_uid + 1)
+    # Patch the os module itself: the owner check no longer lives in this module.
+    monkeypatch.setattr(os, "getuid", lambda: current_uid + 1)
+    _assert_fixed_denial(binding, lambda: binding.load_local_manifest(path))
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows owner SIDs")
+def test_loader_rejects_administrators_owned_manifest_without_exposing_values(
+    binding: ModuleType, tmp_path: Path
+) -> None:
+    """T-2/T-8, S3-1: the Windows owner must be the token user, never Administrators."""
+    path = _private_manifest(tmp_path, SELECTORS)
+    try:
+        acl.make_owner_only(path, owner=acl.ADMINISTRATORS_SID)
+    except OSError:
+        pytest.skip("this account cannot assign an Administrators owner")
+    _assert_fixed_denial(binding, lambda: binding.load_local_manifest(path))
+
+
+@pytest.mark.parametrize(
+    "encoded",
+    (
+        b"\xef\xbb\xbf" + json.dumps(SELECTORS).encode(),
+        json.dumps(SELECTORS).encode("utf-16"),
+        b'{"rebuild_railway_project_id":"\xed\xa0\x80"}',
+    ),
+    ids=("utf8-bom", "utf-16", "lone-surrogate"),
+)
+def test_loader_decodes_strictly_as_utf8_on_every_platform(
+    binding: ModuleType, tmp_path: Path, encoded: bytes
+) -> None:
+    """G3/S3-3: the bytes-returning helper must not widen JSON's own encoding detection."""
+    path = _private_manifest(tmp_path, SELECTORS)
+    path.write_bytes(encoded)
     _assert_fixed_denial(binding, lambda: binding.load_local_manifest(path))
 
 

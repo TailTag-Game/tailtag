@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from tailtag_simulator import reports
+from tailtag_simulator.owner_only import create_private_file
 from tailtag_simulator.reports import ReportFailed, utc_now, validate_report
 from tailtag_simulator.traffic_metrics import OPERATIONS
 
@@ -673,9 +674,7 @@ def write_evaluation(artifact: Mapping[str, Any], out: Path) -> None:
     created = False
     try:
         text = json.dumps(artifact, indent=1, allow_nan=False) + "\n"
-        fd = os.open(
-            out, os.O_WRONLY | os.O_CREAT | os.O_EXCL | reports.NO_FOLLOW, 0o600
-        )
+        fd = create_private_file(out)
         created = True
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             stream.write(text)
