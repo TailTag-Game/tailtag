@@ -15,9 +15,9 @@ from pathlib import Path
 from typing import Any, Final
 
 import pytest
-from config.owner_only import OwnerOnlyError
 
 from config import owner_only
+from config.owner_only import OwnerOnlyError
 from tests import windows_acl_support as acl
 
 WIN: Final = sys.platform == "win32"

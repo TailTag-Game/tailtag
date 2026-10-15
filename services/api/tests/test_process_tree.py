@@ -16,6 +16,7 @@ import time
 from typing import IO, Any, Final, cast
 
 import pytest
+
 from config.process_tree import ProcessTree, spawn_options
 
 WIN: Final = sys.platform == "win32"
