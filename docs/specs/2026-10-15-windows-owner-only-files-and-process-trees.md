@@ -442,8 +442,12 @@ other account can write to it.
 
 ```powershell
 New-Item -ItemType Directory -Force "$HOME\.config\tailtag" | Out-Null
+icacls "$HOME\.config\tailtag" /setowner "$env:USERNAME"
 icacls "$HOME\.config\tailtag" /inheritance:r /grant:r "${env:USERNAME}:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F"
 ```
+
+The `/setowner` line matters in an elevated shell, where new folders are owned
+by `Administrators`; it is harmless otherwise.
 
 Files created in that folder afterwards inherit only those three entries.
 
@@ -527,12 +531,15 @@ These test modules are collected on Windows again:
 
 - `test_replacement_target_binding.py`
 - `test_replacement_candidate_origin.py`
-- `test_replacement_migrate.py`
 - `test_api_staging_reset_ssh.py`
 - `test_api_staging_restore_drill.py`
 
 The timeout cases in `test_pool.py` and `test_fixture_channel.py` and the
 private-file assertions in `test_evaluation.py` also run on Windows again.
+
+`test_replacement_migrate.py` stays skipped on Windows: it runs the Railway
+pre-deploy wrapper under production settings, which is remote Linux code (a
+non-goal).
 
 Their POSIX fixtures and assertions are left exactly as they are. Windows
 branches are added next to them. Modules outside D2's scope stay skipped, and

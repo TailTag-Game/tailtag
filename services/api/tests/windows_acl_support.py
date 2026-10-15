@@ -11,7 +11,6 @@ from __future__ import annotations
 import csv
 import ctypes
 import os
-import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -19,16 +18,6 @@ from pathlib import Path
 
 import pytest
 
-_ALIASES = {
-    "SY": "S-1-5-18",
-    "BA": "S-1-5-32-544",
-    "BU": "S-1-5-32-545",
-    "BG": "S-1-5-32-546",
-    "AU": "S-1-5-11",
-    "WD": "S-1-1-0",
-    "CO": "S-1-3-0",
-    "OW": "S-1-3-4",
-}
 SYSTEM_SID = "S-1-5-18"
 ADMINISTRATORS_SID = "S-1-5-32-544"
 
@@ -157,85 +146,107 @@ def make_owner_only(
     apply_security(path, f"O:{owner or sid}D:P{leading_aces}{allowed}{extra_aces}")
 
 
-def read_access(path: Path) -> Access:
-    """Read owner, protection, and entries back as SDDL, independent of the code under test."""
+def _binary_access(path: Path) -> tuple[str, bool, list[tuple[int, int, int, str]]]:
+    """Read owner SID, DACL protection and basic ACEs from the binary descriptor.
+
+    SIDs come from ConvertSidToStringSidW, never from SDDL text, because SDDL
+    prints well-known aliases (LA, DA, ...) instead of the SID string.
+    """
     if sys.platform != "win32":
         raise RuntimeError("Windows access lists are only available on Windows")
     advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     get_info = advapi32.GetNamedSecurityInfoW
-    get_info.argtypes = [
-        ctypes.c_wchar_p,
-        ctypes.c_int,
-        ctypes.c_uint32,
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-    ]
+    get_info.argtypes = [ctypes.c_wchar_p, ctypes.c_int, ctypes.c_uint32] + [
+        ctypes.c_void_p
+    ] * 5
     get_info.restype = ctypes.c_uint32
-    to_string = advapi32.ConvertSecurityDescriptorToStringSecurityDescriptorW
-    to_string.argtypes = [
+    get_control = advapi32.GetSecurityDescriptorControl
+    get_control.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+    get_control.restype = ctypes.c_int
+    acl_information = advapi32.GetAclInformation
+    acl_information.argtypes = [
+        ctypes.c_void_p,
         ctypes.c_void_p,
         ctypes.c_uint32,
-        ctypes.c_uint32,
-        ctypes.c_void_p,
-        ctypes.c_void_p,
+        ctypes.c_int,
     ]
-    to_string.restype = ctypes.c_int
+    acl_information.restype = ctypes.c_int
+    get_ace = advapi32.GetAce
+    get_ace.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p]
+    get_ace.restype = ctypes.c_int
+    sid_to_string = advapi32.ConvertSidToStringSidW
+    sid_to_string.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    sid_to_string.restype = ctypes.c_int
     local_free = kernel32.LocalFree
     local_free.argtypes = [ctypes.c_void_p]
     local_free.restype = ctypes.c_void_p
 
+    def sid_text(sid: int | None) -> str:
+        text = ctypes.c_void_p()
+        if not sid or not sid_to_string(sid, ctypes.byref(text)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            return ctypes.wstring_at(text.value)
+        finally:
+            local_free(text)
+
+    owner = ctypes.c_void_p()
+    dacl = ctypes.c_void_p()
     descriptor = ctypes.c_void_p()
     status = get_info(
         str(path),
-        _SE_FILE_OBJECT,
-        _OWNER_INFORMATION | _DACL_INFORMATION,
+        1,
+        0x1 | 0x4,
+        ctypes.byref(owner),
         None,
-        None,
-        None,
+        ctypes.byref(dacl),
         None,
         ctypes.byref(descriptor),
     )
     if status != 0:
         raise ctypes.WinError(status)
     try:
-        text = ctypes.c_void_p()
-        if not to_string(
-            descriptor,
-            1,
-            _OWNER_INFORMATION | _DACL_INFORMATION,
-            ctypes.byref(text),
-            None,
-        ):
+        control = ctypes.c_uint16()
+        revision = ctypes.c_uint32()
+        if not get_control(descriptor, ctypes.byref(control), ctypes.byref(revision)):
             raise ctypes.WinError(ctypes.get_last_error())
-        try:
-            sddl = ctypes.wstring_at(text.value)
-        finally:
-            local_free(text)
+        assert dacl.value, "a NULL DACL grants everyone access"
+        size = (ctypes.c_uint32 * 3)()  # AceCount, AclBytesInUse, AclBytesFree
+        if not acl_information(dacl, size, ctypes.sizeof(size), 2):
+            raise ctypes.WinError(ctypes.get_last_error())
+        entries: list[tuple[int, int, int, str]] = []
+        for index in range(size[0]):
+            ace = ctypes.c_void_p()
+            if not get_ace(dacl, index, ctypes.byref(ace)):
+                raise ctypes.WinError(ctypes.get_last_error())
+            assert ace.value is not None
+            header = ctypes.string_at(ace.value, 8)  # type, flags, size, mask
+            entries.append(
+                (
+                    header[0],
+                    header[1],
+                    int.from_bytes(header[4:8], "little"),
+                    sid_text(ace.value + 8),  # SID follows a basic ACE's mask
+                )
+            )
+        return sid_text(owner.value), bool(control.value & 0x1000), entries
     finally:
         local_free(descriptor)
-    return _parse_sddl(sddl)
 
 
-def _normalize(sid: str) -> str:
-    return _ALIASES.get(sid, sid)
-
-
-def _parse_sddl(sddl: str) -> Access:
-    owner = re.search(r"O:(S-[0-9-]+|[A-Z]{2})", sddl)
-    dacl = re.search(r"D:([A-Z]*)((?:\(.*\))*)", sddl)
-    assert owner is not None and dacl is not None, sddl
-    entries = tuple(
-        Ace(kind, flags, rights, _normalize(sid))
-        for kind, flags, rights, _, _, sid in re.findall(
-            r"\(([^;()]*);([^;()]*);([^;()]*);([^;()]*);([^;()]*);([^;()]*)",
-            dacl.group(2),
-        )
+def read_access(path: Path) -> Access:
+    """Read owner, protection, and entries back, independent of the code under test."""
+    owner, protected, raw = _binary_access(path)
+    kinds = {0: "A", 1: "D"}
+    return Access(
+        owner,
+        protected,
+        tuple(
+            Ace(kinds.get(kind, f"type-{kind}"), f"0x{flags:x}", f"0x{mask:x}", sid)
+            for kind, flags, mask, sid in raw
+        ),
     )
-    return Access(_normalize(owner.group(1)), "P" in dacl.group(1), entries)
 
 
 def make_junction(link: Path, target: Path) -> None:

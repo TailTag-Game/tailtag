@@ -23,7 +23,8 @@ from tests import windows_acl_support as acl
 WIN: Final = sys.platform == "win32"
 MAX: Final = 1024
 CONTENT: Final = b"synthetic private content\n"
-FULL_CONTROL: Final = {"FA", "GA", "0x1f01ff"}
+# FILE_ALL_ACCESS, or GENERIC_ALL stored unmapped.
+FULL_CONTROL: Final = {"0x1f01ff", "0x10000000"}
 
 windows_only = pytest.mark.skipif(
     not WIN, reason="Windows access lists and reparse points"
@@ -57,12 +58,12 @@ def _private_file(path: Path, data: bytes = CONTENT) -> None:
 
 
 def _documented_icacls_recipe(folder: Path) -> None:
-    """The staging.md operator recipe, plus its documented /setowner repair."""
+    """The staging.md operator recipe: set the owner, then drop inheritance and grant."""
     sid = acl.token_user_sid()
     grants = [f"*{sid}:(OI)(CI)F", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F"]
     for command in (
-        ["icacls", str(folder), "/inheritance:r", "/grant:r", *grants],
         ["icacls", str(folder), "/setowner", f"*{sid}"],
+        ["icacls", str(folder), "/inheritance:r", "/grant:r", *grants],
     ):
         subprocess.run(command, check=True, capture_output=True)
 

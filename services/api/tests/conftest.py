@@ -26,9 +26,13 @@ def deterministic_storage(settings: SettingsWrapper) -> None:
 # the operator scripts that no Taskfile task runs. They cannot run on native
 # Windows; Linux CI runs them. The report header names them so the skip is
 # visible.
+#
+# test_replacement_migrate.py runs the Railway pre-deploy wrapper under
+# production settings. That is remote Linux code, a spec non-goal.
 WINDOWS_SKIPPED_MODULES = frozenset(
     {
         "test_http_runtime_telemetry.py",
+        "test_replacement_migrate.py",
         "test_staging_emergency_operator.py",
         "test_staging_emergency_operator_ssh.py",
         "test_staging_managed_auth_diagnose_ssh.py",
