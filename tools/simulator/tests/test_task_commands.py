@@ -379,17 +379,21 @@ HOST_TASKS = [
 def test_host_tasks_fail_fast_on_windows_and_are_unchanged_elsewhere(task: str) -> None:
     """D1, S3-8: no faithful Windows equivalent exists, so say so and exit 1.
 
-    On Windows the real task runs with no arguments: it must stop with the exact
-    line and exit 1 (not the missing-argument exit 2, and not a crash inside
-    fcntl or directory-descriptor code). Elsewhere a dry run must still show the
-    real launcher command and not the Windows message.
+    On Windows the real task runs with no arguments: it must fail with the exact
+    line, before the missing-argument guard and without a crash inside fcntl or
+    directory-descriptor code. go-task reports any failed command as its own
+    exit code (G12), so the message, not the code, tells them apart. Elsewhere a
+    dry run must still show the real launcher command and not the Windows
+    message.
     Catches: a missing platforms split, a wrong exit code, or a changed message.
     """
     environment = {k: v for k, v in os.environ.items() if k != "UV"}
     if sys.platform == "win32":
         result = run_task(task, cwd=CHECKOUT, env=environment)
-        assert result.returncode == 1, result.stdout + result.stderr
-        assert HOST_FAIL_LINE in (result.stdout + result.stderr).splitlines()
+        output = result.stdout + result.stderr
+        assert result.returncode != 0, output
+        assert HOST_FAIL_LINE in output.splitlines()
+        assert "are required" not in output
         return
 
     dry = run_task("--dry", task, cwd=CHECKOUT, env=environment)
