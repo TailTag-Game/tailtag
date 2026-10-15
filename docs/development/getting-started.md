@@ -162,8 +162,9 @@ commands: `sim-setup`, `sim-check`, `sim-report-validate`, and
 `mobile-check`, and `mobile-doctor`) also run natively; the mobile commands
 need FVM and the pinned Flutter SDK (see [Mobile contributor
 environment](mobile.md)), and iOS targets still need macOS with Xcode. CI runs
-all of these natively on Windows on every pull request, with no device attached,
-so `mobile-run` is covered by tests rather than by a device on Windows.
+`mobile-setup`, `mobile-check`, and `mobile-doctor` natively on Windows on every
+pull request, with no device attached. `task doctor`'s host checks and
+`mobile-run` are covered by tests rather than run as commands there.
 `sim-report-evaluate` and `sim-baseline-promote` also run natively;
 CI exercises their code through the simulator tests rather than as commands,
 because they need a real archived run report. `sim-smoke` should also work,

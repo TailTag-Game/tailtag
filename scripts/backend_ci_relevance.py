@@ -43,6 +43,7 @@ BACKEND_RELEVANT_FILES = {
     "scripts/clerk_development_session.py",
     "scripts/backend_ci_relevance.py",
     "scripts/doctor.py",
+    "scripts/doctor.sh",
     "scripts/fvm_sdk.py",
     "scripts/mobile_run.py",
     "scripts/validate_semgrep_contract.py",

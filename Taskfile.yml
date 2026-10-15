@@ -355,7 +355,7 @@ tasks:
     vars:
       REPOSITORY_ROOT: *repository-root
     cmds:
-      - '{{.UV | toSlash}} run --no-project python {{.REPOSITORY_ROOT}}/scripts/doctor.py'
+      - '{{.UV | toSlash}} run --no-project python "{{.REPOSITORY_ROOT}}/scripts/doctor.py"'
 
   mobile-host-guard:
     internal: true
@@ -371,7 +371,7 @@ tasks:
     vars:
       REPOSITORY_ROOT: *repository-root
     cmds:
-      - '{{.UV | toSlash}} run --no-project python {{.REPOSITORY_ROOT}}/scripts/fvm_sdk.py {{.REPOSITORY_ROOT}}'
+      - '{{.UV | toSlash}} run --no-project python "{{.REPOSITORY_ROOT}}/scripts/fvm_sdk.py" "{{.REPOSITORY_ROOT}}"'
 
   mobile-setup:
     desc: "Install locked Flutter dependencies (host; needs FVM and the pinned SDK)."
@@ -392,7 +392,7 @@ tasks:
     cmds:
       - task: mobile-host-guard
       - task: mobile-sdk-guard
-      - DEVICE='{{.DEVICE | default "" | replace "'" "'\"'\"'"}}' {{.UV | toSlash}} run --no-project python {{.REPOSITORY_ROOT}}/scripts/mobile_run.py
+      - DEVICE='{{.DEVICE | default "" | replace "'" "'\"'\"'"}}' {{.UV | toSlash}} run --no-project python "{{.REPOSITORY_ROOT}}/scripts/mobile_run.py"
 
   mobile-format-check:
     desc: "Check Dart formatting without changing files (host)."
@@ -440,7 +440,7 @@ tasks:
       REPOSITORY_ROOT: *repository-root
     cmds:
       - task: mobile-host-guard
-      - '{{.UV | toSlash}} run --no-project python {{.REPOSITORY_ROOT}}/scripts/doctor.py --mobile'
+      - '{{.UV | toSlash}} run --no-project python "{{.REPOSITORY_ROOT}}/scripts/doctor.py" --mobile'
 
   sim-setup:
     desc: "Sync locked simulator dependencies."

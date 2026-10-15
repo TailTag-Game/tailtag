@@ -636,6 +636,25 @@ MOBILE_CASES = {
         ),
         host_os="Linux",
     ),
+    # Flutter on Windows marks a usable toolchain [√] and an unusable one [X].
+    "windows-square-root-mark-is-usable": MobileCase(
+        configure(
+            flutter_doctor=FLUTTER_DOCTOR_HEADER
+            + "[√] Flutter (Channel stable, 3.47.2, on Microsoft Windows, locale en-US)\n"
+            + "[√] Android toolchain - develop for Android devices (Android SDK version 36.0.0)\n"
+        ),
+        Expect(0, no_lines=(*NO_FAILURES, ("WARN", "ANDROID_HOME"))),
+        host_os="Windows",
+    ),
+    "windows-x-mark-is-unusable": MobileCase(
+        configure(
+            flutter_doctor=FLUTTER_DOCTOR_HEADER
+            + "[√] Flutter (Channel stable, 3.47.2, on Microsoft Windows, locale en-US)\n"
+            + "[X] Android toolchain - develop for Android devices\n"
+        ),
+        Expect(1, lines=(("FAIL", "ANDROID_HOME"),)),
+        host_os="Windows",
+    ),
     "android-unusable-off-macos-fails": MobileCase(
         configure(flutter_doctor=LINUX_ANDROID_BAD),
         Expect(1, lines=(("FAIL", "iOS is not applicable on this host"),)),
@@ -803,13 +822,13 @@ def test_doctor_sh_wrapper_launches_doctor_py(
     [
         pytest.param(
             "doctor",
-            r"custom-uv run --no-project python \S*scripts/doctor\.py",
+            r'custom-uv run --no-project python "\S*scripts/doctor\.py"',
             False,
             id="doctor",
         ),
         pytest.param(
             "mobile-doctor",
-            r"custom-uv run --no-project python \S*scripts/doctor\.py --mobile",
+            r'custom-uv run --no-project python "\S*scripts/doctor\.py" --mobile',
             True,
             id="mobile-doctor-behind-the-host-guard",
         ),

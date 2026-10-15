@@ -159,21 +159,24 @@ def main() -> int:
     if origin.startswith("http://") and platform.startswith("android"):
         forward_local_api(origin, device)
 
-    try:
-        return subprocess.run(
-            [
-                fvm,
-                "flutter",
-                "run",
-                "-d",
-                device,
-                f"--dart-define-from-file={CONFIG_FILE}",
-            ],
-            cwd=mobile_directory,
-            check=False,
-        ).returncode
-    except KeyboardInterrupt:
-        return 130
+    process = subprocess.Popen(
+        [
+            fvm,
+            "flutter",
+            "run",
+            "-d",
+            device,
+            f"--dart-define-from-file={CONFIG_FILE}",
+        ],
+        cwd=mobile_directory,
+    )
+    while True:
+        try:
+            return process.wait()
+        except KeyboardInterrupt:
+            # Flutter receives the same Ctrl+C; let it exit on its own and
+            # return its status, as the former exec did.
+            continue
 
 
 if __name__ == "__main__":

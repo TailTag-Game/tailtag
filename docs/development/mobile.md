@@ -84,7 +84,7 @@ covered by tests that use fake tools, not by a real device on Windows.
 | `task mobile-analyze` | `fvm flutter analyze` | Deterministic |
 | `task mobile-test` | `fvm flutter test` (no configuration needed) | Deterministic |
 | `task mobile-check` | Runs `mobile-format-check`, `mobile-analyze`, and `mobile-test`. It does **not** build; CI builds the Android and iOS artifacts. | Deterministic |
-| `task mobile-doctor` | Same checks as `task doctor`, plus the host-only mobile section: diagnoses FVM, the pinned SDK, platform toolchains, devices, configuration, and API reachability. | Deterministic diagnosis; the API probe is live |
+| `task mobile-doctor` | Runs the repository checks from `task doctor` (not the Docker host checks), then the host-only mobile section: diagnoses FVM, the pinned SDK, platform toolchains, devices, configuration, and API reachability. | Deterministic diagnosis; the API probe is live |
 | `task mobile-run DEVICE=<id>` | Validates configuration, applies `adb reverse` for Android with Local configuration, then runs `fvm flutter run -d <id>` with the configuration file. | Interactive and live |
 
 `mobile-run` is intentionally interactive, and the API reachability check in
