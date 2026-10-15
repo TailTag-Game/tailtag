@@ -5,6 +5,7 @@ import json
 import math
 import os
 import re
+import sys
 import tempfile
 import time
 import uuid
@@ -29,6 +30,10 @@ from tailtag_simulator.scenarios import (
     resolve_scenario,
 )
 from tailtag_simulator.targets import STAGING_ORIGIN
+
+# Exclusive creation already refuses an existing path, including a symlink.
+# POSIX also refuses to follow one; Windows has no O_NOFOLLOW.
+NO_FOLLOW = 0 if sys.platform == "win32" else os.O_NOFOLLOW
 
 STAGES = (
     "provenance",
@@ -862,7 +867,7 @@ class RunReport:
                 raise ReportFailed
             output_dir.mkdir(parents=True, exist_ok=True)
             fd = os.open(
-                self._path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
+                self._path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | NO_FOLLOW, 0o600
             )
             reserved = True
             os.close(fd)

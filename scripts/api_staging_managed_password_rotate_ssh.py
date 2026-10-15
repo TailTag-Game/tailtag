@@ -149,6 +149,7 @@ def _run(arguments: list[str]) -> subprocess.CompletedProcess[str]:
         arguments,
         check=False,
         text=True,
+        encoding="utf-8",
         shell=False,
         stdin=None,
         stdout=None,

@@ -39,17 +39,27 @@ def run_task(
     )
 
 
-def recording_adapter(tmp_path: Path) -> Path:
+def write_adapter(path: Path, body: str) -> str:
+    """Write a UV launcher stand-in; return the UV value that runs it here.
+
+    Windows cannot execute a shebang script, so there UV names the interpreter
+    and the script; the Taskfile splits the unquoted value into those words.
+    """
+    path.write_text(f"#!{sys.executable}\n{body}")
+    path.chmod(0o755)
+    if sys.platform == "win32":
+        return f"{Path(sys.executable).as_posix()} {path.as_posix()}"
+    return str(path)
+
+
+def recording_adapter(tmp_path: Path) -> str:
     """An external UV launcher stand-in that records its argv and succeeds."""
-    adapter = tmp_path / "uv-adapter"
-    adapter.write_text(
-        f"#!{sys.executable}\n"
+    return write_adapter(
+        tmp_path / "uv-adapter",
         "import json, os, sys\n"
         "with open(os.environ['SIM_TEST_ARGUMENTS'], 'w') as stream:\n"
-        "    json.dump(sys.argv[1:], stream)\n"
+        "    json.dump(sys.argv[1:], stream)\n",
     )
-    adapter.chmod(0o755)
-    return adapter
 
 
 def test_catalog_check_treats_quoted_checkout_root_as_data(tmp_path: Path) -> None:
@@ -59,7 +69,12 @@ def test_catalog_check_treats_quoted_checkout_root_as_data(tmp_path: Path) -> No
     descriptor = "tools/simulator/tailtag_simulator/scenarios/smoke-v1.json"
     root = repository(
         tmp_path
-        / "checkout space ' apostrophe \" quote $(touch SENTINEL-dollar) `touch SENTINEL-backtick`",
+        / (
+            "checkout space ' apostrophe"
+            # A double quote cannot appear in a Windows file name.
+            + ("" if sys.platform == "win32" else ' " quote')
+            + " $(touch SENTINEL-dollar) `touch SENTINEL-backtick`"
+        ),
         {
             "Taskfile.yml": (CHECKOUT / "Taskfile.yml").read_text(),
             descriptor: json.dumps(entry),
@@ -67,15 +82,15 @@ def test_catalog_check_treats_quoted_checkout_root_as_data(tmp_path: Path) -> No
     )
     # UV is an external environment/launcher boundary. Forward its bounded
     # invocation to this test's interpreter, keeping the recipe and validator real.
-    adapter = tmp_path / "uv-adapter"
-    adapter.write_text(
-        f"#!{sys.executable}\n"
-        "import os, sys\n"
+    # A child process, not os.execv: on Windows execv starts a new process and
+    # the adapter would exit before the validator finishes.
+    adapter = write_adapter(
+        tmp_path / "uv-adapter",
+        "import os, subprocess, sys\n"
         "assert sys.argv[1:7] == ['--directory', 'tools/simulator', 'run', '--locked', '--no-sync', 'python']\n"
         "os.chdir(sys.argv[2])\n"
-        "os.execv(sys.executable, [sys.executable, *sys.argv[7:]])\n"
+        "raise SystemExit(subprocess.call([sys.executable, *sys.argv[7:]]))\n",
     )
-    adapter.chmod(0o755)
     env = {**os.environ, "PYTHONPATH": str(simulator)}
 
     def run() -> subprocess.CompletedProcess[str]:
@@ -224,15 +239,13 @@ def test_host_bridge_dispatch_runs_silent_task_with_stdin_and_exact_stdout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, channel: str, module: str
 ) -> None:
     """AC9: `task -s <target>` leaves stdout as exactly the launcher's JSON."""
-    adapter = tmp_path / "uv-adapter"
-    adapter.write_text(
-        f"#!{sys.executable}\n"
+    adapter = write_adapter(
+        tmp_path / "uv-adapter",
         "import json, sys\n"
         "request = sys.stdin.read()\n"
-        "print(json.dumps({'result': 'PASS', 'data': {'argv': sys.argv[1:], 'stdin': request}}))\n"
+        "print(json.dumps({'result': 'PASS', 'data': {'argv': sys.argv[1:], 'stdin': request}}))\n",
     )
-    adapter.chmod(0o755)
-    monkeypatch.setenv("UV", str(adapter))
+    monkeypatch.setenv("UV", adapter)
     envelope: dict[str, object] = {"channel": channel, "request": {"operation": "x"}}
 
     result, data = asyncio.run(fixed_dispatch(channel, envelope))
@@ -329,7 +342,7 @@ def test_simulator_semgrep_check_ignores_command_line_overrides_of_its_scope(
     output = result.stdout + result.stderr
     assert result.returncode == 0, output
     assert replacement not in output
-    assert f"{CHECKOUT}/.semgrep/simulator-rules" in output
+    assert f"{CHECKOUT.as_posix()}/.semgrep/simulator-rules" in output
 
 
 @pytest.mark.parametrize(

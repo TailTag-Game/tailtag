@@ -151,16 +151,32 @@ task api-setup
 task api-check
 ```
 
-On Windows, `task api-check` differs in two visible ways:
+The local API commands (`api-migrate`, `api-migrations`, `api-run`,
+`api-shell`, and `api-smoke`) work the same way, as do the offline simulator
+commands: `sim-setup`, `sim-check`, `sim-report-validate`, and
+`sim-report-trend`. CI runs all of these natively on Windows on every pull
+request. `sim-report-evaluate` and `sim-baseline-promote` also run natively;
+CI exercises their code through the simulator tests rather than as commands,
+because they need a real archived run report. `sim-smoke` should also work,
+but it has not yet been run against a live API on Windows.
+
+A few checks differ visibly on Windows:
 
 - `api-gunicorn-check` prints a `SKIP` line, because Gunicorn runs only on
   Unix. CI checks the production Gunicorn configuration on Linux.
-- `api-test` does not collect the POSIX-only operator tooling modules (pty and
-  termios sessions, SSH relays, owner-and-mode checks). The pytest header lists
-  them. A few individual tests are skipped with a stated reason.
+- `sim-host-bootstrap-check`, part of `sim-check`, prints a `SKIP` line,
+  because `bootstrap.sh` provisions an Ubuntu host and its syntax check needs
+  bash. CI checks it on Linux.
+- `api-test` and the simulator tests do not collect the POSIX-only operator
+  and host tooling modules (pty and termios sessions, SSH relays, owner-and-mode
+  checks). The pytest header lists them. A few individual tests are skipped
+  with a stated reason.
 
-`scripts/doctor.sh`, the simulator `sim-*` tasks, the Staging operator tasks,
-and the [mobile commands](mobile.md) still need macOS or Linux.
+`scripts/doctor.sh`, the [mobile commands](mobile.md), the Staging operator
+tasks, and the simulator's Staging and host operations (`sim-pool-*`,
+`sim-fixture-smoke`, `sim-journeys`, `sim-convention`, `sim-cleanup`,
+`sim-retained`, `sim-host-*`, and `sim-image`) still need macOS or Linux.
+Native Windows support for them is in progress (#315).
 
 ## Contribute changes
 

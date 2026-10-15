@@ -3,6 +3,7 @@
 import hashlib
 import json
 import stat
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -519,7 +520,9 @@ def test_written_evaluation_is_private_exclusive_and_never_overwritten(
     artifact = run(build(tmp_path))
     out = tmp_path / "evaluation.json"
     write_evaluation(artifact, out)
-    assert stat.S_IMODE(out.stat().st_mode) == 0o600
+    # POSIX mode bits; Windows privacy for evaluation files is #315 slice 3.
+    if sys.platform != "win32":
+        assert stat.S_IMODE(out.stat().st_mode) == 0o600
     assert json.loads(out.read_text()) == json.loads(json.dumps(artifact))
     written = out.read_bytes()
     with pytest.raises((EvaluationFailed, OSError)):
@@ -542,7 +545,9 @@ def test_cli_prints_the_verdict_and_writes_one_private_artifact(
         if explicit_out
         else list(inputs.report.parent.glob(f"{RUN_ID}.evaluation-*.json"))
     )
-    assert stat.S_IMODE(written.stat().st_mode) == 0o600
+    # POSIX mode bits; Windows privacy for evaluation files is #315 slice 3.
+    if sys.platform != "win32":
+        assert stat.S_IMODE(written.stat().st_mode) == 0o600
     assert json.loads(written.read_text())["verdict"] == "acceptable"
 
 

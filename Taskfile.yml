@@ -599,8 +599,13 @@ tasks:
     vars:
       REPOSITORY_ROOT: *repository-root
     cmds:
-      - >-
-        bash -n '{{.REPOSITORY_ROOT | replace "'" "'\"'\"'"}}/tools/simulator/host/bootstrap.sh'
+      # bootstrap.sh provisions an Ubuntu host; checking its syntax needs bash.
+      - cmd: printf '%s\n' 'SKIP  bash is not available on Windows; CI checks bootstrap.sh syntax on Linux.'
+        silent: true
+        platforms: [windows]
+      - platforms: [linux, darwin]
+        cmd: >-
+          bash -n '{{.REPOSITORY_ROOT | replace "'" "'\"'\"'"}}/tools/simulator/host/bootstrap.sh'
 
   sim-catalog-check:
     desc: "Validate scenario descriptors and their Git history."
@@ -689,7 +694,9 @@ tasks:
       REPOSITORY_ROOT: *repository-root
       # Explicit files, not a directory, so untracked new modules are still scanned.
       SIM_SEMGREP_TARGETS:
-        sh: echo {{.REPOSITORY_ROOT}}/tools/simulator/tailtag_simulator/*.py
+        # The glob yields backslash paths on Windows; emit forward slashes so the
+        # unquoted list survives go-task's shell.
+        sh: 'for f in {{.REPOSITORY_ROOT}}/tools/simulator/tailtag_simulator/*.py; do printf ''%s '' "${f//\\//}"; done'
     cmds:
       - cmd: printf '%s\n' 'Testing simulator Semgrep rules...'
         silent: true

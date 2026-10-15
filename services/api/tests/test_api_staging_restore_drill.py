@@ -584,11 +584,11 @@ def test_cleanup_uses_subprocess_run_args_shape_and_proves_the_target_is_gone(
     assert calls == [
         (
             ("docker", "rm", "--force", container_id),
-            {"check": True, "capture_output": True, "text": True},
+            {"check": True, "capture_output": True, "text": True, "encoding": "utf-8"},
         ),
         (
             ("docker", "container", "inspect", container_id),
-            {"check": False, "capture_output": True, "text": True},
+            {"check": False, "capture_output": True, "text": True, "encoding": "utf-8"},
         ),
     ]
 

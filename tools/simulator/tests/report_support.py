@@ -95,6 +95,9 @@ def repository(root: Path, files: dict[str, str | bytes]) -> Path:
     git(root, "init", "--initial-branch=main")
     git(root, "config", "user.name", "Finn the Panther")
     git(root, "config", "user.email", "finn@finnthepanther.com")
+    # Test checkouts live under pytest's deep temp tree; Git for Windows needs
+    # core.longpaths to pass the 260-character limit there. POSIX ignores it.
+    git(root, "config", "core.longpaths", "true")
     for name, value in files.items():
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)

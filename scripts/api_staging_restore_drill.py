@@ -698,6 +698,7 @@ def cleanup_task_resources(
                 "check": True,
                 "capture_output": True,
                 "text": True,
+                "encoding": "utf-8",
             }
             run_cleanup_command(
                 "docker", "rm", "--force", container_id, **remove_options
@@ -710,6 +711,7 @@ def cleanup_task_resources(
                 check=False,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
             )
             # Test seams may return a sentinel. A real subprocess result must
             # prove the full captured ID is no longer known to Docker.
@@ -727,6 +729,7 @@ def _run(*command: str, **kwargs: Any) -> subprocess.CompletedProcess[str]:
         command,
         check=True,
         text=True,
+        encoding="utf-8",
         capture_output=True,
         **kwargs,
     )
@@ -757,6 +760,7 @@ def _assert_container_name_available(name: str) -> None:
         ("docker", "ps", "-a", "--filter", f"name=^/{name}$", "--format", "{{.ID}}"),
         check=False,
         text=True,
+        encoding="utf-8",
         capture_output=True,
     )
     if result.returncode != 0 or result.stdout.strip():
@@ -769,6 +773,7 @@ def _cleanup_failed_container_start(name: str, expected_image: str) -> bool:
         ("docker", "container", "inspect", name),
         check=False,
         text=True,
+        encoding="utf-8",
         capture_output=True,
     )
     if inspected.returncode != 0:
@@ -784,6 +789,7 @@ def _cleanup_failed_container_start(name: str, expected_image: str) -> bool:
             ),
             check=False,
             text=True,
+            encoding="utf-8",
             capture_output=True,
         )
         return absent.returncode == 0 and not absent.stdout.strip()
@@ -867,6 +873,7 @@ def _wait_for_empty_postgres(container_id: str) -> None:
                 ),
                 check=False,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=min(5, remaining),
             )
