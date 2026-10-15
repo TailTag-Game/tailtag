@@ -83,7 +83,7 @@ def classify_paths(tmp_path: Path, paths: list[str]) -> bool:
         (["docs/development/getting-started.md"], False),
         (["README.md"], False),
         (["CONTRIBUTING.md"], False),
-        (["scripts/doctor.sh"], False),
+        (["scripts/doctor.sh"], True),
         ([".devcontainer/devcontainer.json"], False),
         ([".github/workflows/repository-checks.yml"], False),
         (["apps/mobile/src/App.tsx"], False),

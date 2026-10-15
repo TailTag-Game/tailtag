@@ -52,11 +52,15 @@ Run the host diagnostic before opening the backend environment:
 ./scripts/doctor.sh
 ```
 
-On the host, `doctor.sh` checks the repository, Docker, Compose, and an
-optionally detectable Dev Container CLI. It does not require host Python, `uv`,
-or PostgreSQL. `FAIL` identifies a required condition that prevents the intended
-workflow; `WARN` is advisory. The script diagnoses the environment only—it does
-not install dependencies, start services, or repair configuration.
+On the host, doctor checks the repository, Docker, Compose, and an optionally
+detectable Dev Container CLI. It does not require PostgreSQL or a project
+environment. It is a Python script: `./scripts/doctor.sh` (macOS and Linux)
+runs it with `uv` when installed, else `python3` 3.9 or newer, and otherwise
+prints an install hint. If go-task and `uv` are installed, `task doctor` runs
+the same checks on any host, including native Windows. `FAIL` identifies a
+required condition that prevents the intended workflow; `WARN` is advisory.
+Doctor diagnoses the environment only—it does not install dependencies, start
+services, or repair configuration.
 
 ## Configure the backend environment
 
@@ -82,7 +86,7 @@ post-create setup synchronizes dependencies but does not apply migrations.
 Inside the devcontainer, confirm the backend environment:
 
 ```bash
-./scripts/doctor.sh
+task doctor
 ```
 
 Then use the canonical repository-root commands to prepare and verify the API:
@@ -112,7 +116,7 @@ task api-check
 ```
 
 Migrations are always explicit; neither opening the devcontainer nor running
-`doctor.sh` applies them. The [Devcontainer](../../services/api/README.md#recommended-devcontainer-workflow),
+`task doctor` applies them. The [Devcontainer](../../services/api/README.md#recommended-devcontainer-workflow),
 [HTTP surfaces](../../services/api/README.md#http-surfaces), and [canonical
 commands](../../services/api/README.md#canonical-backend-commands) sections
 explain the expected outcomes and operating details.
@@ -154,8 +158,14 @@ task api-check
 The local API commands (`api-migrate`, `api-migrations`, `api-run`,
 `api-shell`, and `api-smoke`) work the same way, as do the offline simulator
 commands: `sim-setup`, `sim-check`, `sim-report-validate`, and
-`sim-report-trend`. CI runs all of these natively on Windows on every pull
-request. `sim-report-evaluate` and `sim-baseline-promote` also run natively;
+`sim-report-trend`. `task doctor` and the mobile commands (`mobile-setup`,
+`mobile-check`, and `mobile-doctor`) also run natively; the mobile commands
+need FVM and the pinned Flutter SDK (see [Mobile contributor
+environment](mobile.md)), and iOS targets still need macOS with Xcode. CI runs
+`mobile-setup`, `mobile-check`, and `mobile-doctor` natively on Windows on every
+pull request, with no device attached. `task doctor`'s host checks and
+`mobile-run` are covered by tests rather than run as commands there.
+`sim-report-evaluate` and `sim-baseline-promote` also run natively;
 CI exercises their code through the simulator tests rather than as commands,
 because they need a real archived run report. `sim-smoke` should also work,
 but it has not yet been run against a live API on Windows.
@@ -172,8 +182,7 @@ A few checks differ visibly on Windows:
   checks). The pytest header lists them. A few individual tests are skipped
   with a stated reason.
 
-`scripts/doctor.sh`, the [mobile commands](mobile.md), the Staging operator
-tasks, and the simulator's Staging and host operations (`sim-pool-*`,
+The Staging operator tasks and the simulator's Staging and host operations (`sim-pool-*`,
 `sim-fixture-smoke`, `sim-journeys`, `sim-convention`, `sim-cleanup`,
 `sim-retained`, `sim-host-*`, and `sim-image`) still need macOS or Linux.
 Native Windows support for them is in progress (#315).

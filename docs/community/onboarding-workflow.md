@@ -69,7 +69,7 @@ This task validates access and provides a low-risk introduction to the same proc
 ### Local repository
 
 - [ ] Clone `TailTag-Game/tailtag`
-- [ ] Run `./scripts/doctor.sh`
+- [ ] Run `task doctor`
 - [ ] Read `README.md`
 - [ ] Read `CONTRIBUTING.md`
 - [ ] Read `docs/development/getting-started.md`
@@ -96,7 +96,7 @@ This task validates access and provides a low-risk introduction to the same proc
 ## Acceptance criteria
 
 - The contributor can access all required GitHub resources.
-- `./scripts/doctor.sh` completes without required failures.
+- `task doctor` completes without required failures.
 - The contributor has completed a linked, reviewed pull request.
 - The contributor understands how issues, Project status, branches, pull requests, checks, and reviews fit together.
 - Any onboarding defect is documented in a separate issue.
