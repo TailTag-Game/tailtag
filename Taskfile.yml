@@ -53,6 +53,9 @@ x-api-helpers: &api-helpers >-
   {{.REPOSITORY_ROOT}}/scripts/staging_restore_integrity.py
   {{.REPOSITORY_ROOT}}/scripts/clerk_development_session.py
   {{.REPOSITORY_ROOT}}/scripts/backend_ci_relevance.py
+  {{.REPOSITORY_ROOT}}/scripts/doctor.py
+  {{.REPOSITORY_ROOT}}/scripts/fvm_sdk.py
+  {{.REPOSITORY_ROOT}}/scripts/mobile_run.py
   {{.REPOSITORY_ROOT}}/scripts/validate_semgrep_contract.py
 
 tasks:
@@ -346,7 +349,14 @@ tasks:
           {{.UV | toSlash}} --directory services/api run --locked --no-sync {{.DJANGO_COMMAND}}; \
         fi
 
-  # Mobile commands are POSIX-only by design.
+  doctor:
+    desc: "Diagnose the contributor environment (host, or devcontainer when TAILTAG_DEVCONTAINER=1)."
+    silent: true
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - '{{.UV | toSlash}} run --no-project python {{.REPOSITORY_ROOT}}/scripts/doctor.py'
+
   mobile-host-guard:
     internal: true
     silent: true
@@ -361,12 +371,7 @@ tasks:
     vars:
       REPOSITORY_ROOT: *repository-root
     cmds:
-      - |-
-        command -v fvm >/dev/null 2>&1 || { printf '%s\n' 'FVM is not installed; install it: https://fvm.app/documentation/getting-started/installation' >&2; exit 1; }; \
-        pinned="$(sed -nE 's/.*"flutter"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' '{{.REPOSITORY_ROOT}}/apps/mobile/.fvmrc' | head -n 1)"; \
-        test -n "$pinned" || { printf '%s\n' 'Could not read the pinned Flutter version from apps/mobile/.fvmrc.' >&2; exit 1; }; \
-        fvm api list --compress | tr -d ' \t\r\n' | sed -e 's/.*"versions":\[//' -e 's/\],"projects".*//' | grep -Fq "\"name\":\"$pinned\"" || { \
-          printf 'Flutter %s (pinned in apps/mobile/.fvmrc) is not installed; run: (cd apps/mobile && fvm install)\n' "$pinned" >&2; exit 1; }
+      - '{{.UV | toSlash}} run --no-project python {{.REPOSITORY_ROOT}}/scripts/fvm_sdk.py {{.REPOSITORY_ROOT}}'
 
   mobile-setup:
     desc: "Install locked Flutter dependencies (host; needs FVM and the pinned SDK)."
@@ -387,7 +392,7 @@ tasks:
     cmds:
       - task: mobile-host-guard
       - task: mobile-sdk-guard
-      - DEVICE='{{.DEVICE | default "" | replace "'" "'\"'\"'"}}' '{{.REPOSITORY_ROOT}}/scripts/mobile_run.sh'
+      - DEVICE='{{.DEVICE | default "" | replace "'" "'\"'\"'"}}' {{.UV | toSlash}} run --no-project python {{.REPOSITORY_ROOT}}/scripts/mobile_run.py
 
   mobile-format-check:
     desc: "Check Dart formatting without changing files (host)."
@@ -435,7 +440,7 @@ tasks:
       REPOSITORY_ROOT: *repository-root
     cmds:
       - task: mobile-host-guard
-      - cd '{{.REPOSITORY_ROOT}}' && ./scripts/doctor.sh --mobile
+      - '{{.UV | toSlash}} run --no-project python {{.REPOSITORY_ROOT}}/scripts/doctor.py --mobile'
 
   sim-setup:
     desc: "Sync locked simulator dependencies."
