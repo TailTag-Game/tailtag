@@ -136,7 +136,8 @@ mobile), with the base URL from
   tokens, and neither does the one `ApiDiagnostic` (method, operation id,
   status, duration, failure category) emitted per call.
 - **Token seam.** `ApiTokenProvider` is TailTag's interface (no Clerk import);
-  `apiTokenProviderProvider` defaults to no token and #135 overrides it. The
+  `apiTokenProviderProvider` defaults to no token. The app root overrides it
+  with `authTokenOverride` (see [Authentication](#authentication)). The
   client sends exactly one `Authorization: Bearer` header, and only over HTTPS
   to the configured API origin (same scheme, host, and port); otherwise it
   strips the header.
@@ -181,7 +182,7 @@ target platform. IDE choice is deliberately not mandated.
 | --- | --- | --- |
 | Common | Git, FVM, the repository-pinned Flutter SDK, dependency resolution, the `task mobile-*` commands below, and one supported target | FVM selects Flutter `3.47.2` from `apps/mobile/.fvmrc`; use its bundled Dart `3.13.2`. |
 | Android target | A compatible JDK, Android SDK and tooling, plus an Android API 26-or-newer emulator | Required only for Android contributors. Android is supported on Windows, Linux, and macOS. Android Studio provides the best-supported development experience, but equivalent command-line tooling is sufficient when `task mobile-doctor` reports the toolchain as usable. Flutter must be able to find the Android SDK: set `ANDROID_HOME` or run `fvm flutter config --android-sdk <path>` (`fvm flutter doctor -v` shows what it found). |
-| iOS target | macOS, Xcode with its command-line tools selected, completed Xcode first-run/license setup, and an iOS 15.1-or-newer Simulator runtime | Xcode is required to install iOS Simulator runtimes. Android Studio with the Flutter plugin is recommended for running TailTag on those simulators. CocoaPods is required when native Flutter plugins require it. Windows and Linux contributors do not need Xcode or iOS support. |
+| iOS target | macOS, Xcode with its command-line tools selected, completed Xcode first-run/license setup, and an iOS 17-or-newer Simulator runtime | Xcode 26 or later is required (the native Clerk SDK needs it). Xcode is required to install iOS Simulator runtimes. Android Studio with the Flutter plugin is recommended for running TailTag on those simulators. CocoaPods is required when native Flutter plugins require it. Windows and Linux contributors do not need Xcode or iOS support. |
 
 macOS contributors may validate either Android or iOS. Phones are the primary
 V0 UX target; tablets remain compatible but have no V0-specific optimization
@@ -334,11 +335,107 @@ by `AppConfig`) are the control. A future client that uses platform networking
 (for example `cronet_http` or `cupertino_http`) must add a debug-only,
 host-scoped cleartext policy and must never enable cleartext release-wide.
 
-### Clerk SDK direction
+## Authentication
 
-`clerk_flutter` is the initial SDK direction. Clerk owns session/token refresh
-and persistence; TailTag will not create separate persistent bearer-token
-storage.
+[ADR 0009](../adrs/0009-use-native-clerk-sdks-for-mobile-auth.md) records the
+decision: the app uses the official native Clerk SDKs through a TailTag bridge.
+It does not use `clerk_flutter`.
+
+### Auth boundary
+
+`lib/core/auth/` is the only place in the Dart app that knows about Clerk.
+
+- `AuthSession` is the interface. It has `startEmailCode`, `verifyEmailCode`,
+  `signOut`, and `recheckSession`. It is also the `ApiTokenProvider`, so
+  `token()` returns the bearer token only while the state is signed in.
+- `AuthState` is sealed: `AuthRestoring`, `AuthSignedOut`, `AuthSignedIn`, or
+  `AuthFailed`. `AuthFailure` is sealed: connectivity, invalid code, session
+  ended, unsupported, or unexpected. Neither type carries a token, an email
+  address, or a Clerk identifier.
+- `ClerkAuthSession` implements `AuthSession` over the bridge. It is the only
+  app file that imports `package:tailtag_clerk`.
+- `authSessionProvider` builds and starts the session from
+  `AppConfig.clerkPublishableKey`. `authStateProvider` streams the state.
+  `authTokenOverride` makes the session the API token provider. `runTailTagApp`
+  adds it to the root overrides.
+- TailTag adds no storage for sessions or tokens. The native SDKs keep the
+  session: the iOS Keychain (this device only) and Android preferences that a
+  Keystore key encrypts. The SDKs also refresh tokens. TailTag adds no retry.
+- After `GET /api/me/` returns `unauthenticated` for a signed-in session, the
+  session checks once with `recheckSession`. If no session is active, the state
+  becomes signed out. The app does not retry the call.
+
+`test/core/api/import_guard_test.dart` enforces the boundary. Only
+`lib/core/auth/` can import `package:tailtag_clerk`. A feature can import only
+`auth_session.dart`, `auth_state.dart`, `auth_failure.dart`, and
+`auth_providers.dart` from `core/auth/`.
+
+### Bridge package and SDK pins
+
+`apps/mobile/packages/tailtag_clerk/` is a local Flutter plugin and a member of
+the pub workspace. Its Swift and Kotlin code is the only code that imports
+Clerk. A MethodChannel (`app.tailtag/clerk`) carries five calls: `configure`,
+`startEmailCode`, `verifyCode`, `getToken`, and `signOut`. An EventChannel
+(`app.tailtag/clerk/state`) carries the state. No event or error carries a
+token, an email address, or a Clerk identifier. Clerk telemetry is off on both
+platforms.
+
+| Platform | Native SDK | Pin |
+| --- | --- | --- |
+| iOS | `ClerkKit` through Swift Package Manager | `exact: "1.6.1"` |
+| Android | `com.clerk:clerk-android-api` | `1.2.1` |
+
+Only the headless products are used. The app has no dependency on `ClerkKitUI`
+or `clerk-android-ui`. Each SDK upgrade needs a reviewed pull request and a new
+live proof. Dependabot does not update these pins. The iOS bridge copies the
+publishable-key rule of ClerkKit `1.6.1`, because `Clerk.configure` stops the
+app instead of reporting a bad key. On each ClerkKit upgrade, make sure that
+`isValidPublishableKey` in the bridge still matches the SDK.
+
+The iOS deployment target is 17.0 in all Runner build configurations. Android
+`minSdk` stays 26, and the main manifest declares the `INTERNET` permission.
+
+### Debug proof route and test user
+
+In debug builds only, the root placeholder has an "Auth proof (debug)" button.
+It opens `/debug/auth`. Profile and release builds do not register the route.
+The screen has an email field, a code field, a sign-out button, and a
+"Call /api/me/" button. It shows the auth state, the result category and HTTP
+status, whether a TailTag id came back, and whether the session token has an
+`azp` claim. It never shows or logs a token, the id value, an email address, or
+a Clerk identifier.
+
+To prepare a test user, a maintainer does these steps in the Clerk Development
+instance. Do not use a real account or a real inbox.
+
+1. Make sure that email code sign-in is on.
+2. Create a user whose email address uses the `+clerk_test` subaddress, for
+   example `name+clerk_test@example.com`.
+3. Sign in with that address in the proof screen. Clerk Development accepts
+   its fixed test verification code for such addresses.
+
+Never write the address, the code, or any token in the repository, in a log, or
+in a pull request.
+
+### Fakes
+
+Tests need no Clerk and no device. `test/support/auth_test_support.dart` has
+`FakeAuthSession`, which implements `AuthSession`. A test sets its state and
+token, and the fake records each call. `fakeJwt` builds an unsigned placeholder
+token. One channel-contract test
+(`test/core/auth/clerk_auth_session_test.dart`) runs the real `TailTagClerk`
+and `ClerkAuthSession` over mocked channels. There are no native unit tests for
+the bridge.
+
+### The `azp` backend dependency
+
+The `azp` claim is a token field that names the web origin that asked for the
+token. The backend rejects a token without `azp` when `CLERK_AUTHORIZED_PARTIES`
+is set, and that setting is required. Native SDKs send no `Origin` header, so
+their tokens likely have no `azp`. The proof screen records only whether `azp`
+exists. If it does not, the live `200` result from `GET /api/me/` waits for a
+backend SECURITY follow-up that defines how the API accepts native bearer
+tokens. Issue #135 does not change the backend.
 
 ## Scope and references
 
