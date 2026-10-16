@@ -12,6 +12,7 @@ so a renamed enum member cannot silently pass; tests construct enums by value.
 from __future__ import annotations
 
 import datetime
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, cast
@@ -751,7 +752,14 @@ def _signed_out(reason: Any) -> RequestState:
     return RequestState(AuthStatus.SIGNED_OUT, reason=reason)
 
 
-VALID_CLAIMS = {"sub": "user_sentinel_subject", "sid": "sess_sentinel_session"}
+# Mirrors a native Clerk token: no azp, a 60 s lifetime.
+_ISSUED_AT = int(time.time())
+NATIVE_TIME_CLAIMS = {"iat": _ISSUED_AT, "exp": _ISSUED_AT + 60}
+VALID_CLAIMS = {
+    "sub": "user_sentinel_subject",
+    "sid": "sess_sentinel_session",
+    **NATIVE_TIME_CLAIMS,
+}
 
 
 @pytest.mark.django_db
@@ -779,7 +787,7 @@ VALID_CLAIMS = {"sub": "user_sentinel_subject", "sid": "sess_sentinel_session"}
         ),
         pytest.param(
             "Bearer synthetic.token.value",
-            _signed_in({"sub": VALID_CLAIMS["sub"]}),
+            _signed_in({"sub": VALID_CLAIMS["sub"], **NATIVE_TIME_CLAIMS}),
             "claims_missing",
             id="session-claim-missing",
         ),

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Final, NoReturn, Protocol
+from typing import Final, NoReturn, Protocol, TypeGuard
 
 from clerk_backend_api.security import AuthenticateRequestOptions, authenticate_request
 from clerk_backend_api.security.types import (
@@ -17,6 +17,11 @@ from rest_framework.exceptions import AuthenticationFailed
 from observability.outcomes import Outcome, Reason, Signal, record_outcome
 
 _BEARER_CREDENTIAL = re.compile(r"(?i:Bearer) +([A-Za-z0-9\-._~+/]+=*)", flags=re.ASCII)
+
+# Longest `exp - iat` accepted for a token without `azp`. It equals Clerk's default
+# session-token lifetime, so change it in the same release if the Clerk dashboard
+# token lifetime changes.
+_MAX_LIFETIME_WITHOUT_AUTHORIZED_PARTY_SECONDS: Final = 60
 
 # Every reason the SDK can return for a signed-out request. A reason the SDK adds
 # later has no entry and is reported as `other` until it is classified here.
@@ -88,7 +93,6 @@ class ClerkSessionVerifier:
 
         options = AuthenticateRequestOptions(
             jwt_key=self._configuration.jwt_key,
-            authorized_parties=list(self._configuration.authorized_parties),
             accepts_token=["session_token"],
         )
         try:
@@ -108,6 +112,8 @@ class ClerkSessionVerifier:
             )
         if state.payload is None:
             _reject(Reason.CLAIMS_MISSING)
+        if not self._has_acceptable_authorized_party(state.payload):
+            _reject(Reason.TOKEN_INVALID)
 
         session_id = state.payload.get("sid")
         subject = state.payload.get("sub")
@@ -117,6 +123,25 @@ class ClerkSessionVerifier:
             _reject(Reason.CLAIMS_MISSING)
 
         return VerifiedClerkIdentity(subject=subject)
+
+    def _has_acceptable_authorized_party(self, payload: dict[str, object]) -> bool:
+        # Test key presence: a present `azp` of null or "" must not count as absent.
+        if "azp" in payload:
+            authorized_party = payload["azp"]
+            return (
+                isinstance(authorized_party, str)
+                and bool(authorized_party)
+                and authorized_party in self._configuration.authorized_parties
+            )
+        issued_at = payload.get("iat")
+        expires_at = payload.get("exp")
+        if not _is_int(issued_at) or not _is_int(expires_at):
+            return False
+        return expires_at - issued_at <= _MAX_LIFETIME_WITHOUT_AUTHORIZED_PARTY_SECONDS
+
+
+def _is_int(value: object) -> TypeGuard[int]:
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _reject(reason: Reason) -> NoReturn:
