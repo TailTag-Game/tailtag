@@ -168,7 +168,7 @@ Delivery failures have distinct primary surfaces:
 
 ### Application identity and targets
 
-The TailTag V0 Flutter application scaffold is at `apps/mobile/`. The canonical domain is `tailtag.app`; its Android application ID and namespace and iOS bundle identifier are all `app.tailtag`. There is no legacy-app, `finnthepanther`, signing, store-continuity, migration, or compatibility obligation. The V0 target is Android API 26+ and iOS 15.1+. Phones are primary, while tablets remain compatible without a V0-specific optimization. A physical-device requirement is not part of baseline validation.
+The TailTag V0 Flutter application scaffold is at `apps/mobile/`. The canonical domain is `tailtag.app`; its Android application ID and namespace and iOS bundle identifier are all `app.tailtag`. There is no legacy-app, `finnthepanther`, signing, store-continuity, migration, or compatibility obligation. The V0 target is Android API 26+ and iOS 17+ (raised from 15.1 by [ADR 0009](adrs/0009-use-native-clerk-sdks-for-mobile-auth.md)). Phones are primary, while tablets remain compatible without a V0-specific optimization. A physical-device requirement is not part of baseline validation.
 
 Issue #131 supplies the scaffold, repository-owned `apps/mobile/.fvmrc` exact stable Flutter pin, native identifiers and minimum-platform floors, and initial Android and iOS platform proof. The pin is Flutter `3.47.2`: #131 committed `3.47.1`, and #154 upgraded it through a reviewed pull request. Dart comes from that Flutter SDK and is not independently pinned. Flutter must never follow a moving channel. Any upgrade requires an explicit reviewed pull request. The upstream Flutter tag is `d3b14c876900e553bc736ca19295fc09e3853e8e` (bundling Dart `3.13.2`).
 
@@ -190,7 +190,7 @@ TailTag owns a typed `AppConfig` populated from compile-time Dart defines. Selec
 
 The approved Local API root is `http://127.0.0.1:8000` on the contributor host. Android emulators and USB-connected Android devices reach it through `adb reverse`, which `task mobile-run` applies, so the app keeps the same root. Dart-owned sockets are not governed by Android network security configuration or iOS App Transport Security, so no cleartext policy is configured; a future platform-owned HTTP client must add a debug-only, host-scoped policy and must not enable cleartext release-wide. See [the mobile contributor guide](development/mobile.md). Authenticated Local testing requires HTTPS termination or the HTTPS Railway Development API.
 
-`clerk_flutter` is contained behind an injectable TailTag-owned auth/session interface. Clerk owns session persistence and token refresh; TailTag must not create a separate persistent bearer-token store, and product features receive no Clerk types. It is an initial beta SDK direction to be reassessed in #135, not a dependency pin here.
+The official Clerk iOS and Android SDKs are contained behind the TailTag-owned `AuthSession` boundary in `lib/core/auth/` ([ADR 0009](adrs/0009-use-native-clerk-sdks-for-mobile-auth.md)). Clerk owns session persistence and token refresh. TailTag must not create a separate persistent bearer-token store, and product features receive no Clerk types.
 
 ### Tests, simplicity, and review authority
 

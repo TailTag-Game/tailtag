@@ -11,27 +11,52 @@ final _directive = RegExp(
   multiLine: true,
 );
 
+/// The only `core/auth/` files a feature may import: the session interface,
+/// its state and failure model, and the providers that expose them.
+const _publicAuthFiles = {
+  "auth_session.dart",
+  "auth_state.dart",
+  "auth_failure.dart",
+  "auth_providers.dart",
+};
+
+/// [target] as a path inside `lib/`, or null when it points elsewhere.
+String? _libPath(Uri file, String target) {
+  const packagePrefix = "package:tailtag_mobile/";
+  if (target.startsWith(packagePrefix)) {
+    return target.substring(packagePrefix.length);
+  }
+  if (target.contains(":")) {
+    return null;
+  }
+  final resolved = file.resolve(target).path;
+  const marker = "/lib/";
+  final at = resolved.lastIndexOf(marker);
+  return at < 0 ? null : resolved.substring(at + marker.length);
+}
+
 bool _isForbidden(Uri file, String target) {
   if (target.startsWith("dart:")) {
     return false;
   }
   if (target.startsWith("package:http/") ||
-      target.startsWith("package:tailtag_api/")) {
+      target.startsWith("package:tailtag_api/") ||
+      target.startsWith("package:tailtag_clerk/")) {
     return true;
   }
-  const apiPackagePrefix = "package:tailtag_mobile/core/api/";
-  final String? apiFile;
-  if (target.startsWith(apiPackagePrefix)) {
-    apiFile = target.substring(apiPackagePrefix.length);
-  } else if (!target.contains(":")) {
-    final resolved = file.resolve(target).path;
-    const marker = "/lib/core/api/";
-    final at = resolved.indexOf(marker);
-    apiFile = at < 0 ? null : resolved.substring(at + marker.length);
-  } else {
-    apiFile = null;
+  final path = _libPath(file, target);
+  if (path == null) {
+    return false;
   }
-  return apiFile != null && !_publicApiFiles.contains(apiFile);
+  const apiPrefix = "core/api/";
+  const authPrefix = "core/auth/";
+  if (path.startsWith(apiPrefix)) {
+    return !_publicApiFiles.contains(path.substring(apiPrefix.length));
+  }
+  if (path.startsWith(authPrefix)) {
+    return !_publicAuthFiles.contains(path.substring(authPrefix.length));
+  }
+  return false;
 }
 
 /// Every `file: directive` under [root] that bypasses the transport
@@ -55,6 +80,32 @@ List<String> findForbiddenImports(Directory root) {
   return violations;
 }
 
+/// Every file under [libRoot], outside `core/auth/`, that imports the Clerk
+/// bridge package. [libRoot] is a parameter so the guard can be shown to
+/// fail.
+List<String> findClerkImportsOutsideAuth(Directory libRoot) {
+  final violations = <String>[];
+  if (!libRoot.existsSync()) {
+    return violations;
+  }
+  for (final entity in libRoot.listSync(recursive: true)) {
+    if (entity is! File || !entity.path.endsWith(".dart")) {
+      continue;
+    }
+    final relative = entity.path.substring(libRoot.path.length);
+    if (relative.replaceAll(r"\", "/").contains("/core/auth/")) {
+      continue;
+    }
+    for (final match in _directive.allMatches(entity.readAsStringSync())) {
+      final target = match.group(2)!;
+      if (target.startsWith("package:tailtag_clerk/")) {
+        violations.add("${entity.path}: $target");
+      }
+    }
+  }
+  return violations;
+}
+
 void main() {
   test("lib/features never reaches the HTTP client or generated API", () {
     expect(
@@ -63,6 +114,14 @@ void main() {
       reason:
           "Features go through core repositories; only api_failure.dart and "
           "api_cancellation.dart of core/api are public.",
+    );
+  });
+
+  test("only lib/core/auth imports the Clerk bridge package", () {
+    expect(
+      findClerkImportsOutsideAuth(Directory("lib").absolute),
+      isEmpty,
+      reason: "Clerk types stay behind AuthSession in lib/core/auth.",
     );
   });
 
@@ -86,6 +145,23 @@ void main() {
         directive: 'import "package:tailtag_mobile/core/api/api_failure.dart";',
         flagged: false,
       ),
+      (
+        directive: 'import "package:tailtag_clerk/tailtag_clerk.dart";',
+        flagged: true,
+      ),
+      (
+        directive: 'import "package:tailtag_mobile/core/auth/clerk_auth_session.dart";',
+        flagged: true,
+      ),
+      (
+        directive: 'import "../core/auth/clerk_auth_session.dart";',
+        flagged: true,
+      ),
+      (
+        directive:
+            'import "package:tailtag_mobile/core/auth/auth_session.dart";',
+        flagged: false,
+      ),
       (directive: '// import "package:http/http.dart";', flagged: false),
     ];
 
@@ -100,6 +176,30 @@ void main() {
 
         expect(
           findForbiddenImports(features),
+          c.flagged ? hasLength(1) : isEmpty,
+        );
+      });
+    }
+  });
+
+  group("the Clerk bridge rule itself", () {
+    const cases = <({String path, bool flagged})>[
+      (path: "lib/core/auth/clerk_auth_session.dart", flagged: false),
+      (path: "lib/main.dart", flagged: true),
+    ];
+
+    for (final c in cases) {
+      test("${c.flagged ? "flags" : "allows"} ${c.path}", () {
+        final sandbox = Directory.systemTemp.createTempSync("clerk_guard_");
+        addTearDown(() => sandbox.deleteSync(recursive: true));
+        File("${sandbox.path}/${c.path}")
+          ..createSync(recursive: true)
+          ..writeAsStringSync(
+            'import "package:tailtag_clerk/tailtag_clerk.dart";\n',
+          );
+
+        expect(
+          findClerkImportsOutsideAuth(Directory("${sandbox.path}/lib")),
           c.flagged ? hasLength(1) : isEmpty,
         );
       });

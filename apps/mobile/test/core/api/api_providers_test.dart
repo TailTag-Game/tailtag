@@ -1,10 +1,13 @@
 import "package:flutter_riverpod/flutter_riverpod.dart";
 import "package:flutter_test/flutter_test.dart";
 import "package:tailtag_mobile/core/api/api_providers.dart";
+import "package:tailtag_mobile/core/auth/auth_providers.dart";
 import "package:tailtag_mobile/core/config/app_config.dart";
 import "package:tailtag_mobile/core/config/app_config_provider.dart";
 import "package:tailtag_mobile/core/session/current_user_providers.dart";
 import "package:tailtag_mobile/core/session/current_user_repository.dart";
+
+import "../../support/auth_test_support.dart";
 
 void main() {
   test("providers assemble from AppConfig and default to no token", () async {
@@ -25,5 +28,18 @@ void main() {
       container.read(currentUserRepositoryProvider),
       isA<CurrentUserRepository>(),
     );
+  });
+
+  test("authTokenOverride makes the auth session the API token provider", () {
+    final session = FakeAuthSession();
+    final container = ProviderContainer(
+      overrides: [
+        authSessionProvider.overrideWithValue(session),
+        authTokenOverride,
+      ],
+    );
+    addTearDown(container.dispose);
+
+    expect(container.read(apiTokenProviderProvider), same(session));
   });
 }

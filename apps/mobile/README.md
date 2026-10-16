@@ -24,5 +24,6 @@ need macOS with Xcode):
 
 Setup, configuration, local connectivity, CI, and the API contract and client
 conventions are in
-[Mobile contributor environment](../../docs/development/mobile.md). Clerk
-integration remains assigned to issue #135.
+[Mobile contributor environment](../../docs/development/mobile.md). The Clerk
+auth boundary is described in its
+[Authentication](../../docs/development/mobile.md#authentication) section.

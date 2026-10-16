@@ -6,9 +6,11 @@ version: 0.1.0+1
 environment:
   sdk: ^3.13.1
 
-# The generated API client joins the app's pub workspace (one lockfile).
+# The generated API client and the native Clerk bridge join the app's pub
+# workspace (one lockfile).
 workspace:
   - packages/tailtag_api
+  - packages/tailtag_clerk
 
 dependencies:
   flutter:
@@ -18,6 +20,8 @@ dependencies:
   http: ^1.6.0
   tailtag_api:
     path: packages/tailtag_api
+  tailtag_clerk:
+    path: packages/tailtag_clerk
   tonik_util: ^0.10.0
 
 dev_dependencies:
