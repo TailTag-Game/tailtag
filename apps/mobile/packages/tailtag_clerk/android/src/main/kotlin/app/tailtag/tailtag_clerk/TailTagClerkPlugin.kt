@@ -19,7 +19,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
@@ -58,7 +58,8 @@ class TailTagClerkPlugin :
         methods?.setMethodCallHandler(null)
         states?.setStreamHandler(null)
         stateJob?.cancel()
-        scope.cancel()
+        // Cancel only the children: Flutter can attach this instance to an engine again.
+        scope.coroutineContext.cancelChildren()
         context = null
     }
 
