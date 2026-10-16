@@ -424,6 +424,7 @@ having to remember `uv`, Django, or individual quality-tool invocations.
 | `task api-migrate` | **Apply existing Django migrations.** | Dependencies, `services/api/.env`, and PostgreSQL available; mutates schema. |
 | `task api-migrations` | **Create Django migrations from model changes.** | Dependencies and `services/api/.env`; mutates migration state but does not apply migrations. |
 | `task api-migrations-check` | Check for migration drift. | Dependencies, `services/api/.env`, and PostgreSQL available; does not create migrations. |
+| `task api-schema` | **Regenerate the committed OpenAPI snapshot** `services/api/openapi/schema.yaml`. | Dependencies available; needs no database. `task api-schema-check` (part of `task api-check`) fails when the snapshot is stale. |
 | `task api-shell` | Open the Django shell. | Dependencies, `services/api/.env`, and PostgreSQL available. |
 | `task api-smoke` | HTTP-check an already-running API. | API already running; never starts services or applies migrations. |
 | `task api-auth-smoke` | Manually exercise Clerk Development authentication against `/api/me/`. | Interactive terminal, an already-running approved Development API, and explicitly supplied non-secret smoke-user configuration. Never CI or production. |

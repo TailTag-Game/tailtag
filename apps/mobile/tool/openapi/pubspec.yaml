@@ -1,0 +1,9 @@
+name: tailtag_openapi_tool
+description: Pinned OpenAPI generator tool for the TailTag API client. Not part of the app's dependency graph.
+publish_to: none
+
+environment:
+  sdk: ^3.13.1
+
+dev_dependencies:
+  tonik: 0.10.0

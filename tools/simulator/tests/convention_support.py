@@ -14,6 +14,12 @@ from report_support import ReportClock, literal_report
 
 from tailtag_simulator.reports import RunReport
 
+# Hang guard for a whole real convention run, not a speed assertion. Each run
+# makes dozens of durable (fsync) report writes. These cost about 2 ms in total
+# on macOS, but tens of milliseconds each on a Windows CI disk, which pushed
+# runs past an earlier 3 s guard.
+RUN_HANG_GUARD_SECONDS = 30
+
 CONFIG: dict[str, object] = {
     "pool": POOL,
     "family": "baseline",

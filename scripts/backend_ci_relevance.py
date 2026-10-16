@@ -46,6 +46,7 @@ BACKEND_RELEVANT_FILES = {
     "scripts/doctor.sh",
     "scripts/fvm_sdk.py",
     "scripts/mobile_run.py",
+    "scripts/mobile_openapi.py",
     "scripts/validate_semgrep_contract.py",
     ".github/workflows/api.yml",
     ".github/workflows/post-deploy-smoke.yml",

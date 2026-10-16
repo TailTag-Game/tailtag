@@ -13,7 +13,7 @@ from typing import Any
 import httpx
 import pool_support
 import pytest
-from convention_support import CONFIG, BlockedHttp, Rig, rig
+from convention_support import CONFIG, RUN_HANG_GUARD_SECONDS, BlockedHttp, Rig, rig
 from network_support import forbid_connect
 from pool_support import RUN_ID, SECRET
 from report_support import read_report
@@ -151,11 +151,11 @@ def test_renewal_loss_or_interruption_awaits_worker_before_finalization(
             )
         )
         try:
-            await asyncio.wait_for(blocked.entered.wait(), 3)
+            await asyncio.wait_for(blocked.entered.wait(), RUN_HANG_GUARD_SECONDS)
             if failure == "interrupt":
                 task.cancel()
             try:
-                result = await asyncio.wait_for(task, 3)
+                result = await asyncio.wait_for(task, RUN_HANG_GUARD_SECONDS)
             except asyncio.CancelledError:
                 assert failure == "interrupt"
                 result = None
@@ -352,7 +352,7 @@ def test_successful_independent_renewal_repeats_while_public_response_is_pending
         before = asyncio.all_tasks()
         task = asyncio.create_task(run.run(api_transport=blocked.boundary))
         try:
-            code = await asyncio.wait_for(task, 3)
+            code = await asyncio.wait_for(task, RUN_HANG_GUARD_SECONDS)
             assert asyncio.all_tasks() - before == set()
             return code
         finally:

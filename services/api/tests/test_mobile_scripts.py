@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -384,3 +385,38 @@ def test_mobile_tasks_use_the_python_helpers(
         assert any(re.search(pattern, command) for command in commands), commands
     for pattern in forbidden:
         assert not any(re.search(pattern, command) for command in commands), commands
+
+
+# --- generated API client comparison ------------------------------------------
+
+
+def test_generated_package_comparison_reports_every_kind_of_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "path", [str(SCRIPTS_DIRECTORY), *sys.path])
+    import mobile_openapi
+
+    expected = tmp_path / "expected"
+    actual = tmp_path / "actual"
+    for root, files in (
+        (expected, {"same.dart": b"a\n", "edited.dart": b"b\n", "lost.dart": b"c\n"}),
+        (
+            actual,
+            {
+                "same.dart": b"a\r\n",  # CRLF checkout of identical content
+                "edited.dart": b"B\n",
+                "extra.dart": b"d\n",
+                ".dart_tool/state.json": b"{}",  # local pub state is not compared
+            },
+        ),
+    ):
+        for name, content in files.items():
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_bytes(content)
+
+    assert mobile_openapi.package_differences(expected, actual) == [
+        "missing    lost.dart",
+        "unexpected extra.dart",
+        "changed    edited.dart",
+    ]
+    assert mobile_openapi.package_differences(expected, expected) == []
