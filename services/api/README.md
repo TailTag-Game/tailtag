@@ -222,7 +222,24 @@ configuration is available:
 | --- | --- | --- |
 | `CLERK_AUTHENTICATION_ENABLED` | No; defaults to `false` | Enables Clerk bearer-token verification. |
 | `CLERK_JWT_KEY` | Yes when enabled | Configured Clerk instance JWT public key used for verification. |
-| `CLERK_AUTHORIZED_PARTIES` | Yes when enabled | Comma-separated list of authorized parties. |
+| `CLERK_AUTHORIZED_PARTIES` | Yes when enabled | Comma-separated list of authorized parties. The `azp` rule below uses it. |
+
+The verifier checks the `azp` claim (authorized party, the web origin that asked
+for the token) itself. In Development and Staging, the rule is:
+
+- If a token has an `azp` claim, the value must be in `CLERK_AUTHORIZED_PARTIES`.
+  Otherwise the API returns `401`. This kind of token has no extra lifetime
+  limit. Its `exp` claim still applies.
+- If a token has no `azp` claim, the API accepts it only when `exp - iat` is 60
+  seconds or less. The native mobile app sends tokens of this kind. A longer
+  lifetime gives `401`.
+
+The 60-second limit is the default session-token lifetime of a Clerk instance.
+If a maintainer changes that lifetime in the Clerk dashboard, the
+`_MAX_LIFETIME_WITHOUT_AUTHORIZED_PARTY_SECONDS` constant in
+`authentication/clerk.py` must change in the same release. See the
+[native session-token acceptance spec](../../docs/specs/2026-10-16-native-session-token-acceptance.md)
+and issue [#329](https://github.com/TailTag-Game/tailtag/issues/329).
 
 Verification uses Clerk backend SDK 7.0.0 with the configured instance JWT
 public key and does not make network requests. It does not require, read, or

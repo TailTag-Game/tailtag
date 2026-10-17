@@ -430,12 +430,13 @@ the bridge.
 ### The `azp` backend dependency
 
 The `azp` claim is a token field that names the web origin that asked for the
-token. The backend rejects a token without `azp` when `CLERK_AUTHORIZED_PARTIES`
-is set, and that setting is required. Native SDKs send no `Origin` header, so
-their tokens likely have no `azp`. The proof screen records only whether `azp`
-exists. If it does not, the live `200` result from `GET /api/me/` waits for a
-backend SECURITY follow-up that defines how the API accepts native bearer
-tokens. Issue #135 does not change the backend.
+token. Native SDKs send no `Origin` header, so their tokens have no `azp`. The
+backend accepts a token without `azp` when its lifetime (`exp - iat`) is 60
+seconds or less. If a token has an `azp`, the value must be in
+`CLERK_AUTHORIZED_PARTIES`. The
+[native session-token acceptance spec](../specs/2026-10-16-native-session-token-acceptance.md)
+and issue [#329](https://github.com/TailTag-Game/tailtag/issues/329) define the
+rule. The proof screen records only whether `azp` exists.
 
 ## Scope and references
 

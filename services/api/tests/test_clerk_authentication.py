@@ -24,6 +24,7 @@ from authentication.clerk import (
     ClerkVerificationConfiguration,
     VerifiedClerkIdentity,
 )
+from observability.outcomes import Reason, Signal
 
 DEFAULT_CLAIMS = {
     "sub": "user_test_subject",
@@ -340,26 +341,97 @@ def test_arbitrary_issuer_is_not_an_independent_tailtag_policy(
     ) == VerifiedClerkIdentity(subject="user_test_subject")
 
 
+def recorded_rejection_reasons(caplog: LogCaptureFixture) -> list[str]:
+    """Read the bounded reasons of the authentication rejections the verifier recorded."""
+    return [
+        record.__dict__["tailtag_reason"]
+        for record in caplog.records
+        if getattr(record, "event", None) == Signal.AUTHENTICATION_VERIFICATION
+    ]
+
+
 @pytest.mark.parametrize(
-    "claim_overrides",
+    "lifetime_seconds, allowed_azp",
     (
-        {"azp": "https://unapproved-origin.invalid"},
-        {"azp": None},
+        (60, False),
+        (600, True),
     ),
-    ids=("unapproved", "missing"),
+    ids=("no-azp-within-native-lifetime", "allowed-azp-has-no-lifetime-limit"),
 )
-def test_rejected_or_missing_authorized_party_fails_generically(
+def test_session_token_is_accepted_by_native_lifetime_or_allowed_authorized_party(
     verifier: ClerkSessionVerifier,
     issue_token: TokenIssuer,
-    claim_overrides: Mapping[str, object],
+    lifetime_seconds: int,
+    allowed_azp: bool,
 ) -> None:
-    """The verified authorized party must be exactly in the configured allowlist."""
-    if claim_overrides["azp"] is None:
-        token = issue_token(omit=frozenset({"azp"}))
-    else:
-        token = issue_token(claim_overrides)
+    """A token without azp needs a short life; an allowed azp needs no such limit."""
+    now = int(time.time())
+    token = issue_token(
+        {"iat": now, "exp": now + lifetime_seconds},
+        omit=frozenset() if allowed_azp else frozenset({"azp"}),
+    )
+
+    assert verifier.verify(
+        request_with_authorization(f"Bearer {token}")
+    ) == VerifiedClerkIdentity(subject="user_test_subject")
+
+
+@pytest.mark.parametrize(
+    "claim_overrides, omitted_claims, lifetime_seconds",
+    (
+        ({"azp": "https://unapproved-origin.invalid"}, frozenset[str](), 60),
+        ({"azp": ""}, frozenset[str](), 60),
+        ({"azp": None}, frozenset[str](), 60),  # encoded as a present JSON null
+        ({"azp": 123}, frozenset[str](), 60),
+        ({}, frozenset({"azp"}), 61),
+        ({}, frozenset({"azp"}), 600),
+        ({}, frozenset({"azp", "iat"}), 60),
+        ({}, frozenset({"azp", "exp"}), 60),
+    ),
+    ids=(
+        "unapproved",
+        "empty",
+        "json-null",
+        "non-string",
+        "no-azp-over-native-lifetime-by-one-second",
+        "no-azp-over-native-lifetime",
+        "no-azp-without-iat",
+        "no-azp-without-exp",
+    ),
+)
+def test_unusable_authorized_party_fails_generically_as_token_invalid(
+    verifier: ClerkSessionVerifier,
+    issue_token: TokenIssuer,
+    caplog: LogCaptureFixture,
+    claim_overrides: Mapping[str, object],
+    omitted_claims: frozenset[str],
+    lifetime_seconds: int,
+) -> None:
+    """A present azp must be allowed; a missing azp must come with a short lifetime."""
+    caplog.set_level(logging.INFO)
+    now = int(time.time())
+    token = issue_token(
+        {"iat": now, "exp": now + lifetime_seconds, **claim_overrides},
+        omit=omitted_claims,
+    )
 
     assert_generic_failure(verifier, f"Bearer {token}")
+
+    assert recorded_rejection_reasons(caplog) == [Reason.TOKEN_INVALID]
+
+
+def test_token_without_authorized_party_still_needs_a_session_identifier(
+    verifier: ClerkSessionVerifier,
+    issue_token: TokenIssuer,
+    caplog: LogCaptureFixture,
+) -> None:
+    """The native-token branch cannot skip the sid guard that excludes JWT templates."""
+    caplog.set_level(logging.INFO)
+    token = issue_token(omit=frozenset({"azp", "sid"}))
+
+    assert_generic_failure(verifier, f"Bearer {token}")
+
+    assert recorded_rejection_reasons(caplog) == [Reason.CLAIMS_MISSING]
 
 
 @pytest.mark.parametrize(
