@@ -692,7 +692,13 @@ MOBILE_CASES = {
                 {"name": "Chrome", "id": "chrome", "targetPlatform": "web-javascript"},
             ]
         ),
-        Expect(0, lines=(("WARN", "fvm flutter emulators --launch"),)),
+        Expect(
+            0,
+            lines=(
+                ("WARN", "fvm flutter emulators --launch <emulator-id>"),
+                ("WARN", 'xcrun simctl boot "<device>", then open Device Hub'),
+            ),
+        ),
     ),
     "an-ios-device-alone-is-enough": MobileCase(
         configure(

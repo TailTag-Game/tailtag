@@ -79,7 +79,8 @@ def stop_without_device(fvm: str, mobile_directory: Path, device: str) -> NoRetu
             flush=True,
         )
     subprocess.run([fvm, "flutter", "devices"], cwd=mobile_directory, check=False)
-    print("\nStart one with: fvm flutter emulators --launch <emulator-id>")
+    print(f"\nStart an Android emulator: {fvm_sdk.ANDROID_START_HINT}")
+    print(f"Start an iOS simulator (macOS): {fvm_sdk.IOS_START_HINT}")
     print("Then run: task mobile-run DEVICE=<id>")
     sys.exit(1)
 
