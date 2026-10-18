@@ -29,6 +29,13 @@ FVM_MISSING = (
     "https://fvm.app/documentation/getting-started/installation"
 )
 PIN_UNREADABLE = "Could not read the pinned Flutter version from apps/mobile/.fvmrc."
+# iOS boots with `xcrun simctl`, which works with Simulator.app (Xcode 26) and
+# Device Hub, its Xcode 27 replacement.
+ANDROID_START_HINT = "fvm flutter emulators --launch <emulator-id>"
+IOS_START_HINT = (
+    'xcrun simctl boot "<device>", then open Device Hub (Xcode 27) '
+    "or Simulator (Xcode 26)"
+)
 PINNED_FLUTTER = re.compile(r'"flutter"\s*:\s*"([^"]+)"')
 # A hung tool (a stuck Docker daemon, a stalled network) fails its check instead
 # of blocking doctor; 124 is the status `timeout` reports.

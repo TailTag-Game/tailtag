@@ -385,7 +385,8 @@ def check_mobile_devices(report: Report, fvm: str) -> None:
     else:
         report.warn(
             "No Android or iOS device or emulator is available; "
-            "start one with: fvm flutter emulators --launch <emulator-id>"
+            f"start an Android emulator with: {fvm_sdk.ANDROID_START_HINT}; "
+            f"or an iOS simulator (macOS) with: {fvm_sdk.IOS_START_HINT}"
         )
 
 

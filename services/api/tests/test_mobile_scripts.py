@@ -173,7 +173,11 @@ def make_run_fixture(tmp_path: Path) -> RunFixture:
 
 DEVICE_LISTING = "Pixel 8 (mobile)"
 NO_DEVICE_HELP = (
-    "Start one with: fvm flutter emulators --launch <emulator-id>",
+    "Start an Android emulator: fvm flutter emulators --launch <emulator-id>",
+    (
+        'Start an iOS simulator (macOS): xcrun simctl boot "<device>", then open '
+        "Device Hub (Xcode 27) or Simulator (Xcode 26)"
+    ),
     "Then run: task mobile-run DEVICE=<id>",
 )
 IOS_NEEDS_MACOS = "iOS targets need macOS with Xcode; choose an Android device or emulator on this host."
