@@ -1,7 +1,8 @@
 """#228 U2: real setup/renewal coupled to finite host bridge authority."""
 
 import asyncio
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from types import SimpleNamespace
 from typing import Literal, cast
 
@@ -10,7 +11,7 @@ import pool_support
 import pytest
 from fixture_support import CLEANUP_LINE, FakeFixtureChannel, FixtureState
 from pool_support import DEPLOYMENT_ID, POOL, RUN_ID, SECRET, SHA, FakeChannel, World
-from test_host_protocol import manifest
+from test_host_protocol import expiration_manifest, manifest
 from test_pool_smoke import assert_diagnostic, setup_diagnostics
 
 from tailtag_simulator import fixtures
@@ -26,8 +27,18 @@ world = pool_support.world
 class HostBoundary:
     """Real bridge, with existing stateful external relay/HTTP substitutes."""
 
-    def __init__(self, world: World, held_operation: str) -> None:
+    def __init__(
+        self,
+        world: World,
+        held_operation: str,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        expiration: bool = False,
+        fail_heartbeat: Callable[[int], bool] = lambda _number: False,
+    ) -> None:
         self.world = world
+        self.fail_heartbeat = fail_heartbeat
+        self.heartbeat_dispatches = 0
         self.leases = FakeChannel(world, slots=3)
         self.fixtures = FakeFixtureChannel(world, self.leases, FixtureState())
         self.held_operation = held_operation
@@ -37,26 +48,27 @@ class HostBoundary:
         self.heartbeat_acknowledged = asyncio.Event()
         self.requests: list[str] = []
         self.rejected: list[str] = []
-        launch = manifest()
+        launch = expiration_manifest({"pool": POOL}) if expiration else manifest()
         launch["run_id"] = RUN_ID
         launch["backend_identity"] = {
             "source_sha": SHA,
             "deployment_id": DEPLOYMENT_ID,
             "environment": "staging",
         }
-        launch["configuration"] = resolve_traffic_config(
-            {
-                "pool": POOL,
-                "normal_owners": 1,
-                "popular_owners": 0,
-                "casual": 2,
-                "active": 0,
-                "heavy": 0,
-                "retry_prone": 0,
-                "fursuits": 2,
-            }
-        )
-        self.session = BridgeSession(launch, self.dispatch)
+        if not expiration:
+            launch["configuration"] = resolve_traffic_config(
+                {
+                    "pool": POOL,
+                    "normal_owners": 1,
+                    "popular_owners": 0,
+                    "casual": 2,
+                    "active": 0,
+                    "heavy": 0,
+                    "retry_prone": 0,
+                    "fursuits": 2,
+                }
+            )
+        self.session = BridgeSession(launch, self.dispatch, clock=clock)
 
     async def dispatch(
         self, channel: str, request: dict[str, object]
@@ -66,6 +78,10 @@ class HostBoundary:
         if operation == self.held_operation and not self.entered.is_set():
             self.entered.set()
             await self.resume.wait()
+        if operation == "heartbeat":
+            self.heartbeat_dispatches += 1
+            if self.fail_heartbeat(self.heartbeat_dispatches):
+                return "FAIL_LAUNCHER", {}
         if channel == "pool":
             data = await self.leases.call(
                 operation, cast(str, request["pool"]), arguments
@@ -380,3 +396,196 @@ def test_host_renews_while_setup_cooldown_is_pending(
     assert host.session.evidence()["release_acknowledged"] is True
     assert host.session.evidence()["pending_mutations"] == 0
     assert "PASS release" in lines
+
+
+COUNT = 3
+BEAT = {"extended": COUNT}
+LOST = LeaseFailed("FAIL_LAUNCHER")
+
+
+@pytest.mark.parametrize(
+    ("script", "failed"),
+    [
+        # A pass resets the run of failures, so no three are consecutive.
+        pytest.param([LOST, LOST, BEAT, LOST, LOST], False, id="reset-by-pass"),
+        pytest.param([LOST, LOST, LOST], True, id="three-consecutive"),
+        pytest.param([LeaseFailed("FAIL_REQUEST")], True, id="other-lease-result"),
+        pytest.param([{"extended": COUNT - 1}], True, id="wrong-extended"),
+        pytest.param([RuntimeError()], True, id="other-exception"),
+    ],
+)
+def test_renewal_tolerates_only_isolated_launcher_failures_on_the_regular_tick(
+    monkeypatch: pytest.MonkeyPatch,
+    script: list[Exception | dict[str, int]],
+    failed: bool,
+) -> None:
+    heartbeats = 0
+    calls_at_tick: list[int] = []
+    exhausted = asyncio.Event()
+
+    class Scripted:
+        async def call(
+            self, operation: str, pool: str, arguments: Mapping[str, object]
+        ) -> Mapping[str, object]:
+            nonlocal heartbeats
+            if operation != "heartbeat":
+                return {"indexes": list(range(COUNT))}
+            heartbeats += 1
+            outcome = script[heartbeats - 1]
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+    async def timer(seconds: float) -> None:
+        assert seconds == 60
+        calls_at_tick.append(heartbeats)
+        if heartbeats == len(script):
+            exhausted.set()
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        fixtures, "asyncio", SimpleNamespace(**{**vars(asyncio), "sleep": timer})
+    )
+
+    async def idle() -> int:
+        await asyncio.Event().wait()
+        return 0
+
+    async def exercise() -> bool:
+        renewal = fixtures._Renewal(Scripted())  # pyright: ignore[reportPrivateUsage]
+        renewal.worker = asyncio.create_task(idle())
+        waiter = asyncio.create_task(exhausted.wait())
+        try:
+            allocation = {"run_id": RUN_ID, "count": COUNT, "ttl_seconds": 1800}
+            await renewal.call("allocate", POOL, allocation)
+            assert renewal.timer is not None
+            await asyncio.wait_for(
+                asyncio.wait(
+                    {renewal.timer, waiter}, return_when=asyncio.FIRST_COMPLETED
+                ),
+                3,
+            )
+            assert renewal.failed is failed
+            assert (renewal.worker.cancelling() > 0) is failed
+            return renewal.failed
+        finally:
+            waiter.cancel()
+            renewal.worker.cancel()
+            await renewal.stop()
+            await asyncio.gather(renewal.worker, waiter, return_exceptions=True)
+
+    asyncio.run(exercise())
+    # Exactly one heartbeat per tick: a retry never happens ahead of the next tick.
+    assert heartbeats == len(script)
+    assert calls_at_tick == list(range(len(calls_at_tick)))
+
+
+def test_tolerated_heartbeat_failures_never_exhaust_the_bridge_budget(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = [1000.0]
+    # The bridge admits heartbeats until the execution window (46800 s) ends, so
+    # ticks fall at 60 s ... 46740 s: 779 in all, against a budget of 806. Two of
+    # every three fail, so one extra call per failure would pass that budget.
+    ticks = 779
+    host = HostBoundary(
+        world,
+        "unused",
+        clock=lambda: now[0],
+        expiration=True,
+        fail_heartbeat=lambda number: number % 3 != 0,
+    )
+    elapsed = 0
+    finished = asyncio.Event()
+
+    async def timer(seconds: float) -> None:
+        nonlocal elapsed
+        assert seconds == 60
+        if elapsed == ticks:
+            finished.set()
+            await asyncio.Event().wait()
+        elapsed += 1
+        now[0] += 60
+
+    monkeypatch.setattr(
+        fixtures, "asyncio", SimpleNamespace(**{**vars(asyncio), "sleep": timer})
+    )
+
+    async def idle() -> int:
+        await asyncio.Event().wait()
+        return 0
+
+    async def exercise() -> None:
+        renewal = fixtures._Renewal(PoolAdapter(host))  # pyright: ignore[reportPrivateUsage]
+        renewal.worker = asyncio.create_task(idle())
+        try:
+            allocation = {"run_id": RUN_ID, "count": 2, "ttl_seconds": 1800}
+            await renewal.call("allocate", POOL, allocation)
+            await asyncio.wait_for(finished.wait(), 3)
+            await host.session.settle()
+            assert renewal.failed is False
+        finally:
+            renewal.worker.cancel()
+            await renewal.stop()
+            await asyncio.gather(renewal.worker, return_exceptions=True)
+            await host.session.settle()
+            host.session.close()
+
+    asyncio.run(exercise())
+    assert host.heartbeat_dispatches == ticks
+    assert host.rejected == ["heartbeat"] * (ticks - ticks // 3)
+
+
+def test_reclaimed_lease_fails_renewal_at_once_through_the_bridge(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host = HostBoundary(world, "unused")
+    host.leases.reclaim_before_heartbeat = 1
+    ticks = 0
+    second_tick = asyncio.Event()
+
+    async def timer(seconds: float) -> None:
+        nonlocal ticks
+        assert seconds == 60
+        ticks += 1
+        if ticks > 1:
+            second_tick.set()
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        fixtures, "asyncio", SimpleNamespace(**{**vars(asyncio), "sleep": timer})
+    )
+
+    async def idle() -> int:
+        await asyncio.Event().wait()
+        return 0
+
+    async def exercise() -> bool:
+        renewal = fixtures._Renewal(PoolAdapter(host))  # pyright: ignore[reportPrivateUsage]
+        renewal.worker = asyncio.create_task(idle())
+        waiter = asyncio.create_task(second_tick.wait())
+        try:
+            allocation = {"run_id": RUN_ID, "count": 3, "ttl_seconds": 1800}
+            await renewal.call("allocate", POOL, allocation)
+            assert renewal.timer is not None
+            await asyncio.wait_for(
+                asyncio.wait(
+                    {renewal.timer, waiter}, return_when=asyncio.FIRST_COMPLETED
+                ),
+                3,
+            )
+            return renewal.failed
+        finally:
+            waiter.cancel()
+            renewal.worker.cancel()
+            await renewal.stop()
+            await asyncio.gather(renewal.worker, waiter, return_exceptions=True)
+            await host.session.settle()
+            host.session.close()
+
+    failed = asyncio.run(exercise())
+    # A reclaimed lease is a lease verdict, not a transient launcher loss.
+    outcomes = cast(dict[str, str], host.session.evidence()["outcomes"])
+    assert outcomes["heartbeat"] == "FAIL_LEASE"
+    assert len(host.leases.calls_to("heartbeat")) == 1
+    assert failed is True

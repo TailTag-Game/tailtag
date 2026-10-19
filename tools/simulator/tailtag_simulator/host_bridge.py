@@ -76,6 +76,7 @@ _HEALTH_COUNTERS = (
     "close_timeouts",
     "peak_active",
 )
+_HEARTBEAT_OFFSET_CAP = 64
 
 
 def _rejected(result: str = "FAIL_REQUEST") -> dict[str, object]:
@@ -163,6 +164,8 @@ class BridgeSession:
         self._mutating_started = False
         # Non-authoritative diagnostics (#230): never read back for decisions.
         self.health_counters = dict.fromkeys(_HEALTH_COUNTERS, 0)
+        self._heartbeat_failed = 0
+        self._heartbeat_failure_offsets: list[float] = []
         self._revocation: dict[str, object] | None = None
 
     def health(self) -> dict[str, object]:
@@ -223,6 +226,10 @@ class BridgeSession:
             "target_veto": self._veto,
             "recovery_hold": self._mutating_started and not self._released,
             "health": dict(self.health_counters),
+            "heartbeat": {
+                "failed": self._heartbeat_failed,
+                "failure_offsets": list(self._heartbeat_failure_offsets),
+            },
             "revocation": None if self._revocation is None else dict(self._revocation),
         }
 
@@ -473,7 +480,16 @@ class BridgeSession:
                 self._dispatch(channel, envelope), max(0, self._end - self._clock())
             )
             data = decode_frame(encode_frame(data))
-            if result not in _FAILURES | {"PASS"} or (
+            if (
+                op == "heartbeat"
+                and result == "PASS"
+                and set(data) == {"extended"}
+                and _integer(data["extended"])
+                and data["extended"] != self._count
+            ):
+                # A well-formed wrong count shows a lost lease, not a lost relay.
+                result, data = "FAIL_LEASE", {}
+            elif result not in _FAILURES | {"PASS"} or (
                 result == "PASS" and not self._ack(op, data)
             ):
                 result, data = "FAIL_LAUNCHER", {}
@@ -484,6 +500,12 @@ class BridgeSession:
             result, data = "FAIL_LAUNCHER", {}
         if result == "FAIL_TARGET":
             self._veto = True
+        if op == "heartbeat" and result != "PASS":
+            self._heartbeat_failed += 1
+            if len(self._heartbeat_failure_offsets) < _HEARTBEAT_OFFSET_CAP:
+                self._heartbeat_failure_offsets.append(
+                    round(self._clock() - self._started, 1)
+                )
         if op in _MUTATIONS and op != "heartbeat" and result in _UNCERTAIN:
             self._uncertain = True
         self._outcomes[op] = result
