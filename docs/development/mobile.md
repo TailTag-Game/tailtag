@@ -182,7 +182,7 @@ target platform. IDE choice is deliberately not mandated.
 | --- | --- | --- |
 | Common | Git, FVM, the repository-pinned Flutter SDK, dependency resolution, the `task mobile-*` commands below, and one supported target | FVM selects Flutter `3.47.2` from `apps/mobile/.fvmrc`; use its bundled Dart `3.13.2`. |
 | Android target | A compatible JDK, Android SDK and tooling, plus an Android API 26-or-newer emulator | Required only for Android contributors. Android is supported on Windows, Linux, and macOS. Android Studio provides the best-supported development experience, but equivalent command-line tooling is sufficient when `task mobile-doctor` reports the toolchain as usable. Flutter must be able to find the Android SDK: set `ANDROID_HOME` or run `fvm flutter config --android-sdk <path>` (`fvm flutter doctor -v` shows what it found). |
-| iOS target | macOS, Xcode with its command-line tools selected, completed Xcode first-run/license setup, and an iOS 17-or-newer Simulator runtime | Xcode 26 or later is required (the native Clerk SDK needs it). Xcode is required to install iOS Simulator runtimes. Android Studio with the Flutter plugin is recommended for running TailTag on those simulators. CocoaPods is required when native Flutter plugins require it. Windows and Linux contributors do not need Xcode or iOS support. Xcode 27 replaces Simulator.app with Device Hub (`/Applications/Xcode.app/Contents/Applications/DeviceHub.app`). To start a simulator, run `xcrun simctl boot "<device>"` (`xcrun simctl list devices available` lists the names), open Device Hub to see its screen, then run `task mobile-run DEVICE=<id>`. On Xcode 27, `open -a Simulator` fails with "Unable to find application named 'Simulator'". |
+| iOS target | macOS, Xcode with its command-line tools selected, completed Xcode first-run/license setup, and an iOS 17-or-newer Simulator runtime | Xcode 26 or later is required (the native Clerk SDK needs it). Xcode is required to install iOS Simulator runtimes. Android Studio with the Flutter plugin is recommended for running TailTag on those simulators. CocoaPods is required when native Flutter plugins require it. Windows and Linux contributors do not need Xcode or iOS support. Xcode 27 replaces Simulator.app with Device Hub (`/Applications/Xcode.app/Contents/Applications/DeviceHub.app`). To start a simulator, run `xcrun simctl boot "<device>"` (`xcrun simctl list devices available` lists the names), open Device Hub to see its screen, then run `task mobile-run DEVICE=<id>`. You can also open Device Hub and start a simulator there. On Xcode 27, `open -a Simulator` fails with "Unable to find application named 'Simulator'". |
 
 macOS contributors may validate either Android or iOS. Phones are the primary
 V0 UX target; tablets remain compatible but have no V0-specific optimization
@@ -245,7 +245,8 @@ workflow. A second platform is optional local validation.
 6. Start an emulator or simulator for your target:
    - Android: `fvm flutter emulators --launch <emulator-id>`.
    - iOS (macOS only): `xcrun simctl boot "<device>"`, then open Device Hub
-     (Xcode 27) or Simulator (Xcode 26) to see its screen. On Xcode 27,
+     (Xcode 27) or Simulator (Xcode 26) to see its screen. You can also open
+     Device Hub and start a simulator there. On Xcode 27,
      `open -a Simulator` fails with "Unable to find application named
      'Simulator'".
 
@@ -457,7 +458,7 @@ these messages.
 | `Flutter 3.47.2 (pinned in apps/mobile/.fvmrc) is not installed` | `task mobile-setup`, `task mobile-run`, `task mobile-doctor` | Run `cd apps/mobile && fvm install`. |
 | `No Android or iOS device or emulator is available` | `task mobile-doctor` (WARN) | Start a target as in [First run](#first-run) step 6. |
 | `DEVICE is required` or `DEVICE is not a connected device id.` | `task mobile-run` | Copy an id from the device list that the command prints. If the list has no Android or iOS device, start one first. |
-| `Unable to find application named 'Simulator'` | `open -a Simulator` on Xcode 27 | Xcode 27 has no Simulator.app. Run `xcrun simctl boot "<device>"`, then open Device Hub. |
+| `Unable to find application named 'Simulator'` | `open -a Simulator` on Xcode 27 | Xcode 27 has no Simulator.app. Run `xcrun simctl boot "<device>"`, then open Device Hub. You can also open Device Hub and start a simulator there. |
 | `Mobile configuration is missing` | `task mobile-doctor` (WARN), `task mobile-run` | Run `cp apps/mobile/config/development.example.json apps/mobile/config/development.json`, then set `CLERK_PUBLISHABLE_KEY`. |
 | `Mobile configuration is invalid` | `task mobile-doctor` (FAIL), `task mobile-run` | Fix the key that the message names. [Configuration](#configuration) gives the rule for each key. |
 | `API at <origin> did not answer /health/live from this host` | `task mobile-doctor` (WARN) | For Local, start the backend in the devcontainer with `task api-run`. For Railway Development, make sure that the URL is `https://dev.tailtag.app`. |
