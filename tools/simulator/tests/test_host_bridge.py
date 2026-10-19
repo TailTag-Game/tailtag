@@ -1101,9 +1101,11 @@ def test_health_evidence_is_closed_and_counts_live_not_live_and_invalid(
                 "target_veto",
                 "recovery_hold",
                 "health",
+                "heartbeat",
                 "revocation",
             }
             assert evidence["health"] == health_counters()
+            assert evidence["heartbeat"] == {"failed": 0, "failure_offsets": []}
             assert evidence["revocation"] is None
 
             assert await wire(directory, "health.sock", HEALTH_FRAME) == {
@@ -1366,6 +1368,50 @@ def test_heartbeat_budget_follows_safety_and_never_consumes_other_operations(
             assert_rejected(await call(session, "heartbeat"))
             assert len(relay.calls) == before
             assert (await call(session, "release"))["result"] == "PASS"
+        finally:
+            session.close()
+
+    asyncio.run(execute())
+
+
+def test_heartbeat_failures_are_diagnostics_only_with_rounded_capped_offsets() -> None:
+    async def execute() -> None:
+        now = [100.0]
+        # The long expiration tier admits well over 64 heartbeats.
+        launch = expiration_manifest()
+        relay = Relay()
+        relay.answers["allocate"] = ("PASS", {"indexes": INDEXES[:2]})
+        session = BridgeSession(launch, relay.dispatch, clock=lambda: now[0])
+
+        async def beat(
+            offset: float, answer: tuple[str, dict[str, object]] | Exception
+        ):
+            now[0] = 100.0 + offset
+            relay.answers["heartbeat"] = answer
+            return (await call(session, "heartbeat"))["result"]
+
+        passed: tuple[str, dict[str, object]] = ("PASS", {"extended": 2})
+        try:
+            assert (await call(session, "allocate", count=2))["result"] == "PASS"
+            assert await beat(5.0, passed) == "PASS"
+            receipt = session.receipt()
+            # Any non-PASS dispatch counts: a relay verdict, then a lost relay.
+            assert await beat(12.34, ("FAIL_REQUEST", {})) == "FAIL_REQUEST"
+            assert await beat(20.06, RuntimeError()) == "FAIL_LAUNCHER"
+            assert await beat(25.0, passed) == "PASS"
+            for offset in range(30, 98):
+                assert await beat(float(offset), ("FAIL_LAUNCHER", {})) != "PASS"
+            relay.answers["quarantine"] = ("FAIL_REQUEST", {})
+            assert (await call(session, "quarantine"))["result"] == "FAIL_REQUEST"
+
+            evidence = session.evidence()
+            # The count is exact; the offsets stop at the first 64.
+            assert evidence["heartbeat"] == {
+                "failed": 70,
+                "failure_offsets": [12.3, 20.1, *[float(o) for o in range(30, 92)]],
+            }
+            assert session.receipt() == receipt
+            assert len(json.dumps(evidence, allow_nan=False)) < 65536
         finally:
             session.close()
 
