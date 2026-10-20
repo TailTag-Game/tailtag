@@ -7,9 +7,11 @@ consumers, subprocess ownership and the signal-receiving Python child are real.
 import asyncio
 import json
 import os
+import pty
 import shlex
 import signal
 import socket
+import subprocess
 import sys
 import tempfile
 import time
@@ -1722,3 +1724,353 @@ def test_container_command_is_built_from_the_admitted_scenario(
 
     with owned_root() as root:
         asyncio.run(execute(root))
+
+
+# --- #316 U2: `host_operator run-local` (bridge and host_runner on one machine) ---
+
+RUNNER = """
+import json, os, signal, socket, sys, time
+from pathlib import Path
+root = Path({root!r})
+argv = sys.argv[1:]
+assert argv[:2] == ["-m", "tailtag_simulator.host_runner"], argv
+op = argv[2]
+host_root = Path(argv[argv.index("--root") + 1])
+base = host_root / "runs" / {run!r}
+state = root / "state"
+scenario = (root / "scenario").read_text()
+record = {{"op": op, "argv": argv, "cwd": os.getcwd(), "pid": os.getpid(),
+          "used": (state / "{run}.used.json").exists(),
+          "bridge": (state / "{run}.bridge.json").exists()}}
+
+def ask(path, frame):
+    with socket.socket(socket.AF_UNIX) as connection:
+        connection.settimeout(3)
+        connection.connect(str(path))
+        connection.sendall((json.dumps(frame) + "\\n").encode())
+        with connection.makefile("rb") as stream:
+            return json.loads(stream.readline())
+
+def health():
+    try:
+        return ask(base / "control/health.sock",
+                   {{"schema_version": 1, "channel": "health", "run_id": {run!r}}})
+    except OSError:
+        return None
+
+def log(entry):
+    with (root / "runner.jsonl").open("a") as out:
+        out.write(json.dumps(entry) + "\\n")
+
+if op in ("prepare", "recovery-resolve"):
+    record["payload"] = json.loads(sys.stdin.read())
+if op == "prepare":
+    for directory in (host_root / "runs", base, base / "rpc", base / "control"):
+        directory.mkdir(mode=0o700, exist_ok=True)
+if op == "run":
+    record["tty"] = [os.isatty(0), os.isatty(1)]
+    record["sockets"] = {{
+        name: [(base / name).is_socket(), (base / name).stat().st_mode & 0o777]
+        for name in ("rpc/rpc.sock", "control/health.sock")
+        if (base / name).exists()
+    }}
+    record["health"] = health()
+log(record)
+if op == "run" and scenario == "wait":
+    def stopped(number, _frame):
+        log({{"op": "signal", "name": signal.Signals(number).name, "health": health()}})
+        raise SystemExit(1)
+    for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(number, stopped)
+    (root / "ready").touch()
+    time.sleep(60)
+if op == "run" and scenario in ("released", "runner_failure"):
+    for name in (["allocate", "release"]):
+        arguments = {{"run_id": {run!r}}}
+        if name == "allocate":
+            arguments.update(count=8, ttl_seconds=1800)
+        manifest = json.loads((root / "manifest.json").read_text())
+        reply = ask(base / "rpc/rpc.sock", {{"schema_version": 1, "channel": "pool", "request": {{
+            "operation": name, "pool": "p1", "arguments": arguments,
+            "expected_identity": manifest["backend_identity"]}}}})
+        assert reply["result"] == "PASS", reply
+    raise SystemExit(1 if scenario == "runner_failure" else 0)
+"""
+
+TASK = """
+import json, os, sys
+from pathlib import Path
+request = json.loads(sys.stdin.read())
+with Path({root!r}, "task.jsonl").open("a") as out:
+    out.write(json.dumps({{"argv": sys.argv, "cwd": os.getcwd(), "env": dict(os.environ),
+                          "operation": request["operation"]}}) + "\\n")
+data = ({{"indexes": [17, 23, 31, 37, 41, 43, 47, 53]}}
+        if request["operation"] == "allocate" else {{"released": 8}})
+print(json.dumps({{"result": "PASS", "data": data}}))
+"""
+
+LOCAL_FAULTS = [
+    "auto-update-unset",
+    "auto-update-0",
+    "stdin-not-tty",
+    "stdout-not-tty",
+    "no-taskfile",
+    "no-services-api",
+    "no-task",
+    "railway-not-executable",
+    "no-uv",
+    "relative-tools",
+    "symlinked-host-root",
+    "relative-state-dir",
+]
+
+
+class LocalRig:
+    def __init__(self, root: Path, scenario: str, final_seconds: float = 5) -> None:
+        self.root = root
+        self.host_root = root / "host"
+        self.workspace = root / "workspace"
+        self.tools = root / "tools"
+        self.state = root / "state"
+        value = host_manifest()
+        section(value, "safety")["final_seconds"] = final_seconds
+        self.value = value
+        (root / "manifest.json").write_text(json.dumps(value))
+        (root / "scenario").write_text(scenario)
+        sha = str(section(value, "release")["simulator_sha"])
+        self.release = self.host_root / "releases" / sha
+        python = self.release / ".venv/bin/python"
+        python.parent.mkdir(parents=True)
+        executable(python, RUNNER.format(root=str(root), run=RUN))
+        self.workspace.mkdir()
+        (self.workspace / "Taskfile.yml").write_text("version: '3'\n")
+        (self.workspace / "services/api").mkdir(parents=True)
+        (self.tools / "bin").mkdir(parents=True)
+        executable(self.tools / "bin/task", TASK.format(root=str(root)))
+        for tool in (self.tools / "bin/railway", self.tools / "uv"):
+            executable(tool, "")
+        self.home = root / "home"
+        self.home.mkdir()
+
+    def environment(self, **changes: str | None) -> dict[str, str]:
+        env = {
+            **os.environ,
+            "RAILWAY_NO_AUTO_UPDATE": "1",
+            "HOME": str(self.home),
+            "PATH": "/tt316-sentinel-bin" + os.pathsep + os.environ["PATH"],
+        }
+        for key, replacement in changes.items():
+            if replacement is None:
+                env.pop(key, None)
+            else:
+                env[key] = replacement
+        return env
+
+    def command(self, paths: dict[str, str] | None = None) -> list[str]:
+        values = {
+            "manifest": str(self.root / "manifest.json"),
+            "host-root": str(self.host_root),
+            "workspace": str(self.workspace),
+            "tools": str(self.tools),
+            "state-dir": str(self.state),
+            **(paths or {}),
+        }
+        return [
+            sys.executable,
+            "-m",
+            "tailtag_simulator.host_operator",
+            "run-local",
+            *(item for key, value in values.items() for item in (f"--{key}", value)),
+        ]
+
+    @contextmanager
+    def start(
+        self,
+        *,
+        stdin_tty: bool = True,
+        stdout_tty: bool = True,
+        paths: dict[str, str] | None = None,
+        cwd: Path | None = None,
+        **changes: str | None,
+    ) -> Generator[subprocess.Popen[bytes]]:
+        """Run the operator on a real pseudo-terminal; plain files stand in for a non-tty."""
+        master, slave = pty.openpty()
+        process: subprocess.Popen[bytes] | None = None
+        try:
+            process = subprocess.Popen(
+                self.command(paths),
+                cwd=cwd,
+                env=self.environment(**changes),
+                stdin=slave if stdin_tty else subprocess.DEVNULL,
+                stdout=slave if stdout_tty else subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            os.close(slave)
+            yield process
+        finally:
+            if process is not None and process.poll() is None:
+                process.kill()
+                process.wait()
+            for entry in records(self.root / "runner.jsonl"):
+                if entry["op"] == "run":
+                    with suppress(ProcessLookupError):
+                        os.kill(int(entry["pid"]), signal.SIGKILL)
+            os.close(master)
+
+    def ops(self) -> list[str]:
+        return [entry["op"] for entry in records(self.root / "runner.jsonl")]
+
+
+@pytest.mark.parametrize("fault", LOCAL_FAULTS)
+def test_run_local_refuses_unsafe_start_before_prepare(fault: str) -> None:
+    """#316 C1 and AC8: every refusal exits 1 before any host_runner process starts."""
+    with owned_root() as root:
+        rig = LocalRig(root, "released")
+        changes: dict[str, str | None] = {}
+        if fault == "auto-update-unset":
+            changes["RAILWAY_NO_AUTO_UPDATE"] = None
+        elif fault == "auto-update-0":
+            changes["RAILWAY_NO_AUTO_UPDATE"] = "0"
+        elif fault == "no-taskfile":
+            (rig.workspace / "Taskfile.yml").unlink()
+        elif fault == "no-services-api":
+            (rig.workspace / "services/api").rmdir()
+            (rig.workspace / "services").rmdir()
+        elif fault == "no-task":
+            (rig.tools / "bin/task").unlink()
+        elif fault == "railway-not-executable":
+            (rig.tools / "bin/railway").chmod(0o600)
+        elif fault == "no-uv":
+            # The plan does not say whether uv sits at tools/uv or tools/bin/uv.
+            (rig.tools / "uv").unlink()
+            (rig.tools / "bin/uv").unlink(missing_ok=True)
+        # Path faults: each good path exists and is resolved, so only the form is wrong.
+        paths: dict[str, str] = {}
+        cwd: Path | None = None
+        if fault in {"relative-tools", "relative-state-dir"}:
+            # Relative to this cwd the path resolves to a real tools/state directory.
+            cwd = root
+            changes["PYTHONPATH"] = str(Path(__file__).parents[1])
+            paths = (
+                {"tools": "tools"}
+                if fault == "relative-tools"
+                else {"state-dir": "state"}
+            )
+        elif fault == "symlinked-host-root":
+            (root / "hostlink").symlink_to(rig.host_root, target_is_directory=True)
+            paths = {"host-root": str(root / "hostlink")}
+        with rig.start(
+            stdin_tty=fault != "stdin-not-tty",
+            stdout_tty=fault != "stdout-not-tty",
+            paths=paths,
+            cwd=cwd,
+            **changes,
+        ) as process:
+            assert process.wait(timeout=20) == 1
+        assert rig.ops() == []
+        assert not (rig.host_root / "runs").exists()
+        assert list(root.rglob("*.used.json")) == []
+
+
+@pytest.mark.parametrize("outcome", ["released", "runner_failure"])
+def test_run_local_prepares_then_binds_then_runs_and_resolves_the_receipt_locally(
+    outcome: str,
+) -> None:
+    """#316 AC8/C2/C3: order, sockets before run, workspace relays, local resolve."""
+    with owned_root() as root:
+        rig = LocalRig(root, outcome)
+        with rig.start() as process:
+            assert process.wait(timeout=30) == (0 if outcome == "released" else 1)
+        entries = records(root / "runner.jsonl")
+        prepare, run = entries[0], entries[1]
+        # recovery-resolve runs only after a clean runner exit with a released receipt.
+        assert [e["op"] for e in entries] == (
+            ["prepare", "run", "recovery-resolve"]
+            if outcome == "released"
+            else ["prepare", "run"]
+        )
+        assert all(e["cwd"] == str(rig.release) for e in entries)
+        assert prepare["payload"] == rig.value
+        assert prepare["used"] is True  # <UUID>.used.json exists before prepare
+        # prepare created the 0700 parents; the bridge bound both sockets before run.
+        assert run["sockets"] == {
+            "rpc/rpc.sock": [True, 0o600],
+            "control/health.sock": [True, 0o600],
+        }
+        assert run["health"] == {"run_id": RUN, "live": True}
+        assert run["tty"] == [True, True]  # the Clerk prompt needs the terminal
+        assert run["bridge"] is False
+        words = run["argv"]
+        assert words[words.index("--root") + 1] == str(rig.host_root)
+        assert words[words.index("--manifest") + 1] == str(
+            rig.host_root / "runs" / RUN / "control/manifest.json"
+        )
+        assert words[words.index("--release") + 1] == str(rig.release / "release.json")
+        evidence = json.loads((rig.state / (RUN + ".bridge.json")).read_text())
+        assert evidence["disposition"] == "released"
+        assert json.loads((rig.state / (RUN + ".used.json")).read_text()) == {
+            "schema_version": 1,
+            "run_id": RUN,
+        }
+        # The relays run `task` by absolute path in the workspace, with an explicit env.
+        relays = records(root / "task.jsonl")
+        assert [r["operation"] for r in relays] == ["allocate", "release"]
+        for relay in relays:
+            assert relay["argv"] == [
+                str(rig.tools / "bin/task"),
+                "-s",
+                "api-sim-pool-ssh",
+            ]
+            assert Path(relay["cwd"]).resolve() == rig.workspace.resolve()
+            env = relay["env"]
+            assert env["RAILWAY_NO_AUTO_UPDATE"] == "1"
+            assert env["HOME"] == str(rig.home)
+            assert Path(env["UV"]).name == "uv"
+            assert Path(env["UV"]).is_relative_to(rig.tools)
+            assert str(rig.tools / "bin") in env["PATH"].split(os.pathsep)
+            assert "/tt316-sentinel-bin" not in env["PATH"]
+        if outcome == "released":
+            resolve = entries[2]
+            assert resolve["bridge"] is True  # evidence is written after settle
+            assert resolve["payload"] == {
+                "schema_version": 1,
+                "run_id": RUN,
+                "backend_identity": rig.value["backend_identity"],
+                "disposition": "released",
+            }
+            assert resolve["argv"][-6:] == [
+                "--root",
+                str(rig.host_root),
+                "--run-id",
+                RUN,
+                "--receipt",
+                "-",
+            ]
+            # The used file is create-once: the same manifest never starts again.
+            with rig.start() as again:
+                assert again.wait(timeout=20) == 1
+            assert rig.ops() == ["prepare", "run", "recovery-resolve"]
+
+
+@pytest.mark.parametrize("sent", ["SIGINT", "SIGTERM", "SIGHUP"])
+def test_run_local_revokes_on_a_signal_and_stops_the_runner_child(sent: str) -> None:
+    """#316 C3: a signal to the operator alone revokes health and reaches the child."""
+    with owned_root() as root:
+        rig = LocalRig(root, "wait", final_seconds=20)
+        with rig.start() as process:
+            deadline = time.monotonic() + 15
+            while not (root / "ready").exists():
+                assert time.monotonic() < deadline, "runner never started"
+                assert process.poll() is None
+                time.sleep(0.02)
+            process.send_signal(getattr(signal, sent))
+            # final_seconds is 20: only an explicit stop ends the child within 8 s.
+            assert process.wait(timeout=8) != 0
+        received = next(
+            e for e in records(root / "runner.jsonl") if e["op"] == "signal"
+        )
+        assert received["name"] in (
+            {sent} if sent != "SIGINT" else {"SIGINT", "SIGTERM"}
+        )
+        assert received["health"] == {"run_id": RUN, "live": False}
+        assert first_revocation(rig.state, "signal_" + sent) >= 0

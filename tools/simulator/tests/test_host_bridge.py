@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+import os
 import stat
+import sys
 from collections.abc import Iterator
 from copy import deepcopy
 from pathlib import Path
@@ -20,6 +22,7 @@ from test_host_protocol import (
     section,
 )
 
+from tailtag_simulator import host_bridge
 from tailtag_simulator.host_bridge import BridgeServer, BridgeSession
 from tailtag_simulator.host_protocol import decode_frame, encode_frame
 
@@ -783,6 +786,142 @@ def test_socket_paths_are_private_owned_and_never_replace_foreign_paths(
             session.close()
 
     asyncio.run(execute())
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "none",
+        "replaced-before-close",
+        "ancestor-symlink",
+        "health-parent-mode",
+        "missing-parent",
+        "health-path-exists",
+    ],
+)
+def test_explicit_socket_paths_are_validated_private_and_unlinked_only_when_owned(
+    socket_root: Path, case: str
+) -> None:
+    """#316 C3: local mode binds `runs/<UUID>/rpc` and `control` directories separately."""
+
+    async def execute() -> None:
+        # /tmp is itself a symlink on macOS; the contract forbids any link in the path.
+        socket_root_real = socket_root.resolve()
+        rpc_dir, health_dir = socket_root_real / "rpc", socket_root_real / "control"
+        rpc_dir.mkdir(mode=0o700)
+        health_dir.mkdir(mode=0o700)
+        foreign = socket_root_real / "foreign"
+        foreign.mkdir()
+        marker = foreign / "keep"
+        marker.write_text(SENTINEL)
+        rpc_path, health_path = rpc_dir / "rpc.sock", health_dir / "health.sock"
+        if case == "ancestor-symlink":
+            # The parent itself is a private real directory; only the link above it is wrong.
+            (foreign / "rpc").mkdir(mode=0o700)
+            (socket_root_real / "link").symlink_to(foreign, target_is_directory=True)
+            rpc_path = socket_root_real / "link" / "rpc" / "rpc.sock"
+        elif case == "health-parent-mode":
+            health_dir.chmod(0o755)
+        elif case == "missing-parent":
+            rpc_dir.rmdir()
+        elif case == "health-path-exists":
+            health_path.write_text(SENTINEL)
+        relay = Relay()
+        session = BridgeSession(manifest(), relay.dispatch)
+        server = BridgeServer.for_paths(session, rpc_path, health_path)
+        previous = os.umask(0)  # the server must not depend on the caller's umask
+        try:
+            if case in {"none", "replaced-before-close"}:
+                await server.start()
+                for path in (rpc_path, health_path):
+                    assert stat.S_ISSOCK(path.stat().st_mode)
+                    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+                assert await wire(rpc_dir, "rpc.sock", envelope_frame()) == {
+                    "result": "PASS",
+                    "data": {"retained": 0, "unfinished": 0},
+                }
+                assert await wire(
+                    health_dir,
+                    "health.sock",
+                    {"schema_version": 1, "channel": "health", "run_id": RUN},
+                ) == {"run_id": RUN, "live": True}
+                if case == "replaced-before-close":
+                    rpc_path.unlink()
+                    rpc_path.write_text(SENTINEL)
+                await server.close()
+                assert not health_path.exists()
+                assert rpc_path.exists() == (case == "replaced-before-close")
+                if case == "replaced-before-close":
+                    assert rpc_path.read_text() == SENTINEL
+            else:
+                with pytest.raises((ValueError, OSError)):
+                    await server.start()
+                assert not any(
+                    p.is_socket() for p in (rpc_path, health_path) if p.exists()
+                )
+                if case == "missing-parent":
+                    assert not rpc_dir.exists()  # prepare owns directory creation
+                if case == "health-path-exists":
+                    assert health_path.read_text() == SENTINEL
+                    assert not rpc_path.exists()
+                if case == "ancestor-symlink":
+                    assert list((foreign / "rpc").iterdir()) == []
+            assert marker.read_text() == SENTINEL
+        finally:
+            os.umask(previous)
+            await server.close()
+            session.close()
+
+    asyncio.run(execute())
+
+
+def envelope_frame() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "channel": "fixture",
+        "request": envelope("retained_counts"),
+    }
+
+
+def test_relay_dispatch_runs_the_given_task_in_the_workspace_with_exactly_the_given_env(
+    socket_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#316 C2: the relay never derives its root from this module's file location."""
+    workspace = socket_root / "workspace"
+    task = socket_root / "tools" / "bin" / "task"
+    task.parent.mkdir(parents=True)
+    workspace.mkdir()
+    task.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "print(json.dumps({'result': 'PASS', 'data': {'argv': sys.argv, 'cwd': os.getcwd(),\n"
+        "    'env': dict(os.environ), 'stdin': sys.stdin.read()}}))\n"
+    )
+    task.chmod(0o700)
+    environment = {
+        "PATH": f"{task.parent}:/usr/bin:/bin",
+        "UV": "/srv/tools/uv",
+        "RAILWAY_NO_AUTO_UPDATE": "1",
+        "HOME": str(socket_root),
+    }
+    monkeypatch.setenv("TT316_INHERITED_SENTINEL", "leak")
+    request: dict[str, object] = {
+        "channel": "inspection",
+        "request": {"operation": "x"},
+    }
+
+    result, data = asyncio.run(
+        host_bridge.relay_dispatch(workspace, task, environment)("inspection", request)
+    )
+
+    assert result == "PASS"
+    assert data["argv"] == [str(task), "-s", "api-sim-inspect-ssh"]
+    assert Path(cast(str, data["cwd"])).resolve() == workspace.resolve()
+    assert data["stdin"] == encode_frame(request).decode()
+    actual = cast(dict[str, str], data["env"])
+    assert {k: v for k, v in actual.items() if k in environment} == environment
+    # Interpreters may add locale/CoreFoundation keys; nothing else may be inherited.
+    assert set(actual) - set(environment) <= {"LC_CTYPE", "__CF_USER_TEXT_ENCODING"}
 
 
 def test_slow_rpc_admission_is_bounded_independent_of_health_and_expires(

@@ -113,17 +113,23 @@ LAUNCHER_ERRORS: Final = (
 
 
 async def run_launcher(
-    command: Sequence[str], cwd: Path | None, timeout_seconds: float, request: bytes
+    command: Sequence[str],
+    cwd: Path | None,
+    timeout_seconds: float,
+    request: bytes,
+    env: Mapping[str, str] | None = None,
 ) -> tuple[str, dict[str, object]]:
     """Run one launcher child and return its `(result, data)`; any deviation raises.
 
     The request goes on stdin only and the child's stderr is discarded. Only the exact
     `{"result", "data"}` shape is accepted, and `PASS` must go with exit code 0 and
     nothing else. Raises one of `LAUNCHER_ERRORS` for every deviation, with no detail.
+    `env` replaces the child's environment; `None` inherits the caller's.
     """
     process = await asyncio.create_subprocess_exec(
         *command,
         cwd=cwd,
+        env=env,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,

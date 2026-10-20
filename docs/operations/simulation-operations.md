@@ -23,13 +23,15 @@ For simulator commands, see the
 
 ## Operating model: attended
 
-Every run is attended. The maintainer starts it from their own machine, enters
-the Clerk secret at the hidden prompt, and keeps the foreground bridge open
-until the run ends:
+Every run is attended. The maintainer starts it, enters the Clerk secret at the
+hidden prompt, and keeps the foreground bridge open until the run ends. The
+bridge runs on the maintainer's machine, or on the host in a
+[host operator session](simulation-host.md#host-operator-session):
 
 - privileged Staging setup and reconciliation go through `railway ssh`, which
   uses the maintainer's personal Railway login;
-- no Railway or Clerk credential is stored on the host;
+- the host holds a Railway login and an SSH key only during a host operator
+  session, and never a Clerk credential;
 - `--unattended` stays refused;
 - no timer or scheduler starts runs.
 

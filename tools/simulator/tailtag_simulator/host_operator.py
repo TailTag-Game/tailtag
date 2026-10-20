@@ -22,7 +22,13 @@ from typing import Any, cast
 
 from .client import open_client
 from .evaluation import EvaluationFailed, evaluate, write_evaluation
-from .host_bridge import BridgeServer, BridgeSession, fixed_dispatch
+from .host_bridge import (
+    BridgeServer,
+    BridgeSession,
+    RelayDispatch,
+    fixed_dispatch,
+    relay_dispatch,
+)
 from .host_protocol import decode_document, encode_frame, validate_manifest
 from .host_release import read_release
 from .reports import load_report
@@ -132,14 +138,12 @@ def _remote_command(command: list[str], cwd: Path) -> str:
     return "cd -- " + shlex.quote(str(cwd)) + " && exec " + shlex.join(command)
 
 
-async def _control(
-    host: str, command: list[str], payload: dict[str, object], *, cwd: Path
+async def _exchange(
+    command: list[str], payload: dict[str, object], *, cwd: Path | None = None
 ) -> int:
     process = await asyncio.create_subprocess_exec(
-        "ssh",
-        *SSH_OPTIONS,
-        host,
-        _remote_command(command, cwd),
+        *command,
+        cwd=cwd,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
@@ -153,8 +157,18 @@ async def _control(
             await process.wait()
 
 
+async def _control(
+    host: str, command: list[str], payload: dict[str, object], *, cwd: Path
+) -> int:
+    return await _exchange(
+        ["ssh", *SSH_OPTIONS, host, _remote_command(command, cwd)], payload
+    )
+
+
 MAX_EVIDENCE_BYTES = 33_554_432
 EVIDENCE_NAMES = {"report": None, "stages": "stages.log", "host": "host.json"}
+# Host-mode (#316) operator state, listed only when the run has it.
+OPERATOR_EVIDENCE = ("used", "bridge")
 STATES = {"settled", "held", "incomplete"}
 DEFAULT_BASELINES = Path(__file__).resolve().parents[1] / "baselines"
 # The `-o` options of SSH_OPTIONS only: scp never gets -a, -T or recursion.
@@ -252,8 +266,10 @@ def _validate_inventory(
                 raise ValueError
             listing.append((run_id, cast(str, state), None))
             continue
-        if not isinstance(files, dict) or set(cast(dict[str, Any], files)) != set(
-            EVIDENCE_NAMES
+        if not isinstance(files, dict) or not (
+            set(EVIDENCE_NAMES)
+            <= set(cast(dict[str, Any], files))
+            <= {*EVIDENCE_NAMES, *OPERATOR_EVIDENCE}
         ):
             raise ValueError
         digests = cast(dict[str, Any], files)
@@ -265,6 +281,11 @@ def _validate_inventory(
                     "report": _digest_record(digests["report"]),
                     "stages": _digest_record(digests["stages"], optional=True),
                     "host": _digest_record(digests["host"]),
+                    **{
+                        kind: _digest_record(digests[kind])
+                        for kind in OPERATOR_EVIDENCE
+                        if kind in digests
+                    },
                 },
             )
         )
@@ -384,6 +405,10 @@ async def _collect_run(
             "stages": (base / "reports/stages.log", "stages.log"),
             "host": (base / "host.json", "host.json"),
         }
+        for kind in OPERATOR_EVIDENCE:
+            if kind in files:
+                name = f"{run_id}.{kind}.json"
+                sources[kind] = (host_root / "operator-state" / name, name)
         for kind, (remote, name) in sources.items():
             record = files[kind]
             if record is None:
@@ -454,168 +479,112 @@ async def _collect(
     return 1 if failed else 0
 
 
-async def run_session(
+async def _operate(
     manifest: dict[str, object],
-    host: str,
-    host_root: Path,
+    state: Path,
+    dispatch: RelayDispatch,
     *,
-    state_dir: Path | None = None,
-    clock: Callable[[], float] = time.monotonic,
-    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    clock: Callable[[], float],
+    sleep: Callable[[float], Awaitable[None]],
+    prepare: Callable[[], Awaitable[int]],
+    bind: Callable[[BridgeSession], BridgeServer],
+    spawn: Callable[[], Awaitable[asyncio.subprocess.Process]],
+    resolve: Callable[[dict[str, object]], Awaitable[int]],
+    forward_signals: bool,
 ) -> int:
-    """Own the bridge and attached SSH child; workload authority never renews."""
+    """Shared session core; the SSH and local adapters supply only the transport."""
     process: asyncio.subprocess.Process | None = None
     server: BridgeServer | None = None
     session: BridgeSession | None = None
     previous: dict[int, object] = {}
     try:
-        manifest = validate_manifest(manifest)
-        root_text = _host_target(host, host_root)
-        state = state_dir or Path.home() / ".local/state/tailtag-simulator"
         _private_directory(state)
         run_id = str(manifest["run_id"])
         _write_new(
             state / (run_id + ".used.json"), {"schema_version": 1, "run_id": run_id}
         )
-        release = cast(dict[str, object], manifest["release"])
-        runtime = host_root / "releases" / str(release["simulator_sha"])
-        python = str(runtime / ".venv/bin/python")
-        command = [python, "-m", "tailtag_simulator.host_runner"]
-        if await _control(
-            host,
-            [*command, "prepare", "--root", root_text, "--manifest", "-"],
-            manifest,
-            cwd=runtime,
-        ):
+        if await prepare():
             return 1
-        with tempfile.TemporaryDirectory(prefix="tailtag-op-", dir="/tmp") as temporary:
-            directory = Path(temporary).resolve()
-            directory.chmod(0o700)
-            session = BridgeSession(manifest, fixed_dispatch, clock=clock)
-            server = BridgeServer(session, directory)
-            await server.start()
-            safety = cast(dict[str, object], manifest["safety"])
-            execution_end = clock() + cast(float, safety["seconds"])
-            terminal_end = execution_end + cast(float, safety["final_seconds"])
-            stopped = False
-            interrupted = False
+        session = BridgeSession(manifest, dispatch, clock=clock)
+        server = bind(session)
+        await server.start()
+        safety = cast(dict[str, object], manifest["safety"])
+        execution_end = clock() + cast(float, safety["seconds"])
+        terminal_end = execution_end + cast(float, safety["final_seconds"])
+        stopped = False
+        interrupted = False
 
-            def revoke(cause: str) -> None:
-                nonlocal stopped, terminal_end
-                if not stopped:
-                    stopped = True
-                    terminal_end = min(
-                        terminal_end, clock() + cast(float, safety["final_seconds"])
-                    )
-                    assert session is not None
-                    session.revoke_workload(cause)
+        def revoke(cause: str) -> None:
+            nonlocal stopped, terminal_end
+            if not stopped:
+                stopped = True
+                terminal_end = min(
+                    terminal_end, clock() + cast(float, safety["final_seconds"])
+                )
+                assert session is not None
+                session.revoke_workload(cause)
 
-            def interrupt(cause: str) -> None:
-                nonlocal interrupted
-                interrupted = True
-                revoke(cause)
+        def interrupt(sig: signal.Signals) -> None:
+            nonlocal interrupted
+            interrupted = True
+            revoke("signal_" + sig.name)
+            # Local mode has no SSH to drop: the child must hear the signal itself.
+            if forward_signals and process is not None and process.returncode is None:
+                with suppress(ProcessLookupError):
+                    process.send_signal(sig)
 
-            loop = asyncio.get_running_loop()
-            for sig in (signal.SIGINT, signal.SIGHUP, signal.SIGTERM):
-                previous[sig] = signal.getsignal(sig)
-                loop.add_signal_handler(sig, interrupt, "signal_" + sig.name)
-            base = host_root / "runs" / run_id
-            process = await asyncio.create_subprocess_exec(
-                "ssh",
-                *SSH_OPTIONS,
-                *(["-tt"] if os.isatty(0) and os.isatty(1) else []),
-                "-R",
-                str(base / "rpc/rpc.sock") + ":" + str(directory / "rpc.sock"),
-                "-R",
-                str(base / "control/health.sock")
-                + ":"
-                + str(directory / "health.sock"),
-                host,
-                _remote_command(
-                    [
-                        *command,
-                        "run",
-                        "--root",
-                        root_text,
-                        "--manifest",
-                        str(base / "control/manifest.json"),
-                        "--release",
-                        str(
-                            host_root
-                            / "releases"
-                            / str(release["simulator_sha"])
-                            / "release.json"
-                        ),
-                    ],
-                    runtime,
-                ),
-            )  # Inherit the caller's real TTY; no input/output transcript.
-            while process.returncode is None:
-                if clock() >= execution_end:
-                    revoke("execution_deadline")
-                if clock() >= terminal_end:
-                    revoke("terminal_deadline")
-                    break
-                # Bound owned-child exit observation independently of a fake clock.
-                waiter = asyncio.create_task(process.wait())
-                pause = asyncio.ensure_future(
-                    sleep(min(0.1, max(0, terminal_end - clock())))
-                )
-                done, pending = await asyncio.wait(
-                    (waiter, pause), return_when=asyncio.FIRST_COMPLETED
-                )
-                for task in pending:
-                    task.cancel()
-                await asyncio.gather(
-                    *cast(list[asyncio.Future[object]], list(pending)),
-                    return_exceptions=True,
-                )
-                if waiter in done:
-                    revoke("child_exit")
-            revoke("operator_exit")
-            if process.returncode is None:
-                process.terminate()
-                try:
-                    await asyncio.wait_for(process.wait(), 1)
-                except TimeoutError:
-                    process.kill()
-                    await process.wait()
-            await session.settle()
-            _write_new(state / (run_id + ".bridge.json"), session.evidence())
-            receipt = session.receipt()
-            resolved = False
-            if process.returncode == 0 and receipt["disposition"] in {
-                "released",
-                "no_mutation",
-            }:
-                resolved = (
-                    await _control(
-                        host,
-                        [
-                            *command,
-                            "recovery-resolve",
-                            "--root",
-                            root_text,
-                            "--run-id",
-                            run_id,
-                            "--receipt",
-                            "-",
-                        ],
-                        receipt,
-                        cwd=runtime,
-                    )
-                    == 0
-                )
-            return (
-                0
-                if process.returncode == 0
-                and not interrupted
-                and resolved
-                and clock() < execution_end
-                else 1
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGINT, signal.SIGHUP, signal.SIGTERM):
+            previous[sig] = signal.getsignal(sig)
+            loop.add_signal_handler(sig, interrupt, sig)
+        process = await spawn()  # Inherit the caller's real TTY; no transcript.
+        while process.returncode is None:
+            if clock() >= execution_end:
+                revoke("execution_deadline")
+            if clock() >= terminal_end:
+                revoke("terminal_deadline")
+                break
+            # Bound owned-child exit observation independently of a fake clock.
+            waiter = asyncio.create_task(process.wait())
+            pause = asyncio.ensure_future(
+                sleep(min(0.1, max(0, terminal_end - clock())))
             )
-    except (OSError, ValueError, TimeoutError):
-        return 1
+            done, pending = await asyncio.wait(
+                (waiter, pause), return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(
+                *cast(list[asyncio.Future[object]], list(pending)),
+                return_exceptions=True,
+            )
+            if waiter in done:
+                revoke("child_exit")
+        revoke("operator_exit")
+        if process.returncode is None:
+            process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), 1)
+            except TimeoutError:
+                process.kill()
+                await process.wait()
+        await session.settle()
+        _write_new(state / (run_id + ".bridge.json"), session.evidence())
+        receipt = session.receipt()
+        resolved = False
+        if process.returncode == 0 and receipt["disposition"] in {
+            "released",
+            "no_mutation",
+        }:
+            resolved = await resolve(receipt) == 0
+        return (
+            0
+            if process.returncode == 0
+            and not interrupted
+            and resolved
+            and clock() < execution_end
+            else 1
+        )
     finally:
         if session is not None:
             session.revoke_workload("operator_exit")
@@ -630,6 +599,207 @@ async def run_session(
             signal.signal(sig, handler)  # type: ignore[arg-type]
 
 
+async def run_session(
+    manifest: dict[str, object],
+    host: str,
+    host_root: Path,
+    *,
+    state_dir: Path | None = None,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> int:
+    """Own the bridge and attached SSH child; workload authority never renews."""
+    try:
+        manifest = validate_manifest(manifest)
+        root_text = _host_target(host, host_root)
+        release = cast(dict[str, object], manifest["release"])
+        runtime = host_root / "releases" / str(release["simulator_sha"])
+        command = [
+            str(runtime / ".venv/bin/python"),
+            "-m",
+            "tailtag_simulator.host_runner",
+        ]
+        base = host_root / "runs" / str(manifest["run_id"])
+        with tempfile.TemporaryDirectory(prefix="tailtag-op-", dir="/tmp") as temporary:
+            directory = Path(temporary).resolve()
+            directory.chmod(0o700)
+
+            async def spawn() -> asyncio.subprocess.Process:
+                return await asyncio.create_subprocess_exec(
+                    "ssh",
+                    *SSH_OPTIONS,
+                    *(["-tt"] if os.isatty(0) and os.isatty(1) else []),
+                    "-R",
+                    str(base / "rpc/rpc.sock") + ":" + str(directory / "rpc.sock"),
+                    "-R",
+                    str(base / "control/health.sock")
+                    + ":"
+                    + str(directory / "health.sock"),
+                    host,
+                    _remote_command(
+                        [
+                            *command,
+                            "run",
+                            "--root",
+                            root_text,
+                            "--manifest",
+                            str(base / "control/manifest.json"),
+                            "--release",
+                            str(runtime / "release.json"),
+                        ],
+                        runtime,
+                    ),
+                )
+
+            return await _operate(
+                manifest,
+                state_dir or Path.home() / ".local/state/tailtag-simulator",
+                fixed_dispatch,
+                clock=clock,
+                sleep=sleep,
+                prepare=lambda: _control(
+                    host,
+                    [*command, "prepare", "--root", root_text, "--manifest", "-"],
+                    manifest,
+                    cwd=runtime,
+                ),
+                bind=lambda session: BridgeServer(session, directory),
+                spawn=spawn,
+                resolve=lambda receipt: _control(
+                    host,
+                    [
+                        *command,
+                        "recovery-resolve",
+                        "--root",
+                        root_text,
+                        "--run-id",
+                        str(manifest["run_id"]),
+                        "--receipt",
+                        "-",
+                    ],
+                    receipt,
+                    cwd=runtime,
+                ),
+                forward_signals=False,
+            )
+    except (OSError, ValueError, TimeoutError):
+        return 1
+
+
+def _plain_absolute(path: Path) -> bool:
+    """True for an absolute path with no symlink in it or in any ancestor."""
+    return path.is_absolute() and not any(p.is_symlink() for p in (path, *path.parents))
+
+
+def _executable(path: Path) -> bool:
+    return path.is_file() and os.access(path, os.X_OK)
+
+
+def _refuse_local(workspace: Path, tools: Path) -> Path | None:
+    """Return the host `uv` when every start condition holds; otherwise None (C1)."""
+    uv = next((p for p in (tools / "uv", tools / "bin/uv") if _executable(p)), None)
+    if (
+        os.environ.get("RAILWAY_NO_AUTO_UPDATE") != "1"
+        or not (os.isatty(0) and os.isatty(1))  # The Clerk prompt needs a terminal.
+        or not (workspace / "Taskfile.yml").is_file()
+        or not (workspace / "services/api").is_dir()
+        or not _executable(tools / "bin/task")
+        or not _executable(tools / "bin/railway")
+    ):
+        return None
+    return uv
+
+
+async def run_local_session(
+    manifest: dict[str, object],
+    host_root: Path,
+    workspace: Path,
+    tools: Path,
+    state_dir: Path,
+    *,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> int:
+    """Own the bridge and a local host_runner child on the host itself (#316)."""
+    try:
+        manifest = validate_manifest(manifest)
+        uv = (
+            _refuse_local(workspace, tools)
+            if all(map(_plain_absolute, (host_root, workspace, tools, state_dir)))
+            else None
+        )
+        if uv is None:
+            print("REFUSED run-local", flush=True)
+            return 1
+        run_id = str(manifest["run_id"])
+        release = cast(dict[str, object], manifest["release"])
+        runtime = host_root / "releases" / str(release["simulator_sha"])
+        command = [
+            str(runtime / ".venv/bin/python"),
+            "-m",
+            "tailtag_simulator.host_runner",
+        ]
+        root_text = str(host_root)
+        base = host_root / "runs" / run_id
+        # Explicit and minimal: nothing of the operator's own PATH reaches the relays.
+        env = {
+            "PATH": os.pathsep.join(
+                [str(tools / "bin"), "/usr/local/bin", "/usr/bin", "/bin"]
+            ),
+            "UV": str(uv),
+            "RAILWAY_NO_AUTO_UPDATE": "1",
+            "HOME": os.environ["HOME"],
+        }
+
+        async def spawn() -> asyncio.subprocess.Process:
+            # Same process group: a terminal Ctrl-C reaches the runner as it does over ssh -tt.
+            return await asyncio.create_subprocess_exec(
+                *command,
+                "run",
+                "--root",
+                root_text,
+                "--manifest",
+                str(base / "control/manifest.json"),
+                "--release",
+                str(runtime / "release.json"),
+                cwd=runtime,
+            )
+
+        return await _operate(
+            manifest,
+            state_dir,
+            relay_dispatch(workspace, tools / "bin/task", env),
+            clock=clock,
+            sleep=sleep,
+            prepare=lambda: _exchange(
+                [*command, "prepare", "--root", root_text, "--manifest", "-"],
+                manifest,
+                cwd=runtime,
+            ),
+            bind=lambda session: BridgeServer.for_paths(
+                session, base / "rpc/rpc.sock", base / "control/health.sock"
+            ),
+            spawn=spawn,
+            resolve=lambda receipt: _exchange(
+                [
+                    *command,
+                    "recovery-resolve",
+                    "--root",
+                    root_text,
+                    "--run-id",
+                    run_id,
+                    "--receipt",
+                    "-",
+                ],
+                receipt,
+                cwd=runtime,
+            ),
+            forward_signals=True,
+        )
+    except (OSError, ValueError, TimeoutError, KeyError):
+        return 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
@@ -641,6 +811,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     run.add_argument("--host", required=True)
     run.add_argument("--host-root", type=Path, required=True)
     run.add_argument("--state-dir", type=Path)
+    local = commands.add_parser("run-local")
+    for name in ("manifest", "host-root", "workspace", "tools", "state-dir"):
+        local.add_argument("--" + name, type=Path, required=True)
     collect = commands.add_parser("collect")
     collect.add_argument("--host", required=True)
     collect.add_argument("--host-root", type=Path, required=True)
@@ -662,6 +835,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "prepare":
             return asyncio.run(
                 _prepare(args.profile, args.safety_config, args.release, args.output)
+            )
+        if args.command == "run-local":
+            return asyncio.run(
+                run_local_session(
+                    read_json(args.manifest),
+                    args.host_root,
+                    args.workspace,
+                    args.tools,
+                    args.state_dir,
+                )
             )
         return asyncio.run(
             run_session(

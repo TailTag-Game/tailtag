@@ -7,10 +7,10 @@ import os
 import re
 import stat
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from copy import deepcopy
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from tailtag_simulator.host_protocol import (
     decode_frame,
@@ -100,16 +100,33 @@ def _same(left: object, right: object) -> bool:
     )
 
 
+def relay_dispatch(
+    workspace: Path, task: Path, env: Mapping[str, str] | None
+) -> Callable[
+    [str, dict[str, object]], Coroutine[Any, Any, tuple[str, dict[str, object]]]
+]:
+    """Trusted argv/cwd/env only; the complete request travels exclusively on stdin."""
+
+    async def dispatch(
+        channel: str, envelope: dict[str, object]
+    ) -> tuple[str, dict[str, object]]:
+        return await run_launcher(
+            [str(task), "-s", _TARGETS[channel]],
+            workspace,
+            LAUNCHER_TIMEOUT_SECONDS,
+            encode_frame(envelope),
+            env,
+        )
+
+    return dispatch
+
+
 async def fixed_dispatch(
     channel: str, envelope: dict[str, object]
 ) -> tuple[str, dict[str, object]]:
-    """Trusted argv/cwd only; the complete request travels exclusively on stdin."""
-    return await run_launcher(
-        ["task", "-s", _TARGETS[channel]],
-        Path(__file__).resolve().parents[3],
-        LAUNCHER_TIMEOUT_SECONDS,
-        encode_frame(envelope),
-    )
+    """Mac mode: this checkout and `task` from the inherited PATH."""
+    root = Path(__file__).resolve().parents[3]
+    return await relay_dispatch(root, Path("task"), None)(channel, envelope)
 
 
 class BridgeSession:
@@ -597,32 +614,65 @@ async def _read_frame(reader: asyncio.StreamReader) -> bytes:
 
 
 class BridgeServer:
+    _directory: Path | None  # Mac mode only: the one private directory for both sockets
+
     def __init__(self, session: BridgeSession, directory: Path) -> None:
         self._session, self._directory = session, directory
+        self._paths = {
+            "rpc": directory / "rpc.sock",
+            "health": directory / "health.sock",
+        }
+        self._init_state()
+
+    @classmethod
+    def for_paths(
+        cls, session: BridgeSession, rpc_path: Path, health_path: Path
+    ) -> "BridgeServer":
+        """Local mode: each socket sits in its own run-owned directory (#316)."""
+        server = cls.__new__(cls)
+        server._session, server._directory = session, None
+        server._paths = {"rpc": rpc_path, "health": health_path}
+        server._init_state()
+        return server
+
+    def _init_state(self) -> None:
         self._servers: list[asyncio.Server] = []
         self._owned: dict[Path, tuple[int, int]] = {}
         self._active = {"rpc": 0, "health": 0}
         self._handlers: set[asyncio.Task[None]] = set()
 
-    async def start(self) -> None:
-        if self._servers or self._directory.is_symlink():
-            raise ValueError("invalid bridge paths")
-        if not self._directory.exists():
-            self._directory.mkdir(mode=0o700)
-        directory_stat = self._directory.stat()
+    @staticmethod
+    def _private_parent(parent: Path) -> None:
+        info = parent.stat()
         if (
-            not stat.S_ISDIR(directory_stat.st_mode)
-            or directory_stat.st_uid != os.getuid()
-            or stat.S_IMODE(directory_stat.st_mode) != 0o700
+            not stat.S_ISDIR(info.st_mode)
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) != 0o700
         ):
             raise ValueError("invalid bridge paths")
-        for name in ("rpc.sock", "health.sock"):
-            path = self._directory / name
+
+    async def start(self) -> None:
+        if self._servers:
+            raise ValueError("invalid bridge paths")
+        if self._directory is not None:
+            if self._directory.is_symlink():
+                raise ValueError("invalid bridge paths")
+            if not self._directory.exists():
+                self._directory.mkdir(mode=0o700)
+            self._private_parent(self._directory)
+        # Validate every path before binding any: a late refusal must leave no socket.
+        for path in self._paths.values():
+            if self._directory is None and (
+                not path.is_absolute()
+                or any(p.is_symlink() for p in (path, *path.parents))
+            ):
+                raise ValueError("invalid bridge paths")
+            self._private_parent(path.parent)
             if path.exists() or path.is_symlink():
                 raise ValueError("invalid bridge paths")
+        previous = os.umask(0o077)
         try:
-            for kind in ("rpc", "health"):
-                path = self._directory / (kind + ".sock")
+            for kind, path in self._paths.items():
                 server = await asyncio.start_unix_server(
                     lambda r, w, kind=kind: self._accept(kind, r, w),
                     path=path,
@@ -636,6 +686,8 @@ class BridgeServer:
         except BaseException:
             await self.close()
             raise
+        finally:
+            os.umask(previous)
 
     def _accept(
         self, kind: str, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
