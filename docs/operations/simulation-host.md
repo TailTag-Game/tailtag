@@ -21,7 +21,9 @@ Bootstrap is secret-free. Its supported Docker packages are fixed, with no lates
 
 Use the official signed Docker apt repository. Host control uses owner-local uv **0.9.17**, whose official amd64 archive SHA-256 is `0114d54f9aafd07516cf1cadfe72afa970f5fd293fbe82dd924b8a7b42c984d8`, and managed CPython **3.13.11** from that uv release's checksum-bound metadata. Ubuntu's system Python remains unchanged. Record installed OS/kernel, Docker, uv, Python and locked dependency versions. The [plan's pinned upstream sources](../specs/2026-10-08-external-simulation-host-implementation-plan.md#task-3-host-admission-artifacts-and-immutable-releases-u3) explain these choices; package availability is mutable and upgrades require a deliberate reviewed pin update between runs.
 
-Disable disk-backed swap, kernel/process core dumps and terminal recording before credential entry. Verify `swapon --show` is empty, `ulimit -c` is zero in the operator session, and `/proc/sys/kernel/core_pattern` is exactly `|/bin/false`; Docker also applies core limit zero. Host prepare/run require Linux amd64 and a nonroot owner. CI configures these same swap/core settings only on its disposable Ubuntu 24.04 runner so the real Linux admission/signal test runs without bypassing policy; it starts no hosted load. Do not run `script`, record a raw TTY, enable shell tracing around prompts, or retain unsanitized diagnostic transcripts. Docker uses logging driver `none`. Clerk secrets are hidden interactive inputs only; no arguments, environment variables, files or image layers carry them. Railway/platform credentials and their existing relay configuration remain exclusively on the maintainer machine.
+Disable disk-backed swap, kernel/process core dumps and terminal recording before credential entry. Verify `swapon --show` is empty, `ulimit -c` is zero in the operator session, and `/proc/sys/kernel/core_pattern` is exactly `|/bin/false`; Docker also applies core limit zero. Host prepare/run require Linux amd64 and a nonroot owner. CI configures these same swap/core settings only on its disposable Ubuntu 24.04 runner so the real Linux admission/signal test runs without bypassing policy; it starts no hosted load. Do not run `script`, record a raw TTY, enable shell tracing around prompts, or retain unsanitized diagnostic transcripts. Docker uses logging driver `none`. Clerk secrets are hidden interactive inputs only; no arguments, environment variables, files or image layers carry them.
+
+Railway credentials exist on the host only during an attended [host operator session](#host-operator-session). During a session, the host holds a Railway login and a registered SSH key. They reach every environment and every service variable in the Railway workspace, and Production too once it exists. Nothing remains on the host outside a session. `railway logout` does not revoke the login, so every session ends with a revoke on the Railway account security page and the removal of the session key. If the host is compromised during a session, revoke all Railway sessions and SSH keys. Then rotate the account and workspace tokens, and every variable that `railway variable list` can read. Production must not be created in this Railway workspace until host sessions are reviewed again, or Production gets its own workspace. The workload container runs as the same Linux user as the session. A separate container user is required before Production shares this workspace.
 
 Keep a private SSH configuration, for example:
 
@@ -164,6 +166,93 @@ The Linux runner holds a whole-host exclusive lock through work and evidence fin
 The attached Docker client has its own process session and uses `--sig-proxy=false`, while retaining inherited terminal descriptors for hidden input. The supervisor controls workload signals explicitly by owned CID; terminal process-group HUP cannot bypass graceful SIGINT by Docker's default signal proxy.
 
 The supervisor polls health every five seconds, allowing two seconds per request. Thirty seconds since its last fresh live response permanently latches supervision loss and sends SIGINT to that owned container's Python process. Recovery of SSH/health does not resume traffic. Operator SIGINT/SIGHUP, SSH exit and the execution deadline revoke workload liveness. Terminal recovery remains bounded when transport survives. After finalization allowance plus ten seconds, the supervisor kills only the owned task container and records hard-stop uncertainty; child exit is never proof of remote rollback.
+
+## Host operator session
+
+A host operator session runs an attended run from the host itself. The bridge, the Railway relays and the host runner run as `tailtag_sim` in one tmux session, with no SSH between them. The maintainer can disconnect, and the run continues. The [trust rules](#host-selection-and-private-inventory) above apply.
+
+### One-time setup
+
+Do these steps once, and again after each new release.
+
+1. Make sure that 2FA is on for the maintainer's Railway account.
+2. On the host, install go-task 3.53.1 into `/srv/tailtag-simulator/tools/bin`. Check it against the pinned SHA-256 in `.github/actions/install-go-task/action.yml`.
+3. On the host, install the latest Railway CLI into `/srv/tailtag-simulator/tools/bin`. Check the download against the SHA-256 that GitHub publishes for that release asset. The CLI updates itself only from a `bin` directory.
+4. Append the output of `task --version` and `railway --version`, and the SHA-256 of each binary, to `/srv/tailtag-simulator/tools/versions.txt`. Bootstrap rewrites that file, so append them again after any bootstrap.
+5. On the host, install the selector manifest at `~/.config/tailtag/staging-clean-rebuild-targets.json` with mode 0600. It holds only the five `rebuild_*` identifiers that `validate_selectors` reads. Copy those keys from the maintainer's own manifest, and no others.
+6. On the Mac, create the workspace archive from a clean checkout of the installed release SHA:
+
+   ```sh
+   git archive --format=tar.gz -o "$TRANSFER/workspace.tar.gz" "$SIMULATOR_SHA"
+   shasum -a 256 "$TRANSFER/workspace.tar.gz"
+   ```
+
+7. Copy the archive to `/srv/tailtag-simulator/incoming/` with scp. On the host, install the workspace from the release directory:
+
+   ```sh
+   HOST_ROOT=/srv/tailtag-simulator
+   cd "$HOST_ROOT/releases/$SIMULATOR_SHA" && .venv/bin/python -m tailtag_simulator.host_release install-operator \
+     --archive "$HOST_ROOT/incoming/workspace.tar.gz" --archive-sha256 "$ARCHIVE_SHA256" \
+     --source-sha "$SIMULATOR_SHA" --root "$HOST_ROOT"
+   ```
+
+   The command makes sure that the archive digest matches and that the SHA names an installed release. It extracts into `operator/<sha>` with private modes, then runs a locked `uv sync` of `services/api`. Any failure leaves no workspace.
+
+### Session start
+
+Run these steps in order, in a new SSH login as `tailtag_sim`. Do not start a session unless railway.com is reachable from a second device, because the dashboard is the [kill switch](#kill-switch).
+
+1. Run `tmux new-session -s operator`. Do not use tmux `pipe-pane` or any session logging.
+2. Run `umask 077`, and turn off shell history with `set +o history`.
+3. Make sure that `swapon --show` is empty, `ulimit -c` is 0, and `/proc/sys/kernel/core_pattern` is `|/bin/false`.
+4. Make sure that systemd-logind `KillUserProcesses` is false, so tmux survives an SSH logout.
+5. Choose the key location. Create an owner-only test file in `/dev/shm`, detach tmux, log out of SSH, log in again and reattach. If the file is still there, keep the key in `/dev/shm`. If it is gone, keep the key in the owner-only workspace instead, and remove it with `shred -u` at session end.
+6. Run `export PATH="/srv/tailtag-simulator/tools/bin:$PATH"`. Then run `railway upgrade`, and record `railway --version` and the SHA-256 of the `railway` binary.
+7. Run `export RAILWAY_NO_AUTO_UPDATE=1`. Make sure that `railway autoupdate status` reports disabled, and that `~/.railway/staged-update` and `~/.railway/backups` do not exist.
+8. Generate an ed25519 key with the comment `tailtag-sim-<date>` in the chosen location.
+9. Add a `Host ssh.railway.com` block to `~/.ssh/config` with `IdentityFile` set to that key, `IdentitiesOnly yes`, `ForwardAgent no` and `StrictHostKeyChecking yes`.
+10. Make sure that the `ssh.railway.com` host key fingerprint equals the recorded value `SHA256:+S1xg92FrnHz6pY3bpkmh1OGtWQGNANXilPzlxA7B1g`.
+11. Run `railway login --browserless`, and enter the pairing code from the Mac. Make sure that `stat -c %a ~/.railway/config.json` prints `600`.
+12. Run `railway ssh keys list` and record the output. Remove any leftover `tailtag-sim-*` key by its exact name. The `tailtag-sim-` prefix is reserved for session keys.
+13. Run `railway ssh keys add` with the new public key and a `tailtag-sim-<date>` name.
+
+### Running a workload
+
+Prepare and run each workload from the release directory. The workspace holds the committed profiles with private modes.
+
+```sh
+HOST_ROOT=/srv/tailtag-simulator
+RELEASE_DIR="$HOST_ROOT/releases/$SIMULATOR_SHA"
+WORKSPACE="$HOST_ROOT/operator/$SIMULATOR_SHA"
+STATE="$HOST_ROOT/operator-state"
+install -d -m 0700 "$STATE" "$STATE/manifests"
+cd "$RELEASE_DIR"
+.venv/bin/python -m tailtag_simulator.host_operator prepare \
+  --profile "$WORKSPACE/tools/simulator/host/smoke-profile.json" \
+  --safety-config "$WORKSPACE/tools/simulator/host/safety.json" \
+  --release "$RELEASE_DIR/release.json" --output "$STATE/manifests/smoke-1.json"
+.venv/bin/python -m tailtag_simulator.host_operator run-local \
+  --manifest "$STATE/manifests/smoke-1.json" --host-root "$HOST_ROOT" \
+  --workspace "$WORKSPACE" --tools "$HOST_ROOT/tools" --state-dir "$STATE"
+```
+
+`run-local` refuses to start unless `RAILWAY_NO_AUTO_UPDATE` is `1` and stdin and stdout are terminals. It also refuses unless the workspace and the tools are complete. It writes `<UUID>.used.json` and `<UUID>.bridge.json` in the state directory, and `sim-host-collect` copies them with the run. Enter the Clerk Staging secret at the hidden prompt. Each workload needs a fresh `prepare` and a new manifest.
+
+### Session end
+
+The session end is mandatory after any exit, including a crash or a reboot.
+
+1. If the shell is new, for example after a reboot, run `umask 077`, `export PATH="/srv/tailtag-simulator/tools/bin:$PATH"` and `export RAILWAY_NO_AUTO_UPDATE=1` before any `railway` command.
+2. Run `railway ssh keys remove`, and choose the session key by its exact name.
+3. If the private key still exists, run `shred -u` on it. Remove the public key.
+4. Remove the `Host ssh.railway.com` block from `~/.ssh/config`.
+5. Run `railway logout`, then `rm -rf ~/.railway`.
+6. Revoke the host's CLI session on the Railway account security page (railway.com/account/security). Logout alone leaves the login valid on Railway's side.
+7. On the Mac, run `railway ssh keys list`. Make sure that no `tailtag-sim-*` key remains.
+
+### Kill switch
+
+To stop a session's privileged authority from anywhere, revoke the host's CLI session and remove its key on railway.com. Every relay then fails with `FAIL_LAUNCHER`. The run fails with `FAIL_LEASE` after three failed heartbeats, and its hold stays in place. If the relays fail fast, this takes about three minutes. If they hang until the 180 s launcher timeout, it takes up to about twelve minutes. Recover the held run from the Mac with the [recovery procedure](#recovery-and-refusal-handling). With access to the host, reattach tmux and press Ctrl-C, or use the controlled stop below.
 
 ## Observation and controlled stop
 

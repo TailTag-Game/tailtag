@@ -131,6 +131,19 @@ def snapshot(root: Path) -> dict[str, tuple[object, ...]]:
     return seen
 
 
+def operator_evidence(
+    root: Path, run_id: str, kinds: tuple[str, ...] = ("used", "bridge")
+) -> dict[str, bytes]:
+    """Host-side operator state for one run (#316), as `run-local` leaves it."""
+    return {
+        kind: put(
+            root / "operator-state" / f"{run_id}.{kind}.json",
+            {"schema_version": 1, "run_id": run_id, "kind": kind},
+        )
+        for kind in kinds
+    }
+
+
 def inventory(
     root: Path, timeout: float = 15
 ) -> tuple[int, str, dict[str, dict[str, Any]]]:
@@ -191,6 +204,51 @@ def test_inventory_classifies_runs_with_exact_hashes_and_writes_nothing(
     }
     assert runs[HELD]["files"] is None and runs[INCOMPLETE]["files"] is None
     assert snapshot(host) == before
+
+
+def test_inventory_reports_operator_evidence_only_for_runs_that_have_it(
+    host: Path,
+) -> None:
+    settled = host_run(host, SETTLED, "settled")
+    both = operator_evidence(host, SETTLED)
+    partial = host_run(host, PRUNED, "settled", stages=None)
+    only_used = operator_evidence(host, PRUNED, ("used",))
+    plain = host_run(host, GOOD, "settled")
+    before = snapshot(host)
+
+    code, _, runs = inventory(host)
+
+    assert code == 0
+    ordinary = ("report", "stages", "host")
+    assert runs[SETTLED]["files"] == {
+        **{kind: digest(settled[kind]) for kind in ordinary},
+        "used": digest(both["used"]),
+        "bridge": digest(both["bridge"]),
+    }
+    assert runs[PRUNED]["files"] == {
+        "report": digest(partial["report"]),
+        "stages": None,
+        "host": digest(partial["host"]),
+        "used": digest(only_used["used"]),
+    }
+    assert runs[GOOD]["files"] == {kind: digest(plain[kind]) for kind in ordinary}
+    assert snapshot(host) == before
+
+
+def test_inventory_never_reads_operator_evidence_through_a_symlink(
+    host: Path, tmp_path: Path
+) -> None:
+    host_run(host, SETTLED, "settled")
+    outside = tmp_path / "outside.json"
+    outside.write_bytes(SENTINEL)
+    link = host / "operator-state" / f"{SETTLED}.used.json"
+    link.parent.mkdir(mode=0o700)
+    link.symlink_to(outside)
+
+    code, stdout, _ = inventory(host)
+
+    assert code in (0, 1)  # a usage error would pass this test vacuously
+    assert hashlib.sha256(SENTINEL).hexdigest() not in stdout
 
 
 @pytest.mark.parametrize("unsafe", ["report", "host", "stages", "fifo-report"])
@@ -348,8 +406,11 @@ for source in words[:-1]:
     path = Path(source.split(":", 1)[1])
     target = destination / path.name if destination.is_dir() else destination
     kind = ("host" if path.name == "host.json"
-            else "stages" if path.name == "stages.log" else "report")
-    owner = path.parent.name if kind == "host" else path.parent.parent.name
+            else "stages" if path.name == "stages.log"
+            else "used" if path.name.endswith(".used.json")
+            else "bridge" if path.name.endswith(".bridge.json") else "report")
+    owner = (path.name.split(".")[0] if kind in ("used", "bridge")
+             else path.parent.name if kind == "host" else path.parent.parent.name)
     fault = tamper.get(owner, {{}}).get(kind)
     if fault == "fail":
         raise SystemExit(1)
@@ -461,6 +522,33 @@ def test_collect_copies_verified_settled_evidence_once_and_never_touches_the_res
     assert snapshot(rig.baselines) == baselines_before
 
 
+def test_collect_archives_verified_operator_evidence_beside_the_run(
+    rig: Rig, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    host_run(rig.host, SETTLED, "settled", report=convention_report(SETTLED, tmp_path))
+    operator = operator_evidence(rig.host, SETTLED)
+    host_run(rig.host, GOOD, "settled", report=convention_report(GOOD, tmp_path / "s"))
+    host_before = snapshot(rig.host)
+
+    code, states, _ = rig.collect(capsys)
+
+    assert (code, states) == (0, {SETTLED: "collected", GOOD: "collected"})
+    contents = rig.archived(SETTLED)
+    assert contents[f"{SETTLED}.used.json"] == operator["used"]
+    assert contents[f"{SETTLED}.bridge.json"] == operator["bridge"]
+    recorded = json.loads(contents["collected.json"])["files"]
+    assert recorded["used"] == digest(operator["used"])
+    assert recorded["bridge"] == digest(operator["bridge"])
+    # A Mac-mode run has no operator evidence: nothing extra is fetched or recorded.
+    assert not any(".used." in n or ".bridge." in n for n in rig.archived(GOOD))
+    assert set(json.loads(rig.archived(GOOD)["collected.json"])["files"]) == {
+        "report",
+        "stages",
+        "host",
+    }
+    assert snapshot(rig.host) == host_before
+
+
 @pytest.mark.parametrize("case", ["convention", "journeys"])
 def test_collect_evaluates_only_convention_schema_5_reports(
     rig: Rig, tmp_path: Path, capsys: pytest.CaptureFixture[str], case: str
@@ -500,6 +588,8 @@ def test_collect_evaluates_only_convention_schema_5_reports(
         ("report", "fail"),
         ("report", "invalid"),
         ("report", "misattributed"),
+        ("used", "flip"),
+        ("bridge", "truncate"),
     ],
 )
 def test_collect_leaves_no_evidence_for_a_run_whose_transfer_does_not_verify(
@@ -514,6 +604,8 @@ def test_collect_leaves_no_evidence_for_a_run_whose_transfer_does_not_verify(
     if fault == "invalid":
         bad["outcome"] = "not-an-outcome"
     host_run(rig.host, SETTLED, "settled", report=bad)
+    if kind in {"used", "bridge"}:
+        operator_evidence(rig.host, SETTLED)
     host_run(rig.host, GOOD, "settled", report=convention_report(GOOD, tmp_path / "s"))
     if fault not in {"invalid", "misattributed"}:
         rig.tampering(SETTLED, kind, fault)
@@ -569,6 +661,9 @@ UNTRUSTED = {
     "settled-without-files": inventory_text(run={"files": None}),
     "extra-run-key": inventory_text(run={"extra": 1}),
     "extra-file": inventory_text(files={"extra": digest(b"x")}),
+    "bad-operator-digest": inventory_text(
+        files={"used": {"sha256": "ABC", "bytes": 6}}
+    ),
     "extra-top-key": inventory_text(top={"extra": 1}),
     "wrong-version": inventory_text(top={"schema_version": 2}),
     "omitted-negative": inventory_text(top={"omitted": -1}),

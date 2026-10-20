@@ -155,3 +155,10 @@ host ceilings.
 The maintainer decides whether to open this issue. Until then, the
 [attended cadence](../operations/simulation-operations.md) is the operating
 model, and #199's host-scheduling criterion is met only in its attended form.
+
+Update (#316): attended runs can also run from the host in a
+[host operator session](../operations/simulation-host.md#host-operator-session).
+A Railway login and an SSH key then exist on the host for the length of one
+session only. Unattended scheduling stays deferred. Before Production shares
+the Railway workspace, the workload container must run as a separate Linux
+user.

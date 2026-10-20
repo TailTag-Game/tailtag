@@ -3,6 +3,7 @@
 import ast
 import csv
 import hashlib
+import io
 import json
 import os
 import pwd
@@ -10,6 +11,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tarfile
 import time
 import uuid
 from collections.abc import Iterator
@@ -19,6 +21,7 @@ from typing import Any, cast
 
 import pytest
 
+from tailtag_simulator import host_release
 from tailtag_simulator.host_release import (
     install_runtime,
     load_release,
@@ -961,3 +964,188 @@ def test_bootstrap_verifies_installed_interpreter_source_before_success(
         "args": ["-m", "tailtag_simulator.provenance", "inspect"],
         "cwd": str(runtime),
     }
+
+
+# --- #316 U3: operator workspace. Only the `uv` subprocess is substituted. ---
+
+OPERATOR_MEMBERS = (
+    ("services", None, 0o755),
+    ("services/api", None, 0o755),
+    ("Taskfile.yml", b"version: '3'\n", 0o755),
+    ("services/api/pyproject.toml", b"[project]\n", 0o644),
+    ("services/api/uv.lock", b"version = 1\n", 0o644),
+)
+
+
+def operator_archive(path: Path, unsafe: str | None = None) -> str:
+    """Write a source archive; a rejected member is last, after valid ones."""
+    with tarfile.open(path, "w") as tar:
+        for name, data, mode in OPERATOR_MEMBERS:
+            info = tarfile.TarInfo(name)
+            info.mode = mode
+            if data is None:
+                info.type = tarfile.DIRTYPE
+                tar.addfile(info)
+            else:
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+        if unsafe == "traversal":
+            bad = tarfile.TarInfo("../evil")
+            bad.size = 4
+            tar.addfile(bad, io.BytesIO(b"evil"))
+        elif unsafe == "symlink_escape":
+            bad = tarfile.TarInfo("services/link")
+            bad.type, bad.linkname = tarfile.SYMTYPE, "../../../../outside"
+            tar.addfile(bad)
+        elif unsafe == "device":
+            bad = tarfile.TarInfo("null")
+            bad.type, bad.devmajor, bad.devminor = tarfile.CHRTYPE, 1, 3
+            tar.addfile(bad)
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+class UvBoundary:
+    """The `uv` executable boundary: records each call, then exits with `status`."""
+
+    def __init__(self) -> None:
+        self.real_popen = subprocess.Popen
+        self.status = 0
+        self.calls: list[tuple[list[str], Path | None, bool]] = []
+
+    def popen(self, arguments: list[str], **kwargs: Any) -> subprocess.Popen[bytes]:
+        assert Path(arguments[0]).name == "uv", "Unexpected external process"
+        cwd = Path(kwargs["cwd"]) if kwargs.get("cwd") else None
+        extracted = cwd is not None and (cwd / "Taskfile.yml").is_file()
+        self.calls.append((list(arguments), cwd, extracted))
+        if cwd is not None and cwd.is_dir():
+            (cwd / ".venv").mkdir(mode=0o700)
+            (cwd / ".venv/partial").write_text("half-synced")
+        return cast(
+            "subprocess.Popen[bytes]",
+            self.real_popen(
+                [sys.executable, "-c", "import sys; sys.exit(int(sys.argv[1]))"]
+                + [str(self.status)],
+                **kwargs,
+            ),
+        )
+
+
+@pytest.fixture
+def uv_boundary(monkeypatch: pytest.MonkeyPatch) -> UvBoundary:
+    boundary = UvBoundary()
+    monkeypatch.setattr(subprocess, "Popen", boundary.popen)
+    return boundary
+
+
+@pytest.fixture
+def operator_host(tmp_path: Path) -> Path:
+    """A host root holding one installed release (`SHA`) and the pinned `uv`."""
+    root = tmp_path / "host"
+    root.mkdir(mode=0o700)
+    release = root / "releases" / SHA
+    release.mkdir(mode=0o700, parents=True)
+    (root / "releases").chmod(0o700)
+    (release / "release.json").write_text(json.dumps(metadata()))
+    (root / "tools").mkdir(mode=0o700)
+    (root / "tools/uv").write_text("pinned uv boundary")
+    (root / "tools/uv").chmod(0o700)
+    return root
+
+
+def test_install_operator_extracts_private_workspace_then_runs_locked_sync(
+    tmp_path: Path,
+    operator_host: Path,
+    uv_boundary: UvBoundary,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    archive = tmp_path / "source.tar"
+    digest = operator_archive(archive)
+    workspace = operator_host / "operator" / SHA
+
+    code = main(
+        ["install-operator", "--archive", str(archive), "--archive-sha256", digest]
+        + ["--source-sha", SHA, "--root", str(operator_host)]
+    )
+
+    assert code == 0 and capsys.readouterr().out == f"{workspace}\n"
+    assert uv_boundary.calls == [
+        (
+            [str(operator_host / "tools/uv")]
+            + ["sync", "--project", "services/api", "--locked"],
+            workspace,
+            True,  # extraction finished before the sync started
+        )
+    ]
+    assert (workspace / "services/api/uv.lock").read_bytes() == b"version = 1\n"
+    modes = {
+        path.relative_to(workspace).as_posix(): path.stat().st_mode & 0o777
+        for path in (workspace, *workspace.rglob("*"))
+        if ".venv" not in path.relative_to(workspace).parts
+    }
+    assert modes == {
+        ".": 0o700,
+        "services": 0o700,
+        "services/api": 0o700,
+        "Taskfile.yml": 0o600,
+        "services/api/pyproject.toml": 0o600,
+        "services/api/uv.lock": 0o600,
+    }
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "digest",
+        "unknown_sha",
+        "release_for_other_sha",
+        "traversal",
+        "symlink_escape",
+        "device",
+        "existing",
+        "sync_fails",
+        "root_mode",
+    ],
+)
+def test_install_operator_refusal_leaves_no_workspace_or_partial_directory(
+    tmp_path: Path, operator_host: Path, uv_boundary: UvBoundary, fault: str
+) -> None:
+    archive = tmp_path / "source.tar"
+    unsafe = fault if fault in {"traversal", "symlink_escape", "device"} else None
+    digest = operator_archive(archive, unsafe)
+    source_sha = SHA
+    if fault == "digest":
+        digest = "0" * 64
+    elif fault == "unknown_sha":
+        source_sha = "c" * 40
+    elif fault == "release_for_other_sha":
+        other = operator_host / "releases" / ("c" * 40)
+        other.mkdir(mode=0o700)
+        (other / "release.json").write_text(json.dumps(metadata()))  # names SHA
+        source_sha = "c" * 40
+    elif fault == "sync_fails":
+        uv_boundary.status = 1
+    elif fault == "root_mode":
+        operator_host.chmod(0o755)
+    existing = operator_host / "operator" / SHA
+    if fault == "existing":
+        existing.mkdir(mode=0o700, parents=True)
+        (existing / "sentinel").write_text("operator edits")
+
+    with pytest.raises(REJECTED):
+        host_release.install_operator(  # type: ignore[attr-defined]
+            archive, digest, source_sha, operator_host
+        )
+
+    workspaces = operator_host / "operator"
+    if fault == "existing":
+        # An existing workspace is refused and never cleaned up as a failed attempt.
+        assert [p.name for p in workspaces.iterdir()] == [SHA]
+        assert (existing / "sentinel").read_text() == "operator edits"
+    else:
+        assert not workspaces.exists() or list(workspaces.iterdir()) == []
+    assert {p.name for p in operator_host.iterdir()} <= {
+        "releases",
+        "tools",
+        "operator",
+    }
+    assert (len(uv_boundary.calls) == 1) is (fault == "sync_fails")
