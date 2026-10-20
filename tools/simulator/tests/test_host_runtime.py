@@ -1819,6 +1819,9 @@ LOCAL_FAULTS = [
     "no-task",
     "railway-not-executable",
     "no-uv",
+    "relative-tools",
+    "symlinked-host-root",
+    "relative-state-dir",
 ]
 
 
@@ -1863,34 +1866,40 @@ class LocalRig:
                 env[key] = replacement
         return env
 
-    def command(self) -> list[str]:
+    def command(self, paths: dict[str, str] | None = None) -> list[str]:
+        values = {
+            "manifest": str(self.root / "manifest.json"),
+            "host-root": str(self.host_root),
+            "workspace": str(self.workspace),
+            "tools": str(self.tools),
+            "state-dir": str(self.state),
+            **(paths or {}),
+        }
         return [
             sys.executable,
             "-m",
             "tailtag_simulator.host_operator",
             "run-local",
-            "--manifest",
-            str(self.root / "manifest.json"),
-            "--host-root",
-            str(self.host_root),
-            "--workspace",
-            str(self.workspace),
-            "--tools",
-            str(self.tools),
-            "--state-dir",
-            str(self.state),
+            *(item for key, value in values.items() for item in (f"--{key}", value)),
         ]
 
     @contextmanager
     def start(
-        self, *, stdin_tty: bool = True, stdout_tty: bool = True, **changes: str | None
+        self,
+        *,
+        stdin_tty: bool = True,
+        stdout_tty: bool = True,
+        paths: dict[str, str] | None = None,
+        cwd: Path | None = None,
+        **changes: str | None,
     ) -> Generator[subprocess.Popen[bytes]]:
         """Run the operator on a real pseudo-terminal; plain files stand in for a non-tty."""
         master, slave = pty.openpty()
         process: subprocess.Popen[bytes] | None = None
         try:
             process = subprocess.Popen(
-                self.command(),
+                self.command(paths),
+                cwd=cwd,
                 env=self.environment(**changes),
                 stdin=slave if stdin_tty else subprocess.DEVNULL,
                 stdout=slave if stdout_tty else subprocess.DEVNULL,
@@ -1935,14 +1944,32 @@ def test_run_local_refuses_unsafe_start_before_prepare(fault: str) -> None:
             # The plan does not say whether uv sits at tools/uv or tools/bin/uv.
             (rig.tools / "uv").unlink()
             (rig.tools / "bin/uv").unlink(missing_ok=True)
+        # Path faults: each good path exists and is resolved, so only the form is wrong.
+        paths: dict[str, str] = {}
+        cwd: Path | None = None
+        if fault in {"relative-tools", "relative-state-dir"}:
+            # Relative to this cwd the path resolves to a real tools/state directory.
+            cwd = root
+            changes["PYTHONPATH"] = str(Path(__file__).parents[1])
+            paths = (
+                {"tools": "tools"}
+                if fault == "relative-tools"
+                else {"state-dir": "state"}
+            )
+        elif fault == "symlinked-host-root":
+            (root / "hostlink").symlink_to(rig.host_root, target_is_directory=True)
+            paths = {"host-root": str(root / "hostlink")}
         with rig.start(
             stdin_tty=fault != "stdin-not-tty",
             stdout_tty=fault != "stdout-not-tty",
+            paths=paths,
+            cwd=cwd,
             **changes,
         ) as process:
             assert process.wait(timeout=20) == 1
         assert rig.ops() == []
         assert not (rig.host_root / "runs").exists()
+        assert list(root.rglob("*.used.json")) == []
 
 
 @pytest.mark.parametrize("outcome", ["released", "runner_failure"])

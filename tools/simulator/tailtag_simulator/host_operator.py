@@ -686,6 +686,11 @@ async def run_session(
         return 1
 
 
+def _plain_absolute(path: Path) -> bool:
+    """True for an absolute path with no symlink in it or in any ancestor."""
+    return path.is_absolute() and not any(p.is_symlink() for p in (path, *path.parents))
+
+
 def _executable(path: Path) -> bool:
     return path.is_file() and os.access(path, os.X_OK)
 
@@ -718,7 +723,11 @@ async def run_local_session(
     """Own the bridge and a local host_runner child on the host itself (#316)."""
     try:
         manifest = validate_manifest(manifest)
-        uv = _refuse_local(workspace, tools)
+        uv = (
+            _refuse_local(workspace, tools)
+            if all(map(_plain_absolute, (host_root, workspace, tools, state_dir)))
+            else None
+        )
         if uv is None:
             print("REFUSED run-local", flush=True)
             return 1
