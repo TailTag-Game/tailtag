@@ -23,10 +23,10 @@ For simulator commands, see the
 
 ## Operating model: attended
 
-Every run is attended. The maintainer starts it, enters the Clerk secret at the
-hidden prompt, and keeps the foreground bridge open until the run ends. The
-bridge runs on the maintainer's machine, or on the host in a
-[host operator session](simulation-host.md#host-operator-session):
+Every run is attended. The maintainer starts it in a
+[host operator session](simulation-host.md#host-operator-session) and enters
+the Clerk secret at the hidden prompt. The bridge runs on the host, inside
+`run-local`, until the run ends:
 
 - privileged Staging setup and reconciliation go through `railway ssh`, which
   uses the maintainer's personal Railway login;
