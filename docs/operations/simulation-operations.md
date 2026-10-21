@@ -72,17 +72,22 @@ Smoke runs the deterministic `journeys` v1 scenario through the host (seven
 identities, seed 0). It covers the canonical public journeys and their
 expected rejections, then reconciliation, cleanup and release.
 
+Run every workload in a
+[host operator session](simulation-host.md#host-operator-session). Inside the
+session, prepare and run the smoke from the release directory:
+
 ```sh
-task sim-host-prepare PROFILE="$TRANSFER/smoke-profile.json" \
-  SAFETY_CONFIG="$SIM_REPO_ROOT/tools/simulator/host/safety.json" \
-  RELEASE="$TRANSFER/release.json" MANIFEST="$TRANSFER/smoke-manifest.json"
-task sim-host-run MANIFEST="$TRANSFER/smoke-manifest.json" HOST=tailtag-sim \
-  HOST_ROOT=/srv/tailtag-simulator
+.venv/bin/python -m tailtag_simulator.host_operator prepare \
+  --profile "$WORKSPACE/tools/simulator/host/smoke-profile.json" \
+  --safety-config "$WORKSPACE/tools/simulator/host/safety.json" \
+  --release "$RELEASE_DIR/release.json" --output "$STATE/manifests/smoke-1.json"
+.venv/bin/python -m tailtag_simulator.host_operator run-local \
+  --manifest "$STATE/manifests/smoke-1.json" --host-root "$HOST_ROOT" \
+  --workspace "$WORKSPACE" --tools "$HOST_ROOT/tools" --state-dir "$STATE"
 ```
 
-Copy each committed profile into the owner-private transfer directory, set
-its pool there, and keep it outside Git, as described in the
-[host runbook](simulation-host.md#profile-preparation-and-foreground-execution).
+The runbook's [Running a workload](simulation-host.md#running-a-workload)
+section sets these variables. The committed profiles use pool `host228`.
 
 Smoke is a gate. If it does not pass, run nothing else that cycle and follow
 [After a failure](#after-a-failure). Smoke is correctness-only: it has no
@@ -101,7 +106,7 @@ evidence. Then run that night's family:
 | Wednesday | `nightly-retry-profile.json` |
 | Thursday | `nightly-soak-profile.json` |
 
-Each run uses a fresh `sim-host-prepare` and a new manifest. Never reuse a
+Each run uses a fresh `prepare` and a new manifest. Never reuse a
 manifest. A run must finish and have its hold resolved before the next run is
 admitted; the host refuses overlapping runs.
 

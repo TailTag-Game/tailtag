@@ -68,7 +68,17 @@ def socket_root() -> Iterator[Path]:
     # macOS Unix socket paths are limited to 104 bytes; pytest's default
     # temporary root beneath /private/var/folders can already exceed that.
     with TemporaryDirectory(prefix="tt228-", dir="/tmp") as directory:
-        yield Path(directory)
+        # for_paths refuses a symlink in any ancestor, and /tmp is one on macOS.
+        yield Path(directory).resolve()
+
+
+def private_server(session: BridgeSession, directory: Path) -> BridgeServer:
+    """Bind both sockets inside one existing owner-only directory (for_paths)."""
+    if not directory.exists() and not directory.is_symlink():
+        directory.mkdir(mode=0o700)
+    return BridgeServer.for_paths(
+        session, directory / "rpc.sock", directory / "health.sock"
+    )
 
 
 def envelope(operation: str, **changes: object) -> dict[str, object]:
@@ -703,7 +713,7 @@ def test_socket_disconnect_does_not_cancel_or_repeat_allocation(
         relay.held.add("allocate")
         session = BridgeSession(manifest(), relay.dispatch)
         directory = socket_root / "bridge"
-        server = BridgeServer(session, directory)
+        server = private_server(session, directory)
         await server.start()
         reader, writer = await asyncio.open_unix_connection(str(directory / "rpc.sock"))
         del reader
@@ -757,7 +767,7 @@ def test_socket_paths_are_private_owned_and_never_replace_foreign_paths(
                 (directory / "health.sock").symlink_to(marker)
         relay = Relay()
         session = BridgeSession(manifest(), relay.dispatch)
-        server = BridgeServer(session, directory)
+        server = private_server(session, directory)
         try:
             if obstacle == "none":
                 await server.start()
@@ -931,7 +941,7 @@ def test_slow_rpc_admission_is_bounded_independent_of_health_and_expires(
         relay = Relay()
         session = BridgeSession(manifest(), relay.dispatch)
         directory = socket_root / "bridge"
-        server = BridgeServer(session, directory)
+        server = private_server(session, directory)
         connections: list[tuple[asyncio.StreamReader, asyncio.StreamWriter]] = []
         await server.start()
         try:
@@ -1073,7 +1083,7 @@ def test_invalid_socket_frames_never_dispatch_or_echo_input(
         relay = Relay()
         session = BridgeSession(manifest(), relay.dispatch)
         directory = socket_root / "bridge"
-        server = BridgeServer(session, directory)
+        server = private_server(session, directory)
         await server.start()
         reader, writer = await asyncio.open_unix_connection(str(directory / listener))
         try:
@@ -1161,7 +1171,7 @@ def test_unfinished_health_close_is_bounded_and_never_pins_capacity(
     async def execute() -> None:
         session = BridgeSession(manifest(), Relay().dispatch)
         directory = socket_root / "bridge"
-        server = BridgeServer(session, directory)
+        server = private_server(session, directory)
         await server.start()
         writers: list[asyncio.StreamWriter] = []
 
@@ -1220,7 +1230,7 @@ def test_health_evidence_is_closed_and_counts_live_not_live_and_invalid(
         section(launch, "safety").update(seconds=10, final_seconds=5)
         session = BridgeSession(launch, Relay().dispatch, clock=lambda: now[0])
         directory = socket_root / "bridge"
-        server = BridgeServer(session, directory)
+        server = private_server(session, directory)
         await server.start()
         try:
             evidence = session.evidence()

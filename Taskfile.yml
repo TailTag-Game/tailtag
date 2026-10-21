@@ -585,36 +585,6 @@ tasks:
       - >-
         {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator.provenance build --root '{{.REPOSITORY_ROOT | replace "'" "'\"'\"'"}}' --tag 'tailtag-simulator:local' {{if .PLATFORM}}--platform '{{.PLATFORM | replace "'" "'\"'\"'"}}'{{end}}
 
-  sim-host-prepare:
-    desc: "Prepare a private host manifest: PROFILE=path SAFETY_CONFIG=path RELEASE=path MANIFEST=path."
-    cmds:
-      - cmd: >-
-          printf '%s\n' 'FAIL  The simulation host workflow needs macOS or Linux (WSL works); see docs/operations/simulation-host.md.'; exit 1
-        silent: true
-        platforms: [windows]
-      - cmd: >-
-          test -n '{{.PROFILE | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.SAFETY_CONFIG | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.MANIFEST | default "" | replace "'" "'\"'\"'"}}' || { printf '%s\n' 'PROFILE, SAFETY_CONFIG, RELEASE and MANIFEST are required.' >&2; exit 2; }
-        silent: true
-        platforms: [linux, darwin]
-      - platforms: [linux, darwin]
-        cmd: >-
-          {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator.host_operator prepare --profile '{{.PROFILE | default "" | replace "'" "'\"'\"'"}}' --safety-config '{{.SAFETY_CONFIG | default "" | replace "'" "'\"'\"'"}}' --release '{{.RELEASE | default "" | replace "'" "'\"'\"'"}}' --output '{{.MANIFEST | default "" | replace "'" "'\"'\"'"}}'
-
-  sim-host-run:
-    desc: "Run the foreground maintainer host session: MANIFEST=path HOST=ssh-alias HOST_ROOT=absolute-path [STATE_DIR=path]."
-    cmds:
-      - cmd: >-
-          printf '%s\n' 'FAIL  The simulation host workflow needs macOS or Linux (WSL works); see docs/operations/simulation-host.md.'; exit 1
-        silent: true
-        platforms: [windows]
-      - cmd: >-
-          test -n '{{.MANIFEST | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.HOST | default "" | replace "'" "'\"'\"'"}}' -a -n '{{.HOST_ROOT | default "" | replace "'" "'\"'\"'"}}' || { printf '%s\n' 'MANIFEST, HOST and HOST_ROOT are required.' >&2; exit 2; }
-        silent: true
-        platforms: [linux, darwin]
-      - platforms: [linux, darwin]
-        cmd: >-
-          {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator.host_operator run --manifest '{{.MANIFEST | default "" | replace "'" "'\"'\"'"}}' --host '{{.HOST | default "" | replace "'" "'\"'\"'"}}' --host-root '{{.HOST_ROOT | default "" | replace "'" "'\"'\"'"}}' {{if .STATE_DIR}}--state-dir '{{.STATE_DIR | replace "'" "'\"'\"'"}}'{{end}}
-
   sim-host-collect:
     desc: "Copy verified settled host evidence into a local archive: HOST=ssh-alias HOST_ROOT=absolute-path RELEASE=path ARCHIVE=path [BASELINES=path]."
     cmds:

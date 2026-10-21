@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -16,7 +17,7 @@ from tailtag_simulator.__main__ import (
     INSPECTION_LAUNCHER_COMMAND,
     LAUNCHER_COMMAND,
 )
-from tailtag_simulator.host_bridge import fixed_dispatch
+from tailtag_simulator.host_bridge import relay_dispatch
 from tailtag_simulator.host_protocol import encode_frame
 
 CHECKOUT = Path(__file__).parents[3]
@@ -249,7 +250,10 @@ def test_host_bridge_dispatch_runs_silent_task_with_stdin_and_exact_stdout(
     monkeypatch.setenv("UV", adapter)
     envelope: dict[str, object] = {"channel": channel, "request": {"operation": "x"}}
 
-    result, data = asyncio.run(fixed_dispatch(channel, envelope))
+    task = shutil.which("task")
+    assert task is not None
+    dispatch = relay_dispatch(CHECKOUT, Path(task), dict(os.environ))
+    result, data = asyncio.run(dispatch(channel, envelope))
 
     assert result == "PASS"
     assert data == {
@@ -367,12 +371,20 @@ HOST_FAIL_LINE = (
     "see docs/operations/simulation-host.md."
 )
 HOST_TASKS = [
-    "sim-host-prepare",
-    "sim-host-run",
     "sim-host-collect",
     "sim-host-release-export",
     "sim-host-release-load",
 ]
+
+
+def test_mac_session_tasks_are_retired_and_the_other_host_tasks_remain() -> None:
+    """AC13: the host session prepares and runs on the host, not from the Mac."""
+    listing = run_task("--list-all", "--json", cwd=CHECKOUT, env=dict(os.environ))
+    assert listing.returncode == 0, listing.stderr
+    defined = {task["name"] for task in json.loads(listing.stdout)["tasks"]}
+
+    assert not {"sim-host-prepare", "sim-host-run"} & defined
+    assert set(HOST_TASKS) <= defined
 
 
 @pytest.mark.parametrize("task", HOST_TASKS)

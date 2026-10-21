@@ -161,6 +161,12 @@ The three attempts failed for three different reasons. A continuous 12.5 h run d
 
 The remaining gap is a real-clock observation on Staging. It would mainly catch a faulty Staging server clock. Heartbeat tolerance, lost-contact tolerance and unattended scheduling stay in scope for [#316](https://github.com/TailTag-Game/tailtag/issues/316).
 
+### Real-clock run from the host (#316, 2026-10-21)
+
+[#316](https://github.com/TailTag-Game/tailtag/issues/316) moved the operator onto the host. Run `2cf1b668-27f5-4367-94c4-9e208dab018b` then closed the real-clock gap. It ran from 17:01 UTC on 2026-10-20 to 05:15 UTC on 2026-10-21. A confirm sent just after the server's real `expires_at` got 404 `catch_target_unavailable`. Thirteen later resolves were also rejected, and cleanup found `catch=0`. The host session held throughout, with 707 relay dispatches all `PASS` and no heartbeat failure.
+
+The run outcome is `FAIL_SIMULATION`, from two simulator defects in the expired scenario. The simulator expected `catch_target_unavailable` from the resolve endpoint, which returns a 404 with no code. The profile's 15 s drain was shorter than its 60 s think time. The maintainer accepted the run as the proof, and #316 fixed both defects without a new run.
+
 ## Evidence preservation and limits
 
 - **Where evidence lives:** reports, evaluations, host companions and stage logs stay in the maintainer's owner-private archive. Held-run copies are kept separately with host-side SHA-256 inventories. This document contains no credentials, host address, account identifiers or other private inventory.

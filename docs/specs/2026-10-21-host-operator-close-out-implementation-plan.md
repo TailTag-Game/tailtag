@@ -26,7 +26,7 @@ AC13.
 - Remove the `host_operator run` subcommand and `run_session`. The `_operate` core then serves only the local adapter. Fold the adapter seam into it where that removes indirection, with no behavior change.
 - Remove the `sim-host-prepare` and `sim-host-run` tasks from `Taskfile.yml`, and their entries in `test_task_commands.py`. The host session prepares on the host. Keep `host_operator prepare` and `collect`.
 - `SSH_OPTIONS` keeps only the options that plain `ssh` and `scp` need for collection. Remove `ExitOnForwardFailure` and `StreamLocalBindUnlink`.
-- `bootstrap.sh` turns off forwarding for the owner: `AllowTcpForwarding no` and `AllowStreamLocalForwarding no`. It removes `PermitListen` and the stream-local bind options, which have no use without forwarding.
+- `bootstrap.sh` turns off forwarding for the owner with `DisableForwarding yes`, which covers TCP, stream-local, agent and X11 forwarding, and keeps `PermitTunnel no`. It removes `PermitListen` and the stream-local bind options, which have no use without forwarding.
 - `test_host_ssh.py`: the real-OpenSSH test now proves that remote Unix forwarding is refused as well.
 
 ### U3. Documentation
