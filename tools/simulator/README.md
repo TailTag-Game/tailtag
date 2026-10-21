@@ -40,14 +40,14 @@ cleans up or retains each run's state. Design: [spec](../../docs/specs/2026-10-0
 
 The [external simulation host runbook](../../docs/operations/simulation-host.md)
 describes the approved DigitalOcean NYC3 host, immutable `linux/amd64` image
-archive delivery, foreground maintainer SSH bridge, finite profiles, supervision,
-artifact retrieval and exact-run recovery. Gameplay remains direct public HTTPS;
-privileged Railway relays stay on the maintainer machine. Profile examples are in
+archive delivery, the host operator session, finite profiles, supervision,
+artifact retrieval and exact-run recovery. Gameplay remains direct public HTTPS.
+Privileged Railway relays run on the host only during an attended session. Profile examples are in
 `host/normal-profile.json` and `host/stop-profile.json`, with separate
 `host/safety.json`. Preparation/offline evidence and separately authorized paid-host
 provisioning/live traffic are distinct gates. No automatic restart or CI load run
-is provided. `task sim-host-prepare` and `task sim-host-run` wrap foreground
-manifest/session commands; `sim-host-release-export` and `sim-host-release-load`
+is provided. Runs start on the host in a host operator session (see the host
+runbook); `sim-host-release-export` and `sim-host-release-load`
 wrap verified archive handoff. Prefer absolute path parameters: these wrappers
 evaluate relative CLI paths from `tools/simulator`. The runbook prepares an
 owner-private profile copy with an absolute safety-file path and establishes the

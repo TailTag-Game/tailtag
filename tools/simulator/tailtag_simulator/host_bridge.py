@@ -121,14 +121,6 @@ def relay_dispatch(
     return dispatch
 
 
-async def fixed_dispatch(
-    channel: str, envelope: dict[str, object]
-) -> tuple[str, dict[str, object]]:
-    """Mac mode: this checkout and `task` from the inherited PATH."""
-    root = Path(__file__).resolve().parents[3]
-    return await relay_dispatch(root, Path("task"), None)(channel, envelope)
-
-
 class BridgeSession:
     def __init__(
         self,
@@ -614,32 +606,22 @@ async def _read_frame(reader: asyncio.StreamReader) -> bytes:
 
 
 class BridgeServer:
-    _directory: Path | None  # Mac mode only: the one private directory for both sockets
-
-    def __init__(self, session: BridgeSession, directory: Path) -> None:
-        self._session, self._directory = session, directory
-        self._paths = {
-            "rpc": directory / "rpc.sock",
-            "health": directory / "health.sock",
-        }
-        self._init_state()
+    def __init__(
+        self, session: BridgeSession, rpc_path: Path, health_path: Path
+    ) -> None:
+        self._session = session
+        self._paths = {"rpc": rpc_path, "health": health_path}
+        self._servers: list[asyncio.Server] = []
+        self._owned: dict[Path, tuple[int, int]] = {}
+        self._active = {"rpc": 0, "health": 0}
+        self._handlers: set[asyncio.Task[None]] = set()
 
     @classmethod
     def for_paths(
         cls, session: BridgeSession, rpc_path: Path, health_path: Path
     ) -> "BridgeServer":
-        """Local mode: each socket sits in its own run-owned directory (#316)."""
-        server = cls.__new__(cls)
-        server._session, server._directory = session, None
-        server._paths = {"rpc": rpc_path, "health": health_path}
-        server._init_state()
-        return server
-
-    def _init_state(self) -> None:
-        self._servers: list[asyncio.Server] = []
-        self._owned: dict[Path, tuple[int, int]] = {}
-        self._active = {"rpc": 0, "health": 0}
-        self._handlers: set[asyncio.Task[None]] = set()
+        """Each socket sits in its own run-owned directory (#316)."""
+        return cls(session, rpc_path, health_path)
 
     @staticmethod
     def _private_parent(parent: Path) -> None:
@@ -654,17 +636,10 @@ class BridgeServer:
     async def start(self) -> None:
         if self._servers:
             raise ValueError("invalid bridge paths")
-        if self._directory is not None:
-            if self._directory.is_symlink():
-                raise ValueError("invalid bridge paths")
-            if not self._directory.exists():
-                self._directory.mkdir(mode=0o700)
-            self._private_parent(self._directory)
         # Validate every path before binding any: a late refusal must leave no socket.
         for path in self._paths.values():
-            if self._directory is None and (
-                not path.is_absolute()
-                or any(p.is_symlink() for p in (path, *path.parents))
+            if not path.is_absolute() or any(
+                p.is_symlink() for p in (path, *path.parents)
             ):
                 raise ValueError("invalid bridge paths")
             self._private_parent(path.parent)

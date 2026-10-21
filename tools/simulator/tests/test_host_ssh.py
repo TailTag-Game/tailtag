@@ -10,7 +10,6 @@ import shlex
 import shutil
 import signal
 import socket
-import stat
 import subprocess
 import sys
 import tempfile
@@ -21,7 +20,9 @@ from pathlib import Path
 import pytest
 
 
-def test_bootstrap_allows_remote_unix_but_refuses_remote_and_local_tcp() -> None:
+def test_bootstrap_refuses_all_forwarding_remote_unix_and_remote_and_local_tcp() -> (
+    None
+):
     if (
         os.environ.get("TAILTAG_TEST_OPENSSH") != "1"
         or sys.platform != "linux"
@@ -126,10 +127,7 @@ def test_bootstrap_allows_remote_unix_but_refuses_remote_and_local_tcp() -> None
                 capture_output=True,
                 timeout=5,
             )
-            with (
-                (root / "sshd.log").open("wb") as daemon_log,
-                (root / "ssh.log").open("wb") as client_log,
-            ):
+            with (root / "sshd.log").open("wb") as daemon_log:
                 daemon = subprocess.Popen(
                     [sshd, "-D", "-e", "-f", str(config)],
                     stdin=subprocess.DEVNULL,
@@ -168,12 +166,14 @@ def test_bootstrap_allows_remote_unix_but_refuses_remote_and_local_tcp() -> None
                     "-o",
                     "ExitOnForwardFailure=yes",
                 ]
+                # Live endpoints keep an absent destination from passing the
+                # negative checks. With -N, an accepted forward would keep ssh
+                # running, so the timeout below would fail the test.
                 remote = home / "relay.sock"
                 with socket.socket(socket.AF_UNIX) as target:
                     target.bind(str(root / "target.sock"))
                     target.listen()
-                    target.settimeout(3)
-                    tunnel = subprocess.Popen(
+                    unix_rejected = subprocess.run(
                         ssh
                         + [
                             "-N",
@@ -181,32 +181,21 @@ def test_bootstrap_allows_remote_unix_but_refuses_remote_and_local_tcp() -> None
                             f"{remote}:{root / 'target.sock'}",
                             f"{user}@127.0.0.1",
                         ],
-                        stdin=subprocess.DEVNULL,
-                        stdout=subprocess.DEVNULL,
-                        stderr=client_log,
-                        start_new_session=True,
+                        input=b"",
+                        capture_output=True,
+                        timeout=5,
+                        check=False,
                     )
-                    children.append(tunnel)
-                    deadline = time.monotonic() + 5
-                    while not remote.exists():
-                        assert tunnel.poll() is None, (root / "ssh.log").read_text() + (
-                            root / "sshd.log"
-                        ).read_text()
-                        assert time.monotonic() < deadline, (
-                            "remote Unix forwarding was not established"
-                        )
-                        time.sleep(0.02)
-                    assert stat.S_IMODE(remote.stat().st_mode) == 0o600
-                    with socket.socket(socket.AF_UNIX) as forwarded:
-                        forwarded.settimeout(3)
-                        forwarded.connect(str(remote))
-                        forwarded.sendall(b"tailtag-relay-request")
-                        connection, _ = target.accept()
-                        with connection:
-                            connection.settimeout(3)
-                            assert connection.recv(1024) == b"tailtag-relay-request"
-                            connection.sendall(b"tailtag-relay-response")
-                        assert forwarded.recv(1024) == b"tailtag-relay-response"
+                    assert unix_rejected.returncode != 0, (
+                        "remote Unix forwarding was accepted"
+                    )
+                    assert "remote port forwarding failed" in (
+                        unix_rejected.stderr.decode()
+                    ), unix_rejected.stderr.decode()
+                    assert not remote.exists()
+                    target.settimeout(0.2)
+                    with pytest.raises(TimeoutError):
+                        target.accept()
 
                 # A live endpoint prevents absence of a destination from passing
                 # the negative checks. -W uses local forwarding's direct-tcpip.

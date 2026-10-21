@@ -189,7 +189,11 @@ def bridge(
 
     loop = asyncio.new_event_loop()
     session = BridgeSession(value, dispatch)
-    server = BridgeServer(session, directory)
+    if not directory.exists():
+        directory.mkdir(mode=0o700)
+    server = BridgeServer.for_paths(
+        session, directory / "rpc.sock", directory / "health.sock"
+    )
     ready = threading.Event()
     errors: list[Exception] = []
 
@@ -283,7 +287,7 @@ def test_host_cli_binds_manifest_uuid_socket_channels_and_stage_only_capture(
         foreign.write_text("foreign-owner-evidence")
         stage_log.symlink_to(foreign)
     with tempfile.TemporaryDirectory(prefix="t228-", dir="/tmp") as path:
-        # BridgeServer must create the absent owner-only directory itself.
+        # for_paths needs an owner-only directory, which the bridge helper creates.
         directory = Path(path).resolve() / "s"
         with bridge(value, run, directory) as seen:
             code = main(
@@ -560,6 +564,23 @@ def test_committed_safety_checks_fit_inside_their_own_request_ceiling(
     policy = cast(dict[str, float], json.loads((HOST_DIR / safety).read_text()))
     checks = policy["seconds"] / policy["poll_seconds"] + policy["seconds"] / 60
     assert 3 * checks <= 0.8 * policy["requests"]
+
+
+def test_every_committed_profile_drain_outlasts_one_think_sleep() -> None:
+    # A worker holds its actor slot through think_seconds. A drain window no
+    # longer than that stops a run that ends mid-sleep with `drain` (AC12 run).
+    short: dict[str, tuple[float, float]] = {}
+    profiles = sorted(HOST_DIR.glob("*-profile.json"))
+    assert profiles
+    for path in profiles:
+        resolved = resolve_traffic_config(
+            cast(dict[str, object], committed(path.name)["configuration"])
+        )
+        drain = cast(dict[str, float], resolved["limits"])["drain_seconds"]
+        think = cast(dict[str, float], resolved["traffic"])["think_seconds"]
+        if drain <= think:
+            short[path.name] = (drain, think)
+    assert short == {}
 
 
 @pytest.mark.parametrize(

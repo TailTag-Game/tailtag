@@ -1,4 +1,4 @@
-"""Foreground maintainer authority, immutable preparation and owned SSH session."""
+"""Foreground maintainer authority, immutable preparation, local session and collection."""
 
 import argparse
 import asyncio
@@ -10,7 +10,6 @@ import shlex
 import shutil
 import signal
 import stat
-import tempfile
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
@@ -26,7 +25,6 @@ from .host_bridge import (
     BridgeServer,
     BridgeSession,
     RelayDispatch,
-    fixed_dispatch,
     relay_dispatch,
 )
 from .host_protocol import decode_document, encode_frame, validate_manifest
@@ -42,10 +40,6 @@ SSH_OPTIONS = [
     "ForwardAgent=no",
     "-o",
     "StrictHostKeyChecking=yes",
-    "-o",
-    "ExitOnForwardFailure=yes",
-    "-o",
-    "StreamLocalBindUnlink=no",
 ]
 
 
@@ -155,14 +149,6 @@ async def _exchange(
         if process.returncode is None:
             process.kill()
             await process.wait()
-
-
-async def _control(
-    host: str, command: list[str], payload: dict[str, object], *, cwd: Path
-) -> int:
-    return await _exchange(
-        ["ssh", *SSH_OPTIONS, host, _remote_command(command, cwd)], payload
-    )
 
 
 MAX_EVIDENCE_BYTES = 33_554_432
@@ -490,9 +476,8 @@ async def _operate(
     bind: Callable[[BridgeSession], BridgeServer],
     spawn: Callable[[], Awaitable[asyncio.subprocess.Process]],
     resolve: Callable[[dict[str, object]], Awaitable[int]],
-    forward_signals: bool,
 ) -> int:
-    """Shared session core; the SSH and local adapters supply only the transport."""
+    """Session core; the local adapter supplies only the transport."""
     process: asyncio.subprocess.Process | None = None
     server: BridgeServer | None = None
     session: BridgeSession | None = None
@@ -529,7 +514,7 @@ async def _operate(
             interrupted = True
             revoke("signal_" + sig.name)
             # Local mode has no SSH to drop: the child must hear the signal itself.
-            if forward_signals and process is not None and process.returncode is None:
+            if process is not None and process.returncode is None:
                 with suppress(ProcessLookupError):
                     process.send_signal(sig)
 
@@ -597,93 +582,6 @@ async def _operate(
         for sig, handler in previous.items():
             asyncio.get_running_loop().remove_signal_handler(sig)
             signal.signal(sig, handler)  # type: ignore[arg-type]
-
-
-async def run_session(
-    manifest: dict[str, object],
-    host: str,
-    host_root: Path,
-    *,
-    state_dir: Path | None = None,
-    clock: Callable[[], float] = time.monotonic,
-    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
-) -> int:
-    """Own the bridge and attached SSH child; workload authority never renews."""
-    try:
-        manifest = validate_manifest(manifest)
-        root_text = _host_target(host, host_root)
-        release = cast(dict[str, object], manifest["release"])
-        runtime = host_root / "releases" / str(release["simulator_sha"])
-        command = [
-            str(runtime / ".venv/bin/python"),
-            "-m",
-            "tailtag_simulator.host_runner",
-        ]
-        base = host_root / "runs" / str(manifest["run_id"])
-        with tempfile.TemporaryDirectory(prefix="tailtag-op-", dir="/tmp") as temporary:
-            directory = Path(temporary).resolve()
-            directory.chmod(0o700)
-
-            async def spawn() -> asyncio.subprocess.Process:
-                return await asyncio.create_subprocess_exec(
-                    "ssh",
-                    *SSH_OPTIONS,
-                    *(["-tt"] if os.isatty(0) and os.isatty(1) else []),
-                    "-R",
-                    str(base / "rpc/rpc.sock") + ":" + str(directory / "rpc.sock"),
-                    "-R",
-                    str(base / "control/health.sock")
-                    + ":"
-                    + str(directory / "health.sock"),
-                    host,
-                    _remote_command(
-                        [
-                            *command,
-                            "run",
-                            "--root",
-                            root_text,
-                            "--manifest",
-                            str(base / "control/manifest.json"),
-                            "--release",
-                            str(runtime / "release.json"),
-                        ],
-                        runtime,
-                    ),
-                )
-
-            return await _operate(
-                manifest,
-                state_dir or Path.home() / ".local/state/tailtag-simulator",
-                fixed_dispatch,
-                clock=clock,
-                sleep=sleep,
-                prepare=lambda: _control(
-                    host,
-                    [*command, "prepare", "--root", root_text, "--manifest", "-"],
-                    manifest,
-                    cwd=runtime,
-                ),
-                bind=lambda session: BridgeServer(session, directory),
-                spawn=spawn,
-                resolve=lambda receipt: _control(
-                    host,
-                    [
-                        *command,
-                        "recovery-resolve",
-                        "--root",
-                        root_text,
-                        "--run-id",
-                        str(manifest["run_id"]),
-                        "--receipt",
-                        "-",
-                    ],
-                    receipt,
-                    cwd=runtime,
-                ),
-                forward_signals=False,
-            )
-    except (OSError, ValueError, TimeoutError):
-        return 1
 
 
 def _plain_absolute(path: Path) -> bool:
@@ -794,7 +692,6 @@ async def run_local_session(
                 receipt,
                 cwd=runtime,
             ),
-            forward_signals=True,
         )
     except (OSError, ValueError, TimeoutError, KeyError):
         return 1
@@ -806,11 +703,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     prepare = commands.add_parser("prepare")
     for name in ("profile", "safety-config", "release", "output"):
         prepare.add_argument("--" + name, type=Path, required=True)
-    run = commands.add_parser("run")
-    run.add_argument("--manifest", type=Path, required=True)
-    run.add_argument("--host", required=True)
-    run.add_argument("--host-root", type=Path, required=True)
-    run.add_argument("--state-dir", type=Path)
     local = commands.add_parser("run-local")
     for name in ("manifest", "host-root", "workspace", "tools", "state-dir"):
         local.add_argument("--" + name, type=Path, required=True)
@@ -836,22 +728,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             return asyncio.run(
                 _prepare(args.profile, args.safety_config, args.release, args.output)
             )
-        if args.command == "run-local":
-            return asyncio.run(
-                run_local_session(
-                    read_json(args.manifest),
-                    args.host_root,
-                    args.workspace,
-                    args.tools,
-                    args.state_dir,
-                )
-            )
         return asyncio.run(
-            run_session(
+            run_local_session(
                 read_json(args.manifest),
-                args.host,
                 args.host_root,
-                state_dir=args.state_dir,
+                args.workspace,
+                args.tools,
+                args.state_dir,
             )
         )
     except Exception:  # noqa: BLE001 - public error is deliberately detail-free
