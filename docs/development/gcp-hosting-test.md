@@ -72,6 +72,7 @@ gcloud services disable bigquery.googleapis.com --project=<PROJECT_ID>
 
 These platform services stay enabled. The approved APIs or gcloud need them:
 
+- `cloudresourcemanager.googleapis.com`, which gcloud uses to read and change project IAM
 - `iamcredentials.googleapis.com`
 - `servicemanagement.googleapis.com`
 - `serviceusage.googleapis.com`
@@ -142,6 +143,46 @@ Before each binding, make sure that the role ID exists with `gcloud iam roles de
 
 Write the real values in the private setup record. The record holds the project ID, project number, billing account ID, budget ID, operator email, and resource names. This runbook must not hold those values.
 
+## Cloud SQL Auth Proxy sidecar
+
+The API reaches Cloud SQL through the Cloud SQL Auth Proxy. The proxy runs as a second container, a sidecar, in the Cloud Run service. #348 tested this setup.
+
+The proxy container uses these arguments:
+
+```text
+--port=5432
+--auto-iam-authn
+--health-check
+--http-address=0.0.0.0
+--http-port=9090
+--run-connection-test
+<PROJECT_ID>:us-central1:<INSTANCE_NAME>
+```
+
+- The database listener stays on `127.0.0.1:5432`. Do not bind it to another address. With IAM login, any client that reaches the listener connects without a password.
+- The health server listens on `0.0.0.0:9090`. Cloud Run probes cannot reach a server that listens only on `localhost`. Cloud Run sends outside requests only to the API container port.
+- The connection test makes the proxy exit if it cannot reach the instance. A wrong instance name then stops the revision before it takes traffic.
+
+Give the proxy container a startup probe:
+
+```yaml
+startupProbe:
+  httpGet:
+    path: /startup
+    port: 9090
+  periodSeconds: 2
+  failureThreshold: 15
+  timeoutSeconds: 1
+```
+
+Name the containers `api` and `cloud-sql-proxy`. Make the API container start after the proxy. Add this annotation to the revision template:
+
+```yaml
+run.googleapis.com/container-dependencies: '{"api":["cloud-sql-proxy"]}'
+```
+
+A revision deployed with no traffic does not start an instance. Cloud Run marks it ready without running the startup probe. To test a new revision, send it traffic or a tag. If a test revision fails, delete it. A failed revision can keep starting new instances until it is deleted. Cloud Run does not delete the latest created revision. In that case, deploy a good revision first, and then delete the failed one.
+
 ## Spend review
 
 The operator reviews spend at least once each week during the test:
@@ -156,50 +197,60 @@ If the month total reaches $45, the operator stops new test work and tells the o
 
 Remove resources in this order. Each step targets only the test project. If a resource was never created, skip its step.
 
-1. Delete the Cloud Run services:
+1. Delete the Cloud Run services and jobs. The tests created a migration job and two check jobs:
 
    ```bash
    gcloud run services delete <SERVICE_NAME> --region=us-central1 --project=<PROJECT_ID>
+   gcloud run jobs delete <JOB_NAME> --region=us-central1 --project=<PROJECT_ID>
    ```
 
-2. If the Cloud SQL instance has deletion protection, remove that protection first. Then delete the instance:
+2. If the Cloud SQL instance has deletion protection, remove that protection first. Then delete the instance. This also deletes its automated backups:
 
    ```bash
    gcloud sql instances delete <INSTANCE_NAME> --project=<PROJECT_ID>
    ```
 
-3. Delete the Artifact Registry repository:
+3. Deactivate and delete the media HMAC key. Then delete the media bucket and its objects:
+
+   ```bash
+   gcloud storage hmac update <HMAC_ACCESS_ID> --deactivate --project=<PROJECT_ID>
+   gcloud storage hmac delete <HMAC_ACCESS_ID> --project=<PROJECT_ID>
+   gcloud storage rm --recursive gs://<BUCKET_NAME>
+   ```
+
+4. Delete the Artifact Registry repository:
 
    ```bash
    gcloud artifacts repositories delete <REPOSITORY_NAME> --location=us-central1 --project=<PROJECT_ID>
    ```
 
-4. Delete each Secret Manager secret:
+5. Delete each Secret Manager secret:
 
    ```bash
    gcloud secrets delete <SECRET_NAME> --project=<PROJECT_ID>
    ```
 
-5. Delete the service accounts:
+6. Delete the service accounts:
 
    ```bash
    gcloud iam service-accounts delete tt-runtime@<PROJECT_ID>.iam.gserviceaccount.com --project=<PROJECT_ID>
    gcloud iam service-accounts delete tt-deployer@<PROJECT_ID>.iam.gserviceaccount.com --project=<PROJECT_ID>
+   gcloud iam service-accounts delete tt-migrate@<PROJECT_ID>.iam.gserviceaccount.com --project=<PROJECT_ID>
    ```
 
-6. Delete the budget:
+7. Delete the budget:
 
    ```bash
    gcloud billing budgets delete <BUDGET_ID> --billing-account=<BILLING_ACCOUNT_ID>
    ```
 
-7. Unlink the billing account from the project to stop new charges:
+8. Unlink the billing account from the project to stop new charges:
 
    ```bash
    gcloud billing projects unlink <PROJECT_ID>
    ```
 
-8. After the owner approves, delete the project:
+9. After the owner approves, delete the project:
 
    ```bash
    gcloud projects delete <PROJECT_ID>
