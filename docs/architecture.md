@@ -273,6 +273,6 @@ Architecture decisions are recorded in:
 - [0006 — Use Flutter for mobile V0](adrs/0006-use-flutter-for-mobile-v0.md)
 - [0007 — Use Railway and Sentry for V0 observability](adrs/0007-v0-observability-backend.md) (proposed)
 - [0008 — Use asyncio and httpx for headless simulation](adrs/0008-use-asyncio-httpx-for-headless-simulation.md)
-- [0010 — Keep Railway for V0 hosting after the GCP evaluation](adrs/0010-keep-railway-for-v0-hosting-after-gcp-evaluation.md) (proposed)
+- [0010 — Keep Railway for V0 hosting after the GCP evaluation](adrs/0010-keep-railway-for-v0-hosting-after-gcp-evaluation.md)
 
 See [the ADR index](adrs/README.md) for the decision threshold and format.
