@@ -4,7 +4,7 @@
 
 **Related issues:** [#344](https://github.com/TailTag-Game/tailtag/issues/344) (this comparison), parent [#338](https://github.com/TailTag-Game/tailtag/issues/338)
 
-**Decision record:** [ADR 0010](../adrs/0010-keep-railway-for-v0-hosting-after-gcp-evaluation.md) (proposed)
+**Decision record:** [ADR 0010](../adrs/0010-keep-railway-for-v0-hosting-after-gcp-evaluation.md) (accepted 2026-10-22)
 
 This document compares the Google Cloud Platform (GCP) hosting test with current Railway hosting. GCP is a cloud host from Google. The test ran the current API on Cloud Run, the Google service that runs containers, with Cloud SQL, the Google managed PostgreSQL service. The test used synthetic data only. It did not change Railway and it does not start a move.
 
@@ -187,7 +187,7 @@ One-time migration work totals about 67 to 135 hours (estimate). Media on R2, Cl
 
 ## Recommendation
 
-Keep Railway for V0, including the first Production design. [ADR 0010](../adrs/0010-keep-railway-for-v0-hosting-after-gcp-evaluation.md) records the proposal and the triggers that reopen the question.
+Keep Railway for V0, including the first Production design. [ADR 0010](../adrs/0010-keep-railway-for-v0-hosting-after-gcp-evaluation.md) records the decision and the triggers that reopen the question.
 
 The reasons, from the evidence above:
 
@@ -206,4 +206,4 @@ The reasons, from the evidence above:
 
 ## Cleanup
 
-The GCP test project still exists while this document is in review. After owner approval, the operator deletes it with the runbook steps and deletes the Clerk test application. #344 records the result.
+The GCP test project was deleted on 2026-10-22 with the runbook steps, and the Clerk test application was deleted. The [#344 cleanup record](https://github.com/TailTag-Game/tailtag/issues/344#issuecomment-6347411384) lists each step.

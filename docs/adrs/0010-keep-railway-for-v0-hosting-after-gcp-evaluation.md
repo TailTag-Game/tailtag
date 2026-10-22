@@ -1,6 +1,6 @@
 # Keep Railway for V0 hosting after the GCP evaluation
 
-**Status:** proposed (2026-10-22)
+**Status:** accepted (2026-10-22)
 
 ## Context and constraints
 
@@ -52,4 +52,4 @@ The comparison lists the [open questions](../specs/2026-10-22-gcp-hosting-compar
 
 ## Validation and rollback
 
-The comparison records each test result, price source, and assumption. If this proposal is rejected, a new ADR records the alternative. If a trigger occurs, a new evaluation updates the comparison and a new ADR supersedes this one.
+The comparison records each test result, price source, and assumption. The owner accepted this decision on 2026-10-22. If a trigger occurs, a new evaluation updates the comparison and a new ADR supersedes this one.
