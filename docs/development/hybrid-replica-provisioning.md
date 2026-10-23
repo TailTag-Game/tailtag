@@ -59,7 +59,7 @@ Region pair: Cloud Run and the other GCP resources use `us-east4`. Neon uses `aw
    owner_email     = "<OWNER_EMAIL>"
    ```
 
-   If the owner account belongs to a Google Cloud organization, also set `org_id` or `folder_id`.
+   If the owner account belongs to a Google Cloud organization, also set `org_id` or `folder_id`. Find the organization with `gcloud organizations list`. Google puts a new project in the organization anyway. Without `org_id`, the next plan tries to move the project out.
 
 2. The state bucket does not exist yet, so the first apply uses local state. Create `infra/replica/bootstrap/backend_override.tf`. Git ignores this file.
 
@@ -79,13 +79,19 @@ Region pair: Cloud Run and the other GCP resources use `us-east4`. Neon uses `aw
 
    Before the apply, read the plan. Make sure that every resource is in `<PROJECT_ID>` or is the replica budget.
 
-4. Move the bootstrap state into the state bucket. Delete `backend_override.tf`. Then run this command and answer `yes`:
+4. Make the new project the quota project of your Application Default Credentials. A quota project is the project that pays for API quota. If the credentials name a deleted project, every later step fails.
+
+   ```sh
+   gcloud auth application-default set-quota-project <PROJECT_ID>
+   ```
+
+5. Move the bootstrap state into the state bucket. Delete `backend_override.tf`. Then run this command and answer `yes`:
 
    ```sh
    terraform -chdir=infra/replica/bootstrap init -migrate-state -backend-config=bucket=<STATE_BUCKET>
    ```
 
-5. Make sure that `terraform -chdir=infra/replica/bootstrap plan` shows no changes. Then delete the local `terraform.tfstate`, `terraform.tfstate.backup` and `bootstrap.tfplan` files in that directory.
+6. Make sure that `terraform -chdir=infra/replica/bootstrap plan` shows no changes. Then delete the local `terraform.tfstate`, `terraform.tfstate.backup` and `bootstrap.tfplan` files in that directory.
 
 ## 2. Apply the foundation
 
