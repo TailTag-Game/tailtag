@@ -88,6 +88,7 @@ No other secret value enters Terraform. The owner adds every secret version outs
 | Minimum and maximum instances | Terraform capacity profile (#354, #360 adds profiles) |
 | Service account, ingress, environment, secret references | Terraform (#354) |
 | Deletion protection | Terraform (#354) |
+| Public invocation (`invoker_iam_disabled`) | Terraform (#354). Clerk tokens guard the API, as on Staging. The deployer cannot change service IAM. |
 
 ## AC15: billing signals
 

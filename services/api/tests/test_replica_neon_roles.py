@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import subprocess
 import sys
 import uuid
 from collections.abc import Callable, Iterator
@@ -204,6 +205,38 @@ def test_rotate_replaces_passwords_and_secrets(
     with psycopg.connect(new_urls["runtime-database-url"], autocommit=True) as runtime:
         runtime.execute("INSERT INTO gizmos (name) VALUES ('a')")
         assert runtime.execute("SELECT count(*) FROM gizmos").fetchone() == (1,)
+
+
+def test_secret_writer_passes_the_value_on_stdin_only(
+    roles_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """AC12: gcloud gets the URL on stdin, never in argv, errors, or output."""
+    secret = "postgresql://runtime:s3cr3t-value@ep-example.neon.test/tailtag"
+    calls: list[tuple[list[str], object]] = []
+    exit_codes = [0, 1]
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append((list(command), kwargs.get("input")))
+        return subprocess.CompletedProcess(command, exit_codes[len(calls) - 1], "", "")
+
+    def fake_which(name: str) -> str:
+        return f"/fake/{name}"
+
+    monkeypatch.setattr(roles_module.shutil, "which", fake_which)
+    monkeypatch.setattr(roles_module.subprocess, "run", fake_run)
+    write_secret = roles_module._secret_writer("fake-replica-project")
+
+    write_secret("runtime-database-url", secret)
+    with pytest.raises(roles_module.RoleProvisioningError) as failure:
+        write_secret("runtime-database-url", secret)
+
+    assert [stdin for _, stdin in calls] == [secret, secret]
+    assert all("s3cr3t" not in part for command, _ in calls for part in command)
+    assert "s3cr3t" not in str(failure.value)
+    captured = capfd.readouterr()
+    assert "s3cr3t" not in captured.out + captured.err
 
 
 def test_role_url_keeps_admin_endpoint_and_forces_verified_tls(

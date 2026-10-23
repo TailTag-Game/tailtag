@@ -22,6 +22,10 @@ resource "google_cloud_run_v2_service" "api" {
   location            = var.region
   ingress             = "INGRESS_TRAFFIC_ALL"
   deletion_protection = true
+  # The API is public like Staging: Clerk tokens, not Cloud Run IAM, guard it.
+  # Disabling the invoker check needs no allUsers binding, and the deployer
+  # cannot change service IAM, so Terraform owns this field.
+  invoker_iam_disabled = true
 
   template {
     service_account = google_service_account.runtime.email
