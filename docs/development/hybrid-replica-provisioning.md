@@ -36,6 +36,7 @@ Replace each placeholder with the value from the owner-private setup record. Nev
 | `<TF_INFRA_EMAIL>` | `tf-infra@<PROJECT_ID>.iam.gserviceaccount.com` |
 | `<CLOUDFLARE_ACCOUNT_ID>` | ID of the separate replica Cloudflare account |
 | `<SERVICE_NAME>` | Cloud Run service name. The default is `tailtag-api-replica`. |
+| `<PROJECT_NUMBER>` | Numeric project number of the replica project |
 
 Region pair: Cloud Run and the other GCP resources use `us-east4`. Neon uses `aws-us-east-1`.
 
@@ -44,7 +45,7 @@ Region pair: Cloud Run and the other GCP resources use `us-east4`. Neon uses `aw
 1. Terraform 1.17. Make sure that `terraform version` prints 1.17.
 2. The Google Cloud CLI. Sign in with `gcloud auth login`. Then run `gcloud auth application-default login`. Terraform uses the second sign-in.
 3. Billing Account Administrator rights for the owner on `<BILLING_ACCOUNT_ID>`.
-4. A Neon account on the Launch plan, with a spending notification.
+4. A Neon organization on the Launch plan, with a spending notification. Create the Neon API key in that organization. A key from a Free organization makes the Neon apply fail, because Free allows only 6 hours of history.
 5. A separate Cloudflare account for the replica, with R2 turned on and a usage notification. Never use the Development and Staging Cloudflare account.
 6. go-task and uv, as in [Getting started](getting-started.md).
 7. Gate G-1 approval from the owner, recorded on #354.
@@ -181,8 +182,8 @@ The Clerk and Sentry values come from #357 and #358. So the wiring apply happens
 Terraform ignores the image, client, revision and traffic fields of the Cloud Run service. A release owns those fields. To prove this, deploy the placeholder image by digest. Then make sure that Terraform plans no change.
 
 ```sh
-DIGEST="$(gcloud artifacts docker images describe us-docker.pkg.dev/cloudrun/container/hello --format='value(image_summary.digest)')"
-gcloud run deploy <SERVICE_NAME> --project=<PROJECT_ID> --region=us-east4 --image="us-docker.pkg.dev/cloudrun/container/hello@${DIGEST}"
+IMG="$(gcloud run revisions list --service=<SERVICE_NAME> --region=us-east4 --project=<PROJECT_ID> --limit=1 --format='value(status.imageDigest)')"
+gcloud run deploy <SERVICE_NAME> --project=<PROJECT_ID> --region=us-east4 --image="$IMG"
 terraform -chdir=infra/replica/foundation plan
 ```
 
@@ -200,10 +201,12 @@ Policy Troubleshooter reads the IAM policy and answers whether a principal has a
 | `tt-deployer` | `secretmanager.versions.access` | each runtime secret |
 | `tt-deployer` | `run.services.setIamPolicy` | the service |
 
+Secret resource names need the project number, not the project ID. Get it with `gcloud projects describe <PROJECT_ID> --format='value(projectNumber)'`. The overall answer can read `UNKNOWN_INFO` when the owner cannot read organization deny policies. In that case, read the allow policy state in the JSON output.
+
 Example:
 
 ```sh
-gcloud policy-intelligence troubleshoot-policy iam //secretmanager.googleapis.com/projects/<PROJECT_ID>/secrets/django-secret-key --principal-email=tt-migrator@<PROJECT_ID>.iam.gserviceaccount.com --permission=secretmanager.versions.access
+gcloud policy-intelligence troubleshoot-policy iam //secretmanager.googleapis.com/projects/<PROJECT_NUMBER>/secrets/django-secret-key --principal-email=tt-migrator@<PROJECT_ID>.iam.gserviceaccount.com --permission=secretmanager.versions.access
 ```
 
 ## 8. Run the cleanup exercise
