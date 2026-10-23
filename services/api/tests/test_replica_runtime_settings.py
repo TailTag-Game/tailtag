@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import textwrap
@@ -83,11 +84,19 @@ def test_database_url_rejects_ambiguous_tls_parameters_without_echoing_the_url(
 def _run_with_migrate_settings(
     script: str, extra_environment: dict[str, str]
 ) -> subprocess.CompletedProcess[str]:
+    # replacement_target_binding resolves Path.home() at import. Windows needs
+    # USERPROFILE for that; POSIX falls back to the password database.
+    home = (
+        {"USERPROFILE": os.environ["USERPROFILE"]}
+        if "USERPROFILE" in os.environ
+        else {}
+    )
     return subprocess.run(
         [sys.executable, "-c", script],
         cwd=API_ROOT,
         env={
             **minimal_environment(),
+            **home,
             "DJANGO_SETTINGS_MODULE": "config.settings.migrate",
             **extra_environment,
         },
