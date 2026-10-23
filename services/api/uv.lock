@@ -754,6 +754,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "boto3-stubs", extra = ["s3"] },
+    { name = "certifi" },
     { name = "django-stubs" },
     { name = "djangorestframework-stubs" },
     { name = "pyjwt" },
@@ -782,6 +783,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "boto3-stubs", extras = ["s3"], specifier = ">=1.43,<2" },
+    { name = "certifi", specifier = ">=2026.7.22" },
     { name = "django-stubs", specifier = ">=5.2" },
     { name = "djangorestframework-stubs", specifier = ">=3.16" },
     { name = "pyjwt", specifier = ">=2.9,<3" },

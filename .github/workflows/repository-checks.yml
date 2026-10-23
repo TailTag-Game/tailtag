@@ -98,3 +98,46 @@ jobs:
               exit 1
             fi
           done
+
+  replica-terraform:
+    name: Replica Terraform checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # dorny/paths-filter lists the pull request files through the API.
+      pull-requests: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Detect replica Terraform changes
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            replica:
+              - 'infra/replica/**'
+              - '.github/workflows/repository-checks.yml'
+              - 'Taskfile.yml'
+
+      - name: Set up Terraform
+        if: github.event_name != 'pull_request' || steps.filter.outputs.replica == 'true'
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.17.0
+          terraform_wrapper: false
+
+      - name: Install pinned go-task
+        if: github.event_name != 'pull_request' || steps.filter.outputs.replica == 'true'
+        uses: ./.github/actions/install-go-task
+
+      - name: Check replica Terraform
+        if: github.event_name != 'pull_request' || steps.filter.outputs.replica == 'true'
+        run: task replica-tf-check
+
+      - name: Report skipped replica Terraform checks
+        if: github.event_name == 'pull_request' && steps.filter.outputs.replica != 'true'
+        run: echo "No replica Terraform changes detected; checks skipped."
