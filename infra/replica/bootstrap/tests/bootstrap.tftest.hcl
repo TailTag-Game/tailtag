@@ -28,12 +28,13 @@ run "tf_infra_is_least_privilege" {
       "roles/iam.workloadIdentityPoolAdmin",
       "roles/artifactregistry.admin",
       "roles/run.admin",
+      "roles/serviceusage.serviceUsageConsumer",
     ])
-    error_message = "tf-infra must hold exactly the five predefined roles."
+    error_message = "tf-infra must hold exactly the six predefined roles."
   }
 
   assert {
-    condition = length(google_project_iam_member.tf_infra) == 6 && length([
+    condition = length(google_project_iam_member.tf_infra) == 7 && length([
       for v in google_project_iam_member.tf_infra : v.role if !startswith(v.role, "roles/")
       ]) == 1 && alltrue([
       for v in google_project_iam_member.tf_infra :

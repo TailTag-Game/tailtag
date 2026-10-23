@@ -35,7 +35,10 @@ locals {
     wif_pool_admin        = "roles/iam.workloadIdentityPoolAdmin"
     artifact_admin        = "roles/artifactregistry.admin"
     run_admin             = "roles/run.admin"
-    secret_manager        = google_project_iam_custom_role.secret_manager_admin_no_access.id
+    # Lets requests made as tf-infra bill API quota to this project. Callers
+    # that set a quota project need it; it grants no resource access.
+    service_usage_consumer = "roles/serviceusage.serviceUsageConsumer"
+    secret_manager         = google_project_iam_custom_role.secret_manager_admin_no_access.id
   }
 }
 
