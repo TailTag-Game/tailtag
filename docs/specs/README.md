@@ -6,6 +6,7 @@ Small, reversible changes with clear acceptance criteria do not need a spec. Spe
 
 ## Current V0 specifications
 
+- [Hybrid replica inventory and contract](2026-10-22-hybrid-replica-contract.md) — #353 Railway Staging inventory, dependency map, parity criteria, and approval gates for the #352 replica experiment
 - [Windows owner-only files and process trees](2026-10-15-windows-owner-only-files-and-process-trees.md) — #315 slice 3 Windows access-list rule, private creation, Job Object process trees, and simulation-host fail-fast
   ([implementation plan](2026-10-15-windows-owner-only-files-and-process-trees-implementation-plan.md))
 - [Flutter contributor tooling, configuration, and diagnostics](2026-10-12-mobile-contributor-tooling.md) — #132 frozen `make mobile-*`, `AppConfig`, and `doctor.sh --mobile` contract
