@@ -60,6 +60,7 @@ The owner approved these differences from the AC11 text before implementation.
 
 - The `tf-infra` custom role cannot read or add secret values. It can still change secret IAM, and it can manage service accounts and Cloud Run. So it guards against accidental value access, not against a deliberate one. Only the owner can act as `tf-infra`.
 - The GitHub federation condition names the repository, not its numeric ID. A renamed or deleted repository name can be registered again. #356 can pin `repository_id` when it first uses the federation.
+- Neon accepts only plain passwords in `CREATE ROLE`, because it syncs roles to its control plane. The role script sends each password over verified TLS. A statement statistics view can keep the statement text. Only `tailtag_admin` can read the statements of other roles, and it can already reset any password.
 - The API ignores the TLS settings in `DATABASE_URL`. #357 owns the fix, because it proves every connection.
 - The `wire_runtime_secrets` apply waits for the Clerk value from #357 and the Sentry value from #358.
 - The `kislerdm/neon` provider is archived. A follow-up issue moves the configuration to `neondatabase/neon` after Neon publishes it (AC21).
