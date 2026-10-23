@@ -40,7 +40,7 @@ x-api-helpers: &api-helpers >-
   {{.REPOSITORY_ROOT}}/scripts/api_staging_operator_lifecycle_ssh.py
   {{.REPOSITORY_ROOT}}/scripts/api_staging_operator_restart_ssh.py
   {{.REPOSITORY_ROOT}}/scripts/api_staging_registry_reconcile.py
-  {{.REPOSITORY_ROOT}}/scripts/api_staging_registry_reconcile_remote.py
+  {{.REPOSITORY_ROOT}}/services/api/rehearsal/registry_reconciliation.py
   {{.REPOSITORY_ROOT}}/scripts/api_staging_emergency_operator_ssh.py
   {{.REPOSITORY_ROOT}}/scripts/api_staging_emergency_operator_decommission_ssh.py
   {{.REPOSITORY_ROOT}}/scripts/api_development_delivery_event.py

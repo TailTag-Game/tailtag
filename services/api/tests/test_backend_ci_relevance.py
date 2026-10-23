@@ -67,7 +67,7 @@ def classify_paths(tmp_path: Path, paths: list[str]) -> bool:
         (["scripts/api_staging_operator_matrix.py"], True),
         (["scripts/api_staging_operator_matrix_ssh.py"], True),
         (["scripts/api_staging_registry_reconcile.py"], True),
-        (["scripts/api_staging_registry_reconcile_remote.py"], True),
+        (["services/api/rehearsal/registry_reconciliation.py"], True),
         (["scripts/clerk_development_session.py"], True),
         (["scripts/backend_ci_relevance.py"], True),
         (["scripts/validate_semgrep_contract.py"], True),

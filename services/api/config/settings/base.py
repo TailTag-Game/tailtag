@@ -28,6 +28,7 @@ INSTALLED_APPS = [
     "operator_audit.apps.OperatorAuditConfig",
     "profiles.apps.ProfilesConfig",
     "rehearsal.apps.RehearsalConfig",
+    "replica_operations.apps.ReplicaOperationsConfig",
     "simulation_fixtures.apps.SimulationFixturesConfig",
     "simulation_pool.apps.SimulationPoolConfig",
 ]

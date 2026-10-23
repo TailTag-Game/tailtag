@@ -16,7 +16,9 @@ from typing import cast
 import pytest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-SCRIPT = REPOSITORY_ROOT / "scripts" / "api_staging_registry_reconcile_remote.py"
+SCRIPT = (
+    REPOSITORY_ROOT / "services" / "api" / "rehearsal" / "registry_reconciliation.py"
+)
 LAUNCHER = REPOSITORY_ROOT / "scripts" / "api_staging_registry_reconcile.py"
 
 MATCH = "MATCH"
@@ -57,9 +59,9 @@ if str(REPOSITORY_ROOT) not in sys.path:
 def reconciliation() -> ModuleType:
     """Load the remote, read-only reconciler only after its implementation exists."""
     assert SCRIPT.is_file(), (
-        "scripts/api_staging_registry_reconcile_remote.py must exist"
+        "services/api/rehearsal/registry_reconciliation.py must exist"
     )
-    return importlib.import_module("scripts.api_staging_registry_reconcile_remote")
+    return importlib.import_module("rehearsal.registry_reconciliation")
 
 
 @pytest.fixture

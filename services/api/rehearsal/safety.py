@@ -54,22 +54,27 @@ class ResetConfiguration:
     media_key: str
 
 
+_PRIVATE_NAMES = (
+    "TAILTAG_STAGING_RESET_ENABLED",
+    "TAILTAG_STAGING_RESET_ID",
+    "TAILTAG_STAGING_DATABASE_SYSTEM_ID",
+    "TAILTAG_STAGING_DATABASE_HOST",
+    "TAILTAG_STAGING_DATABASE_PORT",
+    "TAILTAG_STAGING_DATABASE_NAME",
+    "TAILTAG_STAGING_RESET_OWNER_CLERK_ID",
+    "TAILTAG_STAGING_RESET_CATCHER_CLERK_ID",
+    "TAILTAG_STAGING_RESET_MEDIA_KEY",
+)
+
+
 def load_configuration(environment: Mapping[str, str]) -> ResetConfiguration:
-    """Parse only the independently configured, canonical Staging facts."""
+    """Admit only the Railway Staging runtime, then parse its private facts."""
     required = (
         "RAILWAY_ENVIRONMENT_NAME",
         "RAILWAY_PROJECT_ID",
         "RAILWAY_ENVIRONMENT_ID",
         "RAILWAY_SERVICE_ID",
-        "TAILTAG_STAGING_RESET_ENABLED",
-        "TAILTAG_STAGING_RESET_ID",
-        "TAILTAG_STAGING_DATABASE_SYSTEM_ID",
-        "TAILTAG_STAGING_DATABASE_HOST",
-        "TAILTAG_STAGING_DATABASE_PORT",
-        "TAILTAG_STAGING_DATABASE_NAME",
-        "TAILTAG_STAGING_RESET_OWNER_CLERK_ID",
-        "TAILTAG_STAGING_RESET_CATCHER_CLERK_ID",
-        "TAILTAG_STAGING_RESET_MEDIA_KEY",
+        *_PRIVATE_NAMES,
     )
     try:
         values = {name: environment[name] for name in required}
@@ -85,6 +90,21 @@ def load_configuration(environment: Mapping[str, str]) -> ResetConfiguration:
             {**values, "RAILWAY_SERVICE_NAME": environment["RAILWAY_SERVICE_NAME"]}
         )
     except (KeyError, TargetBindingError):
+        raise ResetSafetyError
+    return _parse_private_values(values)
+
+
+def load_replica_configuration(values: Mapping[str, str]) -> ResetConfiguration:
+    """Parse the private facts of an already admitted replica job request."""
+    try:
+        return _parse_private_values({name: values[name] for name in _PRIVATE_NAMES})
+    except KeyError:
+        raise ResetSafetyError from None
+
+
+def _parse_private_values(values: Mapping[str, str]) -> ResetConfiguration:
+    """Parse only the independently configured, canonical reset facts."""
+    if values["TAILTAG_STAGING_RESET_ENABLED"] != "true":
         raise ResetSafetyError
     try:
         environment_id = uuid.UUID(values["TAILTAG_STAGING_RESET_ID"])

@@ -35,7 +35,7 @@ BACKEND_RELEVANT_FILES = {
     "scripts/api_staging_operator_matrix.py",
     "scripts/api_staging_operator_matrix_ssh.py",
     "scripts/api_staging_registry_reconcile.py",
-    "scripts/api_staging_registry_reconcile_remote.py",
+    "services/api/rehearsal/registry_reconciliation.py",
     "scripts/api_staging_reset.py",
     "scripts/api_staging_reset_ssh.py",
     "scripts/api_staging_restore_drill.py",
