@@ -1,6 +1,6 @@
 # Hybrid replica provisioning proof (#354)
 
-Status: live phase complete on 2026-10-23. AC21 waits for its follow-up issue.
+Status: live phase complete on 2026-10-23
 
 Related issues: [#354](https://github.com/TailTag-Game/tailtag/issues/354) (this proof), parent [#352](https://github.com/TailTag-Game/tailtag/issues/352), contract [#353](2026-10-22-hybrid-replica-contract.md)
 
@@ -45,7 +45,7 @@ This document never records project IDs, billing account IDs, emails, connection
 | AC18 | PASS | `clerk-jwt-key` and `sentry-dsn` exist with no versions. Only `tt-runtime` can read them. |
 | AC19 | PASS | A fresh clone at `88fd189` with the committed lock files planned no changes for both roots. The cleanup exercise destroyed and made the disposable resources again. |
 | AC20 | PASS | Tooling and CI shipped in #363. The CI job passed. |
-| AC21 | NOT_EXERCISED | The pin and the capability check passed. The follow-up issue for `neondatabase/neon` is not filed yet. |
+| AC21 | PASS (amended) | The pin and the capability check passed. The owner amended AC21 on 2026-10-23: no follow-up issue. See the amendment below. |
 
 ## Live findings
 
@@ -72,7 +72,18 @@ The owner approved these differences from the AC11 text before implementation.
 - Neon accepts only plain passwords in `CREATE ROLE`, because it syncs roles to its control plane. The role script sends each password over verified TLS. A statement statistics view can keep the statement text. Only `tailtag_admin` can read the statements of other roles, and it can already reset any password.
 - The API ignores the TLS settings in `DATABASE_URL`. #357 owns the fix, because it proves every connection.
 - The `wire_runtime_secrets` apply waits for the Clerk value from #357 and the Sentry value from #358.
-- The `kislerdm/neon` provider is archived. A follow-up issue moves the configuration to `neondatabase/neon` after Neon publishes it (AC21).
+- The `kislerdm/neon` provider is archived at 0.18.0. See the AC21 amendment.
+
+## AC21 amendment
+
+The owner amended AC21 on 2026-10-23. On that date `neondatabase/neon` was not in the Terraform or OpenTofu registry, and its repository had no release. A provider built from source cannot meet the exact pins and lock files of AC2.
+
+- The replica stays on `kislerdm/neon` 0.18.0 for this workstream. #361 tears the replica down with the same version.
+- The move to `neondatabase/neon` happens only if one of these triggers occurs:
+  - A fix that the replica needs is released only in `neondatabase/neon`.
+  - The replica must outlive #361.
+- If a trigger occurs, the move uses `terraform state replace-provider` and a reviewed plan that shows no changes. #352 tracks the triggers.
+- No follow-up issue exists for this move.
 
 ## AC9: no imported resources
 
