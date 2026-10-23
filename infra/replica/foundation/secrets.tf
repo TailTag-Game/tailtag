@@ -5,6 +5,7 @@ locals {
     "django-secret-key",
     "runtime-database-url",
     "migrator-database-url",
+    "maintainer-database-url",
     "media-access-key-id",
     "media-secret-access-key",
     "clerk-jwt-key",
@@ -20,10 +21,24 @@ locals {
     "sentry-dsn",
   ]
 
+  # The reset job reads its own URL and the shared production secrets. It never
+  # reads the runtime URL or the Sentry DSN.
+  maintainer_secret_ids = [
+    "maintainer-database-url",
+    "django-secret-key",
+    "media-access-key-id",
+    "media-secret-access-key",
+    "clerk-jwt-key",
+  ]
+
   secret_readers = merge(
     { for id in local.runtime_secret_ids : "${id}/runtime" => {
       secret_id = id
       member    = "serviceAccount:${google_service_account.runtime.email}"
+    } },
+    { for id in local.maintainer_secret_ids : "${id}/maintainer" => {
+      secret_id = id
+      member    = "serviceAccount:${google_service_account.maintainer.email}"
     } },
     { "migrator-database-url/migrator" = {
       secret_id = "migrator-database-url"

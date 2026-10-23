@@ -26,8 +26,14 @@ from psycopg import sql
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = REPOSITORY_ROOT / "scripts" / "replica_neon_roles.py"
 SCRATCH_PREFIX = "tt_replica_roles_"
-ROLE_NAMES = ("migrator", "runtime")
-SECRET_IDS = ("migrator-database-url", "runtime-database-url")
+ROLE_NAMES = ("migrator", "runtime", "maintainer")
+SECRET_IDS = (
+    "migrator-database-url",
+    "runtime-database-url",
+    "maintainer-database-url",
+)
+PROBE_FACTS = ("pg_control_system", "database_owner", "pg_signal_backend")
+RESTRICTED_ADMIN = "tt_replica_roles_admin"
 
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
@@ -54,13 +60,16 @@ def run_ddl(conn: psycopg.Connection[Any], template: LiteralString, name: str) -
 
 
 def drop_roles(admin_url: str) -> None:
-    """Remove the two roles, including what they own in the scratch database."""
+    """Remove the roles, including what they own in the scratch database."""
     with psycopg.connect(admin_url, autocommit=True) as conn:
         for name in ROLE_NAMES:
             exists = conn.execute(
                 "SELECT 1 FROM pg_roles WHERE rolname = %s", (name,)
             ).fetchone()
             if exists:
+                if name == "maintainer":
+                    # The maintainer owns the database; hand it back first.
+                    run_ddl(conn, "REASSIGN OWNED BY {} TO CURRENT_USER", name)
                 run_ddl(conn, "DROP OWNED BY {}", name)
                 run_ddl(conn, "DROP ROLE {}", name)
 
@@ -149,6 +158,7 @@ def test_roles_can_build_but_runtime_cannot_alter_schema(
             (list(ROLE_NAMES),),
         ).fetchall()
     assert flags == [
+        ("maintainer", False, False, False),
         ("migrator", False, False, False),
         ("runtime", False, False, False),
     ]
@@ -205,6 +215,10 @@ def test_rotate_replaces_passwords_and_secrets(
     with psycopg.connect(new_urls["runtime-database-url"], autocommit=True) as runtime:
         runtime.execute("INSERT INTO gizmos (name) VALUES ('a')")
         assert runtime.execute("SELECT count(*) FROM gizmos").fetchone() == (1,)
+    with pytest.raises(psycopg.OperationalError):
+        psycopg.connect(old_urls["maintainer-database-url"]).close()
+    with psycopg.connect(new_urls["maintainer-database-url"], autocommit=True) as conn:
+        assert conn.execute("SELECT current_user").fetchone() == ("maintainer",)
 
 
 def test_secret_writer_passes_the_value_on_stdin_only(
@@ -263,3 +277,241 @@ def test_role_url_keeps_admin_endpoint_and_forces_verified_tls(
     query = parse_qs(parts.query)
     assert query["sslmode"] == ["verify-full"]
     assert query["sslrootcert"] == ["system"]
+
+
+def run_provision(
+    roles_module: ModuleType, admin_url: str, **options: Any
+) -> dict[str, str]:
+    """Provision with the fake secret store and return what it was given."""
+    writes, write_secret = recording_writer()
+    roles_module.provision_roles(
+        admin_url, write_secret=write_secret, enforce_tls=False, **options
+    )
+    return dict(writes)
+
+
+def test_maintainer_is_bounded_owns_the_database_and_inherits_runtime(
+    roles_module: ModuleType,
+    clean_roles: str,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """AC15: maintainer is never privileged, owns the database, and gets runtime rights."""
+    urls = run_provision(roles_module, clean_roles)
+
+    with psycopg.connect(clean_roles, autocommit=True) as admin:
+        flags = admin.execute(
+            "SELECT rolsuper, rolcreatedb, rolcreaterole, rolinherit, rolcanlogin "
+            "FROM pg_roles WHERE rolname = 'maintainer'"
+        ).fetchone()
+        member_of = {
+            name
+            for (name,) in admin.execute(
+                "SELECT roleid::regrole::text FROM pg_auth_members "
+                "WHERE member = 'maintainer'::regrole"
+            ).fetchall()
+        }
+        owner = admin.execute(
+            "SELECT pg_get_userbyid(datdba) FROM pg_database "
+            "WHERE datname = current_database()"
+        ).fetchone()
+    assert flags == (False, False, False, True, True)
+    # Exact set: any extra membership, such as neon_superuser, is a failure.
+    assert member_of == {"pg_signal_backend", "runtime"}
+    assert owner == ("maintainer",)
+
+    # Membership, not copied grants: a table made later is usable at once.
+    with psycopg.connect(urls["migrator-database-url"], autocommit=True) as migrator:
+        migrator.execute("CREATE TABLE sprockets (id serial PRIMARY KEY, name text)")
+    with psycopg.connect(urls["maintainer-database-url"], autocommit=True) as conn:
+        conn.execute("INSERT INTO sprockets (name) VALUES ('a')")
+        assert conn.execute("SELECT count(*) FROM sprockets").fetchone() == (1,)
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute("CREATE ROLE sneaky")
+
+    captured = capfd.readouterr()
+    assert (
+        password_of(urls["maintainer-database-url"]) not in captured.out + captured.err
+    )
+    # R2: creating the role runs the probe, which reports every fact by name.
+    assert all(fact in captured.out for fact in PROBE_FACTS)
+
+
+@pytest.fixture
+def restricted_admin_url(scratch_admin_url: str) -> Iterator[str]:
+    """A Neon-like admin: CREATEROLE and CREATEDB, owns its database, not a superuser."""
+    database = f"{SCRATCH_PREFIX}restricted_{uuid.uuid4().hex[:8]}"
+    with psycopg.connect(scratch_admin_url, autocommit=True) as conn:
+        drop_roles(scratch_admin_url)
+        run_ddl(conn, "DROP ROLE IF EXISTS {}", RESTRICTED_ADMIN)
+        # nosemgrep: tailtag.django.dynamic-raw-sql
+        conn.execute(
+            sql.SQL(
+                "CREATE ROLE {} LOGIN CREATEROLE CREATEDB PASSWORD 'sim-admin-pw'"
+            ).format(sql.Identifier(RESTRICTED_ADMIN))
+        )
+        run_ddl(
+            conn, "GRANT pg_signal_backend TO {} WITH ADMIN OPTION", RESTRICTED_ADMIN
+        )
+        # nosemgrep: tailtag.django.dynamic-raw-sql
+        conn.execute(
+            sql.SQL("CREATE DATABASE {} OWNER {}").format(
+                sql.Identifier(database), sql.Identifier(RESTRICTED_ADMIN)
+            )
+        )
+    parts = urlsplit(url_for_database(scratch_admin_url, database))
+    host = f"{parts.hostname}:{parts.port}" if parts.port else str(parts.hostname)
+    url = urlunsplit(parts._replace(netloc=f"{RESTRICTED_ADMIN}:sim-admin-pw@{host}"))
+    try:
+        yield url
+    finally:
+        with psycopg.connect(scratch_admin_url, autocommit=True) as conn:
+            run_ddl(conn, "DROP DATABASE IF EXISTS {} WITH (FORCE)", database)
+            drop_roles(scratch_admin_url)
+            run_ddl(conn, "DROP ROLE IF EXISTS {}", RESTRICTED_ADMIN)
+
+
+def test_reruns_after_ownership_moved_work_for_a_non_superuser_admin(
+    roles_module: ModuleType, restricted_admin_url: str
+) -> None:
+    """AC15: Neon's admin is not a superuser, so reruns must not need schema ownership."""
+    first = run_provision(roles_module, restricted_admin_url)
+    second = run_provision(roles_module, restricted_admin_url)
+    rotated = run_provision(roles_module, restricted_admin_url, rotate=True)
+
+    assert second == {}
+    assert sorted(rotated) == sorted(SECRET_IDS)
+    with psycopg.connect(rotated["migrator-database-url"], autocommit=True) as migrator:
+        migrator.execute("CREATE TABLE cogs (id serial PRIMARY KEY, name text)")
+    with psycopg.connect(rotated["runtime-database-url"], autocommit=True) as runtime:
+        runtime.execute("INSERT INTO cogs (name) VALUES ('a')")
+    with psycopg.connect(rotated["maintainer-database-url"], autocommit=True) as conn:
+        assert conn.execute("SELECT count(*) FROM cogs").fetchone() == (1,)
+        owner = conn.execute(
+            "SELECT pg_get_userbyid(datdba) FROM pg_database "
+            "WHERE datname = current_database()"
+        ).fetchone()
+        assert owner == ("maintainer",)
+    # A plain rerun once migrator-owned tables exist (migrator password unknown)
+    # must still raise nothing and write nothing.
+    assert run_provision(roles_module, restricted_admin_url) == {}
+    with psycopg.connect(rotated["runtime-database-url"], autocommit=True) as runtime:
+        runtime.execute("INSERT INTO cogs (name) VALUES ('b')")
+    assert sorted(first) == sorted(SECRET_IDS)
+
+
+def state_snapshot(admin_url: str) -> list[Any]:
+    """Everything the probe could plausibly change: roles, memberships, owner, ACLs."""
+    queries: tuple[LiteralString, ...] = (
+        (
+            "SELECT rolname, rolsuper, rolcanlogin, rolpassword FROM pg_authid "
+            "WHERE rolname IN ('migrator', 'runtime', 'maintainer') ORDER BY 1"
+        ),
+        (
+            "SELECT roleid::regrole::text, member::regrole::text FROM pg_auth_members "
+            "WHERE member IN ('migrator'::regrole, 'runtime'::regrole, "
+            "'maintainer'::regrole) ORDER BY 1, 2"
+        ),
+        (
+            "SELECT pg_get_userbyid(datdba), datacl::text FROM pg_database "
+            "WHERE datname = current_database()"
+        ),
+        "SELECT nspacl::text FROM pg_namespace WHERE nspname = 'public'",
+        "SELECT defaclrole::regrole::text, defaclacl::text FROM pg_default_acl ORDER BY 1",
+    )
+    with psycopg.connect(admin_url, autocommit=True) as conn:
+        return [conn.execute(query).fetchall() for query in queries]
+
+
+def test_probe_reports_three_facts_read_only_and_without_secrets(
+    roles_module: ModuleType,
+    clean_roles: str,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """AC15: the probe passes on a healthy maintainer, prints no secret, changes nothing."""
+    urls = run_provision(roles_module, clean_roles)
+    maintainer_url = urls["maintainer-database-url"]
+    capfd.readouterr()
+    before = state_snapshot(clean_roles)
+
+    roles_module.probe_maintainer(maintainer_url, enforce_tls=False)
+
+    assert state_snapshot(clean_roles) == before
+    captured = capfd.readouterr()
+    output = captured.out + captured.err
+    assert all(fact in captured.out for fact in PROBE_FACTS)
+    assert password_of(maintainer_url) not in output
+    assert "postgresql://" not in output
+
+
+@pytest.mark.parametrize(
+    ("fact", "break_it"),
+    [
+        ("pg_signal_backend", "REVOKE pg_signal_backend FROM maintainer"),
+        ("database_owner", "ALTER DATABASE {db} OWNER TO CURRENT_USER"),
+        (
+            "pg_control_system",
+            "REVOKE EXECUTE ON FUNCTION pg_control_system() FROM PUBLIC",
+        ),
+    ],
+)
+def test_probe_fails_naming_each_missing_capability(
+    roles_module: ModuleType,
+    clean_roles: str,
+    capfd: pytest.CaptureFixture[str],
+    fact: str,
+    break_it: str,
+) -> None:
+    """AC15: a missing capability must fail loudly and name which one is missing."""
+    urls = run_provision(roles_module, clean_roles)
+    maintainer_url = urls["maintainer-database-url"]
+    with psycopg.connect(clean_roles, autocommit=True) as admin:
+        database = admin.execute("SELECT current_database()").fetchone()
+        assert database is not None
+        statement = sql.SQL(cast(LiteralString, break_it)).format(  # type: ignore[arg-type]
+            db=sql.Identifier(database[0])
+        )
+        admin.execute(statement)
+    try:
+        capfd.readouterr()
+        with pytest.raises(roles_module.RoleProvisioningError) as failure:
+            roles_module.probe_maintainer(maintainer_url, enforce_tls=False)
+    finally:
+        if fact == "pg_control_system":
+            with psycopg.connect(clean_roles, autocommit=True) as admin:
+                admin.execute("GRANT EXECUTE ON FUNCTION pg_control_system() TO PUBLIC")
+
+    assert fact in str(failure.value)
+    assert password_of(maintainer_url) not in str(failure.value)
+    captured = capfd.readouterr()
+    assert password_of(maintainer_url) not in captured.out + captured.err
+
+
+def test_probe_flag_reads_the_secret_and_changes_nothing(
+    roles_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """AC15: --probe alone reads Secret Manager, never terraform or a secret write."""
+    secret_url = "postgresql://maintainer:pr0be-s3cret@127.0.0.1:1/tailtag"
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        commands.append(list(command))
+        return subprocess.CompletedProcess(command, 0, secret_url, "")
+
+    def fake_which(name: str) -> str:
+        return f"/fake/{name}"
+
+    monkeypatch.setattr(roles_module.shutil, "which", fake_which)
+    monkeypatch.setattr(roles_module.subprocess, "run", fake_run)
+
+    status = roles_module.main(["--project", "fake-replica-project", "--probe"])
+
+    assert status == 1  # the fake endpoint is unreachable, so the probe fails
+    flat = [" ".join(command) for command in commands]
+    assert any("maintainer-database-url" in line for line in flat)
+    assert not any("terraform" in line for line in flat)
+    assert not any("versions add" in line for line in flat)
+    captured = capfd.readouterr()
+    assert "pr0be-s3cret" not in captured.out + captured.err
+    assert "postgresql://" not in captured.out + captured.err

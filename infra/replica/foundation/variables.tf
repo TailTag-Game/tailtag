@@ -41,6 +41,14 @@ variable "wire_runtime_secrets" {
   default = false
 }
 
+# Wires SENTRY_DSN into the service only, and only together with
+# wire_runtime_secrets. Set true after the operator has entered a sentry-dsn
+# secret version.
+variable "wire_sentry_dsn" {
+  type    = bool
+  default = false
+}
+
 variable "enable_cleanup_exercise" {
   type    = bool
   default = false

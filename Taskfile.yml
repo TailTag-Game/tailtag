@@ -243,7 +243,7 @@ tasks:
       - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV | toSlash}} run --project services/api --locked --no-sync python -m scripts.api_staging_restore_drill --confirm restore-tailtag-staging-backup'
 
   replica-neon-roles:
-    desc: "Create the hybrid replica Neon roles and store their URLs in Secret Manager: -- --project PROJECT_ID [--rotate]."
+    desc: "Create the hybrid replica Neon roles (migrator, runtime, maintainer), store their URLs in Secret Manager, and probe maintainer: -- --project PROJECT_ID [--rotate] [--probe]."
     # Silent so a failure never prints the command text or any output of it.
     silent: true
     vars:
