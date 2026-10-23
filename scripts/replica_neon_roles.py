@@ -144,11 +144,9 @@ def _create_roles(
         if role in existing and not rotate:
             continue
         password = secrets.token_urlsafe(32)
-        # Send only a SCRAM verifier so the plain password never reaches the
-        # server or its statement logs.
-        verifier = admin.pgconn.encrypt_password(
-            password.encode(), role.encode(), b"scram-sha-256"
-        ).decode()
+        # Neon syncs roles to its control plane, which refuses pre-hashed
+        # passwords, so the plain password goes over the verified TLS
+        # connection and the server hashes it.
         if role in existing:
             statement = sql.SQL("ALTER ROLE {} PASSWORD {}")
         else:
@@ -156,7 +154,7 @@ def _create_roles(
                 "CREATE ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE "
                 "NOINHERIT PASSWORD {}"
             )
-        admin.execute(statement.format(sql.Identifier(role), sql.Literal(verifier)))
+        admin.execute(statement.format(sql.Identifier(role), sql.Literal(password)))
         passwords[role] = password
 
 
