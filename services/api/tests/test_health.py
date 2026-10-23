@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import NoReturn, Self, cast
+from typing import Any, NoReturn, Self, cast
 
 import pytest
 from django.conf import settings
@@ -18,6 +18,7 @@ from config import build_identity, replacement_target_binding
 from config.settings.media import S3MediaConfiguration
 from health.configuration import validate_configuration
 from health.views import ready as readiness_view
+from tests import replica_contract
 from tests.clerk_settings_contract import (
     valid_clerk_public_key as _valid_clerk_public_key,  # noqa: F401  # pyright: ignore[reportUnusedImport]
 )
@@ -962,3 +963,255 @@ def test_identity_hides_unreadable_canonical_component_failure(
     assert response.json() == {"status": "unavailable"}
     assert response["Cache-Control"] == "no-store"
     assert SENSITIVE_DIAGNOSTIC not in response.content.decode()
+
+
+# --- #355 U1: hybrid replica readiness on Cloud Run ---
+
+
+def configure_replica_identity(
+    monkeypatch: MonkeyPatch, tmp_path: Path, *, kind: str = "service"
+) -> None:
+    """Pin synthetic replica values and make the process look like Cloud Run."""
+    replica_contract.install_replica_pins(monkeypatch)
+    replica_contract.set_cloud_run_environment(monkeypatch, kind=kind)
+    write_build_identity(tmp_path / "build-identity.json")
+    monkeypatch.setattr(
+        build_identity, "_METADATA_PATH", tmp_path / "build-identity.json"
+    )
+    monkeypatch.setattr(settings, "SETTINGS_MODULE", "config.settings.production")
+
+
+def replica_media(
+    endpoint_url: str = replica_contract.MEDIA_ENDPOINT,
+    bucket_name: str = replica_contract.MEDIA_BUCKET,
+) -> dict[str, object]:
+    """Return consistent media configuration and storage options for one pair."""
+    configuration = S3MediaConfiguration(
+        endpoint_url=endpoint_url,
+        bucket_name=bucket_name,
+        region="auto",
+        access_key_id="test-access-key",
+        secret_access_key="test-secret-key",
+    )
+    return {
+        "MEDIA_STORAGE_CONFIGURATION": configuration,
+        "STORAGES": {
+            **DEPLOYED_STORAGES,
+            "default": {
+                "BACKEND": "media.storage.S3MediaStorage",
+                "OPTIONS": {
+                    "endpoint_url": endpoint_url,
+                    "bucket_name": bucket_name,
+                    "region": "auto",
+                    "access_key_id": "test-access-key",
+                    "secret_access_key": "test-secret-key",
+                    "url_expiry_seconds": 600,
+                },
+            },
+        },
+    }
+
+
+def replica_settings(
+    clerk_public_key: str,
+    *,
+    database: dict[str, object] | None = None,
+    **overrides: object,
+) -> dict[str, object]:
+    """Return a complete valid replica profile with one variation per test."""
+    database_options: dict[str, object] = {
+        "connect_timeout": 5,
+        "sslmode": "verify-full",
+        "sslrootcert": replica_contract.SSL_ROOT_CERT,
+    }
+    effective_database = {
+        **settings.DATABASES["default"],
+        "HOST": replica_contract.DATABASE_HOST,
+        "NAME": replica_contract.DATABASE_NAME,
+        "OPTIONS": database_options,
+        **(database or {}),
+    }
+    return {
+        **configured_deployed_settings(clerk_public_key),
+        "ALLOWED_HOSTS": [replica_contract.RUN_APP_HOST],
+        "CSRF_TRUSTED_ORIGINS": [f"https://{replica_contract.RUN_APP_HOST}"],
+        "CLERK_AUTHENTICATION": ClerkVerificationConfiguration(
+            jwt_key=clerk_public_key,
+            authorized_parties=(replica_contract.CLERK_PARTY,),
+        ),
+        "DATABASES": {"default": effective_database},
+        **replica_media(),
+        **overrides,
+    }
+
+
+@pytest.mark.django_db
+def test_readiness_accepts_complete_replica_service_configuration(
+    client: Client,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+    valid_clerk_public_key: str,
+) -> None:
+    """AC19/AC10: a complete replica profile is ready and identifies as `replica`."""
+    configure_replica_identity(monkeypatch, tmp_path)
+    monkeypatch.setattr("media.storage.boto3.client", fail_vendor_call)
+
+    with override_settings(**replica_settings(valid_clerk_public_key)):
+        ready = client.get("/health/ready", HTTP_HOST=replica_contract.RUN_APP_HOST)
+        identity = client.get(
+            "/health/identity", HTTP_HOST=replica_contract.RUN_APP_HOST
+        )
+
+    assert ready.status_code == 200
+    assert ready.json() == {"status": "ok"}
+    assert identity.json() == {
+        "source_sha": SOURCE_SHA,
+        "deployment_id": replica_contract.SERVICE_REVISION,
+        "environment": "replica",
+    }
+
+
+@pytest.mark.parametrize(
+    "variation",
+    (
+        pytest.param(
+            {
+                "ALLOWED_HOSTS": [
+                    replica_contract.RUN_APP_HOST,
+                    "healthcheck.railway.app",
+                ]
+            },
+            id="extra-host",
+        ),
+        pytest.param(
+            {
+                "ALLOWED_HOSTS": [replica_contract.OTHER_RUN_APP_HOST],
+                "CSRF_TRUSTED_ORIGINS": [
+                    f"https://{replica_contract.OTHER_RUN_APP_HOST}"
+                ],
+            },
+            id="host-digest-mismatch",
+        ),
+        pytest.param(
+            {"CSRF_TRUSTED_ORIGINS": [f"http://{replica_contract.RUN_APP_HOST}"]},
+            id="csrf-origin-mismatch",
+        ),
+        pytest.param(
+            {
+                "database": {
+                    "OPTIONS": {
+                        "connect_timeout": 5,
+                        "sslmode": "require",
+                        "sslrootcert": replica_contract.SSL_ROOT_CERT,
+                    }
+                }
+            },
+            id="sslmode-not-verify-full",
+        ),
+        pytest.param(
+            {
+                "database": {
+                    "OPTIONS": {
+                        "connect_timeout": 5,
+                        "sslmode": "verify-full",
+                        "sslrootcert": "",
+                    }
+                }
+            },
+            id="sslrootcert-empty",
+        ),
+        pytest.param(
+            {
+                "database": {
+                    "HOST": "postgres.railway.internal",
+                    "NAME": "railway",
+                }
+            },
+            id="railway-shaped-database",
+        ),
+        pytest.param(
+            replica_media(bucket_name="tailtag-staging-media"), id="staging-like-bucket"
+        ),
+    ),
+)
+@pytest.mark.django_db
+def test_replica_readiness_rejects_unbound_hosts_database_or_media(
+    client: Client,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+    valid_clerk_public_key: str,
+    variation: dict[str, Any],
+) -> None:
+    """Failure modes 7, 8 and 9: any value outside the pinned replica set fails closed."""
+    configure_replica_identity(monkeypatch, tmp_path)
+    monkeypatch.setattr("media.storage.boto3.client", fail_vendor_call)
+    effective = replica_settings(valid_clerk_public_key, **variation)
+    # Send an allowed host so a 503 comes from readiness, not Django's host check.
+    host = cast(list[str], effective["ALLOWED_HOSTS"])[0]
+
+    with override_settings(**effective):
+        response = client.get("/health/ready", HTTP_HOST=host)
+
+    assert response.status_code == 503
+    assert response.json() == {"status": "unavailable"}
+
+
+@pytest.mark.django_db
+def test_replica_readiness_rejects_other_clerk_authorized_parties(
+    client: Client,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+    valid_clerk_public_key: str,
+) -> None:
+    """Failure mode 7: the Staging party set is not the replica Clerk origin."""
+    configure_replica_identity(monkeypatch, tmp_path)
+    parties = (
+        "https://accounts.staging.tailtag.app",
+        "https://simulator.staging.tailtag.app",
+    )
+
+    with override_settings(
+        **replica_settings(
+            valid_clerk_public_key,
+            CLERK_AUTHENTICATION=ClerkVerificationConfiguration(
+                jwt_key=valid_clerk_public_key, authorized_parties=parties
+            ),
+        )
+    ):
+        response = client.get("/health/ready", HTTP_HOST=replica_contract.RUN_APP_HOST)
+
+    assert response.status_code == 503
+
+
+@pytest.mark.django_db
+def test_replica_job_identity_never_passes_service_readiness(
+    client: Client,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+    valid_clerk_public_key: str,
+) -> None:
+    """Failure mode 5: a pinned Cloud Run job is not the replica API service."""
+    configure_replica_identity(monkeypatch, tmp_path, kind="job")
+
+    with override_settings(**replica_settings(valid_clerk_public_key)):
+        response = client.get("/health/ready", HTTP_HOST=replica_contract.RUN_APP_HOST)
+
+    assert response.status_code == 503
+
+
+@pytest.mark.django_db
+def test_local_profile_claiming_cloud_run_fails_readiness(
+    client: Client, monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    """AC13/A3: K_SERVICE is a deployed marker, so local settings cannot qualify."""
+    configure_replica_identity(monkeypatch, tmp_path)
+    configure_local_profile(monkeypatch)
+    monkeypatch.setenv("K_SERVICE", replica_contract.SERVICE_NAME)
+    monkeypatch.setenv("K_REVISION", replica_contract.SERVICE_REVISION)
+
+    with override_settings(
+        DEBUG=True, CLERK_AUTHENTICATION=None, STORAGES=LOCAL_STORAGES
+    ):
+        response = client.get("/health/ready")
+
+    assert response.status_code == 503
