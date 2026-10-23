@@ -6,7 +6,7 @@ import hashlib
 import http.client
 import re
 import urllib.request
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final, Literal, cast
 
@@ -197,10 +197,29 @@ def validate_run_app_host(allowed_hosts: Sequence[str]) -> str:
     return host
 
 
-def validate_data_targets(
-    database_settings: Mapping[str, object], media_configuration: S3MediaConfiguration
-) -> None:
-    """Require verified database TLS and the pinned database and media targets."""
+def is_pinned_job(
+    identity: Mapping[str, object],
+    runtime_identity: Mapping[str, object],
+    environ: Mapping[str, str],
+    job_names: Collection[str],
+) -> bool:
+    """Return whether this process is one of the named replica jobs, as claimed."""
+    try:
+        target = read_cloud_run_target(environ)
+    except ReplicaBindingError:
+        return False
+    return (
+        target is not None
+        and target.kind == "job"
+        and target.name in job_names
+        and identity.get("environment") == "replica"
+        and identity.get("deployment_id") == target.deployment_id
+        and dict(runtime_identity) == dict(identity)
+    )
+
+
+def validate_database_target(database_settings: Mapping[str, object]) -> None:
+    """Require verified database TLS and the pinned database."""
     options = database_settings.get("OPTIONS")
     if not isinstance(options, Mapping):
         raise ReplicaBindingError(_ERROR)
@@ -218,6 +237,13 @@ def validate_data_targets(
         raise ReplicaBindingError(_ERROR)
     if database_digest(database_host, database_name) != _EXPECTED_DATABASE_DIGEST:
         raise ReplicaBindingError(_ERROR)
+
+
+def validate_data_targets(
+    database_settings: Mapping[str, object], media_configuration: S3MediaConfiguration
+) -> None:
+    """Require verified database TLS and the pinned database and media targets."""
+    validate_database_target(database_settings)
     if (
         media_digest(media_configuration.endpoint_url, media_configuration.bucket_name)
         != _EXPECTED_MEDIA_DIGEST

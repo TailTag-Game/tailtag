@@ -37,7 +37,9 @@ def execute(
     typed_identity = cast(Mapping[str, object], identity)
     if frozenset(typed_identity) != _IDENTITY_KEYS:
         return _response("FAIL_REQUEST")
-    if not target_matches(typed_identity, runtime_identity, environ):
+    if not target_matches(
+        typed_identity, runtime_identity, environ, replica_job="tailtag-replica-inspect"
+    ):
         return _response("FAIL_TARGET")
     arguments = fields.get("arguments")
     if (

@@ -151,7 +151,7 @@ def semgrep_scan_tokens(dry_run: str) -> list[list[str]]:
             (REPOSITORY_ROOT / helper).as_posix()
             for helper in (
                 "scripts/api_staging_registry_reconcile.py",
-                "scripts/api_staging_registry_reconcile_remote.py",
+                "services/api/rehearsal/registry_reconciliation.py",
             )
             if helper in FROZEN_ROOT_HELPERS
         }
@@ -443,7 +443,7 @@ def test_semgrep_checker_allows_only_the_trusted_prefix_and_reviewed_targets() -
     reviewed = [
         (REPOSITORY_ROOT / "scripts/api_staging_registry_reconcile.py").as_posix(),
         (
-            REPOSITORY_ROOT / "scripts/api_staging_registry_reconcile_remote.py"
+            REPOSITORY_ROOT / "services/api/rehearsal/registry_reconciliation.py"
         ).as_posix(),
     ]
     accepted = " ".join((command, ".semgrep/tests", *reviewed))

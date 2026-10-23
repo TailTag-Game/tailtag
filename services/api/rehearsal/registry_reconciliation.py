@@ -9,6 +9,9 @@ import uuid
 from collections.abc import Mapping
 from typing import Final, Protocol, cast
 
+_REPLICA_JOB: Final = "tailtag-replica-registry-reconcile"
+_REPLICA_REQUEST_KEYS: Final = frozenset({"identity", "configuration"})
+_IDENTITY_KEYS: Final = frozenset({"source_sha", "deployment_id", "environment"})
 _SHA: Final = re.compile(r"[0-9a-f]{40}\Z")
 _HASH: Final = re.compile(r"[0-9a-f]{64}\Z")
 _CLUSTER: Final = re.compile(r"[1-9][0-9]*\Z")
@@ -170,8 +173,25 @@ def compare_authorities(
     }
 
 
+def _replica_target_matches(request: Mapping[str, object]) -> bool:
+    """Bind the replica job to its own pinned Cloud Run job and runtime identity."""
+    from config.build_identity import get_identity
+    from config.replica_binding import is_pinned_job
+
+    identity = request.get("identity")
+    if not isinstance(identity, dict):
+        return False
+    values = cast(dict[str, object], identity)
+    return frozenset(values) == _IDENTITY_KEYS and is_pinned_job(
+        values, get_identity(), os.environ, (_REPLICA_JOB,)
+    )
+
+
 def target_matches(request: Mapping[str, object]) -> bool:
     """Bind the SSH worker to the approved image, runtime and DB URL."""
+    if frozenset(request) == _REPLICA_REQUEST_KEYS:
+        return _replica_target_matches(request)
+
     from config.build_identity import get_identity
 
     if frozenset(request) != frozenset(
@@ -183,7 +203,7 @@ def target_matches(request: Mapping[str, object]) -> bool:
     if not isinstance(identity, dict) or not isinstance(fingerprint, str):
         return False
     values = cast(dict[str, object], identity)
-    if frozenset(values) != frozenset({"source_sha", "deployment_id", "environment"}):
+    if frozenset(values) != _IDENTITY_KEYS:
         return False
     source_sha, deployment_id, environment = (
         values["source_sha"],
@@ -226,6 +246,12 @@ def load_configuration(environment: Mapping[str, str]) -> _Private:
     return checked_load(environment)
 
 
+def load_replica_configuration(values: Mapping[str, str]) -> _Private:
+    from rehearsal.safety import load_replica_configuration as checked_load
+
+    return checked_load(values)
+
+
 def read_registry() -> _Registry | None:
     from rehearsal.models import StagingResetIdentity
 
@@ -266,7 +292,11 @@ def run_request(request: Mapping[str, object]) -> dict[str, object]:
     ):
         return {"result": "FAIL_CONFIGURATION", "checks": {}}
     try:
-        private = load_configuration({**os.environ, **cast(dict[str, str], values)})
+        private = (
+            load_replica_configuration(cast(dict[str, str], values))
+            if frozenset(request) == _REPLICA_REQUEST_KEYS
+            else load_configuration({**os.environ, **cast(dict[str, str], values)})
+        )
     except Exception:  # noqa: BLE001
         return {"result": "FAIL_CONFIGURATION", "checks": {}}
     try:
