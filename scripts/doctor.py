@@ -190,6 +190,22 @@ def check_github_cli(report: Report) -> None:
         report.warn("GitHub CLI is installed but not authenticated; run: gh auth login")
 
 
+def check_terraform(report: Report) -> None:
+    terraform = shutil.which("terraform")
+    if terraform is None:
+        report.warn(
+            "Terraform is not installed; it is only needed for infra/replica "
+            "(task replica-tf-check)"
+        )
+        return
+    result = run([terraform, "version"])
+    first_line = result.stdout.splitlines()[0].strip() if result.stdout else ""
+    if result.status == 0 and first_line:
+        report.passed(f"Terraform is installed ({first_line})")
+    else:
+        report.warn("Terraform is installed but did not report its version")
+
+
 def check_foundation_structure(report: Report) -> None:
     check_required_path(report, "services/api", "directory")
     for path in REQUIRED_FILES:
@@ -494,6 +510,7 @@ def main(arguments: list[str]) -> int:
     print("Repository")
     check_repository(report)
     check_github_cli(report)
+    check_terraform(report)
     check_foundation_structure(report)
 
     if mobile_mode:

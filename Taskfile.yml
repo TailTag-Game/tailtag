@@ -50,6 +50,7 @@ x-api-helpers: &api-helpers >-
   {{.REPOSITORY_ROOT}}/scripts/api_staging_reset.py
   {{.REPOSITORY_ROOT}}/scripts/api_staging_reset_ssh.py
   {{.REPOSITORY_ROOT}}/scripts/api_staging_restore_drill.py
+  {{.REPOSITORY_ROOT}}/scripts/replica_neon_roles.py
   {{.REPOSITORY_ROOT}}/scripts/staging_restore_integrity.py
   {{.REPOSITORY_ROOT}}/scripts/clerk_development_session.py
   {{.REPOSITORY_ROOT}}/scripts/backend_ci_relevance.py
@@ -240,6 +241,28 @@ tasks:
       REPOSITORY_ROOT: *repository-root
     cmds:
       - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV | toSlash}} run --project services/api --locked --no-sync python -m scripts.api_staging_restore_drill --confirm restore-tailtag-staging-backup'
+
+  replica-neon-roles:
+    desc: "Create the hybrid replica Neon roles and store their URLs in Secret Manager: -- --project PROJECT_ID [--rotate]."
+    # Silent so a failure never prints the command text or any output of it.
+    silent: true
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV | toSlash}} run --project services/api --locked --no-sync python -m scripts.replica_neon_roles {{.CLI_ARGS}}'
+
+  replica-tf-check:
+    desc: "Check the hybrid replica Terraform roots offline: format, init without a backend, validate, and test."
+    cmds:
+      - cmd: command -v terraform >/dev/null 2>&1 || { printf '%s\n' 'FAIL  terraform is not on PATH; install Terraform 1.17 (https://developer.hashicorp.com/terraform/install) and try again.' >&2; exit 1; }
+        silent: true
+      - terraform fmt -check -recursive infra/replica
+      - for: [bootstrap, foundation]
+        cmd: terraform -chdir=infra/replica/{{.ITEM}} init -backend=false -input=false -lockfile=readonly
+      - for: [bootstrap, foundation]
+        cmd: terraform -chdir=infra/replica/{{.ITEM}} validate
+      - for: [bootstrap, foundation]
+        cmd: terraform -chdir=infra/replica/{{.ITEM}} test
 
   # Silent so a failure prints only go-task's footer, never the command text.
   api-media-storage-smoke:

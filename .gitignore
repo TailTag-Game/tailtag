@@ -20,3 +20,13 @@ skills-lock.json
 
 # Local simulation run evidence
 /tools/simulator/reports/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+*_override.tf
+*.tfplan
+backend.hcl

@@ -40,6 +40,7 @@ BACKEND_RELEVANT_FILES = {
     "scripts/api_staging_reset_ssh.py",
     "scripts/api_staging_restore_drill.py",
     "scripts/api_media_storage_smoke.py",
+    "scripts/replica_neon_roles.py",
     "scripts/clerk_development_session.py",
     "scripts/backend_ci_relevance.py",
     "scripts/doctor.py",
