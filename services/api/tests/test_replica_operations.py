@@ -339,7 +339,11 @@ def _valid_pool_text(**changes: object) -> str:
     "raw",
     (
         pytest.param(None, id="variable-missing"),
-        pytest.param(_valid_pool_text() + " " * 65_536, id="over-65536-bytes"),
+        pytest.param(
+            _valid_pool_text() + " " * 65_536,
+            id="over-65536-bytes",
+            marks=skip_on_windows("Windows caps one environment value at 32,767 chars"),
+        ),
         pytest.param(
             _valid_pool_text(pool="gamma\udcff"),
             id="not-utf-8",
