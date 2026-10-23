@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from observability.logging import build_logging_config
 from observability.postgresql import ENGINE as DATABASE_ENGINE
@@ -123,6 +123,9 @@ SPECTACULAR_SETTINGS = {
 }
 
 
+_DATABASE_URL_TLS_OPTIONS = ("sslmode", "sslrootcert", "channel_binding")
+
+
 def database_from_url(database_url: str) -> dict[str, object]:
     """Convert a PostgreSQL URL into Django's database configuration."""
     parsed = urlparse(database_url)
@@ -132,6 +135,17 @@ def database_from_url(database_url: str) -> dict[str, object]:
     if not parsed.hostname or not parsed.path or parsed.path == "/":
         message = "DATABASE_URL must include a PostgreSQL host and database name."
         raise ValueError(message)
+
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    tls_options: dict[str, object] = {}
+    for option in _DATABASE_URL_TLS_OPTIONS:
+        values = query.get(option)
+        if values is None:
+            continue
+        if len(values) != 1 or not values[0]:
+            message = "DATABASE_URL TLS parameters must appear once with a value."
+            raise ValueError(message)
+        tls_options[option] = values[0]
 
     return {
         "ENGINE": DATABASE_ENGINE,
@@ -143,5 +157,5 @@ def database_from_url(database_url: str) -> dict[str, object]:
         # Bounded well below Gunicorn's 30-second worker timeout, so an
         # unreachable database raises (and is recorded) instead of the worker
         # being killed first.
-        "OPTIONS": {"connect_timeout": 5},
+        "OPTIONS": {"connect_timeout": 5, **tls_options},
     }
