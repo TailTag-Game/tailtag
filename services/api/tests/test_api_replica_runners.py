@@ -25,6 +25,7 @@ from typing import Any, ClassVar, Self, cast
 
 import pytest
 
+from tests import windows_acl_support as acl
 from tests.semgrep_support import task_dry_run
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -800,6 +801,11 @@ def test_every_failure_prints_one_fixed_line_with_no_private_value(
 def write_config(path: Path, values: Mapping[str, str], mode: int = 0o600) -> Path:
     path.write_text("".join(f"{key}={value}\n" for key, value in values.items()))
     path.chmod(mode)
+    if sys.platform == "win32":
+        # Windows ignores chmod, so owner-only is an ACL. A wider mode adds a
+        # Builtin Users read entry, as the Staging reset tests do.
+        acl.make_owner_only(path.parent, container=True)
+        acl.make_owner_only(path, extra_aces="" if mode == 0o600 else "(A;;FR;;;BU)")
     return path
 
 
