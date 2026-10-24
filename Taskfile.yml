@@ -23,6 +23,7 @@ x-api-helpers: &api-helpers >-
   {{.REPOSITORY_ROOT}}/scripts/api_auth_smoke.py
   {{.REPOSITORY_ROOT}}/scripts/api_replacement_auth_smoke.py
   {{.REPOSITORY_ROOT}}/scripts/api_staging_auth_smoke.py
+  {{.REPOSITORY_ROOT}}/scripts/api_replica_auth_smoke.py
   {{.REPOSITORY_ROOT}}/scripts/api_environment_fingerprint.py
   {{.REPOSITORY_ROOT}}/scripts/api_media_storage_smoke.py
   {{.REPOSITORY_ROOT}}/scripts/api_deployment_identity.py
@@ -180,6 +181,13 @@ tasks:
       REPOSITORY_ROOT: *repository-root
     cmds:
       - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV | toSlash}} run --project services/api --locked --no-sync python -m scripts.api_staging_auth_smoke'
+
+  replica-auth-smoke:
+    desc: "Run the explicit live Clerk replica authenticated API smoke."
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV | toSlash}} run --project services/api --locked --no-sync python -m scripts.api_replica_auth_smoke'
 
   api-replacement-auth-smoke:
     desc: "Run the interactive replacement Development/Staging authenticated API smoke."
