@@ -46,6 +46,7 @@ ADMIN_OUTPUT = "neon_admin_connection_uri"
 DEFAULT_TERRAFORM_DIR = "infra/replica/foundation"
 _PROJECT_ID = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
 _COMMAND_TIMEOUT_SECONDS = 120
+_DEFAULT_PORT = 5432
 
 
 class RoleProvisioningError(Exception):
@@ -57,14 +58,16 @@ def role_url(
 ) -> str:
     """Return the admin URL with its credentials replaced by the role's.
 
-    The host, port, and database stay the same. With `enforce_tls`, the query
-    always asks for a fully verified connection, even if the admin URL does not.
+    The host, port, and database stay the same. The port is always explicit,
+    5432 when the admin URL omits it, because replica reset compares a numeric
+    port. With `enforce_tls`, the query always asks for a fully verified
+    connection, even if the admin URL does not.
     """
     parts = urlsplit(admin_url)
     host = parts.hostname or ""
     if ":" in host:
         host = f"[{host}]"
-    port = f":{parts.port}" if parts.port is not None else ""
+    port = f":{parts.port or _DEFAULT_PORT}"
     netloc = f"{quote(role, safe='')}:{quote(password, safe='')}@{host}{port}"
     query = parts.query
     if enforce_tls:

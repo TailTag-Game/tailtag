@@ -253,14 +253,22 @@ def test_secret_writer_passes_the_value_on_stdin_only(
     assert "s3cr3t" not in captured.out + captured.err
 
 
+@pytest.mark.parametrize(
+    ("admin_port", "expected_port"),
+    (pytest.param(":6543", 6543, id="explicit"), pytest.param("", 5432, id="omitted")),
+)
 def test_role_url_keeps_admin_endpoint_and_forces_verified_tls(
-    roles_module: ModuleType,
+    roles_module: ModuleType, admin_port: str, expected_port: int
 ) -> None:
-    """AC11/AC12: only the credentials change and TLS is always fully verified."""
+    """AC11/AC12: only the credentials change and TLS is always fully verified.
+
+    Neon's URI has no port, but replica reset compares a numeric port, so the
+    stored URL always names one.
+    """
     password = "p@ss/w:o?r#d%+&="
     admin_url = (
-        "postgresql://tailtag_admin:admin-secret@ep-example.neon.test:6543/tailtag"
-        "?sslmode=require"
+        f"postgresql://tailtag_admin:admin-secret@ep-example.neon.test{admin_port}"
+        "/tailtag?sslmode=require"
     )
 
     result: str = roles_module.role_url(admin_url, "migrator", password)
@@ -268,7 +276,7 @@ def test_role_url_keeps_admin_endpoint_and_forces_verified_tls(
     parts = urlsplit(result)
     assert (parts.hostname, parts.port, parts.path) == (
         "ep-example.neon.test",
-        6543,
+        expected_port,
         "/tailtag",
     )
     assert unquote(parts.username or "") == "migrator"
