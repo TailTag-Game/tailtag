@@ -13,6 +13,7 @@ BACKEND_RELEVANT_FILES = {
     "scripts/api_auth_smoke.py",
     "scripts/api_replacement_auth_smoke.py",
     "scripts/api_staging_auth_smoke.py",
+    "scripts/api_replica_auth_smoke.py",
     "scripts/api_environment_fingerprint.py",
     "scripts/api_deployment_identity.py",
     "scripts/api_development_delivery_event.py",
