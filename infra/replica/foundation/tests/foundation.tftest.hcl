@@ -363,6 +363,16 @@ run "service_shape_and_non_secret_env" {
     error_message = "The service must listen on 8000 and start-probe GET /health/live on 8000."
   }
 
+  # Django refuses any Host outside ALLOWED_HOSTS, so the probe names the host.
+  assert {
+    condition = {
+      for h in google_cloud_run_v2_service.api.template[0].containers[0].startup_probe[0].http_get[0].http_headers : h.name => h.value
+      } == {
+      Host = "tailtag-api-replica-123456789012.us-east4.run.app"
+    }
+    error_message = "The startup probe must send the deterministic run.app host as its Host header."
+  }
+
   assert {
     condition = {
       for e in google_cloud_run_v2_service.api.template[0].containers[0].env : e.name => e.value
@@ -376,6 +386,8 @@ run "service_shape_and_non_secret_env" {
       MEDIA_STORAGE_ENDPOINT_URL   = "https://00000000000000000000000000000000.r2.cloudflarestorage.com"
       MEDIA_STORAGE_BUCKET_NAME    = cloudflare_r2_bucket.media.name
       MEDIA_STORAGE_REGION         = "auto"
+      SSL_CERT_FILE                = "/etc/ssl/certs/ca-certificates.crt"
+      GUNICORN_CMD_ARGS            = "--timeout 0"
     }
     error_message = "The service non-secret env must be exactly the production map with the host built from the project number."
   }
@@ -459,8 +471,8 @@ run "job_shells_have_the_contracted_shape" {
   assert {
     condition = toset([
       for e in google_cloud_run_v2_job.replica["migrate"].template[0].template[0].containers[0].env : e.name
-    ]) == toset(["DJANGO_SETTINGS_MODULE"])
-    error_message = "With no wired secrets the migrate job must carry only DJANGO_SETTINGS_MODULE."
+    ]) == toset(["DJANGO_SETTINGS_MODULE", "SSL_CERT_FILE"])
+    error_message = "With no wired secrets the migrate job must carry only DJANGO_SETTINGS_MODULE and SSL_CERT_FILE."
   }
 
   assert {
@@ -470,11 +482,11 @@ run "job_shells_have_the_contracted_shape" {
         if !try(length(e.value_source[0].secret_key_ref) > 0, false)
         } == {
         for e in google_cloud_run_v2_service.api.template[0].containers[0].env : e.name => e.value
-        if !try(length(e.value_source[0].secret_key_ref) > 0, false)
+        if !try(length(e.value_source[0].secret_key_ref) > 0, false) && e.name != "GUNICORN_CMD_ARGS"
       }
       if family != "migrate"
     ])
-    error_message = "Every production job must carry the same non-secret env as the service."
+    error_message = "Every production job must carry the service's non-secret env, minus the gunicorn setting."
   }
 
   assert {

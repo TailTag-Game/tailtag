@@ -260,6 +260,23 @@ This step proves that the guards block destruction. It deletes nothing.
 
 Never rebuild the persistent core to prove reproducibility.
 
+## 11. Run the replica jobs in order
+
+#355 adds six Cloud Run jobs. Run them in this order, because each step needs the one before it:
+
+1. Run `migrate` twice. The second run must report `PASS` with nothing to apply.
+2. Deploy the image digest to the service. Make sure that `/health/live`, `/health/ready` and `/health/identity` answer on the `tailtag-api-replica-<PROJECT_NUMBER>.us-east4.run.app` host. Every other host gets HTTP 400, including the `*.a.run.app` URL that Terraform outputs.
+3. Make one authenticated API call as each synthetic Clerk user. Reset `provision` finds the owner and catcher by their API user rows, and the API makes a row only on the first authenticated call.
+4. Before the first reset, run two read-only checks as `maintainer` from the separate terminal:
+   - Make sure that `maintainer` can connect to the `postgres` database. The reset control connection uses it.
+   - Make sure that `(pg_control_system()).system_identifier` equals `TAILTAG_STAGING_DATABASE_SYSTEM_ID` in the private reset file.
+5. Run `reset` with `provision`, then `reset`, then `registry-reconcile`.
+6. Run `pool`, `fixture` and `inspect`.
+
+If a reset stops with the database closed to new connections, the admin role can reopen it. It holds `maintainer` with SET, so it runs `SET ROLE maintainer` and then `ALTER DATABASE tailtag WITH ALLOW_CONNECTIONS true`.
+
+The service and every job set `SSL_CERT_FILE` to the Debian CA bundle. The psycopg wheel bundles an OpenSSL that cannot find the image's CA store, so `sslrootcert=system` fails without it.
+
 ## State recovery and locking
 
 - The `gcs` backend locks the state during each operation. If a run stops and leaves a lock, make sure that no other run is active. Then use `terraform force-unlock` with the lock ID from the error.

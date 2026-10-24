@@ -13,7 +13,7 @@ locals {
       service_account = google_service_account.migrator.email
       command         = "replica_migrate"
       timeout         = "900s"
-      env             = { DJANGO_SETTINGS_MODULE = "config.settings.migrate" }
+      env             = merge(local.tls_env, { DJANGO_SETTINGS_MODULE = "config.settings.migrate" })
       secret_env      = { DATABASE_URL = "migrator-database-url" }
     }
     reset = {
