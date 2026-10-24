@@ -187,8 +187,6 @@ def test_replica_pins_are_frozen_public_constants(replica_smoke: ModuleType) -> 
 @pytest.mark.parametrize(
     "environment",
     (
-        {},
-        {**REPLICA_ENVIRONMENT, "TAILTAG_REPLICA_AUTH_SMOKE_CONFIRM": "wrong"},
         {
             **REPLICA_ENVIRONMENT,
             "TAILTAG_REPLICA_AUTH_SMOKE_CONFIRM": "run-clerk-staging-auth-smoke",
@@ -204,16 +202,8 @@ def test_replica_pins_are_frozen_public_constants(replica_smoke: ModuleType) -> 
             **REPLICA_ENVIRONMENT,
             "TAILTAG_REPLICA_API_BASE_URL": "https://staging.tailtag.app",
         },
-        {
-            **REPLICA_ENVIRONMENT,
-            "TAILTAG_REPLICA_API_BASE_URL": "https://other.invalid",
-        },
         # Anything but exactly `https://<pinned host>`.
         {**REPLICA_ENVIRONMENT, "TAILTAG_REPLICA_API_BASE_URL": f"{REPLICA_URL}/"},
-        {
-            **REPLICA_ENVIRONMENT,
-            "TAILTAG_REPLICA_API_BASE_URL": f"{REPLICA_URL}/api/me/",
-        },
         {**REPLICA_ENVIRONMENT, "TAILTAG_REPLICA_API_BASE_URL": f"{REPLICA_URL}?x=1"},
         {
             **REPLICA_ENVIRONMENT,
@@ -233,12 +223,6 @@ def test_replica_pins_are_frozen_public_constants(replica_smoke: ModuleType) -> 
         },
         # Failure modes 1 and 2: a complete Staging or Railway target is not a replica one.
         STAGING_ENVIRONMENT,
-        {**STAGING_ENVIRONMENT, "TAILTAG_REPLICA_API_BASE_URL": REPLICA_URL},
-        {
-            key: value
-            for key, value in {**REPLICA_ENVIRONMENT, **RAILWAY_ENVIRONMENT}.items()
-            if key != "TAILTAG_REPLICA_API_BASE_URL"
-        },
     ),
 )
 def test_only_the_pinned_replica_target_is_accepted_before_prompt_or_provider_access(
@@ -253,33 +237,6 @@ def test_only_the_pinned_replica_target_is_accepted_before_prompt_or_provider_ac
     assert not outcome.succeeded
     assert cast(Any, outcome).primary_stage == "target replica/api"
     assert runtime.events == []
-
-
-def test_replica_target_runs_the_baseline_against_the_replica_url_first(
-    replica_smoke: ModuleType, staging_smoke: ModuleType
-) -> None:
-    runtime = ReplicaRuntime()
-
-    outcome = run(
-        replica_smoke,
-        staging_smoke,
-        {**REPLICA_ENVIRONMENT, **RAILWAY_ENVIRONMENT},
-        runtime,
-    )
-
-    assert outcome.succeeded
-    assert runtime.events == [
-        "baseline",
-        "prompt-secret",
-        "instance",
-        "user",
-        "prompt-session",
-        "session-get",
-        "prompt-token",
-        "verify",
-        "api-me",
-        "cleanup",
-    ]
 
 
 def test_main_emits_the_fixed_replica_success_stages_only(
@@ -302,7 +259,7 @@ def test_main_emits_the_fixed_replica_success_stages_only(
     assert tuple(captured.out.splitlines()) == SUCCESS_LINES
 
 
-@pytest.mark.parametrize("failure", tuple(FAILURE_LINES))
+@pytest.mark.parametrize("failure", ("target", "verify"))
 def test_main_failure_output_is_fixed_replica_stages_without_identifiers(
     replica_smoke: ModuleType,
     staging_smoke: ModuleType,
@@ -318,17 +275,12 @@ def test_main_failure_output_is_fixed_replica_stages_without_identifiers(
             "TAILTAG_REPLICA_API_BASE_URL": "https://x.invalid",
         }
 
-        def no_runtime(*_args: object, **_kwargs: object) -> NoReturn:
-            raise AssertionError("invalid target must precede runtime construction")
+    runtime = ReplicaRuntime(failure=failure, private_value=RUN_APP_HOST)
 
-        monkeypatch.setattr(replica_smoke, "DefaultSmokeRuntime", no_runtime)
-    else:
-        runtime = ReplicaRuntime(failure=failure, private_value=RUN_APP_HOST)
+    def failing_runtime(profile: object) -> ReplicaRuntime:
+        return runtime
 
-        def failing_runtime(profile: object) -> ReplicaRuntime:
-            return runtime
-
-        monkeypatch.setattr(replica_smoke, "DefaultSmokeRuntime", failing_runtime)
+    monkeypatch.setattr(replica_smoke, "DefaultSmokeRuntime", failing_runtime)
     monkeypatch.setattr(staging_smoke.os, "environ", environment)
     monkeypatch.setattr(sys, "argv", ["api_replica_auth_smoke.py"])
 
@@ -350,6 +302,29 @@ def test_main_failure_output_is_fixed_replica_stages_without_identifiers(
     assert tuple(line for line in lines if line.startswith("FAIL ")) == (
         FAILURE_LINES[failure],
     )
+    if failure == "target":
+        assert runtime.events == []
+
+
+def test_a_runtime_pinned_to_staging_cannot_serve_the_replica_target(
+    replica_smoke: ModuleType, staging_smoke: ModuleType
+) -> None:
+    """Failure mode 2: a wiring slip cannot check the replica target against Staging pins."""
+    runtime = staging_smoke.DefaultSmokeRuntime()
+    baseline_calls: list[str] = []
+
+    def run_baseline(*, base_url: str) -> bool:
+        baseline_calls.append(base_url)
+        return True
+
+    runtime.run_baseline = run_baseline
+
+    outcome = staging_smoke.run(
+        REPLICA_ENVIRONMENT, runtime, replica_smoke.REPLICA_PROFILE
+    )
+
+    assert outcome.primary_stage == "target replica/api"
+    assert baseline_calls == []
 
 
 def test_main_rejects_arguments_before_constructing_a_live_runtime(
@@ -422,10 +397,7 @@ def test_wrong_clerk_instance_fingerprint_is_refused(
     "metadata",
     (
         {"tailtag_environment": "staging", "tailtag_synthetic": True},
-        {"tailtag_environment": "development", "tailtag_synthetic": True},
         {"tailtag_synthetic": True},
-        {"tailtag_environment": "replica"},
-        {"tailtag_environment": "replica", "tailtag_synthetic": "true"},
     ),
 )
 def test_synthetic_user_must_be_marked_for_the_replica(

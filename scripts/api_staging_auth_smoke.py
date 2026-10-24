@@ -24,15 +24,15 @@ from types import SimpleNamespace
 from typing import Any, Final, Protocol, Self, cast
 
 import httpx
+from authentication.clerk import ClerkSessionVerifier, ClerkVerificationConfiguration
 from clerk_backend_api import Clerk
 from clerk_backend_api.types import UNSET
 from clerk_backend_api.utils import BackoffStrategy, RetryConfig
 from django.http import HttpRequest
+
 from scripts.clerk_development_session import (
     _suppress_provider_debug_logs,  # pyright: ignore[reportPrivateUsage]
 )
-
-from authentication.clerk import ClerkSessionVerifier, ClerkVerificationConfiguration
 
 os = SimpleNamespace(environ=_stdlib_os.environ, path=_stdlib_os.path)
 
@@ -158,6 +158,11 @@ class DefaultSmokeRuntime:
     @property
     def _profile(self) -> SmokeProfile:
         return self._pinned_profile or _staging_profile()
+
+    @property
+    def profile(self) -> SmokeProfile:
+        """The Clerk pins this runtime checks, so `run` can refuse a mismatch."""
+        return self._profile
 
     def _create_clerk(self, secret: str) -> Clerk:
         self._http_client = httpx.Client(trust_env=False, follow_redirects=False)
@@ -402,7 +407,10 @@ def run(
     """Run selected-session validation and revocation without alternate provider flows."""
     profile = profile or _staging_profile()
     target = profile.valid_target(environment)
-    if target is None:
+    # A runtime pinned to another environment's Clerk instance would check the
+    # wrong instance, user metadata and azp, so the run stops before any prompt.
+    runtime_profile = getattr(runtime, "profile", profile)
+    if target is None or runtime_profile.environment != profile.environment:
         return SmokeOutcome(primary_stage=profile.target_stage)
     base_url, user_id = target
     target = None
