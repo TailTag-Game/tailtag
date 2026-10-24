@@ -37,9 +37,3 @@ output "wif_provider_name" {
 output "neon_project_id" {
   value = neon_project.replica.id
 }
-
-# Consumed only by the role script. It holds the admin password.
-output "neon_admin_connection_uri" {
-  value     = neon_project.replica.connection_uri
-  sensitive = true
-}

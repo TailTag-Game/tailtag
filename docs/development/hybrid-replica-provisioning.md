@@ -159,13 +159,14 @@ The script makes two login roles with SQL. Roles from the Neon API or Terraform 
 - `migrator` can change the schema.
 - `runtime` can read and write rows, but it cannot change the schema.
 
-Run it in the terminal that ran the foundation apply:
+Run it in a separate terminal. First copy the `tailtag_admin` connection string from the Neon console and enter it without echo:
 
 ```sh
+read -rs NEON_ADMIN_DATABASE_URL && export NEON_ADMIN_DATABASE_URL
 task replica-neon-roles -- --project <PROJECT_ID>
 ```
 
-The script reads the admin connection URL from the foundation Terraform output. It writes `migrator-database-url` and `runtime-database-url` into Secret Manager. The script verifies the Neon server certificate on its own connections. A second run changes nothing. To make new passwords, add `--rotate`.
+The script reads the admin connection URL from `NEON_ADMIN_DATABASE_URL`. It refuses a URL for one of its own roles. Terraform output cannot supply the URL, because the script makes `maintainer` the database owner and the Neon provider then reports `maintainer` as the branch role. The foundation ignores that `role_name` change. It writes `migrator-database-url` and `runtime-database-url` into Secret Manager. The script verifies the Neon server certificate on its own connections. A second run changes nothing. To make new passwords, add `--rotate`.
 
 Each stored URL asks for TLS with server identity checks. The API does not apply the TLS settings in `DATABASE_URL` yet. #357 owns that fix.
 
@@ -269,6 +270,6 @@ Never rebuild the persistent core to prove reproducibility.
 
 - Never commit `.tfvars` files, state files, plan files, `backend_override.tf` or `backend.hcl`.
 - Never put a token or password in a Terraform variable or on a command line.
-- Never print the `neon_admin_connection_uri` output.
+- Never print `NEON_ADMIN_DATABASE_URL`.
 - Never run `terraform destroy` on either root.
 - Never use the Development and Staging Cloudflare account for the replica.
