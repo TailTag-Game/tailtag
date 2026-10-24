@@ -24,15 +24,15 @@ from types import SimpleNamespace
 from typing import Any, Final, Protocol, Self, cast
 
 import httpx
-from authentication.clerk import ClerkSessionVerifier, ClerkVerificationConfiguration
 from clerk_backend_api import Clerk
 from clerk_backend_api.types import UNSET
 from clerk_backend_api.utils import BackoffStrategy, RetryConfig
 from django.http import HttpRequest
-
 from scripts.clerk_development_session import (
     _suppress_provider_debug_logs,  # pyright: ignore[reportPrivateUsage]
 )
+
+from authentication.clerk import ClerkSessionVerifier, ClerkVerificationConfiguration
 
 os = SimpleNamespace(environ=_stdlib_os.environ, path=_stdlib_os.path)
 
