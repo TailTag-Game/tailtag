@@ -19,6 +19,10 @@ resource "neon_project" "replica" {
 
   lifecycle {
     prevent_destroy = true
+    # The provider reports the database owner as the branch role. The role
+    # script makes `maintainer` the owner (#355 AC15), and a role_name change
+    # forces replacement, so Terraform must not act on it.
+    ignore_changes = [branch[0].role_name]
   }
 }
 

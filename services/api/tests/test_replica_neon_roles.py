@@ -523,3 +523,48 @@ def test_probe_flag_reads_the_secret_and_changes_nothing(
     captured = capfd.readouterr()
     assert "pr0be-s3cret" not in captured.out + captured.err
     assert "postgresql://" not in captured.out + captured.err
+
+
+@pytest.mark.parametrize(
+    "admin_url",
+    (
+        pytest.param(None, id="unset"),
+        pytest.param(
+            "postgresql://maintainer:not-the-admin@ep-example.neon.test/tailtag",
+            id="application-role",
+        ),
+        pytest.param("https://ep-example.neon.test/tailtag", id="not-postgres"),
+    ),
+)
+def test_admin_url_comes_only_from_the_environment_and_names_the_admin(
+    roles_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+    admin_url: str | None,
+) -> None:
+    """AC15: the admin URL is never read from Terraform, where the database owner
+    now reports as maintainer, and a missing or wrong URL stops before any change."""
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        commands.append(list(command))
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    def fake_which(name: str) -> str:
+        return f"/fake/{name}"
+
+    monkeypatch.setattr(roles_module.shutil, "which", fake_which)
+    monkeypatch.setattr(roles_module.subprocess, "run", fake_run)
+    if admin_url is None:
+        monkeypatch.delenv("NEON_ADMIN_DATABASE_URL", raising=False)
+    else:
+        monkeypatch.setenv("NEON_ADMIN_DATABASE_URL", admin_url)
+
+    status = roles_module.main(["--project", "fake-replica-project"])
+
+    assert status == 1
+    assert commands == []
+    captured = capfd.readouterr()
+    assert "NEON_ADMIN_DATABASE_URL" in captured.err
+    assert "not-the-admin" not in captured.out + captured.err
+    assert "ep-example" not in captured.out + captured.err

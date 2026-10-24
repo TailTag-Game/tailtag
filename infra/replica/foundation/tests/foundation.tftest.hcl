@@ -49,10 +49,14 @@ override_data {
   }
 }
 
+# The toggles are pinned so an owner's local terraform.tfvars, which terraform
+# test also loads, cannot change what the default-path runs check.
 variables {
   project_id            = "fake-replica-project"
   tf_infra_email        = "tf-infra@fake-replica-project.iam.gserviceaccount.com"
   cloudflare_account_id = "00000000000000000000000000000000"
+  wire_runtime_secrets  = false
+  wire_sentry_dsn       = false
 }
 
 # AC17 and the #344 regression: every identity reads only the secrets it needs.

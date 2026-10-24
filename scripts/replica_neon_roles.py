@@ -11,8 +11,10 @@ schema privileges:
   superuser and never joins `neon_superuser`.
 
 Run it with `task replica-neon-roles -- --project <gcp-project-id>`. It reads the
-admin URL from Terraform output and writes each new role URL straight to Secret
-Manager. After it creates or rotates `maintainer`, a read-only probe connects as
+`tailtag_admin` URL from the `NEON_ADMIN_DATABASE_URL` environment variable and
+writes each new role URL straight to Secret Manager. Terraform output cannot
+supply that URL: the Neon provider reports the database owner, which is
+`maintainer`, as the branch role. After it creates or rotates `maintainer`, a read-only probe connects as
 that role and reports three facts by name. Run only the probe with `--probe`,
 which reads the maintainer URL from Secret Manager. A password or URL is never
 printed, logged, or written to disk, and error messages never include one.
@@ -21,13 +23,14 @@ printed, logged, or written to disk, and error messages never include one.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import secrets
 import shutil
 import subprocess
 import sys
-from collections.abc import Callable, Sequence
-from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
+from collections.abc import Callable, Mapping, Sequence
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 
 import certifi
 import psycopg
@@ -42,8 +45,7 @@ SECRET_IDS = {
     RUNTIME: "runtime-database-url",
     MAINTAINER: "maintainer-database-url",
 }
-ADMIN_OUTPUT = "neon_admin_connection_uri"
-DEFAULT_TERRAFORM_DIR = "infra/replica/foundation"
+ADMIN_URL_VARIABLE = "NEON_ADMIN_DATABASE_URL"
 _PROJECT_ID = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
 _COMMAND_TIMEOUT_SECONDS = 120
 _DEFAULT_PORT = 5432
@@ -325,25 +327,26 @@ def _grant_runtime_data_access(
     )
 
 
-def _read_admin_url(terraform_dir: str) -> str:
-    terraform = shutil.which("terraform")
-    if terraform is None:
-        raise RoleProvisioningError(
-            "terraform is not on PATH; install Terraform 1.17 and try again"
+def _read_admin_url(environ: Mapping[str, str]) -> str:
+    """Return the admin URL from the environment, refusing an application role."""
+    admin_url = environ.get(ADMIN_URL_VARIABLE, "").strip()
+    try:
+        parts = urlsplit(admin_url)
+        user = unquote(parts.username or "")
+        valid = (
+            parts.scheme in {"postgres", "postgresql"}
+            and bool(parts.hostname)
+            and bool(parts.password)
+            and bool(user)
+            and user not in ROLES
         )
-    result = subprocess.run(
-        [terraform, f"-chdir={terraform_dir}", "output", "-raw", ADMIN_OUTPUT],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        check=False,
-        timeout=_COMMAND_TIMEOUT_SECONDS,
-    )
-    admin_url = result.stdout.strip()
-    if result.returncode != 0 or not admin_url:
+    except ValueError:
+        valid = False
+    if not valid:
         raise RoleProvisioningError(
-            f"terraform output {ADMIN_OUTPUT} failed (exit {result.returncode}); "
-            f"apply {terraform_dir} first and check your Terraform credentials"
+            f"{ADMIN_URL_VARIABLE} must hold the Neon admin role's postgresql URL; "
+            "copy the tailtag_admin connection string from the Neon console and "
+            f"enter it with: read -rs {ADMIN_URL_VARIABLE} && export {ADMIN_URL_VARIABLE}"
         )
     return admin_url
 
@@ -431,11 +434,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--project", required=True, help="Google Cloud project id for Secret Manager"
     )
     parser.add_argument(
-        "--terraform-dir",
-        default=DEFAULT_TERRAFORM_DIR,
-        help="Terraform root that outputs the Neon admin URL",
-    )
-    parser.add_argument(
         "--rotate",
         action="store_true",
         help="issue new passwords for roles that already exist",
@@ -466,8 +464,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     try:
+        admin_url = _read_admin_url(os.environ)
         write_secret = _secret_writer(arguments.project)
-        admin_url = _read_admin_url(arguments.terraform_dir)
         provision_roles(
             admin_url,
             write_secret=write_secret,
