@@ -8,6 +8,11 @@ resource "google_service_account" "migrator" {
   display_name = "Migration job"
 }
 
+resource "google_service_account" "maintainer" {
+  account_id   = "tt-maintainer"
+  display_name = "Reset job"
+}
+
 resource "google_service_account" "runtime" {
   account_id   = "tt-runtime"
   display_name = "API runtime"

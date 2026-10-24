@@ -18,8 +18,16 @@ output "migrator_email" {
   value = google_service_account.migrator.email
 }
 
+output "maintainer_email" {
+  value = google_service_account.maintainer.email
+}
+
 output "runtime_email" {
   value = google_service_account.runtime.email
+}
+
+output "job_names" {
+  value = { for family, job in google_cloud_run_v2_job.replica : family => job.name }
 }
 
 output "wif_provider_name" {

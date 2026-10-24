@@ -32,6 +32,23 @@ override_resource {
   }
 }
 
+override_resource {
+  target = google_service_account.maintainer
+  values = {
+    name  = "projects/fake-replica-project/serviceAccounts/tt-maintainer@fake-replica-project.iam.gserviceaccount.com"
+    email = "tt-maintainer@fake-replica-project.iam.gserviceaccount.com"
+  }
+}
+
+# The deterministic Cloud Run host uses the project number, which the mock
+# provider cannot invent in a recognisable form.
+override_data {
+  target = data.google_project.this
+  values = {
+    number = "123456789012"
+  }
+}
+
 variables {
   project_id            = "fake-replica-project"
   tf_infra_email        = "tf-infra@fake-replica-project.iam.gserviceaccount.com"
@@ -63,6 +80,28 @@ run "secret_access_is_least_privilege" {
       "sentry-dsn",
     ])
     error_message = "The runtime identity must read exactly the six runtime secrets."
+  }
+
+  assert {
+    condition = toset([
+      for k, v in google_secret_manager_secret_iam_member.accessor : split("/", k)[0]
+      if v.member == "serviceAccount:${google_service_account.maintainer.email}"
+      ]) == toset([
+      "maintainer-database-url",
+      "django-secret-key",
+      "media-access-key-id",
+      "media-secret-access-key",
+      "clerk-jwt-key",
+    ])
+    error_message = "The reset identity must read exactly the maintainer URL and the four shared production secrets."
+  }
+
+  assert {
+    condition = toset([
+      for k, v in google_secret_manager_secret_iam_member.accessor : v.member
+      if split("/", k)[0] == "sentry-dsn"
+    ]) == toset(["serviceAccount:${google_service_account.runtime.email}"])
+    error_message = "Only the runtime identity may read sentry-dsn."
   }
 
   assert {
@@ -128,7 +167,7 @@ run "deployer_federation_and_grants" {
 }
 
 # AC14 bootstrap ordering: the first apply cannot reference secret versions
-# that do not exist yet.
+# that do not exist yet. This holds for the service and for every job shell.
 run "first_apply_has_no_secret_env" {
   command = apply
 
@@ -139,8 +178,20 @@ run "first_apply_has_no_secret_env" {
     ]) == 0
     error_message = "With default variables the service must not reference any secret."
   }
+
+  assert {
+    condition = length(flatten([
+      for job in google_cloud_run_v2_job.replica : [
+        for e in job.template[0].template[0].containers[0].env : e.name
+        if try(length(e.value_source[0].secret_key_ref) > 0, false)
+      ]
+    ])) == 0
+    error_message = "With default variables no job may reference any secret."
+  }
 }
 
+# Sentry is off unless both toggles are true, so a wired apply carries five
+# secrets, and wire_sentry_dsn alone wires nothing.
 run "wired_apply_references_runtime_secrets" {
   command = apply
 
@@ -158,9 +209,8 @@ run "wired_apply_references_runtime_secrets" {
       "MEDIA_STORAGE_ACCESS_KEY_ID",
       "MEDIA_STORAGE_SECRET_ACCESS_KEY",
       "CLERK_JWT_KEY",
-      "SENTRY_DSN",
     ])
-    error_message = "Wiring must add exactly the six runtime secret variables."
+    error_message = "Wiring must add the five runtime secret variables and leave SENTRY_DSN out by default."
   }
 
   assert {
@@ -178,5 +228,263 @@ run "wired_apply_references_runtime_secrets" {
       )
     ]) == 1
     error_message = "DATABASE_URL must reference the latest runtime-database-url secret, never the migrator URL."
+  }
+
+  # Each job reads the right secret behind every variable it gets.
+  assert {
+    condition = alltrue([
+      for family, want in {
+        "migrate"            = "migrator-database-url"
+        "reset"              = "maintainer-database-url"
+        "fixture"            = "runtime-database-url"
+        "pool"               = "runtime-database-url"
+        "inspect"            = "runtime-database-url"
+        "registry-reconcile" = "runtime-database-url"
+        } : length([
+          for e in google_cloud_run_v2_job.replica[family].template[0].template[0].containers[0].env : e
+          if e.name == "DATABASE_URL"
+          && try(
+            contains([
+              google_secret_manager_secret.app[want].secret_id,
+              google_secret_manager_secret.app[want].id,
+              google_secret_manager_secret.app[want].name,
+            ], e.value_source[0].secret_key_ref[0].secret)
+            && e.value_source[0].secret_key_ref[0].version == "latest",
+            false,
+          )
+      ]) == 1
+    ])
+    error_message = "Each job must read its own database URL: migrator, maintainer, or runtime."
+  }
+
+  assert {
+    condition = alltrue([
+      for family in ["reset", "fixture", "pool", "inspect", "registry-reconcile"] : alltrue([
+        for name, secret in {
+          "DJANGO_SECRET_KEY"               = "django-secret-key"
+          "MEDIA_STORAGE_ACCESS_KEY_ID"     = "media-access-key-id"
+          "MEDIA_STORAGE_SECRET_ACCESS_KEY" = "media-secret-access-key"
+          "CLERK_JWT_KEY"                   = "clerk-jwt-key"
+          } : length([
+            for e in google_cloud_run_v2_job.replica[family].template[0].template[0].containers[0].env : e
+            if e.name == name
+            && try(
+              contains([
+                google_secret_manager_secret.app[secret].secret_id,
+                google_secret_manager_secret.app[secret].id,
+                google_secret_manager_secret.app[secret].name,
+              ], e.value_source[0].secret_key_ref[0].secret),
+              false,
+            )
+        ]) == 1
+      ])
+    ])
+    error_message = "Every production job must read the django, media, and clerk secrets."
+  }
+
+  assert {
+    condition = alltrue([
+      for family, job in google_cloud_run_v2_job.replica :
+      length([
+        for e in job.template[0].template[0].containers[0].env : e
+        if try(length(e.value_source[0].secret_key_ref) > 0, false)
+      ]) == (family == "migrate" ? 1 : 5)
+    ])
+    error_message = "The migrate job must hold exactly one secret and each production job exactly five."
+  }
+}
+
+run "sentry_is_wired_only_under_both_toggles" {
+  command = apply
+
+  variables {
+    wire_runtime_secrets = true
+    wire_sentry_dsn      = true
+  }
+
+  assert {
+    condition = length([
+      for e in google_cloud_run_v2_service.api.template[0].containers[0].env : e
+      if e.name == "SENTRY_DSN"
+      && try(
+        contains([
+          google_secret_manager_secret.app["sentry-dsn"].secret_id,
+          google_secret_manager_secret.app["sentry-dsn"].id,
+          google_secret_manager_secret.app["sentry-dsn"].name,
+        ], e.value_source[0].secret_key_ref[0].secret),
+        false,
+      )
+    ]) == 1
+    error_message = "With both toggles the service must reference sentry-dsn."
+  }
+
+  assert {
+    condition = length(flatten([
+      for job in google_cloud_run_v2_job.replica : [
+        for e in job.template[0].template[0].containers[0].env : e.name
+        if e.name == "SENTRY_DSN"
+      ]
+    ])) == 0
+    error_message = "No job may ever carry SENTRY_DSN."
+  }
+}
+
+run "sentry_toggle_alone_wires_nothing" {
+  command = apply
+
+  variables {
+    wire_sentry_dsn = true
+  }
+
+  assert {
+    condition = length([
+      for e in google_cloud_run_v2_service.api.template[0].containers[0].env : e
+      if try(length(e.value_source[0].secret_key_ref) > 0, false)
+    ]) == 0
+    error_message = "wire_sentry_dsn without wire_runtime_secrets must not reference any secret."
+  }
+}
+
+# AC19 / T1: the service listens on 8000, probes /health/live, and carries the
+# non-secret production settings. The host comes from the project number.
+run "service_shape_and_non_secret_env" {
+  command = apply
+
+  assert {
+    condition = (
+      google_cloud_run_v2_service.api.template[0].containers[0].ports[0].container_port == 8000
+      && google_cloud_run_v2_service.api.template[0].containers[0].startup_probe[0].http_get[0].path == "/health/live"
+      && google_cloud_run_v2_service.api.template[0].containers[0].startup_probe[0].http_get[0].port == 8000
+    )
+    error_message = "The service must listen on 8000 and start-probe GET /health/live on 8000."
+  }
+
+  assert {
+    condition = {
+      for e in google_cloud_run_v2_service.api.template[0].containers[0].env : e.name => e.value
+      if !try(length(e.value_source[0].secret_key_ref) > 0, false)
+      } == {
+      DJANGO_SETTINGS_MODULE       = "config.settings.production"
+      DJANGO_ALLOWED_HOSTS         = "tailtag-api-replica-123456789012.us-east4.run.app"
+      DJANGO_CSRF_TRUSTED_ORIGINS  = "https://tailtag-api-replica-123456789012.us-east4.run.app"
+      CLERK_AUTHENTICATION_ENABLED = "true"
+      CLERK_AUTHORIZED_PARTIES     = "https://accounts.replica.tailtag.app"
+      MEDIA_STORAGE_ENDPOINT_URL   = "https://00000000000000000000000000000000.r2.cloudflarestorage.com"
+      MEDIA_STORAGE_BUCKET_NAME    = cloudflare_r2_bucket.media.name
+      MEDIA_STORAGE_REGION         = "auto"
+    }
+    error_message = "The service non-secret env must be exactly the production map with the host built from the project number."
+  }
+}
+
+# T3: six job shells, each with the right identity, command, limits, and
+# settings. No job IAM resource exists, so only project owners can run them.
+run "job_shells_have_the_contracted_shape" {
+  command = apply
+
+  assert {
+    condition = {
+      for family, job in google_cloud_run_v2_job.replica : family => job.name
+      } == {
+      "migrate"            = "tailtag-replica-migrate"
+      "reset"              = "tailtag-replica-reset"
+      "fixture"            = "tailtag-replica-fixture"
+      "pool"               = "tailtag-replica-pool"
+      "inspect"            = "tailtag-replica-inspect"
+      "registry-reconcile" = "tailtag-replica-registry-reconcile"
+    }
+    error_message = "There must be exactly the six contracted jobs with their names."
+  }
+
+  assert {
+    condition = {
+      for family, job in google_cloud_run_v2_job.replica : family => job.template[0].template[0].service_account
+      } == {
+      "migrate"            = google_service_account.migrator.email
+      "reset"              = google_service_account.maintainer.email
+      "fixture"            = google_service_account.runtime.email
+      "pool"               = google_service_account.runtime.email
+      "inspect"            = google_service_account.runtime.email
+      "registry-reconcile" = google_service_account.runtime.email
+    }
+    error_message = "Each job must run as migrator (migrate), maintainer (reset), or runtime (the rest)."
+  }
+
+  assert {
+    condition = alltrue([
+      for family, job in google_cloud_run_v2_job.replica : (
+        jsonencode(job.template[0].template[0].containers[0].command) == jsonencode(["python"])
+        && jsonencode(job.template[0].template[0].containers[0].args) == jsonencode(["manage.py", "replica_${replace(family, "-", "_")}"])
+        && job.template[0].template[0].containers[0].image == "us-docker.pkg.dev/cloudrun/container/hello"
+      )
+    ])
+    error_message = "Each job must run python manage.py replica_<family> from the placeholder image."
+  }
+
+  assert {
+    condition = alltrue([
+      for family, job in google_cloud_run_v2_job.replica : (
+        job.template[0].task_count == 1
+        && job.template[0].parallelism == 1
+        && job.template[0].template[0].max_retries == 0
+        && job.template[0].template[0].timeout == ((family == "migrate" || family == "reset") ? "900s" : "300s")
+      )
+    ])
+    error_message = "Each job must run one task, no parallelism, no retries, with a 900 s (migrate, reset) or 300 s timeout."
+  }
+
+  assert {
+    condition = {
+      for family, job in google_cloud_run_v2_job.replica : family => [
+        for e in job.template[0].template[0].containers[0].env : e.value
+        if e.name == "DJANGO_SETTINGS_MODULE"
+      ]
+      } == {
+      "migrate"            = ["config.settings.migrate"]
+      "reset"              = ["config.settings.production"]
+      "fixture"            = ["config.settings.production"]
+      "pool"               = ["config.settings.production"]
+      "inspect"            = ["config.settings.production"]
+      "registry-reconcile" = ["config.settings.production"]
+    }
+    error_message = "Only the migrate job may use the migrate settings module."
+  }
+
+  # The migrate job has no production non-secret map; the others share the
+  # service's map exactly.
+  assert {
+    condition = toset([
+      for e in google_cloud_run_v2_job.replica["migrate"].template[0].template[0].containers[0].env : e.name
+    ]) == toset(["DJANGO_SETTINGS_MODULE"])
+    error_message = "With no wired secrets the migrate job must carry only DJANGO_SETTINGS_MODULE."
+  }
+
+  assert {
+    condition = alltrue([
+      for family, job in google_cloud_run_v2_job.replica : {
+        for e in job.template[0].template[0].containers[0].env : e.name => e.value
+        if !try(length(e.value_source[0].secret_key_ref) > 0, false)
+        } == {
+        for e in google_cloud_run_v2_service.api.template[0].containers[0].env : e.name => e.value
+        if !try(length(e.value_source[0].secret_key_ref) > 0, false)
+      }
+      if family != "migrate"
+    ])
+    error_message = "Every production job must carry the same non-secret env as the service."
+  }
+
+  assert {
+    condition = (
+      output.job_names == {
+        "migrate"            = "tailtag-replica-migrate"
+        "reset"              = "tailtag-replica-reset"
+        "fixture"            = "tailtag-replica-fixture"
+        "pool"               = "tailtag-replica-pool"
+        "inspect"            = "tailtag-replica-inspect"
+        "registry-reconcile" = "tailtag-replica-registry-reconcile"
+      }
+      && output.maintainer_email == google_service_account.maintainer.email
+    )
+    error_message = "job_names must map family to job name and maintainer_email must be the reset identity."
   }
 }
