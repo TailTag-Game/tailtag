@@ -14,6 +14,7 @@ Run it with `task replica-job -- --project <gcp-project-id> --family <family>
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import re
 import shutil
@@ -182,7 +183,9 @@ class _Session:
                     self._token = _token()
                     continue
                 retryable = error.code == 429 or error.code >= 500
-            except urllib.error.URLError:
+            except (OSError, http.client.HTTPException):
+                # URLError, read timeouts, dropped connections and short reads
+                # are network errors. HTTPError is handled above.
                 retryable = True
             if (
                 not retryable

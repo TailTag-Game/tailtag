@@ -172,6 +172,7 @@ class FakeCloud:
         self.issued_token = TOKEN
         self.rotate_at_poll: int | None = None
         self.log_pages: dict[str, Any] | None = None
+        self.raise_once: tuple[str, BaseException] | None = None
         self.logging_after_completion: list[bool] = []
         self._polls = 0
         self._completed = False
@@ -222,6 +223,10 @@ class FakeCloud:
             f"https://run.googleapis.com/v2/projects/{PROJECT}"
             f"/locations/us-east4/jobs/{self.job}/executions/{EXECUTION}"
         )
+        if self.raise_once and url.endswith(self.raise_once[0]):
+            error = self.raise_once[1]
+            self.raise_once = None
+            raise error
         if self.fail_on and url.endswith(self.fail_on) or self.fail_on == "any":
             raise urllib.error.HTTPError(
                 url,
@@ -652,6 +657,37 @@ def test_a_401_mid_poll_refreshes_the_token_once_and_continues(
         f"Bearer {TOKEN_REFRESHED}"
     )
     assert TOKEN_REFRESHED not in out + err
+
+
+@pytest.mark.parametrize(
+    "error",
+    (
+        pytest.param(TimeoutError("read timed out"), id="read-timeout"),
+        pytest.param(http.client.RemoteDisconnected("closed"), id="disconnected"),
+        pytest.param(http.client.IncompleteRead(b"{"), id="short-read"),
+    ),
+)
+@pytest.mark.parametrize(
+    ("where", "passes"),
+    (
+        pytest.param(f"/executions/{EXECUTION}", True, id="poll"),
+        pytest.param(":run", False, id="launch"),
+    ),
+)
+def test_read_phase_network_errors_retry_only_after_the_launch(
+    job_module: Any, cloud: FakeCloud, error: BaseException, where: str, passes: bool
+) -> None:
+    """A poll survives one read-phase error. A launch that may have started is not repeated."""
+    cloud.running_polls = 1
+    cloud.raise_once = (where, error)
+
+    code, out, err = run_main(job_module, job_argv("pool"), b"{}")
+
+    if passes:
+        assert code == 0, (out, err)
+    else:
+        assert_fixed_failure(code, out, err)
+    assert len(posts(cloud)) == 1
 
 
 def test_a_failed_run_request_is_never_retried(
