@@ -21,9 +21,13 @@ locals {
   # service and its jobs know the host before the first revision exists.
   service_host = "${var.service_name}-${data.google_project.this.number}.${var.region}.run.app"
 
+  # The psycopg wheel bundles an OpenSSL that cannot find the image's CA store,
+  # so libpq fails `sslrootcert=system` unless this names the Debian bundle.
+  tls_env = { SSL_CERT_FILE = "/etc/ssl/certs/ca-certificates.crt" }
+
   # Non-secret production settings shared by the service and every job except
   # the migrate job.
-  production_env = {
+  production_env = merge(local.tls_env, {
     DJANGO_SETTINGS_MODULE       = "config.settings.production"
     DJANGO_ALLOWED_HOSTS         = local.service_host
     DJANGO_CSRF_TRUSTED_ORIGINS  = "https://${local.service_host}"
@@ -32,7 +36,11 @@ locals {
     MEDIA_STORAGE_ENDPOINT_URL   = "https://${var.cloudflare_account_id}.r2.cloudflarestorage.com"
     MEDIA_STORAGE_BUCKET_NAME    = cloudflare_r2_bucket.media.name
     MEDIA_STORAGE_REGION         = "auto"
-  }
+  })
+
+  # Cloud Run throttles CPU while the service is idle, so gunicorn's worker
+  # heartbeat can lapse. Google's guidance is to let Cloud Run own timeouts.
+  service_env = merge(local.production_env, { GUNICORN_CMD_ARGS = "--timeout 0" })
 }
 
 data "google_project" "this" {}
@@ -68,11 +76,18 @@ resource "google_cloud_run_v2_service" "api" {
         http_get {
           path = "/health/live"
           port = 8000
+
+          # Django refuses a Host outside ALLOWED_HOSTS, and Cloud Run does
+          # not document the Host its probe sends.
+          http_headers {
+            name  = "Host"
+            value = local.service_host
+          }
         }
       }
 
       dynamic "env" {
-        for_each = local.production_env
+        for_each = local.service_env
 
         content {
           name  = env.key
