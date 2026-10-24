@@ -22,11 +22,15 @@ import urllib.response
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, ClassVar, Self, cast
+from unittest import mock
 
 import pytest
 
 from tests import windows_acl_support as acl
 from tests.semgrep_support import task_dry_run
+
+# Captured at import, before any fixture replaces it with the fake.
+_REAL_SUBPROCESS_RUN = subprocess.run
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 JOB_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_replica_job.py"
@@ -803,9 +807,13 @@ def write_config(path: Path, values: Mapping[str, str], mode: int = 0o600) -> Pa
     path.chmod(mode)
     if sys.platform == "win32":
         # Windows ignores chmod, so owner-only is an ACL. A wider mode adds a
-        # Builtin Users read entry, as the Staging reset tests do.
-        acl.make_owner_only(path.parent, container=True)
-        acl.make_owner_only(path, extra_aces="" if mode == 0o600 else "(A;;FR;;;BU)")
+        # Builtin Users read entry, as the Staging reset tests do. The ACL
+        # helper runs `whoami`, so it uses the real subprocess, not the fake.
+        with mock.patch.object(subprocess, "run", _REAL_SUBPROCESS_RUN):
+            acl.make_owner_only(path.parent, container=True)
+            acl.make_owner_only(
+                path, extra_aces="" if mode == 0o600 else "(A;;FR;;;BU)"
+            )
     return path
 
 
