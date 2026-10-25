@@ -273,6 +273,12 @@ Never rebuild the persistent core to prove reproducibility.
 5. Run `reset` with `provision`, then `reset`, then `registry-reconcile`.
 6. Run `pool`, `fixture` and `inspect`.
 
+The service scales to zero. The reset preflight allows 5 seconds per request, and a cold start took 10.6 seconds. Right before each reset job, warm the service with a request to `/health/ready` that has a long timeout, such as 60 seconds.
+
+The authenticated API smoke in step 3 now sets `DJANGO_SETTINGS_MODULE` to `config.settings.build` when it is unset. It also warms the service with one request to `/health/ready` before its baseline. You do not need to set either one yourself.
+
+Neon's proxy changes the backend pid that the client reports. The pid differs from the one that `SELECT pg_backend_pid()` returns on the server. Any code that excludes its own session must ask the server for the pid. Replica reset does this when it ends foreign sessions.
+
 If a reset stops with the database closed to new connections, the admin role can reopen it. It holds `maintainer` with SET, so it runs `SET ROLE maintainer` and then `ALTER DATABASE tailtag WITH ALLOW_CONNECTIONS true`.
 
 The service and every job set `SSL_CERT_FILE` to the Debian CA bundle. The psycopg wheel bundles an OpenSSL that cannot find the image's CA store, so `sslrootcert=system` fails without it.

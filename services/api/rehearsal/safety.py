@@ -376,8 +376,12 @@ class DatabaseMaintenance:
                 denied.close()
                 raise ResetSafetyError
             connection.ensure_connection()
-            executor_pid = connection.connection.info.backend_pid
             if self.configuration.platform == "replica":
+                # Neon's proxy gives the client a pid that differs from the server's,
+                # so only the server can name the executor session.
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT pg_backend_pid()")
+                    executor_pid = cursor.fetchone()[0]
                 # Rows hidden from the maintainer have a NULL backend_type: still clients.
                 # A NULL usename (autovacuum) stays excluded on purpose: the maintainer
                 # cannot signal it, so IS DISTINCT FROM would make reset fail.
@@ -386,6 +390,7 @@ class DatabaseMaintenance:
                     (self.configuration.database_name, executor_pid),
                 )
             else:
+                executor_pid = connection.connection.info.backend_pid
                 self._control.execute(
                     "SELECT pg_terminate_backend(pid, 5000) FROM pg_stat_activity WHERE datname = %s AND pid <> %s",
                     (self.configuration.database_name, executor_pid),

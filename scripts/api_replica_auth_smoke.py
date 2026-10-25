@@ -6,6 +6,7 @@ that replica `provision` needs. It reuses the Staging flow with the replica pins
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from typing import Final
 
@@ -15,6 +16,9 @@ from config.replica_binding import ReplicaBindingError, validate_run_app_host
 
 REPLICA_CLERK_INSTANCE_FINGERPRINT: Final = "4f93c7ed6c240ce2"
 REPLICA_CLERK_PORTAL_ORIGIN: Final = "https://accounts.replica.tailtag.app"
+
+# The API verifier builds a Django request, which reads settings; no database is used.
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.build")
 
 _CONFIRMATION: Final = "run-clerk-replica-auth-smoke"
 _SCHEME: Final = "https://"
@@ -42,6 +46,8 @@ REPLICA_PROFILE: Final = SmokeProfile(
     instance_fingerprint=REPLICA_CLERK_INSTANCE_FINGERPRINT,
     portal_origin=REPLICA_CLERK_PORTAL_ORIGIN,
     party_variable=None,
+    # A scaled-to-zero service can take over 10 s to answer its first request.
+    warm_up_path="/health/ready",
 )
 
 
