@@ -43,6 +43,8 @@ TOKEN = "synthetic-bearer-token-value"
 TOKEN_REFRESHED = "synthetic-refreshed-token-value"
 RESPONSE_CAP = 4 * 1024 * 1024
 REQUEST_CAP = 65_536
+# Cloud Run refuses a longer env override value (live check on 2026-10-25).
+OVERRIDE_CAP = 32_768
 BODY_SECRET = "synthetic-response-body-secret"
 EXECUTION = "tailtag-replica-job-x7k2p"
 FOREIGN_EXECUTION = "tailtag-replica-job-other"
@@ -402,7 +404,7 @@ def padded_stdin(final_size: int) -> bytes:
         ("pool", b'{"operation": "up", "count": 2}'),
         ("fixture", b'{"nested": {"keep": [1, 2]}}'),
         ("inspect", b'{"limit": 3}'),
-        ("pool", padded_stdin(REQUEST_CAP)),
+        ("pool", padded_stdin(OVERRIDE_CAP)),
     ),
     ids=("migrate-empty", "migrate-braces", "pool", "fixture", "inspect", "max-size"),
 )
@@ -431,7 +433,7 @@ def test_request_is_built_from_stdin_with_pinned_identity_and_bearer(
     assert env["name"] == "TAILTAG_JOB_REQUEST"
     expected_body: dict[str, Any] = json.loads(stdin) if stdin.strip() else {}
     assert json.loads(env["value"]) == {**expected_body, "identity": IDENTITY}
-    assert len(env["value"].encode()) <= REQUEST_CAP
+    assert len(env["value"].encode()) <= OVERRIDE_CAP
     assert run["headers"]["authorization"] == f"Bearer {TOKEN}"
     assert TOKEN not in run["url"] + json.dumps(run["body"])
     assert cloud.subprocess_calls and all(
@@ -457,7 +459,7 @@ def test_request_is_built_from_stdin_with_pinned_identity_and_bearer(
         ("pool", {}, b'{"a": 1, "a": 2}'),
         ("pool", {}, b'{"outer": {"a": 1, "a": 2}}'),
         ("pool", {}, b'{"a": "' + b"x" * 65_536 + b'"}'),
-        ("pool", {}, padded_stdin(REQUEST_CAP + 1)),
+        ("pool", {}, padded_stdin(OVERRIDE_CAP + 1)),
         ("pool", {}, b'{"identity": {"source_sha": "' + b"f" * 40 + b'"}}'),
         ("migrate", {}, b'{"unexpected": 1}'),
         ("reset", {}, b"{}"),

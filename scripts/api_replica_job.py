@@ -41,6 +41,8 @@ _JOBS: Final = {
 }
 _REQUEST_ENVIRONMENT: Final = "TAILTAG_JOB_REQUEST"
 _MAX_REQUEST_BYTES: Final = 65_536
+# Cloud Run refuses an env override value longer than this (live check, #355 AC16).
+_MAX_OVERRIDE_BYTES: Final = 32_768
 _MAX_RESPONSE_BYTES: Final = 4 * 1024 * 1024
 _HTTP_TIMEOUT_SECONDS: Final = 30
 _TOKEN_TIMEOUT_SECONDS: Final = 60
@@ -332,7 +334,7 @@ def submit(project: str, source_sha: str, job: str, body: Mapping[str, object]) 
         }
         # The job measures this exact string, so the cap applies to what is sent.
         request_value = json.dumps(request, separators=(",", ":"))
-        if len(request_value.encode("utf-8")) > _MAX_REQUEST_BYTES:
+        if len(request_value.encode("utf-8")) > _MAX_OVERRIDE_BYTES:
             raise ValueError
         session = _Session()
         since = datetime.now(UTC) - _LOG_SKEW
