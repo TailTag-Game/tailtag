@@ -9,8 +9,12 @@ from __future__ import annotations
 
 import dataclasses
 import importlib
+import os
+import subprocess
 import sys
+import urllib.request
 from collections.abc import Mapping
+from pathlib import Path
 from types import ModuleType
 from typing import Any, NoReturn, cast
 
@@ -22,6 +26,7 @@ from pytest import MonkeyPatch
 from authentication.clerk import ClerkSessionVerifier, ClerkVerificationConfiguration
 from config import replica_binding
 from tests import replica_contract as contract
+from tests.process_support import minimal_environment
 from tests.test_api_staging_auth_smoke import (
     PROMPTED_SECRET,
     PROMPTED_TOKEN,
@@ -39,6 +44,8 @@ from tests.test_api_staging_auth_smoke import (
     prohibit_outbound_network,
 )
 
+API_ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY_ROOT = API_ROOT.parents[1]
 PINNED_FINGERPRINT = "4f93c7ed6c240ce2"
 PORTAL_ORIGIN = "https://accounts.replica.tailtag.app"
 STAGING_PORTAL_ORIGIN = "https://accounts.staging.tailtag.app"
@@ -534,3 +541,87 @@ def test_full_replica_flow_passes_with_fake_provider_and_calls_me_on_the_replica
         ("get", {"session_id": SYNTHETIC_SESSION_ID}),
         ("revoke", {"session_id": SYNTHETIC_SESSION_ID}),
     ]
+
+
+def test_baseline_warms_the_pinned_replica_once_before_the_baseline_script(
+    replica_smoke: ModuleType, staging_smoke: ModuleType, monkeypatch: MonkeyPatch
+) -> None:
+    """Live finding: a scaled-to-zero replica took 10.6 s, over the 5 s baseline limit."""
+    events: list[str] = []
+    timeouts: list[object] = []
+
+    class WarmUpOpener(RecordingOpener):
+        def open(
+            self, request: urllib.request.Request, **kwargs: object
+        ) -> ApiResponse:
+            events.append("warm-up")
+            timeouts.append(kwargs.get("timeout"))
+            return super().open(request, **kwargs)
+
+    def baseline_script(*_args: object, **_kwargs: object) -> object:
+        events.append("baseline-script")
+        return subprocess.CompletedProcess[str]([], 0)
+
+    monkeypatch.setattr(staging_smoke.subprocess, "run", baseline_script)
+    opener = WarmUpOpener(ApiResponse(200, b""))
+    runtime = concrete_runtime(replica_smoke, opener=opener)
+
+    assert runtime.run_baseline(base_url=REPLICA_URL)  # type: ignore[attr-defined]
+
+    assert [request.full_url for request in opener.requests] == [
+        f"{REPLICA_URL}/health/ready"
+    ]
+    assert events == ["warm-up", "baseline-script"]
+    assert cast(int, timeouts[0]) >= 60
+
+
+def test_a_failed_warm_up_fails_the_baseline_without_running_it(
+    replica_smoke: ModuleType, staging_smoke: ModuleType, monkeypatch: MonkeyPatch
+) -> None:
+    ran: list[object] = []
+
+    def baseline_script(*args: object, **_kwargs: object) -> object:
+        ran.append(args)
+        return subprocess.CompletedProcess[str]([], 0)
+
+    monkeypatch.setattr(staging_smoke.subprocess, "run", baseline_script)
+    runtime = concrete_runtime(
+        replica_smoke, opener=RecordingOpener(ApiResponse(503, b""))
+    )
+
+    assert not runtime.run_baseline(base_url=REPLICA_URL)  # type: ignore[attr-defined]
+    assert ran == []
+
+
+def test_replica_verifies_a_session_token_without_django_settings_in_the_environment(
+    signing_key: rsa.RSAPrivateKey,
+) -> None:
+    """Live finding: with no DJANGO_SETTINGS_MODULE the verifier raised and the smoke
+    reported `FAIL session token`. The child gets no settings, like the operator shell."""
+    script = (
+        "import os\n"
+        "from scripts.api_replica_auth_smoke import DefaultSmokeRuntime, REPLICA_PROFILE\n"
+        "DefaultSmokeRuntime(profile=REPLICA_PROFILE).verify_session_token(\n"
+        "    token=os.environ['SMOKE_TOKEN'],\n"
+        f"    session_id={SYNTHETIC_SESSION_ID!r},\n"
+        f"    user_id={SYNTHETIC_USER_ID!r},\n"
+        ")\n"
+    )
+    environment = {
+        **minimal_environment(),
+        "PYTHONPATH": os.pathsep.join((str(REPOSITORY_ROOT), str(API_ROOT))),
+        "CLERK_JWT_KEY": public_pem(signing_key),
+        "SMOKE_TOKEN": issue_session_token(signing_key, {"azp": PORTAL_ORIGIN}),
+    }
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        env=environment,
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr.splitlines()[-1:]

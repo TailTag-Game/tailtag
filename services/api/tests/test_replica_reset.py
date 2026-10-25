@@ -388,6 +388,31 @@ def test_replica_maintenance_terminates_foreign_clients_and_spares_cloud_admin(
     assert row == (True,)
 
 
+@pytest.mark.django_db(transaction=True)
+def test_replica_maintenance_keeps_its_executor_when_the_client_pid_is_wrong(
+    safety: ModuleType, open_target: OpenTarget, monkeypatch: MonkeyPatch
+) -> None:
+    """Live finding: behind Neon's proxy the client-reported backend pid is not the
+    server pid, so the executor must be excluded by the pid the server reports."""
+    monkeypatch.setattr(safety, "validate_identity", validated_identity)
+    target = open_target("maintainer", "maintainer")
+    foreign = target.session_as("foreign_client")
+    configuration = configuration_for(safety, "replica", target.values)
+    # No session has pid 0, so excluding it would end the executor and every client.
+    monkeypatch.setattr(
+        psycopg.ConnectionInfo, "backend_pid", property(lambda _self: 0)
+    )
+
+    with safety.DatabaseMaintenance(configuration) as maintenance:
+        maintenance.quiesce()
+
+        with pytest.raises(psycopg.OperationalError):
+            foreign.execute("SELECT 1")
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            assert cursor.fetchone() == (1,)
+
+
 # ---------------------------------------------------------------------------
 # Command level: B1, B5, B6, B7
 # ---------------------------------------------------------------------------

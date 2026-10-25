@@ -48,6 +48,7 @@ _CONFIRMATION: Final = "run-clerk-staging-auth-smoke"
 _API_ME_PATH: Final = "/api/me/"
 _REQUEST_TIMEOUT_SECONDS: Final = 10
 _BASELINE_TIMEOUT_SECONDS: Final = 30
+_WARM_UP_TIMEOUT_SECONDS: Final = 60
 _PROVIDER_TIMEOUT_MILLISECONDS: Final = 10_000
 _BASELINE_FAILURE: Final = "baseline API smoke"
 _PROMPT_FAILURE: Final = "hidden input"
@@ -116,6 +117,8 @@ class SmokeProfile:
     portal_origin: str
     # Environment variable that must repeat the pinned party, or None to pin only.
     party_variable: str | None
+    # GET path requested once, with a long timeout, before the baseline; None skips it.
+    warm_up_path: str | None = None
 
     @property
     def name(self) -> str:
@@ -182,7 +185,20 @@ class DefaultSmokeRuntime:
             self._clerk = self._clerk_factory(secret)
         return self._clerk
 
+    def _warm_up(self, base_url: str, path: str) -> bool:
+        try:
+            with self._opener.open(
+                urllib.request.Request(f"{base_url}{path}", method="GET"),
+                timeout=_WARM_UP_TIMEOUT_SECONDS,
+            ) as response:
+                return response.getcode() == 200
+        except Exception:
+            return False
+
     def run_baseline(self, *, base_url: str) -> bool:
+        warm_up_path = self._profile.warm_up_path
+        if warm_up_path is not None and not self._warm_up(base_url, warm_up_path):
+            return False
         try:
             result = subprocess.run(
                 [sys.executable, _baseline_script_path()],
