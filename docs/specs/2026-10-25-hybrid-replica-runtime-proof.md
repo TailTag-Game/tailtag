@@ -6,7 +6,7 @@ Related issues: [#355](https://github.com/TailTag-Game/tailtag/issues/355) (this
 
 Runbook: [Hybrid replica provisioning](../development/hybrid-replica-provisioning.md), section 11
 
-This document records the evidence for each #355 acceptance criterion. AC1 to AC9 come from the issue. AC10 to AC21 come from the refinement comment on #355. Each result is PASS, PARTIAL or NOT_EXERCISED. PARTIAL means that part of the criterion passed and the rest is named as a follow-up.
+This document records the evidence for each #355 acceptance criterion. AC1 to AC9 come from the issue. AC10 to AC21 come from the refinement comment on #355. Each result is PASS, PARTIAL or NOT_EXERCISED. PARTIAL means that part of the criterion passed and the rest is named as a follow-up. The AC16 override limit was measured after the first version of this proof.
 
 ## Identities
 
@@ -43,7 +43,7 @@ This document never records project IDs, project numbers, hosts, account IDs, Cl
 | AC13 | PASS | The image uses libpq 18.0. Its bundled OpenSSL cannot find the system CA store, so `SSL_CERT_FILE` names `/etc/ssl/certs/ca-certificates.crt` (PR #374). Every job and the service then connected with verify-full. #357 keeps the controlled-failure proof. |
 | AC14 | PASS | All three role URLs use the direct endpoint with port 5432. The pooled endpoint is unsupported, because the app takes session advisory locks. The budget is in the AC14 section. |
 | AC15 | PASS | The role script created `maintainer` and wrote its secret. A second run wrote nothing. The capability probe reported `pg_control_system`, `database_owner` and `pg_signal_backend` as ok. Ownership survived Neon suspends, because reset passed days later. |
-| AC16 | PARTIAL | Six job shells exist with parallelism 1, no retries, timeouts and named secrets. Their image is ignored by Terraform. One execution took 35 to 52 seconds. The override size limit was not measured. |
+| AC16 | PASS | Six job shells exist with parallelism 1, no retries, timeouts and named secrets. Their image is ignored by Terraform. One execution took 35 to 52 seconds. Cloud Run accepts an override value of 32,768 bytes and refuses 32,769 bytes (live finding 12). |
 | AC17 | PASS | Migrate, reset, provision, every pool operation, every fixture operation and inspection passed replica admission. Registry reconciliation passed. Operator account commands stay Railway-only. |
 | AC18 | PASS | The owner made the replica Clerk Production application on `replica.tailtag.app`, the DNS records, the JWT key, two synthetic users and one designated media object. The pool used size 3. |
 | AC19 | PASS | Terraform sets port 8000, an HTTP startup probe on `/health/live` and the non-secret map. The probe sends the deterministic `run.app` host as its `Host` header (PR #374), and every revision passed it. |
@@ -93,12 +93,13 @@ The total stays far below 901. A warm connection took 0.54 seconds. After scale 
 9. Neon's proxy gives the client a different backend pid from the server. Reset excluded its executor by the client pid, so it ended its own session and left the database closed. No data changed. The owner reopened the database as `maintainer`. PR #376 asks the server for the pid.
 10. Idle `maintainer` sessions stayed open after their clients closed. Reset ends them like other client sessions.
 11. One image push stalled on upload timeouts. The push succeeded later from another network.
+12. Cloud Run refuses a job env override value over 32,768 bytes, with `length cannot exceed 32768`. The local runner allowed 65,536 bytes, so a larger request failed as `FAIL_LAUNCHER` and started nothing. The runner now caps the request at 32,768 bytes. Requests of 4 KB, 16 KB and 32 KB reached the job intact.
 
 ## Approved deviations
 
 - AC15 quiescence counts every client session except Neon's `cloud_admin`, as the owner decided on 2026-10-23.
 - AC13 uses `SSL_CERT_FILE` in Terraform instead of a CA path in each stored URL, so no secret rotation was needed.
-- AC6 and AC17 use an admission matrix, because a full fixture provision needs #359.
+- AC6 and AC17 use an admission matrix, because a full fixture provision needs #359. AC6 stays open until that run.
 - AC7 uses a temporary probe instead of a committed harness, as on Staging.
 - PR #376 had a parent self-check instead of an independent review, under the Lean ADW policy.
 
