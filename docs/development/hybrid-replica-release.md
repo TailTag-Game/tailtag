@@ -120,7 +120,7 @@ A run that reaches the release job ends with one outcome in its receipt. Only `P
 | `FAIL_PRECHECK` | Traffic was split, a `candidate` tag existed or the target revision changed | Inspect the service. Remove a stale tag only after you know where it came from. |
 | `FAIL_MIGRATION` | The migrate job failed | The service did not change. Read the job logs, then forward-fix. |
 | `FAIL_MIGRATION_UNKNOWN` | The migrate job update or run got no clear answer | Check the job executions before any new run |
-| `FAIL_CANDIDATE` | A gate failed. The previous revision serves 100% and the tag is gone. | Read the gate results. Diagnose the failed revision, then delete it. |
+| `FAIL_CANDIDATE` | The candidate did not start or a gate failed. The previous revision serves 100% and the tag is gone. | Read the gate results and the revision conditions. Diagnose the failed revision. Delete it after the next release. |
 | `FAIL_RELEASE_UNKNOWN` | A service update got no clear answer, and the revision does not exist | Inspect the service. Start a new run only after the state is clear. |
 | `FAIL_REFUSED` | Cloud Run refused a service update, for example for a missing permission | Read the API error in the Cloud Run audit log. Nothing changed. |
 | `FAIL_CONCURRENT_RELEASE` | Someone else changed the service during the run | Stop. Find the other change. Nothing was retried. |
@@ -141,13 +141,15 @@ gcloud run services describe tailtag-api-replica --project=<PROJECT_ID> --region
 gcloud run services update-traffic tailtag-api-replica --project=<PROJECT_ID> --region=us-east4 --to-revisions=<PREVIOUS_REVISION>=100 --remove-tags=candidate
 ```
 
-To delete a failed revision after you read its logs:
+A failed revision is kept on purpose, so that you can diagnose it. It has no traffic and no tag.
+
+Cloud Run refuses to delete the latest created revision with `FAILED_PRECONDITION`. A failed candidate stays the latest created revision until the next release makes a new one. So delete it after the next release, and only after you read its logs:
 
 ```sh
 gcloud run revisions delete <FAILED_REVISION> --project=<PROJECT_ID> --region=us-east4
 ```
 
-A failed revision is kept on purpose, so that you can diagnose it. It has no traffic and no tag, so it does not start.
+Before you delete it, make sure that it has no traffic and is not the latest created revision.
 
 ## Run a failure drill
 
@@ -159,7 +161,9 @@ A drill proves that a failed release leaves the previous revision serving. Each 
 2. Approve the run.
 3. Make sure that the outcome is `FAIL_MIGRATION` or `FAIL_CANDIDATE`, and that `drill` is `true` in the receipt.
 4. Make sure that the service host identity still names the previous revision.
-5. For the `candidate` drill, delete the failed revision as above.
+5. For the `candidate` drill, run a clean release next. Then delete the failed revision as above. The clean release also removes the drill command from the service template.
+
+Cloud Run starts a candidate at deploy, even with no traffic. A candidate that fails its startup probe makes the service condition fail, so the release stops with `FAIL_CANDIDATE` before the gates run.
 
 The workflow refuses `fault` unless a person started the run.
 
