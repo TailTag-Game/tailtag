@@ -199,23 +199,24 @@ class _Session:
             time.sleep(_POLL_SECONDS)
 
 
-def _start(session: _Session, project: str, job: str, request_value: str) -> str:
-    """Run the pinned job and return the execution id the response names."""
+def _start(
+    session: _Session,
+    project: str,
+    job: str,
+    request_value: str,
+    args: Sequence[str] | None = None,
+) -> str:
+    """Run the pinned job and return the execution id the response names.
+
+    `args` replaces the container arguments; only the #356 migrate drill uses it.
+    """
     prefix = f"projects/{project}/locations/{REGION}/jobs/{job}"
-    override = {
-        "overrides": {
-            "containerOverrides": [
-                {
-                    "env": [
-                        {
-                            "name": _REQUEST_ENVIRONMENT,
-                            "value": request_value,
-                        }
-                    ]
-                }
-            ]
-        }
+    container: dict[str, object] = {
+        "env": [{"name": _REQUEST_ENVIRONMENT, "value": request_value}]
     }
+    if args is not None:
+        container["args"] = list(args)
+    override = {"overrides": {"containerOverrides": [container]}}
     operation = session.call(f"https://run.googleapis.com/v2/{prefix}:run", override)
     metadata = operation.get("metadata")
     name = (

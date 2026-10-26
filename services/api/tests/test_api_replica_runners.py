@@ -946,7 +946,11 @@ def task_block(name: str) -> str:
 
 @pytest.mark.parametrize(
     ("task", "module"),
-    (("replica-job", "api_replica_job"), ("replica-reset", "api_replica_reset")),
+    (
+        ("replica-job", "api_replica_job"),
+        ("replica-reset", "api_replica_reset"),
+        ("replica-release", "api_replica_release"),
+    ),
 )
 def test_replica_tasks_pass_cli_args_and_are_windows_safe(
     task: str, module: str

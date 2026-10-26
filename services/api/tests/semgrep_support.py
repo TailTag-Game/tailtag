@@ -49,6 +49,7 @@ FROZEN_ROOT_HELPERS = frozenset(
         "scripts/api_staging_restore_drill.py",
         "scripts/api_replica_job.py",
         "scripts/api_replica_reset.py",
+        "scripts/api_replica_release.py",
         "scripts/replica_neon_roles.py",
         "scripts/staging_restore_integrity.py",
         "scripts/validate_semgrep_contract.py",
