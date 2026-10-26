@@ -1,6 +1,7 @@
 locals {
   # Every job shell shares one image placeholder, one command, and one limit
-  # set. Only project owners can execute a job: no job IAM resource exists.
+  # set. Only project owners can execute a job, except that the deployer can
+  # update and run the migrate job (#356).
   production_job_secret_env = {
     DJANGO_SECRET_KEY               = "django-secret-key"
     MEDIA_STORAGE_ACCESS_KEY_ID     = "media-access-key-id"
@@ -123,4 +124,11 @@ resource "google_cloud_run_v2_job" "replica" {
   }
 
   depends_on = [google_secret_manager_secret_iam_member.accessor]
+}
+
+resource "google_cloud_run_v2_job_iam_member" "deployer_migrate" {
+  name     = google_cloud_run_v2_job.replica["migrate"].name
+  location = google_cloud_run_v2_job.replica["migrate"].location
+  role     = "roles/run.developer"
+  member   = "serviceAccount:${google_service_account.deployer.email}"
 }

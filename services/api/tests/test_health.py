@@ -1071,6 +1071,29 @@ def test_readiness_accepts_complete_replica_service_configuration(
     }
 
 
+@pytest.mark.django_db
+def test_candidate_tag_host_reaches_ready_replica_revision(
+    client: Client,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+    valid_clerk_public_key: str,
+) -> None:
+    """#356 AC11: release gates reach a candidate revision through its tag host."""
+    configure_replica_identity(monkeypatch, tmp_path)
+    monkeypatch.setattr("media.storage.boto3.client", fail_vendor_call)
+    candidate_host = f"candidate---{replica_contract.RUN_APP_HOST}"
+    hosts = [replica_contract.RUN_APP_HOST, candidate_host]
+
+    with override_settings(
+        **replica_settings(valid_clerk_public_key, ALLOWED_HOSTS=hosts)
+    ):
+        ready = client.get("/health/ready", HTTP_HOST=candidate_host)
+        identity = client.get("/health/identity", HTTP_HOST=candidate_host)
+
+    assert ready.status_code == 200
+    assert identity.json()["deployment_id"] == replica_contract.SERVICE_REVISION
+
+
 @pytest.mark.parametrize(
     "variation",
     (

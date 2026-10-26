@@ -59,6 +59,10 @@ _EXPECTED_MEDIA_DIGEST: Final = (
     "9fd972562fed420687ef1e41d52e6efb104a14b8d2b29633774e0c690d9df613"
 )
 _PROBE_HOSTS: Final[frozenset[str]] = frozenset()
+# Cloud Run serves a traffic tag at `TAG---` plus the deterministic host. The
+# release gates test a no-traffic candidate revision through this one tag.
+CANDIDATE_TAG: Final = "candidate"
+_CANDIDATE_PREFIX: Final = f"{CANDIDATE_TAG}---"
 
 _location: tuple[str, str] | None = None
 
@@ -184,15 +188,32 @@ def read_cloud_run_target(environ: Mapping[str, str]) -> CloudRunTarget | None:
 
 
 def validate_run_app_host(allowed_hosts: Sequence[str]) -> str:
-    """Return the one pinned run.app host that ALLOWED_HOSTS must consist of."""
+    """Return the one pinned run.app host that ALLOWED_HOSTS must consist of.
+
+    The release candidate tag host of that same host may also be present (#356).
+    """
     hosts = set(allowed_hosts)
-    run_app_hosts = hosts - _PROBE_HOSTS
-    if len(hosts) != len(allowed_hosts) or hosts != run_app_hosts | _PROBE_HOSTS:
+    if len(hosts) != len(allowed_hosts):
         raise ReplicaBindingError(_ERROR)
+    run_app_hosts = {
+        host for host in hosts - _PROBE_HOSTS if not host.startswith(_CANDIDATE_PREFIX)
+    }
     if len(run_app_hosts) != 1:
         raise ReplicaBindingError(_ERROR)
     host = next(iter(run_app_hosts))
     if host_digest(host) != _EXPECTED_HOST_DIGEST:
+        raise ReplicaBindingError(_ERROR)
+    if not hosts - _PROBE_HOSTS - {host} <= {_CANDIDATE_PREFIX + host}:
+        raise ReplicaBindingError(_ERROR)
+    return host
+
+
+def validate_candidate_host(host: str) -> str:
+    """Return the candidate tag host only if it tags the pinned run.app host."""
+    if not host.startswith(_CANDIDATE_PREFIX):
+        raise ReplicaBindingError(_ERROR)
+    service_host = host.removeprefix(_CANDIDATE_PREFIX)
+    if host_digest(service_host) != _EXPECTED_HOST_DIGEST:
         raise ReplicaBindingError(_ERROR)
     return host
 
