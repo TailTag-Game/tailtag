@@ -1,0 +1,204 @@
+name: TailTag replica release
+
+# Releases one main SHA to the hybrid replica, or recovers a recorded revision
+# (#356). The owner starts each run and approves it in the `replica`
+# environment. Runbook: docs/development/hybrid-replica-release.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "release builds, migrates and promotes; recover moves traffic to a recorded revision"
+        type: choice
+        options: [release, recover]
+        default: release
+      source_sha:
+        description: "release: full main SHA to release (empty means the head of main)"
+        required: false
+        default: ""
+      fault:
+        description: "release drill only: none, migrate or candidate"
+        type: choice
+        options: [none, migrate, candidate]
+        default: none
+      revision:
+        description: "recover: revision name from a committed PROMOTED receipt"
+        required: false
+        default: ""
+      compatibility_ref:
+        description: "recover: link to the #206 compatibility review"
+        required: false
+        default: ""
+
+permissions: {}
+
+concurrency:
+  group: replica-release
+  cancel-in-progress: false
+
+jobs:
+  eligibility:
+    name: Check replica release eligibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Reads only: no cloud identity, no environment, no secret.
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      source_sha: ${{ steps.check.outputs.source_sha }}
+      ci_run: ${{ steps.check.outputs.ci_run }}
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Install locked uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.9.17"
+
+      - name: Synchronize locked dependencies
+        run: uv --directory services/api sync --locked
+
+      - name: Install pinned go-task
+        uses: ./.github/actions/install-go-task
+
+      - name: Check inputs and eligibility
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode }}
+          FAULT: ${{ inputs.fault }}
+          INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          WORKFLOW_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [[ "$WORKFLOW_REF" != "refs/heads/main" ]]; then
+            echo "The replica release runs only from main." >&2
+            exit 1
+          fi
+          if [[ "$MODE" == "recover" ]]; then
+            if [[ "$FAULT" != "none" ]]; then
+              echo "A recovery takes no fault drill." >&2
+              exit 1
+            fi
+            exit 0
+          fi
+          source_sha="${INPUT_SOURCE_SHA:-$WORKFLOW_SHA}"
+          result="$(task replica-release -- eligibility --source-sha "$source_sha")" || {
+            echo "$result"
+            exit 1
+          }
+          echo "$result"
+          ci_run="$(python3 -c 'import json,sys; v=json.loads(sys.argv[1]); assert v["result"] == "PASS"; print(v["ci_run"])' "$result")"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "ci_run=$ci_run" >> "$GITHUB_OUTPUT"
+
+  release:
+    name: Release to the hybrid replica
+    needs: eligibility
+    runs-on: ubuntu-latest
+    # Longer than the sum of the script's own deadlines, so the script, not
+    # GitHub, ends a slow run and writes its receipt.
+    timeout-minutes: 120
+    # The owner approves this job. Only this workflow file on main, in this
+    # environment, can impersonate the deployer (infra/replica/foundation/identity.tf).
+    environment: replica
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check out the release source
+        if: inputs.mode == 'release'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.eligibility.outputs.source_sha }}
+          path: source
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Install locked uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.9.17"
+
+      - name: Synchronize locked dependencies
+        run: uv --directory services/api sync --locked
+
+      - name: Install pinned go-task
+        uses: ./.github/actions/install-go-task
+
+      - name: Authenticate as the replica deployer
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.REPLICA_WIF_PROVIDER }}
+          service_account: ${{ secrets.REPLICA_DEPLOYER_EMAIL }}
+
+      - name: Let Docker push to Artifact Registry
+        if: inputs.mode == 'release'
+        run: gcloud auth configure-docker us-east4-docker.pkg.dev --quiet >/dev/null 2>&1
+
+      - name: Run the release
+        env:
+          MODE: ${{ inputs.mode }}
+          FAULT: ${{ inputs.fault }}
+          REVISION: ${{ inputs.revision }}
+          COMPATIBILITY_REF: ${{ inputs.compatibility_ref }}
+          SOURCE_SHA: ${{ needs.eligibility.outputs.source_sha }}
+          CI_RUN: ${{ needs.eligibility.outputs.ci_run }}
+          PROJECT: ${{ secrets.REPLICA_PROJECT_ID }}
+          PROJECT_NUMBER: ${{ secrets.REPLICA_PROJECT_NUMBER }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          common=(--project "$PROJECT" --project-number "$PROJECT_NUMBER"
+            --run-id "$RUN_ID" --run-number "$RUN_NUMBER" --run-attempt "$RUN_ATTEMPT"
+            --receipt "$RUNNER_TEMP/replica-receipt.json")
+          if [[ "$MODE" == "release" ]]; then
+            task replica-release -- release "${common[@]}" --source-sha "$SOURCE_SHA" \
+              --source-dir "$GITHUB_WORKSPACE/source" --ci-run "$CI_RUN" --fault "$FAULT"
+          else
+            task replica-release -- recover "${common[@]}" --revision "$REVISION" \
+              --compatibility-ref "$COMPATIBILITY_REF" \
+              --receipts-dir docs/development/replica-deployments
+          fi
+
+      - name: Summarize the receipt
+        if: always()
+        run: |
+          if [[ -f "$RUNNER_TEMP/replica-receipt.json" ]]; then
+            {
+              echo '### Replica release receipt'
+              echo '```json'
+              cat "$RUNNER_TEMP/replica-receipt.json"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Keep the receipt
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: replica-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/replica-receipt.json
+          if-no-files-found: ignore
+          retention-days: 90

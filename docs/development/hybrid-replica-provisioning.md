@@ -265,7 +265,7 @@ Never rebuild the persistent core to prove reproducibility.
 #355 adds six Cloud Run jobs. Run them in this order, because each step needs the one before it:
 
 1. Run `migrate` twice. The second run must report `PASS` with nothing to apply.
-2. Deploy the image digest to the service. Make sure that `/health/live`, `/health/ready` and `/health/identity` answer on the `tailtag-api-replica-<PROJECT_NUMBER>.us-east4.run.app` host. Every other host gets HTTP 400, including the `*.a.run.app` URL that Terraform outputs.
+2. Deploy the image digest to the service. Since #356, use [the release runbook](hybrid-replica-release.md) for this step. Make sure that `/health/live`, `/health/ready` and `/health/identity` answer on the `tailtag-api-replica-<PROJECT_NUMBER>.us-east4.run.app` host. Every other host gets HTTP 400, including the `*.a.run.app` URL that Terraform outputs.
 3. Make one authenticated API call as each synthetic Clerk user. Reset `provision` finds the owner and catcher by their API user rows, and the API makes a row only on the first authenticated call.
 4. Before the first reset, run two read-only checks as `maintainer` from the separate terminal:
    - Make sure that `maintainer` can connect to the `postgres` database. The reset control connection uses it.
