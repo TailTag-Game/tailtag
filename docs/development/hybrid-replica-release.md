@@ -43,19 +43,22 @@ Terraform and the release never write the same field.
 
 Do these steps once, in order. Each step needs owner authorization.
 
-1. Apply the foundation root from the owner workstation, as in [the provisioning runbook](hybrid-replica-provisioning.md). Make sure that the plan shows only these changes:
+1. Pin the service traffic to the revision that serves now. A release needs one named revision at 100%, not the `LATEST` target that `gcloud run deploy` sets. Do this before the apply. Otherwise the apply makes a revision of the old image with the new hosts, and that revision takes the traffic. The old image refuses the candidate host, so its readiness fails.
+
+   ```sh
+   gcloud run services update-traffic tailtag-api-replica --project=<PROJECT_ID> --region=us-east4 --to-revisions=<SERVING_REVISION>=100
+   ```
+
+2. Apply the foundation root from the owner workstation, as in [the provisioning runbook](hybrid-replica-provisioning.md). Make sure that the plan shows only these changes:
    - an in-place update of the federation provider condition
    - a replaced deployer federation binding
    - one new job IAM member on `tailtag-replica-migrate`
    - one new `actAs` member on `tt-migrator`
    - an in-place update of the Artifact Registry repository for immutable tags
    - an in-place update of `DJANGO_ALLOWED_HOSTS` on the service and the five production jobs
-2. Make sure that `/health/ready` still answers 200 on the service host after the apply.
-3. Pin the service traffic to the revision that serves now. A release needs one named revision at 100%, not the `LATEST` target that `gcloud run deploy` sets:
+3. Make sure that the pinned revision still has 100% of traffic and that `/health/ready` answers 200 on the service host. The apply makes one new revision with no traffic. It is never released.
 
-   ```sh
-   gcloud run services update-traffic tailtag-api-replica --project=<PROJECT_ID> --region=us-east4 --to-revisions=<SERVING_REVISION>=100
-   ```
+   Until the first release and jobs sync, the five production jobs run the old image with the new hosts, so their preflight fails. Do not run reset, pool, fixture, inspect or registry-reconcile in that window.
 
 4. In the repository settings, create the environment `replica`:
    - Deployment branches: `main` only.
