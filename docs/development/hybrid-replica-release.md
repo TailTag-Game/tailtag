@@ -105,6 +105,8 @@ GitHub masks environment secrets in logs. That is why the project ID and number 
 
    The reset preflight refuses a job whose SHA differs from the service.
 
+9. After the first release, run a foundation plan from the owner workstation. Make sure that it shows `No changes`. A change to `template.revision` means that the service template kept a revision name. Stop and record it, because each later apply then makes a new revision.
+
 ## Outcomes
 
 A run that reaches the release job ends with one outcome in its receipt. Only `PROMOTED` moves traffic for good.
@@ -188,5 +190,6 @@ Do these checks after the first live release.
 - Never run the workflow from a branch other than `main`.
 - Never add a Railway token, a Clerk key or any secret value beyond the four above to the `replica` environment.
 - Never change traffic in the console while a run is active.
+- Never run `gcloud run deploy` or `gcloud run services update` on the service. Both write a revision name into the template, and the next Terraform apply then makes a new revision. Use the release workflow. Use `gcloud run services update-traffic` only for traffic.
 - Never rerun a failed job without reading its receipt.
 - Never delete a persistent resource. Gate G-4 applies.

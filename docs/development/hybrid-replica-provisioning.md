@@ -180,7 +180,9 @@ The Clerk and Sentry values come from #357 and #358. So the wiring apply happens
 
 ## 6. Prove field ownership on Cloud Run
 
-Terraform ignores the image, template labels, client and traffic fields of the Cloud Run service. A release owns those fields. Terraform does not ignore the revision name, because Cloud Run names every revision. With a fixed name, a later template change fails with 409 (#356). To prove this, deploy the placeholder image by digest. Then make sure that Terraform plans no change.
+Terraform ignores the image, template labels, client and traffic fields of the Cloud Run service. A release owns those fields. Terraform does not ignore the revision name, because Cloud Run names every revision. With a fixed name, a later template change fails with 409 (#356).
+
+#354 proved this step with `gcloud run deploy`, as below. Do not repeat it on the service. `gcloud run deploy` writes a revision name into the template, so since #356 the next plan shows that name, and the next apply makes a new revision. To change the service image, use [the release runbook](hybrid-replica-release.md). Its first release ends with the same no-change plan check.
 
 ```sh
 IMG="$(gcloud run revisions list --service=<SERVICE_NAME> --region=us-east4 --project=<PROJECT_ID> --limit=1 --format='value(status.imageDigest)')"
