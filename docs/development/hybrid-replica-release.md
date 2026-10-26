@@ -34,7 +34,8 @@ Terraform and the release never write the same field.
 | --- | --- |
 | Service and job shape, env, secrets, probes, scaling, ingress and invoker setting | Terraform |
 | Capacity profile | Terraform (`capacity_profile`, #360) |
-| Service image, revision name, client, traffic and traffic tags | Release workflow |
+| Service image, run label, client, traffic and traffic tags | Release workflow |
+| Revision names | Cloud Run. Nobody sets a fixed name. |
 | Migrate job image | Release workflow |
 | Image of the other five jobs | Owner, with `task replica-jobs-sync` |
 | IAM, federation and the registry | Terraform |
@@ -56,6 +57,7 @@ Do these steps once, in order. Each step needs owner authorization.
    - one new `actAs` member on `tt-migrator`
    - an in-place update of the Artifact Registry repository for immutable tags
    - an in-place update of `DJANGO_ALLOWED_HOSTS` on the service and the five production jobs
+   - on the service, `template.revision` changes from a fixed name to empty, so Cloud Run names the new revision
 3. Make sure that the pinned revision still has 100% of traffic and that `/health/ready` answers 200 on the service host. The apply makes one new revision with no traffic. It is never released.
 
    Until the first release and jobs sync, the five production jobs run the old image with the new hosts, so their preflight fails. Do not run reset, pool, fixture, inspect or registry-reconcile in that window.
@@ -90,7 +92,7 @@ GitHub masks environment secrets in logs. That is why the project ID and number 
    1. It reads the Artifact Registry tag for the SHA. If the tag is missing, it builds `linux/amd64` and pushes. Tags are immutable, so one SHA has one digest.
    2. It makes sure that one revision has 100% of traffic and that no `candidate` tag exists.
    3. It points the migrate job at the digest and runs it once.
-   4. It deploys a candidate revision with no traffic and the tag `candidate`.
+   4. It deploys a candidate revision with no traffic. The template gets the label `tailtag-release=r<RUN_ID>a<RUN_ATTEMPT>`, and Cloud Run names the revision. The release takes the new revision as its own only if the generation went up by one and the revision has this run's label and image. Then it tags that revision `candidate`.
    5. It runs four gates on the candidate tag host: `/health/live`, `/health/ready`, `/health/identity` and an anonymous `/api/me/` that must return 401.
    6. It moves 100% of traffic to the candidate, removes the tag, and makes sure that the service host identity names the candidate.
 6. Read the receipt in the job summary.
@@ -102,6 +104,8 @@ GitHub masks environment secrets in logs. That is why the project ID and number 
    ```
 
    The reset preflight refuses a job whose SHA differs from the service.
+
+9. After the first release, run a foundation plan from the owner workstation. Make sure that it shows `No changes`. A change to `template.revision` means that the service template kept a revision name. Stop and record it, because each later apply then makes a new revision.
 
 ## Outcomes
 
@@ -186,5 +190,6 @@ Do these checks after the first live release.
 - Never run the workflow from a branch other than `main`.
 - Never add a Railway token, a Clerk key or any secret value beyond the four above to the `replica` environment.
 - Never change traffic in the console while a run is active.
+- Never run `gcloud run deploy` or `gcloud run services update` on the service. Both write a revision name into the template, and the next Terraform apply then makes a new revision. Use the release workflow. Use `gcloud run services update-traffic` only for traffic.
 - Never rerun a failed job without reading its receipt.
 - Never delete a persistent resource. Gate G-4 applies.

@@ -43,7 +43,9 @@ BUILT_DIGEST = "sha256:" + "b" * 64
 OLD_DIGEST = "sha256:" + "c" * 64
 IMAGE = f"{REGION}-docker.pkg.dev/{PROJECT}/tailtag-api/api"
 PREVIOUS = f"{SERVICE}-00007-sd9"
-CANDIDATE = f"{SERVICE}-{SOURCE_SHA[:12]}-r7a1"
+# Cloud Run names the revision. The fake names it from the generation it creates.
+CANDIDATE = f"{SERVICE}-00006-new"
+RELEASE_LABEL = {"tailtag-release": "r123456a1"}
 RUN_BASE = f"https://run.googleapis.com/v2/projects/{PROJECT}/locations/{REGION}"
 SERVICE_PATH = f"projects/{PROJECT}/locations/{REGION}/services/{SERVICE}"
 TAG_URL = (
@@ -82,6 +84,10 @@ class FakeResponse(io.BytesIO):
 
 def _http_error(url: str, code: int) -> urllib.error.HTTPError:
     return urllib.error.HTTPError(url, code, "fake", {}, io.BytesIO(b"{}"))  # type: ignore[arg-type]
+
+
+def _without_name(template: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in template.items() if key != "revision"}
 
 
 class FakeGcp:
@@ -171,6 +177,7 @@ class FakeGcp:
             return self._json(
                 {
                     "name": f"{SERVICE_PATH}/revisions/{name}",
+                    "labels": self.revisions[name].get("labels", {}),
                     "containers": [{"image": self.revisions[name]["image"]}],
                 }
             )
@@ -189,22 +196,29 @@ class FakeGcp:
         if self.foreign_update in {"revision", "setting"}:
             self.generation += 1
         if self.foreign_update == "revision":
-            self.latest_created = f"{SERVICE}-foreign"
-        revision = body["template"]["revision"]
-        if revision != self.template["revision"]:
-            if revision in self.revisions:
-                raise _http_error(url, 409)
+            self.add_foreign_revision()
+        # Like Cloud Run: a changed template makes a revision, named by the body
+        # or by the service. Reusing a name for another configuration is a 409.
+        name = body["template"].get("revision")
+        changed = _without_name(body["template"]) != _without_name(self.template)
+        if name in self.revisions and changed:
+            raise _http_error(url, 409)
+        if changed or (name and name not in self.revisions):
+            name = name or f"{SERVICE}-{self.generation + 1:05d}-new"
             container = body["template"]["containers"][0]
-            self.revisions[revision] = {
+            self.revisions[name] = {
                 "image": container["image"],
+                "labels": dict(body["template"].get("labels", {})),
                 "starts": container.get("command") != ["false"],
             }
-            if self.foreign_update not in {"revision", "latest"}:
-                self.latest_created = revision
+            if self.foreign_update != "revision":
+                self.latest_created = name
             if self.foreign_update == "latest":
-                self.latest_created = f"{SERVICE}-foreign"
+                self.add_foreign_revision()
+            if self.foreign_update == "twin":
+                self.add_foreign_revision(container["image"])
             if self.foreign_update == "image":
-                self.revisions[revision]["image"] = f"{IMAGE}@{OLD_DIGEST}"
+                self.revisions[name]["image"] = f"{IMAGE}@{OLD_DIGEST}"
         self.template = copy.deepcopy(body["template"])
         self.traffic = copy.deepcopy(body["traffic"])
         self.generation += 1
@@ -213,6 +227,15 @@ class FakeGcp:
         if self.patch_lost == "unavailable":
             raise _http_error(url, 503)
         return self._json({"name": "operations/fake"})
+
+    def add_foreign_revision(self, image: str = f"{IMAGE}@{OLD_DIGEST}") -> None:
+        """Someone else's revision: no release label, and by default another image."""
+        self.revisions[f"{SERVICE}-foreign"] = {
+            "image": image,
+            "labels": {},
+            "starts": True,
+        }
+        self.latest_created = f"{SERVICE}-foreign"
 
     def _job(self, url: str, method: str, body: Any) -> FakeResponse:
         rest = url.removeprefix(f"{RUN_BASE}/jobs/")
@@ -438,11 +461,13 @@ def test_release_promotes_only_after_the_candidate_passes_every_gate(
         r["body"]["overrides"]["containerOverrides"][0].get("args") for r in gcp.runs()
     ] == [None]
 
-    deploy, promote = gcp.service_patches()
-    assert deploy["template"]["revision"] == CANDIDATE
+    deploy, tag, promote = gcp.service_patches()
+    assert "revision" not in deploy["template"], "Cloud Run names every revision"
+    assert deploy["template"]["labels"] == RELEASE_LABEL
     assert deploy["template"]["containers"][0]["image"] == f"{IMAGE}@{digest}"
+    assert [t["revision"] for t in deploy["traffic"]] == [PREVIOUS]
     assert [
-        (t["revision"], t.get("percent", 0), t.get("tag")) for t in deploy["traffic"]
+        (t["revision"], t.get("percent", 0), t.get("tag")) for t in tag["traffic"]
     ] == [(PREVIOUS, 100, None), (CANDIDATE, 0, "candidate")]
     order = [r["url"] for r in gcp.requests]
     first_promotion = next(
@@ -463,6 +488,8 @@ def test_release_promotes_only_after_the_candidate_passes_every_gate(
     first_deploy = next(i for i, r in enumerate(gcp.requests) if r["body"] is deploy)
     assert migrate_run < first_deploy
     assert gcp.serving() == [(CANDIDATE, 100, None)]
+    # Terraform can still change the template later: no explicit name is left.
+    assert "revision" not in gcp.template
 
     recorded = receipt(tmp_path)
     assert recorded | {"started_at": None, "finished_at": None} == {
@@ -547,7 +574,7 @@ def test_failed_candidate_leaves_the_previous_revision_serving(
     assert (code, line["result"]) == (1, "FAIL_CANDIDATE")
     assert gcp.serving() == [(PREVIOUS, 100, None)]
     assert CANDIDATE in gcp.revisions, "the failed revision stays for diagnosis"
-    deploy, cleanup = gcp.service_patches()
+    deploy, _tag, cleanup = gcp.service_patches()
     if fault == "candidate":
         assert deploy["template"]["containers"][0]["command"] == ["false"]
     assert [t.get("tag") for t in cleanup["traffic"]] == [None]
@@ -611,6 +638,7 @@ def test_migration_failure_stops_before_any_service_change(
         ("foreign-setting", "FAIL_CONCURRENT_RELEASE", 1),
         ("foreign-latest", "FAIL_CONCURRENT_RELEASE", 1),
         ("foreign-image", "FAIL_CONCURRENT_RELEASE", 1),
+        ("foreign-twin", "FAIL_CONCURRENT_RELEASE", 1),
     ),
 )
 def test_unexpected_service_state_stops_without_further_mutation(
@@ -671,15 +699,13 @@ def test_lost_deploy_response_is_read_once_and_never_retried(
     code, line, _ = run_main(release, release_argv(tmp_path))
 
     assert line["result"] == outcome
-    deploys = [
-        p for p in gcp.service_patches() if p["template"]["revision"] == CANDIDATE
-    ]
-    assert len(deploys) == (2 if outcome == "PROMOTED" else 1)
+    patches = gcp.service_patches()
+    revisions = [name for name in gcp.revisions if name != PREVIOUS]
     if outcome == "PROMOTED":
-        assert deploys[1]["traffic"] == [
-            {"type": REVISION_TYPE, "revision": CANDIDATE, "percent": 100}
-        ], "the second update is the promotion, not a retried deploy"
+        assert len(patches) == 3, "deploy, tag and promote, with no retried deploy"
+        assert revisions == [CANDIDATE] and gcp.serving() == [(CANDIDATE, 100, None)]
     else:
+        assert len(patches) == 1
         assert code == 1 and gcp.serving() == [(PREVIOUS, 100, None)]
 
 
@@ -692,9 +718,24 @@ def test_release_after_a_candidate_drill_deploys_a_clean_candidate(
 
     assert drill == 1
     assert (code, line["result"]) == (0, "PROMOTED")
-    clean = f"{SERVICE}-{SOURCE_SHA[:12]}-r8a1"
+    clean = receipt(tmp_path)["serving_revision"]
     assert gcp.revisions[clean]["starts"] and gcp.serving() == [(clean, 100, None)]
     assert "command" not in gcp.template["containers"][0]
+
+
+def test_rerun_of_the_same_sha_after_a_failed_gate_gets_its_own_revision(
+    release: Any, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    """The run label changes the template, so Cloud Run makes a new revision."""
+    gcp.gate[CANDIDATE] = {"/health/ready": (503, {"status": "unavailable"})}
+    failed, _, _ = run_main(release, release_argv(tmp_path))
+    code, line, _ = run_main(release, release_argv(tmp_path, **{"--run-id": "123457"}))
+
+    assert failed == 1
+    assert (code, line["result"]) == (0, "PROMOTED")
+    rerun = receipt(tmp_path)["serving_revision"]
+    assert rerun != CANDIDATE
+    assert gcp.revisions[rerun]["labels"] == {"tailtag-release": "r123457a1"}
 
 
 def test_promotion_the_service_host_does_not_show_goes_back_once(
@@ -711,6 +752,7 @@ def test_promotion_the_service_host_does_not_show_goes_back_once(
     assert (code, line["result"]) == (1, "FAIL_PROMOTION_UNVERIFIED")
     assert gcp.serving() == [(PREVIOUS, 100, None)]
     assert [p["traffic"][0]["revision"] for p in gcp.service_patches()] == [
+        PREVIOUS,
         PREVIOUS,
         CANDIDATE,
         PREVIOUS,

@@ -71,6 +71,8 @@ _OTHER_JOBS: Final = (
 _REVISION_TYPE: Final = "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION"
 # The migrate drill replaces `manage.py replica_migrate` with a non-zero exit.
 _DRILL_ARGS: Final = ("-c", "raise SystemExit(3)")
+# Template label naming the workflow run that created a candidate revision.
+_RELEASE_LABEL: Final = "tailtag-release"
 _FAULTS: Final = ("none", "migrate", "candidate")
 _SOURCE_SHA: Final = re.compile(r"[0-9a-f]{40}")
 _PROJECT_NUMBER: Final = re.compile(r"[1-9][0-9]{0,19}")
@@ -327,13 +329,18 @@ class _Release:
         *,
         expected: list[tuple[str, int, str | None]],
         lost: str,
+        applied: Callable[[dict[str, object]], bool] | None = None,
     ) -> dict[str, object]:
-        """Send one service update and require exactly the next generation and traffic."""
+        """Send one service update and require exactly the next generation and traffic.
+
+        After a lost response the service is read once. The update counts as
+        applied only if `applied` (by default: the traffic is `expected`) holds.
+        """
         try:
             self.cloud.mutate("PATCH", _service_url(self.project), body)
         except _Lost:
-            # Read once. Only state that names this update lets the release go on.
-            if _traffic(self.settled()) != expected:
+            state = self.settled()
+            if not (applied(state) if applied else _traffic(state) == expected):
                 raise _Stop(lost) from None
         except _Rejected as rejected:
             raise _Stop(
@@ -579,11 +586,18 @@ def _migrate(
         raise _Stop("FAIL_MIGRATION")
 
 
-def _deploy(release: _Release, digest: str, revision: str, fault: str) -> None:
-    """Create the no-traffic candidate revision with the tag, in one update."""
+def _deploy(release: _Release, digest: str, label: str, fault: str) -> str:
+    """Create the no-traffic candidate revision, then tag it, and return its name.
+
+    Cloud Run names the revision. A fixed name would make every later Terraform
+    change to the template reuse it and fail with 409. The run label makes each
+    release a new template, and it proves which revision this run created.
+    """
     service = copy.deepcopy(release.fresh())
     template = cast(dict[str, object], service["template"])
-    template["revision"] = revision
+    template.pop("revision", None)
+    labels = cast(dict[str, object], template.get("labels") or {})
+    template["labels"] = {**labels, _RELEASE_LABEL: label}
     container = cast(list[dict[str, object]], template["containers"])[0]
     container["image"] = f"{_image(release.project)}@{digest}"
     if fault == "candidate":
@@ -591,17 +605,39 @@ def _deploy(release: _Release, digest: str, revision: str, fault: str) -> None:
     else:
         # Terraform sets no command. Drop one that a drill left in the template.
         container.pop("command", None)
-    release.receipt["candidate_revision"] = revision
-    release.tag(service, revision)
-    state = release.service()
-    if _last_segment(state.get("latestCreatedRevision"), "revisions") != revision:
-        raise _Stop("FAIL_CONCURRENT_RELEASE")
-    created = release.cloud.read(
-        f"{_service_url(release.project)}/revisions/{revision}"
+    previous = cast(str, release.previous)
+
+    def ours(state: Mapping[str, object]) -> str | None:
+        name = _last_segment(state.get("latestCreatedRevision"), "revisions")
+        if name is None or name == previous or _REVISION.fullmatch(name) is None:
+            return None
+        created = release.cloud.read(
+            f"{_service_url(release.project)}/revisions/{name}"
+        )
+        images = cast(list[dict[str, object]], created.get("containers", []))
+        if (
+            not images
+            or images[0].get("image") != container["image"]
+            or cast(dict[str, object], created.get("labels") or {}).get(_RELEASE_LABEL)
+            != label
+        ):
+            return None
+        return name
+
+    release.update(
+        {**service, "traffic": [_target(previous, 100)]},
+        expected=[(previous, 100, None)],
+        lost="FAIL_RELEASE_UNKNOWN",
+        applied=lambda state: (
+            _generation(state) == release.generation + 1 and ours(state) is not None
+        ),
     )
-    images = cast(list[dict[str, object]], created.get("containers", []))
-    if not images or images[0].get("image") != container["image"]:
+    revision = ours(release.service())
+    if revision is None:
         raise _Stop("FAIL_CONCURRENT_RELEASE")
+    release.receipt["candidate_revision"] = revision
+    release.tag(release.fresh(), revision)
+    return revision
 
 
 # --- receipts and commands ----------------------------------------------
@@ -672,11 +708,7 @@ def _release(arguments: argparse.Namespace) -> int:
     receipt = _receipt("release", fault, run)
     receipt["source_sha"] = arguments.source_sha
     receipt["ci_run_id"] = int(arguments.ci_run)
-    revision = (
-        f"{SERVICE_NAME}-{arguments.source_sha[:12]}-r{run['number']}a{run['attempt']}"
-    )
-    if _REVISION.fullmatch(revision) is None:
-        raise ValueError
+    label = f"r{run['id']}a{run['attempt']}"
     path = Path(arguments.receipt)
     try:
         release = _Release(arguments.project, arguments.project_number, receipt)
@@ -700,7 +732,7 @@ def _release(arguments: argparse.Namespace) -> int:
             fault,
             receipt,
         )
-        _deploy(release, digest, revision, fault)
+        revision = _deploy(release, digest, label, fault)
         condition = release.service().get("terminalCondition")
         if (
             not isinstance(condition, dict)

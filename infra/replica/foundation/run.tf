@@ -49,8 +49,10 @@ locals {
 
 data "google_project" "this" {}
 
-# Terraform owns the service shape. CI owns the image and traffic after the
-# first apply, so those fields are ignored.
+# Terraform owns the service shape. CI owns the image, the run label and the
+# traffic after the first apply, so those fields are ignored. Nobody names a
+# revision: Cloud Run does. Terraform does not ignore `template[0].revision`, so
+# it clears an old fixed name instead of reusing it, which fails with 409 (#356).
 resource "google_cloud_run_v2_service" "api" {
   name                = var.service_name
   location            = var.region
@@ -119,9 +121,9 @@ resource "google_cloud_run_v2_service" "api" {
   lifecycle {
     ignore_changes = [
       template[0].containers[0].image,
+      template[0].labels,
       client,
       client_version,
-      template[0].revision,
       traffic,
     ]
   }
