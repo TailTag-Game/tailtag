@@ -515,15 +515,24 @@ def _build(project: str, source_sha: str, source_dir: Path) -> None:
 
 
 def _update_job(cloud: _Cloud, project: str, job: str, image: str) -> None:
-    """Point one job at the image by digest and wait for exactly that generation."""
+    """Point one job at the image by digest and wait for exactly that generation.
+
+    Cloud Run keeps the generation for an update that changes nothing, so a job
+    that already runs the image gets no update.
+    """
     url = _job_url(project, job)
     current = cloud.read(url)
     generation = _generation(current)
     body = copy.deepcopy(current)
     containers = cast(
-        dict[str, object], cast(dict[str, object], body["template"])["template"]
-    )["containers"]
-    cast(list[dict[str, object]], containers)[0]["image"] = image
+        list[dict[str, object]],
+        cast(dict[str, object], cast(dict[str, object], body["template"])["template"])[
+            "containers"
+        ],
+    )
+    if current.get("reconciling") is not True and containers[0].get("image") == image:
+        return
+    containers[0]["image"] = image
     cloud.mutate("PATCH", url, body)
     deadline = time.monotonic() + _RECONCILE_DEADLINE_SECONDS
     while True:
