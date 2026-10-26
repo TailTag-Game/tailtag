@@ -1,0 +1,35 @@
+{
+  "candidate_revision": "tailtag-api-replica-00013-kg5",
+  "ci_run_id": 40371436922,
+  "compatibility_ref": null,
+  "drill": false,
+  "fault": "none",
+  "finished_at": "2026-10-26T18:29:34Z",
+  "gates": {
+    "anonymous_auth": "PASS",
+    "identity": "PASS",
+    "live": "PASS",
+    "ready": "PASS"
+  },
+  "image_digest": "sha256:930503c76ccce87a87c574158729ba4bf47d411cbe533a971e649f5180d9699e",
+  "jobs": {
+    "migrate": "sha256:930503c76ccce87a87c574158729ba4bf47d411cbe533a971e649f5180d9699e",
+    "others": "PENDING_SYNC"
+  },
+  "migration": {
+    "execution": "tailtag-replica-migrate-n22wt",
+    "outcome": "PASS"
+  },
+  "mode": "release",
+  "outcome": "PROMOTED",
+  "previous_revision": "tailtag-api-replica-00010-m2j",
+  "schema": "tailtag-replica-release-v1",
+  "serving_revision": "tailtag-api-replica-00013-kg5",
+  "source_sha": "c91ce58523fa0eb32c572545983401c5148c675f",
+  "started_at": "2026-10-26T18:28:39Z",
+  "workflow_run": {
+    "attempt": 1,
+    "id": 40377842539,
+    "number": 8
+  }
+}

@@ -6,7 +6,7 @@ Related issues: [#356](https://github.com/TailTag-Game/tailtag/issues/356) (this
 
 Runbook: [Hybrid replica release](../development/hybrid-replica-release.md)
 
-This document records the evidence for each #356 acceptance criterion. AC1 to AC10 come from the issue. AC11 to AC24 come from the refinement comment on #356. AC17 follows its amendment comment. Each result is PASS, PARTIAL or NOT_EXERCISED. PARTIAL means that part of the criterion passed, and the rest is named with its owner.
+This document records the evidence for each #356 acceptance criterion. AC1 to AC10 come from the issue. AC11 to AC24 come from the refinement comment on #356. AC17 follows its amendment comment. Each result is PASS, PARTIAL or NOT_EXERCISED. The closing runs on 2026-10-26 and the owner evidence decision ([comment](https://github.com/TailTag-Game/tailtag/issues/356#issuecomment-6424296448)) moved AC6, AC15 and AC21 to PASS.
 
 ## Identities
 
@@ -33,6 +33,9 @@ This document never records project IDs, project numbers, hosts, account IDs, co
 | 40371803158 | `8aacf1e` | migrate | `FAIL_MIGRATION` | [40371803158-1](../development/replica-deployments/40371803158-1.json) |
 | 40372738151 | `8aacf1e` | candidate | `FAIL_CANDIDATE` | [40372738151-1](../development/replica-deployments/40372738151-1.json) |
 | 40373525054 | `c91ce58` | none | `PROMOTED` to `00012-hwf` | [40373525054-1](../development/replica-deployments/40373525054-1.json) |
+| 40376678986 | `8aacf1e` | recover | `PROMOTED` back to `00010-m2j` | [40376678986-1](../development/replica-deployments/40376678986-1.json) |
+| 40377842539 | `c91ce58` | none | `PROMOTED` to `00013-kg5` | [40377842539-1](../development/replica-deployments/40377842539-1.json) |
+| 40377849929 | `c91ce58` | none | `PROMOTED` to `00014-wtd`, after it waited for 40377842539 | [40377849929-1](../development/replica-deployments/40377849929-1.json) |
 
 ## Results
 
@@ -43,8 +46,8 @@ This document never records project IDs, project numbers, hosts, account IDs, co
 | AC3 | PASS | Branch protection and the required checks did not change. The eligibility job needs the SHA on `main` and a passed `api.yml` push run. Run 40366458002 was refused live with `FAIL_ELIGIBILITY` because the head of `main` had no finished CI run yet. The `replica` environment allows only `main`. |
 | AC4 | PASS | The release points the migrate job at the release digest and runs it before it creates the candidate. The migrate drill (run 40371803158) failed the job execution and stopped with `FAIL_MIGRATION`. The service did not change. |
 | AC5 | PASS | Before promotion, the release checks the candidate on its tag host. The checks are live, ready, identity (exact revision and SHA) and an anonymous `/api/me/` that must return 401. Both releases passed all four. The candidate drill stopped earlier, on the failed Cloud Run startup probe of the candidate. A shared endpoint or a ready flag alone never promotes. |
-| AC6 | PARTIAL | Live: both drills left the last validated revision `00010-m2j` serving at 100%, with no tag left. Offline tests cover lost responses, concurrent updates and unclear attribution, and each stops with no retry. No live lost response or concurrent release was staged. |
-| AC7 | PASS | Promotion moves traffic to an exact revision with an exact digest and keeps the database. Recovery (`mode=recover`) needs a committed `PROMOTED` receipt, the same digest and a #206 compatibility link. It does no build and no migration. The live recovery proof belongs to Child 6 (#358). |
+| AC6 | PASS | Live: both drills left the last validated revision `00010-m2j` serving at 100%, with no tag left. Live: two releases dispatched seconds apart did not overlap. Run 40377849929 stayed pending until run 40377842539 ended at 18:29:38Z, then started at 18:29:41Z. Offline tests cover lost responses, changes from outside the workflow and unclear attribution, and each stops with no retry. The owner accepted the offline evidence for those cases. |
+| AC7 | PASS | Promotion moves traffic to an exact revision with an exact digest and keeps the database. Recovery (`mode=recover`) needs a committed `PROMOTED` receipt, the same digest and a #206 compatibility link. It does no build and no migration. Run 40376678986 proved the mechanism live (AC21). The full recovery proof belongs to Child 6 (#358). |
 | AC8 | PASS | The release runbook has an ownership table. Terraform owns shape, env, secrets, scaling and IAM. The release owns image, run label, client, traffic and tags. Cloud Run names revisions. After the first release, the foundation plan showed `No changes` (exit 0). |
 | AC9 | PASS | Five runs left receipts with source, digest, CI run, migration result, gate results, serving revision, drill flag and outcome. All five are committed (PRs #384 and #386). The runbook lists each step and who authorizes it. |
 | AC10 | PASS | The repository and the organization have 0 Actions secrets. The `replica` environment has only the four replica secrets. The scripts refuse any host that is not the pinned replica host. Railway Staging `/health/identity` read `e8aedd0`, deployment `9359c0a2-4915-42cd-9994-521ce7bc740e`, before and after the first release. |
@@ -52,13 +55,13 @@ This document never records project IDs, project numbers, hosts, account IDs, co
 | AC12 | PASS | The workflow starts only through `workflow_dispatch` on `main`. The owner approved each release job in the `replica` environment before migration. The environment requires that review and has admin bypass off. |
 | AC13 | PASS | Policy Troubleshooter read the allow policy. The deployer can run, run with overrides and update only the migrate job. It can act only as `tt-runtime` and `tt-migrator`. 23 checks were NOT_GRANTED: the other five jobs, `actAs` on `tt-maintainer`, four secrets, and IAM changes on the service, the migrate job and the project. |
 | AC14 | PASS | `task replica-jobs-sync` passed twice. After each run, all six jobs ran the release digest. The reset preflight still refuses a job with another SHA. |
-| AC15 | PARTIAL | The provider condition and the only deployer binding (`subject/repo:TailTag-Game@306886193/tailtag@1306048543:environment:replica`) read back as designed. The workflow authenticated live. No live test showed a token from another workflow or a job without the environment being refused. |
+| AC15 | PASS | The provider condition and the only deployer binding (`subject/repo:TailTag-Game@306886193/tailtag@1306048543:environment:replica`) read back as designed. The workflow authenticated live. No live test showed a refused token. Such a test needs a committed test workflow outside the environment. The owner accepted the readback as the evidence. |
 | AC16 | PASS | The migrate drill ended `FAIL_MIGRATION`, with execution `tailtag-replica-migrate-crz5t` failed by the drill args. The candidate drill ended `FAIL_CANDIDATE`. Both receipts show `drill: true`. The workflow takes `fault` only from a person who starts it, and offline tests refuse it on other events. |
 | AC17 | PASS | Amended AC17. Runs share the `replica-release` concurrency group. Each release labels its template with its run. The live generations moved by exactly one per update: 10 to 13, 13 to 16 and 16 to 19. Offline tests cover a foreign revision, a foreign image, an unlabeled twin, a lost response and a refusal. No mutation is retried. |
 | AC18 | PASS | The smoke uses no credential. No Clerk value is stored in GitHub. |
 | AC19 | PASS | Each run uploaded its receipt as an artifact and wrote it to the job summary. The workflow has no write access to the repository. Receipts are committed through docs PRs. |
 | AC20 | PASS | The candidate drill removed the tag, kept `00010-m2j` at 100% and kept `00011-jjz` for diagnosis. Deleting it right away failed (live finding 5). It was deleted after the clean release. |
-| AC21 | PARTIAL | `mode=recover` and its offline tests exist. No live recovery ran. #358 owns the recovery proof. |
+| AC21 | PASS | Run 40376678986 recovered `tailtag-api-replica-00010-m2j` with receipt 40364981884-1 and a #206 compatibility note (#356 comment 6423939646). All four gates passed on the tag. Migration NOT_RUN. Generation 19 to 21, with no new revision. |
 | AC22 | PASS | The release job has only `contents: read` and `id-token: write`. The eligibility job also has `actions: read` to list CI runs, and it has no cloud identity (approved deviation 2). The AC10 evidence covers the rest. |
 | AC23 | PASS | `google-github-actions/auth` is pinned by SHA. It is a verified-creator action, so the `selected` allowlist did not change. Docker buildx and gcloud come from the runner. |
 | AC24 | PASS | The four replica values are environment secrets. The run log archive of the first release has 33 files and 3,437 lines. It had no match for the project ID, project number, service host, deployer email, Cloudflare account or Neon project. The only `pkg.dev` match was the public regional registry name in a command line. GitHub masked 70 values. |
@@ -92,9 +95,9 @@ Both runs took less than 5 minutes after dispatch. Both merges waited for setup 
 
 ## Residual risks and follow-ups
 
-- AC6 and AC17: no live lost response or concurrent release was staged. Offline tests cover them.
-- AC15: no live test showed a refused token from another workflow.
-- AC7 and AC21: the live recovery proof is #358.
+- AC6 and AC17: no live lost response or change from outside the workflow was staged. Offline tests cover them, and the owner accepted that evidence.
+- AC15: no live test showed a refused token from another workflow. The owner accepted the readback.
+- #358 owns the full recovery proof. This proof only covers the recovery mechanism.
 - T-9: measure a release that starts right after its merge in #361.
 - `scripts/api_replica_release.py` and `scripts/api_replica_job.py` are not in `BACKEND_RELEVANT_FILES`. A change to only these scripts skips the API CI tests.
 - The receipt field `jobs.others` reads `PENDING_SYNC` even when the five jobs already run the digest.
