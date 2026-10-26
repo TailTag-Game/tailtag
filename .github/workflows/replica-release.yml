@@ -106,7 +106,9 @@ jobs:
     name: Release to the hybrid replica
     needs: eligibility
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Longer than the sum of the script's own deadlines, so the script, not
+    # GitHub, ends a slow run and writes its receipt.
+    timeout-minutes: 120
     # The owner approves this job. Only this workflow file on main, in this
     # environment, can impersonate the deployer (infra/replica/foundation/identity.tf).
     environment: replica
