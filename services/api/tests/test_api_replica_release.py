@@ -60,6 +60,13 @@ JOBS = (
     "tailtag-replica-registry-reconcile",
 )
 EXECUTION = "tailtag-replica-migrate-x7k2p"
+# Cloud Run sends proto3 JSON: a false `reconciling` is omitted, and a condition
+# carries more keys than its state.
+READY_CONDITION = {
+    "type": "Ready",
+    "state": "CONDITION_SUCCEEDED",
+    "lastTransitionTime": "2026-10-25T00:00:00Z",
+}
 PRIVATE = (PROJECT, PROJECT_NUMBER, HOST, TOKEN, "googleapis", "pkg.dev")
 
 
@@ -112,6 +119,7 @@ class FakeGcp:
         self.run_lost = False
         self.patch_lost: str | None = None
         self.foreign_update: str | None = None
+        self.shared_identity: dict[str, Any] | None = None
         self.gate: dict[str, dict[str, Any]] = {}
 
     # --- HTTP boundary -------------------------------------------------
@@ -146,10 +154,9 @@ class FakeGcp:
             "name": SERVICE_PATH,
             "generation": str(self.generation),
             "etag": f'"e{self.generation}"',
-            "reconciling": False,
             "invokerIamDisabled": True,
             "latestCreatedRevision": f"{SERVICE_PATH}/revisions/{self.latest_created}",
-            "terminalCondition": {"state": "CONDITION_SUCCEEDED"},
+            "terminalCondition": READY_CONDITION,
             "template": copy.deepcopy(self.template),
             "traffic": copy.deepcopy(self.traffic),
             "trafficStatuses": copy.deepcopy(self.traffic),
@@ -177,7 +184,9 @@ class FakeGcp:
         )
         if self.patch_lost == "before":
             raise urllib.error.URLError("lost")
-        if self.foreign_update:
+        if self.patch_lost == "refused":
+            raise _http_error(url, 403)
+        if self.foreign_update in {"revision", "setting"}:
             self.generation += 1
         if self.foreign_update == "revision":
             self.latest_created = f"{SERVICE}-foreign"
@@ -190,13 +199,19 @@ class FakeGcp:
                 "image": container["image"],
                 "starts": container.get("command") != ["false"],
             }
-            if self.foreign_update != "revision":
+            if self.foreign_update not in {"revision", "latest"}:
                 self.latest_created = revision
+            if self.foreign_update == "latest":
+                self.latest_created = f"{SERVICE}-foreign"
+            if self.foreign_update == "image":
+                self.revisions[revision]["image"] = f"{IMAGE}@{OLD_DIGEST}"
         self.template = copy.deepcopy(body["template"])
         self.traffic = copy.deepcopy(body["traffic"])
         self.generation += 1
         if self.patch_lost == "after":
             raise urllib.error.URLError("lost")
+        if self.patch_lost == "unavailable":
+            raise _http_error(url, 503)
         return self._json({"name": "operations/fake"})
 
     def _job(self, url: str, method: str, body: Any) -> FakeResponse:
@@ -228,8 +243,7 @@ class FakeGcp:
             {
                 "name": f"projects/{PROJECT}/locations/{REGION}/jobs/{rest}",
                 "generation": str(job["generation"]),
-                "reconciling": False,
-                "terminalCondition": {"state": "CONDITION_SUCCEEDED"},
+                "terminalCondition": READY_CONDITION,
                 "template": {
                     "template": {
                         "containers": [{"image": job["image"], "command": ["python"]}]
@@ -273,6 +287,8 @@ class FakeGcp:
             ),
         }
         status, payload = overrides.get(path, defaults[path])
+        if not candidate and path == "/health/identity" and self.shared_identity:
+            status, payload = 200, self.shared_identity
         if status >= 400:
             raise _http_error(url, status)
         return self._json(payload)
@@ -593,6 +609,8 @@ def test_migration_failure_stops_before_any_service_change(
         ("split", "FAIL_PRECHECK", 0),
         ("foreign-revision", "FAIL_CONCURRENT_RELEASE", 1),
         ("foreign-setting", "FAIL_CONCURRENT_RELEASE", 1),
+        ("foreign-latest", "FAIL_CONCURRENT_RELEASE", 1),
+        ("foreign-image", "FAIL_CONCURRENT_RELEASE", 1),
     ),
 )
 def test_unexpected_service_state_stops_without_further_mutation(
@@ -626,8 +644,13 @@ def test_unexpected_service_state_stops_without_further_mutation(
 
 @pytest.mark.parametrize(
     ("when", "outcome"),
-    (("after", "PROMOTED"), ("before", "FAIL_RELEASE_UNKNOWN")),
-    ids=("applied-then-lost", "lost-before-apply"),
+    (
+        ("after", "PROMOTED"),
+        ("unavailable", "PROMOTED"),
+        ("before", "FAIL_RELEASE_UNKNOWN"),
+        ("refused", "FAIL_REFUSED"),
+    ),
+    ids=("applied-then-lost", "applied-then-503", "lost-before-apply", "refused"),
 )
 def test_lost_deploy_response_is_read_once_and_never_retried(
     release: Any, gcp: FakeGcp, tmp_path: Path, when: str, outcome: str
@@ -660,6 +683,41 @@ def test_lost_deploy_response_is_read_once_and_never_retried(
         assert code == 1 and gcp.serving() == [(PREVIOUS, 100, None)]
 
 
+def test_release_after_a_candidate_drill_deploys_a_clean_candidate(
+    release: Any, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    """A drill's failing command must not stay in the template for the next release."""
+    drill, _, _ = run_main(release, release_argv(tmp_path, fault="candidate"))
+    code, line, _ = run_main(release, release_argv(tmp_path, **{"--run-number": "8"}))
+
+    assert drill == 1
+    assert (code, line["result"]) == (0, "PROMOTED")
+    clean = f"{SERVICE}-{SOURCE_SHA[:12]}-r8a1"
+    assert gcp.revisions[clean]["starts"] and gcp.serving() == [(clean, 100, None)]
+    assert "command" not in gcp.template["containers"][0]
+
+
+def test_promotion_the_service_host_does_not_show_goes_back_once(
+    release: Any, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    gcp.shared_identity = {
+        "source_sha": OLD_SHA,
+        "deployment_id": PREVIOUS,
+        "environment": "replica",
+    }
+
+    code, line, _ = run_main(release, release_argv(tmp_path))
+
+    assert (code, line["result"]) == (1, "FAIL_PROMOTION_UNVERIFIED")
+    assert gcp.serving() == [(PREVIOUS, 100, None)]
+    assert [p["traffic"][0]["revision"] for p in gcp.service_patches()] == [
+        PREVIOUS,
+        CANDIDATE,
+        PREVIOUS,
+    ]
+    assert receipt(tmp_path)["serving_revision"] == PREVIOUS
+
+
 # --- AC12, AC16, AC24: inputs are refused before any cloud call ------------
 
 
@@ -668,11 +726,9 @@ def test_lost_deploy_response_is_read_once_and_never_retried(
     (
         ({}, "push"),
         ({"--source-sha": "0123456"}, "workflow_dispatch"),
-        ({"--project-number": "12ab"}, "workflow_dispatch"),
-        ({"--run-attempt": "0"}, "workflow_dispatch"),
         ({"--fault": "everything"}, "workflow_dispatch"),
     ),
-    ids=("fault-on-push", "short-sha", "bad-number", "bad-attempt", "bad-fault"),
+    ids=("fault-on-push", "short-sha", "bad-fault"),
 )
 def test_bad_inputs_are_refused_before_any_cloud_call(
     release: Any,

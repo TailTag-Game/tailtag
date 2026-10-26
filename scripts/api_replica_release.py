@@ -173,7 +173,11 @@ class _Cloud:
                     continue
                 if error.code == 404 and absent_ok:
                     return None
-                if method != "GET" or not (error.code == 429 or error.code >= 500):
+                transient = error.code == 429 or error.code >= 500
+                if method != "GET":
+                    # A 5xx or 429 on a mutation may still have applied.
+                    raise (_Lost if transient else _Rejected(error.code)) from None
+                if not transient:
                     raise _Rejected(error.code) from None
             except (OSError, http.client.HTTPException):
                 if method != "GET":
@@ -293,7 +297,7 @@ class _Release:
         service = self.service()
         traffic = _traffic(service)
         if (
-            service.get("reconciling") is not False
+            service.get("reconciling") is True
             or len(traffic) != 1
             or traffic[0][1:] != (100, None)
             or _REVISION.fullmatch(traffic[0][0]) is None
@@ -310,7 +314,8 @@ class _Release:
         deadline = time.monotonic() + _RECONCILE_DEADLINE_SECONDS
         while True:
             service = self.service()
-            if service.get("reconciling") is False:
+            # proto3 JSON omits a false `reconciling`.
+            if not service.get("reconciling"):
                 return service
             if time.monotonic() >= deadline:
                 raise _Stop("FAIL_RELEASE_UNKNOWN")
@@ -332,7 +337,9 @@ class _Release:
                 raise _Stop(lost) from None
         except _Rejected as rejected:
             raise _Stop(
-                "FAIL_CONCURRENT_RELEASE" if rejected.code in {409, 412} else lost
+                "FAIL_CONCURRENT_RELEASE"
+                if rejected.code in {409, 412}
+                else "FAIL_REFUSED"
             ) from None
         service = self.settled()
         if _generation(service) != self.generation + 1 or _traffic(service) != expected:
@@ -514,7 +521,7 @@ def _update_job(cloud: _Cloud, project: str, job: str, image: str) -> None:
     deadline = time.monotonic() + _RECONCILE_DEADLINE_SECONDS
     while True:
         state = cloud.read(url)
-        if state.get("reconciling") is False:
+        if not state.get("reconciling"):
             break
         if time.monotonic() >= deadline:
             raise ValueError
@@ -581,6 +588,9 @@ def _deploy(release: _Release, digest: str, revision: str, fault: str) -> None:
     container["image"] = f"{_image(release.project)}@{digest}"
     if fault == "candidate":
         container["command"] = ["false"]
+    else:
+        # Terraform sets no command. Drop one that a drill left in the template.
+        container.pop("command", None)
     release.receipt["candidate_revision"] = revision
     release.tag(service, revision)
     state = release.service()
@@ -691,9 +701,11 @@ def _release(arguments: argparse.Namespace) -> int:
             receipt,
         )
         _deploy(release, digest, revision, fault)
-        if release.service().get("terminalCondition") != {
-            "state": "CONDITION_SUCCEEDED"
-        }:
+        condition = release.service().get("terminalCondition")
+        if (
+            not isinstance(condition, dict)
+            or cast(dict[str, object], condition).get("state") != "CONDITION_SUCCEEDED"
+        ):
             raise _Stop("FAIL_CANDIDATE", cleanup=True)
         release.gates(arguments.source_sha, revision)
         release.promote(arguments.source_sha, revision)
