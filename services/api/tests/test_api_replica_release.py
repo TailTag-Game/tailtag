@@ -259,14 +259,18 @@ class FakeGcp:
             return self._json({"metadata": {"name": path}})
         job = self.jobs[rest]
         if method == "PATCH":
-            job["image"] = body["template"]["template"]["containers"][0]["image"]
-            job["generation"] += 1
+            image = body["template"]["template"]["containers"][0]["image"]
+            # Like Cloud Run: an update that changes nothing keeps the generation.
+            if image != job["image"]:
+                job["image"] = image
+                job["generation"] += 1
             return self._json({"name": "operations/fake"})
         return self._json(
             {
                 "name": f"projects/{PROJECT}/locations/{REGION}/jobs/{rest}",
                 "generation": str(job["generation"]),
-                "terminalCondition": READY_CONDITION,
+                "observedGeneration": str(job["generation"]),
+                "terminalCondition": job.get("condition", READY_CONDITION),
                 "template": {
                     "template": {
                         "containers": [{"image": job["image"], "command": ["python"]}]
@@ -903,6 +907,83 @@ def test_jobs_sync_moves_only_the_other_five_jobs_to_a_promoted_digest(
     else:
         assert (code, line["result"]) == (1, "FAIL_INPUT")
         assert synced == set()
+
+
+def job_patches(gcp: FakeGcp) -> list[str]:
+    return [
+        r["url"].removeprefix(f"{RUN_BASE}/jobs/")
+        for r in gcp.requests
+        if r["method"] == "PATCH" and r["url"].startswith(f"{RUN_BASE}/jobs/")
+    ]
+
+
+def test_release_migrates_when_the_job_already_runs_the_digest(
+    release: Any, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    """A rerun of a SHA finds the migrate job on its digest and still migrates."""
+    gcp.jobs["tailtag-replica-migrate"]["image"] = f"{IMAGE}@{DIGEST}"
+
+    code, line, _ = run_main(release, release_argv(tmp_path))
+
+    assert (code, line["result"]) == (0, "PROMOTED")
+    assert job_patches(gcp) == [], "an update that changes nothing is not sent"
+    assert len(gcp.runs()) == 1
+    assert receipt(tmp_path)["migration"]["outcome"] == "PASS"
+
+
+def test_jobs_sync_is_safe_to_run_twice(
+    release: Any, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    path = tmp_path / "receipt.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema": "tailtag-replica-release-v1",
+                "outcome": "PROMOTED",
+                "image_digest": DIGEST,
+                "source_sha": SOURCE_SHA,
+                "candidate_revision": CANDIDATE,
+            }
+        )
+    )
+    argv = ["sync-jobs", "--project", PROJECT, "--receipt", str(path)]
+
+    first, _, _ = run_main(release, argv)
+    sent = len(job_patches(gcp))
+    second, line, _ = run_main(release, argv)
+
+    assert (first, second, line["result"]) == (0, 0, "PASS")
+    assert sent == 5 and len(job_patches(gcp)) == 5, "the second run sends nothing"
+
+
+@pytest.mark.parametrize("on_digest", (True, False), ids=("skipped", "updated"))
+def test_jobs_sync_fails_for_a_job_that_did_not_reach_its_desired_state(
+    release: Any, gcp: FakeGcp, tmp_path: Path, on_digest: bool
+) -> None:
+    """A failed reconcile can leave the image in the template; that is no PASS."""
+    failed = {"type": "Ready", "state": "CONDITION_FAILED", "reason": "Synthetic"}
+    reset = gcp.jobs["tailtag-replica-reset"]
+    reset["condition"] = failed
+    if on_digest:
+        reset["image"] = f"{IMAGE}@{DIGEST}"
+    path = tmp_path / "receipt.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema": "tailtag-replica-release-v1",
+                "outcome": "PROMOTED",
+                "image_digest": DIGEST,
+                "source_sha": SOURCE_SHA,
+                "candidate_revision": CANDIDATE,
+            }
+        )
+    )
+
+    code, line, _ = run_main(
+        release, ["sync-jobs", "--project", PROJECT, "--receipt", str(path)]
+    )
+
+    assert (code, line["result"]) == (1, "FAIL_SYNC")
 
 
 # --- AC3, AC12: eligibility reuses the Staging rule with the Actions token --
