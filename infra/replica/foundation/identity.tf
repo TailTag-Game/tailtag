@@ -47,10 +47,12 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   }
 }
 
+# The repository uses GitHub's immutable OIDC subject, so `sub` carries the
+# owner and repository IDs next to their names.
 resource "google_service_account_iam_member" "deployer_wif" {
   service_account_id = google_service_account.deployer.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "principal://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/subject/repo:TailTag-Game/tailtag:environment:replica"
+  member             = "principal://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/subject/repo:TailTag-Game@306886193/tailtag@1306048543:environment:replica"
 }
 
 resource "google_service_account_iam_member" "deployer_act_as_runtime" {

@@ -139,7 +139,7 @@ run "deployer_federation_and_grants" {
     condition = (
       google_service_account_iam_member.deployer_wif.role == "roles/iam.workloadIdentityUser"
       && google_service_account_iam_member.deployer_wif.service_account_id == google_service_account.deployer.name
-      && google_service_account_iam_member.deployer_wif.member == "principal://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/subject/repo:TailTag-Game/tailtag:environment:replica"
+      && google_service_account_iam_member.deployer_wif.member == "principal://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/subject/repo:TailTag-Game@306886193/tailtag@1306048543:environment:replica"
     )
     error_message = "Only jobs in the replica environment of TailTag-Game/tailtag may impersonate the deployer."
   }
