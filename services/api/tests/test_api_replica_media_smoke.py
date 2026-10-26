@@ -436,13 +436,16 @@ class RecordingOpener:
 @pytest.mark.parametrize(
     ("status", "expected"),
     (
-        pytest.param(400, ("denied", 400), id="400"),
+        pytest.param(401, ("denied", 401), id="401"),
         pytest.param(403, ("denied", 403), id="403"),
+        pytest.param(400, ("error", 400), id="400"),
+        pytest.param(404, ("error", 404), id="404"),
+        pytest.param(429, ("error", 429), id="429"),
         pytest.param(200, ("allowed", 200), id="200"),
         pytest.param(500, ("error", 500), id="500"),
     ),
 )
-def test_unsigned_get_sends_no_credentials_and_counts_4xx_as_denied(
+def test_unsigned_get_sends_no_credentials_and_counts_only_401_and_403_as_denied(
     status: int, expected: tuple[str, int]
 ) -> None:
     """AC15: the anonymous read goes to the pinned path-style object URL, unsigned."""

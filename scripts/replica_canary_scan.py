@@ -6,7 +6,8 @@ Actions log archives, issue exports, Terraform outputs, a saved image), then
 runs `task replica-canary-scan -- --project <id> NAME=PATH ...`.
 
 The scan reads six secrets from Secret Manager into memory. For a database URL
-it searches for the password, which every copy of the URL contains. The Neon
+it searches for the password, which every copy of the URL contains, both as
+written in the URL and percent-decoded. The Neon
 admin URL is added when `NEON_ADMIN_DATABASE_URL` is set. `clerk-jwt-key` is a
 public key and `sentry-dsn` has no value until #358, so neither is searched.
 Files, gzip, zip and tar members are read, nested up to four levels. Output
@@ -62,8 +63,9 @@ class ScanError(Exception):
     """A failure whose message is safe to print: it never holds a value."""
 
 
-def _needle(alias: str, value: str) -> bytes:
-    """Return the searched bytes: the password of a URL, else the whole value."""
+def _needles(alias: str, value: str) -> tuple[bytes, ...]:
+    """Return the searched bytes: a URL password as written and decoded, else the value."""
+    forms = [value]
     if value.startswith(("postgres://", "postgresql://")):
         try:
             password = urlsplit(value).password
@@ -71,13 +73,14 @@ def _needle(alias: str, value: str) -> bytes:
             password = None
         if not password:
             raise ScanError(f"secret {alias} is a database URL with no password")
-        value = unquote(password)
-    if len(value) < _MINIMUM_NEEDLE_LENGTH:
+        # A percent-encoded password can leak in either form.
+        forms = list(dict.fromkeys((password, unquote(password))))
+    if any(len(form) < _MINIMUM_NEEDLE_LENGTH for form in forms):
         raise ScanError(
             f"secret {alias} is under {_MINIMUM_NEEDLE_LENGTH} characters, "
             "so a count would not be meaningful"
         )
-    return value.encode()
+    return tuple(form.encode() for form in forms)
 
 
 def _read_secret(project: str, secret_id: str) -> str:
@@ -112,16 +115,18 @@ def _read_secret(project: str, secret_id: str) -> str:
     return value
 
 
-def load_needles(project: str, environ: Mapping[str, str]) -> dict[str, bytes]:
+def load_needles(
+    project: str, environ: Mapping[str, str]
+) -> dict[str, tuple[bytes, ...]]:
     needles = {
-        secret_id: _needle(secret_id, _read_secret(project, secret_id))
+        secret_id: _needles(secret_id, _read_secret(project, secret_id))
         for secret_id in SECRET_IDS
     }
     admin_url = environ.get(ADMIN_URL_VARIABLE, "").strip()
     if admin_url:
         if not admin_url.startswith(("postgres://", "postgresql://")):
             raise ScanError(f"{ADMIN_URL_VARIABLE} is not a postgresql URL")
-        needles[_ADMIN_ALIAS] = _needle(_ADMIN_ALIAS, admin_url)
+        needles[_ADMIN_ALIAS] = _needles(_ADMIN_ALIAS, admin_url)
     return needles
 
 
@@ -138,7 +143,8 @@ def _blobs(content: bytes, depth: int) -> Iterator[bytes]:
             try:
                 with zipfile.ZipFile(io.BytesIO(content)) as archive:
                     members = [archive.read(info) for info in archive.infolist()]
-            except (zipfile.BadZipFile, OSError):
+            except (zipfile.BadZipFile, OSError, RuntimeError):
+                # RuntimeError: an encrypted member. The blob stays closed.
                 members = None
             if members is not None:
                 for member in members:
@@ -171,7 +177,9 @@ def _is_closed(blob: bytes) -> bool:
     )
 
 
-def scan_path(path: Path, needles: Mapping[str, bytes]) -> tuple[Counter[str], int]:
+def scan_path(
+    path: Path, needles: Mapping[str, tuple[bytes, ...]]
+) -> tuple[Counter[str], int]:
     """Return the match count of each alias and the number of blobs left closed."""
     counts: Counter[str] = Counter()
     closed = 0
@@ -182,8 +190,8 @@ def scan_path(path: Path, needles: Mapping[str, bytes]) -> tuple[Counter[str], i
         for blob in _blobs(file.read_bytes(), 0):
             if _is_closed(blob):
                 closed += 1
-            for alias, needle in needles.items():
-                found = blob.count(needle)
+            for alias, forms in needles.items():
+                found = sum(blob.count(form) for form in forms)
                 if found:
                     counts[alias] += found
     return counts, closed
@@ -232,7 +240,11 @@ def main(
     total = 0
     total_closed = 0
     for name, path in surfaces:
-        counts, closed = scan_path(path, needles)
+        try:
+            counts, closed = scan_path(path, needles)
+        except OSError:
+            print(f"error: could not read surface {name}", file=sys.stderr)
+            return 2
         surface_total = sum(counts.values())
         total += surface_total
         total_closed += closed

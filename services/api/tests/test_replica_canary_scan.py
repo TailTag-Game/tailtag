@@ -221,12 +221,42 @@ def test_usage_and_secret_errors_exit_2_without_echoing_values(
     assert "=short" not in captured.out + captured.err
 
 
+def encrypted_zip_bytes() -> bytes:
+    """A zip whose member is flagged as encrypted, so it cannot be read.
+
+    The zip writer cannot encrypt, so the encryption bit is set in the local
+    and central headers after writing.
+    """
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("secret.txt", b"cipher text stand-in")
+    data = bytearray(buffer.getvalue())
+    local = data.index(b"PK\x03\x04")
+    central = data.index(b"PK\x01\x02")
+    data[local + 6] |= 0x1
+    data[central + 8] |= 0x1
+    return bytes(data)
+
+
+@pytest.mark.parametrize(
+    ("name", "content"),
+    (
+        pytest.param(
+            "layer.xz", lzma.compress(b"layer file content\n" * 64), id="xz-layer"
+        ),
+        pytest.param("logs.zip", encrypted_zip_bytes(), id="encrypted-zip-member"),
+    ),
+)
 def test_a_blob_the_scan_cannot_open_exits_2_instead_of_reporting_zero(
-    tmp_path: Path, monkeypatch: MonkeyPatch, capfd: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+    name: str,
+    content: bytes,
 ) -> None:
-    """AC18: an unopened xz layer could hide a leak, so the scan does not pass."""
+    """AC18: a closed blob could hide a leak, so the scan does not pass."""
     install_gcloud(monkeypatch)
-    (tmp_path / "layer.xz").write_bytes(lzma.compress(b"layer file content\n" * 64))
+    (tmp_path / name).write_bytes(content)
 
     status = scan.main(["--project", PROJECT, f"image={tmp_path}"], environ={})
 
@@ -235,3 +265,28 @@ def test_a_blob_the_scan_cannot_open_exits_2_instead_of_reporting_zero(
     assert "surface image: 0 matches" in captured.out
     assert "  not opened: 1" in captured.out
     assert "FAIL canary scan" in captured.err
+
+
+def test_an_admin_password_is_found_in_its_encoded_and_decoded_forms(
+    tmp_path: Path, monkeypatch: MonkeyPatch, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """AC18: a percent-encoded admin password leaks in either form."""
+    install_gcloud(monkeypatch)
+    encoded_url = (
+        "postgresql://tailtag_admin:admin%40pw%2FSynthetic0123456789"
+        "@ep-synthetic.neon.test/tailtag"
+    )
+    (tmp_path / "raw.log").write_text(f"url={encoded_url}\n", encoding="utf-8")
+    (tmp_path / "decoded.log").write_text(
+        "pw=admin@pw/Synthetic0123456789\n", encoding="utf-8"
+    )
+
+    status = scan.main(
+        ["--project", PROJECT, f"logs={tmp_path}"],
+        environ={"NEON_ADMIN_DATABASE_URL": encoded_url},
+    )
+
+    assert status == 1
+    captured = capfd.readouterr()
+    assert "  neon-admin-database-url: 2" in captured.out.splitlines()
+    assert "Synthetic0123456789" not in captured.out + captured.err

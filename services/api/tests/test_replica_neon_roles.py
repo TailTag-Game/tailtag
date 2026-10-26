@@ -675,6 +675,22 @@ def test_limits_probe_names_each_cell_off_the_grant_set(
     assert f"limits {failed_cell}: FAILED" in capfd.readouterr().out
 
 
+def test_limits_probe_fails_closed_on_an_error_other_than_a_denial(
+    roles_module: ModuleType,
+    clean_roles: str,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """AC13: an error that is not SQLSTATE 42501 proves nothing, so the cell fails."""
+    role_urls = provision_with_target(roles_module, clean_roles)
+    capfd.readouterr()
+
+    with pytest.raises(roles_module.RoleProvisioningError) as raised:
+        roles_module.probe_limits(role_urls, table="missing_table", enforce_tls=False)
+
+    assert "migrator alter_table" in str(raised.value)
+    assert "limits migrator alter_table: FAILED (error)" in capfd.readouterr().out
+
+
 def test_limits_flag_reads_the_three_role_secrets_and_writes_nothing(
     roles_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,

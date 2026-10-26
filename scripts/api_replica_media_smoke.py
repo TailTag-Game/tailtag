@@ -137,7 +137,8 @@ class S3IsolationBoundary:
             return "error", None
         if 200 <= status < 300:
             return "allowed", status
-        if 400 <= status < 500:
+        # Only 401 and 403 prove a refusal. A 404 or a 429 proves nothing.
+        if status in _DENIED_STATUSES:
             return "denied", status
         return "error", status
 

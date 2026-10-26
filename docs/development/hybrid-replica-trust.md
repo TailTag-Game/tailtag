@@ -81,6 +81,8 @@ The Neon admin role `tailtag_admin` is the owner's break-glass role. Its grant s
 
 The owner is the operator for every step. A compromise means that a value left its secret location. For each credential, revoke first, then replace, then start fresh instances.
 
+If time allows, collect the surfaces and run the [leak scan](#leak-scan) before you revoke. The scan reads only the newest secret version, so after a revocation it cannot find the leaked old value.
+
 Every runtime secret uses the `latest` version. Cloud Run reads an environment secret once, when an instance starts. So a new value reaches only instances that start after the change. Jobs read it at each execution.
 
 ### Database role passwords
@@ -117,7 +119,13 @@ The Cloudflare and Neon Terraform tokens live only in the owner's token terminal
 
 ### Clerk key
 
-`clerk-jwt-key` is the public key of the replica Clerk application. Clerk documents no rotation of the instance signing key. If someone gets the Clerk private key, make a new Clerk application, its DNS records, a new `clerk-jwt-key` version and new synthetic users.
+`clerk-jwt-key` is the public key of the replica Clerk application. Clerk documents no rotation of the instance signing key. The API checks tokens offline, so a running instance keeps trusting the old key until it stops. If someone gets the Clerk private key, do these steps in order:
+
+1. Make a new Clerk application, its DNS records and new synthetic users.
+2. Add the new public key as a new `clerk-jwt-key` version.
+3. Run a release of the serving SHA. The release makes a new revision, so new instances start with the new key. The old revision keeps no traffic.
+4. Make sure that a token signed by the old application gets 401.
+5. Delete the old Clerk application.
 
 ### Porkbun
 
@@ -143,7 +151,7 @@ A temporary reviewed probe runs these checks. It follows the [field-beta probe c
 3. Run `task replica-media-smoke -- --project <PROJECT_ID> --isolation-bucket <SECOND_BUCKET>`.
 4. Delete the second bucket.
 
-The command refuses any endpoint and bucket that do not match the hashed replica pin. It reads the R2 runtime keys into memory only. It runs the media smoke sequence, then four isolation probes. Only 401 or 403 counts as denied for the S3 probes. A missing key in the second bucket counts as allowed, because the request reached the bucket. The unsigned read prints its HTTP status.
+The command refuses any endpoint and bucket that do not match the hashed replica pin. It reads the R2 runtime keys into memory only. It runs the media smoke sequence, then four isolation probes. Only 401 or 403 counts as denied, for the S3 probes and for the unsigned read. A missing key in the second bucket counts as allowed, because the request reached the bucket. The unsigned read prints its HTTP status. Any other status, such as 400, 404 or 429, is a FAIL, because it does not prove a refusal.
 
 In the dashboard, make sure that the runtime token has Object Read & Write on the replica bucket only. Also make sure that r2.dev public access is off. r2.dev is the Cloudflare public URL for a bucket.
 
