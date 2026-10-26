@@ -752,7 +752,7 @@ def test_bad_inputs_are_refused_before_any_cloud_call(
 TARGET = f"{SERVICE}-00005-old"
 
 
-def write_receipt(directory: Path, **overrides: Any) -> None:
+def write_receipt(directory: Path, name: str = "100-1", **overrides: Any) -> None:
     directory.mkdir(exist_ok=True)
     value = {
         "schema": "tailtag-replica-release-v1",
@@ -762,7 +762,7 @@ def write_receipt(directory: Path, **overrides: Any) -> None:
         "source_sha": OLD_SHA,
         **overrides,
     }
-    (directory / f"{TARGET}.json").write_text(json.dumps(value))
+    (directory / f"{name}.json").write_text(json.dumps(value))
 
 
 def recover_argv(tmp_path: Path, **overrides: str) -> list[str]:
@@ -787,6 +787,7 @@ def recover_argv(tmp_path: Path, **overrides: str) -> list[str]:
         ("ok", "PROMOTED"),
         ("no-receipt", "FAIL_INPUT"),
         ("failed-receipt", "FAIL_INPUT"),
+        ("promoted-then-failed", "PROMOTED"),
         ("digest-changed", "FAIL_PRECHECK"),
         ("no-compatibility-ref", "FAIL_INPUT"),
     ),
@@ -803,6 +804,9 @@ def test_recovery_moves_traffic_only_to_a_recorded_unchanged_revision(
             tmp_path / "receipts",
             **({"outcome": "FAIL_CANDIDATE"} if setup == "failed-receipt" else {}),
         )
+    if setup == "promoted-then-failed":
+        # A later failed recovery of the same revision keeps its own run file.
+        write_receipt(tmp_path / "receipts", "200-1", outcome="FAIL_CANDIDATE")
     overrides = {"--compatibility-ref": ""} if setup == "no-compatibility-ref" else {}
 
     code, line, _ = run_main(release, recover_argv(tmp_path, **overrides))

@@ -729,9 +729,7 @@ def _recover(arguments: argparse.Namespace) -> int:
         or _COMPATIBILITY_REF.fullmatch(arguments.compatibility_ref) is None
     ):
         raise ValueError
-    recorded = _promoted_receipt(Path(arguments.receipts_dir) / f"{revision}.json")
-    if recorded.get("candidate_revision") != revision:
-        raise ValueError
+    recorded = _promoted_receipt_of(Path(arguments.receipts_dir), revision)
     source_sha = cast(str, recorded["source_sha"])
     digest = cast(str, recorded["image_digest"])
     valid_target(arguments.project, source_sha)
@@ -768,8 +766,31 @@ def _recover(arguments: argparse.Namespace) -> int:
     return _finish(receipt, path, _guarded(release, steps))
 
 
+def _promoted_receipt_of(directory: Path, revision: str) -> dict[str, object]:
+    """Return the committed PROMOTED receipt of a revision.
+
+    Receipts are named by workflow run, so a revision can have several. Every
+    PROMOTED one must name the same digest and source SHA.
+    """
+    found: list[dict[str, object]] = []
+    for path in sorted(directory.glob("*.json")):
+        recorded = _object(path.read_text(encoding="utf-8"))
+        if (
+            recorded.get("candidate_revision") == revision
+            and recorded.get("outcome") == "PROMOTED"
+        ):
+            found.append(_promoted(recorded))
+    pins = {(item["image_digest"], item["source_sha"]) for item in found}
+    if len(pins) != 1:
+        raise ValueError
+    return found[0]
+
+
 def _promoted_receipt(path: Path) -> dict[str, object]:
-    recorded = _object(path.read_text(encoding="utf-8"))
+    return _promoted(_object(path.read_text(encoding="utf-8")))
+
+
+def _promoted(recorded: dict[str, object]) -> dict[str, object]:
     digest = recorded.get("image_digest")
     source_sha = recorded.get("source_sha")
     if (
