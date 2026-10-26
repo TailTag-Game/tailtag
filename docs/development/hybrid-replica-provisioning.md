@@ -2,7 +2,7 @@
 
 This runbook provisions the persistent core of the hybrid replica with Terraform. The hybrid replica is an isolated copy of Staging on Cloud Run, Neon, Cloudflare R2 and a separate Clerk application. The work item is [#354](https://github.com/TailTag-Game/tailtag/issues/354). The parent is [#352](https://github.com/TailTag-Game/tailtag/issues/352). The approved contract is [the #353 contract](../specs/2026-10-22-hybrid-replica-contract.md).
 
-[ADR 0010](../adrs/0010-keep-railway-for-v0-hosting-after-gcp-evaluation.md) stays in force. This runbook does not approve a hosting move.
+[ADR 0010](../adrs/0010-keep-railway-for-v0-hosting-after-gcp-evaluation.md) stays in force. This runbook does not approve a hosting move. Credential rotation and the trust checks are in [the trust runbook](hybrid-replica-trust.md).
 
 ## Boundaries
 

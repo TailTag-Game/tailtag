@@ -568,3 +568,158 @@ def test_admin_url_comes_only_from_the_environment_and_names_the_admin(
     assert "NEON_ADMIN_DATABASE_URL" in captured.err
     assert "not-the-admin" not in captured.out + captured.err
     assert "ep-example" not in captured.out + captured.err
+
+
+LIMIT_ROLES = ("runtime", "migrator", "maintainer")
+LIMIT_CHECKS = (
+    "create_table",
+    "alter_table",
+    "drop_table",
+    "truncate_table",
+    "create_role",
+    "grant_option",
+    "rolsuper",
+    "rolcreaterole",
+    "rolcreatedb",
+    "rolbypassrls",
+    "pg_signal_backend",
+)
+
+
+def provision_with_target(roles_module: ModuleType, admin_url: str) -> dict[str, str]:
+    """Provision the roles and let migrator build the table the probe aims at."""
+    urls = run_provision(roles_module, admin_url)
+    with psycopg.connect(urls["migrator-database-url"], autocommit=True) as migrator:
+        migrator.execute("CREATE TABLE sprockets (id serial PRIMARY KEY, name text)")
+        migrator.execute("INSERT INTO sprockets (name) VALUES ('kept')")
+    return {role: urls[f"{role}-database-url"] for role in LIMIT_ROLES}
+
+
+def test_limits_probe_matches_the_approved_grant_set_and_changes_nothing(
+    roles_module: ModuleType,
+    clean_roles: str,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """AC13: every role sits exactly on its grant set, and every attempt rolls back."""
+    role_urls = provision_with_target(roles_module, clean_roles)
+    capfd.readouterr()
+    before = state_snapshot(clean_roles)
+
+    roles_module.probe_limits(
+        role_urls, admin_url=clean_roles, table="sprockets", enforce_tls=False
+    )
+
+    assert state_snapshot(clean_roles) == before
+    with psycopg.connect(clean_roles, autocommit=True) as admin:
+        columns = admin.execute(
+            "SELECT attname FROM pg_attribute WHERE attrelid = 'sprockets'::regclass "
+            "AND attnum > 0 AND NOT attisdropped ORDER BY attnum"
+        ).fetchall()
+        rows = admin.execute("SELECT name FROM sprockets").fetchall()
+        probe_tables = admin.execute(
+            "SELECT count(*) FROM pg_class WHERE relname LIKE 'tt\\_limits\\_%'"
+        ).fetchone()
+    assert columns == [("id",), ("name",)]
+    assert rows == [("kept",)]
+    assert probe_tables == (0,)
+
+    captured = capfd.readouterr()
+    output = captured.out + captured.err
+    for role in LIMIT_ROLES:
+        for check in LIMIT_CHECKS:
+            assert f"limits {role} {check}: ok" in captured.out
+    assert "FAILED" not in output
+    assert "limits admin" in captured.out
+    for url in role_urls.values():
+        assert password_of(url) not in output
+    assert "postgresql://" not in output
+
+
+@pytest.mark.parametrize(
+    ("drift", "failed_cell"),
+    (
+        pytest.param(
+            "GRANT TRUNCATE ON sprockets TO runtime",
+            "runtime truncate_table",
+            id="runtime-gains-truncate",
+        ),
+        pytest.param(
+            "ALTER ROLE maintainer CREATEROLE",
+            "maintainer rolcreaterole",
+            id="maintainer-gains-createrole",
+        ),
+        pytest.param(
+            "REVOKE pg_signal_backend FROM maintainer",
+            "maintainer pg_signal_backend",
+            id="maintainer-loses-signal",
+        ),
+    ),
+)
+def test_limits_probe_names_each_cell_off_the_grant_set(
+    roles_module: ModuleType,
+    clean_roles: str,
+    capfd: pytest.CaptureFixture[str],
+    drift: LiteralString,
+    failed_cell: str,
+) -> None:
+    """AC13: an extra or a missing privilege fails the probe and names the cell."""
+    role_urls = provision_with_target(roles_module, clean_roles)
+    with psycopg.connect(clean_roles, autocommit=True) as admin:
+        admin.execute(drift)
+    capfd.readouterr()
+
+    with pytest.raises(roles_module.RoleProvisioningError) as raised:
+        roles_module.probe_limits(role_urls, table="sprockets", enforce_tls=False)
+
+    assert failed_cell in str(raised.value)
+    assert f"limits {failed_cell}: FAILED" in capfd.readouterr().out
+
+
+def test_limits_probe_fails_closed_on_an_error_other_than_a_denial(
+    roles_module: ModuleType,
+    clean_roles: str,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """AC13: an error that is not SQLSTATE 42501 proves nothing, so the cell fails."""
+    role_urls = provision_with_target(roles_module, clean_roles)
+    capfd.readouterr()
+
+    with pytest.raises(roles_module.RoleProvisioningError) as raised:
+        roles_module.probe_limits(role_urls, table="missing_table", enforce_tls=False)
+
+    assert "migrator alter_table" in str(raised.value)
+    assert "limits migrator alter_table: FAILED (error)" in capfd.readouterr().out
+
+
+def test_limits_flag_reads_the_three_role_secrets_and_writes_nothing(
+    roles_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """AC13: --limits reads only the role URLs from Secret Manager and prints none."""
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        commands.append(list(command))
+        role = next(name for name in LIMIT_ROLES if f"{name}-database-url" in command)
+        url = f"postgresql://{role}:l1mit-{role}-s3cret@127.0.0.1:1/tailtag"
+        return subprocess.CompletedProcess(command, 0, url, "")
+
+    def fake_which(name: str) -> str:
+        return f"/fake/{name}"
+
+    monkeypatch.setattr(roles_module.shutil, "which", fake_which)
+    monkeypatch.setattr(roles_module.subprocess, "run", fake_run)
+    monkeypatch.delenv("NEON_ADMIN_DATABASE_URL", raising=False)
+
+    status = roles_module.main(["--project", "fake-replica-project", "--limits"])
+
+    assert status == 1  # the fake endpoint is unreachable, so the probe fails
+    flat = [" ".join(command) for command in commands]
+    assert all(
+        any(f"{role}-database-url" in line for line in flat) for role in LIMIT_ROLES
+    )
+    assert not any("versions add" in line for line in flat)
+    captured = capfd.readouterr()
+    assert "s3cret" not in captured.out + captured.err
+    assert "postgresql://" not in captured.out + captured.err

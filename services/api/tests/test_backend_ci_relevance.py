@@ -50,6 +50,8 @@ def classify_paths(tmp_path: Path, paths: list[str]) -> bool:
         (["scripts/api_auth_smoke.py"], True),
         (["scripts/api_replacement_auth_smoke.py"], True),
         (["scripts/api_media_storage_smoke.py"], True),
+        (["scripts/api_replica_media_smoke.py"], True),
+        (["scripts/replica_canary_scan.py"], True),
         (["scripts/api_deployment_identity.py"], True),
         (["scripts/api_staging_promote.py"], True),
         (["scripts/api_staging_preflight.py"], True),
