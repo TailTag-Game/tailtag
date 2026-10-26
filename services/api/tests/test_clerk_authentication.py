@@ -341,6 +341,22 @@ def test_arbitrary_issuer_is_not_an_independent_tailtag_policy(
     ) == VerifiedClerkIdentity(subject="user_test_subject")
 
 
+@pytest.mark.parametrize(
+    "audience",
+    ("https://other-audience.invalid", ["https://other-audience.invalid"]),
+    ids=("string", "list"),
+)
+def test_token_carrying_an_audience_fails_while_no_audience_is_configured(
+    verifier: ClerkSessionVerifier,
+    issue_token: TokenIssuer,
+    audience: object,
+) -> None:
+    """A correctly signed token scoped to any audience is not a TailTag session."""
+    token = issue_token({"aud": audience})
+
+    assert_generic_failure(verifier, f"Bearer {token}")
+
+
 def recorded_rejection_reasons(caplog: LogCaptureFixture) -> list[str]:
     """Read the bounded reasons of the authentication rejections the verifier recorded."""
     return [

@@ -265,8 +265,12 @@ def validate_data_targets(
 ) -> None:
     """Require verified database TLS and the pinned database and media targets."""
     validate_database_target(database_settings)
-    if (
-        media_digest(media_configuration.endpoint_url, media_configuration.bucket_name)
-        != _EXPECTED_MEDIA_DIGEST
-    ):
+    validate_media_target(
+        media_configuration.endpoint_url, media_configuration.bucket_name
+    )
+
+
+def validate_media_target(endpoint_url: str, bucket_name: str) -> None:
+    """Require the pinned replica media endpoint and bucket."""
+    if media_digest(endpoint_url, bucket_name) != _EXPECTED_MEDIA_DIGEST:
         raise ReplicaBindingError(_ERROR)

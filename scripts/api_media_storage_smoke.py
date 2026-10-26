@@ -6,7 +6,7 @@ import os
 import re
 import sys
 import urllib.request
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 import django
 from django.core.files import File
 from django.core.files.base import ContentFile
-from django.core.files.storage import storages
+from django.core.files.storage import Storage, storages
 from PIL import Image
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -103,10 +103,12 @@ class SmokeOutcome:
 
 
 class DefaultSmokeRuntime:
-    """Use Django's configured production S3 storage for the real operation."""
+    """Use the configured production S3 storage, or an explicit one, for the real operation."""
 
-    def __init__(self, *, opener: _Opener | None = None) -> None:
-        storage = storages["default"]
+    def __init__(
+        self, *, opener: _Opener | None = None, storage: Storage | None = None
+    ) -> None:
+        storage = storages["default"] if storage is None else storage
         if not isinstance(storage, S3MediaStorage):
             raise SmokeFailure("storage runtime")
         self._storage = storage
@@ -184,9 +186,14 @@ def valid_target(environment: Mapping[str, str]) -> bool:
     )
 
 
-def run(environment: Mapping[str, str], runtime: SmokeRuntime) -> SmokeOutcome:
+def run(
+    environment: Mapping[str, str],
+    runtime: SmokeRuntime,
+    *,
+    target_valid: Callable[[Mapping[str, str]], bool] = valid_target,
+) -> SmokeOutcome:
     """Run the bounded storage sequence and mandatory delete/absence cleanup."""
-    if not valid_target(environment):
+    if not target_valid(environment):
         return SmokeOutcome(primary_stage="target configuration invalid")
 
     key: str | None = None
