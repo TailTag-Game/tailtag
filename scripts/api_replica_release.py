@@ -514,25 +514,47 @@ def _build(project: str, source_sha: str, source_dir: Path) -> None:
         raise _Stop("FAIL_BUILD")
 
 
+def _job_image(state: Mapping[str, object]) -> object:
+    template = cast(
+        dict[str, object], cast(dict[str, object], state["template"])["template"]
+    )
+    return cast(list[dict[str, object]], template["containers"])[0].get("image")
+
+
+def _job_ready(state: Mapping[str, object], generation: int, image: str) -> bool:
+    """Return whether the job reached this generation with this image."""
+    condition = state.get("terminalCondition")
+    observed = state.get("observedGeneration")
+    return (
+        not state.get("reconciling")
+        and _generation(state) == generation
+        and observed is not None
+        and _generation({"generation": observed}) == generation
+        and isinstance(condition, dict)
+        and cast(dict[str, object], condition).get("state") == "CONDITION_SUCCEEDED"
+        and _job_image(state) == image
+    )
+
+
 def _update_job(cloud: _Cloud, project: str, job: str, image: str) -> None:
     """Point one job at the image by digest and wait for exactly that generation.
 
     Cloud Run keeps the generation for an update that changes nothing, so a job
-    that already runs the image gets no update.
+    that already runs the image gets no update. Such a job must already have
+    reached its desired state, because an update cannot repair it.
     """
     url = _job_url(project, job)
     current = cloud.read(url)
     generation = _generation(current)
-    body = copy.deepcopy(current)
-    containers = cast(
-        list[dict[str, object]],
-        cast(dict[str, object], cast(dict[str, object], body["template"])["template"])[
-            "containers"
-        ],
-    )
-    if current.get("reconciling") is not True and containers[0].get("image") == image:
+    if _job_image(current) == image:
+        if not _job_ready(current, generation, image):
+            raise ValueError
         return
-    containers[0]["image"] = image
+    body = copy.deepcopy(current)
+    template = cast(
+        dict[str, object], cast(dict[str, object], body["template"])["template"]
+    )
+    cast(list[dict[str, object]], template["containers"])[0]["image"] = image
     cloud.mutate("PATCH", url, body)
     deadline = time.monotonic() + _RECONCILE_DEADLINE_SECONDS
     while True:
@@ -542,14 +564,7 @@ def _update_job(cloud: _Cloud, project: str, job: str, image: str) -> None:
         if time.monotonic() >= deadline:
             raise ValueError
         time.sleep(_POLL_SECONDS)
-    template = cast(
-        dict[str, object], cast(dict[str, object], state["template"])["template"]
-    )
-    if (
-        _generation(state) != generation + 1
-        or cast(list[dict[str, object]], template["containers"])[0].get("image")
-        != image
-    ):
+    if not _job_ready(state, generation + 1, image):
         raise ValueError
 
 
