@@ -155,3 +155,74 @@ def test_metadata_failure_is_retried_and_only_success_is_cached() -> None:
         "outcomes": ["error", "error", "ok", "ok"],
         "refetched_after_success": 0,
     }
+
+
+CANDIDATE_HOST = f"candidate---{contract.RUN_APP_HOST}"
+
+
+@pytest.mark.parametrize(
+    ("allowed_hosts", "accepted"),
+    (
+        pytest.param([contract.RUN_APP_HOST], True, id="service-host"),
+        pytest.param(
+            [contract.RUN_APP_HOST, CANDIDATE_HOST], True, id="service-and-candidate"
+        ),
+        pytest.param([CANDIDATE_HOST], False, id="candidate-without-service"),
+        pytest.param(
+            [contract.RUN_APP_HOST, f"candidate---{contract.OTHER_RUN_APP_HOST}"],
+            False,
+            id="candidate-of-other-host",
+        ),
+        pytest.param(
+            [contract.RUN_APP_HOST, f"green---{contract.RUN_APP_HOST}"],
+            False,
+            id="other-tag",
+        ),
+        pytest.param(
+            [contract.RUN_APP_HOST, CANDIDATE_HOST, CANDIDATE_HOST],
+            False,
+            id="duplicate-candidate",
+        ),
+        pytest.param(
+            [contract.RUN_APP_HOST, CANDIDATE_HOST, "example.test"],
+            False,
+            id="extra-host",
+        ),
+    ),
+)
+def test_allowed_hosts_take_only_the_pinned_host_and_its_candidate_tag(
+    monkeypatch: MonkeyPatch, allowed_hosts: list[str], accepted: bool
+) -> None:
+    """#356 AC11: the candidate tag host derives from the pinned host and nothing else."""
+    contract.install_replica_pins(monkeypatch)
+
+    if accepted:
+        assert (
+            replica_binding.validate_run_app_host(allowed_hosts)
+            == contract.RUN_APP_HOST
+        )
+    else:
+        with pytest.raises(replica_binding.ReplicaBindingError):
+            replica_binding.validate_run_app_host(allowed_hosts)
+
+
+@pytest.mark.parametrize(
+    ("host", "accepted"),
+    (
+        pytest.param(CANDIDATE_HOST, True, id="candidate"),
+        pytest.param(contract.RUN_APP_HOST, False, id="service-host"),
+        pytest.param(f"candidate---{contract.OTHER_RUN_APP_HOST}", False, id="other"),
+        pytest.param(f"green---{contract.RUN_APP_HOST}", False, id="other-tag"),
+    ),
+)
+def test_candidate_host_must_be_the_tag_of_the_pinned_host(
+    monkeypatch: MonkeyPatch, host: str, accepted: bool
+) -> None:
+    """#356 AC11/AC22: release gates call only the pinned candidate host."""
+    contract.install_replica_pins(monkeypatch)
+
+    if accepted:
+        assert replica_binding.validate_candidate_host(host) == host
+    else:
+        with pytest.raises(replica_binding.ReplicaBindingError):
+            replica_binding.validate_candidate_host(host)

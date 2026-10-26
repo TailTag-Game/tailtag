@@ -21,6 +21,10 @@ locals {
   # service and its jobs know the host before the first revision exists.
   service_host = "${var.service_name}-${data.google_project.this.number}.${var.region}.run.app"
 
+  # Release gates test a no-traffic candidate revision through its traffic tag
+  # host (#356). The API pins it as the tag of the service host, nothing else.
+  candidate_host = "candidate---${local.service_host}"
+
   # The psycopg wheel bundles an OpenSSL that cannot find the image's CA store,
   # so libpq fails `sslrootcert=system` unless this names the Debian bundle.
   tls_env = { SSL_CERT_FILE = "/etc/ssl/certs/ca-certificates.crt" }
@@ -29,7 +33,7 @@ locals {
   # the migrate job.
   production_env = merge(local.tls_env, {
     DJANGO_SETTINGS_MODULE       = "config.settings.production"
-    DJANGO_ALLOWED_HOSTS         = local.service_host
+    DJANGO_ALLOWED_HOSTS         = "${local.service_host},${local.candidate_host}"
     DJANGO_CSRF_TRUSTED_ORIGINS  = "https://${local.service_host}"
     CLERK_AUTHENTICATION_ENABLED = "true"
     CLERK_AUTHORIZED_PARTIES     = "https://accounts.replica.tailtag.app"

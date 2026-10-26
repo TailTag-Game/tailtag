@@ -3,6 +3,12 @@ resource "google_artifact_registry_repository" "api" {
   location      = var.region
   format        = "DOCKER"
 
+  # A release tags each image with its source SHA. Immutable tags make that
+  # tag name one digest for good (#356 AC1).
+  docker_config {
+    immutable_tags = true
+  }
+
   lifecycle {
     prevent_destroy = true
   }

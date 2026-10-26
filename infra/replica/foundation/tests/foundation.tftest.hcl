@@ -131,17 +131,42 @@ run "deployer_federation_and_grants" {
   command = apply
 
   assert {
-    condition     = google_iam_workload_identity_pool_provider.github.attribute_condition == "assertion.repository == 'TailTag-Game/tailtag' && assertion.ref == 'refs/heads/main'"
-    error_message = "The provider condition must pin the repository and refs/heads/main."
+    condition     = google_iam_workload_identity_pool_provider.github.attribute_condition == "assertion.repository == 'TailTag-Game/tailtag' && assertion.ref == 'refs/heads/main' && assertion.environment == 'replica' && assertion.job_workflow_ref == 'TailTag-Game/tailtag/.github/workflows/replica-release.yml@refs/heads/main'"
+    error_message = "The provider condition must pin the repository, refs/heads/main, the replica environment and the release workflow."
   }
 
   assert {
     condition = (
       google_service_account_iam_member.deployer_wif.role == "roles/iam.workloadIdentityUser"
       && google_service_account_iam_member.deployer_wif.service_account_id == google_service_account.deployer.name
-      && google_service_account_iam_member.deployer_wif.member == "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.repository/TailTag-Game/tailtag"
+      && google_service_account_iam_member.deployer_wif.member == "principal://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/subject/repo:TailTag-Game@306886193/tailtag@1306048543:environment:replica"
     )
-    error_message = "Only the TailTag-Game/tailtag repository may impersonate the deployer."
+    error_message = "Only jobs in the replica environment of TailTag-Game/tailtag may impersonate the deployer."
+  }
+
+  assert {
+    condition     = google_artifact_registry_repository.api.docker_config[0].immutable_tags == true
+    error_message = "Release tags must be immutable so a source SHA tag names one digest."
+  }
+
+  # #356 AC13: the deployer updates and runs the migrate job only, as the migrator.
+  assert {
+    condition = (
+      google_cloud_run_v2_job_iam_member.deployer_migrate.name == google_cloud_run_v2_job.replica["migrate"].name
+      && google_cloud_run_v2_job_iam_member.deployer_migrate.role == "roles/run.developer"
+      && google_cloud_run_v2_job_iam_member.deployer_migrate.member == "serviceAccount:${google_service_account.deployer.email}"
+    )
+    error_message = "The deployer must be a Cloud Run developer on the migrate job."
+  }
+
+  assert {
+    condition = toset([
+      for m in [
+        google_service_account_iam_member.deployer_act_as_runtime,
+        google_service_account_iam_member.deployer_act_as_migrator,
+      ] : m.service_account_id if m.member == "serviceAccount:${google_service_account.deployer.email}" && m.role == "roles/iam.serviceAccountUser"
+    ]) == toset([google_service_account.runtime.name, google_service_account.migrator.name])
+    error_message = "The deployer must act as the runtime and migrator identities only."
   }
 
   assert {
@@ -379,7 +404,7 @@ run "service_shape_and_non_secret_env" {
       if !try(length(e.value_source[0].secret_key_ref) > 0, false)
       } == {
       DJANGO_SETTINGS_MODULE       = "config.settings.production"
-      DJANGO_ALLOWED_HOSTS         = "tailtag-api-replica-123456789012.us-east4.run.app"
+      DJANGO_ALLOWED_HOSTS         = "tailtag-api-replica-123456789012.us-east4.run.app,candidate---tailtag-api-replica-123456789012.us-east4.run.app"
       DJANGO_CSRF_TRUSTED_ORIGINS  = "https://tailtag-api-replica-123456789012.us-east4.run.app"
       CLERK_AUTHENTICATION_ENABLED = "true"
       CLERK_AUTHORIZED_PARTIES     = "https://accounts.replica.tailtag.app"
@@ -394,7 +419,7 @@ run "service_shape_and_non_secret_env" {
 }
 
 # T3: six job shells, each with the right identity, command, limits, and
-# settings. No job IAM resource exists, so only project owners can run them.
+# settings. Only the migrate job has an IAM binding (#356 AC13).
 run "job_shells_have_the_contracted_shape" {
   command = apply
 
