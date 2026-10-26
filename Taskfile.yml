@@ -53,6 +53,7 @@ x-api-helpers: &api-helpers >-
   {{.REPOSITORY_ROOT}}/scripts/api_staging_restore_drill.py
   {{.REPOSITORY_ROOT}}/scripts/api_replica_job.py
   {{.REPOSITORY_ROOT}}/scripts/api_replica_reset.py
+  {{.REPOSITORY_ROOT}}/scripts/api_replica_release.py
   {{.REPOSITORY_ROOT}}/scripts/replica_neon_roles.py
   {{.REPOSITORY_ROOT}}/scripts/staging_restore_integrity.py
   {{.REPOSITORY_ROOT}}/scripts/clerk_development_session.py
@@ -278,6 +279,24 @@ tasks:
       REPOSITORY_ROOT: *repository-root
     cmds:
       - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV | toSlash}} run --project services/api --locked --no-sync python -m scripts.api_replica_reset {{.CLI_ARGS}}'
+
+  replica-release:
+    desc: "Run one hybrid replica release command (eligibility, release, recover); the replica release workflow calls it: -- COMMAND [OPTIONS]."
+    # Silent so a failure never prints the command text or any output of it.
+    silent: true
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV | toSlash}} run --project services/api --locked --no-sync python -m scripts.api_replica_release {{.CLI_ARGS}}'
+
+  replica-jobs-sync:
+    desc: "Move the five non-migrate hybrid replica jobs to the digest of a PROMOTED release receipt: -- --project PROJECT_ID --receipt PATH."
+    # Silent so a failure never prints the command text or any output of it.
+    silent: true
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - 'PYTHONPATH="{{.REPOSITORY_ROOT}}{{if eq OS "windows"}};{{else}}:{{end}}{{.REPOSITORY_ROOT}}/services/api" {{.UV | toSlash}} run --project services/api --locked --no-sync python -m scripts.api_replica_release sync-jobs {{.CLI_ARGS}}'
 
   replica-tf-check:
     desc: "Check the hybrid replica Terraform roots offline: format, init without a backend, validate, and test."
