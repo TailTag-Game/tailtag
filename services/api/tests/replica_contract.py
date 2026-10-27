@@ -37,7 +37,10 @@ DATABASE_HOST: Final = "db.replica-synthetic.example.test"
 DATABASE_NAME: Final = "tailtag_replica_synthetic"
 MEDIA_ENDPOINT: Final = "https://storage.replica-synthetic.example.test"
 MEDIA_BUCKET: Final = "tailtag-replica-synthetic-media"
-CLERK_PARTY: Final = "https://accounts.replica.tailtag.app"
+CLERK_PARTIES: Final = (
+    "https://accounts.replica.tailtag.app",
+    "https://simulator.replica.tailtag.app",
+)
 SSL_ROOT_CERT: Final = "/etc/ssl/certs/synthetic-root.pem"
 
 

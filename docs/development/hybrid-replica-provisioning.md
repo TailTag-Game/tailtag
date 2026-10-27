@@ -102,7 +102,10 @@ Region pair: Cloud Run and the other GCP resources use `us-east4`. Neon uses `aw
    project_id            = "<PROJECT_ID>"
    tf_infra_email        = "<TF_INFRA_EMAIL>"
    cloudflare_account_id = "<CLOUDFLARE_ACCOUNT_ID>"
+   simrelay_token_minter = "user:<OWNER_EMAIL>"
    ```
+
+   `simrelay_token_minter` names the one account that can mint `tt-simrelay` tokens for the simulator relay (#359).
 
 2. Create two provider tokens. Make each one right before use.
 

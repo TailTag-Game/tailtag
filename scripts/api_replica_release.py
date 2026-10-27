@@ -69,7 +69,8 @@ _OTHER_JOBS: Final = (
     "tailtag-replica-registry-reconcile",
 )
 _REVISION_TYPE: Final = "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION"
-# The migrate drill replaces `manage.py replica_migrate` with a non-zero exit.
+# The migrate drill appends these arguments to the fixed job command (#359).
+# Django refuses them, so the execution exits non-zero before it migrates.
 _DRILL_ARGS: Final = ("-c", "raise SystemExit(3)")
 # Template label naming the workflow run that created a candidate revision.
 _RELEASE_LABEL: Final = "tailtag-release"

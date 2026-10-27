@@ -17,6 +17,7 @@ from config import build_identity, replica_binding
 _REQUEST_ENVIRONMENT: Final = "TAILTAG_JOB_REQUEST"
 _MAX_REQUEST_BYTES: Final = 65_536
 _REQUEST_IDENTITY_KEYS: Final = frozenset({"source_sha", "environment"})
+_JOB_PREFIX: Final = "tailtag-replica-"
 
 Handler = Callable[
     [dict[str, object], build_identity.Identity], tuple[str, dict[str, object]]
@@ -89,6 +90,20 @@ def _admit(job_name: str) -> tuple[build_identity.Identity | None, str | None]:
     return identity, None
 
 
+def _plain_invocation(job_name: str) -> bool:
+    """True only for `manage.py <command>` with no extra argument, in one task.
+
+    A run with overrides can append arguments and start more tasks (#359), so
+    the job refuses both. The command itself is fixed in the job template.
+    """
+    command = "replica_" + job_name.removeprefix(_JOB_PREFIX).replace("-", "_")
+    return (
+        sys.argv[1:] == [command]
+        and os.environ.get("CLOUD_RUN_TASK_COUNT") == "1"
+        and os.environ.get("CLOUD_RUN_TASK_INDEX") == "0"
+    )
+
+
 def _validate_data_targets(uses_media: bool) -> bool:
     database = cast(Mapping[str, object], settings.DATABASES["default"])
     try:
@@ -109,6 +124,8 @@ def _execute(
     identity, failure = _admit(job_name)
     if failure is not None or identity is None:
         return failure or "FAIL_TARGET", {}, identity
+    if not _plain_invocation(job_name):
+        return "FAIL_REQUEST", {}, identity
     try:
         request = _read_request()
     except _RefusedRequest:

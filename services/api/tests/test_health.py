@@ -1037,7 +1037,7 @@ def replica_settings(
         "CSRF_TRUSTED_ORIGINS": [f"https://{replica_contract.RUN_APP_HOST}"],
         "CLERK_AUTHENTICATION": ClerkVerificationConfiguration(
             jwt_key=clerk_public_key,
-            authorized_parties=(replica_contract.CLERK_PARTY,),
+            authorized_parties=replica_contract.CLERK_PARTIES,
         ),
         "DATABASES": {"default": effective_database},
         **replica_media(),
@@ -1180,18 +1180,39 @@ def test_replica_readiness_rejects_unbound_hosts_database_or_media(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "parties",
+    [
+        pytest.param(
+            (
+                "https://accounts.staging.tailtag.app",
+                "https://simulator.staging.tailtag.app",
+            ),
+            id="staging-pair",
+        ),
+        pytest.param(("https://accounts.replica.tailtag.app",), id="portal-only"),
+        pytest.param(
+            (
+                "https://simulator.replica.tailtag.app",
+                "https://accounts.replica.tailtag.app",
+            ),
+            id="reversed",
+        ),
+        pytest.param(
+            (*replica_contract.CLERK_PARTIES, "https://other.replica.tailtag.app"),
+            id="extra-party",
+        ),
+    ],
+)
 def test_replica_readiness_rejects_other_clerk_authorized_parties(
     client: Client,
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
     valid_clerk_public_key: str,
+    parties: tuple[str, ...],
 ) -> None:
-    """Failure mode 7: the Staging party set is not the replica Clerk origin."""
+    """Failure mode 7 and #359 AC17: only the ordered portal and simulator pair passes."""
     configure_replica_identity(monkeypatch, tmp_path)
-    parties = (
-        "https://accounts.staging.tailtag.app",
-        "https://simulator.staging.tailtag.app",
-    )
 
     with override_settings(
         **replica_settings(
