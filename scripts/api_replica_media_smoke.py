@@ -41,6 +41,10 @@ _FETCH_TIMEOUT_SECONDS: Final = 10
 _DENIED_STATUSES: Final = frozenset({401, 403})
 # Error codes that answer "this bucket does not exist" are inconclusive.
 _MISSING_BUCKET_CODES: Final = frozenset({"NoSuchBucket"})
+# R2 answers every unsigned S3 request with this 400, before it looks up the
+# object (#357 live check). Any other 400 proves nothing.
+_R2_UNSIGNED_REFUSAL: Final = ("InvalidArgument", "Authorization")
+_ERROR_BODY_LIMIT: Final = 4096
 
 
 class _Failed(Exception):
@@ -128,17 +132,25 @@ class S3IsolationBoundary:
     def unsigned_get(self, *, key: str) -> tuple[str, int | None]:
         url = f"{self._endpoint_url}/{self._bucket_name}/{key}"
         request = urllib.request.Request(url, method="GET")
+        body = b""
         try:
             with self._opener.open(request, timeout=_FETCH_TIMEOUT_SECONDS) as response:
                 status = int(response.getcode())
         except urllib.error.HTTPError as error:
             status = error.code
+            try:
+                body = error.read(_ERROR_BODY_LIMIT)
+            except Exception:  # noqa: BLE001 - an unread body proves nothing.
+                body = b""
         except Exception:  # noqa: BLE001 - transport failures are inconclusive.
             return "error", None
         if 200 <= status < 300:
             return "allowed", status
-        # Only 401 and 403 prove a refusal. A 404 or a 429 proves nothing.
-        if status in _DENIED_STATUSES:
+        # 401, 403 and R2's unsigned-request 400 prove a refusal. A 404 or a
+        # 429 proves nothing.
+        if status in _DENIED_STATUSES or (
+            status == 400 and _s3_error(body) == _R2_UNSIGNED_REFUSAL
+        ):
             return "denied", status
         return "error", status
 
@@ -162,6 +174,14 @@ class S3IsolationBoundary:
         except BotoCoreError:
             return "error"
         return "allowed"
+
+
+def _s3_error(body: bytes) -> tuple[str, str]:
+    """Return the S3 error code and message of an XML error body, or blanks."""
+    text = body.decode("utf-8", errors="replace")
+    code = re.search(r"<Code>([^<]*)</Code>", text)
+    message = re.search(r"<Message>([^<]*)</Message>", text)
+    return (code.group(1) if code else "", message.group(1) if message else "")
 
 
 def parse_target(
