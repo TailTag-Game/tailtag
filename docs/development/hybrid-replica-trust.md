@@ -137,7 +137,9 @@ Each check needs owner authorization. Record each result as PASS, FAIL or NOT_EX
 
 ### Clerk and object access
 
-A temporary reviewed probe runs these checks. It follows the [field-beta probe contract](../specs/2026-10-01-field-beta-observability-validation.md#probe-contract). The owner reviews it in full before the run. It runs outside the repository, and the owner deletes it after the run. The owner pastes short-lived session tokens at hidden prompts.
+A temporary reviewed probe runs these checks. It follows the [field-beta probe contract](../specs/2026-10-01-field-beta-observability-validation.md#probe-contract). The owner reviews it in full before the run. It runs outside the repository, and the owner deletes it after the run. The owner pastes short-lived session tokens at hidden prompts. To copy a token, sign in to `https://accounts.replica.tailtag.app` as that user, open the browser console and run `copy(await Clerk.session.getToken())`. A token lives about 60 seconds, so copy it right before its prompt. Use a private window for the second user.
+
+The service scales to zero, so a probe first warms `/health/ready` with retries for up to 3 minutes. A first request after a pause took more than 20 seconds.
 
 - A valid token gets 200 from `/api/me/`.
 - The API denies each of these: no `Authorization` header, a malformed header, an expired token and a token with a changed signature. Send the expired token more than 5 seconds after its `exp`, because the Clerk library allows 5 seconds of clock difference.
@@ -151,7 +153,7 @@ A temporary reviewed probe runs these checks. It follows the [field-beta probe c
 3. Run `task replica-media-smoke -- --project <PROJECT_ID> --isolation-bucket <SECOND_BUCKET>`.
 4. Delete the second bucket.
 
-The command refuses any endpoint and bucket that do not match the hashed replica pin. It reads the R2 runtime keys into memory only. It runs the media smoke sequence, then four isolation probes. Only 401 or 403 counts as denied, for the S3 probes and for the unsigned read. A missing key in the second bucket counts as allowed, because the request reached the bucket. The unsigned read prints its HTTP status. Any other status, such as 400, 404 or 429, is a FAIL, because it does not prove a refusal.
+The command refuses any endpoint and bucket that do not match the hashed replica pin. It reads the R2 runtime keys into memory only. It runs the media smoke sequence, then four isolation probes. Only 401 or 403 counts as denied for the S3 probes. A missing key in the second bucket counts as allowed, because the request reached the bucket. The unsigned read prints its HTTP status. R2 answers every unsigned S3 request with HTTP 400, code `InvalidArgument` and message `Authorization`, before it looks up the object. So the unsigned read counts 401, 403 and that exact 400 as denied. Any other status, such as another 400, a 404 or a 429, is a FAIL, because it does not prove a refusal.
 
 In the dashboard, make sure that the runtime token has Object Read & Write on the replica bucket only. Also make sure that r2.dev public access is off. r2.dev is the Cloudflare public URL for a bucket.
 
@@ -161,26 +163,26 @@ Run `task replica-neon-roles -- --project <PROJECT_ID> --limits`. To add the adm
 
 ### TLS controlled failure
 
-First, prove the host name case offline. On the owner workstation, connect with the libpq of the image, `verify-full`, the real Neon host name and a dummy password. Set `hostaddr` to the address of a Neon endpoint in another region. Make sure that the error names the server certificate and the host name. The certificate check runs before the password is sent.
+First, prove the host name case offline. On the owner workstation, connect with the libpq of the image, `verify-full`, a Neon host name in `us-east-1` and a dummy password. Neon uses wildcard regional DNS, so any `ep-<name>.us-east-1.aws.neon.tech` name resolves. Set `hostaddr` to the address of `us-east-2.aws.neon.tech`. Make sure that the error says that the server certificate for `*.us-east-2.aws.neon.tech` does not match the host name. The certificate check runs before the password is sent. A control run with a `us-east-1` address passes TLS and fails only at the password.
 
-Then run two executions of the migrate job. Each one overrides one variable for that execution only:
+Then run two executions of the migrate job. The job refuses to run without the `TAILTAG_JOB_REQUEST` identity that the release sends, so each execution sends that request plus one TLS variable. The `^@^` prefix makes `@` the separator, because the request holds commas:
 
 ```sh
-gcloud run jobs execute tailtag-replica-migrate --region=us-east4 --project=<PROJECT_ID> --wait --update-env-vars=SSL_CERT_FILE=<CA_FILE_WITHOUT_ISRG_ROOT_X1>
-gcloud run jobs execute tailtag-replica-migrate --region=us-east4 --project=<PROJECT_ID> --wait --update-env-vars=PGHOSTADDR=<OTHER_REGION_ADDRESS>
+gcloud run jobs execute tailtag-replica-migrate --region=us-east4 --project=<PROJECT_ID> --wait '--update-env-vars=^@^TAILTAG_JOB_REQUEST={"identity":{"source_sha":"<FULL_SHA>","environment":"replica"}}@SSL_CERT_FILE=/etc/ssl/certs/DigiCert_Global_Root_G2.pem'
+gcloud run jobs execute tailtag-replica-migrate --region=us-east4 --project=<PROJECT_ID> --wait '--update-env-vars=^@^TAILTAG_JOB_REQUEST={"identity":{"source_sha":"<FULL_SHA>","environment":"replica"}}@PGHOSTADDR=<US_EAST_2_ADDRESS>'
 ```
 
-ISRG Root X1 is the root certificate that Neon uses. `PGHOSTADDR` is the libpq setting for the server address. Make sure that each execution fails with a certificate error and that the service traffic does not move. Then run one execution with no override and make sure that it passes.
+`<FULL_SHA>` is the source SHA that the jobs run. ISRG Root X1 is the root certificate that Neon uses, and the DigiCert file does not hold it. `PGHOSTADDR` is the libpq setting for the server address. Each execution must exit non-zero with the result `FAIL_MIGRATION`, and the service traffic must not move. The job runner prints only one fixed result line, so the logs do not name the libpq error. The offline check above shows the error class. Then run one execution with the request and no TLS variable, and make sure that it ends `PASS`.
 
 ### Provider faults
 
 Service faults run on a no-traffic revision behind the `candidate` traffic tag. A revision is one fixed version of the service. A traffic tag gives a revision its own URL, and only the `candidate` tag host passes the replica host pin.
 
-Make the drill revision with the Cloud Run REST API, as the release script does. Read the service, remove `template.revision`, set the template label `tailtag-release` to `drill-<n>`, and update the service. Then add the `candidate` tag on the new revision with 0 percent. Never use `gcloud run deploy` or `gcloud run services update`, because they write a revision name into the template. Terraform ignores template labels, so the next plan shows no change.
+Make the drill revision with the release script's own helpers: `_Release.precheck`, then `_deploy` with the serving digest and a label such as `drill-<n>`. They remove `template.revision`, set the template label `tailtag-release`, keep the image, and add the `candidate` tag on the new revision with 0 percent. `_Release.restore` removes the tag again. Never use `gcloud run deploy` or `gcloud run services update`, because they write a revision name into the template. Terraform ignores template labels, so the next plan shows no change.
 
 | Fault | Make it | Expected result | Restore |
 | --- | --- | --- | --- |
-| Database unavailable | With the Neon API, set the endpoint `disabled` to true | A catch attempt gets no 2xx response | Set `disabled` to false, then make sure that `/health/ready` returns 200 |
+| Database unavailable | With the Neon API, set the `disabled` field of the default branch's read-write endpoint to true | A catch attempt gets no 2xx response (the #357 drill saw 500) | Set `disabled` to false, then make sure that `/health/ready` returns 200 |
 | Wrong Clerk key | Add a new `clerk-jwt-key` version that holds an unrelated public key, then make the drill revision | A valid token gets 401 | Add the good key again as a new version, then disable the wrong version. Make sure that a valid token gets 200 from the serving revision. |
 | R2 credential revoked | Roll the R2 token, as in [R2 runtime token](#r2-runtime-token) | Media fails, and a catch still succeeds | Add the new key, then start fresh instances |
 
@@ -188,7 +190,7 @@ During a fault, a new instance of the serving revision can also read a bad `late
 
 A temporary reviewed probe makes the catch attempts. After the restore, make sure that catch history holds no catch from a failed attempt. A retry of a failed attempt returns 201 once, and a repeat returns 200 `already_caught`. Then run a replica reset to restore the baseline.
 
-Before the Neon fault, test the restore on a temporary branch. Make a branch with its own compute, then disable and enable it. Time how long it takes to accept a query in the Neon console SQL Editor. Then delete the branch. If the restore is slow or fails, stop and ask the owner for another database fault.
+Before the Neon fault, test the restore on a temporary branch. Make a branch with its own compute and a role made with the Neon API. Connect with the URI from Neon's `connection_uri` API, then disable and enable the endpoint and time the recovery. Never build a Neon host by hand: hosts carry a cell label such as `c-2`, and a wrong host gets a misleading "password authentication failed". Then delete the branch. In the #357 check, a disabled endpoint refused queries within 2 seconds, and queries worked again 2 seconds after the re-enable. If the restore is slow or fails, stop and ask the owner for another database fault.
 
 ### Restore checklist
 
@@ -219,13 +221,13 @@ task replica-canary-scan -- --project <PROJECT_ID> logs=<DIR> actions=<DIR> issu
 | Terraform outputs | `terraform output -json` for both roots |
 | Image | `docker save` of the serving digest, which holds every layer and `build-identity.json` |
 
-The scan reads six secrets: `django-secret-key`, the three database URLs and the two media keys. For a database URL it searches for the password. It adds the Neon admin password when `NEON_ADMIN_DATABASE_URL` is set. It skips `clerk-jwt-key`, which is a public key, and `sentry-dsn`, which has no version until #358. Exit 0 means no match, 1 means a match, and 2 means the scan did not run. Exit 2 also means that the scan left a compressed blob closed, such as a zstd layer. In that case, open the blob first and scan again.
+The scan reads six secrets: `django-secret-key`, the three database URLs and the two media keys. For a database URL it searches for the password. It adds the Neon admin password when `NEON_ADMIN_DATABASE_URL` is set. It skips `clerk-jwt-key`, which is a public key, and `sentry-dsn`, which has no version until #358. Exit 0 means no match, 1 means a match, and 2 means the scan did not run. Exit 2 also means that the scan left a compressed blob closed, such as a zstd layer. In that case, open the blob first and scan it as its own surface. The replica image holds two known cases. One is the Debian apt log `var/log/apt/eipp.log.xz`, compressed with xz. The other is the python-dateutil `zoneinfo.tar.gz`, a tar inside a gzip one level past the depth limit.
 
 The Neon admin password in Terraform state is a known exposure, so do not scan the state file. Only the owner and `tf-infra` can read it. Delete the collected surfaces after the scan.
 
 ### IAM readback
 
-Run Policy Troubleshooter for `tt-runtime`, `tt-migrator`, `tt-maintainer`, `tt-deployer` and `tf-infra`. Policy Troubleshooter is a Google Cloud tool that tells whether IAM grants a permission. Check every named secret, the run and update permissions of each job, and `setIamPolicy` on the service, the jobs and the project. Use the command form in step 7 of the provisioning runbook. Then read the IAM policies of the project, each secret and each job, and list every binding.
+Run Policy Troubleshooter for `tt-runtime`, `tt-migrator`, `tt-maintainer`, `tt-deployer` and `tf-infra`. Policy Troubleshooter is a Google Cloud tool that tells whether IAM grants a permission. Check every named secret, the run and update permissions of each job, and `setIamPolicy` on the service, the jobs and the project. Use the command form in step 7 of the provisioning runbook. Run at most two checks at a time and retry after HTTP 429, because Policy Troubleshooter has a low request quota. Then read the IAM policies of the project, each secret and each job, and list every binding.
 
 The overall answer reads `UNKNOWN_INFO` when the owner cannot read organization deny policies. In that case, record the allow policy state.
 

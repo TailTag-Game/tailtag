@@ -415,9 +415,16 @@ class _Response:
         return self.status
 
 
+R2_UNSIGNED_REFUSAL = (
+    b'<?xml version="1.0" encoding="UTF-8"?>'
+    b"<Error><Code>InvalidArgument</Code><Message>Authorization</Message></Error>"
+)
+
+
 class RecordingOpener:
-    def __init__(self, status: int) -> None:
+    def __init__(self, status: int, body: bytes = b"") -> None:
         self.status = status
+        self.body = body
         self.requests: list[urllib.request.Request] = []
 
     def open(self, request: urllib.request.Request, **_: object) -> _Response:
@@ -428,28 +435,37 @@ class RecordingOpener:
                 self.status,
                 "synthetic",
                 email.message.Message(),
-                io.BytesIO(b""),
+                io.BytesIO(self.body),
             )
         return _Response(self.status)
 
 
 @pytest.mark.parametrize(
-    ("status", "expected"),
+    ("status", "body", "expected"),
     (
-        pytest.param(401, ("denied", 401), id="401"),
-        pytest.param(403, ("denied", 403), id="403"),
-        pytest.param(400, ("error", 400), id="400"),
-        pytest.param(404, ("error", 404), id="404"),
-        pytest.param(429, ("error", 429), id="429"),
-        pytest.param(200, ("allowed", 200), id="200"),
-        pytest.param(500, ("error", 500), id="500"),
+        pytest.param(401, b"", ("denied", 401), id="401"),
+        pytest.param(403, b"", ("denied", 403), id="403"),
+        pytest.param(400, R2_UNSIGNED_REFUSAL, ("denied", 400), id="r2-unsigned-400"),
+        pytest.param(400, b"", ("error", 400), id="400-no-body"),
+        pytest.param(
+            400,
+            b"<Error><Code>InvalidArgument</Code><Message>Range</Message></Error>",
+            ("error", 400),
+            id="400-other-argument",
+        ),
+        pytest.param(
+            404, R2_UNSIGNED_REFUSAL, ("error", 404), id="refusal-body-on-404"
+        ),
+        pytest.param(429, b"", ("error", 429), id="429"),
+        pytest.param(200, b"", ("allowed", 200), id="200"),
+        pytest.param(500, b"", ("error", 500), id="500"),
     ),
 )
-def test_unsigned_get_sends_no_credentials_and_counts_only_401_and_403_as_denied(
-    status: int, expected: tuple[str, int]
+def test_unsigned_get_sends_no_credentials_and_counts_only_a_proven_refusal_as_denied(
+    status: int, body: bytes, expected: tuple[str, int]
 ) -> None:
-    """AC15: the anonymous read goes to the pinned path-style object URL, unsigned."""
-    opener = RecordingOpener(status)
+    """AC15: 401, 403, or R2's 400 InvalidArgument "Authorization" prove a refusal."""
+    opener = RecordingOpener(status, body)
     boundary, _ = stubbed_boundary(opener)
 
     assert boundary.unsigned_get(key=OBJECT_KEY) == expected
