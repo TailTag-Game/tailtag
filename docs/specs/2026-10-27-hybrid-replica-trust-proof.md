@@ -6,7 +6,7 @@ Related issues: [#357](https://github.com/TailTag-Game/tailtag/issues/357) (this
 
 Runbook: [Hybrid replica trust](../development/hybrid-replica-trust.md)
 
-This document records the evidence for each #357 acceptance criterion. AC1 to AC9 come from the issue. AC10 to AC21 come from the refinement comment on #357. Each result is PASS, PARTIAL or NOT_EXERCISED. PARTIAL means that part of the criterion passed, and this proof names the open part.
+This document records the evidence for each #357 acceptance criterion. AC1 to AC9 come from the issue. AC10 to AC21 come from the refinement comment on #357. Each result is PASS, PARTIAL or NOT_EXERCISED. All 21 criteria pass. Some checks inside a criterion stay NOT_EXERCISED by design, and the evidence column names them.
 
 ## Identities
 
@@ -34,8 +34,8 @@ This document never records project IDs, project numbers, hosts, account IDs, co
 | AC1 | PASS | The replica Clerk application and its two synthetic users came from #355 AC18. AC11 and AC12 show that valid auth works and that the API denies every negative with no bypass. |
 | AC2 | PASS | The trust matrix in the runbook has one row per connection with every AC17 column. The Sentry row is NOT_EXERCISED until #358, because the replica has no Sentry key. |
 | AC3 | PASS | AC14 proves the TLS controlled failure. AC13 proves the role grant sets. AC20 shows that `tt-migrator` reads only its own secret. |
-| AC4 | PARTIAL | AC15 proves bucket and credential isolation and that anonymous reads fail. The authenticated API media paths of AC16 did not run. |
-| AC5 | PARTIAL | The media smoke proves the signed read, the byte-for-byte read, the delete and the absence check. Unit tests prove cleanup after a failure. The baseline object was not compared before and after (AC16). |
+| AC4 | PASS | AC15 proves bucket and credential isolation and that anonymous reads fail. AC16 proves the authenticated upload, read and replace paths through the existing API. |
+| AC5 | PASS | The media smoke proves the signed read, the byte-for-byte read, the delete and the absence check. Unit tests prove cleanup after a failure. The AC16 probe deleted its own last object and confirmed it gone. The baseline object kept the same SHA-256 before and after. |
 | AC6 | PASS | AC20: 200 Policy Troubleshooter checks and the binding readback match Terraform, including the #356 deployer identity. |
 | AC7 | PASS | AC18: no secret value in any surface. The one unavoidable exposure stays the Neon admin password in Terraform state, readable only by the owner and `tf-infra`. |
 | AC8 | PASS | The runbook names the owner as operator and gives the revocation order for each credential. AC19 ran two live rotations. The Clerk key and the deployer are NOT_EXERCISED by design. |
@@ -46,7 +46,7 @@ This document never records project IDs, project numbers, hosts, account IDs, co
 | AC13 | PASS | `--limits`: 33 of 33 cells ok, before and after the AC19 rotation. The admin report was NOT_EXERCISED, because no admin URL was set in the session shell. |
 | AC14 | PASS | Migrate job `lgbfk` with a CA file without ISRG Root X1 and `wzhvv` with `PGHOSTADDR` at a `us-east-2` proxy each ended `FAIL_MIGRATION`. The control `vrkxg` ended `PASS`. Traffic did not move. |
 | AC15 | PASS | R2 denied `ListBuckets`, and `PUT` and `GET` on a second bucket, for the runtime keys. Every unsigned request got R2's 400 `InvalidArgument` "Authorization", which the owner accepted as a refusal. The owner confirmed the token scope and that r2.dev access is off. |
-| AC16 | PARTIAL | The smoke part passed: upload, 600-second presigned read byte for byte, delete and absence. The API part did not run: create a fursuit with a photo, read `photo_url`, replace the photo and check the old URL. |
+| AC16 | PASS | The smoke passed: upload, 600-second presigned read byte for byte, delete and absence. A temporary probe, run 2, passed 9 of 9 through the API. It made a fursuit with a photo (201), and `photo_url` returned that image. It replaced the photo (200), the new URL returned the new image, and the old URL returned 404. A reset then removed the probe rows. |
 | AC17 | PASS | The runbook `docs/development/hybrid-replica-trust.md` holds the matrix, grant sets, rotation and compromise steps, drills and restore checklist. This proof cites it. |
 | AC18 | PASS | The canary scan of 6 secrets found 0 matches. It covered 998 log entries (31 days), 9 release runs and their artifacts, and issues and pull requests #352 to #389. It also covered git history, Terraform outputs and the serving image. The agent opened 5 closed image blobs and scanned them too: 0 matches. |
 | AC19 | PASS | Neon: `--rotate` ran, Neon refused the old runtime password, the new one worked, and the release started fresh instances. R2: after the roll, the old key failed at upload and the new key passed. |
@@ -66,6 +66,7 @@ All times are UTC on 2026-10-27.
 | D, Neon rotation | 17:38:13 to the release | All three role passwords rotated. |
 | E, release | 17:42:34 to 17:46:42 | Run 40553127918. |
 | F, checks and reset | 17:47:50 to 17:49:08 | Media smoke, `--limits`, drill revision deleted, final reset `jw9cg`. |
+| AC16 probe and reset | to 18:11:35 | Two probe runs, then a reset that removed both probe fursuit rows. |
 
 During step A, any instance of the serving revision that started in the window got the wrong key. The main URL accepted the catcher right after the restore, so the drill saw no such instance. From step C until the release, the serving revision had no working media key. From step D until the release, it had no working database password. The replica has no players.
 
@@ -88,10 +89,10 @@ During step A, any instance of the serving revision that started in the window g
 6. Policy Troubleshooter answered HTTP 429 on 57 of 200 calls with 8 parallel workers. Two workers with backoff finished cleanly.
 7. The replica image holds closed blobs that the canary scan does not open: xz apt logs and a nested `zoneinfo` tarball.
 8. A first request after a scale to zero can take more than 20 seconds.
+9. The same image normalizes to different PNG bytes on macOS and on the Linux image, because the Pillow wheels ship different zlib builds. The first AC16 probe run compared bytes with a local normalization and failed 2 checks for that reason. Run 2 compared decoded pixels. A probe that checks an API image has to decode it.
 
 ## Residual risks and follow-ups
 
-- AC16 API media part and the baseline object comparison are open.
 - `maintainer` owns the database and the `public` schema, so it can create and drop tables. This is by design for reset, and two controls bound it.
 - Every runtime secret uses the `latest` version, so a new value reaches only new instances. This finding stays recorded, not changed.
 - The Neon admin password stays in Terraform state.
