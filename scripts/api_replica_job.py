@@ -14,6 +14,7 @@ Run it with `task replica-job -- --project <gcp-project-id> --family <family>
 from __future__ import annotations
 
 import argparse
+import contextlib
 import http.client
 import json
 import re
@@ -45,6 +46,8 @@ _MAX_REQUEST_BYTES: Final = 65_536
 _MAX_OVERRIDE_BYTES: Final = 32_768
 _MAX_RESPONSE_BYTES: Final = 4 * 1024 * 1024
 _HTTP_TIMEOUT_SECONDS: Final = 30
+# A cancel is a last, short attempt inside the caller's own time budget.
+_CANCEL_TIMEOUT_SECONDS: Final = 10
 _TOKEN_TIMEOUT_SECONDS: Final = 60
 _EXECUTION_DEADLINE_SECONDS: Final = 1_200
 _LOG_DEADLINE_SECONDS: Final = 120
@@ -70,10 +73,15 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def valid_target(project: str, source_sha: str) -> None:
-    """Raise unless the project id and source sha have the exact expected shape."""
+def valid_project(project: str) -> None:
+    """Raise unless the project id has the exact expected shape."""
     if _PROJECT_ID.fullmatch(project) is None:
         raise ValueError
+
+
+def valid_target(project: str, source_sha: str) -> None:
+    """Raise unless the project id and source sha have the exact expected shape."""
+    valid_project(project)
     if _SOURCE_SHA.fullmatch(source_sha) is None:
         raise ValueError
 
@@ -134,7 +142,12 @@ def _opener() -> urllib.request.OpenerDirector:
     return urllib.request.build_opener(_NoRedirect())
 
 
-def _call(token: str, url: str, body: Mapping[str, object] | None) -> dict[str, object]:
+def _call(
+    token: str,
+    url: str,
+    body: Mapping[str, object] | None,
+    timeout: float = _HTTP_TIMEOUT_SECONDS,
+) -> dict[str, object]:
     request = urllib.request.Request(
         url,
         data=None if body is None else json.dumps(body).encode(),
@@ -145,7 +158,7 @@ def _call(token: str, url: str, body: Mapping[str, object] | None) -> dict[str, 
             **({} if body is None else {"Content-Type": "application/json"}),
         },
     )
-    with _opener().open(request, timeout=_HTTP_TIMEOUT_SECONDS) as response:
+    with _opener().open(request, timeout=timeout) as response:
         if response.status != 200:
             raise ValueError
         raw = response.read(_MAX_RESPONSE_BYTES + 1)
@@ -155,10 +168,17 @@ def _call(token: str, url: str, body: Mapping[str, object] | None) -> dict[str, 
 
 
 class _Session:
-    """The bearer token and the retry rules for one runner invocation."""
+    """The bearer token and the retry rules for one runner invocation.
 
-    def __init__(self) -> None:
-        self._token = _token()
+    A caller can pass a fixed token, as the simulator relay does (#359). A fixed
+    token is never refreshed, and `gcloud` is never called for it.
+    """
+
+    def __init__(self, token: str | None = None) -> None:
+        if token is not None and _TOKEN.fullmatch(token) is None:
+            raise ValueError
+        self._fixed = token is not None
+        self._token = token if token is not None else _token()
 
     def call(
         self,
@@ -167,20 +187,27 @@ class _Session:
         *,
         transient: int = 0,
         deadline: float | None = None,
+        timeout: float = _HTTP_TIMEOUT_SECONDS,
     ) -> dict[str, object]:
         """Call one URL. A 401 refreshes the token once and retries the request.
 
         Up to `transient` answers of 429, 5xx or a network error are retried
         while the deadline allows. Callers pass `transient=0` for `jobs:run`,
-        so a failed launch is never repeated.
+        so a failed launch is never repeated. With a deadline, no call and no
+        retry wait runs past it, because each call's timeout is cut to fit.
         """
         refreshed = False
         failures = 0
         while True:
+            limit = timeout
+            if deadline is not None:
+                limit = min(timeout, deadline - time.monotonic())
+                if limit <= 0:
+                    raise ValueError
             try:
-                return _call(self._token, url, body)
+                return _call(self._token, url, body, limit)
             except urllib.error.HTTPError as error:
-                if error.code == 401 and not refreshed:
+                if error.code == 401 and not refreshed and not self._fixed:
                     refreshed = True
                     self._token = _token()
                     continue
@@ -192,7 +219,10 @@ class _Session:
             if (
                 not retryable
                 or failures >= transient
-                or (deadline is not None and time.monotonic() >= deadline)
+                or (
+                    deadline is not None
+                    and time.monotonic() + _POLL_SECONDS >= deadline
+                )
             ):
                 raise ValueError
             failures += 1
@@ -233,13 +263,24 @@ def _start(
     return execution
 
 
-def _wait(session: _Session, project: str, job: str, execution: str) -> bool:
-    """Poll until the execution completes and return whether it succeeded."""
-    url = (
+def _execution_url(project: str, job: str, execution: str) -> str:
+    return (
         f"https://run.googleapis.com/v2/projects/{project}/locations/{REGION}"
         f"/jobs/{job}/executions/{execution}"
     )
-    deadline = time.monotonic() + _EXECUTION_DEADLINE_SECONDS
+
+
+def _wait(
+    session: _Session,
+    project: str,
+    job: str,
+    execution: str,
+    deadline: float | None = None,
+) -> bool:
+    """Poll until the execution completes and return whether it succeeded."""
+    url = _execution_url(project, job, execution)
+    if deadline is None:
+        deadline = time.monotonic() + _EXECUTION_DEADLINE_SECONDS
     while True:
         state = session.call(url, None, transient=_TRANSIENT_RETRIES, deadline=deadline)
         if state.get("completionTime"):
@@ -249,7 +290,7 @@ def _wait(session: _Session, project: str, job: str, execution: str) -> bool:
                 and succeeded == 1
                 and not state.get("failedCount")
             )
-        if time.monotonic() >= deadline:
+        if time.monotonic() + _POLL_SECONDS >= deadline:
             raise TimeoutError
         time.sleep(_POLL_SECONDS)
 
@@ -277,9 +318,19 @@ def _page_payloads(listing: Mapping[str, object], execution: str) -> list[object
 
 
 def _result(
-    session: _Session, project: str, job: str, execution: str, since: datetime
+    session: _Session,
+    project: str,
+    job: str,
+    execution: str,
+    since: datetime,
+    *,
+    resource: str | None = None,
+    deadline: float | None = None,
 ) -> dict[str, object]:
-    """Return the one result entry the execution wrote to stdout."""
+    """Return the one result entry the execution wrote to stdout.
+
+    `resource` names a log view to read through instead of the project.
+    """
     log_filter = (
         f'resource.type="cloud_run_job" AND resource.labels.job_name="{job}"'
         f' AND labels."run.googleapis.com/execution_name"="{execution}"'
@@ -287,12 +338,13 @@ def _result(
         f' AND timestamp>="{since.strftime("%Y-%m-%dT%H:%M:%SZ")}"'
     )
     query: dict[str, object] = {
-        "resourceNames": [f"projects/{project}"],
+        "resourceNames": [resource or f"projects/{project}"],
         "filter": log_filter,
         "orderBy": "timestamp asc",
         "pageSize": 100,
     }
-    deadline = time.monotonic() + _LOG_DEADLINE_SECONDS
+    if deadline is None:
+        deadline = time.monotonic() + _LOG_DEADLINE_SECONDS
     while True:
         payloads: list[object] = []
         page_token: object = None
@@ -321,25 +373,80 @@ def _result(
             ):
                 raise ValueError
             return cast(dict[str, object], payload)
-        if time.monotonic() >= deadline:
+        if time.monotonic() + _POLL_SECONDS >= deadline:
             raise TimeoutError
         time.sleep(_POLL_SECONDS)
+
+
+def _cancel(session: _Session, project: str, job: str, execution: str) -> None:
+    """Ask Cloud Run once to cancel the execution. Errors are the caller's to treat."""
+    session.call(
+        f"{_execution_url(project, job, execution)}:cancel",
+        {},
+        timeout=_CANCEL_TIMEOUT_SECONDS,
+    )
+
+
+def job_request_value(source_sha: str, body: Mapping[str, object]) -> str:
+    """Return the exact override value: `body` plus the build identity."""
+    request = {**body, "identity": {"source_sha": source_sha, "environment": "replica"}}
+    return json.dumps(request, separators=(",", ":"))
+
+
+def fits_override(value: str) -> bool:
+    """True when Cloud Run accepts `value` as one environment override."""
+    return len(value.encode("utf-8")) <= _MAX_OVERRIDE_BYTES
+
+
+def run_once(
+    project: str,
+    job: str,
+    value: str,
+    *,
+    token: str,
+    resource: str,
+    deadline: float,
+) -> tuple[bool, dict[str, object]]:
+    """Run the job once with a fixed token and return (succeeded, result entry).
+
+    Every call ends by `deadline` (a `time.monotonic` value). If the execution
+    started and anything fails, including the deadline, it is cancelled once
+    with a short timeout of its own, and the error is raised. A run is never
+    repeated.
+    """
+    if not fits_override(value):
+        raise ValueError
+    session = _Session(token)
+    since = datetime.now(UTC) - _LOG_SKEW
+    execution = _start(session, project, job, value)
+    try:
+        succeeded = _wait(session, project, job, execution, deadline)
+        payload = _result(
+            session,
+            project,
+            job,
+            execution,
+            since,
+            resource=resource,
+            deadline=deadline,
+        )
+    except Exception:
+        with contextlib.suppress(Exception):
+            _cancel(session, project, job, execution)
+        raise
+    return succeeded, payload
 
 
 def submit(project: str, source_sha: str, job: str, body: Mapping[str, object]) -> int:
     """Run one pinned job with `body` plus the build identity and print one JSON line."""
     try:
-        request = {
-            **body,
-            "identity": {"source_sha": source_sha, "environment": "replica"},
-        }
         # The job measures this exact string, so the cap applies to what is sent.
-        request_value = json.dumps(request, separators=(",", ":"))
-        if len(request_value.encode("utf-8")) > _MAX_OVERRIDE_BYTES:
+        value = job_request_value(source_sha, body)
+        if not fits_override(value):
             raise ValueError
         session = _Session()
         since = datetime.now(UTC) - _LOG_SKEW
-        execution = _start(session, project, job, request_value)
+        execution = _start(session, project, job, value)
         succeeded = _wait(session, project, job, execution)
         payload = _result(session, project, job, execution, since)
         line = json.dumps(payload, sort_keys=True)
