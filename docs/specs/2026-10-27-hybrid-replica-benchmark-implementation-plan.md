@@ -34,7 +34,7 @@ The apply also makes one revision of the old image with the new party pair. That
 
 ## Facts to read during the U1 live steps
 
-- The Logging API accepts the flexible log view filter on `resource.labels.job_name`. If it refuses it, the fallback filter keeps `resource.type` and `LOG_ID` only, and the proof records the wider view.
+- The Logging API accepts the flexible log view filter on `resource.labels.job_name`. If it refuses the filter, the apply fails at the view, so the view binding does not exist. The job bindings can still exist. Then stop the relay rollout and disable `tt-simrelay` until a narrow view works. Do not widen the filter, because a wider view shows the migrate and reset logs. The owner chooses another narrow mechanism in a separate change.
 - Job executions inherit the job-level `roles/run.viewer`, so `run.executions.get` works.
 - Running a job with overrides needs no `actAs` on `tt-runtime`.
 - `entries.list` accepts the view resource name.
