@@ -51,6 +51,10 @@ def source_repo(tmp_path: Path) -> Path:
             "scripts/api_sim_inspect_ssh.py": "# committed host launcher\n",
             "scripts/api_staging_reset_ssh.py": "# committed shared host launcher\n",
             "scripts/api_staging_preflight.py": "# committed host target preflight\n",
+            "scripts/api_sim_replica_relay.py": "# committed replica host relay\n",
+            "scripts/api_replica_job.py": "# committed replica job runner\n",
+            "services/api/config/replica_binding.py": "# committed replica pins\n",
+            "services/api/config/owner_only.py": "# committed owner-only files\n",
             "services/api/pyproject.toml": "# committed host dependency declaration\n",
             "services/api/uv.lock": "# committed host dependency lock\n",
             "README.md": "Human documentation\n",
@@ -97,6 +101,7 @@ def test_clean_git_source_reports_full_sha_and_locked_dependency_identity(
         "shared_preflight",
         "host_dependency",
         "missing_launcher",
+        "missing_replica_relay",
         "untracked_init",
         "namespace_module",
         "namespace_bytecode",
@@ -138,6 +143,8 @@ def test_changed_or_untracked_runtime_inputs_cannot_claim_a_clean_git_identity(
         (source_repo / relative).write_text("SENTINEL_changed_host_input")
     elif change == "missing_launcher":
         (source_repo / "scripts/api_sim_fixture_ssh.py").unlink()
+    elif change == "missing_replica_relay":
+        (source_repo / "scripts/api_sim_replica_relay.py").unlink()
     elif change == "untracked_init":
         (source_repo / "scripts/__init__.py").write_text("SENTINEL = 1\n")
     elif change in {"namespace_module", "namespace_bytecode", "package_bytecode"}:
