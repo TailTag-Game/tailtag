@@ -8,7 +8,8 @@ from copy import deepcopy
 from typing import cast
 
 from tailtag_simulator.pool import validate_pool_name
-from tailtag_simulator.safety import resolve_safety_policy
+from tailtag_simulator.safety import resolve_safety_policy, valid_identity
+from tailtag_simulator.targets import Target, TargetRejected, resolve_target
 from tailtag_simulator.traffic_config import resolve_traffic_config
 
 MAX_FRAME_BYTES = 65536
@@ -95,6 +96,13 @@ _STANDARD_SAFETY = {
     "population": 50,
     "in_flight": 10,
 }
+# A bounded 2x burst tier for the replica only (#359 AC15).
+_REPLICA_BURST_SAFETY = {
+    "seconds": 900,
+    "final_seconds": 600,
+    "population": 50,
+    "in_flight": 20,
+}
 _EXPIRATION_SAFETY = {
     "seconds": 46800,
     "final_seconds": 600,
@@ -121,13 +129,17 @@ def _journeys_shape(
 
 
 def _convention_shape(
-    launch: dict[str, object], config: dict[str, object], safety: dict[str, object]
+    launch: dict[str, object],
+    config: dict[str, object],
+    safety: dict[str, object],
+    target: str,
 ) -> None:
     """Standard tier, or the expiration tier selected only by the closed shape."""
     if (
         launch["scenario_version"] != 2
         or resolve_traffic_config(config) != config
         or launch["scenario_id"] != "convention-" + cast(str, config["family"])
+        or config["target"] != target
     ):
         raise _invalid()
     population = sum(
@@ -143,10 +155,12 @@ def _convention_shape(
     )
     limits = _mapping(config["limits"])
     if _mapping(config["failure"])["domain_case"] != "expired":
+        burst = target == "replica"
+        cap = 20 if burst else 10
         if (
             population > 50
-            or not _within(safety, _STANDARD_SAFETY)
-            or any(cast(int, limits[k]) > 10 for k in ("active", "in_flight"))
+            or not _within(safety, _REPLICA_BURST_SAFETY if burst else _STANDARD_SAFETY)
+            or any(cast(int, limits[k]) > cap for k in ("active", "in_flight"))
         ):
             raise _invalid()
     elif (
@@ -160,10 +174,26 @@ def _convention_shape(
         raise _invalid()
 
 
+def manifest_target(launch: Mapping[str, object]) -> Target:
+    """The run target of a manifest: Staging, or the pinned replica origin."""
+    if "target" not in launch:
+        return resolve_target("staging", None)
+    target = _mapping(launch["target"])
+    if set(target) != {"name", "origin"} or target["name"] != "replica":
+        raise _invalid()
+    origin = target["origin"]
+    if not isinstance(origin, str):
+        raise _invalid()
+    try:
+        return resolve_target("replica", origin)
+    except TargetRejected:
+        raise _invalid() from None
+
+
 def validate_manifest(value: object) -> dict[str, object]:
     try:
         launch = _mapping(value)
-        if set(launch) != {
+        keys = {
             "schema_version",
             "run_id",
             "scenario_id",
@@ -173,8 +203,11 @@ def validate_manifest(value: object) -> dict[str, object]:
             "safety",
             "backend_identity",
             "release",
-        }:
+        }
+        # A manifest without a target is a Staging manifest, as before #359.
+        if set(launch) not in (keys, keys | {"target"}):
             raise _invalid()
+        target = manifest_target(launch)
         if (
             type(launch["schema_version"]) is not int
             or launch["schema_version"] != 1
@@ -190,14 +223,8 @@ def validate_manifest(value: object) -> dict[str, object]:
         if launch["scenario_id"] == "journeys":
             _journeys_shape(launch, config, safety)
         else:
-            _convention_shape(launch, config, safety)
-        identity = _mapping(launch["backend_identity"])
-        if (
-            set(identity) != {"source_sha", "deployment_id", "environment"}
-            or not _hex(identity["source_sha"], 40)
-            or not _uuid(identity["deployment_id"])
-            or identity["environment"] != "staging"
-        ):
+            _convention_shape(launch, config, safety, target.name)
+        if not valid_identity(target.name, launch["backend_identity"]):
             raise _invalid()
         release = _mapping(launch["release"])
         if (

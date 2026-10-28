@@ -26,6 +26,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from tailtag_simulator.targets import bound_target
+
 BACKEND_API = "https://api.clerk.com"
 FRONTEND_API = "https://clerk.staging.tailtag.app"
 TOOLING_ORIGIN = "https://simulator.staging.tailtag.app"
@@ -40,6 +42,40 @@ REQUEST_TIMEOUT_SECONDS = 10.0
 
 _SECRET_PREFIX = "sk_live_"
 _ID = re.compile(r"[A-Za-z0-9_]+")
+
+
+@dataclass(frozen=True)
+class ClerkProfile:
+    """The pinned Clerk application of one target."""
+
+    environment: str
+    frontend_api: str
+    tooling_origin: str
+    instance_fingerprint: str
+    primary_domain: str
+
+
+# The replica Clerk application (#359 AC17). Its fingerprint is the one that
+# scripts/api_replica_auth_smoke.py pins, with the same derivation.
+REPLICA_CLERK = ClerkProfile(
+    "replica",
+    "https://clerk.replica.tailtag.app",
+    "https://simulator.replica.tailtag.app",
+    "4f93c7ed6c240ce2",
+    "replica.tailtag.app",
+)
+
+
+def clerk_profile() -> ClerkProfile:
+    """The Clerk application of the bound run target. Only the replica differs.
+
+    The Staging profile is read from the module constants at each call.
+    """
+    if bound_target().name == "replica":
+        return REPLICA_CLERK
+    return ClerkProfile(
+        "staging", FRONTEND_API, TOOLING_ORIGIN, INSTANCE_FINGERPRINT, PRIMARY_DOMAIN
+    )
 
 
 class ClerkFailed(Exception):
@@ -261,7 +297,7 @@ class ClerkAdmin:
         instance = _object(await _call(self._client, "GET", "/v1/instance"))
         digest = hashlib.sha256(_text(instance.get("id")).encode()).hexdigest()[:16]
         if (
-            digest != INSTANCE_FINGERPRINT
+            digest != clerk_profile().instance_fingerprint
             or instance.get("environment_type") != "production"
         ):
             raise ClerkFailed from None
@@ -272,8 +308,8 @@ class ClerkAdmin:
             if d.get("is_satellite") is False
         ]
         if len(primaries) != 1 or (
-            primaries[0].get("name") != PRIMARY_DOMAIN
-            or primaries[0].get("frontend_api_url") != FRONTEND_API
+            primaries[0].get("name") != clerk_profile().primary_domain
+            or primaries[0].get("frontend_api_url") != clerk_profile().frontend_api
         ):
             raise ClerkFailed from None
         self._verified = True
@@ -313,7 +349,7 @@ class ClerkAdmin:
     async def create_pool_user(self, pool: str, index: int) -> PoolUser:
         self._require_verified()
         name = external_id(pool, index)
-        host = urlsplit(TOOLING_ORIGIN).hostname
+        host = urlsplit(clerk_profile().tooling_origin).hostname
         return self._user(
             await _call(
                 self._client,
@@ -325,7 +361,7 @@ class ClerkAdmin:
                     "skip_password_requirement": True,
                     "public_metadata": {
                         "tailtag_synthetic": True,
-                        "tailtag_environment": "staging",
+                        "tailtag_environment": clerk_profile().environment,
                         "tailtag_pool": pool,
                         "tailtag_pool_index": index,
                     },
@@ -341,7 +377,7 @@ class ClerkAdmin:
             if not (
                 user.external_id == external_id(pool, index)
                 and metadata.get("tailtag_synthetic") is True
-                and metadata.get("tailtag_environment") == "staging"
+                and metadata.get("tailtag_environment") == clerk_profile().environment
                 and metadata.get("tailtag_pool") == pool
                 and type(recorded_index) is int
                 and recorded_index == index
@@ -455,7 +491,7 @@ class ClerkSession:
                 claims = _claims(jwt)
                 expires = claims.get("exp")
                 if (
-                    claims.get("azp") != TOOLING_ORIGIN
+                    claims.get("azp") != clerk_profile().tooling_origin
                     or claims.get("sid") != self._session_id
                     or type(expires) is not int
                 ):
@@ -490,8 +526,12 @@ async def open_session(
     Ending is attempted on every exit. A failure to end is reported only on a normal
     exit; on an error exit the body's own exception propagates.
     """
-    headers = {"Origin": TOOLING_ORIGIN, "Clerk-API-Version": FRONTEND_API_VERSION}
-    async with _client(FRONTEND_API, headers, transport) as client:
+    profile = clerk_profile()
+    headers = {
+        "Origin": profile.tooling_origin,
+        "Clerk-API-Version": FRONTEND_API_VERSION,
+    }
+    async with _client(profile.frontend_api, headers, transport) as client:
         with setup_boundary("frontend_client"):
             await _call(client, "POST", "/v1/client")
         with setup_boundary("frontend_sign_in"):

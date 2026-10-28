@@ -27,7 +27,11 @@ from tailtag_simulator.evaluation import (
     write_evaluation,
 )
 from tailtag_simulator.fixtures import FixtureLauncherChannel, run_fixture_smoke
-from tailtag_simulator.host_protocol import decode_document, validate_manifest
+from tailtag_simulator.host_protocol import (
+    decode_document,
+    manifest_target,
+    validate_manifest,
+)
 from tailtag_simulator.images import load_fixture_images
 from tailtag_simulator.journeys import JourneyImages, run_journeys
 from tailtag_simulator.pool import (
@@ -47,6 +51,7 @@ from tailtag_simulator.reports import ReportFailed, RunReport, load_report
 from tailtag_simulator.safety import SafetyRuntime, resolve_safety_policy
 from tailtag_simulator.scenarios import ScenarioRejected
 from tailtag_simulator.smoke import run_smoke
+from tailtag_simulator.targets import bind_target, bound_target, resolve_target
 from tailtag_simulator.traffic_config import resolve_traffic_config
 
 # `task -s` keeps launcher stdout to the child's JSON result alone.
@@ -101,7 +106,7 @@ def _prompt_token() -> str:
 
 
 def _prompt_secret() -> str:
-    return _prompt_hidden("Clerk Staging secret:")
+    return _prompt_hidden(f"Clerk {bound_target().name.capitalize()} secret:")
 
 
 _stage_fd: int | None = None
@@ -350,7 +355,7 @@ def _behavior_file(path: Path, *, host: bool = False) -> dict[str, object]:
             raise ScenarioRejected
         if host:
             if (
-                value.get("target", "staging") != "staging"
+                value.get("target", "staging") not in ("staging", "replica")
                 or value.get("base_url") is not None
             ):
                 raise ScenarioRejected
@@ -380,9 +385,25 @@ async def _execute(args: argparse.Namespace) -> int:
             if supplied_host
             else {}
         )
+        # The manifest names the run target. Bind it before any network call (#359).
+        target = (
+            manifest_target(supplied_host)
+            if supplied_host
+            else resolve_target("staging", None)
+        )
     except (ScenarioRejected, ValueError):
         _emit("FAIL configuration")
         return 1
+    with bind_target(target):
+        return await _execute_bound(args, supplied_host, policy)
+
+
+async def _execute_bound(
+    args: argparse.Namespace,
+    supplied_host: dict[str, object] | None,
+    policy: dict[str, object],
+) -> int:
+    """Run the command with its target bound."""
     report: RunReport | None = None
     config: dict[str, object] = {}
     if args.command in {
@@ -392,7 +413,7 @@ async def _execute(args: argparse.Namespace) -> int:
         "journeys",
         "convention",
     }:
-        config = {"target": "staging", "base_url": None}
+        config = {"target": bound_target().name, "base_url": None}
         if args.command == "smoke":
             config.update(target=args.target, base_url=args.base_url)
         else:

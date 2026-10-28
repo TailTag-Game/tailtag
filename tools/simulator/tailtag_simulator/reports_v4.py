@@ -67,7 +67,7 @@ def safety(value: object) -> dict[str, Any]:
         _require(isinstance(policy, dict))
         _require(resolve_safety_policy(policy) == policy)
         target = _object(result["target"], {"identity", "evidence"})
-        _require(target["evidence"] in ("unverified", "staging", "local"))
+        _require(target["evidence"] in ("unverified", "staging", "replica", "local"))
         if target["identity"] is None:
             _require(target["evidence"] == "unverified")
         else:
