@@ -29,6 +29,10 @@ HOST_FILES = {
     "scripts/api_sim_inspect_ssh.py",
     "scripts/api_staging_reset_ssh.py",
     "scripts/api_staging_preflight.py",
+    "scripts/api_sim_replica_relay.py",
+    "scripts/api_replica_job.py",
+    "services/api/config/replica_binding.py",
+    "services/api/config/owner_only.py",
     "services/api/pyproject.toml",
     "services/api/uv.lock",
 }

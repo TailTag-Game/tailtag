@@ -27,6 +27,12 @@ _TARGETS = {
     "fixture": "api-sim-fixture-ssh",
     "inspection": "api-sim-inspect-ssh",
 }
+# The replica relays run the pinned Cloud Run jobs instead of Railway SSH (#359).
+_REPLICA_TARGETS = {
+    "pool": "api-sim-pool-replica",
+    "fixture": "api-sim-fixture-replica",
+    "inspection": "api-sim-inspect-replica",
+}
 _MUTATIONS = {
     "allocate",
     "heartbeat",
@@ -101,17 +107,21 @@ def _same(left: object, right: object) -> bool:
 
 
 def relay_dispatch(
-    workspace: Path, task: Path, env: Mapping[str, str] | None
+    workspace: Path,
+    task: Path,
+    env: Mapping[str, str] | None,
+    target: str = "staging",
 ) -> Callable[
     [str, dict[str, object]], Coroutine[Any, Any, tuple[str, dict[str, object]]]
 ]:
     """Trusted argv/cwd/env only; the complete request travels exclusively on stdin."""
+    tasks = {"staging": _TARGETS, "replica": _REPLICA_TARGETS}[target]
 
     async def dispatch(
         channel: str, envelope: dict[str, object]
     ) -> tuple[str, dict[str, object]]:
         return await run_launcher(
-            [str(task), "-s", _TARGETS[channel]],
+            [str(task), "-s", tasks[channel]],
             workspace,
             LAUNCHER_TIMEOUT_SECONDS,
             encode_frame(envelope),
