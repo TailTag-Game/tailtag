@@ -125,7 +125,7 @@ def _session() -> tuple[str, str]:
     session = cast(dict[str, object], value)
     project, host = session["project"], session["host"]
     if not isinstance(project, str) or not isinstance(host, str):
-        raise ValueError
+        raise TypeError
     _job.valid_project(project)
     return project, replica_binding.validate_run_app_host([host])
 
