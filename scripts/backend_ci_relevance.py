@@ -45,6 +45,7 @@ BACKEND_RELEVANT_FILES = {
     "scripts/replica_neon_roles.py",
     "scripts/api_replica_media_smoke.py",
     "scripts/replica_canary_scan.py",
+    "scripts/replica_idle_state.py",
     "scripts/clerk_development_session.py",
     "scripts/backend_ci_relevance.py",
     "scripts/doctor.py",

@@ -54,6 +54,7 @@ FROZEN_ROOT_HELPERS = frozenset(
         "scripts/replica_neon_roles.py",
         "scripts/api_replica_media_smoke.py",
         "scripts/replica_canary_scan.py",
+        "scripts/replica_idle_state.py",
         "scripts/staging_restore_integrity.py",
         "scripts/validate_semgrep_contract.py",
     }

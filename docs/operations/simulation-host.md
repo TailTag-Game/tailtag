@@ -392,6 +392,173 @@ Promote a reviewed run with `task sim-baseline-promote`, as described in the
 simulator README. Promotion takes effect only through a reviewed pull request.
 Never promote from the host.
 
+## Hybrid replica sessions
+
+This section runs the simulator against the hybrid replica of [#359](https://github.com/TailTag-Game/tailtag/issues/359). The replica is an isolated copy of Staging on Cloud Run and Neon. The [replica trust runbook](../development/hybrid-replica-trust.md) gives its identities and its compromise steps. Placeholders such as `<PROJECT_ID>` have the meanings in the [provisioning runbook](../development/hybrid-replica-provisioning.md#placeholders). `<REPLICA_HOST>` is the private `run.app` host of the replica service.
+
+Every live step needs owner approval, one step at a time. A replica session never uses Railway. The relays run the pinned Cloud Run jobs as `tt-simrelay`, with a short-lived token.
+
+### Replica session setup
+
+Do the first two steps on the Mac:
+
+1. Make sure that the `tt-simrelay` account, its job bindings and the `simrelay-job-results` view exist, as the trust runbook IAM readback shows.
+2. Mint a token for this session. It lasts 1 hour, so mint a new one for each workload:
+
+   ```sh
+   gcloud auth print-access-token --impersonate-service-account=tt-simrelay@<PROJECT_ID>.iam.gserviceaccount.com
+   ```
+
+Then, on the host, as `tailtag_sim`:
+
+1. Do steps 1 to 5 of the [session start](#session-start). Skip every Railway step.
+2. Make a private folder in the chosen key location, for example `install -d -m 0700 /dev/shm/tailtag-replica`.
+3. Write the session file with the project and the host. `umask` applies only to a new file, so remove an old one first:
+
+   ```sh
+   umask 077
+   rm -f /dev/shm/tailtag-replica/session.json
+   printf '{"project": "%s", "host": "%s"}\n' '<PROJECT_ID>' '<REPLICA_HOST>' > /dev/shm/tailtag-replica/session.json
+   ```
+
+4. Enter the token at a hidden prompt and write it to the token file:
+
+   ```sh
+   umask 077
+   rm -f /dev/shm/tailtag-replica/token
+   read -rs TOKEN && printf '%s\n' "$TOKEN" > /dev/shm/tailtag-replica/token && unset TOKEN
+   ```
+
+5. Export both paths:
+
+   ```sh
+   export TAILTAG_REPLICA_SESSION_FILE=/dev/shm/tailtag-replica/session.json
+   export TAILTAG_REPLICA_TOKEN_FILE=/dev/shm/tailtag-replica/token
+   ```
+
+`run-local` checks that the session host equals the manifest host. It does not check the project. Copy the project ID from the owner-private setup record exactly. A wrong project cannot reach another project's jobs. The `tt-simrelay` grants are only on the replica jobs and log view, so every relay call fails with a permission error.
+
+### Running a replica workload
+
+Use the profiles in `tools/simulator/host/replica/`. They use the pool `replica1`. Pass the newest promoted release receipt in the workspace. Prepare refuses an older one.
+
+```sh
+RECEIPT="$WORKSPACE/docs/development/replica-deployments/<RUN_ID>-<RUN_ATTEMPT>.json"
+.venv/bin/python -m tailtag_simulator.host_operator prepare \
+  --profile "$WORKSPACE/tools/simulator/host/replica/normal-profile.json" \
+  --safety-config "$WORKSPACE/tools/simulator/host/safety.json" \
+  --release "$RELEASE_DIR/release.json" --output "$STATE/manifests/replica-normal-1.json" \
+  --replica-session "$TAILTAG_REPLICA_SESSION_FILE" --receipt "$RECEIPT"
+```
+
+After prepare, prewarm the replica, and record the UTC time when the request returns. The run's warm results count only from a prewarmed start:
+
+```sh
+curl -fsS -o /dev/null https://<REPLICA_HOST>/health/ready && date -u +%Y-%m-%dT%H:%M:%SZ
+```
+
+Then start the workload right away:
+
+```sh
+.venv/bin/python -m tailtag_simulator.host_operator run-local \
+  --manifest "$STATE/manifests/replica-normal-1.json" --host-root "$HOST_ROOT" \
+  --workspace "$WORKSPACE" --tools "$HOST_ROOT/tools" --state-dir "$STATE"
+```
+
+The burst profile uses `tools/simulator/host/replica/burst-safety.json`. Enter the secret key of the replica Clerk application at the hidden prompt. `run-local` refuses to start unless both relay files are owner-only and the session host matches.
+
+### Replica ladder
+
+Run the steps in this order. Each step needs its own owner approval of target, profile, seed, ceilings and UTC window.
+
+| Step | Profile | Purpose |
+| --- | --- | --- |
+| R0 | None. A pool of 3 with one fixture provision, inspection and cleanup | First relay round trip. It also closes #355 AC6. |
+| R1 | `replica/journeys-profile.json` | Journeys correctness with 7 identities |
+| R2 | `replica/normal-profile.json`, twice | Warm latency, errors and throughput at the baseline load |
+| R3 | `replica/soak-profile.json` | Longer load at the soak rate |
+| R4 | `replica/hotspot-profile.json`, then `replica/retry-profile.json` | Hotspot and retry shapes |
+| R5 | `replica/burst-profile.json` with `replica/burst-safety.json` | The 2x burst |
+| Cold | Cold probe, below | Cold start in three states |
+
+Stop rules:
+
+- Any correctness failure or recovery hold stops the ladder.
+- From R3 on, a step needs the step before it to pass correctness and an error rate of 1% or less.
+- A latency miss does not block a step of the same size, but it blocks R5.
+
+After R0 passes, grow the pool to 20 with an approved `register` request. Before R5, grow it to 40 the same way.
+
+### Quiet window and cold probe
+
+A quiet window is a period with no traffic and no probes. It lasts at least 30 minutes. Read its state only from the control planes, on the Mac, with the owner `gcloud` login and `NEON_API_KEY` in the token terminal:
+
+```sh
+task replica-idle-state -- --project <PROJECT_ID> --neon-project <NEON_PROJECT_ID> state
+```
+
+The output gives the Cloud Run instance count by state and the Neon compute state. In the first window, read it twice, one minute apart, and make sure that `suspended_at` does not change. Before each window, record the possible blockers: Sentry uptime monitors, Cloud Scheduler jobs, job runs and open database sessions.
+
+The cold probe runs on the host from the release directory. It sends single requests with no credentials. It claims its output file before any request, so make the folder first:
+
+```sh
+install -d -m 0700 "$STATE/cold"
+.venv/bin/python -m tailtag_simulator.cold_probe --replica-session "$TAILTAG_REPLICA_SESSION_FILE" \
+  --state both-cold --idle-seconds 1800 --output "$STATE/cold/both-cold-1.json"
+```
+
+Set up each state like this:
+
+- `both-cold`: wait for a full quiet window, at least 30 minutes after the last request. The state reading shows 0 active and 0 idle instances, and an idle Neon compute. An idle instance is still warm, so it does not count as cold.
+- `database-cold`: send one request that wakes only the service, because `/health/live` does not use the database: `curl -fsS -o /dev/null https://<REPLICA_HOST>/health/live`. Then suspend the Neon compute with the Neon API. Wait until the state reading shows the compute idle and at least 1 instance.
+- `app-cold`: wait until the state reading shows 0 active and 0 idle instances. Then start the Neon compute with the Neon API, and wait until the state reading shows it active.
+
+Right before each sample, take one state reading and save its line next to the sample record. That line is the state before the request.
+
+The Neon API calls take the endpoint ID from the Neon console. `-o /dev/null` keeps the response, which names the host and IDs, out of the terminal:
+
+```sh
+curl -fsS -o /dev/null -X POST -H "Authorization: Bearer $NEON_API_KEY" https://console.neon.tech/api/v2/projects/<NEON_PROJECT_ID>/endpoints/<ENDPOINT_ID>/suspend
+curl -fsS -o /dev/null -X POST -H "Authorization: Bearer $NEON_API_KEY" https://console.neon.tech/api/v2/projects/<NEON_PROJECT_ID>/endpoints/<ENDPOINT_ID>/start
+```
+
+Each record gives each request's outcome and latency, and whether the first request finished within 5 seconds. A miss is a FAIL result, not a stop condition. Take 3 samples for `both-cold` and 5 each for the other states.
+
+### Replica backend context and cost
+
+Fill in the backend context file with these replica sources. A signal with no source is `not_observed`.
+
+| Signal | Replica source |
+| --- | --- |
+| `http_5xx` | Cloud Monitoring `run.googleapis.com/request_count` with `response_code_class` `5xx`, checked against the Cloud Logging request lines |
+| `server_latency` | Cloud Monitoring `run.googleapis.com/request_latencies`, or Sentry if #358 has wired it |
+| `db_connections` | Neon monitoring view: connections count, and deadlocks as the sign of transaction contention |
+| `worker_timeouts` | `not_observed`. The replica runs Gunicorn with `--timeout 0`, so Cloud Run owns request timeouts. |
+| `restarts_or_oom` | Cloud Logging container start and exit lines for the service |
+| `runtime_resources` | Cloud Monitoring `container/cpu/utilizations`, `container/memory/utilizations` and `container/instance_count` |
+| `domain_outcomes` | Cloud Logging structured outcome lines of the service |
+
+Record each run's cost as an estimate. Right before the run, read the Neon counters on the Mac:
+
+```sh
+task replica-idle-state -- --project <PROJECT_ID> --neon-project <NEON_PROJECT_ID> neon
+```
+
+At least 5 minutes after the run ends, read the usage for the run window. Monitoring points can arrive up to 3 minutes late, so an earlier reading undercounts:
+
+```sh
+task replica-idle-state -- --project <PROJECT_ID> --neon-project <NEON_PROJECT_ID> \
+  usage --start <RUN_START> --end <RUN_END>
+```
+
+The output gives the service and the relay jobs apart, because jobs bill as Cloud Run jobs. The Neon counters are totals for the Neon period, so the run's use is the difference between the two readings. Neon calls these counters usage, not billing. Multiply by the list prices in the proof. Later, compare the estimates with the monthly bill, using the #344 method.
+
+### Replica session end and kill switch
+
+At session end, run `shred -u` on the token and session files, remove the folder, and unset both variables. The token expires within 1 hour in any case.
+
+To stop the relays from anywhere, disable `tt-simrelay`, as the trust runbook compromise steps say. Every relay then fails with `FAIL_LAUNCHER`. The run fails with `FAIL_LEASE` after three failed heartbeats, and its hold stays in place. Recovery needs the relays again, so enable the account and mint a new token only after the cause is clear.
+
 ## External acceptance record
 
 Keep preparation/offline evidence separate from live evidence. An authorized live milestone needs:

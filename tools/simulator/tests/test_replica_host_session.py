@@ -17,6 +17,7 @@ from journey_support import JourneyWorld
 from platform_support import skip_on_windows
 from pool_support import SECRET
 from test_host_cli import (
+    HOST_DIR,
     JourneysRig,
     RoleKeyedInspection,
     bridge,
@@ -24,6 +25,7 @@ from test_host_cli import (
     install_http,
     journeys_host_manifest,
     packaged_source,
+    prepare_committed,
     section,
 )
 from test_journeys import make_rig as make_journeys_rig
@@ -377,3 +379,84 @@ def test_in_container_replica_run_reaches_only_replica_hosts(
     assert prompts and "Replica" in prompts[0]
     text = "".join(p.read_text() for p in (root / "reports").rglob("*.json"))
     assert HOST not in text
+
+
+REPLICA_PROFILES = sorted(
+    path.name for path in (HOST_DIR / "replica").glob("*-profile.json")
+)
+
+
+@pytest.mark.parametrize("profile", REPLICA_PROFILES)
+def test_every_committed_replica_profile_prepares_a_replica_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile: str
+) -> None:
+    """U4, AC19: each ladder profile prepares against the replica pool and tier."""
+    assert REPLICA_PROFILES == [
+        "burst-profile.json",
+        "hotspot-profile.json",
+        "journeys-profile.json",
+        "normal-profile.json",
+        "retry-profile.json",
+        "soak-profile.json",
+    ]
+    safety = (
+        "replica/burst-safety.json"
+        if profile == "burst-profile.json"
+        else "safety.json"
+    )
+    release = {
+        "schema_version": 1,
+        **section(host_manifest(), "release"),
+        "archive_sha256": "e" * 64,
+    }
+    (tmp_path / "release.json").write_text(json.dumps(release))
+    session = private(
+        private_root(tmp_path) / "session.json",
+        json.dumps({"project": "synthetic-project", "host": HOST}),
+    )
+    folder = tmp_path / "replica-deployments"
+    folder.mkdir()
+    chosen = receipt(folder, "2-1.json", "2026-10-27T17:46:36Z")
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health/ready":
+            return httpx.Response(200, json={"status": "ok"})
+        return httpx.Response(200, json=IDENTITY)
+
+    install_http(monkeypatch, respond)
+    output = tmp_path / "manifest.json"
+    code = operator_main(
+        [
+            "prepare",
+            "--profile",
+            str(HOST_DIR / "replica" / profile),
+            "--safety-config",
+            str(HOST_DIR / safety),
+            "--release",
+            str(tmp_path / "release.json"),
+            "--output",
+            str(output),
+            "--replica-session",
+            str(session),
+            "--receipt",
+            str(chosen),
+        ]
+    )
+
+    assert code == 0
+    manifest = cast(dict[str, Any], json.loads(output.read_text()))
+    assert manifest["target"] == {"name": "replica", "origin": ORIGIN}
+    assert manifest["configuration"]["pool"] == "replica1"
+
+
+def test_the_burst_profile_is_refused_for_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC15: the 2x burst tier exists only for the replica."""
+    code, output, seen = prepare_committed(
+        tmp_path, monkeypatch, "replica/burst-profile.json", "replica/burst-safety.json"
+    )
+
+    assert code != 0
+    assert not output.exists()
+    assert seen == []
