@@ -21,7 +21,7 @@ A connection is one path where one party trusts another. Each connection has one
 | Connection | Identity | Issuer, signature and key | Audience and authorized party | TLS and server validation |
 | --- | --- | --- | --- | --- |
 | Cloud Run ingress | Anyone. The service is public, like Staging. | None at ingress. The API checks each request. | None | Google-managed certificate on the `run.app` host |
-| Clerk session tokens | The two synthetic Clerk users | RS256 signature checked offline with the pinned key in `clerk-jwt-key`. The key is the issuer boundary. The API has no `iss` check. | `aud` is not configured, so a token that carries `aud` fails. `azp` must be in the allowlist, which holds only `https://accounts.replica.tailtag.app`. A token with no `azp` passes only when `exp - iat` is 60 seconds or less. | No call to Clerk at verification time |
+| Clerk session tokens | The two synthetic Clerk users | RS256 signature checked offline with the pinned key in `clerk-jwt-key`. The key is the issuer boundary. The API has no `iss` check. | `aud` is not configured, so a token that carries `aud` fails. `azp` must be in the allowlist, which holds `https://accounts.replica.tailtag.app` and then `https://simulator.replica.tailtag.app`. The simulator origin has no DNS record, and only simulator pool tokens carry it (#359). A token with no `azp` passes only when `exp - iat` is 60 seconds or less. | No call to Clerk at verification time |
 | Neon `runtime` | `tt-runtime` through `runtime-database-url` | Password | None | `sslmode=verify-full` with the Debian CA bundle (`SSL_CERT_FILE`) |
 | Neon `migrator` | `tt-migrator` through `migrator-database-url` | Password | None | Same as `runtime` |
 | Neon `maintainer` | `tt-maintainer` through `maintainer-database-url` | Password | None | Same as `runtime` |
@@ -31,6 +31,7 @@ A connection is one path where one party trusts another. Each connection has one
 | Secret Manager | Each service account, by named secret | Google IAM | None | Google APIs over TLS |
 | Artifact Registry | `tt-deployer` pushes. Cloud Run pulls. | Google IAM | None | Google APIs over TLS |
 | GitHub WIF | `tt-deployer` | GitHub OIDC token. WIF (Workload Identity Federation) is the keyless sign-in from GitHub Actions. | The pool accepts only this repository, the `replica` environment and the workflow ref | Google STS over TLS |
+| Simulator relay | `tt-simrelay`, used by the simulation host during an attended session | A 1-hour access token that the owner mints by impersonation | Runs and views the pool, fixture and inspect jobs only. Reads the stdout of those jobs through the `simrelay-job-results` log view only. A run with overrides can change job environment values, so a token holder can act as `tt-runtime`. See [Simulator relay](#simulator-relay). | Google APIs over TLS |
 | Terraform state | The owner and `tf-infra` | Google IAM | None | Google APIs over TLS |
 | Neon Terraform token | The owner, through `tf-infra` runs | Neon API key, held only in the owner's token terminal | The replica Neon organization | HTTPS to the Neon API |
 | Porkbun DNS | The owner | Porkbun account login | None | HTTPS to Porkbun |
@@ -51,6 +52,7 @@ A connection is one path where one party trusts another. Each connection has one
 | Secret Manager | The owner (replica project) | One accessor binding per secret and identity | None | None |
 | Artifact Registry | The owner | Deployer writes. Tags are immutable. | None | None |
 | GitHub WIF | The owner | Deployer runs the migrate job and acts as `tt-runtime` and `tt-migrator` only | No key | [Deployer](#deployer) |
+| Simulator relay | The owner | Job executor with overrides and viewer on three jobs. View accessor on one log view. On a compromise, treat it as `tt-runtime` with its secrets. | No key. The token lives in an owner-only session file on the host. | [Simulator relay](#simulator-relay) |
 | Terraform state | The owner | Read by the owner and `tf-infra` only | It holds the Neon admin password | [Neon admin password](#neon-admin-password) |
 | Neon Terraform token | The owner | Neon organization API key | The owner's token terminal only | [Provider tokens](#provider-tokens) |
 | Porkbun DNS | The owner | Clerk records under `replica.tailtag.app` | Porkbun account | [Porkbun](#porkbun) |
@@ -116,6 +118,31 @@ The Cloudflare and Neon Terraform tokens live only in the owner's token terminal
 ### Deployer
 
 `tt-deployer` has no key. On a compromise of the GitHub workflow or the `replica` environment, remove the deployer subject binding with a Terraform change. Then read the Cloud Run audit log for actions by the deployer.
+
+### Simulator relay
+
+`tt-simrelay` has no key. Only the account in `simrelay_token_minter` can mint its tokens, and a token lasts 1 hour. The host deletes the token file at session end.
+
+The relay needs runs with overrides, because each job reads its request from the `TAILTAG_JOB_REQUEST` environment value. An override can also change other environment values, add arguments, raise the task count and change the timeout. IAM cannot limit which fields an override sets. These controls narrow it:
+
+- The job command is fixed as `python -E -s -u manage.py <command>`, with no arguments. `-E` makes Python ignore every `PYTHON*` value.
+- The job refuses appended arguments and any task count other than 1, with `FAIL_REQUEST`.
+- Job admission still checks the replica pin, the source SHA and the hashed database and media targets.
+
+Residual risk: a token holder can still change other environment values and the timeout. No known path turns that into code execution, but this is not proven. So treat a stolen token as a stolen `tt-runtime` identity, with `runtime-database-url`, `django-secret-key` and both media keys.
+
+If the token or the simulation host is compromised, do these steps in order:
+
+1. Disable `tt-simrelay` with `gcloud iam service-accounts disable tt-simrelay@<PROJECT_ID>.iam.gserviceaccount.com --project=<PROJECT_ID>`. Google documents that a disabled account loses access to resources. A minted token also expires within 1 hour.
+2. Cancel each running execution of the pool, fixture and inspect jobs. Run `gcloud run jobs executions list --job=<JOB> --region=us-east4 --project=<PROJECT_ID>`, then `gcloud run jobs executions cancel <EXECUTION> --region=us-east4 --project=<PROJECT_ID>` for each running one.
+3. Read the Cloud Run audit log for executions by `tt-simrelay`, and read the logs of those executions.
+4. Rotate the `tt-runtime` secrets:
+   - the database passwords, with [Database role passwords](#database-role-passwords)
+   - the R2 token, with the compromise steps in [R2 runtime token](#r2-runtime-token)
+   - `django-secret-key`, with the command in step 3 of the provisioning runbook
+5. Run a release of the serving SHA, so that the service starts with the new versions. Jobs read the new versions at their next execution.
+6. Recover any held simulator run with the recovery steps in the simulation host runbook.
+7. Enable the account again only after the host is clean.
 
 ### Clerk key
 
@@ -227,7 +254,7 @@ The Neon admin password in Terraform state is a known exposure, so do not scan t
 
 ### IAM readback
 
-Run Policy Troubleshooter for `tt-runtime`, `tt-migrator`, `tt-maintainer`, `tt-deployer` and `tf-infra`. Policy Troubleshooter is a Google Cloud tool that tells whether IAM grants a permission. Check every named secret, the run and update permissions of each job, and `setIamPolicy` on the service, the jobs and the project. Use the command form in step 7 of the provisioning runbook. Run at most two checks at a time and retry after HTTP 429, because Policy Troubleshooter has a low request quota. Then read the IAM policies of the project, each secret and each job, and list every binding.
+Run Policy Troubleshooter for `tt-runtime`, `tt-migrator`, `tt-maintainer`, `tt-deployer`, `tt-simrelay` and `tf-infra`. Policy Troubleshooter is a Google Cloud tool that tells whether IAM grants a permission. Check every named secret, the run and update permissions of each job, and `setIamPolicy` on the service, the jobs and the project. For `tt-simrelay`, also check `run.jobs.runWithOverrides` on each job and `logging.views.access` on the `simrelay-job-results` view. Use the command form in step 7 of the provisioning runbook. Run at most two checks at a time and retry after HTTP 429, because Policy Troubleshooter has a low request quota. Then read the IAM policies of the project, each secret and each job, and list every binding.
 
 The overall answer reads `UNKNOWN_INFO` when the owner cannot read organization deny policies. In that case, record the allow policy state.
 

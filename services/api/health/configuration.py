@@ -22,7 +22,11 @@ _CONFIGURATION_ERROR: Final = "Health configuration unavailable"
 _PRODUCTION_SETTINGS: Final = "config.settings.production"
 _STAGING_HOST: Final = "staging.tailtag.app"
 _RAILWAY_HEALTHCHECK_HOST: Final = "healthcheck.railway.app"
-_REPLICA_CLERK_PARTY: Final = "https://accounts.replica.tailtag.app"
+# Account Portal first, then the simulator tooling origin (#359), like Staging.
+_REPLICA_CLERK_PARTIES: Final = (
+    "https://accounts.replica.tailtag.app",
+    "https://simulator.replica.tailtag.app",
+)
 _LOCAL_STORAGE_BACKENDS: Final = frozenset(
     {
         "django.core.files.storage.FileSystemStorage",
@@ -118,9 +122,10 @@ def _validate_replica(source_sha: str | None, deployment_id: str | None) -> None
     ):
         raise ValueError
     host = replica_binding.validate_run_app_host(settings.ALLOWED_HOSTS)
-    if settings.CSRF_TRUSTED_ORIGINS != [
-        f"https://{host}"
-    ] or settings.CLERK_AUTHENTICATION.authorized_parties != (_REPLICA_CLERK_PARTY,):
+    if (
+        settings.CSRF_TRUSTED_ORIGINS != [f"https://{host}"]
+        or settings.CLERK_AUTHENTICATION.authorized_parties != _REPLICA_CLERK_PARTIES
+    ):
         raise ValueError
     replica_binding.validate_data_targets(
         cast(Mapping[str, object], settings.DATABASES["default"]),
