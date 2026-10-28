@@ -571,7 +571,7 @@ run "simrelay_is_least_privilege" {
   assert {
     condition = (
       google_logging_log_view.simrelay_job_results.bucket == "projects/fake-replica-project/locations/global/buckets/_Default"
-      && google_logging_log_view.simrelay_job_results.filter == "resource.type = \"cloud_run_job\" AND LOG_ID(\"run.googleapis.com/stdout\") AND (resource.labels.job_name = \"tailtag-replica-fixture\" OR resource.labels.job_name = \"tailtag-replica-inspect\" OR resource.labels.job_name = \"tailtag-replica-pool\")"
+      && google_logging_log_view.simrelay_job_results.filter == "resource.type = \"cloud_run_job\" AND LOG_ID(\"run.googleapis.com/stdout\") AND resource.labels.job_name =~ \"^tailtag-replica-(fixture|inspect|pool)$\""
     )
     error_message = "The relay log view must show the stdout of the three relay jobs only."
   }
