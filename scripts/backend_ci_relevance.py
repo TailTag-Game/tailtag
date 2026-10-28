@@ -20,6 +20,7 @@ BACKEND_RELEVANT_FILES = {
     "scripts/api_sim_fixture_ssh.py",
     "scripts/api_sim_inspect_ssh.py",
     "scripts/api_sim_pool_ssh.py",
+    "scripts/api_sim_replica_relay.py",
     "scripts/api_staging_emergency_operator_ssh.py",
     "scripts/api_staging_emergency_operator_decommission_ssh.py",
     "scripts/api_staging_promote.py",
