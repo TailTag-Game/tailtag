@@ -28,6 +28,27 @@ resource "google_project_iam_custom_role" "secret_manager_admin_no_access" {
   depends_on = [google_project_service.enabled]
 }
 
+# Manages log views and their IAM for the simulator relay view (#359), without
+# logging.views.access, so tf-infra cannot read logs through a view. As above,
+# setIamPolicy could grant more. No predefined role fits: logging.configWriter
+# lacks views.setIamPolicy and adds sinks, and logging.admin reads logs.
+resource "google_project_iam_custom_role" "log_view_admin_no_access" {
+  project = google_project.replica.project_id
+  role_id = "logViewAdminNoAccess"
+  title   = "Log view admin without log access"
+  permissions = [
+    "logging.views.create",
+    "logging.views.delete",
+    "logging.views.get",
+    "logging.views.list",
+    "logging.views.update",
+    "logging.views.getIamPolicy",
+    "logging.views.setIamPolicy",
+  ]
+
+  depends_on = [google_project_service.enabled]
+}
+
 locals {
   tf_infra_roles = {
     service_account_admin = "roles/iam.serviceAccountAdmin"
@@ -39,6 +60,7 @@ locals {
     # that set a quota project need it; it grants no resource access.
     service_usage_consumer = "roles/serviceusage.serviceUsageConsumer"
     secret_manager         = google_project_iam_custom_role.secret_manager_admin_no_access.id
+    log_views              = google_project_iam_custom_role.log_view_admin_no_access.id
   }
 }
 

@@ -34,16 +34,27 @@ run "tf_infra_is_least_privilege" {
   }
 
   assert {
-    condition = length(google_project_iam_member.tf_infra) == 7 && length([
+    condition = length(google_project_iam_member.tf_infra) == 8 && toset([
       for v in google_project_iam_member.tf_infra : v.role if !startswith(v.role, "roles/")
-      ]) == 1 && alltrue([
-      for v in google_project_iam_member.tf_infra :
-      startswith(v.role, "roles/") || contains([
-        google_project_iam_custom_role.secret_manager_admin_no_access.id,
-        google_project_iam_custom_role.secret_manager_admin_no_access.name,
-      ], v.role)
+      ]) == toset([
+      google_project_iam_custom_role.secret_manager_admin_no_access.id,
+      google_project_iam_custom_role.log_view_admin_no_access.id,
     ])
-    error_message = "tf-infra must hold exactly one more role, the custom secret-manager role."
+    error_message = "tf-infra must hold exactly two more roles, the custom secret-manager and log view roles."
+  }
+
+  # #359: the log view role manages views and their IAM, but cannot read logs.
+  assert {
+    condition = toset(google_project_iam_custom_role.log_view_admin_no_access.permissions) == toset([
+      "logging.views.create",
+      "logging.views.delete",
+      "logging.views.get",
+      "logging.views.list",
+      "logging.views.update",
+      "logging.views.getIamPolicy",
+      "logging.views.setIamPolicy",
+    ])
+    error_message = "The log view role must hold exactly the view and view IAM permissions, and no log access."
   }
 
   assert {
