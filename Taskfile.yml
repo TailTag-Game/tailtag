@@ -626,31 +626,31 @@ tasks:
         {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator smoke --target '{{.TARGET | default "" | replace "'" "'\"'\"'"}}' {{if .BASE_URL}}--base-url '{{.BASE_URL | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .VERSION}}--scenario-version '{{.VERSION | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .SEED}}--seed '{{.SEED | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .REPORT_DIR}}--report-dir '{{.REPORT_DIR | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .SAFETY_CONFIG}}--safety-config '{{.SAFETY_CONFIG | replace "'" "'\"'\"'"}}'{{end}}
 
   sim-pool-provision:
-    desc: "Provision or expand the Staging identity pool: POOL=name SIZE=n (host only)."
+    desc: "Provision or expand an identity pool: POOL=name SIZE=n [REPLICA_SESSION=path RECEIPT=path] (host only)."
     cmds:
       - cmd: >-
           test -n "{{.POOL}}" -a -n "{{.SIZE}}" || { printf '%s\n' 'POOL and SIZE are required.' >&2; exit 2; }
         silent: true
       - >-
-        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator pool provision --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' --size '{{.SIZE | default "" | replace "'" "'\"'\"'"}}'
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator pool provision --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' --size '{{.SIZE | default "" | replace "'" "'\"'\"'"}}' {{if .REPLICA_SESSION}}--replica-session '{{.REPLICA_SESSION | replace "'" "'\"'\"'"}}'{{end}} {{if .RECEIPT}}--receipt '{{.RECEIPT | replace "'" "'\"'\"'"}}'{{end}}
 
   sim-pool-status:
-    desc: "Show Staging identity pool counts: POOL=name (host only)."
+    desc: "Show identity pool counts: POOL=name [REPLICA_SESSION=path RECEIPT=path] (host only)."
     cmds:
       - cmd: >-
           test -n "{{.POOL}}" || { printf '%s\n' 'POOL is required.' >&2; exit 2; }
         silent: true
       - >-
-        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator pool status --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}'
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator pool status --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' {{if .REPLICA_SESSION}}--replica-session '{{.REPLICA_SESSION | replace "'" "'\"'\"'"}}'{{end}} {{if .RECEIPT}}--receipt '{{.RECEIPT | replace "'" "'\"'\"'"}}'{{end}}
 
   sim-pool-readmit:
-    desc: "Re-admit a repaired quarantined identity: POOL=name INDEX=n (host only)."
+    desc: "Re-admit a repaired quarantined identity: POOL=name INDEX=n [REPLICA_SESSION=path RECEIPT=path] (host only)."
     cmds:
       - cmd: >-
           test -n "{{.POOL}}" -a -n "{{.INDEX}}" || { printf '%s\n' 'POOL and INDEX are required.' >&2; exit 2; }
         silent: true
       - >-
-        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator pool readmit --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' --index '{{.INDEX | default "" | replace "'" "'\"'\"'"}}'
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator pool readmit --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' --index '{{.INDEX | default "" | replace "'" "'\"'\"'"}}' {{if .REPLICA_SESSION}}--replica-session '{{.REPLICA_SESSION | replace "'" "'\"'\"'"}}'{{end}} {{if .RECEIPT}}--receipt '{{.RECEIPT | replace "'" "'\"'\"'"}}'{{end}}
 
   sim-pool-smoke:
     desc: "Run the Staging identity pool smoke: POOL=name COUNT=n (host only)."
@@ -662,13 +662,13 @@ tasks:
         {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator pool-smoke --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' --count '{{.COUNT | default "" | replace "'" "'\"'\"'"}}' {{if .VERSION}}--scenario-version '{{.VERSION | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .SEED}}--seed '{{.SEED | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .REPORT_DIR}}--report-dir '{{.REPORT_DIR | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .SAFETY_CONFIG}}--safety-config '{{.SAFETY_CONFIG | replace "'" "'\"'\"'"}}'{{end}}
 
   sim-fixture-smoke:
-    desc: "Run the Staging fixture smoke: POOL=name [OWNERS=n FURSUITS=k CATCHERS=m] (host only)."
+    desc: "Run the fixture smoke: POOL=name [OWNERS=n FURSUITS=k CATCHERS=m REPLICA_SESSION=path RECEIPT=path] (host only)."
     cmds:
       - cmd: >-
           test -n "{{.POOL}}" || { printf '%s\n' 'POOL is required.' >&2; exit 2; }
         silent: true
       - >-
-        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator fixture-smoke --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' {{if .OWNERS}}--owners '{{.OWNERS | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .FURSUITS}}--fursuits '{{.FURSUITS | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .CATCHERS}}--catchers '{{.CATCHERS | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .VERSION}}--scenario-version '{{.VERSION | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .SEED}}--seed '{{.SEED | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .REPORT_DIR}}--report-dir '{{.REPORT_DIR | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .SAFETY_CONFIG}}--safety-config '{{.SAFETY_CONFIG | replace "'" "'\"'\"'"}}'{{end}}
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator fixture-smoke --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' {{if .OWNERS}}--owners '{{.OWNERS | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .FURSUITS}}--fursuits '{{.FURSUITS | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .CATCHERS}}--catchers '{{.CATCHERS | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .VERSION}}--scenario-version '{{.VERSION | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .SEED}}--seed '{{.SEED | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .REPORT_DIR}}--report-dir '{{.REPORT_DIR | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .SAFETY_CONFIG}}--safety-config '{{.SAFETY_CONFIG | replace "'" "'\"'\"'"}}'{{end}} {{if .REPLICA_SESSION}}--replica-session '{{.REPLICA_SESSION | replace "'" "'\"'\"'"}}'{{end}} {{if .RECEIPT}}--receipt '{{.RECEIPT | replace "'" "'\"'\"'"}}'{{end}}
 
   sim-journeys:
     desc: "Run the Staging acceptance journeys: POOL=name (host only; leases 7 identities)."
@@ -686,18 +686,19 @@ tasks:
         {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator convention --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' --family '{{.FAMILY | default "" | replace "'" "'\"'\"'"}}' {{if .CONFIG}}--config '{{.CONFIG | replace "'" "'\"'\"'"}}'{{end}} {{if .VERSION}}--scenario-version '{{.VERSION | replace "'" "'\"'\"'"}}'{{end}} {{if .SEED}}--seed '{{.SEED | replace "'" "'\"'\"'"}}'{{end}} {{if .REPORT_DIR}}--report-dir '{{.REPORT_DIR | replace "'" "'\"'\"'"}}'{{end}} {{if .SAFETY_CONFIG}}--safety-config '{{.SAFETY_CONFIG | replace "'" "'\"'\"'"}}'{{end}} {{if has .UNATTENDED (list "1" "true" "yes")}}--unattended{{end}}
 
   sim-cleanup:
-    desc: "Clean one Staging simulation run and readmit its identities: POOL=name RUN_ID=id (host only)."
+    desc: "Clean one simulation run and readmit its identities: POOL=name RUN_ID=id [REPLICA_SESSION=path RECEIPT=path] (host only)."
     cmds:
       - cmd: >-
           test -n "{{.POOL}}" -a -n "{{.RUN_ID}}" || { printf '%s\n' 'POOL and RUN_ID are required.' >&2; exit 2; }
         silent: true
       - >-
-        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator cleanup --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' --run-id '{{.RUN_ID | default "" | replace "'" "'\"'\"'"}}'
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator cleanup --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' --run-id '{{.RUN_ID | default "" | replace "'" "'\"'\"'"}}' {{if .REPLICA_SESSION}}--replica-session '{{.REPLICA_SESSION | replace "'" "'\"'\"'"}}'{{end}} {{if .RECEIPT}}--receipt '{{.RECEIPT | replace "'" "'\"'\"'"}}'{{end}}
 
   sim-retained:
-    desc: "List retained and unfinished Staging simulation runs (host only)."
+    desc: "List retained and unfinished simulation runs [REPLICA_SESSION=path RECEIPT=path] (host only)."
     cmds:
-      - '{{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator retained'
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator retained {{if .REPLICA_SESSION}}--replica-session '{{.REPLICA_SESSION | replace "'" "'\"'\"'"}}'{{end}} {{if .RECEIPT}}--receipt '{{.RECEIPT | replace "'" "'\"'\"'"}}'{{end}}
 
   sim-image:
     desc: "Build verified clean simulator source: [PLATFORM=linux/amd64 for the host]."
