@@ -1,0 +1,16 @@
+{
+  "scenario_id": "convention-hotspot",
+  "scenario_version": 2,
+  "seed": 23002,
+  "configuration": {
+    "pool": "replica1",
+    "family": "hotspot",
+    "normal_owners": 2,
+    "popular_owners": 2,
+    "casual": 8,
+    "active": 4,
+    "heavy": 2,
+    "retry_prone": 2,
+    "fursuits": 1
+  }
+}

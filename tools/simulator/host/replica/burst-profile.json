@@ -1,0 +1,37 @@
+{
+  "scenario_id": "convention-baseline",
+  "scenario_version": 2,
+  "seed": 22802,
+  "configuration": {
+    "pool": "replica1",
+    "family": "baseline",
+    "normal_owners": 2,
+    "popular_owners": 2,
+    "casual": 16,
+    "active": 16,
+    "heavy": 0,
+    "retry_prone": 0,
+    "fursuits": 1,
+    "traffic": {
+      "mode": "active",
+      "segments": [
+        {
+          "duration_seconds": 300,
+          "start": 20,
+          "end": 20
+        }
+      ],
+      "bursts": [],
+      "think_seconds": 1,
+      "jitter_seconds": 0,
+      "bucket_seconds": 1
+    },
+    "limits": {
+      "active": 20,
+      "in_flight": 20,
+      "attempts": 18000,
+      "generation_seconds": 360,
+      "drain_seconds": 15
+    }
+  }
+}
