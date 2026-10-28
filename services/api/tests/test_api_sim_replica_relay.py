@@ -138,7 +138,7 @@ def cloud(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> RelayCloud:
     session.write_text(json.dumps({"project": PROJECT, "host": HOST}))
     token = private / "token"
     write_config(token, {})
-    token.write_text(TOKEN + "\n")
+    token.write_bytes(TOKEN.encode() + b"\n")
     monkeypatch.setenv("TAILTAG_REPLICA_SESSION_FILE", str(session))
     monkeypatch.setenv("TAILTAG_REPLICA_TOKEN_FILE", str(token))
     return fake
@@ -303,6 +303,20 @@ def test_private_inputs_must_be_owner_only_and_pinned(
 
     assert (code, out) == (1, FAILURE_LINE)
     assert cloud.requests == []
+
+
+@pytest.mark.parametrize(
+    "ending", [b"", b"\r\n"], ids=["no-line-end", "windows-line-end"]
+)
+def test_token_file_may_end_with_one_line_end_of_either_form(
+    cloud: RelayCloud, tmp_path: Path, ending: bytes
+) -> None:
+    """R2: a token file written on Windows or with no line end still works."""
+    (tmp_path / "private" / "token").write_bytes(TOKEN.encode() + ending)
+
+    code, out = call()
+
+    assert (code, json.loads(out)["result"]) == (0, "PASS")
 
 
 def padded(size: int) -> dict[str, object]:

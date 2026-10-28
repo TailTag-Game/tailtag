@@ -131,7 +131,9 @@ def _session() -> tuple[str, str]:
 
 
 def _token() -> str:
-    token = _private(_TOKEN_ENVIRONMENT, _MAX_TOKEN_BYTES).removesuffix("\n")
+    # One trailing line end is allowed, in POSIX or Windows form.
+    token = _private(_TOKEN_ENVIRONMENT, _MAX_TOKEN_BYTES)
+    token = token.removesuffix("\n").removesuffix("\r")
     if _job._TOKEN.fullmatch(token) is None:  # pyright: ignore[reportPrivateUsage]
         raise ValueError
     return token
