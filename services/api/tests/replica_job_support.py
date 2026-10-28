@@ -43,7 +43,12 @@ def runtime_identity(job: str, source_sha: str | None = SOURCE_SHA) -> dict[str,
 
 def job_environ(job: str) -> dict[str, str]:
     """Return the Cloud Run job markers that `read_cloud_run_target` reads."""
-    return {"CLOUD_RUN_JOB": job, "CLOUD_RUN_EXECUTION": execution_id(job)}
+    return {
+        "CLOUD_RUN_JOB": job,
+        "CLOUD_RUN_EXECUTION": execution_id(job),
+        "CLOUD_RUN_TASK_COUNT": "1",
+        "CLOUD_RUN_TASK_INDEX": "0",
+    }
 
 
 def service_environ() -> dict[str, str]:
@@ -76,6 +81,8 @@ def configure_process(
     replica_contract.set_cloud_run_environment(monkeypatch, kind="job")
     for name in ("CLOUD_RUN_JOB", "CLOUD_RUN_EXECUTION"):
         monkeypatch.delenv(name)
+    for name in ("CLOUD_RUN_TASK_COUNT", "CLOUD_RUN_TASK_INDEX"):
+        monkeypatch.delenv(name, raising=False)
     markers = {
         "job": job_environ(job),
         "service": service_environ(),

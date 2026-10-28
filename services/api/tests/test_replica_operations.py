@@ -10,7 +10,7 @@ from __future__ import annotations
 import importlib
 import json
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final
 
@@ -82,10 +82,19 @@ def invoke(
         database: Mapping[str, object] | None = None,
         media_bucket: str = replica_contract.MEDIA_BUCKET,
         uses_media: bool = False,
+        argv: Sequence[str] | None = None,
+        task: Mapping[str, str | None] | None = None,
     ) -> dict[str, Any]:
         support.configure_process(
             monkeypatch, tmp_path, process=process, job=job, source_sha=source_sha
         )
+        # Cloud Run starts `python -E -s -u manage.py <command>` with no arguments.
+        monkeypatch.setattr(sys, "argv", ["manage.py", command, *(argv or ())])
+        for name, value in (task or {}).items():
+            if value is None:
+                monkeypatch.delenv(name, raising=False)
+            else:
+                monkeypatch.setenv(name, value)
         monkeypatch.setattr(django_settings, "SETTINGS_MODULE", settings_module)
         monkeypatch.setenv("DJANGO_SETTINGS_MODULE", settings_module)
         payload: dict[str, object] = dict(extra or {})
@@ -279,6 +288,36 @@ def test_command_is_refused_outside_its_own_pinned_job_before_any_database_acces
         output = invoke("replica_pool", POOL_REGISTER, job=job, process=process)
 
     assert output["result"] == "FAIL_TARGET"
+    assert output["data"] == {}
+    assert PoolSlot.objects.count() == 0
+
+
+@pytest.mark.parametrize(
+    ("argv", "task"),
+    (
+        pytest.param(
+            ["--settings=config.settings.local"], None, id="appended-settings"
+        ),
+        pytest.param(["--pythonpath=/tmp"], None, id="appended-pythonpath"),
+        pytest.param(["extra"], None, id="appended-positional"),
+        pytest.param(None, {"CLOUD_RUN_TASK_COUNT": "2"}, id="two-tasks"),
+        pytest.param(None, {"CLOUD_RUN_TASK_INDEX": "1"}, id="second-task"),
+        pytest.param(None, {"CLOUD_RUN_TASK_COUNT": None}, id="no-task-count"),
+    ),
+)
+def test_overridden_invocation_is_refused_before_any_database_access(
+    invoke: Invoke,
+    django_assert_num_queries: Any,
+    argv: list[str] | None,
+    task: dict[str, str | None] | None,
+) -> None:
+    """#359 HIGH-1: a run with overrides cannot add arguments or extra tasks."""
+    with django_assert_num_queries(0):
+        output = invoke(
+            "replica_pool", POOL_REGISTER, job=support.POOL_JOB, argv=argv, task=task
+        )
+
+    assert output["result"] == "FAIL_REQUEST"
     assert output["data"] == {}
     assert PoolSlot.objects.count() == 0
 

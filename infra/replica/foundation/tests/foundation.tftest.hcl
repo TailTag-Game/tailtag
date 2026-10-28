@@ -40,6 +40,14 @@ override_resource {
   }
 }
 
+override_resource {
+  target = google_service_account.simrelay
+  values = {
+    name  = "projects/fake-replica-project/serviceAccounts/tt-simrelay@fake-replica-project.iam.gserviceaccount.com"
+    email = "tt-simrelay@fake-replica-project.iam.gserviceaccount.com"
+  }
+}
+
 # The deterministic Cloud Run host uses the project number, which the mock
 # provider cannot invent in a recognisable form.
 override_data {
@@ -57,6 +65,7 @@ variables {
   cloudflare_account_id = "00000000000000000000000000000000"
   wire_runtime_secrets  = false
   wire_sentry_dsn       = false
+  simrelay_token_minter = "user:owner@example.test"
 }
 
 # AC17 and the #344 regression: every identity reads only the secrets it needs.
@@ -407,7 +416,7 @@ run "service_shape_and_non_secret_env" {
       DJANGO_ALLOWED_HOSTS         = "tailtag-api-replica-123456789012.us-east4.run.app,candidate---tailtag-api-replica-123456789012.us-east4.run.app"
       DJANGO_CSRF_TRUSTED_ORIGINS  = "https://tailtag-api-replica-123456789012.us-east4.run.app"
       CLERK_AUTHENTICATION_ENABLED = "true"
-      CLERK_AUTHORIZED_PARTIES     = "https://accounts.replica.tailtag.app"
+      CLERK_AUTHORIZED_PARTIES     = "https://accounts.replica.tailtag.app,https://simulator.replica.tailtag.app"
       MEDIA_STORAGE_ENDPOINT_URL   = "https://00000000000000000000000000000000.r2.cloudflarestorage.com"
       MEDIA_STORAGE_BUCKET_NAME    = cloudflare_r2_bucket.media.name
       MEDIA_STORAGE_REGION         = "auto"
@@ -454,12 +463,12 @@ run "job_shells_have_the_contracted_shape" {
   assert {
     condition = alltrue([
       for family, job in google_cloud_run_v2_job.replica : (
-        jsonencode(job.template[0].template[0].containers[0].command) == jsonencode(["python"])
-        && jsonencode(job.template[0].template[0].containers[0].args) == jsonencode(["manage.py", "replica_${replace(family, "-", "_")}"])
+        jsonencode(job.template[0].template[0].containers[0].command) == jsonencode(["python", "-E", "-s", "-u", "manage.py", "replica_${replace(family, "-", "_")}"])
+        && try(length(job.template[0].template[0].containers[0].args), 0) == 0
         && job.template[0].template[0].containers[0].image == "us-docker.pkg.dev/cloudrun/container/hello"
       )
     ])
-    error_message = "Each job must run python manage.py replica_<family> from the placeholder image."
+    error_message = "Each job must run python -E -s -u manage.py replica_<family> with no args from the placeholder image."
   }
 
   assert {
@@ -528,4 +537,70 @@ run "job_shells_have_the_contracted_shape" {
     )
     error_message = "job_names must map family to job name and maintainer_email must be the reset identity."
   }
+}
+
+# #359 AC11: the simulator relay runs and reads the pool, fixture and inspect
+# jobs only, reads only their result lines, and one owner mints its tokens.
+run "simrelay_is_least_privilege" {
+  command = apply
+
+  assert {
+    condition = toset([
+      for m in values(google_cloud_run_v2_job_iam_member.simrelay_executor) : m.name
+      if m.role == "roles/run.jobsExecutorWithOverrides" && m.member == "serviceAccount:${google_service_account.simrelay.email}"
+      ]) == toset([
+      google_cloud_run_v2_job.replica["pool"].name,
+      google_cloud_run_v2_job.replica["fixture"].name,
+      google_cloud_run_v2_job.replica["inspect"].name,
+    ])
+    error_message = "tt-simrelay must run the pool, fixture and inspect jobs only."
+  }
+
+  assert {
+    condition = toset([
+      for m in values(google_cloud_run_v2_job_iam_member.simrelay_viewer) : m.name
+      if m.role == "roles/run.viewer" && m.member == "serviceAccount:${google_service_account.simrelay.email}"
+      ]) == toset([
+      google_cloud_run_v2_job.replica["pool"].name,
+      google_cloud_run_v2_job.replica["fixture"].name,
+      google_cloud_run_v2_job.replica["inspect"].name,
+    ])
+    error_message = "tt-simrelay must view the pool, fixture and inspect jobs only."
+  }
+
+  assert {
+    condition = (
+      google_logging_log_view.simrelay_job_results.bucket == "projects/fake-replica-project/locations/global/buckets/_Default"
+      && google_logging_log_view.simrelay_job_results.filter == "resource.type = \"cloud_run_job\" AND LOG_ID(\"run.googleapis.com/stdout\") AND (resource.labels.job_name = \"tailtag-replica-fixture\" OR resource.labels.job_name = \"tailtag-replica-inspect\" OR resource.labels.job_name = \"tailtag-replica-pool\")"
+    )
+    error_message = "The relay log view must show the stdout of the three relay jobs only."
+  }
+
+  assert {
+    condition = (
+      google_logging_log_view_iam_member.simrelay_view_accessor.name == google_logging_log_view.simrelay_job_results.name
+      && google_logging_log_view_iam_member.simrelay_view_accessor.role == "roles/logging.viewAccessor"
+      && google_logging_log_view_iam_member.simrelay_view_accessor.member == "serviceAccount:${google_service_account.simrelay.email}"
+    )
+    error_message = "tt-simrelay must read through the relay log view only."
+  }
+
+  assert {
+    condition = (
+      google_service_account_iam_member.simrelay_token_minter.service_account_id == google_service_account.simrelay.name
+      && google_service_account_iam_member.simrelay_token_minter.role == "roles/iam.serviceAccountTokenCreator"
+      && google_service_account_iam_member.simrelay_token_minter.member == "user:owner@example.test"
+    )
+    error_message = "Only the configured owner may mint tt-simrelay tokens."
+  }
+}
+
+run "simrelay_token_minter_must_be_one_user" {
+  command = plan
+
+  variables {
+    simrelay_token_minter = "serviceAccount:tt-runtime@fake-replica-project.iam.gserviceaccount.com"
+  }
+
+  expect_failures = [var.simrelay_token_minter]
 }

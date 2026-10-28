@@ -30,13 +30,14 @@ locals {
   tls_env = { SSL_CERT_FILE = "/etc/ssl/certs/ca-certificates.crt" }
 
   # Non-secret production settings shared by the service and every job except
-  # the migrate job.
+  # the migrate job. The Clerk parties are the Account Portal, then the
+  # simulator tooling origin (#359 AC17).
   production_env = merge(local.tls_env, {
     DJANGO_SETTINGS_MODULE       = "config.settings.production"
     DJANGO_ALLOWED_HOSTS         = "${local.service_host},${local.candidate_host}"
     DJANGO_CSRF_TRUSTED_ORIGINS  = "https://${local.service_host}"
     CLERK_AUTHENTICATION_ENABLED = "true"
-    CLERK_AUTHORIZED_PARTIES     = "https://accounts.replica.tailtag.app"
+    CLERK_AUTHORIZED_PARTIES     = "https://accounts.replica.tailtag.app,https://simulator.replica.tailtag.app"
     MEDIA_STORAGE_ENDPOINT_URL   = "https://${var.cloudflare_account_id}.r2.cloudflarestorage.com"
     MEDIA_STORAGE_BUCKET_NAME    = cloudflare_r2_bucket.media.name
     MEDIA_STORAGE_REGION         = "auto"

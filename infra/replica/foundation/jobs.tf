@@ -84,9 +84,13 @@ resource "google_cloud_run_v2_job" "replica" {
       timeout         = each.value.timeout
 
       containers {
-        image   = "us-docker.pkg.dev/cloudrun/container/hello"
-        command = ["python"]
-        args    = ["manage.py", each.value.command]
+        image = "us-docker.pkg.dev/cloudrun/container/hello"
+        # The whole command is fixed, with no args. A run with overrides can
+        # replace args, so code in args would run as the job identity. -E makes
+        # Python ignore PYTHON* environment overrides, and -u replaces the
+        # PYTHONUNBUFFERED that -E ignores. The runner refuses appended
+        # arguments and extra tasks (#359).
+        command = ["python", "-E", "-s", "-u", "manage.py", each.value.command]
 
         dynamic "env" {
           for_each = each.value.env
