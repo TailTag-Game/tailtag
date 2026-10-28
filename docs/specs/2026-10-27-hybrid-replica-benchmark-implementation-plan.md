@@ -24,7 +24,7 @@ The owner does these steps after U1 merges, in order:
 
 1. Add `simrelay_token_minter` to the foundation `terraform.tfvars`.
 2. Pin the service traffic to the serving revision, as step 1 of the release runbook one-time setup says.
-3. Run the foundation plan, read it, then apply it.
+3. Run the foundation plan, read it, then apply it. Before that apply, apply the bootstrap root as the owner. It gives `tf-infra` the `logViewAdminNoAccess` custom role, which makes the `simrelay-job-results` view and its grant. Without it, the apply fails with 403 on `logging.views.create`.
 4. Run a release through the release workflow, so that the service runs the new readiness rule with the new party pair. Sync the other job images with `task replica-jobs-sync`.
 5. Run the IAM readback for `tt-simrelay` from the trust runbook.
 
