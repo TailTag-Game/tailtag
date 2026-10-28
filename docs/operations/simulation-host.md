@@ -413,16 +413,19 @@ Then, on the host, as `tailtag_sim`:
 
 1. Do steps 1 to 5 of the [session start](#session-start). Skip every Railway step.
 2. Make a private folder in the chosen key location, for example `install -d -m 0700 /dev/shm/tailtag-replica`.
-3. Write the session file with the project and the host:
+3. Write the session file with the project and the host. `umask` applies only to a new file, so remove an old one first:
 
    ```sh
    umask 077
+   rm -f /dev/shm/tailtag-replica/session.json
    printf '{"project": "%s", "host": "%s"}\n' '<PROJECT_ID>' '<REPLICA_HOST>' > /dev/shm/tailtag-replica/session.json
    ```
 
 4. Enter the token at a hidden prompt and write it to the token file:
 
    ```sh
+   umask 077
+   rm -f /dev/shm/tailtag-replica/token
    read -rs TOKEN && printf '%s\n' "$TOKEN" > /dev/shm/tailtag-replica/token && unset TOKEN
    ```
 
@@ -433,7 +436,7 @@ Then, on the host, as `tailtag_sim`:
    export TAILTAG_REPLICA_TOKEN_FILE=/dev/shm/tailtag-replica/token
    ```
 
-`run-local` checks that the session host equals the manifest host. It does not check the project. Copy the project ID from the owner-private setup record exactly.
+`run-local` checks that the session host equals the manifest host. It does not check the project. Copy the project ID from the owner-private setup record exactly. A wrong project cannot reach another project's jobs. The `tt-simrelay` grants are only on the replica jobs and log view, so every relay call fails with a permission error.
 
 ### Running a replica workload
 
@@ -446,15 +449,20 @@ RECEIPT="$WORKSPACE/docs/development/replica-deployments/<RUN_ID>-<RUN_ATTEMPT>.
   --safety-config "$WORKSPACE/tools/simulator/host/safety.json" \
   --release "$RELEASE_DIR/release.json" --output "$STATE/manifests/replica-normal-1.json" \
   --replica-session "$TAILTAG_REPLICA_SESSION_FILE" --receipt "$RECEIPT"
-.venv/bin/python -m tailtag_simulator.host_operator run-local \
-  --manifest "$STATE/manifests/replica-normal-1.json" --host-root "$HOST_ROOT" \
-  --workspace "$WORKSPACE" --tools "$HOST_ROOT/tools" --state-dir "$STATE"
 ```
 
-Prewarm the replica right before `run-local`, and record the UTC time when the request returns. The run's warm results count only from a prewarmed start:
+After prepare, prewarm the replica, and record the UTC time when the request returns. The run's warm results count only from a prewarmed start:
 
 ```sh
 curl -fsS -o /dev/null https://<REPLICA_HOST>/health/ready && date -u +%Y-%m-%dT%H:%M:%SZ
+```
+
+Then start the workload right away:
+
+```sh
+.venv/bin/python -m tailtag_simulator.host_operator run-local \
+  --manifest "$STATE/manifests/replica-normal-1.json" --host-root "$HOST_ROOT" \
+  --workspace "$WORKSPACE" --tools "$HOST_ROOT/tools" --state-dir "$STATE"
 ```
 
 The burst profile uses `tools/simulator/host/replica/burst-safety.json`. Enter the secret key of the replica Clerk application at the hidden prompt. `run-local` refuses to start unless both relay files are owner-only and the session host matches.
@@ -501,7 +509,7 @@ install -d -m 0700 "$STATE/cold"
 
 Set up each state like this:
 
-- `both-cold`: wait at least 20 minutes after the last request. The state reading shows 0 active and 0 idle instances, and an idle Neon compute. An idle instance is still warm, so it does not count as cold.
+- `both-cold`: wait for a full quiet window, at least 30 minutes after the last request. The state reading shows 0 active and 0 idle instances, and an idle Neon compute. An idle instance is still warm, so it does not count as cold.
 - `database-cold`: send one request that wakes only the service, because `/health/live` does not use the database: `curl -fsS -o /dev/null https://<REPLICA_HOST>/health/live`. Then suspend the Neon compute with the Neon API. Wait until the state reading shows the compute idle and at least 1 instance.
 - `app-cold`: wait until the state reading shows 0 active and 0 idle instances. Then start the Neon compute with the Neon API, and wait until the state reading shows it active.
 
