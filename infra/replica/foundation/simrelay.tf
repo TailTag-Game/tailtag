@@ -7,14 +7,13 @@ locals {
   simrelay_jobs = toset(["pool", "fixture", "inspect"])
 
   # The relay reads each job's one result line from stdout. The view shows all
-  # stdout of those three jobs, including Django logs, and nothing else.
+  # stdout of those three jobs, including Django logs, and nothing else. View
+  # filters allow a nesting depth of 1, so a grouped OR is refused: one anchored
+  # regex names the three jobs instead (#359 live fact 1).
   simrelay_log_filter = join(" AND ", [
     "resource.type = \"cloud_run_job\"",
     "LOG_ID(\"run.googleapis.com/stdout\")",
-    "(${join(" OR ", [
-      for job in sort(tolist(local.simrelay_jobs)) :
-      "resource.labels.job_name = \"${google_cloud_run_v2_job.replica[job].name}\""
-    ])})",
+    "resource.labels.job_name =~ \"^tailtag-replica-(${join("|", sort(tolist(local.simrelay_jobs)))})$\"",
   ])
 }
 
