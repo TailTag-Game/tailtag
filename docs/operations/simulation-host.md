@@ -487,7 +487,7 @@ Stop rules:
 - From R3 on, a step needs the step before it to pass correctness and an error rate of 1% or less.
 - A latency miss does not block a step of the same size, but it blocks R5.
 
-After R0 passes, grow the pool to 20 with an approved `sim-pool-provision` run with `SIZE=20`. It creates only the missing Clerk users and registers only the missing slots. Before R5, grow it to 40 the same way.
+After R0 passes, grow the pool to 20 with an approved `sim-pool-provision` run with `SIZE=20`, `REPLICA_SESSION="$TAILTAG_REPLICA_SESSION_FILE"` and `RECEIPT="$RECEIPT"`. Without both values, the command runs on Staging. It creates only the missing Clerk users and registers only the missing slots. Before R5, grow it to 40 the same way, with the same two values.
 
 ### R0: first relay round trip
 
