@@ -686,7 +686,7 @@ def _executable(path: Path) -> bool:
 _REPLICA_FILES = ("TAILTAG_REPLICA_SESSION_FILE", "TAILTAG_REPLICA_TOKEN_FILE")
 
 
-def _replica_files(target: Target) -> dict[str, str] | None:
+def replica_files(target: Target) -> dict[str, str] | None:
     """The two owner-only relay files for a replica session, or None (#359).
 
     The session file must name the manifest's own replica host.
@@ -720,7 +720,7 @@ def _refuse_local(workspace: Path, tools: Path, target: Target) -> Path | None:
         or not (workspace / "services/api").is_dir()
         or not _executable(tools / "bin/task")
         or (railway and not _executable(tools / "bin/railway"))
-        or (not railway and _replica_files(target) is None)
+        or (not railway and replica_files(target) is None)
     ):
         return None
     return uv
@@ -732,7 +732,7 @@ def _relay_env(tools: Path, uv: Path, target: Target) -> dict[str, str]:
     Staging relays get the Railway update pin. Replica relays get only their two
     owner-only files and never any Railway setting (#359).
     """
-    files = _replica_files(target) if target.name == "replica" else None
+    files = replica_files(target) if target.name == "replica" else None
     if target.name == "replica" and files is None:
         raise ValueError
     return {

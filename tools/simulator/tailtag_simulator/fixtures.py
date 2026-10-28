@@ -87,10 +87,13 @@ class FixtureLauncherChannel:
         *,
         cwd: Path | None = None,
         timeout_seconds: float = LAUNCHER_TIMEOUT_SECONDS,
+        identity: Mapping[str, object] | None = None,
     ) -> None:
         self._command = list(command)
         self._cwd = cwd
         self._timeout_seconds = timeout_seconds
+        # A replica host command outside a run passes its verified identity (#359).
+        self._identity = identity
 
     async def call(
         self, operation: str, arguments: Mapping[str, object]
@@ -102,6 +105,8 @@ class FixtureLauncherChannel:
         runtime = active_runtime()
         if runtime is not None:
             envelope["expected_identity"] = await runtime.privileged_identity()
+        elif self._identity is not None:
+            envelope["expected_identity"] = dict(self._identity)
         request = json.dumps(envelope).encode()
         try:
             result, data = await run_launcher(

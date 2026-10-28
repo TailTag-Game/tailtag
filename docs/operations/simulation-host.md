@@ -487,7 +487,50 @@ Stop rules:
 - From R3 on, a step needs the step before it to pass correctness and an error rate of 1% or less.
 - A latency miss does not block a step of the same size, but it blocks R5.
 
-After R0 passes, grow the pool to 20 with an approved `register` request. Before R5, grow it to 40 the same way.
+After R0 passes, grow the pool to 20 with an approved `sim-pool-provision` run with `SIZE=20`. It creates only the missing Clerk users and registers only the missing slots. Before R5, grow it to 40 the same way.
+
+### R0: first relay round trip
+
+R0 uses the host pool commands in replica mode. Each command takes `REPLICA_SESSION` and `RECEIPT`, with the same rules as prepare:
+
+- The session host must be the pinned replica host, and both relay files must be owner-only and name that host.
+- The receipt must be the newest promoted one in the workspace.
+- The command reads the replica identity twice with readiness. If the identity differs from the receipt, the command prints `FAIL target` and stops before any relay call.
+
+Run the commands in the workspace, after the session setup above. The relays run in the workspace API environment, so run `uv sync --project services/api --locked` there once first. Set the receipt:
+
+```sh
+RECEIPT="$WORKSPACE/docs/development/replica-deployments/<RUN_ID>-<RUN_ATTEMPT>.json"
+```
+
+1. Make the pool with 3 slots. Enter the secret key of the replica Clerk application at the hidden prompt. The expected line is `PASS provision created=3`:
+
+   ```sh
+   task sim-pool-provision POOL=replica1 SIZE=3 REPLICA_SESSION="$TAILTAG_REPLICA_SESSION_FILE" RECEIPT="$RECEIPT"
+   ```
+
+2. Read the pool. The expected line is `PASS status total=3 available=3 leased=0 quarantined=0`:
+
+   ```sh
+   task sim-pool-status POOL=replica1 REPLICA_SESSION="$TAILTAG_REPLICA_SESSION_FILE" RECEIPT="$RECEIPT"
+   ```
+
+3. Run the fixture smoke with one owner and two catchers, so it uses all 3 slots. It leases them, provisions one fixture, reconciles it and cleans up. Enter the replica Clerk secret again:
+
+   ```sh
+   task sim-fixture-smoke POOL=replica1 OWNERS=1 FURSUITS=1 CATCHERS=2 REPLICA_SESSION="$TAILTAG_REPLICA_SESSION_FILE" RECEIPT="$RECEIPT"
+   ```
+
+4. Make sure that nothing stays behind. The expected lines are `PASS retained retained=0 unfinished=0` and the status line from step 2:
+
+   ```sh
+   task sim-retained REPLICA_SESSION="$TAILTAG_REPLICA_SESSION_FILE" RECEIPT="$RECEIPT"
+   task sim-pool-status POOL=replica1 REPLICA_SESSION="$TAILTAG_REPLICA_SESSION_FILE" RECEIPT="$RECEIPT"
+   ```
+
+If the fixture smoke fails, keep its report. Clean only that run with `task sim-cleanup POOL=replica1 RUN_ID=<SIM_RUN_ID>` and the same two values. `<SIM_RUN_ID>` is the run UUID in the fixture smoke report, not the release run in the receipt name. If a slot stays quarantined, use `task sim-pool-readmit` only after the verified repair, as in the Staging recovery steps above.
+
+R0 reads four live facts from the plan. A passing relay call proves that `tt-simrelay` can start a job with overrides without `actAs` on `tt-runtime`, poll its own execution and read the result line through the view. It also proves that Cloud Run sets the task count and index that the job runner admits.
 
 ### Quiet window and cold probe
 

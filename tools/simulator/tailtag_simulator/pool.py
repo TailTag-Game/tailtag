@@ -176,7 +176,9 @@ class LauncherChannel:
 
     The request never appears in arguments, and the child's stderr is discarded, so
     nothing it prints can reach this process's output. Any deviation from the exact
-    launcher response shape is a `FAIL_LAUNCHER` with no detail.
+    launcher response shape is a `FAIL_LAUNCHER` with no detail. Outside a run, a
+    replica host command passes the identity it verified, because the replica relay
+    requires one on every request (#359).
     """
 
     def __init__(
@@ -185,10 +187,12 @@ class LauncherChannel:
         *,
         cwd: Path | None = None,
         timeout_seconds: float = LAUNCHER_TIMEOUT_SECONDS,
+        identity: Mapping[str, object] | None = None,
     ) -> None:
         self._command = list(command)
         self._cwd = cwd
         self._timeout_seconds = timeout_seconds
+        self._identity = identity
 
     async def call(
         self, operation: str, pool: str, arguments: Mapping[str, object]
@@ -201,6 +205,8 @@ class LauncherChannel:
         runtime = active_runtime()
         if runtime is not None:
             envelope["expected_identity"] = await runtime.privileged_identity()
+        elif self._identity is not None:
+            envelope["expected_identity"] = dict(self._identity)
         request = json.dumps(envelope).encode()
         try:
             result, fields = await run_launcher(

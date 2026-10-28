@@ -350,9 +350,11 @@ def resolve_scenario(
             raise ScenarioRejected
         if command != "smoke" and effective["target"] == "local":
             raise ScenarioRejected
-        # The replica runs only host-bound journeys and convention runs (#359).
+        # The replica runs only host-bound journeys and convention runs, and the
+        # fixture smoke of a replica host session for R0 (#359).
         if effective["target"] == "replica" and (
-            command != "journeys" or effective["base_url"] is not None
+            command not in ("journeys", "fixture-smoke")
+            or effective["base_url"] is not None
         ):
             raise ScenarioRejected
         if effective["base_url"] is not None and not isinstance(
