@@ -94,7 +94,7 @@ async def attribute(
         async with open_client(verified.target.origin, transport=transport) as probe:
             final = await verify_target(probe, verified.target)
         report.record_target(
-            final.target.name, final.target.origin, final.identity(), final=True
+            final.target.name, final.target.report_origin, final.identity(), final=True
         )
         if final != verified:
             raise StageFailed("attribution")
@@ -145,7 +145,9 @@ async def run_smoke(
             async with open_client(resolved.origin, transport=transport) as client:
                 verified = await verify_target(client, resolved)
         if report is not None:
-            report.record_target(resolved.name, resolved.origin, verified.identity())
+            report.record_target(
+                resolved.name, resolved.report_origin, verified.identity()
+            )
         source_sha = f" source_sha={verified.source_sha}" if verified.source_sha else ""
         emit(f"PASS target {resolved.name}{source_sha}")
 

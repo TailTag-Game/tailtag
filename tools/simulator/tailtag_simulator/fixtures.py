@@ -42,7 +42,7 @@ from tailtag_simulator.pool import (
 from tailtag_simulator.reports import RunReport
 from tailtag_simulator.safety import SafetyAborted, SafetyRuntime, active_runtime
 from tailtag_simulator.smoke import StageFailed, attribute, guarded_stage
-from tailtag_simulator.targets import resolve_target, verify_target
+from tailtag_simulator.targets import bound_target, verify_target
 
 ACTIVE_PATH: Final = "/api/conventions/active/"
 FURSUITS_PATH: Final = "/api/fursuits/"
@@ -531,8 +531,10 @@ async def run_provisioned(
                 renew_leases=renew_leases,
             ),
             safety=runtime,
-            target="staging",
-            base_url=None,
+            target=bound_target().name,
+            base_url=None
+            if bound_target().name == "staging"
+            else bound_target().origin,
             population=owners + catchers + extra_identities,
             transport=api_transport,
             report=report,
@@ -592,17 +594,17 @@ async def run_provisioned(
     try:
         try:
             async with guarded_stage("target", report):
-                resolved = resolve_target("staging", None)
+                resolved = bound_target()
                 async with open_client(
                     resolved.origin, transport=api_transport
                 ) as probe:
                     verified = await verify_target(probe, resolved)
             if report is not None:
                 report.record_target(
-                    resolved.name, resolved.origin, verified.identity()
+                    resolved.name, resolved.report_origin, verified.identity()
                 )
                 report.begin("setup")
-            emit(f"PASS target staging source_sha={verified.source_sha}")
+            emit(f"PASS target {resolved.name} source_sha={verified.source_sha}")
             emit(f"RUN run_id={run}")
             await runtime.check_target()
             await _check_retained(fixture_channel, emit)

@@ -126,37 +126,55 @@ def resolve_safety_policy(value: Mapping[str, object]) -> dict[str, object]:
     return policy
 
 
-def _identity(value: object, local: bool) -> dict[str, object]:
-    if not isinstance(value, dict) or set(cast(dict[str, object], value)) != {
-        "source_sha",
-        "deployment_id",
-        "environment",
-    }:
-        raise ProbeInvalid
+_IDENTITY_FIELDS = frozenset({"source_sha", "deployment_id", "environment"})
+_SOURCE_SHA = re.compile(r"[0-9a-f]{40}")
+_REVISION = re.compile(r"tailtag-api-replica-[a-z0-9](?:[a-z0-9-]{0,40}[a-z0-9])?")
+
+
+def _canonical_uuid(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        return str(uuid.UUID(value)) == value
+    except ValueError:
+        return False
+
+
+def valid_identity(target: str, value: object) -> bool:
+    """Whether `value` is a well-formed `/health/identity` body for `target`.
+
+    Staging names a UUID deployment, the replica a Cloud Run revision (#359),
+    and a local backend reports no deployment or environment.
+    """
+    if not isinstance(value, dict):
+        return False
     identity = cast(dict[str, object], value)
+    if frozenset(identity) != _IDENTITY_FIELDS:
+        return False
     sha, deployment, environment = (
         identity["source_sha"],
         identity["deployment_id"],
         identity["environment"],
     )
-    valid_sha = isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{40}", sha) is not None
-    if local:
-        valid = (
-            environment is None and deployment is None and (sha is None or valid_sha)
+    valid_sha = isinstance(sha, str) and _SOURCE_SHA.fullmatch(sha) is not None
+    if target == "staging":
+        return environment == "staging" and valid_sha and _canonical_uuid(deployment)
+    if target == "replica":
+        return (
+            environment == "replica"
+            and valid_sha
+            and isinstance(deployment, str)
+            and _REVISION.fullmatch(deployment) is not None
         )
-    else:
-        try:
-            valid = (
-                environment == "staging"
-                and valid_sha
-                and isinstance(deployment, str)
-                and str(uuid.UUID(deployment)) == deployment
-            )
-        except ValueError:
-            valid = False
-    if not valid:
+    if target == "local":
+        return environment is None and deployment is None and (sha is None or valid_sha)
+    return False
+
+
+def _identity(value: object, target: str) -> dict[str, object]:
+    if not valid_identity(target, value):
         raise ProbeInvalid
-    return dict(identity)
+    return dict(cast(dict[str, object], value))
 
 
 class SafetyRuntime:
@@ -177,7 +195,7 @@ class SafetyRuntime:
         self._started = monotonic()
         self._final_start: float | None = None
         self._identity: dict[str, object] | None = None
-        self._local = False
+        self._target = "staging"
         self._probe: Callable[[], Awaitable[dict[str, object]]] | None = None
         self.abort_reason: str | None = None
         self._abort_time = 0.0
@@ -270,11 +288,16 @@ class SafetyRuntime:
             _CONTROL.reset(token)
 
     def bind_probe(
-        self, probe: Callable[[], Awaitable[dict[str, object]]], *, local: bool = False
+        self,
+        probe: Callable[[], Awaitable[dict[str, object]]],
+        *,
+        local: bool = False,
+        target: str | None = None,
     ) -> None:
         if self._identity is not None:
             raise ValueError("target already pinned")
-        self._probe, self._local = probe, local
+        self._probe = probe
+        self._target = target or ("local" if local else "staging")
 
     def _budget_state(self) -> dict[str, object]:
         return self._finalization if self._final_start is not None else self._execution
@@ -597,7 +620,7 @@ class SafetyRuntime:
                         await self._race(
                             self._probe(), seconds=min(15, self._remaining())
                         ),
-                        self._local,
+                        self._target,
                     )
                 except (SafetyAborted, ProbeInvalid, ProbeUnavailable):
                     raise
@@ -763,11 +786,7 @@ class SafetyRuntime:
             "policy": dict(self.policy),
             "target": {
                 "identity": None if self._identity is None else dict(self._identity),
-                "evidence": "unverified"
-                if self._identity is None
-                else "local"
-                if self._local
-                else "staging",
+                "evidence": "unverified" if self._identity is None else self._target,
             },
             "preflight": dict(self._preflight),
             "probes": dict(self._probes),

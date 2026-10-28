@@ -30,7 +30,7 @@ async def run_guarded(
             async with open_client(resolved.origin, transport=transport) as client:
                 return (await verify_target(client, resolved)).identity()
 
-        safety.bind_probe(probe, local=target == "local")
+        safety.bind_probe(probe, target=resolved.name)
         with safety.scope():
             safety.validate_population(population)
             await safety.check_target()

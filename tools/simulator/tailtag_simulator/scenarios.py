@@ -346,9 +346,14 @@ def resolve_scenario(
                 "descriptor_digest": entry["descriptor_digest"],
                 "configuration": effective,
             }
-        if effective["target"] not in ("staging", "local"):
+        if effective["target"] not in ("staging", "replica", "local"):
             raise ScenarioRejected
-        if command != "smoke" and effective["target"] != "staging":
+        if command != "smoke" and effective["target"] == "local":
+            raise ScenarioRejected
+        # The replica runs only host-bound journeys and convention runs (#359).
+        if effective["target"] == "replica" and (
+            command != "journeys" or effective["base_url"] is not None
+        ):
             raise ScenarioRejected
         if effective["base_url"] is not None and not isinstance(
             effective["base_url"], str
