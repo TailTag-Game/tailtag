@@ -4,7 +4,7 @@
 
 **Related issues:** [#344](https://github.com/TailTag-Game/tailtag/issues/344) (this comparison), parent [#338](https://github.com/TailTag-Game/tailtag/issues/338)
 
-**Decision record:** [ADR 0010](../adrs/0010-keep-railway-for-v0-hosting-after-gcp-evaluation.md) (accepted 2026-10-22)
+**Decision record:** [ADR 0010](../adrs/0010-keep-railway-for-v0-hosting-after-gcp-evaluation.md) (accepted 2026-10-22, superseded by [ADR 0011](../adrs/0011-move-v0-hosting-from-railway-to-render.md) on 2026-10-29)
 
 This document compares the Google Cloud Platform (GCP) hosting test with current Railway hosting. GCP is a cloud host from Google. The test ran the current API on Cloud Run, the Google service that runs containers, with Cloud SQL, the Google managed PostgreSQL service. The test used synthetic data only. It did not change Railway and it does not start a move.
 

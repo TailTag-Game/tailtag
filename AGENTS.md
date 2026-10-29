@@ -21,7 +21,7 @@ Inspect the relevant issue and spec before editing. Do not invent product or arc
 - Clerk as the player authentication authority
 - A TailTag-owned internal application user identity, separate from Clerk
 - A modular monolith backend in the monorepo
-- Railway as the V0 backend hosting platform
+- Render as the V0 backend hosting platform (ADR 0011). Development and Staging run on Railway until the move finishes.
 - Backend Phase 0 promotes and resets the POC into a clean `services/api` foundation and establishes the local contributor environment.
 - Backend Phase 1 establishes CI/CD and the shared Railway development environment.
 

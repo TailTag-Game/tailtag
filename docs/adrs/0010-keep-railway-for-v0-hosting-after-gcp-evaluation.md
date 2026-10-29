@@ -1,6 +1,6 @@
 # Keep Railway for V0 hosting after the GCP evaluation
 
-**Status:** accepted (2026-10-22)
+**Status:** superseded by [ADR 0011](0011-move-v0-hosting-from-railway-to-render.md) (2026-10-29). Accepted 2026-10-22.
 
 ## Context and constraints
 

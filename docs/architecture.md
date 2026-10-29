@@ -12,7 +12,7 @@ TailTag is a monorepo for the community-led rebuild of a social convention game.
 - Clerk as the player authentication authority
 - A TailTag-owned internal application user identity for domain relationships, separate from Clerk
 - A modular monolith backend
-- Railway for V0 backend hosting
+- Render for V0 backend hosting ([ADR 0011](adrs/0011-move-v0-hosting-from-railway-to-render.md)). Development and Staging run on Railway until the move finishes.
 
 The historical Django POC has been promoted and reset at `services/api/`. Its POC-only authentication, session/CSRF behavior, fursuit fields, routes, deletion behavior, and other experimental choices were evaluation evidence, not V0 requirements.
 
@@ -268,12 +268,12 @@ Architecture decisions are recorded in:
 - [0001 — Use Django and DRF for the backend](adrs/0001-use-django-and-drf-for-backend.md)
 - [0002 — Use PostgreSQL as the primary database](adrs/0002-use-postgresql-as-primary-database.md)
 - [0003 — Use Clerk for player authentication](adrs/0003-use-clerk-for-player-authentication.md)
-- [0004 — Use Railway for V0 hosting](adrs/0004-use-railway-for-v0-hosting.md)
+- [0004 — Use Railway for V0 hosting](adrs/0004-use-railway-for-v0-hosting.md) (superseded by 0011)
 - [0005 — Use a modular monolith for V0](adrs/0005-use-modular-monolith-for-v0.md)
 - [0006 — Use Flutter for mobile V0](adrs/0006-use-flutter-for-mobile-v0.md)
 - [0007 — Use Railway and Sentry for V0 observability](adrs/0007-v0-observability-backend.md) (proposed)
 - [0008 — Use asyncio and httpx for headless simulation](adrs/0008-use-asyncio-httpx-for-headless-simulation.md)
-- [0010 — Keep Railway for V0 hosting after the GCP evaluation](adrs/0010-keep-railway-for-v0-hosting-after-gcp-evaluation.md)
-- [0011 — Move V0 hosting from Railway to Render](adrs/0011-move-v0-hosting-from-railway-to-render.md) (proposed)
+- [0010 — Keep Railway for V0 hosting after the GCP evaluation](adrs/0010-keep-railway-for-v0-hosting-after-gcp-evaluation.md) (superseded by 0011)
+- [0011 — Move V0 hosting from Railway to Render](adrs/0011-move-v0-hosting-from-railway-to-render.md)
 
 See [the ADR index](adrs/README.md) for the decision threshold and format.
