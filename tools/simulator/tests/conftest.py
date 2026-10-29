@@ -40,11 +40,6 @@ WINDOWS_SKIPPED_MODULES = frozenset(
         "test_host_release.py",
         "test_host_runtime.py",
         "test_host_ssh.py",
-        # The replica host session (#359) imports host_operator, so it is host
-        # tooling too.
-        "test_replica_host_session.py",
-        "test_replica_host_commands.py",
-        "test_cold_probe.py",
     }
 )
 

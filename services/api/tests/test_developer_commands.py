@@ -27,12 +27,10 @@ from tests.semgrep_support import (
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 AUTH_SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_auth_smoke.py"
 STAGING_AUTH_SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_staging_auth_smoke.py"
-REPLICA_AUTH_SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_replica_auth_smoke.py"
 MEDIA_STORAGE_SMOKE_SCRIPT = REPOSITORY_ROOT / "scripts" / "api_media_storage_smoke.py"
 LIVE_SMOKE_HELPERS = (
     AUTH_SMOKE_SCRIPT,
     STAGING_AUTH_SMOKE_SCRIPT,
-    REPLICA_AUTH_SMOKE_SCRIPT,
     MEDIA_STORAGE_SMOKE_SCRIPT,
 )
 SEMGREP_VALIDATOR = REPOSITORY_ROOT / "scripts" / "validate_semgrep_contract.py"
@@ -153,7 +151,7 @@ def semgrep_scan_tokens(dry_run: str) -> list[list[str]]:
             (REPOSITORY_ROOT / helper).as_posix()
             for helper in (
                 "scripts/api_staging_registry_reconcile.py",
-                "services/api/rehearsal/registry_reconciliation.py",
+                "scripts/api_staging_registry_reconcile_remote.py",
             )
             if helper in FROZEN_ROOT_HELPERS
         }
@@ -445,7 +443,7 @@ def test_semgrep_checker_allows_only_the_trusted_prefix_and_reviewed_targets() -
     reviewed = [
         (REPOSITORY_ROOT / "scripts/api_staging_registry_reconcile.py").as_posix(),
         (
-            REPOSITORY_ROOT / "services/api/rehearsal/registry_reconciliation.py"
+            REPOSITORY_ROOT / "scripts/api_staging_registry_reconcile_remote.py"
         ).as_posix(),
     ]
     accepted = " ".join((command, ".semgrep/tests", *reviewed))
@@ -635,7 +633,6 @@ def test_strict_type_check_includes_the_root_helpers() -> None:
         "validate_semgrep_contract.py",
         "api_auth_smoke.py",
         "api_staging_auth_smoke.py",
-        "api_replica_auth_smoke.py",
         "api_media_storage_smoke.py",
         "api_environment_fingerprint.py",
         "clerk_development_session.py",
@@ -652,7 +649,6 @@ def test_only_named_migration_tasks_change_migration_or_schema_state() -> None:
         "api-smoke",
         "api-auth-smoke",
         "api-staging-auth-smoke",
-        "replica-auth-smoke",
         "api-media-storage-smoke",
     )
     for task in non_mutating:
@@ -673,7 +669,6 @@ def test_only_named_migration_tasks_change_migration_or_schema_state() -> None:
     [
         ("api-auth-smoke", "scripts.api_auth_smoke", None),
         ("api-staging-auth-smoke", "scripts.api_staging_auth_smoke", None),
-        ("replica-auth-smoke", "scripts.api_replica_auth_smoke", None),
         (
             "api-media-storage-smoke",
             "scripts.api_media_storage_smoke",

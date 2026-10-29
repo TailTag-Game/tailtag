@@ -11,7 +11,7 @@ import sys
 import tempfile
 import time
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Final, NoReturn, TypedDict, cast
@@ -238,22 +238,15 @@ def _new_evidence(
     }
 
 
-def _eligible(
-    source_sha: str, fetch: Callable[[str], Mapping[str, object]] | None = None
-) -> tuple[str, Mapping[str, object]]:
-    """Return main and the successful api.yml push run that make the SHA eligible.
-
-    The replica release (#356) passes its own GitHub API `fetch`.
-    """
-    fetch = fetch or _gh
-    commit = fetch(f"/repos/{_REPOSITORY}/commits/{source_sha}")
+def _eligible(source_sha: str) -> tuple[str, Mapping[str, object]]:
+    commit = _gh(f"/repos/{_REPOSITORY}/commits/{source_sha}")
     if commit.get("sha") != source_sha:
         raise ValueError("candidate invalid")
-    main = fetch(f"/repos/{_REPOSITORY}/commits/main")
+    main = _gh(f"/repos/{_REPOSITORY}/commits/main")
     main_sha = main.get("sha")
     if not isinstance(main_sha, str) or _SOURCE_SHA.fullmatch(main_sha) is None:
         raise ValueError("main invalid")
-    comparison = fetch(
+    comparison = _gh(
         f"/repos/{_REPOSITORY}/compare/{source_sha}...{main_sha}?per_page=1"
     )
     base = _mapping(comparison.get("base_commit"))
@@ -270,7 +263,7 @@ def _eligible(
     page = 1
     selected: dict[str, object] | None = None
     while True:
-        runs = fetch(
+        runs = _gh(
             f"/repos/{_REPOSITORY}/actions/workflows/api.yml/runs?head_sha={source_sha}&event=push&status=success&per_page=100&page={page}"
         )
         raw_rows = runs.get("workflow_runs")
@@ -298,7 +291,7 @@ def _eligible(
         page += 1
     if selected is None or type(selected.get("id")) is not int:
         raise ValueError("validation unavailable")
-    verified = fetch(f"/repos/{_REPOSITORY}/actions/runs/{selected['id']}")
+    verified = _gh(f"/repos/{_REPOSITORY}/actions/runs/{selected['id']}")
     repository = _mapping(verified.get("repository"))
     if not (
         repository is not None

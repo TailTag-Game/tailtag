@@ -12,8 +12,6 @@ from typing import NoReturn
 import pytest
 from pytest import MonkeyPatch
 
-from tests import replica_contract
-
 SOURCE_SHA = "c070f413eec1518459f1fef21b471642765a54e9"
 SECOND_SOURCE_SHA = "d" * 40
 RUNTIME_SHA = "a" * 40
@@ -225,84 +223,3 @@ def test_clock_and_process_start_values_cannot_change_loaded_identity(
     )
 
     assert after == before
-
-
-# --- #355 U1: Cloud Run (replica) runtime identity ---
-
-
-@pytest.mark.parametrize(
-    ("kind", "deployment_id"),
-    (
-        pytest.param("service", replica_contract.SERVICE_REVISION, id="service"),
-        pytest.param("job", replica_contract.JOB_EXECUTION, id="job"),
-    ),
-)
-def test_cloud_run_identity_uses_baked_sha_revision_or_execution_and_replica_environment(
-    build_identity: ModuleType,
-    monkeypatch: MonkeyPatch,
-    tmp_path: Path,
-    kind: str,
-    deployment_id: str,
-) -> None:
-    """AC10: no RAILWAY_* value is needed; the deployment id comes from the right variable."""
-    replica_contract.install_replica_pins(monkeypatch)
-    metadata = tmp_path / "build-identity.json"
-    write_metadata(metadata, SOURCE_SHA)
-    environment = (
-        {
-            "K_SERVICE": replica_contract.SERVICE_NAME,
-            "K_REVISION": replica_contract.SERVICE_REVISION,
-        }
-        if kind == "service"
-        else {
-            "CLOUD_RUN_JOB": replica_contract.JOB_NAME,
-            "CLOUD_RUN_EXECUTION": replica_contract.JOB_EXECUTION,
-        }
-    )
-
-    identity = build_identity._load_identity(
-        metadata, {**environment, "RAILWAY_GIT_COMMIT_SHA": RUNTIME_SHA}
-    )
-
-    assert identity == {
-        "source_sha": SOURCE_SHA,
-        "deployment_id": deployment_id,
-        "environment": "replica",
-    }
-
-
-def test_cloud_run_identity_requires_a_baked_source_sha(
-    build_identity: ModuleType, monkeypatch: MonkeyPatch, tmp_path: Path
-) -> None:
-    """Failure mode 6: a replica image without a baked SHA cannot identify itself."""
-    replica_contract.install_replica_pins(monkeypatch)
-    metadata = tmp_path / "build-identity.json"
-    write_metadata(metadata, None)
-
-    with pytest.raises(ValueError):
-        build_identity._load_identity(
-            metadata,
-            {
-                "K_SERVICE": replica_contract.SERVICE_NAME,
-                "K_REVISION": replica_contract.SERVICE_REVISION,
-            },
-        )
-
-
-def test_railway_and_cloud_run_markers_together_are_rejected(
-    build_identity: ModuleType, monkeypatch: MonkeyPatch, tmp_path: Path
-) -> None:
-    """Failure mode 3: one process cannot claim both platforms."""
-    replica_contract.install_replica_pins(monkeypatch)
-    metadata = tmp_path / "build-identity.json"
-    write_metadata(metadata, SOURCE_SHA)
-
-    with pytest.raises(ValueError, match="runtime identity invalid"):
-        build_identity._load_identity(
-            metadata,
-            {
-                "K_SERVICE": replica_contract.SERVICE_NAME,
-                "K_REVISION": replica_contract.SERVICE_REVISION,
-                "RAILWAY_SERVICE_NAME": "api",
-            },
-        )

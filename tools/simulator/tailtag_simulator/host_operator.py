@@ -27,17 +27,11 @@ from .host_bridge import (
     RelayDispatch,
     relay_dispatch,
 )
-from .host_protocol import (
-    decode_document,
-    encode_frame,
-    manifest_target,
-    validate_manifest,
-)
+from .host_protocol import decode_document, encode_frame, validate_manifest
 from .host_release import read_release
-from .owner_only import open_owner_only_file
 from .reports import load_report
 from .safety import resolve_safety_policy
-from .targets import Target, TargetRejected, resolve_target, verify_target
+from .targets import resolve_target, verify_target
 from .traffic_config import resolve_traffic_config
 
 SSH_OPTIONS = [
@@ -79,86 +73,11 @@ def _write_new(path: Path, value: dict[str, object]) -> None:
         os.close(fd)
 
 
-_REPLICA_SESSION_KEYS = frozenset({"project", "host"})
-_RECEIPT_SCHEMA = "tailtag-replica-release-v1"
-_MAX_PRIVATE_BYTES = 4096
-_MAX_RECEIPT_BYTES = 65536
-
-
-def replica_session_host(path: Path) -> str:
-    """The pinned replica host from the owner-only relay session file (#359)."""
-    with open_owner_only_file(path, max_bytes=_MAX_PRIVATE_BYTES) as handle:
-        raw = handle.read(_MAX_PRIVATE_BYTES + 1)
-    if len(raw) > _MAX_PRIVATE_BYTES:
-        raise ValueError
-    value = decode_document(raw)
-    if frozenset(value) != _REPLICA_SESSION_KEYS or not isinstance(value["host"], str):
-        raise ValueError
-    host = value["host"]
-    resolve_target("replica", f"https://{host}")
-    return host
-
-
-def _receipt(path: Path) -> dict[str, object]:
-    with path.open("rb") as handle:
-        raw = handle.read(_MAX_RECEIPT_BYTES + 1)
-    if len(raw) > _MAX_RECEIPT_BYTES:
-        raise ValueError
-    return cast(dict[str, object], json.loads(raw))
-
-
-def latest_replica_identity(receipt: Path) -> dict[str, object]:
-    """The serving identity of the newest promoted replica release receipt.
-
-    The receipt must sit in a `replica-deployments` folder and have the latest
-    `finished_at` among the promoted receipts there, so an older release cannot be
-    pinned. The served identity check in prepare still decides.
-    """
-    if receipt.parent.name != "replica-deployments" or receipt.suffix != ".json":
-        raise ValueError
-    promoted = {
-        candidate: value
-        for candidate in sorted(receipt.parent.glob("*.json"))
-        if (value := _receipt(candidate)).get("schema") == _RECEIPT_SCHEMA
-        and value.get("outcome") == "PROMOTED"
-    }
-    if receipt not in promoted:
-        raise ValueError
-    finished = {name: str(value["finished_at"]) for name, value in promoted.items()}
-    if finished[receipt] != max(finished.values()):
-        raise ValueError
-    chosen = promoted[receipt]
-    return {
-        "source_sha": chosen["source_sha"],
-        "deployment_id": chosen["serving_revision"],
-        "environment": "replica",
-    }
-
-
 async def _prepare(
-    profile: Path,
-    safety: Path,
-    release_path: Path,
-    output: Path,
-    replica_session: Path | None = None,
-    receipt: Path | None = None,
+    profile: Path, safety: Path, release_path: Path, output: Path
 ) -> int:
     wrapper = read_json(profile)
     if set(wrapper) != {"scenario_id", "scenario_version", "seed", "configuration"}:
-        raise ValueError
-    if (replica_session is None) != (receipt is None):
-        raise ValueError
-    target: Target = resolve_target("staging", None)
-    expected: dict[str, object] | None = None
-    if replica_session is not None and receipt is not None:
-        target = resolve_target(
-            "replica", f"https://{replica_session_host(replica_session)}"
-        )
-        expected = latest_replica_identity(receipt)
-    configured = cast(dict[str, object], wrapper["configuration"])
-    # A profile that names a target must match the session target, so a replica
-    # profile prepared without the replica flags never becomes a Staging run.
-    if configured.get("target", target.name) != target.name:
         raise ValueError
     release = read_release(release_path)
     manifest = {
@@ -168,18 +87,12 @@ async def _prepare(
         # Journeys carry a pool-only configuration that validate_manifest closes.
         "configuration": cast(dict[str, object], wrapper["configuration"])
         if wrapper["scenario_id"] == "journeys"
-        else resolve_traffic_config({**configured, "target": target.name}),
+        else resolve_traffic_config(cast(dict[str, object], wrapper["configuration"])),
         "safety": resolve_safety_policy(read_json(safety)),
         "backend_identity": {
             "source_sha": "0" * 40,
             "deployment_id": "00000000-0000-4000-8000-000000000000",
             "environment": "staging",
-        }
-        if target.name == "staging"
-        else {
-            "source_sha": "0" * 40,
-            "deployment_id": "tailtag-api-replica-0",
-            "environment": "replica",
         },
         "release": {
             key: release[key]
@@ -191,13 +104,10 @@ async def _prepare(
             )
         },
     }
-    if target.name == "replica":
-        manifest["target"] = {"name": "replica", "origin": target.origin}
     validate_manifest(manifest)  # Resolve every local premise before network.
+    target = resolve_target("staging", None)
     async with open_client(target.origin) as client:
         manifest["backend_identity"] = (await verify_target(client, target)).identity()
-    if expected is not None and manifest["backend_identity"] != expected:
-        raise ValueError
     _write_new(output, validate_manifest(manifest))
     return 0
 
@@ -683,66 +593,19 @@ def _executable(path: Path) -> bool:
     return path.is_file() and os.access(path, os.X_OK)
 
 
-_REPLICA_FILES = ("TAILTAG_REPLICA_SESSION_FILE", "TAILTAG_REPLICA_TOKEN_FILE")
-
-
-def replica_files(target: Target) -> dict[str, str] | None:
-    """The two owner-only relay files for a replica session, or None (#359).
-
-    The session file must name the manifest's own replica host.
-    """
-    paths = {name: os.environ.get(name, "") for name in _REPLICA_FILES}
-    if not all(paths.values()):
-        return None
-    try:
-        session, token = (Path(paths[name]) for name in _REPLICA_FILES)
-        if f"https://{replica_session_host(session)}" != target.origin:
-            return None
-        with open_owner_only_file(token, max_bytes=_MAX_PRIVATE_BYTES):
-            pass
-    except (OSError, ValueError, TargetRejected):
-        return None
-    return paths
-
-
-def _refuse_local(workspace: Path, tools: Path, target: Target) -> Path | None:
-    """Return the host `uv` when every start condition holds; otherwise None (C1).
-
-    A Staging session needs the pinned Railway CLI. A replica session needs no
-    Railway login, only its two owner-only relay files (#359).
-    """
+def _refuse_local(workspace: Path, tools: Path) -> Path | None:
+    """Return the host `uv` when every start condition holds; otherwise None (C1)."""
     uv = next((p for p in (tools / "uv", tools / "bin/uv") if _executable(p)), None)
-    railway = target.name == "staging"
     if (
-        (railway and os.environ.get("RAILWAY_NO_AUTO_UPDATE") != "1")
+        os.environ.get("RAILWAY_NO_AUTO_UPDATE") != "1"
         or not (os.isatty(0) and os.isatty(1))  # The Clerk prompt needs a terminal.
         or not (workspace / "Taskfile.yml").is_file()
         or not (workspace / "services/api").is_dir()
         or not _executable(tools / "bin/task")
-        or (railway and not _executable(tools / "bin/railway"))
-        or (not railway and replica_files(target) is None)
+        or not _executable(tools / "bin/railway")
     ):
         return None
     return uv
-
-
-def _relay_env(tools: Path, uv: Path, target: Target) -> dict[str, str]:
-    """Explicit and minimal: nothing of the operator's own PATH reaches the relays.
-
-    Staging relays get the Railway update pin. Replica relays get only their two
-    owner-only files and never any Railway setting (#359).
-    """
-    files = replica_files(target) if target.name == "replica" else None
-    if target.name == "replica" and files is None:
-        raise ValueError
-    return {
-        "PATH": os.pathsep.join(
-            [str(tools / "bin"), "/usr/local/bin", "/usr/bin", "/bin"]
-        ),
-        "UV": str(uv),
-        "HOME": os.environ["HOME"],
-        **(files or {"RAILWAY_NO_AUTO_UPDATE": "1"}),
-    }
 
 
 async def run_local_session(
@@ -758,9 +621,8 @@ async def run_local_session(
     """Own the bridge and a local host_runner child on the host itself (#316)."""
     try:
         manifest = validate_manifest(manifest)
-        target = manifest_target(manifest)
         uv = (
-            _refuse_local(workspace, tools, target)
+            _refuse_local(workspace, tools)
             if all(map(_plain_absolute, (host_root, workspace, tools, state_dir)))
             else None
         )
@@ -777,7 +639,15 @@ async def run_local_session(
         ]
         root_text = str(host_root)
         base = host_root / "runs" / run_id
-        env = _relay_env(tools, uv, target)
+        # Explicit and minimal: nothing of the operator's own PATH reaches the relays.
+        env = {
+            "PATH": os.pathsep.join(
+                [str(tools / "bin"), "/usr/local/bin", "/usr/bin", "/bin"]
+            ),
+            "UV": str(uv),
+            "RAILWAY_NO_AUTO_UPDATE": "1",
+            "HOME": os.environ["HOME"],
+        }
 
         async def spawn() -> asyncio.subprocess.Process:
             # Same process group: a terminal Ctrl-C reaches the runner as it does over ssh -tt.
@@ -796,7 +666,7 @@ async def run_local_session(
         return await _operate(
             manifest,
             state_dir,
-            relay_dispatch(workspace, tools / "bin/task", env, target.name),
+            relay_dispatch(workspace, tools / "bin/task", env),
             clock=clock,
             sleep=sleep,
             prepare=lambda: _exchange(
@@ -833,9 +703,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     prepare = commands.add_parser("prepare")
     for name in ("profile", "safety-config", "release", "output"):
         prepare.add_argument("--" + name, type=Path, required=True)
-    # Both or neither: a replica manifest pins the newest promoted receipt (#359).
-    prepare.add_argument("--replica-session", type=Path)
-    prepare.add_argument("--receipt", type=Path)
     local = commands.add_parser("run-local")
     for name in ("manifest", "host-root", "workspace", "tools", "state-dir"):
         local.add_argument("--" + name, type=Path, required=True)
@@ -859,14 +726,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         if args.command == "prepare":
             return asyncio.run(
-                _prepare(
-                    args.profile,
-                    args.safety_config,
-                    args.release,
-                    args.output,
-                    args.replica_session,
-                    args.receipt,
-                )
+                _prepare(args.profile, args.safety_config, args.release, args.output)
             )
         return asyncio.run(
             run_local_session(
