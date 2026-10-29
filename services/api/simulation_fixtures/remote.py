@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Final, cast
 
-from config import replica_binding
 from simulation_fixtures import cleanup, services
 
 _IDENTITY_KEYS: Final = frozenset({"source_sha", "deployment_id", "environment"})
@@ -83,8 +82,6 @@ def target_matches(
     identity: Mapping[str, object],
     runtime_identity: Mapping[str, object],
     environ: Mapping[str, str],
-    *,
-    replica_job: str = "tailtag-replica-fixture",
 ) -> bool:
     return (
         environ.get("RAILWAY_ENVIRONMENT_NAME") == "staging"
@@ -93,8 +90,6 @@ def target_matches(
         and isinstance(identity.get("source_sha"), str)
         and isinstance(identity.get("deployment_id"), str)
         and dict(runtime_identity) == dict(identity)
-    ) or replica_binding.is_pinned_job(
-        identity, runtime_identity, environ, (replica_job,)
     )
 
 

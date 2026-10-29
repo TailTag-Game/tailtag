@@ -11,17 +11,9 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Final, TypedDict, cast
 
-from config import replica_binding
-
 _METADATA_PATH: Final = Path("/opt/tailtag/build-identity.json")
 _SOURCE_SHA_PATTERN: Final = re.compile(r"[0-9a-f]{40}")
 _ENVIRONMENT_PATTERN: Final = re.compile(r"[a-z][a-z0-9-]{0,62}")
-_RAILWAY_MARKERS: Final = (
-    "RAILWAY_ENVIRONMENT_NAME",
-    "RAILWAY_DEPLOYMENT_ID",
-    "RAILWAY_SERVICE_NAME",
-)
-_CLOUD_RUN_MARKERS: Final = ("K_SERVICE", "CLOUD_RUN_JOB")
 
 
 class Identity(TypedDict):
@@ -61,22 +53,6 @@ def _load_identity(metadata_path: Path, environment: Mapping[str, str]) -> Ident
             ) or not _SOURCE_SHA_PATTERN.fullmatch(stored_source_sha):
                 raise ValueError("identity metadata invalid")
             source_sha = stored_source_sha
-
-    on_cloud_run = any(name in environment for name in _CLOUD_RUN_MARKERS)
-    if on_cloud_run and any(name in environment for name in _RAILWAY_MARKERS):
-        raise ValueError("runtime identity invalid")
-    if on_cloud_run:
-        try:
-            target = replica_binding.read_cloud_run_target(environment)
-        except replica_binding.ReplicaBindingError:
-            raise ValueError("runtime identity invalid") from None
-        if target is None or source_sha is None:
-            raise ValueError("replica identity incomplete")
-        return {
-            "source_sha": source_sha,
-            "deployment_id": target.deployment_id,
-            "environment": "replica",
-        }
 
     environment_name = environment.get("RAILWAY_ENVIRONMENT_NAME")
     if environment_name is not None and not _ENVIRONMENT_PATTERN.fullmatch(

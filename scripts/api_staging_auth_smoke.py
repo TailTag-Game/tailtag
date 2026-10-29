@@ -1,8 +1,4 @@
-"""Guarded bootstrap-only authentication smoke check for TailTag Staging.
-
-The flow is shared with `scripts/api_replica_auth_smoke.py`. A `SmokeProfile`
-holds the values that differ between the two pinned targets.
-"""
+"""Guarded bootstrap-only authentication smoke check for TailTag Staging."""
 # ruff: noqa: BLE001, S110
 
 from __future__ import annotations
@@ -48,8 +44,8 @@ _CONFIRMATION: Final = "run-clerk-staging-auth-smoke"
 _API_ME_PATH: Final = "/api/me/"
 _REQUEST_TIMEOUT_SECONDS: Final = 10
 _BASELINE_TIMEOUT_SECONDS: Final = 30
-_WARM_UP_TIMEOUT_SECONDS: Final = 60
 _PROVIDER_TIMEOUT_MILLISECONDS: Final = 10_000
+_TARGET_FAILURE: Final = "target staging/api"
 _BASELINE_FAILURE: Final = "baseline API smoke"
 _PROMPT_FAILURE: Final = "hidden input"
 _INSTANCE_FAILURE: Final = "Clerk Production instance"
@@ -107,32 +103,6 @@ class SmokeOutcome:
         return self.primary_stage is None and not self.cleanup_failed
 
 
-@dataclass(frozen=True, slots=True)
-class SmokeProfile:
-    """The values that differ between the pinned smoke targets."""
-
-    environment: str
-    valid_target: Callable[[Mapping[str, str]], tuple[str, str] | None]
-    instance_fingerprint: str
-    portal_origin: str
-    # Environment variable that must repeat the pinned party, or None to pin only.
-    party_variable: str | None
-    # GET path requested once, with a long timeout, before the baseline; None skips it.
-    warm_up_path: str | None = None
-
-    @property
-    def name(self) -> str:
-        return self.environment.capitalize()
-
-    @property
-    def target_stage(self) -> str:
-        return f"target {self.environment}/api"
-
-    @property
-    def final_stage(self) -> str:
-        return f"{self.name} authenticated API smoke"
-
-
 def _no_retries() -> RetryConfig:
     return RetryConfig("none", BackoffStrategy(0, 0, 1.0, 0), False)
 
@@ -146,9 +116,7 @@ class DefaultSmokeRuntime:
         clerk_factory: Callable[[str], Any] | None = None,
         verifier: ClerkSessionVerifier | None = None,
         opener: _Opener | None = None,
-        profile: SmokeProfile | None = None,
     ) -> None:
-        self._pinned_profile = profile
         self._http_client: httpx.Client | None = None
         self._async_http_client: httpx.AsyncClient | None = None
         self._clerk: Any | None = None
@@ -157,15 +125,6 @@ class DefaultSmokeRuntime:
         self._opener = opener or urllib.request.build_opener(
             urllib.request.ProxyHandler({}), _NoRedirect()
         )
-
-    @property
-    def _profile(self) -> SmokeProfile:
-        return self._pinned_profile or _staging_profile()
-
-    @property
-    def profile(self) -> SmokeProfile:
-        """The Clerk pins this runtime checks, so `run` can refuse a mismatch."""
-        return self._profile
 
     def _create_clerk(self, secret: str) -> Clerk:
         self._http_client = httpx.Client(trust_env=False, follow_redirects=False)
@@ -185,20 +144,7 @@ class DefaultSmokeRuntime:
             self._clerk = self._clerk_factory(secret)
         return self._clerk
 
-    def _warm_up(self, base_url: str, path: str) -> bool:
-        try:
-            with self._opener.open(
-                urllib.request.Request(f"{base_url}{path}", method="GET"),
-                timeout=_WARM_UP_TIMEOUT_SECONDS,
-            ) as response:
-                return response.getcode() == 200
-        except Exception:
-            return False
-
     def run_baseline(self, *, base_url: str) -> bool:
-        warm_up_path = self._profile.warm_up_path
-        if warm_up_path is not None and not self._warm_up(base_url, warm_up_path):
-            return False
         try:
             result = subprocess.run(
                 [sys.executable, _baseline_script_path()],
@@ -225,13 +171,13 @@ class DefaultSmokeRuntime:
                 raise SmokeFailure(_PROMPT_FAILURE) from None
 
     def prompt_secret(self) -> str:
-        return self._hidden_prompt(f"Clerk {self._profile.name} Production secret:")
+        return self._hidden_prompt("Clerk Staging Production secret:")
 
     def prompt_session_id(self) -> str:
-        return self._hidden_prompt(f"Clerk {self._profile.name} smoke-only session ID:")
+        return self._hidden_prompt("Clerk Staging smoke-only session ID:")
 
     def prompt_session_token(self) -> str:
-        return self._hidden_prompt(f"Clerk {self._profile.name} session token:")
+        return self._hidden_prompt("Clerk Staging session token:")
 
     def validate_production_instance(self, *, secret: str) -> None:
         try:
@@ -243,7 +189,7 @@ class DefaultSmokeRuntime:
             getattr(instance, "environment_type", None) != "production"
             or not isinstance(instance_id, str)
             or hashlib.sha256(instance_id.encode()).hexdigest()[:16]
-            != self._profile.instance_fingerprint
+            != STAGING_CLERK_INSTANCE_FINGERPRINT
         ):
             raise SmokeFailure(_INSTANCE_FAILURE)
 
@@ -257,7 +203,7 @@ class DefaultSmokeRuntime:
             getattr(user, "id", None) != user_id
             or not isinstance(metadata, Mapping)
             or cast(Mapping[str, object], metadata).get("tailtag_environment")
-            != self._profile.environment
+            != "staging"
             or cast(Mapping[str, object], metadata).get("tailtag_synthetic") is not True
         ):
             raise SmokeFailure(_USER_FAILURE)
@@ -282,7 +228,7 @@ class DefaultSmokeRuntime:
         self, *, token: str, session_id: str, user_id: str
     ) -> None:
         try:
-            verifier = self._verifier or _session_verifier(self._profile)
+            verifier = self._verifier or _staging_verifier()
             request = HttpRequest()
             request.META["HTTP_AUTHORIZATION"] = f"Bearer {token}"
             identity = verifier.verify(request)
@@ -293,7 +239,7 @@ class DefaultSmokeRuntime:
             if (
                 claims.get("sid") != session_id
                 or claims.get("sub") != user_id
-                or claims.get("azp") != self._profile.portal_origin
+                or claims.get("azp") != STAGING_CLERK_PORTAL_ORIGIN
                 or type(iat) is not int
                 or type(exp) is not int
                 or exp <= iat
@@ -365,16 +311,14 @@ def _genuine_claims(token: str) -> dict[str, object]:
     return cast(dict[str, object], claims)
 
 
-def _session_verifier(profile: SmokeProfile) -> ClerkSessionVerifier:
+def _staging_verifier() -> ClerkSessionVerifier:
     jwt_key = os.environ.get("CLERK_JWT_KEY", "")
-    parties = (profile.portal_origin,)
-    if profile.party_variable is not None:
-        parties = tuple(
-            value.strip()
-            for value in os.environ.get(profile.party_variable, "").split(",")
-            if value.strip()
-        )
-    if not jwt_key or parties != (profile.portal_origin,):
+    parties = tuple(
+        value.strip()
+        for value in os.environ.get("CLERK_AUTHORIZED_PARTIES", "").split(",")
+        if value.strip()
+    )
+    if not jwt_key or parties != (STAGING_CLERK_PORTAL_ORIGIN,):
         raise SmokeFailure(_TOKEN_FAILURE)
     return ClerkSessionVerifier(
         ClerkVerificationConfiguration(jwt_key=jwt_key, authorized_parties=parties)
@@ -395,17 +339,6 @@ def _valid_target(environment: Mapping[str, str]) -> tuple[str, str] | None:
     return _STAGING_URL, user_id
 
 
-def _staging_profile() -> SmokeProfile:
-    # Built on use so the pinned module constants are read when the flow runs.
-    return SmokeProfile(
-        environment="staging",
-        valid_target=_valid_target,
-        instance_fingerprint=STAGING_CLERK_INSTANCE_FINGERPRINT,
-        portal_origin=STAGING_CLERK_PORTAL_ORIGIN,
-        party_variable="CLERK_AUTHORIZED_PARTIES",
-    )
-
-
 def _close_runtime(runtime: SmokeRuntime) -> None:
     close = getattr(runtime, "close", None)
     if callable(close):
@@ -415,19 +348,11 @@ def _close_runtime(runtime: SmokeRuntime) -> None:
             pass
 
 
-def run(
-    environment: Mapping[str, str],
-    runtime: SmokeRuntime,
-    profile: SmokeProfile | None = None,
-) -> SmokeOutcome:
+def run(environment: Mapping[str, str], runtime: SmokeRuntime) -> SmokeOutcome:
     """Run selected-session validation and revocation without alternate provider flows."""
-    profile = profile or _staging_profile()
-    target = profile.valid_target(environment)
-    # A runtime pinned to another environment's Clerk instance would check the
-    # wrong instance, user metadata and azp, so the run stops before any prompt.
-    runtime_profile = getattr(runtime, "profile", profile)
-    if target is None or runtime_profile.environment != profile.environment:
-        return SmokeOutcome(primary_stage=profile.target_stage)
+    target = _valid_target(environment)
+    if target is None:
+        return SmokeOutcome(primary_stage=_TARGET_FAILURE)
     base_url, user_id = target
     target = None
     try:
@@ -502,24 +427,24 @@ def run(
     return SmokeOutcome(primary_stage=primary_stage, cleanup_failed=cleanup_failed)
 
 
-def run_main(profile: SmokeProfile, runtime_factory: Callable[[], SmokeRuntime]) -> int:
+def main() -> int:
     if len(sys.argv) != 1:
-        print(f"FAIL {profile.target_stage}", file=sys.stderr)
+        print("FAIL target staging/api", file=sys.stderr)
         return 1
     try:
-        outcome = run(os.environ, runtime_factory(), profile)
+        outcome = run(os.environ, DefaultSmokeRuntime())
     except BaseException:
-        outcome = SmokeOutcome(primary_stage=profile.target_stage)
+        outcome = SmokeOutcome(primary_stage=_TARGET_FAILURE)
     if outcome.succeeded:
         for stage in (
-            profile.target_stage,
-            _BASELINE_FAILURE,
-            _INSTANCE_FAILURE,
-            _USER_FAILURE,
-            _TOKEN_FAILURE,
-            _API_FAILURE,
-            _CLEANUP_FAILURE,
-            profile.final_stage,
+            "target staging/api",
+            "baseline API smoke",
+            "Clerk Production instance",
+            "synthetic user",
+            "session token",
+            "authenticated API",
+            "cleanup",
+            "Staging authenticated API smoke",
         ):
             print(f"PASS {stage}")
         return 0
@@ -528,10 +453,6 @@ def run_main(profile: SmokeProfile, runtime_factory: Callable[[], SmokeRuntime])
         file=sys.stderr,
     )
     return 1
-
-
-def main() -> int:
-    return run_main(_staging_profile(), lambda: DefaultSmokeRuntime())
 
 
 if __name__ == "__main__":

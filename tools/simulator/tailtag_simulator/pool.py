@@ -54,7 +54,7 @@ from tailtag_simulator.process_tree import ProcessTree, spawn_options
 from tailtag_simulator.reports import RunReport
 from tailtag_simulator.safety import SafetyAborted, SafetyRuntime, active_runtime
 from tailtag_simulator.smoke import StageFailed, attribute, guarded_stage
-from tailtag_simulator.targets import bound_target, verify_target
+from tailtag_simulator.targets import resolve_target, verify_target
 
 LEASE_TTL_SECONDS: Final = limits.LEASE_TTL_SECONDS
 MAX_POOL_SIZE: Final = 1000
@@ -176,9 +176,7 @@ class LauncherChannel:
 
     The request never appears in arguments, and the child's stderr is discarded, so
     nothing it prints can reach this process's output. Any deviation from the exact
-    launcher response shape is a `FAIL_LAUNCHER` with no detail. Outside a run, a
-    replica host command passes the identity it verified, because the replica relay
-    requires one on every request (#359).
+    launcher response shape is a `FAIL_LAUNCHER` with no detail.
     """
 
     def __init__(
@@ -187,12 +185,10 @@ class LauncherChannel:
         *,
         cwd: Path | None = None,
         timeout_seconds: float = LAUNCHER_TIMEOUT_SECONDS,
-        identity: Mapping[str, object] | None = None,
     ) -> None:
         self._command = list(command)
         self._cwd = cwd
         self._timeout_seconds = timeout_seconds
-        self._identity = identity
 
     async def call(
         self, operation: str, pool: str, arguments: Mapping[str, object]
@@ -205,8 +201,6 @@ class LauncherChannel:
         runtime = active_runtime()
         if runtime is not None:
             envelope["expected_identity"] = await runtime.privileged_identity()
-        elif self._identity is not None:
-            envelope["expected_identity"] = dict(self._identity)
         request = json.dumps(envelope).encode()
         try:
             result, fields = await run_launcher(
@@ -685,10 +679,8 @@ async def run_pool_smoke(
                 safety=runtime,
             ),
             safety=runtime,
-            target=bound_target().name,
-            base_url=None
-            if bound_target().name == "staging"
-            else bound_target().origin,
+            target="staging",
+            base_url=None,
             population=count,
             transport=api_transport,
             report=report,
@@ -701,17 +693,17 @@ async def run_pool_smoke(
     try:
         try:
             async with guarded_stage("target", report):
-                resolved = bound_target()
+                resolved = resolve_target("staging", None)
                 async with open_client(
                     resolved.origin, transport=api_transport
                 ) as probe:
                     verified = await verify_target(probe, resolved)
             if report is not None:
                 report.record_target(
-                    resolved.name, resolved.report_origin, verified.identity()
+                    resolved.name, resolved.origin, verified.identity()
                 )
                 report.begin("setup")
-            emit(f"PASS target {resolved.name} source_sha={verified.source_sha}")
+            emit(f"PASS target staging source_sha={verified.source_sha}")
 
             try:
                 await runtime.check_target()

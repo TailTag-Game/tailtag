@@ -21,14 +21,14 @@ from tailtag_simulator.limits import (
     RETENTION_CAP,
 )
 from tailtag_simulator.owner_only import create_private_file
-from tailtag_simulator.safety import SafetyRuntime, valid_identity
+from tailtag_simulator.safety import SafetyRuntime
 from tailtag_simulator.scenarios import (
     JOURNEYS,
     ScenarioRejected,
     canonical,
     resolve_scenario,
 )
-from tailtag_simulator.targets import STAGING_ORIGIN, replica_origin_label
+from tailtag_simulator.targets import STAGING_ORIGIN
 
 STAGES = (
     "provenance",
@@ -196,16 +196,18 @@ def _source(value: object) -> None:
 
 
 def _identity(value: object, name: str) -> bool:
-    return valid_identity(name, value)
-
-
-def _report_origin(name: object, base_url: object) -> object:
-    """The recorded origin: Staging's, a digest label for the replica, else base_url."""
+    identity = _object(value, {"source_sha", "deployment_id", "environment"})
     if name == "staging":
-        return STAGING_ORIGIN
-    if name == "replica":
-        return replica_origin_label()
-    return base_url
+        return (
+            _hex(identity["source_sha"], 40)
+            and _uuid(identity["deployment_id"])
+            and identity["environment"] == "staging"
+        )
+    return (
+        identity["environment"] is None
+        and identity["deployment_id"] is None
+        and (identity["source_sha"] is None or _hex(identity["source_sha"], 40))
+    )
 
 
 def _target(value: object, config: Mapping[str, object]) -> None:
@@ -213,7 +215,10 @@ def _target(value: object, config: Mapping[str, object]) -> None:
         value, {"name", "origin", "starting", "final", "attribution", "reason"}
     )
     _require(target["name"] == config["target"])
-    _require(target["origin"] == _report_origin(target["name"], config["base_url"]))
+    _require(
+        target["origin"]
+        == (STAGING_ORIGIN if target["name"] == "staging" else config["base_url"])
+    )
     for key in ("starting", "final"):
         _measurement(target[key], lambda v: _identity(v, target["name"]))
     start, final = target["starting"]["value"], target["final"]["value"]
@@ -747,9 +752,9 @@ class RunReport:
             },
             "target": {
                 "name": configuration["target"],
-                "origin": _report_origin(
-                    configuration["target"], configuration["base_url"]
-                ),
+                "origin": STAGING_ORIGIN
+                if configuration["target"] == "staging"
+                else configuration["base_url"],
                 "starting": unavailable(),
                 "final": unavailable(),
                 "attribution": "not_observed",

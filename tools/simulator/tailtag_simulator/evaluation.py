@@ -18,7 +18,6 @@ from typing import Any, cast
 from tailtag_simulator import reports
 from tailtag_simulator.owner_only import create_private_file
 from tailtag_simulator.reports import ReportFailed, utc_now, validate_report
-from tailtag_simulator.safety import valid_identity
 from tailtag_simulator.traffic_metrics import OPERATIONS
 
 count = reports._count
@@ -105,7 +104,7 @@ def _key(value: object) -> dict[str, Any]:
     require(_text(key["scenario_id"], 64) and count(key["scenario_version"], 1000))
     require(hex_digest(key["descriptor_digest"], 64))
     require(hex_digest(key["plan_digest"], 64))
-    require(key["environment"] in ("staging", "replica", "local"))
+    require(key["environment"] in ("staging", "local"))
     require(_text(key["execution_context"], 64))
     return key
 
@@ -187,11 +186,10 @@ def parse_baseline(value: object) -> dict[str, Any]:
     backend = closed_object(
         report["backend"], {"deployment_id", "source_sha", "environment"}
     )
-    # A baseline belongs to a deployed target, Staging or the replica (#359), and
-    # its backend is from the same environment as its key.
-    environment = baseline["key"]["environment"]
-    require(environment in ("staging", "replica"))
-    require(valid_identity(environment, backend))
+    require(uuid_text(backend["deployment_id"]))
+    require(
+        hex_digest(backend["source_sha"], 40) and backend["environment"] == "staging"
+    )
     if report["execution"] is not None:
         execution = closed_object(report["execution"], {"image_id", "platform"})
         require(_image(execution["image_id"]) and _platform(execution["platform"]))
@@ -464,7 +462,7 @@ def _comparable_key(
         return None
     target = report["target"]
     identity = target["starting"]["value"]
-    if target["name"] in ("staging", "replica"):
+    if target["name"] == "staging":
         environment = None if identity is None else identity["environment"]
     else:
         environment = "local"

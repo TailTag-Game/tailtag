@@ -29,7 +29,7 @@ from scripts.api_staging_reset_ssh import (
     _approved_receipt as _reset_approved_receipt,  # pyright: ignore[reportPrivateUsage]
 )
 
-_REMOTE_SOURCE: Final = _ROOT / "services/api/rehearsal/registry_reconciliation.py"
+_REMOTE_SOURCE: Final = _ROOT / "scripts/api_staging_registry_reconcile_remote.py"
 _SHA: Final = re.compile(r"[0-9a-f]{40}\Z")
 _CHECKS: Final = frozenset(
     {

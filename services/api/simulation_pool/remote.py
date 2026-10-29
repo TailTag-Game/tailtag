@@ -6,10 +6,8 @@ import dataclasses
 from collections.abc import Callable, Mapping
 from typing import Final, cast
 
-from config import replica_binding
 from simulation_pool import services
 
-_REPLICA_JOB: Final = "tailtag-replica-pool"
 _IDENTITY_KEYS: Final = frozenset({"source_sha", "deployment_id", "environment"})
 _REQUEST_KEYS: Final = frozenset({"operation", "pool", "identity", "arguments"})
 
@@ -80,8 +78,6 @@ def _target_matches(
         and isinstance(identity.get("source_sha"), str)
         and isinstance(identity.get("deployment_id"), str)
         and dict(runtime_identity) == dict(identity)
-    ) or replica_binding.is_pinned_job(
-        identity, runtime_identity, environ, (_REPLICA_JOB,)
     )
 
 

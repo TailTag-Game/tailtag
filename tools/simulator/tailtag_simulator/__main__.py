@@ -12,14 +12,12 @@ import sys
 import uuid
 import warnings
 from collections.abc import Sequence
-from contextlib import nullcontext
 from pathlib import Path
 from typing import cast
 
 from tailtag_simulator.baselines import PromotionFailed, promote, trend
 from tailtag_simulator.behavior_config import resolve_behavior_config
 from tailtag_simulator.cleanup import run_cleanup, run_retained
-from tailtag_simulator.client import open_client
 from tailtag_simulator.convention import run_convention
 from tailtag_simulator.evaluation import (
     EvaluationFailed,
@@ -29,11 +27,7 @@ from tailtag_simulator.evaluation import (
     write_evaluation,
 )
 from tailtag_simulator.fixtures import FixtureLauncherChannel, run_fixture_smoke
-from tailtag_simulator.host_protocol import (
-    decode_document,
-    manifest_target,
-    validate_manifest,
-)
+from tailtag_simulator.host_protocol import decode_document, validate_manifest
 from tailtag_simulator.images import load_fixture_images
 from tailtag_simulator.journeys import JourneyImages, run_journeys
 from tailtag_simulator.pool import (
@@ -53,22 +47,12 @@ from tailtag_simulator.reports import ReportFailed, RunReport, load_report
 from tailtag_simulator.safety import SafetyRuntime, resolve_safety_policy
 from tailtag_simulator.scenarios import ScenarioRejected
 from tailtag_simulator.smoke import run_smoke
-from tailtag_simulator.targets import (
-    Target,
-    bind_target,
-    bound_target,
-    resolve_target,
-    verify_target,
-)
 from tailtag_simulator.traffic_config import resolve_traffic_config
 
 # `task -s` keeps launcher stdout to the child's JSON result alone.
 LAUNCHER_COMMAND = ["task", "-s", "api-sim-pool-ssh"]
 FIXTURE_LAUNCHER_COMMAND = ["task", "-s", "api-sim-fixture-ssh"]
 INSPECTION_LAUNCHER_COMMAND = ["task", "-s", "api-sim-inspect-ssh"]
-# The replica relays for host commands named with `--replica-session` (#359).
-REPLICA_LAUNCHER_COMMAND = ["task", "-s", "api-sim-pool-replica"]
-REPLICA_FIXTURE_LAUNCHER_COMMAND = ["task", "-s", "api-sim-fixture-replica"]
 
 
 def _repository_root() -> Path:
@@ -112,58 +96,12 @@ def _run_id(value: str) -> str:
     return value
 
 
-def _replica_premise(
-    args: argparse.Namespace,
-) -> tuple[Target, dict[str, object]] | None:
-    """The replica target and the newest promoted identity, or None for Staging (#359).
-
-    Both flags or neither. The session host must be the pinned replica host, both
-    relay files owner-only and naming that host, and the receipt the newest promoted
-    one. The host operator holds those rules, so it is imported only here: it is host
-    tooling, and native Windows runs only the Staging commands.
-    """
-    session = getattr(args, "replica_session", None)
-    receipt = getattr(args, "receipt", None)
-    if session is None and receipt is None:
-        return None
-    if session is None or receipt is None:
-        raise ValueError
-    from tailtag_simulator.host_operator import (
-        latest_replica_identity,
-        replica_files,
-        replica_session_host,
-    )
-
-    target = resolve_target("replica", f"https://{replica_session_host(session)}")
-    if replica_files(target) is None:
-        raise ValueError
-    return target, latest_replica_identity(receipt)
-
-
-async def _served_identity(target: Target) -> dict[str, object]:
-    """Two agreeing identity reads with readiness, from the replica only."""
-    async with open_client(target.origin) as client:
-        return (await verify_target(client, target)).identity()
-
-
-async def _serves_receipt(target: Target, expected: dict[str, object]) -> bool:
-    """True only when the replica serves the receipt identity; prints `FAIL target` otherwise."""
-    try:
-        identity = await _served_identity(target)
-    except Exception:  # noqa: BLE001 - failures become a fixed line, never detail
-        identity = None
-    if identity != expected:
-        _emit("FAIL target")
-        return False
-    return True
-
-
 def _prompt_token() -> str:
     return _prompt_hidden("Session token:")
 
 
 def _prompt_secret() -> str:
-    return _prompt_hidden(f"Clerk {bound_target().name.capitalize()} secret:")
+    return _prompt_hidden("Clerk Staging secret:")
 
 
 _stage_fd: int | None = None
@@ -226,10 +164,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "cleanup", help="clean one run's Staging state and readmit its identities"
     )
     cleanup.add_argument("--run-id", required=True, type=_run_id)
-    retained = commands.add_parser("retained", help="list retained and unfinished runs")
-    for each in (provision, status, readmit, fixture_smoke, cleanup, retained):
-        each.add_argument("--replica-session", type=Path)
-        each.add_argument("--receipt", type=Path)
+    commands.add_parser("retained", help="list retained and unfinished runs")
     for each in (
         provision,
         status,
@@ -342,13 +277,37 @@ def main(argv: Sequence[str] | None = None) -> int:
         _emit("PASS report")
         return 0
     try:
-        args.replica = _replica_premise(args)
-    except Exception:  # noqa: BLE001 - a bad premise or receipt is a fixed line, never detail
-        _emit("FAIL configuration")
-        return 1
-    try:
-        if args.command in {"cleanup", "retained", "pool"}:
-            return _host_command(args)
+        if args.command == "cleanup":
+            return asyncio.run(
+                run_cleanup(
+                    str(args.pool),
+                    str(args.run_id),
+                    channel=_fixture_launcher(),
+                    emit=_emit,
+                )
+            )
+        if args.command == "retained":
+            return asyncio.run(run_retained(channel=_fixture_launcher(), emit=_emit))
+        if args.command == "pool":
+            if args.pool_command == "provision":
+                return asyncio.run(
+                    run_provision(
+                        str(args.pool),
+                        int(args.size),
+                        prompt_secret=_prompt_secret,
+                        channel=_launcher(),
+                        emit=_emit,
+                    )
+                )
+            if args.pool_command == "status":
+                return asyncio.run(
+                    run_status(str(args.pool), channel=_launcher(), emit=_emit)
+                )
+            return asyncio.run(
+                run_readmit(
+                    str(args.pool), int(args.index), channel=_launcher(), emit=_emit
+                )
+            )
         return asyncio.run(_execute(args))
     except (OSError, ValueError):
         if args.command not in {"convention", "journeys"} or not (
@@ -365,52 +324,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         if _stage_fd is not None:
             os.close(_stage_fd)
             _stage_fd = None
-
-
-def _host_command(args: argparse.Namespace) -> int:
-    """Run one pool, cleanup or retained command on Staging, or on the replica (#359)."""
-    pool_channel, fixture_channel = _launcher(), _fixture_launcher()
-    with bind_target(args.replica[0]) if args.replica else nullcontext():
-        if args.replica:
-            target, identity = args.replica
-            if not asyncio.run(_serves_receipt(target, identity)):
-                return 1
-            pool_channel = LauncherChannel(
-                REPLICA_LAUNCHER_COMMAND, cwd=REPOSITORY_ROOT, identity=identity
-            )
-            fixture_channel = FixtureLauncherChannel(
-                REPLICA_FIXTURE_LAUNCHER_COMMAND, cwd=REPOSITORY_ROOT, identity=identity
-            )
-        if args.command == "cleanup":
-            return asyncio.run(
-                run_cleanup(
-                    str(args.pool),
-                    str(args.run_id),
-                    channel=fixture_channel,
-                    emit=_emit,
-                )
-            )
-        if args.command == "retained":
-            return asyncio.run(run_retained(channel=fixture_channel, emit=_emit))
-        if args.pool_command == "provision":
-            return asyncio.run(
-                run_provision(
-                    str(args.pool),
-                    int(args.size),
-                    prompt_secret=_prompt_secret,
-                    channel=pool_channel,
-                    emit=_emit,
-                )
-            )
-        if args.pool_command == "status":
-            return asyncio.run(
-                run_status(str(args.pool), channel=pool_channel, emit=_emit)
-            )
-        return asyncio.run(
-            run_readmit(
-                str(args.pool), int(args.index), channel=pool_channel, emit=_emit
-            )
-        )
 
 
 def _behavior_file(path: Path, *, host: bool = False) -> dict[str, object]:
@@ -437,7 +350,7 @@ def _behavior_file(path: Path, *, host: bool = False) -> dict[str, object]:
             raise ScenarioRejected
         if host:
             if (
-                value.get("target", "staging") not in ("staging", "replica")
+                value.get("target", "staging") != "staging"
                 or value.get("base_url") is not None
             ):
                 raise ScenarioRejected
@@ -467,30 +380,9 @@ async def _execute(args: argparse.Namespace) -> int:
             if supplied_host
             else {}
         )
-        # The manifest or the replica session names the run target. Bind it before
-        # any network call (#359).
-        target = (
-            manifest_target(supplied_host)
-            if supplied_host
-            else args.replica[0]
-            if args.replica
-            else resolve_target("staging", None)
-        )
     except (ScenarioRejected, ValueError):
         _emit("FAIL configuration")
         return 1
-    with bind_target(target):
-        if args.replica and not await _serves_receipt(target, args.replica[1]):
-            return 1
-        return await _execute_bound(args, supplied_host, policy)
-
-
-async def _execute_bound(
-    args: argparse.Namespace,
-    supplied_host: dict[str, object] | None,
-    policy: dict[str, object],
-) -> int:
-    """Run the command with its target bound."""
     report: RunReport | None = None
     config: dict[str, object] = {}
     if args.command in {
@@ -500,7 +392,7 @@ async def _execute_bound(
         "journeys",
         "convention",
     }:
-        config = {"target": bound_target().name, "base_url": None}
+        config = {"target": "staging", "base_url": None}
         if args.command == "smoke":
             config.update(target=args.target, base_url=args.base_url)
         else:
@@ -712,14 +604,8 @@ async def _dispatch(
             int(args.fursuits),
             int(args.catchers),
             prompt_secret=_prompt_secret,
-            lease_channel=LauncherChannel(REPLICA_LAUNCHER_COMMAND, cwd=REPOSITORY_ROOT)
-            if args.replica
-            else _launcher(),
-            fixture_channel=FixtureLauncherChannel(
-                REPLICA_FIXTURE_LAUNCHER_COMMAND, cwd=REPOSITORY_ROOT
-            )
-            if args.replica
-            else _fixture_launcher(),
+            lease_channel=_launcher(),
+            fixture_channel=_fixture_launcher(),
             emit=_emit,
             report=report,
             safety=safety,

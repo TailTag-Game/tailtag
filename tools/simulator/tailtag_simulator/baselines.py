@@ -53,12 +53,9 @@ class PromotionFailed(Exception):
 def baseline_slug(key: Mapping[str, Any]) -> str:
     """The file stem shared by a key's baseline and thresholds records."""
     context = str(key["execution_context"]).replace("/", "-").replace(":", "-")
-    # Existing slugs stay as they are. A replica slug carries its environment, so
-    # it never names a Staging file (#359 AC23).
-    environment = "-replica" if key["environment"] == "replica" else ""
     slug = (
         f"{key['scenario_id']}-v{key['scenario_version']}-"
-        f"{str(key['plan_digest'])[:12]}-{context}{environment}"
+        f"{str(key['plan_digest'])[:12]}-{context}"
     )
     if SLUG.fullmatch(slug) is None:
         raise PromotionFailed
@@ -181,7 +178,7 @@ def _promote(
     reasons = set(artifact["reasons"])
     if (
         key is None
-        or key["environment"] not in ("staging", "replica")
+        or key["environment"] != "staging"
         or subject["schema_version"] != 5
         or subject["outcome"] != "passed"
         or subject["correctness"] != "passed"

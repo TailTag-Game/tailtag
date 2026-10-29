@@ -47,7 +47,7 @@ def resolve_behavior_config(config: Mapping[str, object]) -> dict[str, object]:
     effective = {**DEFAULTS, "cycles": 3 if family == "soak" else 1, **config}
     pool = effective["pool"]
     if (
-        effective["target"] not in ("staging", "replica")
+        effective["target"] != "staging"
         or effective["base_url"] is not None
         or not isinstance(pool, str)
         or re.fullmatch(r"[a-z0-9]{1,12}", pool) is None

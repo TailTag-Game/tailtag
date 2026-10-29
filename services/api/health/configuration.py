@@ -13,7 +13,7 @@ from django.core.validators import validate_domain_name
 from django.http.request import split_domain_port
 
 from authentication.clerk import ClerkVerificationConfiguration
-from config import build_identity, replacement_target_binding, replica_binding
+from config import build_identity, replacement_target_binding
 from config.settings.clerk import load_clerk_authentication_configuration
 from config.settings.media import S3MediaConfiguration, load_s3_media_configuration
 from observability.postgresql import ENGINE as DATABASE_ENGINE
@@ -22,11 +22,6 @@ _CONFIGURATION_ERROR: Final = "Health configuration unavailable"
 _PRODUCTION_SETTINGS: Final = "config.settings.production"
 _STAGING_HOST: Final = "staging.tailtag.app"
 _RAILWAY_HEALTHCHECK_HOST: Final = "healthcheck.railway.app"
-# Account Portal first, then the simulator tooling origin (#359), like Staging.
-_REPLICA_CLERK_PARTIES: Final = (
-    "https://accounts.replica.tailtag.app",
-    "https://simulator.replica.tailtag.app",
-)
 _LOCAL_STORAGE_BACKENDS: Final = frozenset(
     {
         "django.core.files.storage.FileSystemStorage",
@@ -94,9 +89,6 @@ def _validate_deployed_settings() -> None:
     )
 
     identity = build_identity.get_identity()
-    if identity["environment"] == "replica":
-        _validate_replica(identity["source_sha"], identity["deployment_id"])
-        return
     replacement_target_binding.validate_runtime_target(os.environ)
     environment = identity["environment"]
     if (
@@ -109,28 +101,6 @@ def _validate_deployed_settings() -> None:
         _validate_staging_phase(identity["source_sha"])
     else:
         _validate_development_candidate(identity["source_sha"])
-
-
-def _validate_replica(source_sha: str | None, deployment_id: str | None) -> None:
-    target = replica_binding.read_cloud_run_target(os.environ)
-    if (
-        target is None
-        or target.kind != "service"
-        or target.name != replica_binding.SERVICE_NAME
-        or target.deployment_id != deployment_id
-        or source_sha is None
-    ):
-        raise ValueError
-    host = replica_binding.validate_run_app_host(settings.ALLOWED_HOSTS)
-    if (
-        settings.CSRF_TRUSTED_ORIGINS != [f"https://{host}"]
-        or settings.CLERK_AUTHENTICATION.authorized_parties != _REPLICA_CLERK_PARTIES
-    ):
-        raise ValueError
-    replica_binding.validate_data_targets(
-        cast(Mapping[str, object], settings.DATABASES["default"]),
-        cast(S3MediaConfiguration, settings.MEDIA_STORAGE_CONFIGURATION),
-    )
 
 
 def _validate_development_candidate(source_sha: str | None) -> None:
@@ -337,8 +307,6 @@ def _is_deployed() -> bool:
                 "RAILWAY_ENVIRONMENT_NAME",
                 "RAILWAY_DEPLOYMENT_ID",
                 "RAILWAY_SERVICE_NAME",
-                "K_SERVICE",
-                "CLOUD_RUN_JOB",
             )
         )
     return True

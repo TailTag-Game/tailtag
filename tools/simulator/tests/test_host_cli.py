@@ -555,9 +555,7 @@ def test_every_committed_profile_prepares_with_its_intended_safety_file(
     assert prepared["seed"] == wrapper["seed"]
 
 
-@pytest.mark.parametrize(
-    "safety", ["safety.json", "expiration-safety.json", "replica/burst-safety.json"]
-)
+@pytest.mark.parametrize("safety", ["safety.json", "expiration-safety.json"])
 def test_committed_safety_checks_fit_inside_their_own_request_ceiling(
     safety: str,
 ) -> None:
@@ -572,14 +570,11 @@ def test_every_committed_profile_drain_outlasts_one_think_sleep() -> None:
     # A worker holds its actor slot through think_seconds. A drain window no
     # longer than that stops a run that ends mid-sleep with `drain` (AC12 run).
     short: dict[str, tuple[float, float]] = {}
-    profiles = sorted(HOST_DIR.rglob("*-profile.json"))
+    profiles = sorted(HOST_DIR.glob("*-profile.json"))
     assert profiles
     for path in profiles:
         resolved = resolve_traffic_config(
-            cast(
-                dict[str, object],
-                committed(str(path.relative_to(HOST_DIR)))["configuration"],
-            )
+            cast(dict[str, object], committed(path.name)["configuration"])
         )
         drain = cast(dict[str, float], resolved["limits"])["drain_seconds"]
         think = cast(dict[str, float], resolved["traffic"])["think_seconds"]
