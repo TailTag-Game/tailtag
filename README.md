@@ -6,7 +6,7 @@ This repository contains the community-led rebuild of the TailTag platform, incl
 
 ## Project status
 
-TailTag is in its foundational community-rebuild phase. V0 is a controlled convention beta, and the accepted backend direction is Python, Django, Django REST Framework, PostgreSQL, Clerk authentication, a modular monolith, and Railway hosting.
+TailTag is in its foundational community-rebuild phase. V0 is a controlled convention beta, and the accepted backend direction is Python, Django, Django REST Framework, PostgreSQL, Clerk authentication, a modular monolith, and Render hosting. Development and Staging run on Railway until the move to Render finishes.
 
 The initial backend foundation is present. Client applications, TailTag-specific administrative tooling, and other V0/V1 details may continue to evolve as their issues and specifications are approved.
 
