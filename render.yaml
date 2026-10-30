@@ -112,8 +112,9 @@ projects:
                 sync: false
               - key: DJANGO_CSRF_TRUSTED_ORIGINS
                 sync: false
+              # staging.tailtag.app serves Render Staging since 2026-10-30 (#409).
               - key: TAILTAG_STAGING_TARGET_PHASE
-                value: candidate
+                value: canonical
               - key: CLERK_AUTHENTICATION_ENABLED
                 value: "true"
               - key: CLERK_JWT_KEY

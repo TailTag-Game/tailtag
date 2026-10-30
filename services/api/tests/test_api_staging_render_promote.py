@@ -32,7 +32,8 @@ DEPLOY_ID = "dep-d0promotion000000000"
 API_KEY = "rnd_SyntheticRenderKey0123456789"
 RUN_ID = 35179642379
 CREATED_AT = "2026-10-30T12:00:00.000000Z"
-RENDER_ORIGIN = "https://tailtag-api-staging.onrender.com"
+# staging.tailtag.app serves Render Staging since the 2026-10-30 cutover.
+RENDER_ORIGIN = "https://staging.tailtag.app"
 RENDER_IDENTITY = {
     "source_sha": SOURCE_SHA,
     "deployment_id": None,

@@ -24,9 +24,9 @@ _DEVELOPMENT_EVENT_RETRY_SECONDS: Final = 5
 # before the new SHA serves traffic.
 _RENDER_DEPLOY_DEADLINE_SECONDS: Final = 20 * 60
 _RENDER_DEPLOY_RETRY_SECONDS: Final = 15
-# The public Render Staging origin follows the phase. The cutover PR changes
-# this value to "canonical" when staging.tailtag.app moves to Render (#409).
-_RENDER_STAGING_PHASE: str = "candidate"
+# The public Render Staging origin follows the phase. staging.tailtag.app
+# serves Render Staging since the 2026-10-30 cutover (#409).
+_RENDER_STAGING_PHASE: str = "canonical"
 _RENDER_STAGING_HOST: Final = "tailtag-api-staging.onrender.com"
 _RENDER_STAGING_FLAG: Final = "--render-staging"
 _DEVELOPMENT_FLAGS: Final = frozenset(

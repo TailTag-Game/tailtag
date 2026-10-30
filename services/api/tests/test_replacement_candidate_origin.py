@@ -1121,11 +1121,13 @@ def test_render_development_preflight_waits_through_a_full_render_deploy(
     assert fake_clock.elapsed < preflight._RENDER_DEPLOY_DEADLINE_SECONDS
 
 
-RENDER_STAGING_ORIGIN: Final = "https://tailtag-api-staging.onrender.com"
+# staging.tailtag.app serves Render Staging since the 2026-10-30 cutover.
+RENDER_STAGING_ORIGIN: Final = "https://staging.tailtag.app"
+RENDER_STAGING_HOST_ORIGIN: Final = "https://tailtag-api-staging.onrender.com"
 RENDER_STAGING_IDENTITY: Final = {**IDENTITY, "deployment_id": None}
 
 
-def test_render_staging_cli_checks_the_pinned_candidate_origin(
+def test_render_staging_cli_checks_the_current_public_origin(
     preflight: ModuleType,
     monkeypatch: MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1183,10 +1185,10 @@ def test_render_staging_preflight_rejects_identities_outside_its_target(
 def test_render_staging_origin_follows_the_cutover_phase(
     preflight: ModuleType, monkeypatch: MonkeyPatch
 ) -> None:
-    """#409 AC13: one constant moves the public origin at the cutover."""
+    """#409 AC4/AC13: one constant moved the public origin at the cutover."""
     assert preflight.render_staging_origin() == RENDER_STAGING_ORIGIN
-    monkeypatch.setattr(preflight, "_RENDER_STAGING_PHASE", "canonical")
-    assert preflight.render_staging_origin() == "https://staging.tailtag.app"
+    monkeypatch.setattr(preflight, "_RENDER_STAGING_PHASE", "candidate")
+    assert preflight.render_staging_origin() == RENDER_STAGING_HOST_ORIGIN
 
 
 RENDER_STAGING_SERVICE: Final = "srv-d0staging000000000000"

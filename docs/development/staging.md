@@ -102,6 +102,11 @@ are the usable proof.
 
 ## Controlled Staging promotion (#202)
 
+Retired on 2026-10-30. `staging.tailtag.app` serves Render Staging, so use the
+[Render Staging promotion](#render-staging-promotion-409). Do not run the
+Railway command below again. Railway Staging stays as a frozen rollback target
+until #412.
+
 The frozen [controlled promotion contract](../specs/2026-09-16-controlled-staging-promotion.md)
 is authoritative. This is the only routine Staging promotion path. It uses
 Railway `serviceInstanceDeployV2` with an explicit immutable candidate SHA and
@@ -358,8 +363,8 @@ MEDIA_STORAGE_ENDPOINT_URL=https://media.example.test \
 MEDIA_STORAGE_BUCKET_NAME=placeholder MEDIA_STORAGE_REGION=auto \
 MEDIA_STORAGE_ACCESS_KEY_ID=placeholder MEDIA_STORAGE_SECRET_ACCESS_KEY=placeholder \
 TAILTAG_STAGING_AUTH_SMOKE_CONFIRM=run-clerk-render-staging-auth-smoke \
-API_BASE_URL=https://tailtag-api-staging.onrender.com \
-TAILTAG_STAGING_API_BASE_URL=https://tailtag-api-staging.onrender.com \
+API_BASE_URL=https://staging.tailtag.app \
+TAILTAG_STAGING_API_BASE_URL=https://staging.tailtag.app \
 task api-staging-auth-smoke
 unset CLERK_STAGING_SMOKE_USER_ID RENDER_SERVICE_ID CLERK_JWT_KEY
 ```
@@ -383,13 +388,14 @@ unset MEDIA_STORAGE_ENDPOINT_URL MEDIA_STORAGE_BUCKET_NAME \
 ```
 
 Each smoke fails unless the service ID matches the pinned Render Staging
-service and the confirmation names Render Staging. Before the switch, the
-public origin is `https://tailtag-api-staging.onrender.com`.
+service and the confirmation names Render Staging. Since the 2026-10-30
+switch, the public origin is `https://staging.tailtag.app`. Before the switch,
+it was `https://tailtag-api-staging.onrender.com`.
 
 ### Move staging.tailtag.app to Render
 
-The owner approves the switch, and the issue records the date. Run the steps
-in this order:
+The owner approved the switch on 2026-10-30, and #409 records the date. Run
+the steps in this order:
 
 1. Merge the cutover change. It sets the Render Staging phase to `canonical`.
 2. On the `tailtag-api-staging` **Environment** page, set
