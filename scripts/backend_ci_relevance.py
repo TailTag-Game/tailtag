@@ -16,6 +16,7 @@ BACKEND_RELEVANT_FILES = {
     "scripts/api_environment_fingerprint.py",
     "scripts/api_deployment_identity.py",
     "scripts/api_development_delivery_event.py",
+    "scripts/render_development_deploy.py",
     "scripts/api_sim_fixture_ssh.py",
     "scripts/api_sim_inspect_ssh.py",
     "scripts/api_sim_pool_ssh.py",
@@ -50,6 +51,7 @@ BACKEND_RELEVANT_FILES = {
     "scripts/validate_semgrep_contract.py",
     ".github/workflows/api.yml",
     ".github/workflows/post-deploy-smoke.yml",
+    ".github/workflows/render-development-deploy.yml",
     ".semgrepignore",
 }
 

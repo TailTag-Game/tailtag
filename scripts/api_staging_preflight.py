@@ -20,6 +20,10 @@ _SOURCE_SHA: Final = re.compile(r"[0-9a-f]{40}")
 _MAX_RESPONSE_BYTES: Final = 4096
 _DEVELOPMENT_EVENT_DEADLINE_SECONDS: Final = 120
 _DEVELOPMENT_EVENT_RETRY_SECONDS: Final = 5
+# A Render deploy that CI starts must build and run the pre-deploy migration
+# before the new SHA serves traffic.
+_RENDER_DEPLOY_DEADLINE_SECONDS: Final = 20 * 60
+_RENDER_DEPLOY_RETRY_SECONDS: Final = 15
 _DEVELOPMENT_FLAGS: Final = frozenset(
     {
         "--development-current",
@@ -199,7 +203,14 @@ def validate_development_candidate_target(
         raise TargetSafetyError
     if expected_sha is None:
         return _attempt_development_candidate(origin, None, render=render)
-    deadline = time.monotonic() + _DEVELOPMENT_EVENT_DEADLINE_SECONDS
+    deadline = time.monotonic() + (
+        _RENDER_DEPLOY_DEADLINE_SECONDS
+        if render
+        else _DEVELOPMENT_EVENT_DEADLINE_SECONDS
+    )
+    interval = (
+        _RENDER_DEPLOY_RETRY_SECONDS if render else _DEVELOPMENT_EVENT_RETRY_SECONDS
+    )
     while True:
         try:
             return _attempt_development_candidate(origin, expected_sha, render=render)
@@ -207,7 +218,7 @@ def validate_development_candidate_target(
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise
-            time.sleep(min(_DEVELOPMENT_EVENT_RETRY_SECONDS, remaining))
+            time.sleep(min(interval, remaining))
 
 
 def _attempt_development_candidate(

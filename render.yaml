@@ -2,10 +2,11 @@
 #
 # Auto Sync stays off. The owner runs each sync after review, because a sync
 # creates or changes paid resources. Secret values use `sync: false` and never
-# live in this file. Each service builds `main`. Development deploys a
-# backend change only after every CI check on the commit passes, and runs the
-# guarded migration before the new version takes traffic (#408). Staging
-# auto-deploy and its pre-deploy migration stay off until #409.
+# live in this file. Each service builds `main`. Render auto-deploy stays off.
+# The "Render Development deploy" workflow deploys a backend commit through
+# the deploy hook after every CI workflow on it passes. The guarded migration
+# runs before the new version takes traffic (#408). The Staging pre-deploy
+# migration stays off until #409.
 
 previews:
   generation: "off"
@@ -26,11 +27,7 @@ projects:
             branch: main
             dockerfilePath: ./services/api/Dockerfile
             dockerContext: ./services/api
-            autoDeployTrigger: checksPass
-            # Matches the Railway Development watch path.
-            buildFilter:
-              paths:
-                - services/api/**
+            autoDeployTrigger: "off"
             preDeployCommand: python -m config.replacement_migrate
             healthCheckPath: /health/ready
             envVars:

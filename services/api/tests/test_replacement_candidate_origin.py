@@ -1093,3 +1093,29 @@ def test_development_preflight_keeps_each_host_bound_to_its_own_identity(
     monkeypatch.setattr(preflight, "_fetch_json", fetch)
     with pytest.raises(preflight.TargetSafetyError):
         preflight.validate_development_candidate_target(None, render=render)
+
+
+def test_render_development_preflight_waits_through_a_full_render_deploy(
+    preflight: ModuleType, monkeypatch: MonkeyPatch, fake_clock: FakeClock
+) -> None:
+    """#408 D4: a CI-started deploy builds and migrates before the SHA serves."""
+    monkeypatch.setenv("TAILTAG_DEVELOPMENT_API_BASE_URL", RENDER_DEVELOPMENT_ORIGIN)
+    old_identity = {**RENDER_DEVELOPMENT_IDENTITY, "source_sha": "b" * 40}
+    elapsed_before_new_sha = 10 * 60
+
+    def fetch(url: str) -> object:
+        if url.endswith("/health/ready"):
+            return {"status": "ok"}
+        if fake_clock.elapsed < elapsed_before_new_sha:
+            return old_identity
+        return RENDER_DEVELOPMENT_IDENTITY
+
+    monkeypatch.setattr(preflight, "_fetch_json", fetch)
+    assert (
+        preflight.validate_development_candidate_target(
+            RENDER_DEVELOPMENT_IDENTITY["source_sha"], render=True
+        )
+        == RENDER_DEVELOPMENT_IDENTITY
+    )
+    assert fake_clock.elapsed >= elapsed_before_new_sha
+    assert fake_clock.elapsed < preflight._RENDER_DEPLOY_DEADLINE_SECONDS
