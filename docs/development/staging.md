@@ -331,6 +331,12 @@ the authenticated and media smokes run locally. Copy each value from the
 `tailtag-api-staging` **Environment** page. Run each block in zsh, the default
 macOS shell, like the other blocks on this page.
 
+The smoke verifies the session token with the API's own verifier, which loads
+the production settings. On Railway, `railway run` supplied every service
+variable. Here the block sets the Clerk values and harmless placeholders for
+the other required settings. The smoke does not connect to the database or to
+media storage.
+
 The Clerk JWT public key is not a secret, and it has several lines. Paste the
 whole PEM block at the prompt. Make sure that the cursor is on an empty line
 after `-----END PUBLIC KEY-----`, then press Ctrl-D once.
@@ -342,9 +348,15 @@ read -r 'RENDER_SERVICE_ID?Render Staging service ID: '
 print 'Paste CLERK_JWT_KEY, then press Ctrl-D on an empty line:'
 CLERK_JWT_KEY="$(cat)"
 export CLERK_STAGING_SMOKE_USER_ID RENDER_SERVICE_ID CLERK_JWT_KEY
-RENDER=true \
+RENDER=true CLERK_AUTHENTICATION_ENABLED=true \
 CLERK_AUTHORIZED_PARTIES=https://accounts.staging.tailtag.app \
 DJANGO_SETTINGS_MODULE=config.settings.production \
+DJANGO_SECRET_KEY=local-auth-smoke-placeholder \
+DJANGO_ALLOWED_HOSTS=localhost DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost \
+DATABASE_URL=postgresql://placeholder:placeholder@localhost:5432/placeholder \
+MEDIA_STORAGE_ENDPOINT_URL=https://media.example.test \
+MEDIA_STORAGE_BUCKET_NAME=placeholder MEDIA_STORAGE_REGION=auto \
+MEDIA_STORAGE_ACCESS_KEY_ID=placeholder MEDIA_STORAGE_SECRET_ACCESS_KEY=placeholder \
 TAILTAG_STAGING_AUTH_SMOKE_CONFIRM=run-clerk-render-staging-auth-smoke \
 API_BASE_URL=https://tailtag-api-staging.onrender.com \
 TAILTAG_STAGING_API_BASE_URL=https://tailtag-api-staging.onrender.com \
