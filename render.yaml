@@ -5,8 +5,9 @@
 # live in this file. Each service builds `main`. Render auto-deploy stays off.
 # The "Render Development deploy" workflow deploys a backend commit through
 # the deploy hook after every CI workflow on it passes. The guarded migration
-# runs before the new version takes traffic (#408). The Staging pre-deploy
-# migration stays off until #409.
+# runs before the new version takes traffic (#408). Staging deploys only
+# through `scripts/api_staging_render_promote.py`, and the same guarded
+# migration runs before each Staging version takes traffic (#409).
 
 previews:
   generation: "off"
@@ -91,10 +92,14 @@ projects:
             dockerfilePath: ./services/api/Dockerfile
             dockerContext: ./services/api
             autoDeployTrigger: "off"
+            preDeployCommand: python -m config.replacement_migrate
             healthCheckPath: /health/ready
             envVars:
               - key: PORT
                 value: "8000"
+              # The guarded pre-deploy migration requires this exact module.
+              - key: DJANGO_SETTINGS_MODULE
+                value: config.settings.production
               - key: PGSSLMODE
                 value: require
               - key: DATABASE_URL

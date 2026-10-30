@@ -812,18 +812,39 @@ def render_pins(monkeypatch: MonkeyPatch) -> None:
     )
 
 
-def test_render_main_success_identifies_only_the_pinned_development_service(
-    render_pins: None, monkeypatch: MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    ("service", "environment_name"),
+    (
+        (RENDER_DEVELOPMENT_SERVICE, "development"),
+        (RENDER_STAGING_SERVICE, "staging"),
+    ),
+)
+def test_render_main_success_identifies_only_the_pinned_service(
+    render_pins: None,
+    monkeypatch: MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    service: str,
+    environment_name: str,
 ) -> None:
-    """#408 AC6: a local run binds to the pinned Render Development service."""
+    """#408 AC6, #409 AC6: a local run binds to one pinned Render service."""
     monkeypatch.setattr(smoke, "DefaultSmokeRuntime", RecordingRuntime)
     monkeypatch.setattr(sys, "argv", ["api_media_storage_smoke.py"])
-    monkeypatch.setattr(smoke.os, "environ", RENDER_ENVIRONMENT)
+    monkeypatch.setattr(
+        smoke.os,
+        "environ",
+        {
+            **RENDER_ENVIRONMENT,
+            "RENDER_SERVICE_ID": service,
+            "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": (
+                f"run-r2-render-{environment_name}-media-storage-smoke"
+            ),
+        },
+    )
 
     assert smoke.main() == 0
 
     assert capsys.readouterr().out.splitlines()[0] == (
-        "PASS target render development/api"
+        f"PASS target render {environment_name}/api"
     )
 
 
@@ -837,14 +858,27 @@ def test_render_main_success_identifies_only_the_pinned_development_service(
             ],
         },
         {**RENDER_ENVIRONMENT, "RENDER_SERVICE_ID": RENDER_STAGING_SERVICE},
+        {
+            **RENDER_ENVIRONMENT,
+            "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": (
+                "run-r2-render-staging-media-storage-smoke"
+            ),
+        },
         {**RENDER_ENVIRONMENT, "RENDER_SERVICE_ID": "srv-d0unpinned00000000000"},
         {**RENDER_ENVIRONMENT, "RENDER": "false"},
         {**RENDER_ENVIRONMENT, **VALID_ENVIRONMENT},
     ),
-    ids=("railway-confirmation", "render-staging", "unpinned", "not-render", "mixed"),
+    ids=(
+        "railway-confirmation",
+        "staging-service-development-phrase",
+        "development-service-staging-phrase",
+        "unpinned",
+        "not-render",
+        "mixed",
+    ),
 )
 def test_render_media_target_guard_rejects_every_other_target(
     render_pins: None, environment: Mapping[str, str]
 ) -> None:
-    """#408 AC6: only the confirmed, pinned Render Development service passes."""
+    """#408 AC6, #409 AC6: each pinned service needs its own phrase."""
     assert not smoke.valid_target(environment)

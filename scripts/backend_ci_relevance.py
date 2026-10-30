@@ -23,6 +23,7 @@ BACKEND_RELEVANT_FILES = {
     "scripts/api_staging_emergency_operator_ssh.py",
     "scripts/api_staging_emergency_operator_decommission_ssh.py",
     "scripts/api_staging_promote.py",
+    "scripts/api_staging_render_promote.py",
     "scripts/api_staging_preflight.py",
     "scripts/api_staging_fixture_diagnose.py",
     "scripts/api_staging_managed_auth_diagnose.py",

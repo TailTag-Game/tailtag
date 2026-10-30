@@ -125,6 +125,7 @@ class RecordingRuntime:
 
     failure: str | None = None
     private_value: str = PROMPTED_TOKEN
+    expected_base_url: str = STAGING_URL
 
     def __post_init__(self) -> None:
         self.events: list[str] = []
@@ -139,7 +140,7 @@ class RecordingRuntime:
 
     def run_baseline(self, *, base_url: str) -> bool:
         self.events.append("baseline")
-        assert base_url == STAGING_URL
+        assert base_url == self.expected_base_url
         self._fail("baseline")
         return True
 
@@ -189,7 +190,7 @@ class RecordingRuntime:
 
     def request_current_user(self, *, base_url: str, bearer_token: str) -> None:
         self.events.append("api-me")
-        assert base_url == STAGING_URL
+        assert base_url == self.expected_base_url
         assert bearer_token == PROMPTED_TOKEN
         self._fail("api-me")
 
@@ -477,6 +478,94 @@ def test_only_exact_staging_target_is_accepted_before_prompt_or_provider_access(
 
     assert not outcome.succeeded
     assert not outcome.cleanup_failed
+    assert runtime.events == []
+
+
+RENDER_STAGING_URL = "https://tailtag-api-staging.onrender.com"
+RENDER_STAGING_SERVICE = "srv-d0staging000000000000"
+RENDER_DEVELOPMENT_SERVICE = "srv-d0development00000000"
+RENDER_STAGING_ENVIRONMENT = {
+    "RENDER": "true",
+    "RENDER_SERVICE_ID": RENDER_STAGING_SERVICE,
+    "TAILTAG_STAGING_AUTH_SMOKE_CONFIRM": "run-clerk-render-staging-auth-smoke",
+    "API_BASE_URL": RENDER_STAGING_URL,
+    "TAILTAG_STAGING_API_BASE_URL": RENDER_STAGING_URL,
+    "CLERK_STAGING_SMOKE_USER_ID": SYNTHETIC_USER_ID,
+}
+
+
+@pytest.fixture
+def render_pins(monkeypatch: MonkeyPatch) -> None:
+    from config import replacement_target_binding as binding
+
+    monkeypatch.setattr(
+        binding,
+        "_EXPECTED_RENDER_DIGESTS",
+        {
+            environment: binding.fingerprint_render_service(environment, service)
+            for environment, service in (
+                ("development", RENDER_DEVELOPMENT_SERVICE),
+                ("staging", RENDER_STAGING_SERVICE),
+            )
+        },
+    )
+
+
+def test_render_staging_target_runs_against_the_pinned_origin(
+    staging_smoke: ModuleType, render_pins: None
+) -> None:
+    """#409 AC5: a local run binds to the pinned Render Staging service and host."""
+    runtime = RecordingRuntime(expected_base_url=RENDER_STAGING_URL)
+
+    outcome = run(staging_smoke, RENDER_STAGING_ENVIRONMENT, runtime)
+
+    assert outcome.succeeded
+    assert runtime.events[0] == "baseline"
+    assert "api-me" in runtime.events
+
+
+@pytest.mark.parametrize(
+    "environment",
+    (
+        {
+            **RENDER_STAGING_ENVIRONMENT,
+            "TAILTAG_STAGING_AUTH_SMOKE_CONFIRM": "run-clerk-staging-auth-smoke",
+        },
+        {**RENDER_STAGING_ENVIRONMENT, "RENDER_SERVICE_ID": RENDER_DEVELOPMENT_SERVICE},
+        {
+            **RENDER_STAGING_ENVIRONMENT,
+            "RENDER_SERVICE_ID": "srv-d0unpinned00000000000",
+        },
+        {**RENDER_STAGING_ENVIRONMENT, "RENDER": "false"},
+        {
+            **RENDER_STAGING_ENVIRONMENT,
+            "API_BASE_URL": STAGING_URL,
+            "TAILTAG_STAGING_API_BASE_URL": STAGING_URL,
+        },
+        {**RENDER_STAGING_ENVIRONMENT, "TAILTAG_STAGING_API_BASE_URL": STAGING_URL},
+        {**RENDER_STAGING_ENVIRONMENT, "CLERK_STAGING_SMOKE_USER_ID": ""},
+        {**RENDER_STAGING_ENVIRONMENT, **STAGING_ENVIRONMENT},
+    ),
+    ids=(
+        "railway-confirmation",
+        "development-service",
+        "unpinned-service",
+        "not-render",
+        "staging-host-before-cutover",
+        "mismatched-origins",
+        "no-user",
+        "mixed-hosts",
+    ),
+)
+def test_render_staging_target_fails_closed_before_any_access(
+    staging_smoke: ModuleType, render_pins: None, environment: Mapping[str, str]
+) -> None:
+    """#409 AC5/AC13 SECURITY: only the confirmed, pinned Render target passes."""
+    runtime = RecordingRuntime(expected_base_url=RENDER_STAGING_URL)
+
+    outcome = run(staging_smoke, environment, runtime)
+
+    assert not outcome.succeeded
     assert runtime.events == []
 
 

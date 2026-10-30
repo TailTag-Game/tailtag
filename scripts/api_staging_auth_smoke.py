@@ -24,11 +24,13 @@ from clerk_backend_api import Clerk
 from clerk_backend_api.types import UNSET
 from clerk_backend_api.utils import BackoffStrategy, RetryConfig
 from django.http import HttpRequest
+from scripts import api_staging_preflight
 from scripts.clerk_development_session import (
     _suppress_provider_debug_logs,  # pyright: ignore[reportPrivateUsage]
 )
 
 from authentication.clerk import ClerkSessionVerifier, ClerkVerificationConfiguration
+from config import replacement_target_binding
 
 os = SimpleNamespace(environ=_stdlib_os.environ, path=_stdlib_os.path)
 
@@ -41,6 +43,9 @@ MAX_PROVIDER_SESSION_TOKEN_LIFETIME_SECONDS = 60
 
 _STAGING_URL: Final = "https://staging.tailtag.app"
 _CONFIRMATION: Final = "run-clerk-staging-auth-smoke"
+# A local run against Render names the pinned service ID itself, because
+# Render has no command that copies service variables into a local process.
+_RENDER_CONFIRMATION: Final = "run-clerk-render-staging-auth-smoke"
 _API_ME_PATH: Final = "/api/me/"
 _REQUEST_TIMEOUT_SECONDS: Final = 10
 _BASELINE_TIMEOUT_SECONDS: Final = 30
@@ -327,6 +332,11 @@ def _staging_verifier() -> ClerkSessionVerifier:
 
 def _valid_target(environment: Mapping[str, str]) -> tuple[str, str] | None:
     user_id = environment.get("CLERK_STAGING_SMOKE_USER_ID", "")
+    try:
+        if replacement_target_binding.runtime_host(environment) == "render":
+            return _valid_render_target(environment, user_id)
+    except replacement_target_binding.TargetBindingError:
+        return None
     if (
         environment.get("RAILWAY_ENVIRONMENT_NAME") != "staging"
         or environment.get("RAILWAY_SERVICE_NAME") != "api"
@@ -337,6 +347,28 @@ def _valid_target(environment: Mapping[str, str]) -> tuple[str, str] | None:
     ):
         return None
     return _STAGING_URL, user_id
+
+
+def _valid_render_target(
+    environment: Mapping[str, str], user_id: str
+) -> tuple[str, str] | None:
+    try:
+        if replacement_target_binding.validate_runtime_target(environment) != "staging":
+            return None
+        origin = api_staging_preflight.render_staging_origin()
+    except (
+        replacement_target_binding.TargetBindingError,
+        api_staging_preflight.TargetSafetyError,
+    ):
+        return None
+    if (
+        environment.get("TAILTAG_STAGING_AUTH_SMOKE_CONFIRM") != _RENDER_CONFIRMATION
+        or environment.get("API_BASE_URL") != origin
+        or environment.get("TAILTAG_STAGING_API_BASE_URL") != origin
+        or not user_id
+    ):
+        return None
+    return origin, user_id
 
 
 def _close_runtime(runtime: SmokeRuntime) -> None:
