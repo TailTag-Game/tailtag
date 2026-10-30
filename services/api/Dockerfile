@@ -69,6 +69,7 @@ WORKDIR /app
 
 RUN groupadd --system tailtag \
     && useradd --system --gid tailtag --create-home tailtag \
+    && install -d -m 0700 -o tailtag -g tailtag /home/tailtag/.ssh \
     && chown tailtag:tailtag /app
 
 COPY docker/write_build_identity.py /tmp/write_build_identity.py
