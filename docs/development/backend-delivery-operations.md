@@ -37,8 +37,10 @@ Render auto-deploy is off. The `Render Development deploy` workflow starts each
 deploy. It runs for a merge to `main` that changes `services/api/**`. It works
 in these steps:
 
-1. It waits until every other workflow on the commit finishes. The
-   `TailTag post-deploy smoke` runs for Railway do not count.
+1. It waits until every other workflow on the commit finishes. It expects
+   each workflow that the commit's changed files start, including path-filtered
+   ones. The `TailTag post-deploy smoke` runs for Railway do not count. A few
+   failed GitHub requests in a row count as waiting.
 2. If a workflow failed, it does not deploy. Its run stays green with a
    notice, because the failed workflow is already red. If CI is still running
    after 75 minutes, the run turns red, because CI can still pass later.

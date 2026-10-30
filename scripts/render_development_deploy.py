@@ -9,9 +9,10 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from http.client import HTTPException
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from types import MappingProxyType
 from typing import Final, Literal, cast
 
 _SHA: Final = re.compile(r"[0-9a-f]{40}")
@@ -23,12 +24,38 @@ _HOOK: Final = re.compile(
 _EXCLUDED_WORKFLOWS: Final = frozenset(
     {"Render Development deploy", "TailTag post-deploy smoke"}
 )
-# Every backend push runs this workflow, so its absence means CI has not started.
-_REQUIRED_WORKFLOW: Final = "TailTag API"
+# Each other workflow that runs on a push to main, with its path filter. None
+# means that every push runs it. A test keeps this table equal to the files in
+# .github/workflows, so a new or changed workflow cannot escape the gate.
+_PUSH_WORKFLOWS: Final[Mapping[str, tuple[str, ...] | None]] = MappingProxyType(
+    {
+        "TailTag API": None,
+        "Mobile App Build Test": None,
+        "Windows parity": None,
+        "TailTag Simulator": (
+            "tools/simulator/**",
+            "docs/operations/simulation-host.md",
+            "scripts/api_sim_pool_ssh.py",
+            "scripts/api_sim_fixture_ssh.py",
+            "scripts/api_sim_inspect_ssh.py",
+            "scripts/api_staging_reset_ssh.py",
+            "scripts/api_staging_preflight.py",
+            "services/api/pyproject.toml",
+            "services/api/uv.lock",
+            "services/api/simulation_fixtures/images/**",
+            ".semgrep/**",
+            "Taskfile.yml",
+            "scripts/validate_semgrep_contract.py",
+            ".github/workflows/simulator.yml",
+        ),
+    }
+)
 _PASSING: Final = frozenset({"success", "skipped", "neutral"})
 _BACKEND_PATH: Final = "services/api"
 _CI_DEADLINE_SECONDS: Final = 75 * 60
 _CI_RETRY_SECONDS: Final = 30
+# A few failed GitHub polls in a row count as "still waiting".
+_MAX_POLL_FAILURES: Final = 3
 _MAX_RESPONSE_BYTES: Final = 1_048_576
 
 CiState = Literal["pending", "passed", "failed"]
@@ -43,7 +70,18 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def ci_state(runs: list[object]) -> CiState:
+def expected_workflows(changed_files: Iterable[str]) -> frozenset[str]:
+    """Name every workflow that a push of these changed files starts on main."""
+    paths = [PurePosixPath(name) for name in changed_files]
+    return frozenset(
+        name
+        for name, patterns in _PUSH_WORKFLOWS.items()
+        if patterns is None
+        or any(path.full_match(pattern) for path in paths for pattern in patterns)
+    )
+
+
+def ci_state(runs: list[object], expected: frozenset[str]) -> CiState:
     """Classify the commit's CI from its GitHub Actions workflow runs."""
     relevant: list[dict[str, object]] = []
     for run in runs:
@@ -52,7 +90,7 @@ def ci_state(runs: list[object]) -> CiState:
         run = cast(dict[str, object], run)
         if run.get("name") not in _EXCLUDED_WORKFLOWS:
             relevant.append(run)
-    if not any(run.get("name") == _REQUIRED_WORKFLOW for run in relevant):
+    if not expected <= {run.get("name") for run in relevant}:
         return "pending"
     if any(run.get("status") != "completed" for run in relevant):
         return "pending"
@@ -110,6 +148,32 @@ class GitHub:
                 return runs
             page += 1
 
+    def changed_files(self, sha: str) -> list[str]:
+        files: list[str] = []
+        page = 1
+        while True:
+            document = _request(
+                f"{self._base}/commits/{sha}?per_page=100&page={page}",
+                token=self._token,
+            )
+            if not isinstance(document, dict):
+                raise DeployFailure
+            batch = cast(dict[str, object], document).get("files")
+            if not isinstance(batch, list):
+                raise DeployFailure
+            for entry in cast(list[object], batch):
+                name = (
+                    cast(dict[str, object], entry).get("filename")
+                    if isinstance(entry, dict)
+                    else None
+                )
+                if not isinstance(name, str) or not name:
+                    raise DeployFailure
+                files.append(name)
+            if len(cast(list[object], batch)) < 100:
+                return files
+            page += 1
+
     def latest_backend_sha(self) -> str:
         document = _request(
             f"{self._base}/commits?sha=main&path={_BACKEND_PATH}&per_page=1",
@@ -146,8 +210,19 @@ def wait_for_ci(
     monotonic = monotonic or time.monotonic
     sleep = sleep or time.sleep
     deadline = monotonic() + _CI_DEADLINE_SECONDS
+    expected: frozenset[str] | None = None
+    failures = 0
     while True:
-        state = ci_state(github.workflow_runs(sha))
+        state: CiState = "pending"
+        try:
+            if expected is None:
+                expected = expected_workflows(github.changed_files(sha))
+            state = ci_state(github.workflow_runs(sha), expected)
+            failures = 0
+        except DeployFailure:
+            failures += 1
+            if failures > _MAX_POLL_FAILURES:
+                raise
         remaining = deadline - monotonic()
         if state != "pending" or remaining <= 0:
             return state
