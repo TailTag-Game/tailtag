@@ -11,8 +11,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Final, TypedDict, cast
 
-from config import replacement_target_binding
-
 _METADATA_PATH: Final = Path("/opt/tailtag/build-identity.json")
 _SOURCE_SHA_PATTERN: Final = re.compile(r"[0-9a-f]{40}")
 _ENVIRONMENT_PATTERN: Final = re.compile(r"[a-z][a-z0-9-]{0,62}")
@@ -56,9 +54,14 @@ def _load_identity(metadata_path: Path, environment: Mapping[str, str]) -> Ident
                 raise ValueError("identity metadata invalid")
             source_sha = stored_source_sha
 
-    if replacement_target_binding.runtime_host(environment) == "render":
+    if "RENDER" in environment or "RENDER_SERVICE_ID" in environment:
+        # Import only on Render: the binding module resolves the operator home
+        # directory at import, and every settings import loads this module.
+        from config import replacement_target_binding
+
         # Render sets no runtime deploy ID. Only the matched pin names the
-        # environment, so a service display name cannot select one.
+        # environment, so a service display name cannot select one. The
+        # binding also rejects Railway markers next to Render ones.
         render_environment = replacement_target_binding.validate_runtime_target(
             environment
         )
