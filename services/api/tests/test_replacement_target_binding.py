@@ -422,10 +422,10 @@ def _render_runtime(service_id: str = RENDER_STAGING_SERVICE) -> dict[str, str]:
     }
 
 
-def test_shipped_render_pins_deny_every_service_until_resources_exist(
+def test_shipped_render_pins_deny_unreviewed_services(
     binding: ModuleType,
 ) -> None:
-    """AC11: no Render service passes before reviewed pins land."""
+    """AC11: the shipped pins accept no service except the reviewed ones."""
     for service_id in (RENDER_DEVELOPMENT_SERVICE, RENDER_STAGING_SERVICE):
         _assert_fixed_denial(
             binding,
@@ -517,9 +517,11 @@ def test_render_hostname_pins_return_only_the_reviewed_origin(
         )
 
 
-def test_shipped_render_hostname_pins_deny_every_host(binding: ModuleType) -> None:
-    """AC12: no Render host passes before reviewed pins land."""
+def test_shipped_render_hostname_pins_deny_unreviewed_hosts(
+    binding: ModuleType,
+) -> None:
+    """AC12: the shipped pins accept no host except the reviewed ones."""
     _assert_fixed_denial(
         binding,
-        lambda: binding.pinned_render_origin("development", RENDER_DEVELOPMENT_HOST),
+        lambda: binding.pinned_render_origin("development", "other-api.onrender.com"),
     )

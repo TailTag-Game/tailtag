@@ -53,9 +53,14 @@ _EXPECTED_DIGESTS: Final = {
 
 _RENDER_ENVIRONMENTS: Final = ("development", "staging")
 _RENDER_SERVICE_ID: Final = re.compile(r"srv-[a-z0-9]{1,60}")
-# Empty until the reviewed Render services exist, so every Render target fails.
-_EXPECTED_RENDER_DIGESTS: Final[dict[str, str]] = {}
-_EXPECTED_RENDER_HOST_DIGESTS: Final[dict[str, str]] = {}
+_EXPECTED_RENDER_DIGESTS: Final[dict[str, str]] = {
+    "development": "64d011b1894192693c980dd0f18d90965df3f56b45b2c604a2a79e2ca2617010",
+    "staging": "19b4021269c4003848c9aa8b9373037bd0d2c5fd00a2f7e17d13b6060d13d405",
+}
+_EXPECTED_RENDER_HOST_DIGESTS: Final[dict[str, str]] = {
+    "development": "55770374ef59dccf72a2aa1c98a9a1eaccbd140c2924a1a60376ff0161ae72c0",
+    "staging": "e4625e95b760af49f9bfa9cdbc968fe98606c371426099c82d40d9a5e3fc4d37",
+}
 _RAILWAY_RUNTIME_MARKERS: Final = (
     "RAILWAY_ENVIRONMENT_NAME",
     "RAILWAY_DEPLOYMENT_ID",
