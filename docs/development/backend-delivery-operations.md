@@ -111,6 +111,10 @@ the media smoke runs locally with values that you enter at hidden prompts.
 Copy each value from the `tailtag-api-development` **Environment** page. The
 service ID is the `srv-…` part of the dashboard URL.
 
+Run this block in bash. In zsh, `read -p` reads from a coprocess and does not
+show a prompt, so start `bash --noprofile --norc` first. Type `exit` when the
+block finishes.
+
 ```bash
 read -rs -p "MEDIA_STORAGE_ENDPOINT_URL: " MEDIA_STORAGE_ENDPOINT_URL; echo
 read -rs -p "MEDIA_STORAGE_BUCKET_NAME: " MEDIA_STORAGE_BUCKET_NAME; echo
