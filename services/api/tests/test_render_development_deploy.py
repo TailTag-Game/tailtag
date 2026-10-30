@@ -38,7 +38,7 @@ CI_PASSED: list[object] = [
     workflow("Mobile App Build Test"),
     workflow("Windows parity"),
 ]
-EVERY_PUSH = frozenset({"TailTag API", "Mobile App Build Test", "Windows parity"})
+APP_WORKFLOWS = frozenset({"TailTag API", "Mobile App Build Test", "Windows parity"})
 BACKEND_CHANGE = ["services/api/config/replacement_migrate.py"]
 
 
@@ -126,25 +126,42 @@ def test_ci_state_requires_every_other_workflow_to_pass(
     runs: list[object], state: str
 ) -> None:
     """D1/D2: only CI workflows gate the deploy, and every one must pass."""
-    assert deploy.ci_state(runs, EVERY_PUSH) == state
+    assert deploy.ci_state(runs, APP_WORKFLOWS) == state
 
 
 @pytest.mark.parametrize(
-    ("changed", "extra"),
+    ("changed", "expected"),
     (
-        (BACKEND_CHANGE, set[str]()),
-        (["services/api/uv.lock"], {"TailTag Simulator"}),
-        (["services/api/simulation_fixtures/images/a/b.png"], {"TailTag Simulator"}),
-        ([".semgrep/rules/no-secrets.yml"], {"TailTag Simulator"}),
-        (["services/api/simulation_fixtures/__init__.py"], set[str]()),
+        (BACKEND_CHANGE, APP_WORKFLOWS),
+        (["services/api/uv.lock"], APP_WORKFLOWS | {"TailTag Simulator"}),
+        (
+            ["services/api/simulation_fixtures/images/a/b.png"],
+            APP_WORKFLOWS | {"TailTag Simulator"},
+        ),
+        ([".semgrep/rules/no-secrets.yml"], APP_WORKFLOWS | {"TailTag Simulator"}),
+        (["services/api/simulation_fixtures/__init__.py"], APP_WORKFLOWS),
+        (["services/api/README.md"], APP_WORKFLOWS),
+        (["docs/operations/simulation-host.md"], APP_WORKFLOWS | {"TailTag Simulator"}),
+        (["docs/development/getting-started.md"], frozenset[str]()),
+        (["README.md", "CONTRIBUTING.md"], frozenset[str]()),
     ),
-    ids=("backend", "exact-path", "nested-glob", "dot-directory", "near-miss"),
+    ids=(
+        "backend",
+        "exact-path",
+        "nested-glob",
+        "dot-directory",
+        "near-miss",
+        "api-markdown",
+        "simulator-doc",
+        "docs-only",
+        "root-docs-only",
+    ),
 )
 def test_expected_workflows_follow_each_path_filter(
-    changed: list[str], extra: set[str]
+    changed: list[str], expected: frozenset[str]
 ) -> None:
     """D2: a path-filtered workflow is expected only when the commit triggers it."""
-    assert deploy.expected_workflows(changed) == EVERY_PUSH | extra
+    assert deploy.expected_workflows(changed) == expected
 
 
 def test_expected_workflow_that_never_appears_keeps_ci_pending() -> None:
