@@ -1,4 +1,4 @@
-"""Read the immutable build identity artifact and explicit Railway runtime fields."""
+"""Read the immutable build identity artifact and explicit host runtime fields."""
 
 from __future__ import annotations
 
@@ -53,6 +53,25 @@ def _load_identity(metadata_path: Path, environment: Mapping[str, str]) -> Ident
             ) or not _SOURCE_SHA_PATTERN.fullmatch(stored_source_sha):
                 raise ValueError("identity metadata invalid")
             source_sha = stored_source_sha
+
+    if "RENDER" in environment or "RENDER_SERVICE_ID" in environment:
+        # Import only on Render: the binding module resolves the operator home
+        # directory at import, and every settings import loads this module.
+        from config import replacement_target_binding
+
+        # Render sets no runtime deploy ID. Only the matched pin names the
+        # environment, so a service display name cannot select one. The
+        # binding also rejects Railway markers next to Render ones.
+        render_environment = replacement_target_binding.validate_runtime_target(
+            environment
+        )
+        if render_environment == "staging" and source_sha is None:
+            raise ValueError("staging identity incomplete")
+        return {
+            "source_sha": source_sha,
+            "deployment_id": None,
+            "environment": render_environment,
+        }
 
     environment_name = environment.get("RAILWAY_ENVIRONMENT_NAME")
     if environment_name is not None and not _ENVIRONMENT_PATTERN.fullmatch(

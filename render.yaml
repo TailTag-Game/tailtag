@@ -1,0 +1,130 @@
+# Render Blueprint for the V0 Development and Staging API (ADR 0011, #407).
+#
+# Auto Sync stays off. The owner runs each sync after review, because a sync
+# creates or changes paid resources. Secret values use `sync: false` and never
+# live in this file. Each service builds `main`. Auto-deploy and the
+# pre-deploy migration stay off until #408 (Development) and #409 (Staging).
+
+previews:
+  generation: "off"
+
+projects:
+  - name: tailtag
+    environments:
+      - name: development
+        networking:
+          isolation: enabled
+        services:
+          - type: web
+            name: tailtag-api-development
+            runtime: docker
+            region: oregon
+            plan: 0.5c-512mb
+            repo: https://github.com/TailTag-Game/tailtag
+            branch: main
+            dockerfilePath: ./services/api/Dockerfile
+            dockerContext: ./services/api
+            autoDeployTrigger: "off"
+            healthCheckPath: /health/ready
+            envVars:
+              - key: PORT
+                value: "8000"
+              - key: PGSSLMODE
+                value: require
+              - key: DATABASE_URL
+                fromDatabase:
+                  name: tailtag-postgres-development
+                  property: connectionString
+              - key: DJANGO_SECRET_KEY
+                generateValue: true
+              - key: DJANGO_ALLOWED_HOSTS
+                sync: false
+              - key: DJANGO_CSRF_TRUSTED_ORIGINS
+                sync: false
+              - key: CLERK_AUTHENTICATION_ENABLED
+                value: "true"
+              - key: CLERK_JWT_KEY
+                sync: false
+              - key: CLERK_AUTHORIZED_PARTIES
+                sync: false
+              - key: MEDIA_STORAGE_ENDPOINT_URL
+                sync: false
+              - key: MEDIA_STORAGE_BUCKET_NAME
+                sync: false
+              - key: MEDIA_STORAGE_REGION
+                value: auto
+              - key: MEDIA_STORAGE_ACCESS_KEY_ID
+                sync: false
+              - key: MEDIA_STORAGE_SECRET_ACCESS_KEY
+                sync: false
+              - key: SENTRY_DSN
+                sync: false
+              - key: SENTRY_TRACES_SAMPLE_RATE
+                value: "1.0"
+        databases:
+          - name: tailtag-postgres-development
+            region: oregon
+            plan: 0.1c-256mb
+            postgresMajorVersion: "18"
+            ipAllowList: []
+
+      - name: staging
+        networking:
+          isolation: enabled
+        permissions:
+          protection: enabled
+        services:
+          - type: web
+            name: tailtag-api-staging
+            runtime: docker
+            region: oregon
+            plan: 0.5c-512mb
+            repo: https://github.com/TailTag-Game/tailtag
+            branch: main
+            dockerfilePath: ./services/api/Dockerfile
+            dockerContext: ./services/api
+            autoDeployTrigger: "off"
+            healthCheckPath: /health/ready
+            envVars:
+              - key: PORT
+                value: "8000"
+              - key: PGSSLMODE
+                value: require
+              - key: DATABASE_URL
+                fromDatabase:
+                  name: tailtag-postgres-staging
+                  property: connectionString
+              - key: DJANGO_SECRET_KEY
+                generateValue: true
+              - key: DJANGO_ALLOWED_HOSTS
+                sync: false
+              - key: DJANGO_CSRF_TRUSTED_ORIGINS
+                sync: false
+              - key: TAILTAG_STAGING_TARGET_PHASE
+                value: candidate
+              - key: CLERK_AUTHENTICATION_ENABLED
+                value: "true"
+              - key: CLERK_JWT_KEY
+                sync: false
+              - key: CLERK_AUTHORIZED_PARTIES
+                value: https://accounts.staging.tailtag.app,https://simulator.staging.tailtag.app
+              - key: MEDIA_STORAGE_ENDPOINT_URL
+                sync: false
+              - key: MEDIA_STORAGE_BUCKET_NAME
+                sync: false
+              - key: MEDIA_STORAGE_REGION
+                value: auto
+              - key: MEDIA_STORAGE_ACCESS_KEY_ID
+                sync: false
+              - key: MEDIA_STORAGE_SECRET_ACCESS_KEY
+                sync: false
+              - key: SENTRY_DSN
+                sync: false
+              - key: SENTRY_TRACES_SAMPLE_RATE
+                value: "1.0"
+        databases:
+          - name: tailtag-postgres-staging
+            region: oregon
+            plan: 0.1c-256mb
+            postgresMajorVersion: "18"
+            ipAllowList: []

@@ -1,4 +1,4 @@
-"""Bind replacement Railway selectors to the reviewed, code-owned generation."""
+"""Bind replacement Railway and Render runtimes to reviewed, code-owned pins."""
 
 from __future__ import annotations
 
@@ -51,6 +51,24 @@ _EXPECTED_DIGESTS: Final = {
 }
 
 
+_RENDER_ENVIRONMENTS: Final = ("development", "staging")
+_RENDER_SERVICE_ID: Final = re.compile(r"srv-[a-z0-9]{1,60}")
+_EXPECTED_RENDER_DIGESTS: Final[dict[str, str]] = {
+    "development": "64d011b1894192693c980dd0f18d90965df3f56b45b2c604a2a79e2ca2617010",
+    "staging": "19b4021269c4003848c9aa8b9373037bd0d2c5fd00a2f7e17d13b6060d13d405",
+}
+_EXPECTED_RENDER_HOST_DIGESTS: Final[dict[str, str]] = {
+    "development": "55770374ef59dccf72a2aa1c98a9a1eaccbd140c2924a1a60376ff0161ae72c0",
+    "staging": "e4625e95b760af49f9bfa9cdbc968fe98606c371426099c82d40d9a5e3fc4d37",
+}
+_RAILWAY_RUNTIME_MARKERS: Final = (
+    "RAILWAY_ENVIRONMENT_NAME",
+    "RAILWAY_DEPLOYMENT_ID",
+    "RAILWAY_SERVICE_NAME",
+)
+_RENDER_RUNTIME_MARKERS: Final = ("RENDER", "RENDER_SERVICE_ID")
+
+
 class TargetBindingError(ValueError):
     """A fixed, sanitized target-binding failure."""
 
@@ -98,8 +116,49 @@ def validate_selectors(selectors: Mapping[str, object]) -> None:
         raise TargetBindingError from None
 
 
-def validate_runtime_target(actual: Mapping[str, str]) -> None:
-    """Join actual in-image Railway API identity to the replacement pin."""
+def runtime_host(actual: Mapping[str, str]) -> str | None:
+    """Name the one hosting platform whose runtime variables are present."""
+    railway = any(name in actual for name in _RAILWAY_RUNTIME_MARKERS)
+    render = any(name in actual for name in _RENDER_RUNTIME_MARKERS)
+    if railway and render:
+        raise TargetBindingError
+    if railway:
+        return "railway"
+    return "render" if render else None
+
+
+def fingerprint_render_service(environment: str, service_id: object) -> str:
+    """Hash one environment and one canonical Render service ID."""
+    if (
+        environment not in _RENDER_ENVIRONMENTS
+        or not isinstance(service_id, str)
+        or _RENDER_SERVICE_ID.fullmatch(service_id) is None
+    ):
+        raise TargetBindingError
+    return hashlib.sha256(
+        f"tailtag-render-api-v1\0{environment}\0{service_id}".encode()
+    ).hexdigest()
+
+
+def _render_environment(actual: Mapping[str, str]) -> str:
+    if runtime_host(actual) != "render" or actual.get("RENDER") != "true":
+        raise TargetBindingError
+    service_id = actual.get("RENDER_SERVICE_ID")
+    matches = [
+        environment
+        for environment in _RENDER_ENVIRONMENTS
+        if _EXPECTED_RENDER_DIGESTS.get(environment)
+        == fingerprint_render_service(environment, service_id)
+    ]
+    if len(matches) != 1:
+        raise TargetBindingError
+    return matches[0]
+
+
+def validate_runtime_target(actual: Mapping[str, str]) -> str:
+    """Join the actual in-image API identity to its pin and return its environment."""
+    if runtime_host(actual) == "render":
+        return _render_environment(actual)
     try:
         environment_name = actual["RAILWAY_ENVIRONMENT_NAME"]
         if environment_name not in {"development", "staging"}:
@@ -114,6 +173,7 @@ def validate_runtime_target(actual: Mapping[str, str]) -> None:
         )
     except (KeyError, TypeError):
         raise TargetBindingError from None
+    return environment_name
 
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -213,6 +273,30 @@ def pinned_development_clerk_portal_origin(origin: str) -> str:
     ):
         raise TargetBindingError
     return origin
+
+
+def fingerprint_render_hostname(environment: str, hostname: object) -> str:
+    """Commit to one exact lowercase Render API hostname for one environment."""
+    if (
+        environment not in _RENDER_ENVIRONMENTS
+        or not isinstance(hostname, str)
+        or _CANDIDATE_HOST.fullmatch(hostname) is None
+    ):
+        raise TargetBindingError
+    return hashlib.sha256(
+        f"tailtag-render-api-host-v1\0{environment}\0{hostname}".encode()
+    ).hexdigest()
+
+
+def pinned_render_origin(environment: str, hostname: str) -> str:
+    """Return only the reviewed HTTPS origin of one Render environment."""
+    expected = _EXPECTED_RENDER_HOST_DIGESTS.get(environment)
+    if (
+        expected is None
+        or fingerprint_render_hostname(environment, hostname) != expected
+    ):
+        raise TargetBindingError
+    return f"https://{hostname}"
 
 
 def load_development_candidate_origin() -> str:

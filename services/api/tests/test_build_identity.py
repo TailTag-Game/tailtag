@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib
 import json
+import subprocess
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 from types import ModuleType
@@ -12,6 +14,9 @@ from typing import NoReturn
 import pytest
 from pytest import MonkeyPatch
 
+from tests.process_support import minimal_environment
+
+WRITER = Path(__file__).resolve().parents[1] / "docker" / "write_build_identity.py"
 SOURCE_SHA = "c070f413eec1518459f1fef21b471642765a54e9"
 SECOND_SOURCE_SHA = "d" * 40
 RUNTIME_SHA = "a" * 40
@@ -223,3 +228,112 @@ def test_clock_and_process_start_values_cannot_change_loaded_identity(
     )
 
     assert after == before
+
+
+RENDER_DEVELOPMENT_SERVICE = "srv-d0development00000000"
+RENDER_STAGING_SERVICE = "srv-d0staging000000000000"
+
+
+@pytest.fixture
+def render_pins(monkeypatch: MonkeyPatch) -> None:
+    """Pin synthetic Render services through the binding's reviewed seam."""
+    binding = importlib.import_module("config.replacement_target_binding")
+    monkeypatch.setattr(
+        binding,
+        "_EXPECTED_RENDER_DIGESTS",
+        {
+            "development": binding.fingerprint_render_service(
+                "development", RENDER_DEVELOPMENT_SERVICE
+            ),
+            "staging": binding.fingerprint_render_service(
+                "staging", RENDER_STAGING_SERVICE
+            ),
+        },
+    )
+
+
+def render_environment(service_id: str, **overrides: str) -> dict[str, str]:
+    """Supply Render runtime values plus a misleading Git variable."""
+    return {
+        "RENDER": "true",
+        "RENDER_SERVICE_ID": service_id,
+        "RENDER_SERVICE_NAME": "staging",
+        "RENDER_GIT_COMMIT": RUNTIME_SHA,
+        **overrides,
+    }
+
+
+@pytest.mark.usefixtures("render_pins")
+@pytest.mark.parametrize(
+    ("service_id", "environment"),
+    (
+        (RENDER_DEVELOPMENT_SERVICE, "development"),
+        (RENDER_STAGING_SERVICE, "staging"),
+    ),
+)
+def test_render_identity_uses_baked_sha_pinned_environment_and_no_deployment(
+    build_identity: ModuleType, tmp_path: Path, service_id: str, environment: str
+) -> None:
+    """AC10: Render has no runtime deploy ID, and the pin names the environment."""
+    metadata = tmp_path / "build-identity.json"
+    write_metadata(metadata, SOURCE_SHA)
+
+    assert build_identity._load_identity(metadata, render_environment(service_id)) == {
+        "source_sha": SOURCE_SHA,
+        "deployment_id": None,
+        "environment": environment,
+    }
+
+
+@pytest.mark.usefixtures("render_pins")
+def test_render_staging_identity_requires_a_baked_source_sha(
+    build_identity: ModuleType, tmp_path: Path
+) -> None:
+    """AC10: Render Staging has no fallback for a missing baked SHA."""
+    with pytest.raises(ValueError):
+        build_identity._load_identity(
+            tmp_path / "absent-build-identity.json",
+            render_environment(RENDER_STAGING_SERVICE),
+        )
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    (
+        ({}, None),
+        ({"RAILWAY_GIT_COMMIT_SHA": SOURCE_SHA}, SOURCE_SHA),
+        ({"RENDER_GIT_COMMIT": SOURCE_SHA}, SOURCE_SHA),
+        (
+            {"RAILWAY_GIT_COMMIT_SHA": SOURCE_SHA, "RENDER_GIT_COMMIT": SOURCE_SHA},
+            SOURCE_SHA,
+        ),
+        (
+            {
+                "RAILWAY_GIT_COMMIT_SHA": SOURCE_SHA,
+                "RENDER_GIT_COMMIT": SECOND_SOURCE_SHA,
+            },
+            "fail",
+        ),
+        ({"RENDER_GIT_COMMIT": "not-a-sha"}, "fail"),
+    ),
+    ids=("none", "railway", "render", "both-equal", "both-differ", "malformed"),
+)
+def test_image_writer_bakes_one_host_build_sha_or_fails(
+    tmp_path: Path, arguments: Mapping[str, str], expected: str | None
+) -> None:
+    """AC14: either host's build argument works, and a conflict fails the build."""
+    output = tmp_path / "opt" / "build-identity.json"
+    completed = subprocess.run(
+        [sys.executable, str(WRITER), str(output)],
+        env={**minimal_environment(), **arguments},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if expected == "fail":
+        assert completed.returncode != 0
+        assert not output.exists()
+    else:
+        assert completed.returncode == 0
+        assert json.loads(output.read_text()) == {"source_sha": expected}

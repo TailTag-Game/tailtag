@@ -327,7 +327,7 @@ def test_runtime_guard_accepts_only_actual_pinned_api_tuple_with_distinct_reset_
 ) -> None:
     """T-1/T-3/T-5: Railway identity is independent of #204 reset identity."""
     _install_synthetic_pins(binding, monkeypatch)
-    assert binding.validate_runtime_target(_runtime(environment)) is None
+    assert binding.validate_runtime_target(_runtime(environment)) == environment
 
 
 @pytest.mark.parametrize(
@@ -370,3 +370,158 @@ def test_runtime_guard_requires_every_actual_railway_field(
     actual = _runtime("staging")
     actual.pop(missing)
     _assert_fixed_denial(binding, lambda: binding.validate_runtime_target(actual))
+
+
+RENDER_DEVELOPMENT_SERVICE: Final = "srv-d0development00000000"
+RENDER_STAGING_SERVICE: Final = "srv-d0staging000000000000"
+RENDER_DEVELOPMENT_HOST: Final = "tailtag-api-development.onrender.com"
+RENDER_STAGING_HOST: Final = "tailtag-api-staging.onrender.com"
+
+
+def _expected_render_digest(environment: str, service_id: str) -> str:
+    # Independent vector for the Render namespace, framing, and environment.
+    return hashlib.sha256(
+        f"tailtag-render-api-v1\0{environment}\0{service_id}".encode()
+    ).hexdigest()
+
+
+def _expected_render_host_digest(environment: str, hostname: str) -> str:
+    return hashlib.sha256(
+        f"tailtag-render-api-host-v1\0{environment}\0{hostname}".encode()
+    ).hexdigest()
+
+
+def _install_render_pins(binding: ModuleType, monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        binding,
+        "_EXPECTED_RENDER_DIGESTS",
+        {
+            "development": _expected_render_digest(
+                "development", RENDER_DEVELOPMENT_SERVICE
+            ),
+            "staging": _expected_render_digest("staging", RENDER_STAGING_SERVICE),
+        },
+    )
+    monkeypatch.setattr(
+        binding,
+        "_EXPECTED_RENDER_HOST_DIGESTS",
+        {
+            "development": _expected_render_host_digest(
+                "development", RENDER_DEVELOPMENT_HOST
+            ),
+            "staging": _expected_render_host_digest("staging", RENDER_STAGING_HOST),
+        },
+    )
+
+
+def _render_runtime(service_id: str = RENDER_STAGING_SERVICE) -> dict[str, str]:
+    return {
+        "RENDER": "true",
+        "RENDER_SERVICE_ID": service_id,
+        "RENDER_SERVICE_NAME": "development",
+    }
+
+
+def test_shipped_render_pins_deny_unreviewed_services(
+    binding: ModuleType,
+) -> None:
+    """AC11: the shipped pins accept no service except the reviewed ones."""
+    for service_id in (RENDER_DEVELOPMENT_SERVICE, RENDER_STAGING_SERVICE):
+        _assert_fixed_denial(
+            binding,
+            lambda service_id=service_id: binding.validate_runtime_target(
+                _render_runtime(service_id)
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("service_id", "environment"),
+    (
+        (RENDER_DEVELOPMENT_SERVICE, "development"),
+        (RENDER_STAGING_SERVICE, "staging"),
+    ),
+)
+def test_render_environment_comes_only_from_the_matched_service_pin(
+    binding: ModuleType,
+    monkeypatch: MonkeyPatch,
+    service_id: str,
+    environment: str,
+) -> None:
+    """AC10/AC11: the service name and other variables cannot pick the environment."""
+    _install_render_pins(binding, monkeypatch)
+    assert binding.validate_runtime_target(_render_runtime(service_id)) == environment
+
+
+@pytest.mark.parametrize(
+    "actual",
+    (
+        {**_render_runtime(), "RENDER_SERVICE_ID": "srv-d0unpinned00000000000"},
+        {**_render_runtime(), "RENDER_SERVICE_ID": RENDER_STAGING_SERVICE.upper()},
+        {**_render_runtime(), "RENDER_SERVICE_ID": ""},
+        {**_render_runtime(), "RENDER": "false"},
+        {"RENDER_SERVICE_ID": RENDER_STAGING_SERVICE},
+        {"RENDER": "true"},
+        {**_render_runtime(), "RAILWAY_ENVIRONMENT_NAME": "staging"},
+        {**_runtime("staging"), "RENDER": "true"},
+        {**_runtime("staging"), "RENDER_SERVICE_ID": RENDER_STAGING_SERVICE},
+    ),
+    ids=(
+        "unpinned-service",
+        "noncanonical-service",
+        "empty-service",
+        "render-flag-false",
+        "missing-render-flag",
+        "missing-service",
+        "render-with-railway-name",
+        "railway-with-render-flag",
+        "railway-with-render-service",
+    ),
+)
+def test_render_runtime_guard_denies_unpinned_incomplete_or_mixed_hosts(
+    binding: ModuleType, monkeypatch: MonkeyPatch, actual: Mapping[str, str]
+) -> None:
+    """AC11: an unknown service or a mix of host variables fails closed."""
+    _install_synthetic_pins(binding, monkeypatch)
+    _install_render_pins(binding, monkeypatch)
+    _assert_fixed_denial(binding, lambda: binding.validate_runtime_target(actual))
+
+
+@pytest.mark.parametrize(
+    ("environment", "hostname"),
+    (
+        ("development", RENDER_DEVELOPMENT_HOST),
+        ("staging", RENDER_STAGING_HOST),
+    ),
+)
+def test_render_hostname_pins_return_only_the_reviewed_origin(
+    binding: ModuleType, monkeypatch: MonkeyPatch, environment: str, hostname: str
+) -> None:
+    """AC12: each environment accepts only its own pinned onrender.com host."""
+    _install_render_pins(binding, monkeypatch)
+    assert binding.pinned_render_origin(environment, hostname) == f"https://{hostname}"
+    other = (
+        RENDER_STAGING_HOST
+        if hostname == RENDER_DEVELOPMENT_HOST
+        else RENDER_DEVELOPMENT_HOST
+    )
+    for environment_name, candidate in (
+        (environment, other),
+        (environment, hostname.upper()),
+        (environment, f"{hostname}."),
+        ("production", hostname),
+    ):
+        _assert_fixed_denial(
+            binding,
+            lambda e=environment_name, h=candidate: binding.pinned_render_origin(e, h),
+        )
+
+
+def test_shipped_render_hostname_pins_deny_unreviewed_hosts(
+    binding: ModuleType,
+) -> None:
+    """AC12: the shipped pins accept no host except the reviewed ones."""
+    _assert_fixed_denial(
+        binding,
+        lambda: binding.pinned_render_origin("development", "other-api.onrender.com"),
+    )
