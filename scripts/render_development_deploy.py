@@ -24,14 +24,34 @@ _HOOK: Final = re.compile(
 _EXCLUDED_WORKFLOWS: Final = frozenset(
     {"Render Development deploy", "TailTag post-deploy smoke"}
 )
-# Each other workflow that runs on a push to main, with its path filter. None
-# means that every push runs it. A test keeps this table equal to the files in
-# .github/workflows, so a new or changed workflow cannot escape the gate.
-_PUSH_WORKFLOWS: Final[Mapping[str, tuple[str, ...] | None]] = MappingProxyType(
+# The app workflows share one ordered path filter. GitHub applies it in order:
+# a "!" pattern excludes a path, and a later positive pattern includes it again.
+# Documentation-only changes match no pattern. A test keeps this list equal to
+# the workflow files.
+_APP_PATHS: Final = (
+    "**",
+    "!docs/**",
+    "!**/*.md",
+    "services/api/**",
+    ".semgrep/**",
+    "docs/operations/simulation-host.md",
+    "docs/development/staging.md",
+    "docs/development/backend-delivery-operations.md",
+    "docs/operations/operator-authorization-audit.md",
+    "docs/operations/catch-administration.md",
+    "docs/specs/README.md",
+    "docs/specs/2026-09-22-v0-migration-application-rollback.md",
+    "docs/specs/2026-09-22-v0-migration-application-rollback-implementation-plan.md",
+    "docs/development/staging-recovery/2026-09-22-issue-206-no-go.json",
+)
+# Each workflow that runs on a push to main, with its path filter. A test keeps
+# this table equal to the files in .github/workflows, so a new or changed
+# workflow cannot escape the gate.
+_PUSH_WORKFLOWS: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType(
     {
-        "TailTag API": None,
-        "Mobile App Build Test": None,
-        "Windows parity": None,
+        "TailTag API": _APP_PATHS,
+        "Mobile App Build Test": _APP_PATHS,
+        "Windows parity": _APP_PATHS,
         "TailTag Simulator": (
             "tools/simulator/**",
             "docs/operations/simulation-host.md",
@@ -70,14 +90,25 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def _starts_workflow(path: PurePosixPath, patterns: tuple[str, ...]) -> bool:
+    """Apply GitHub's path filter to one changed file: the last matching pattern wins."""
+    starts = False
+    for pattern in patterns:
+        if pattern.startswith("!"):
+            if path.full_match(pattern[1:]):
+                starts = False
+        elif path.full_match(pattern):
+            starts = True
+    return starts
+
+
 def expected_workflows(changed_files: Iterable[str]) -> frozenset[str]:
     """Name every workflow that a push of these changed files starts on main."""
     paths = [PurePosixPath(name) for name in changed_files]
     return frozenset(
         name
         for name, patterns in _PUSH_WORKFLOWS.items()
-        if patterns is None
-        or any(path.full_match(pattern) for path in paths for pattern in patterns)
+        if any(_starts_workflow(path, patterns) for path in paths)
     )
 
 

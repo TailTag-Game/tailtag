@@ -3,10 +3,42 @@
 name: Windows parity
 
 on:
+  # Documentation-only changes start no app workflow. Keep this list equal to
+  # _APP_PATHS in scripts/render_development_deploy.py.
   pull_request:
+    paths:
+      - '**'
+      - '!docs/**'
+      - '!**/*.md'
+      - 'services/api/**'
+      - '.semgrep/**'
+      - 'docs/operations/simulation-host.md'
+      - 'docs/development/staging.md'
+      - 'docs/development/backend-delivery-operations.md'
+      - 'docs/operations/operator-authorization-audit.md'
+      - 'docs/operations/catch-administration.md'
+      - 'docs/specs/README.md'
+      - 'docs/specs/2026-09-22-v0-migration-application-rollback.md'
+      - 'docs/specs/2026-09-22-v0-migration-application-rollback-implementation-plan.md'
+      - 'docs/development/staging-recovery/2026-09-22-issue-206-no-go.json'
   push:
     branches:
       - main
+    paths:
+      - '**'
+      - '!docs/**'
+      - '!**/*.md'
+      - 'services/api/**'
+      - '.semgrep/**'
+      - 'docs/operations/simulation-host.md'
+      - 'docs/development/staging.md'
+      - 'docs/development/backend-delivery-operations.md'
+      - 'docs/operations/operator-authorization-audit.md'
+      - 'docs/operations/catch-administration.md'
+      - 'docs/specs/README.md'
+      - 'docs/specs/2026-09-22-v0-migration-application-rollback.md'
+      - 'docs/specs/2026-09-22-v0-migration-application-rollback-implementation-plan.md'
+      - 'docs/development/staging-recovery/2026-09-22-issue-206-no-go.json'
   workflow_dispatch:
 
 permissions:
