@@ -243,7 +243,7 @@ tasks:
 
   # Silent so a failure prints only go-task's footer, never the command text.
   api-media-storage-smoke:
-    desc: "Run guarded live media storage verification against Railway Development or Staging."
+    desc: "Run guarded live media storage verification against Render Development or Railway Development or Staging."
     silent: true
     vars:
       REPOSITORY_ROOT: *repository-root

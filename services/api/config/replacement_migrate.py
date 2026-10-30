@@ -12,8 +12,10 @@ _EXPECTED_BINDING_DIGESTS: Final = {
     "development": "4f9d3738265641df9a2d1f94c9748884e35270524713295786b2bb30bd9c8daa",
     "staging": "083e5cec1d20a62b89b3989b1745d57e24489634cdec712cc17eb6ce997c6ac3",
 }
-# Empty until the reviewed Render databases exist, so every Render target fails.
-_EXPECTED_RENDER_BINDING_DIGESTS: Final[dict[str, str]] = {}
+# Render Staging stays unpinned until #409, so its migration fails closed.
+_EXPECTED_RENDER_BINDING_DIGESTS: Final[dict[str, str]] = {
+    "development": "fc7b82cb795038b14c4fc120c86a6de75dbedaf457fac60cfd7b42557f55e484",
+}
 
 
 class _GuardFailure(Exception):

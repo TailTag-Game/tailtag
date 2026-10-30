@@ -689,3 +689,84 @@ def test_bootstrap_rejects_invalid_input_without_mutation_or_secret_output(
         stored_password_hash(unrelated),
         exception_text=str(error.value),
     )
+
+
+RENDER_DEVELOPMENT_SERVICE = "srv-d0development00000000"
+RENDER_STAGING_SERVICE = "srv-d0staging000000000000"
+RENDER_CONFIRMATION_PHRASE = "bootstrap Render Development operator"
+
+
+def install_render_target(
+    monkeypatch: pytest.MonkeyPatch, service_id: str, **extra: str
+) -> None:
+    """Pin synthetic Render services and present one Render runtime identity."""
+    binding = importlib.import_module("config.replacement_target_binding")
+    monkeypatch.setattr(
+        binding,
+        "_EXPECTED_RENDER_DIGESTS",
+        {
+            environment: binding.fingerprint_render_service(environment, service)
+            for environment, service in (
+                ("development", RENDER_DEVELOPMENT_SERVICE),
+                ("staging", RENDER_STAGING_SERVICE),
+            )
+        },
+    )
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("RENDER_SERVICE_ID", service_id)
+    for name, value in extra.items():
+        monkeypatch.setenv(name, value)
+
+
+@pytest.mark.django_db
+def test_bootstrap_creates_the_operator_on_the_pinned_render_development_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#408 AC13: Render Development binds through its pin and its own phrase."""
+    install_render_target(monkeypatch, RENDER_DEVELOPMENT_SERVICE)
+    stdout, _ = invoke_command(
+        monkeypatch,
+        confirmation=RENDER_CONFIRMATION_PHRASE,
+        private_inputs=(OPERATOR_IDENTIFIER, INITIAL_PASSWORD, INITIAL_PASSWORD),
+        environment=None,
+        service=None,
+    )
+
+    assert stdout.getvalue() == CREATED_OUTPUT
+    assert User.objects.get(clerk_user_id=OPERATOR_IDENTIFIER).is_staff
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("service_id", "confirmation", "extra"),
+    (
+        (RENDER_DEVELOPMENT_SERVICE, CONFIRMATION_PHRASE, {}),
+        (RENDER_STAGING_SERVICE, RENDER_CONFIRMATION_PHRASE, {}),
+        ("srv-d0unpinned00000000000", RENDER_CONFIRMATION_PHRASE, {}),
+        (
+            RENDER_DEVELOPMENT_SERVICE,
+            RENDER_CONFIRMATION_PHRASE,
+            {"RAILWAY_ENVIRONMENT_NAME": "development", "RAILWAY_SERVICE_NAME": "api"},
+        ),
+    ),
+    ids=("railway-phrase", "render-staging", "unpinned-service", "mixed-hosts"),
+)
+def test_bootstrap_refuses_every_other_render_target_without_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+    service_id: str,
+    confirmation: str,
+    extra: dict[str, str],
+) -> None:
+    """#408 AC13: a wrong phrase, service, or mixed host creates nothing."""
+    install_render_target(monkeypatch, service_id, **extra)
+
+    with pytest.raises(CommandError):
+        invoke_command(
+            monkeypatch,
+            confirmation=confirmation,
+            private_inputs=(OPERATOR_IDENTIFIER, INITIAL_PASSWORD, INITIAL_PASSWORD),
+            environment=extra.get("RAILWAY_ENVIRONMENT_NAME"),
+            service=extra.get("RAILWAY_SERVICE_NAME"),
+        )
+
+    assert User.objects.filter(clerk_user_id=OPERATOR_IDENTIFIER).count() == 0
