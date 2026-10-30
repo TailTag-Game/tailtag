@@ -230,10 +230,11 @@ promotion command is retired, and nobody runs it again.
 
 You need these items:
 
-- A scoped Render API key. Create it in the Render dashboard under
-  **Account Settings > API Keys > Create API key**. Select the TailTag
-  workspace. Grant Services Read, and Deploys Read and Run. Do not store the
-  key. The command asks for it at a hidden prompt for each run.
+- A Render API key. Create it in the Render dashboard under
+  **Account Settings > API Keys > Create API key**. If Render offers scoped
+  keys, select the TailTag workspace and grant Services Read, and Deploys Read
+  and Run. Keep the key only in your password manager. The command asks for
+  it at a hidden prompt for each run.
 - The key `render_staging_api_service_id` in the owner-only
   `~/.config/tailtag/staging-clean-rebuild-targets.json` manifest. Its value
   is the `srv-…` part of the `tailtag-api-staging` dashboard URL. The command
@@ -244,9 +245,10 @@ You need these items:
   run.
 - The approved Finn GitHub identity. The command checks it.
 
-Scoped keys are in early access. If you cannot create one, a classic key works
-only when your account sees exactly one workspace. Otherwise the workspace
-check fails closed.
+Scoped keys are in early access. Without them, Render creates a classic key.
+A classic key can do anything your account can do in every workspace. To
+limit that exposure, you can revoke the key after each promotion session and
+create a new one next time.
 
 From the repository root, run:
 
@@ -264,8 +266,9 @@ Before submission, the command stops if one of these checks fails:
   this repository, branch `main`, auto-deploy `off`, a Docker web service that
   is not suspended, `/health/ready`, and the pre-deploy command
   `python -m config.replacement_migrate`.
-- The workspace: the key sees exactly one team workspace, and that workspace
-  owns the service.
+- The workspace: among the workspaces that the key sees, exactly one owns the
+  service, and it is a team workspace. A classic key can also see other
+  workspaces.
 - An idle service: no Staging deploy is in progress. Render runs one deploy at
   a time, and a queued deploy can be skipped.
 

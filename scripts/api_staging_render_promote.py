@@ -137,16 +137,20 @@ def _preflight(key: str, service_id: str) -> None:
         and docker.get("preDeployCommand") == _PRE_DEPLOY_COMMAND
     ):
         raise ValueError("staging configuration invalid")
+    # A classic key reaches every workspace of the account. So the key must see
+    # the one team workspace that owns the pinned service, among any others.
     owners = _get(key, "/owners?limit=100")
-    if not isinstance(owners, list) or len(cast(list[object], owners)) != 1:
-        raise ValueError("render workspace invalid")
-    wrapper = _mapping(cast(list[object], owners)[0])
-    owner = _mapping(wrapper.get("owner")) if wrapper else None
-    if not (
-        owner is not None
-        and owner.get("type") == "team"
-        and owner.get("id") == service.get("ownerId")
-    ):
+    if not isinstance(owners, list):
+        raise TypeError("render workspace invalid")
+    matches: list[dict[str, object]] = []
+    for item in cast(list[object], owners):
+        wrapper = _mapping(item)
+        owner = _mapping(wrapper.get("owner")) if wrapper else None
+        if owner is None:
+            raise ValueError("render workspace invalid")
+        if owner.get("id") == service.get("ownerId"):
+            matches.append(owner)
+    if len(matches) != 1 or matches[0].get("type") != "team":
         raise ValueError("render workspace invalid")
     deploys = _get(key, f"/services/{service_id}/deploys?limit=20")
     if not isinstance(deploys, list):
