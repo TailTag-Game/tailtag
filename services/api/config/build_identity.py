@@ -1,4 +1,4 @@
-"""Read the immutable build identity artifact and explicit Railway runtime fields."""
+"""Read the immutable build identity artifact and explicit host runtime fields."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ import uuid
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Final, TypedDict, cast
+
+from config import replacement_target_binding
 
 _METADATA_PATH: Final = Path("/opt/tailtag/build-identity.json")
 _SOURCE_SHA_PATTERN: Final = re.compile(r"[0-9a-f]{40}")
@@ -53,6 +55,20 @@ def _load_identity(metadata_path: Path, environment: Mapping[str, str]) -> Ident
             ) or not _SOURCE_SHA_PATTERN.fullmatch(stored_source_sha):
                 raise ValueError("identity metadata invalid")
             source_sha = stored_source_sha
+
+    if replacement_target_binding.runtime_host(environment) == "render":
+        # Render sets no runtime deploy ID. Only the matched pin names the
+        # environment, so a service display name cannot select one.
+        render_environment = replacement_target_binding.validate_runtime_target(
+            environment
+        )
+        if render_environment == "staging" and source_sha is None:
+            raise ValueError("staging identity incomplete")
+        return {
+            "source_sha": source_sha,
+            "deployment_id": None,
+            "environment": render_environment,
+        }
 
     environment_name = environment.get("RAILWAY_ENVIRONMENT_NAME")
     if environment_name is not None and not _ENVIRONMENT_PATTERN.fullmatch(

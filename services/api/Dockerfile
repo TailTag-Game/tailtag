@@ -51,6 +51,7 @@ CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
 FROM python:3.13-slim-bookworm AS production
 
 ARG RAILWAY_GIT_COMMIT_SHA
+ARG RENDER_GIT_COMMIT
 
 LABEL org.opencontainers.image.source="https://github.com/TailTag-Game/tailtag" \
     org.opencontainers.image.title="TailTag API" \
@@ -70,7 +71,10 @@ RUN groupadd --system tailtag \
     && useradd --system --gid tailtag --create-home tailtag \
     && chown tailtag:tailtag /app
 
-RUN RAILWAY_GIT_COMMIT_SHA="$RAILWAY_GIT_COMMIT_SHA" python -c 'import json, os, re; from pathlib import Path; source_sha = os.environ["RAILWAY_GIT_COMMIT_SHA"]; assert not source_sha or re.fullmatch("[0-9a-f]{40}", source_sha), "missing or malformed Railway build SHA"; path = Path("/opt/tailtag/build-identity.json"); path.parent.mkdir(parents=True, exist_ok=True); path.write_text(json.dumps({"source_sha": source_sha or None}) + "\n")' \
+COPY docker/write_build_identity.py /tmp/write_build_identity.py
+RUN RAILWAY_GIT_COMMIT_SHA="$RAILWAY_GIT_COMMIT_SHA" RENDER_GIT_COMMIT="$RENDER_GIT_COMMIT" \
+        python /tmp/write_build_identity.py /opt/tailtag/build-identity.json \
+    && rm /tmp/write_build_identity.py \
     && chmod 0755 /opt/tailtag \
     && chown root:root /opt/tailtag/build-identity.json \
     && chmod 0444 /opt/tailtag/build-identity.json

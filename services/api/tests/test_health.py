@@ -962,3 +962,216 @@ def test_identity_hides_unreadable_canonical_component_failure(
     assert response.json() == {"status": "unavailable"}
     assert response["Cache-Control"] == "no-store"
     assert SENSITIVE_DIAGNOSTIC not in response.content.decode()
+
+
+RENDER_DEVELOPMENT_SERVICE = "srv-d0development00000000"
+RENDER_STAGING_SERVICE = "srv-d0staging000000000000"
+RENDER_DEVELOPMENT_HOST = "tailtag-api-development.onrender.com"
+RENDER_STAGING_HOST = "tailtag-api-staging.onrender.com"
+CANONICAL_STAGING_PARTIES = (
+    "https://accounts.staging.tailtag.app",
+    "https://simulator.staging.tailtag.app",
+)
+
+
+def configure_render_identity(
+    monkeypatch: MonkeyPatch, tmp_path: Path, *, environment: str
+) -> None:
+    """Provide the baked SHA and a pinned synthetic Render service."""
+    metadata_path = tmp_path / "build-identity.json"
+    write_build_identity(metadata_path)
+    monkeypatch.setattr(build_identity, "_METADATA_PATH", metadata_path)
+    for name in (
+        "RAILWAY_ENVIRONMENT_NAME",
+        "RAILWAY_DEPLOYMENT_ID",
+        "RAILWAY_SERVICE_NAME",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(
+        replacement_target_binding,
+        "_EXPECTED_RENDER_DIGESTS",
+        {
+            "development": replacement_target_binding.fingerprint_render_service(
+                "development", RENDER_DEVELOPMENT_SERVICE
+            ),
+            "staging": replacement_target_binding.fingerprint_render_service(
+                "staging", RENDER_STAGING_SERVICE
+            ),
+        },
+    )
+    monkeypatch.setattr(
+        replacement_target_binding,
+        "_EXPECTED_RENDER_HOST_DIGESTS",
+        {
+            "development": replacement_target_binding.fingerprint_render_hostname(
+                "development", RENDER_DEVELOPMENT_HOST
+            ),
+            "staging": replacement_target_binding.fingerprint_render_hostname(
+                "staging", RENDER_STAGING_HOST
+            ),
+        },
+    )
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv(
+        "RENDER_SERVICE_ID",
+        RENDER_STAGING_SERVICE
+        if environment == "staging"
+        else RENDER_DEVELOPMENT_SERVICE,
+    )
+    monkeypatch.setattr(settings, "SETTINGS_MODULE", "config.settings.production")
+
+
+def render_settings(
+    clerk_public_key: str, *, environment: str, phase: str = "candidate"
+) -> dict[str, object]:
+    """Return the exact effective profile for one Render environment."""
+    if environment == "development":
+        host = RENDER_DEVELOPMENT_HOST
+        parties: tuple[str, ...] = (
+            "http://localhost:3000",
+            DEVELOPMENT_CLERK_PORTAL_ORIGIN,
+        )
+    else:
+        host = RENDER_STAGING_HOST if phase == "candidate" else "staging.tailtag.app"
+        parties = CANONICAL_STAGING_PARTIES
+    return {
+        **configured_deployed_settings(clerk_public_key),
+        "ALLOWED_HOSTS": [host],
+        "CSRF_TRUSTED_ORIGINS": [f"https://{host}"],
+        "CLERK_AUTHENTICATION": ClerkVerificationConfiguration(
+            jwt_key=clerk_public_key, authorized_parties=parties
+        ),
+    }
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("environment", "phase", "host"),
+    (
+        ("development", None, RENDER_DEVELOPMENT_HOST),
+        ("staging", "candidate", RENDER_STAGING_HOST),
+        ("staging", "canonical", "staging.tailtag.app"),
+    ),
+)
+def test_readiness_accepts_complete_render_profiles(
+    client: Client,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+    valid_clerk_public_key: str,
+    environment: str,
+    phase: str | None,
+    host: str,
+) -> None:
+    """AC5/AC12/AC13/G14: pinned service and host pass with no healthcheck host."""
+    configure_render_identity(monkeypatch, tmp_path, environment=environment)
+    monkeypatch.delenv("TAILTAG_STAGING_TARGET_PHASE", raising=False)
+    if phase is not None:
+        monkeypatch.setenv("TAILTAG_STAGING_TARGET_PHASE", phase)
+    monkeypatch.setattr("media.storage.boto3.client", fail_vendor_call)
+    monkeypatch.setattr("authentication.clerk.authenticate_request", fail_vendor_call)
+
+    with override_settings(
+        **render_settings(
+            valid_clerk_public_key, environment=environment, phase=phase or ""
+        )
+    ):
+        response = client.get("/health/ready", HTTP_HOST=host)
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+@pytest.mark.parametrize(
+    ("environment", "runtime_override", "settings_override", "write_sha"),
+    (
+        (
+            "development",
+            {},
+            {"ALLOWED_HOSTS": [RENDER_DEVELOPMENT_HOST, "healthcheck.railway.app"]},
+            True,
+        ),
+        (
+            "development",
+            {},
+            {"ALLOWED_HOSTS": ["other-api.onrender.com"]},
+            True,
+        ),
+        ("development", {"RENDER_SERVICE_ID": RENDER_STAGING_SERVICE}, {}, True),
+        ("development", {"RENDER_SERVICE_ID": "srv-d0unpinned00000000000"}, {}, True),
+        ("development", {"RAILWAY_ENVIRONMENT_NAME": "development"}, {}, True),
+        ("development", {}, {}, False),
+        ("staging", {}, {}, False),
+        (
+            "staging",
+            {},
+            {"authorized_parties": ("https://accounts.staging-next.tailtag.app",)},
+            True,
+        ),
+        ("staging", {"TAILTAG_STAGING_TARGET_PHASE": "preview"}, {}, True),
+    ),
+    ids=(
+        "railway-healthcheck-host",
+        "unpinned-host",
+        "other-environment-service",
+        "unpinned-service",
+        "mixed-host-variables",
+        "development-without-sha",
+        "staging-without-sha",
+        "staging-next-parties",
+        "unknown-phase",
+    ),
+)
+def test_readiness_denies_render_profiles_outside_the_pins(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+    valid_clerk_public_key: str,
+    environment: str,
+    runtime_override: dict[str, str],
+    settings_override: dict[str, object],
+    write_sha: bool,
+) -> None:
+    """AC10/AC11/AC12/AC13/G14: each Render mismatch returns the fixed failure."""
+    configure_render_identity(monkeypatch, tmp_path, environment=environment)
+    monkeypatch.setenv("TAILTAG_STAGING_TARGET_PHASE", "candidate")
+    if not write_sha:
+        (tmp_path / "build-identity.json").unlink()
+    for name, value in runtime_override.items():
+        monkeypatch.setenv(name, value)
+    overrides = dict(settings_override)
+    effective = render_settings(valid_clerk_public_key, environment=environment)
+    if "authorized_parties" in overrides:
+        effective["CLERK_AUTHENTICATION"] = ClerkVerificationConfiguration(
+            jwt_key=valid_clerk_public_key,
+            authorized_parties=cast(
+                tuple[str, ...], overrides.pop("authorized_parties")
+            ),
+        )
+    effective.update(overrides)
+
+    with override_settings(**effective), pytest.raises(ImproperlyConfigured) as caught:
+        validate_configuration()
+
+    assert str(caught.value) == "Health configuration unavailable"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "marker",
+    (("RENDER", "true"), ("RENDER_SERVICE_ID", RENDER_DEVELOPMENT_SERVICE)),
+    ids=("render-flag", "render-service-id"),
+)
+def test_readiness_treats_render_markers_under_local_settings_as_deployed(
+    client: Client, monkeypatch: MonkeyPatch, marker: tuple[str, str]
+) -> None:
+    """AC15: a Render instance cannot pass the local-only checks."""
+    configure_local_profile(monkeypatch)
+    monkeypatch.setenv(*marker)
+
+    with override_settings(
+        DEBUG=True,
+        CLERK_AUTHENTICATION=None,
+        STORAGES=LOCAL_STORAGES,
+    ):
+        response = client.get("/health/ready")
+
+    assert response.status_code == 503

@@ -21,7 +21,15 @@ from observability.postgresql import ENGINE as DATABASE_ENGINE
 _CONFIGURATION_ERROR: Final = "Health configuration unavailable"
 _PRODUCTION_SETTINGS: Final = "config.settings.production"
 _STAGING_HOST: Final = "staging.tailtag.app"
-_RAILWAY_HEALTHCHECK_HOST: Final = "healthcheck.railway.app"
+# Railway probes with its own Host header. Render probes with the service host.
+_HEALTHCHECK_HOSTS: Final = {
+    "railway": frozenset({"healthcheck.railway.app"}),
+    "render": frozenset[str](),
+}
+_CANONICAL_STAGING_PARTIES: Final = (
+    "https://accounts.staging.tailtag.app",
+    "https://simulator.staging.tailtag.app",
+)
 _LOCAL_STORAGE_BACKENDS: Final = frozenset(
     {
         "django.core.files.storage.FileSystemStorage",
@@ -89,34 +97,47 @@ def _validate_deployed_settings() -> None:
     )
 
     identity = build_identity.get_identity()
-    replacement_target_binding.validate_runtime_target(os.environ)
+    target_environment = replacement_target_binding.validate_runtime_target(os.environ)
+    host = replacement_target_binding.runtime_host(os.environ)
     environment = identity["environment"]
-    if (
-        environment not in {"development", "staging"}
-        or identity["deployment_id"] is None
-        or _runtime_service_name() != "api"
+    if environment not in {"development", "staging"} or environment != (
+        target_environment
     ):
         raise ValueError
-    if environment == "staging":
-        _validate_staging_phase(identity["source_sha"])
-    else:
-        _validate_development_candidate(identity["source_sha"])
-
-
-def _validate_development_candidate(source_sha: str | None) -> None:
-    if source_sha is None:
+    if host == "railway" and (
+        identity["deployment_id"] is None or _runtime_service_name() != "api"
+    ):
         raise ValueError
-    candidate_hosts = set(settings.ALLOWED_HOSTS) - {_RAILWAY_HEALTHCHECK_HOST}
+    if host not in _HEALTHCHECK_HOSTS:
+        raise ValueError
+    if environment == "staging":
+        _validate_staging_phase(identity["source_sha"], host)
+    else:
+        _validate_development_candidate(identity["source_sha"], host)
+
+
+def _single_candidate_host(probe_hosts: frozenset[str]) -> str:
+    candidate_hosts = set(settings.ALLOWED_HOSTS) - probe_hosts
     if len(candidate_hosts) != 1:
         raise ValueError
-    origin = replacement_target_binding.pinned_development_candidate_origin(
-        candidate_hosts.pop()
+    return candidate_hosts.pop()
+
+
+def _validate_development_candidate(source_sha: str | None, host: str) -> None:
+    if source_sha is None:
+        raise ValueError
+    probe_hosts = _HEALTHCHECK_HOSTS[host]
+    hostname = _single_candidate_host(probe_hosts)
+    origin = (
+        replacement_target_binding.pinned_development_candidate_origin(hostname)
+        if host == "railway"
+        else replacement_target_binding.pinned_render_origin("development", hostname)
     )
     parties = settings.CLERK_AUTHENTICATION.authorized_parties
     if (
-        len(settings.ALLOWED_HOSTS) != 2
+        len(settings.ALLOWED_HOSTS) != 1 + len(probe_hosts)
         or set(settings.ALLOWED_HOSTS)
-        != {origin.removeprefix("https://"), _RAILWAY_HEALTHCHECK_HOST}
+        != {origin.removeprefix("https://"), *probe_hosts}
         or settings.CSRF_TRUSTED_ORIGINS != [origin]
         or len(parties) != 2
         or parties[0] != "http://localhost:3000"
@@ -125,31 +146,31 @@ def _validate_development_candidate(source_sha: str | None) -> None:
     replacement_target_binding.pinned_development_clerk_portal_origin(parties[1])
 
 
-def _validate_staging_phase(source_sha: str | None) -> None:
+def _validate_staging_phase(source_sha: str | None, host: str) -> None:
     phase = os.environ.get("TAILTAG_STAGING_TARGET_PHASE")
     if source_sha is None or phase not in {"candidate", "canonical"}:
         raise ValueError
+    probe_hosts = _HEALTHCHECK_HOSTS[host]
     if phase == "candidate":
-        candidate_hosts = set(settings.ALLOWED_HOSTS) - {_RAILWAY_HEALTHCHECK_HOST}
-        if len(candidate_hosts) != 1:
-            raise ValueError
-        origin = replacement_target_binding.pinned_candidate_origin(
-            candidate_hosts.pop()
+        hostname = _single_candidate_host(probe_hosts)
+        origin = (
+            replacement_target_binding.pinned_candidate_origin(hostname)
+            if host == "railway"
+            else replacement_target_binding.pinned_render_origin("staging", hostname)
         )
     else:
         origin = f"https://{_STAGING_HOST}"
-    host = origin.removeprefix("https://")
+    public_host = origin.removeprefix("https://")
+    # The Railway candidate used its own staging-next Clerk instance. A Render
+    # candidate signs in through the current Staging instance (#407 G14).
     expected_parties = (
         ("https://accounts.staging-next.tailtag.app",)
-        if phase == "candidate"
-        else (
-            "https://accounts.staging.tailtag.app",
-            "https://simulator.staging.tailtag.app",
-        )
+        if phase == "candidate" and host == "railway"
+        else _CANONICAL_STAGING_PARTIES
     )
     if (
-        len(settings.ALLOWED_HOSTS) != 2
-        or set(settings.ALLOWED_HOSTS) != {host, _RAILWAY_HEALTHCHECK_HOST}
+        len(settings.ALLOWED_HOSTS) != 1 + len(probe_hosts)
+        or set(settings.ALLOWED_HOSTS) != {public_host, *probe_hosts}
         or settings.CSRF_TRUSTED_ORIGINS != [origin]
         or settings.CLERK_AUTHENTICATION.authorized_parties != expected_parties
     ):
@@ -301,12 +322,5 @@ def _settings_module() -> str | None:
 def _is_deployed() -> bool:
     module = _settings_module()
     if module == "config.settings.local":
-        return any(
-            name in os.environ
-            for name in (
-                "RAILWAY_ENVIRONMENT_NAME",
-                "RAILWAY_DEPLOYMENT_ID",
-                "RAILWAY_SERVICE_NAME",
-            )
-        )
+        return replacement_target_binding.runtime_host(os.environ) is not None
     return True

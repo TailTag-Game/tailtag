@@ -875,3 +875,103 @@ def test_process_descriptor_output_and_raw_exception_are_suppressed(
         before_import="import os\n" + poison,
     )
     _assert_classification(completed, expected)
+
+
+RENDER_DEVELOPMENT_SERVICE = "srv-d0development00000000"
+RENDER_OTHER_SERVICE = "srv-d0unpinned00000000000"
+
+
+def _render_service_digest(environment: str, service: str) -> str:
+    return hashlib.sha256(
+        _frame("tailtag-render-api-v1", environment, service)
+    ).hexdigest()
+
+
+def _render_database_digest(
+    environment: str, name: str, cluster: str, service: str = RENDER_DEVELOPMENT_SERVICE
+) -> str:
+    return hashlib.sha256(
+        _frame(
+            "tailtag-render-postgres-first-boot-v1", environment, service, name, cluster
+        )
+    ).hexdigest()
+
+
+def _render_environment(
+    database_url: str, overrides: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """Replace every Railway runtime variable with a Render service runtime."""
+    return {
+        **{
+            key: value
+            for key, value in _environment(database_url).items()
+            if not key.startswith("RAILWAY_")
+        },
+        "RENDER": "true",
+        "RENDER_SERVICE_ID": RENDER_DEVELOPMENT_SERVICE,
+        "RENDER_GIT_COMMIT": "b" * 40,
+        **(overrides or {}),
+    }
+
+
+def _render_pins(database_digests: Mapping[str, str]) -> str:
+    return (
+        "binding._EXPECTED_RENDER_DIGESTS = "
+        f"{ {'development': _render_service_digest('development', RENDER_DEVELOPMENT_SERVICE)}!r}\n"
+        f"wrapper._EXPECTED_RENDER_BINDING_DIGESTS = {dict(database_digests)!r}\n"
+    )
+
+
+def test_render_migration_binds_the_pinned_service_and_database(
+    tmp_path: Path, disposable_database: tuple[str, str, str]
+) -> None:
+    """AC16: Render needs no deployment ID, only the service and database pins."""
+    url, name, cluster = disposable_database
+    completed, _, migration_marker = _run_wrapper(
+        tmp_path,
+        environment=_render_environment(url),
+        before_main=_render_pins(
+            {"development": _render_database_digest("development", name, cluster)}
+        ),
+        observe_migration=True,
+    )
+
+    _assert_classification(completed, "PASS")
+    assert migration_marker.read_text() == "x"
+
+
+@pytest.mark.parametrize(
+    "case",
+    ("unpinned-service", "mixed-host", "wrong-database-service", "railway-digest"),
+)
+def test_render_migration_denies_unpinned_mixed_or_foreign_targets(
+    tmp_path: Path, disposable_database: tuple[str, str, str], case: str
+) -> None:
+    """AC16: an unpinned service, mixed host, or other database never migrates."""
+    url, name, cluster = disposable_database
+    overrides: dict[str, str] = {}
+    digest = _render_database_digest("development", name, cluster)
+    if case == "unpinned-service":
+        overrides = {"RENDER_SERVICE_ID": RENDER_OTHER_SERVICE}
+    elif case == "mixed-host":
+        overrides = {"RAILWAY_ENVIRONMENT_NAME": "development"}
+    elif case == "wrong-database-service":
+        digest = _render_database_digest(
+            "development", name, cluster, service=RENDER_OTHER_SERVICE
+        )
+    else:
+        digest = _database_digest("development", name, cluster)
+    completed, setup_marker, migration_marker = _run_wrapper(
+        tmp_path,
+        environment=_render_environment(url, overrides),
+        database_digests={
+            "development": _database_digest("development", name, cluster)
+        },
+        before_main=_render_pins({"development": digest}),
+        observe_setup=True,
+        observe_migration=True,
+    )
+
+    _assert_classification(completed, "FAIL_GUARD")
+    assert not setup_marker.exists()
+    assert not migration_marker.exists()
