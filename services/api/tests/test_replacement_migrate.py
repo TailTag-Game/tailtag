@@ -922,11 +922,20 @@ def _render_pins(database_digests: Mapping[str, str]) -> str:
     )
 
 
+@pytest.mark.parametrize("port", ("explicit", "default"))
 def test_render_migration_binds_the_pinned_service_and_database(
-    tmp_path: Path, disposable_database: tuple[str, str, str]
+    tmp_path: Path, disposable_database: tuple[str, str, str], port: str
 ) -> None:
-    """AC16: Render needs no deployment ID, only the service and database pins."""
+    """AC16: Render needs no deployment ID, only the service and database pins.
+
+    The Render internal database URL names no port, so libpq uses 5432.
+    """
     url, name, cluster = disposable_database
+    if port == "default":
+        parsed = urlsplit(url)
+        assert parsed.port in {None, 5432}
+        url = urlunsplit(parsed._replace(netloc=parsed.netloc.rsplit(":", 1)[0]))
+        assert urlsplit(url).port is None
     completed, _, migration_marker = _run_wrapper(
         tmp_path,
         environment=_render_environment(url),

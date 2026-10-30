@@ -92,14 +92,14 @@ def _migrate(environment: str) -> None:
     if configured.get("ENGINE") != ENGINE:
         raise _GuardFailure
     name, host, port = (configured.get(key) for key in ("NAME", "HOST", "PORT"))
+    # The Render internal database URL names no port, so libpq uses 5432.
     if (
         not isinstance(name, str)
         or not name
         or not isinstance(host, str)
         or not host
         or not isinstance(port, str)
-        or not port.isdecimal()
-        or not 1 <= int(port) <= 65535
+        or (port != "" and (not port.isdecimal() or not 1 <= int(port) <= 65535))
     ):
         raise _GuardFailure
     connection = connections["default"]
