@@ -1,0 +1,100 @@
+name: Render Development deploy
+
+# Render auto-deploy is off for Development. This workflow deploys a backend
+# commit on main only after every CI workflow on that commit passes, then
+# proves that Render serves the commit (#408).
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "services/api/**"
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Main commit to deploy after its CI passes. Leave empty to check the current deploy."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  # A newer backend push cancels an older deploy run, so it cannot roll back.
+  # A check of the current deploy never cancels a deploy run.
+  group: render-development-${{ (github.event_name == 'workflow_dispatch' && inputs.sha == '') && format('check-{0}', github.run_id) || 'deploy' }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy and verify Render Development
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    environment: render-development
+
+    steps:
+      - name: Check out trusted deploy tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Wait for CI and request the deploy
+        id: deploy
+        if: github.event_name == 'push' || inputs.sha != ''
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAILTAG_DEPLOY_SHA: ${{ github.event_name == 'push' && github.sha || inputs.sha }}
+          RENDER_DEVELOPMENT_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEVELOPMENT_DEPLOY_HOOK_URL }}
+        run: python -m scripts.render_development_deploy
+
+      - name: Check pinned public Render Development identity
+        id: identity
+        if: steps.deploy.outputs.deployed == 'true' || (github.event_name == 'workflow_dispatch' && inputs.sha == '')
+        env:
+          TAILTAG_DEVELOPMENT_API_BASE_URL: ${{ vars.TAILTAG_DEVELOPMENT_API_BASE_URL }}
+          TAILTAG_EXPECTED_SOURCE_SHA: ${{ github.event_name == 'push' && github.sha || inputs.sha }}
+          DEPLOYED: ${{ steps.deploy.outputs.deployed }}
+        run: |
+          set -euo pipefail
+          if [[ "$DEPLOYED" == "true" ]]; then
+            python -m scripts.api_staging_preflight --render-development-candidate > /dev/null
+            echo "Render Development serves the deployed commit."
+          else
+            python -m scripts.api_staging_preflight --render-development-current > /dev/null
+            echo "Current Render Development endpoint healthy; deployment attribution unavailable."
+          fi
+
+      - name: Check out verifier revision
+        if: steps.identity.outcome == 'success'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ steps.deploy.outputs.deployed == 'true' && (github.event_name == 'push' && github.sha || inputs.sha) || github.sha }}
+          persist-credentials: false
+
+      - name: Install locked uv
+        if: steps.identity.outcome == 'success'
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.9.17"
+
+      - name: Install pinned go-task
+        if: steps.identity.outcome == 'success'
+        uses: ./.github/actions/install-go-task
+
+      - name: Run canonical HTTP smoke verification
+        if: steps.identity.outcome == 'success'
+        env:
+          API_BASE_URL: ${{ vars.TAILTAG_DEVELOPMENT_API_BASE_URL }}
+        run: |
+          set -euo pipefail
+          uv --directory services/api sync --locked --no-dev
+          API_BASE_URL="$API_BASE_URL" task api-smoke

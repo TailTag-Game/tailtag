@@ -33,16 +33,34 @@ until #412 retires Railway. The rest of this guide describes Railway.
 
 ### Delivery
 
-Render deploys a merge to `main` only when the merge changes `services/api/**`.
-Render waits until every CI check on the commit passes. If one check fails,
-Render does not deploy that commit.
+Render auto-deploy is off. The `Render Development deploy` workflow starts each
+deploy. It runs for a merge to `main` that changes `services/api/**`. It works
+in these steps:
 
-Until Railway retires, a Railway deploy starts a `TailTag post-deploy smoke`
-run on the same commit. Render can count that run as a check too. So a failed
-Railway smoke can also block the Render deploy.
+1. It waits until every other workflow on the commit finishes. It expects
+   each workflow that the commit's changed files start, including path-filtered
+   ones. The `TailTag post-deploy smoke` runs for Railway do not count. A few
+   failed GitHub requests in a row count as waiting.
+2. If a workflow failed, it does not deploy. Its run stays green with a
+   notice, because the failed workflow is already red. If CI is still running
+   after 75 minutes, the run turns red, because CI can still pass later.
+3. If a newer backend commit is on `main`, it does not deploy. A newer push
+   also cancels an older run.
+4. It calls the Render deploy hook for that commit. The hook URL is the
+   `RENDER_DEVELOPMENT_DEPLOY_HOOK_URL` secret of the `render-development`
+   GitHub environment. Only `main` can use that environment.
+5. It waits until `/health/identity` shows the commit, then runs
+   `task api-smoke`. A timeout or a failed smoke turns the run red.
 
-If a flaky check blocks a deploy, rerun the check. When the rerun passes,
-start a manual deploy of that commit from the Render dashboard.
+If a flaky check blocks a deploy, rerun the check. When the rerun passes, run
+the workflow with **Run workflow** and enter the full 40-character commit SHA.
+The workflow runs the same checks before it deploys. Enter only the latest
+backend commit on `main`. A manual run cancels any running deploy run, so the
+workflow turns red for an older commit. Do not deploy from the Render
+dashboard, because that skips the CI gate.
+
+If the hook URL leaks, regenerate it in the Render service settings. Then
+store the new URL in the secret again.
 
 Before the new version takes traffic, Render runs the pre-deploy command
 `python -m config.replacement_migrate`. The command prints one word:
@@ -75,11 +93,9 @@ word. After a `FAIL_MIGRATION`, do these steps:
 
 ### Smoke checks
 
-After each successful Render deploy, the `TailTag post-deploy smoke` workflow
-checks the identity and readiness of the public API, then runs
-`task api-smoke`. The workflow trusts only events from the Render GitHub App
-for the pinned service and host. To check the current deploy by hand, run the
-workflow with **Run workflow**.
+The `Render Development deploy` workflow runs `task api-smoke` after each
+deploy. To check the current deploy by hand, run that workflow with
+**Run workflow** and leave the SHA empty.
 
 Run the authenticated smoke from a repository checkout:
 

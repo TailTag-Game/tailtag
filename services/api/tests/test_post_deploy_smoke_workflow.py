@@ -351,7 +351,7 @@ def test_workflow_classifies_file_event_before_source_checkout_or_smoke() -> Non
     assert workflow.index("Check out verifier revision") < workflow.index(
         "Run canonical HTTP smoke verification"
     )
-    assert "--render-development-current" in workflow
+    assert "--development-current" in workflow
 
 
 @skip_on_windows("Runs the workflow's bash step, which only runs on Linux runners.")
@@ -384,7 +384,6 @@ def test_manual_dispatch_does_not_label_the_workflow_revision_as_a_deployment(
     assert values["deployment_status_id"] == "manual"
     assert values["deployment_sha"] == "not-applicable"
     assert values["deployment_ref"] == "not-applicable"
-    assert values["target"] == "render"
 
 
 def test_missing_api_url_fails_development_preflight_before_smoke(
@@ -424,8 +423,7 @@ def test_post_deploy_smoke_workflow_uses_the_approved_contract() -> None:
         "workflow_dispatch:",
         "python -m scripts.api_development_delivery_event",
         "python -m scripts.api_staging_preflight --development-candidate",
-        "python -m scripts.api_staging_preflight --render-development-candidate",
-        "python -m scripts.api_staging_preflight --render-development-current",
+        "--development-current",
         "timeout-minutes: 10",
         "persist-credentials: false",
         "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
@@ -446,208 +444,8 @@ def test_post_deploy_smoke_workflow_uses_the_approved_contract() -> None:
         assert forbidden not in workflow.lower()
 
 
-RENDER_SERVICE = "srv-d0development00000000"
-RENDER_HOST = "tailtag-api-development.onrender.com"
-RENDER_APP = {"id": 14658, "slug": "render"}
-
-
-def render_target(service: str = RENDER_SERVICE) -> str:
-    return f"https://dashboard.render.com/web/{service}/deploys/dep-d0deploy0000000000"
-
-
-def render_event() -> dict[str, object]:
-    return {
-        "deployment": {
-            "id": 789,
-            "environment": "main - tailtag-api-development",
-            "creator": {"login": "maintainer"},
-            "performed_via_github_app": dict(RENDER_APP),
-            "sha": SOURCE_SHA,
-            "ref": "main",
-            "payload": {},
-        },
-        "deployment_status": {
-            "id": 790,
-            "state": "success",
-            "environment": "main - tailtag-api-development",
-            "creator": {"login": "maintainer"},
-            "performed_via_github_app": dict(RENDER_APP),
-            "target_url": render_target(),
-            "environment_url": f"https://{RENDER_HOST}",
-        },
-    }
-
-
-@pytest.fixture
-def render_pins(monkeypatch: MonkeyPatch) -> None:
-    binding = importlib.import_module("config.replacement_target_binding")
-    monkeypatch.setattr(
-        binding,
-        "_EXPECTED_RENDER_DIGESTS",
-        {
-            "development": binding.fingerprint_render_service(
-                "development", RENDER_SERVICE
-            )
-        },
-    )
-    monkeypatch.setattr(
-        binding,
-        "_EXPECTED_RENDER_HOST_DIGESTS",
-        {
-            "development": binding.fingerprint_render_hostname(
-                "development", RENDER_HOST
-            )
-        },
-    )
-
-
-def test_pinned_render_event_returns_only_its_source_sha(
-    delivery_event: ModuleType, render_pins: None
-) -> None:
-    """#408 AC11: a Render App deploy of the pinned service is eligible."""
-    assert (
-        delivery_event.classify_render_development_deployment_event(render_event())
-        == SOURCE_SHA
-    )
-    assert delivery_event.classify_development_deployment_event(render_event()) is None
-
-
-@pytest.mark.parametrize(
-    ("field", "value"),
-    (
-        ("deployment.performed_via_github_app", None),
-        (
-            "deployment_status.performed_via_github_app",
-            {"id": 15368, "slug": "github-actions"},
-        ),
-        ("deployment_status.performed_via_github_app.id", "14658"),
-        ("deployment.environment", "main - tailtag-api-staging"),
-        ("deployment_status.environment", "feature - tailtag-api-development"),
-        ("deployment.ref", "feature"),
-        ("deployment.payload", {"serviceId": RENDER_SERVICE}),
-        ("deployment.sha", "A" * 40),
-        ("deployment_status.state", "failure"),
-        ("deployment_status.target_url", render_target("srv-d0other000000000000")),
-        ("deployment_status.target_url", render_target() + "?x=1"),
-        ("deployment_status.target_url", "http" + render_target()[5:]),
-        (
-            "deployment_status.environment_url",
-            "https://tailtag-api-staging.onrender.com",
-        ),
-        ("deployment_status.environment_url", f"https://{RENDER_HOST}/"),
-        ("deployment_status.environment_url", None),
-    ),
-    ids=(
-        "deployment-not-render-app",
-        "status-other-app",
-        "string-app-id",
-        "staging-label",
-        "branch-label",
-        "branch-ref",
-        "unexpected-payload",
-        "uppercase-sha",
-        "failed-status",
-        "unpinned-service",
-        "target-query",
-        "insecure-target",
-        "unpinned-host",
-        "host-with-path",
-        "missing-host",
-    ),
-)
-def test_render_event_rejects_unbound_or_unsuccessful_deploys(
-    delivery_event: ModuleType, render_pins: None, field: str, value: object
-) -> None:
-    """#408 AC11: only the Render App identity and both pins authorize smoke."""
-    event = render_event()
-    event_field(event, field, value)
-    assert delivery_event.classify_render_development_deployment_event(event) is None
-
-
-def test_classifier_cli_names_the_host_of_each_eligible_event(
-    delivery_event: ModuleType,
-    render_pins: None,
-    monkeypatch: MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """#408 AC11/AC12: the workflow learns which pinned origin to verify."""
-    install_event_pin(delivery_event, monkeypatch)
-    for event, target in ((development_event(), "railway"), (render_event(), "render")):
-        path = tmp_path / f"{target}.json"
-        output = tmp_path / f"{target}-output"
-        path.write_text(json.dumps(event))
-        monkeypatch.setenv("GITHUB_EVENT_PATH", str(path))
-        monkeypatch.setenv("GITHUB_OUTPUT", str(output))
-        assert delivery_event.main() == 0
-        values = dict(line.split("=", 1) for line in output.read_text().splitlines())
-        assert values["target"] == target
-        assert values["deployment_sha"] == SOURCE_SHA
-
-
-def test_railway_job_never_reads_the_render_repository_variable() -> None:
-    """#408 AC7/AC12: only Render events and manual runs use the variable."""
+def test_railway_smoke_never_reads_the_render_repository_variable() -> None:
+    """#408 AC12: the Railway job uses its code-pinned origin, not the variable."""
     workflow = WORKFLOW.read_text()
-    selector = (
-        "${{ needs.classify.outputs.target == 'railway' && 'https://dev.tailtag.app'"
-        " || vars.TAILTAG_DEVELOPMENT_API_BASE_URL }}"
-    )
-    assert workflow.count("vars.TAILTAG_DEVELOPMENT_API_BASE_URL") == 2
-    assert workflow.count(selector) == 2
-    check = step_script(workflow, "Check pinned public Development identity")
-    assert (
-        "railway/event)\n    python -m scripts.api_staging_preflight --development-candidate"
-        in check
-    )
-    assert (
-        "render/event)\n    python -m scripts.api_staging_preflight --render-development-candidate"
-        in check
-    )
-    assert (
-        "render/manual)\n    python -m scripts.api_staging_preflight --render-development-current"
-        in check
-    )
-
-
-@pytest.mark.parametrize(
-    ("field", "value", "drifted"),
-    (
-        ("deployment_status.target_url", render_target() + "?x=1", True),
-        ("deployment.ref", "feature", True),
-        ("deployment_status.environment", "feature - tailtag-api-development", True),
-        ("deployment_status.environment", "main - tailtag-api-staging", False),
-        ("deployment_status.state", "in_progress", False),
-        ("deployment_status.performed_via_github_app", None, False),
-    ),
-    ids=(
-        "render-url-drift",
-        "render-ref-drift",
-        "render-label-drift",
-        "render-staging",
-        "render-in-progress",
-        "not-render-app",
-    ),
-)
-def test_classifier_fails_loudly_on_unmatched_render_development_success(
-    delivery_event: ModuleType,
-    render_pins: None,
-    monkeypatch: MonkeyPatch,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    field: str,
-    value: object,
-    drifted: bool,
-) -> None:
-    """#408 CodeRabbit: event drift for the Development service is not a silent skip."""
-    event = render_event()
-    event_field(event, field, value)
-    path = tmp_path / "event.json"
-    output = tmp_path / "github-output"
-    path.write_text(json.dumps(event))
-    monkeypatch.setenv("GITHUB_EVENT_PATH", str(path))
-    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
-
-    assert delivery_event.main() == (1 if drifted else 0)
-    assert "should_verify=false" in output.read_text().splitlines()
-    captured = capsys.readouterr()
-    assert ("does not match the pinned shape" in captured.out) is drifted
-    assert SOURCE_SHA not in captured.out + captured.err
+    assert "vars.TAILTAG_DEVELOPMENT_API_BASE_URL" not in workflow
+    assert workflow.count("https://dev.tailtag.app") == 2
