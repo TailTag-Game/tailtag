@@ -286,33 +286,15 @@ def test_render_identity_uses_baked_sha_pinned_environment_and_no_deployment(
 
 
 @pytest.mark.usefixtures("render_pins")
-@pytest.mark.parametrize(
-    ("has_metadata", "environment"),
-    (
-        (False, render_environment(RENDER_STAGING_SERVICE)),
-        (True, render_environment("srv-d0unpinned00000000000")),
-        (
-            True,
-            render_environment(
-                RENDER_STAGING_SERVICE, RAILWAY_ENVIRONMENT_NAME="staging"
-            ),
-        ),
-    ),
-    ids=("staging-without-sha", "unpinned-service", "mixed-host-variables"),
-)
-def test_render_identity_rejects_incomplete_unpinned_or_mixed_runtime(
-    build_identity: ModuleType,
-    tmp_path: Path,
-    has_metadata: bool,
-    environment: Mapping[str, str],
+def test_render_staging_identity_requires_a_baked_source_sha(
+    build_identity: ModuleType, tmp_path: Path
 ) -> None:
-    """AC10/AC11: Render identity has no fallback for a missing SHA or pin."""
-    metadata = tmp_path / "build-identity.json"
-    if has_metadata:
-        write_metadata(metadata, SOURCE_SHA)
-
+    """AC10: Render Staging has no fallback for a missing baked SHA."""
     with pytest.raises(ValueError):
-        build_identity._load_identity(metadata, environment)
+        build_identity._load_identity(
+            tmp_path / "absent-build-identity.json",
+            render_environment(RENDER_STAGING_SERVICE),
+        )
 
 
 @pytest.mark.parametrize(

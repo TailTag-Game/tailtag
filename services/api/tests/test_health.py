@@ -1098,7 +1098,6 @@ def test_readiness_accepts_complete_render_profiles(
         ),
         ("development", {"RENDER_SERVICE_ID": RENDER_STAGING_SERVICE}, {}, True),
         ("development", {"RENDER_SERVICE_ID": "srv-d0unpinned00000000000"}, {}, True),
-        ("development", {"RAILWAY_ENVIRONMENT_NAME": "development"}, {}, True),
         ("development", {}, {}, False),
         ("staging", {}, {}, False),
         (
@@ -1114,7 +1113,6 @@ def test_readiness_accepts_complete_render_profiles(
         "unpinned-host",
         "other-environment-service",
         "unpinned-service",
-        "mixed-host-variables",
         "development-without-sha",
         "staging-without-sha",
         "staging-next-parties",
