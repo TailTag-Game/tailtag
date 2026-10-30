@@ -317,7 +317,13 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
     assert push_trigger
     push_configuration = push_trigger.group("configuration")
     assert "    branches:\n      - main" in push_configuration
-    assert "    paths:" not in push_configuration
+    # Documentation-only changes skip the workflow (#418). The deny-list first
+    # matches every path, so an unknown path still runs backend validation.
+    push_paths = push_configuration.partition("    paths:\n")[2]
+    assert push_paths.startswith(
+        "      - '**'\n      - '!docs/**'\n      - '!**/*.md'\n"
+    )
+    assert "      - 'services/api/**'\n" in push_paths
     assert "    paths-ignore:" not in push_configuration
     assert "workflow_dispatch:" in workflow
     assert workflow.count("name: API foundation checks") == 1
@@ -335,7 +341,7 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
     )
     assert pull_request_trigger
     pull_request_configuration = pull_request_trigger.group("configuration")
-    assert "    paths:" not in pull_request_configuration
+    assert pull_request_configuration.partition("    paths:\n")[2] == push_paths
     assert "    paths-ignore:" not in pull_request_configuration
     assert 'python-version: "3.13"' in workflow
     assert "postgres:17" in workflow
