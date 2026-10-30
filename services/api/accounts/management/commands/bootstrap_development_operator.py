@@ -14,7 +14,6 @@ from django.core.management.base import CommandParser
 from django.db import DatabaseError, IntegrityError, transaction
 
 from accounts.models import User
-from config import replacement_target_binding
 
 REQUIRED_ENVIRONMENT = "development"
 REQUIRED_SERVICE = "api"
@@ -93,6 +92,11 @@ class Command(BaseCommand):
     @staticmethod
     def _target_confirmation_phrase() -> str | None:
         """Return the phrase for the one pinned Development target, if any."""
+        # Import here, not at module load: the binding resolves the operator
+        # home directory at import, and Windows subprocesses that only parse
+        # arguments have no home directory.
+        from config import replacement_target_binding
+
         try:
             if replacement_target_binding.runtime_host(os.environ) == "render":
                 environment = replacement_target_binding.validate_runtime_target(
