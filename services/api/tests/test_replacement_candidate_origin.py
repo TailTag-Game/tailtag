@@ -1024,3 +1024,72 @@ def test_development_preflight_rejects_redirected_identity_response(
     assert {call[0].full_url for call in opener.calls} == {
         DEVELOPMENT_ORIGIN + "/health/identity"
     }
+
+
+RENDER_DEVELOPMENT_ORIGIN: Final = "https://tailtag-api-development.onrender.com"
+RENDER_DEVELOPMENT_IDENTITY: Final = {**DEVELOPMENT_IDENTITY, "deployment_id": None}
+
+
+@pytest.mark.parametrize(
+    "expected_sha", (None, RENDER_DEVELOPMENT_IDENTITY["source_sha"])
+)
+def test_render_development_preflight_accepts_null_deployment_on_pinned_host(
+    preflight: ModuleType, monkeypatch: MonkeyPatch, expected_sha: str | None
+) -> None:
+    """#408 AC18: the pinned Render host reports no runtime deploy ID."""
+    monkeypatch.setenv("TAILTAG_DEVELOPMENT_API_BASE_URL", RENDER_DEVELOPMENT_ORIGIN)
+    calls: list[str] = []
+    responses: list[object] = [
+        RENDER_DEVELOPMENT_IDENTITY,
+        {"status": "ok"},
+        RENDER_DEVELOPMENT_IDENTITY,
+    ]
+
+    def fetch(url: str) -> object:
+        calls.append(url)
+        return responses.pop(0)
+
+    monkeypatch.setattr(preflight, "_fetch_json", fetch)
+    assert (
+        preflight.validate_development_candidate_target(expected_sha, render=True)
+        == RENDER_DEVELOPMENT_IDENTITY
+    )
+    assert calls == [
+        RENDER_DEVELOPMENT_ORIGIN + "/health/identity",
+        RENDER_DEVELOPMENT_ORIGIN + "/health/ready",
+        RENDER_DEVELOPMENT_ORIGIN + "/health/identity",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("configured_url", "identity", "render"),
+    (
+        (RENDER_DEVELOPMENT_ORIGIN, DEVELOPMENT_IDENTITY, True),
+        (DEVELOPMENT_ORIGIN, RENDER_DEVELOPMENT_IDENTITY, True),
+        (RENDER_DEVELOPMENT_ORIGIN, RENDER_DEVELOPMENT_IDENTITY, False),
+    ),
+    ids=(
+        "render-with-deploy-id",
+        "render-flag-on-railway-host",
+        "railway-flag-on-render-host",
+    ),
+)
+def test_development_preflight_keeps_each_host_bound_to_its_own_identity(
+    preflight: ModuleType,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+    configured_url: str,
+    identity: dict[str, object],
+    render: bool,
+) -> None:
+    """#408 AC12/AC18: null deploy IDs pass only for the pinned Render host."""
+    _development_preflight_binding(monkeypatch, _development_manifest(tmp_path))
+    monkeypatch.setenv("TAILTAG_DEVELOPMENT_API_BASE_URL", configured_url)
+    responses: list[object] = [identity, {"status": "ok"}, identity]
+
+    def fetch(_: str) -> object:
+        return responses.pop(0)
+
+    monkeypatch.setattr(preflight, "_fetch_json", fetch)
+    with pytest.raises(preflight.TargetSafetyError):
+        preflight.validate_development_candidate_target(None, render=render)

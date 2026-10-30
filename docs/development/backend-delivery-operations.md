@@ -18,6 +18,118 @@ procedures and sanitized evidence records live in the
 [Wave 2 participation validation](wave-2-participation-validation.md) and
 [Wave 3 catching and collection validation](wave-3-catching-validation.md).
 
+## Render Development
+
+Render Development replaces Railway Development under
+[ADR 0011](../adrs/0011-move-v0-hosting-from-railway-to-render.md). Both run
+until #412 retires Railway. The rest of this guide describes Railway.
+
+| Item | Target |
+| --- | --- |
+| Blueprint | `render.yaml`, project `tailtag`, environment `development` |
+| API service | `tailtag-api-development` |
+| Database | `tailtag-postgres-development` |
+| Public API | `https://tailtag-api-development.onrender.com` |
+
+### Delivery
+
+Render deploys a merge to `main` only when the merge changes `services/api/**`.
+Render waits until every CI check on the commit passes. If one check fails,
+Render does not deploy that commit.
+
+Until Railway retires, a Railway deploy starts a `TailTag post-deploy smoke`
+run on the same commit. Render can count that run as a check too. So a failed
+Railway smoke can also block the Render deploy.
+
+If a flaky check blocks a deploy, rerun the check. When the rerun passes,
+start a manual deploy of that commit from the Render dashboard.
+
+Before the new version takes traffic, Render runs the pre-deploy command
+`python -m config.replacement_migrate`. The command prints one word:
+
+- `PASS`: the guarded migration finished.
+- `FAIL_GUARD`: a check before the migration failed. Examples are a pin
+  mismatch, invalid settings, or a database connection error. No migration
+  ran.
+- `FAIL_MIGRATION`: a migration failed. Treat the database as partly migrated,
+  as [Handle migration failures](#handle-migration-failures) describes.
+
+If the pre-deploy command fails, the deploy fails. The previous version keeps
+serving.
+
+The command hides the migration traceback, so the deploy log shows only the
+word. After a `FAIL_MIGRATION`, do these steps:
+
+1. Do not start the deploy again. A retry can apply more of a partial
+   migration.
+2. Open the **Shell** tab of `tailtag-api-development`. The shell runs the
+   previous version, which still serves traffic.
+3. Run
+   `python manage.py showmigrations --settings=config.settings.production`.
+   Compare the applied migrations with the migrations in the failed commit.
+4. Find the failed migration. Reproduce it on a local database from the same
+   commit to see the error.
+5. Merge a forward fix. Follow
+   [Handle migration failures](#handle-migration-failures) for a partial
+   migration. Do not run reverse migrations.
+
+### Smoke checks
+
+After each successful Render deploy, the `TailTag post-deploy smoke` workflow
+checks the identity and readiness of the public API, then runs
+`task api-smoke`. The workflow trusts only events from the Render GitHub App
+for the pinned service and host. To check the current deploy by hand, run the
+workflow with **Run workflow**.
+
+Run the authenticated smoke from a repository checkout:
+
+```bash
+TAILTAG_DEVELOPMENT_API_BASE_URL=https://tailtag-api-development.onrender.com \
+API_BASE_URL=https://tailtag-api-development.onrender.com \
+CLERK_SMOKE_USER_ID=<opaque-development-user-id> \
+task api-auth-smoke
+```
+
+Render has no command that copies service variables into a local process. So
+the media smoke runs locally with values that you enter at hidden prompts.
+Copy each value from the `tailtag-api-development` **Environment** page. The
+service ID is the `srv-…` part of the dashboard URL.
+
+```bash
+read -rs -p "MEDIA_STORAGE_ENDPOINT_URL: " MEDIA_STORAGE_ENDPOINT_URL; echo
+read -rs -p "MEDIA_STORAGE_BUCKET_NAME: " MEDIA_STORAGE_BUCKET_NAME; echo
+read -rs -p "MEDIA_STORAGE_ACCESS_KEY_ID: " MEDIA_STORAGE_ACCESS_KEY_ID; echo
+read -rs -p "MEDIA_STORAGE_SECRET_ACCESS_KEY: " MEDIA_STORAGE_SECRET_ACCESS_KEY; echo
+read -r -p "Render Development service ID: " RENDER_SERVICE_ID
+export MEDIA_STORAGE_ENDPOINT_URL MEDIA_STORAGE_BUCKET_NAME \
+  MEDIA_STORAGE_ACCESS_KEY_ID MEDIA_STORAGE_SECRET_ACCESS_KEY RENDER_SERVICE_ID
+RENDER=true MEDIA_STORAGE_REGION=auto \
+DJANGO_SECRET_KEY=local-media-smoke-placeholder \
+DJANGO_ALLOWED_HOSTS=localhost DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost \
+DATABASE_URL=postgresql://placeholder:placeholder@localhost:5432/placeholder \
+TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM=run-r2-render-development-media-storage-smoke \
+task api-media-storage-smoke
+unset MEDIA_STORAGE_ENDPOINT_URL MEDIA_STORAGE_BUCKET_NAME \
+  MEDIA_STORAGE_ACCESS_KEY_ID MEDIA_STORAGE_SECRET_ACCESS_KEY RENDER_SERVICE_ID
+```
+
+The placeholder values hold no secret. The smoke does not connect to the
+database. The command fails unless the service ID matches the pinned Render
+Development service.
+
+### Development operator on Render
+
+Open the **Shell** tab of `tailtag-api-development` in the Render dashboard.
+Run:
+
+```text
+python manage.py bootstrap_development_operator --settings=config.settings.production
+```
+
+At the visible prompt, type `bootstrap Render Development operator`. The other
+rules in [Django admin and Development operator](#django-admin-and-development-operator)
+apply without change.
+
 ## Environment boundary and access
 
 Use these exact Railway targets:

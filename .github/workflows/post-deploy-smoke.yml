@@ -16,6 +16,7 @@ jobs:
       checkout_ref: ${{ steps.classify.outputs.checkout_ref }}
       verification_mode: ${{ steps.classify.outputs.verification_mode }}
       deployment_sha: ${{ steps.classify.outputs.deployment_sha }}
+      target: ${{ steps.classify.outputs.target }}
 
     steps:
       - name: Check out trusted classifier
@@ -44,8 +45,9 @@ jobs:
               echo "deployment_status_id=manual"
               echo "deployment_sha=not-applicable"
               echo "deployment_ref=not-applicable"
+              echo "target=render"
             } >> "$GITHUB_OUTPUT"
-            echo "Manual Development endpoint smoke requested; deployment attribution unavailable."
+            echo "Manual Render Development endpoint smoke requested; deployment attribution unavailable."
           elif [[ "$EVENT_NAME" == "deployment_status" ]]; then
             python -m scripts.api_development_delivery_event
           else
@@ -72,23 +74,34 @@ jobs:
         with:
           python-version: "3.13"
 
+      # Railway Development keeps its code-pinned origin until #412 retires it.
+      # The repository variable names Render Development.
       - name: Check pinned public Development identity
         env:
-          TAILTAG_DEVELOPMENT_API_BASE_URL: ${{ vars.TAILTAG_DEVELOPMENT_API_BASE_URL }}
+          TAILTAG_DEVELOPMENT_API_BASE_URL: ${{ needs.classify.outputs.target == 'railway' && 'https://dev.tailtag.app' || vars.TAILTAG_DEVELOPMENT_API_BASE_URL }}
           TAILTAG_EXPECTED_SOURCE_SHA: ${{ needs.classify.outputs.deployment_sha }}
           VERIFICATION_MODE: ${{ needs.classify.outputs.verification_mode }}
+          TARGET: ${{ needs.classify.outputs.target }}
         run: |
           set -euo pipefail
-          if [[ "$VERIFICATION_MODE" == "manual" ]]; then
-            python -m scripts.api_staging_preflight --development-current > /dev/null
-            echo "Current Development endpoint healthy; deployment attribution unavailable."
-          elif [[ "$VERIFICATION_MODE" == "event" ]]; then
-            python -m scripts.api_staging_preflight --development-candidate > /dev/null
-            echo "Replacement Development event matches stable public source identity."
-          else
-            echo "Development verification mode unavailable."
-            exit 1
-          fi
+          case "$TARGET/$VERIFICATION_MODE" in
+            render/manual)
+              python -m scripts.api_staging_preflight --render-development-current > /dev/null
+              echo "Current Render Development endpoint healthy; deployment attribution unavailable."
+              ;;
+            render/event)
+              python -m scripts.api_staging_preflight --render-development-candidate > /dev/null
+              echo "Render Development event matches stable public source identity."
+              ;;
+            railway/event)
+              python -m scripts.api_staging_preflight --development-candidate > /dev/null
+              echo "Replacement Development event matches stable public source identity."
+              ;;
+            *)
+              echo "Development verification mode unavailable."
+              exit 1
+              ;;
+          esac
 
       - name: Check out verifier revision
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -106,7 +119,7 @@ jobs:
 
       - name: Run canonical HTTP smoke verification
         env:
-          API_BASE_URL: ${{ vars.TAILTAG_DEVELOPMENT_API_BASE_URL }}
+          API_BASE_URL: ${{ needs.classify.outputs.target == 'railway' && 'https://dev.tailtag.app' || vars.TAILTAG_DEVELOPMENT_API_BASE_URL }}
         run: |
           set -euo pipefail
           uv --directory services/api sync --locked --no-dev

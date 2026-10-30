@@ -140,6 +140,16 @@ def fingerprint_render_service(environment: str, service_id: object) -> str:
     ).hexdigest()
 
 
+def pinned_render_service(environment: str, service_id: object) -> None:
+    """Reject a Render service ID unless it matches the environment's pin."""
+    expected = _EXPECTED_RENDER_DIGESTS.get(environment)
+    if (
+        expected is None
+        or fingerprint_render_service(environment, service_id) != expected
+    ):
+        raise TargetBindingError
+
+
 def _render_environment(actual: Mapping[str, str]) -> str:
     if runtime_host(actual) != "render" or actual.get("RENDER") != "true":
         raise TargetBindingError

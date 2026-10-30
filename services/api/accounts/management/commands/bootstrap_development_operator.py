@@ -1,4 +1,4 @@
-"""Bootstrap the local Django operator for Railway Development only."""
+"""Bootstrap the local Django operator for Railway or Render Development only."""
 
 from __future__ import annotations
 
@@ -17,13 +17,14 @@ from accounts.models import User
 
 REQUIRED_ENVIRONMENT = "development"
 REQUIRED_SERVICE = "api"
-CONFIRMATION_PHRASE = "bootstrap Railway Development operator"
+RAILWAY_CONFIRMATION_PHRASE = "bootstrap Railway Development operator"
+RENDER_CONFIRMATION_PHRASE = "bootstrap Render Development operator"
 
 __all__ = ["Command"]
 
 
 class Command(BaseCommand):
-    """Create or reconcile the guarded Railway Development operator."""
+    """Create or reconcile the guarded Development operator."""
 
     def create_parser(
         self, prog_name: str, subcommand: str, **kwargs: object
@@ -35,14 +36,12 @@ class Command(BaseCommand):
 
     def handle(self, *args: object, **options: object) -> None:
         """Create or rotate a full operator's password after guarded confirmation."""
-        if (
-            os.environ.get("RAILWAY_ENVIRONMENT_NAME") != REQUIRED_ENVIRONMENT
-            or os.environ.get("RAILWAY_SERVICE_NAME") != REQUIRED_SERVICE
-        ):
+        confirmation_phrase = self._target_confirmation_phrase()
+        if confirmation_phrase is None:
             raise CommandError("This command is unavailable for the current target.")
         if not sys.stdin.isatty() or not sys.stdout.isatty():
             raise CommandError("This command requires an interactive terminal.")
-        if input("Confirmation: ") != CONFIRMATION_PHRASE:
+        if input("Confirmation: ") != confirmation_phrase:
             raise CommandError("Confirmation failed.")
 
         operator_id = getpass.getpass("Operator identifier: ")
@@ -89,6 +88,31 @@ class Command(BaseCommand):
             raise CommandError("Operator bootstrap failed.") from None
 
         self.stdout.write(outcome)
+
+    @staticmethod
+    def _target_confirmation_phrase() -> str | None:
+        """Return the phrase for the one pinned Development target, if any."""
+        # Import here, not at module load: the binding resolves the operator
+        # home directory at import, and Windows subprocesses that only parse
+        # arguments have no home directory.
+        from config import replacement_target_binding
+
+        try:
+            if replacement_target_binding.runtime_host(os.environ) == "render":
+                environment = replacement_target_binding.validate_runtime_target(
+                    os.environ
+                )
+                if environment != REQUIRED_ENVIRONMENT:
+                    return None
+                return RENDER_CONFIRMATION_PHRASE
+        except replacement_target_binding.TargetBindingError:
+            return None
+        if (
+            os.environ.get("RAILWAY_ENVIRONMENT_NAME") != REQUIRED_ENVIRONMENT
+            or os.environ.get("RAILWAY_SERVICE_NAME") != REQUIRED_SERVICE
+        ):
+            return None
+        return RAILWAY_CONFIRMATION_PHRASE
 
     def _parser_error(self, message: str) -> NoReturn:
         """Reject invalid command-line arguments without reflecting their values."""

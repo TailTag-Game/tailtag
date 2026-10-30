@@ -286,16 +286,19 @@ The configuration selects the API, rather than using flavors or schemes:
 | Environment | Approved backend API root |
 | --- | --- |
 | Local | `http://127.0.0.1:8000` |
-| Railway Development | `https://dev.tailtag.app` |
+| Render Development | `https://tailtag-api-development.onrender.com` |
+| Railway Development, until #412 retires it | `https://dev.tailtag.app` |
 
-### Railway Development
+### Render Development
 
-Railway Development is the shared, HTTPS development API. The committed example
-file already contains its approved root, `https://dev.tailtag.app`; supply it
-through your own `development.json`. Choosing it implies no production access
+Render Development is the shared, HTTPS development API. The committed example
+file already contains its approved root,
+`https://tailtag-api-development.onrender.com`. Supply it through your own
+`development.json`. Choosing it implies no production access
 and no production configuration. Use it whenever the Local API is unreachable
 from your device (see below) or when you need authenticated requests, because
 the Clerk token transport rule below forbids sending a token over HTTP.
+Railway Development keeps `https://dev.tailtag.app` until #412 retires it.
 
 ### Local API connectivity
 
@@ -308,8 +311,8 @@ mapping for your target:
 | iOS Simulator | Uses the host's loopback directly. No extra step. |
 | Android emulator | `task mobile-run` runs `adb -s <id> reverse tcp:8000 tcp:8000` for you, so the device's `127.0.0.1:8000` forwards to the host. |
 | USB-connected Android device | Same `adb reverse` as the emulator. |
-| iOS physical device | Cannot reach host loopback. Use Railway Development. |
-| Wi-Fi-only Android device (no `adb reverse`) | Cannot reach host loopback. Use Railway Development. |
+| iOS physical device | Cannot reach host loopback. Use Render Development. |
+| Wi-Fi-only Android device (no `adb reverse`) | Cannot reach host loopback. Use Render Development. |
 
 Local over a LAN IP address is unsupported: the configuration validator
 rejects `http` to anything but `127.0.0.1` or `localhost`, and the Local API
@@ -328,7 +331,7 @@ configuration cannot exercise authenticated endpoints. Authenticated requests
 must not follow redirects automatically. A redirect may be followed only by
 validating that its target remains HTTPS and within the configured API origin
 before issuing a new request with the header. Use HTTPS termination for
-authenticated Local testing or use Railway Development. Never transmit a Clerk
+authenticated Local testing or use Render Development. Never transmit a Clerk
 session token over cleartext HTTP or to another origin.
 
 ### Cleartext HTTP policy
@@ -461,9 +464,9 @@ these messages.
 | `Unable to find application named 'Simulator'` | `open -a Simulator` on Xcode 27 | Xcode 27 has no Simulator.app. Run `xcrun simctl boot "<device>"`, then open Device Hub. You can also open Device Hub and start a simulator there. |
 | `Mobile configuration is missing` | `task mobile-doctor` (WARN), `task mobile-run` | Run `cp apps/mobile/config/development.example.json apps/mobile/config/development.json`, then set `CLERK_PUBLISHABLE_KEY`. |
 | `Mobile configuration is invalid` | `task mobile-doctor` (FAIL), `task mobile-run` | Fix the key that the message names. [Configuration](#configuration) gives the rule for each key. |
-| `API at <origin> did not answer /health/live from this host` | `task mobile-doctor` (WARN) | For Local, start the backend in the devcontainer with `task api-run`. For Railway Development, make sure that the URL is `https://dev.tailtag.app`. |
-| `connectivity` or `timeout` after "Call /api/me/" | Debug proof screen | The device cannot reach the API. Make sure that the doctor probe passes. Then use the target mapping in [Local API connectivity](#local-api-connectivity). A physical iOS device and a Wi-Fi-only Android device must use Railway Development. |
-| `unauthenticated (HTTP 401)` after "Call /api/me/" | Debug proof screen | With a Local `http` URL, this result is expected: the app sends no token over HTTP. With Railway Development and `Auth state: signedOut`, the session ended. Sign in again. |
+| `API at <origin> did not answer /health/live from this host` | `task mobile-doctor` (WARN) | For Local, start the backend in the devcontainer with `task api-run`. For Render Development, make sure that the URL is `https://tailtag-api-development.onrender.com`. |
+| `connectivity` or `timeout` after "Call /api/me/" | Debug proof screen | The device cannot reach the API. Make sure that the doctor probe passes. Then use the target mapping in [Local API connectivity](#local-api-connectivity). A physical iOS device and a Wi-Fi-only Android device must use Render Development. |
+| `unauthenticated (HTTP 401)` after "Call /api/me/" | Debug proof screen | With a Local `http` URL, this result is expected: the app sends no token over HTTP. With Render Development and `Auth state: signedOut`, the session ended. Sign in again. |
 | `Verify code failed: invalidCode` | Debug proof screen | Enter the code again, or tap "Send code" for a new one. |
 | `Send code failed: connectivity` or `Verify code failed: connectivity` | Debug proof screen | The device cannot reach Clerk. Make sure that the device has network access, then try again. |
 | `Auth state: failed (<reason>)` | Debug proof screen | The native Clerk SDK could not start. Make sure that `CLERK_PUBLISHABLE_KEY` is the Clerk Development key, then restart the app. |

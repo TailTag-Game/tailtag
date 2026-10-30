@@ -2,8 +2,10 @@
 #
 # Auto Sync stays off. The owner runs each sync after review, because a sync
 # creates or changes paid resources. Secret values use `sync: false` and never
-# live in this file. Each service builds `main`. Auto-deploy and the
-# pre-deploy migration stay off until #408 (Development) and #409 (Staging).
+# live in this file. Each service builds `main`. Development deploys a
+# backend change only after every CI check on the commit passes, and runs the
+# guarded migration before the new version takes traffic (#408). Staging
+# auto-deploy and its pre-deploy migration stay off until #409.
 
 previews:
   generation: "off"
@@ -24,11 +26,19 @@ projects:
             branch: main
             dockerfilePath: ./services/api/Dockerfile
             dockerContext: ./services/api
-            autoDeployTrigger: "off"
+            autoDeployTrigger: checksPass
+            # Matches the Railway Development watch path.
+            buildFilter:
+              paths:
+                - services/api/**
+            preDeployCommand: python -m config.replacement_migrate
             healthCheckPath: /health/ready
             envVars:
               - key: PORT
                 value: "8000"
+              # The guarded pre-deploy migration requires this exact module.
+              - key: DJANGO_SETTINGS_MODULE
+                value: config.settings.production
               - key: PGSSLMODE
                 value: require
               - key: DATABASE_URL

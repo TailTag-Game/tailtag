@@ -1,4 +1,4 @@
 {
-  "TAILTAG_API_BASE_URL": "https://dev.tailtag.app",
+  "TAILTAG_API_BASE_URL": "https://tailtag-api-development.onrender.com",
   "CLERK_PUBLISHABLE_KEY": ""
 }
