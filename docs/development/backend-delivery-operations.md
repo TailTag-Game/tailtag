@@ -48,13 +48,30 @@ Before the new version takes traffic, Render runs the pre-deploy command
 `python -m config.replacement_migrate`. The command prints one word:
 
 - `PASS`: the guarded migration finished.
-- `FAIL_GUARD`: the service or the database does not match its pin. No
-  migration ran.
+- `FAIL_GUARD`: a check before the migration failed. Examples are a pin
+  mismatch, invalid settings, or a database connection error. No migration
+  ran.
 - `FAIL_MIGRATION`: a migration failed. Treat the database as partly migrated,
   as [Handle migration failures](#handle-migration-failures) describes.
 
 If the pre-deploy command fails, the deploy fails. The previous version keeps
 serving.
+
+The command hides the migration traceback, so the deploy log shows only the
+word. After a `FAIL_MIGRATION`, do these steps:
+
+1. Do not start the deploy again. A retry can apply more of a partial
+   migration.
+2. Open the **Shell** tab of `tailtag-api-development`. The shell runs the
+   previous version, which still serves traffic.
+3. Run
+   `python manage.py showmigrations --settings=config.settings.production`.
+   Compare the applied migrations with the migrations in the failed commit.
+4. Find the failed migration. Reproduce it on a local database from the same
+   commit to see the error.
+5. Merge a forward fix. Follow
+   [Handle migration failures](#handle-migration-failures) for a partial
+   migration. Do not run reverse migrations.
 
 ### Smoke checks
 
@@ -69,6 +86,7 @@ Run the authenticated smoke from a repository checkout:
 ```bash
 TAILTAG_DEVELOPMENT_API_BASE_URL=https://tailtag-api-development.onrender.com \
 API_BASE_URL=https://tailtag-api-development.onrender.com \
+CLERK_SMOKE_USER_ID=<opaque-development-user-id> \
 task api-auth-smoke
 ```
 

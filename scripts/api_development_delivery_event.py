@@ -21,7 +21,8 @@ _EXPECTED_GENERATION_DIGEST = (
 _LABEL = "TailTag / development"
 # Render names each GitHub environment "<branch> - <service>". Only the GitHub
 # App identity is unforgeable, so it and the pinned service bind the event.
-_RENDER_LABEL = "main - tailtag-api-development"
+_RENDER_SERVICE_SUFFIX = " - tailtag-api-development"
+_RENDER_LABEL = f"main{_RENDER_SERVICE_SUFFIX}"
 _RENDER_APP = (14658, "render")
 _RENDER_TARGET = re.compile(
     r"https://dashboard\.render\.com/web/(srv-[a-z0-9]{1,60})/deploys/dep-[a-z0-9]{1,60}"
@@ -142,6 +143,29 @@ def classify_render_development_deployment_event(event: object) -> str | None:
     return sha
 
 
+def is_unmatched_render_development_success(event: object) -> bool:
+    """Flag a successful Render Development event that the pins reject.
+
+    Such an event means the Render event shape drifted. The workflow fails it
+    instead of skipping it, so the missing smoke check is visible.
+    """
+    if not isinstance(event, dict):
+        return False
+    document = cast(dict[str, object], event)
+    status = document.get("deployment_status")
+    if not isinstance(status, dict):
+        return False
+    status = cast(dict[str, object], status)
+    environment = status.get("environment")
+    return (
+        _app(status.get("performed_via_github_app")) == _RENDER_APP
+        and status.get("state") == "success"
+        and isinstance(environment, str)
+        and environment.endswith(_RENDER_SERVICE_SUFFIX)
+        and classify_render_development_deployment_event(document) is None
+    )
+
+
 def _pinned_render_target(service_id: str, environment_url: object) -> bool:
     api_directory = Path(__file__).resolve().parents[1] / "services/api"
     if str(api_directory) not in sys.path:
@@ -182,6 +206,7 @@ def main() -> int:
     """Read the event file and write only fixed classification and safe SHA."""
     sha: str | None = None
     target = ""
+    drifted = False
     try:
         path = os.environ["GITHUB_EVENT_PATH"]
         if Path(path).stat().st_size <= 65536:
@@ -191,6 +216,7 @@ def main() -> int:
             if sha is None:
                 sha = classify_render_development_deployment_event(event)
                 target = "render" if sha else ""
+                drifted = is_unmatched_render_development_success(event)
     except (OSError, KeyError, UnicodeError, ValueError):
         pass
     output = os.environ.get("GITHUB_OUTPUT")
@@ -201,6 +227,9 @@ def main() -> int:
             stream.write(f"verification_mode={'event' if sha else ''}\n")
             stream.write(f"deployment_sha={sha or ''}\n")
             stream.write(f"target={target}\n")
+    if drifted:
+        print("Render Development event does not match the pinned shape")
+        return 1
     print("Eligible Development event" if sha else "Skip Development event")
     return 0
 

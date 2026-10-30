@@ -606,3 +606,48 @@ def test_railway_job_never_reads_the_render_repository_variable() -> None:
         "render/manual)\n    python -m scripts.api_staging_preflight --render-development-current"
         in check
     )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "drifted"),
+    (
+        ("deployment_status.target_url", render_target() + "?x=1", True),
+        ("deployment.ref", "feature", True),
+        ("deployment_status.environment", "feature - tailtag-api-development", True),
+        ("deployment_status.environment", "main - tailtag-api-staging", False),
+        ("deployment_status.state", "in_progress", False),
+        ("deployment_status.performed_via_github_app", None, False),
+    ),
+    ids=(
+        "render-url-drift",
+        "render-ref-drift",
+        "render-label-drift",
+        "render-staging",
+        "render-in-progress",
+        "not-render-app",
+    ),
+)
+def test_classifier_fails_loudly_on_unmatched_render_development_success(
+    delivery_event: ModuleType,
+    render_pins: None,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    field: str,
+    value: object,
+    drifted: bool,
+) -> None:
+    """#408 CodeRabbit: event drift for the Development service is not a silent skip."""
+    event = render_event()
+    event_field(event, field, value)
+    path = tmp_path / "event.json"
+    output = tmp_path / "github-output"
+    path.write_text(json.dumps(event))
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(path))
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+
+    assert delivery_event.main() == (1 if drifted else 0)
+    assert "should_verify=false" in output.read_text().splitlines()
+    captured = capsys.readouterr()
+    assert ("does not match the pinned shape" in captured.out) is drifted
+    assert SOURCE_SHA not in captured.out + captured.err
