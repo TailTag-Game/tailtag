@@ -257,6 +257,19 @@ def test_promotion_records_one_exact_successful_render_deploy(
     assert API_KEY not in captured.out + captured.err + harness.receipt.read_text()
 
 
+def test_classic_key_that_sees_other_workspaces_can_promote(harness: Harness) -> None:
+    """#409 AC9 revision: the service's own team workspace must be among them."""
+    harness.render.owners = [
+        {"owner": {"id": "tea-d0otherteam000000000", "type": "team"}},
+        {"owner": {"id": OWNER_ID, "type": "team"}},
+        {"owner": {"id": "usr-d0personal000000000", "type": "user"}},
+    ]
+
+    assert harness.module.main() == 0
+
+    assert harness.render.submitted
+
+
 def _details(**overrides: object) -> dict[str, object]:
     details = cast(dict[str, object], service()["serviceDetails"])
     return {**details, **overrides}
@@ -283,7 +296,7 @@ def _details(**overrides: object) -> dict[str, object]:
             "owners",
             [
                 {"owner": {"id": OWNER_ID, "type": "team"}},
-                {"owner": {"id": "usr-d0personal000000000", "type": "user"}},
+                {"owner": {"id": OWNER_ID, "type": "team"}},
             ],
         ),
         ("owners", [{"owner": {"id": "tea-d0other0000000000000", "type": "team"}}]),
@@ -299,7 +312,7 @@ def _details(**overrides: object) -> dict[str, object]:
         "other-service",
         "other-health-check",
         "no-pre-deploy-command",
-        "several-workspaces",
+        "duplicate-workspace",
         "other-workspace",
         "personal-workspace",
         "deploy-building",
