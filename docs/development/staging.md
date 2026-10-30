@@ -296,8 +296,18 @@ means that the command has no D. Stop, and do not submit again. Check the
 Render dashboard for a deploy of S first.
 
 A `FAIL_GUARD` pre-deploy failure means that a check failed before any
-migration ran. Before the Render Staging database pin lands, every Render
-Staging deploy fails this way, and the previous version keeps serving.
+migration ran. The previous version keeps serving. The first Render Staging
+promotion ran before the database pin landed and failed this way
+(`dep-dbiedi6c6qcc73a9a120`, the AC3 proof of #409).
+
+To read the pre-deploy result of a deploy, run `render logs` with the Staging
+service ID and the deploy time window, then look for the `PASS`, `FAIL_GUARD`,
+or `FAIL_MIGRATION` line:
+
+```bash
+render logs -r "$RENDER_SERVICE_ID" --start 2026-10-30T18:49:00Z \
+  --end 2026-10-30T19:00:00Z --direction forward --limit 500 -o text
+```
 
 ### Deploys outside the promotion
 
