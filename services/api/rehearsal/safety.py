@@ -6,7 +6,7 @@ import re
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import IO, Any, Protocol, Self, cast
+from typing import IO, Any, Literal, Protocol, Self, cast
 
 import psycopg
 from django.conf import settings
@@ -52,6 +52,26 @@ class ResetConfiguration:
     owner_clerk_id: str
     catcher_clerk_id: str
     media_key: str
+    platform: Literal["railway", "render"] = "railway"
+
+
+# Render Postgres grants no superuser, so Render requires the exact database owner.
+_RAILWAY_EXECUTOR = "SELECT rolsuper FROM pg_roles WHERE rolname = current_user"
+_RENDER_EXECUTOR = (
+    "SELECT NOT r.rolsuper AND EXISTS (SELECT 1 FROM pg_database d"
+    " WHERE d.datname = %s AND d.datdba = r.oid)"
+    " FROM pg_roles r WHERE r.rolname = current_user"
+)
+_RAILWAY_CONTROL = (
+    "SELECT current_database(), (pg_control_system()).system_identifier, rolsuper"
+    " FROM pg_roles WHERE rolname = current_user"
+)
+_RENDER_CONTROL = (
+    "SELECT current_database(), (pg_control_system()).system_identifier,"
+    " NOT r.rolsuper AND EXISTS (SELECT 1 FROM pg_database d"
+    " WHERE d.datname = %s AND d.datdba = r.oid)"
+    " FROM pg_roles r WHERE r.rolname = current_user"
+)
 
 
 def load_configuration(environment: Mapping[str, str]) -> ResetConfiguration:
@@ -147,8 +167,11 @@ def validate_database(configuration: ResetConfiguration) -> None:
             prepared = cursor.fetchone()[0]
             cursor.execute("SELECT count(*) FROM pg_subscription")
             subscriptions = cursor.fetchone()[0]
-            cursor.execute("SELECT rolsuper FROM pg_roles WHERE rolname = current_user")
-            executor_superuser = cursor.fetchone()[0]
+            if configuration.platform == "render":
+                cursor.execute(_RENDER_EXECUTOR, (configuration.database_name,))
+            else:
+                cursor.execute(_RAILWAY_EXECUTOR)
+            executor_permitted = cursor.fetchone()[0]
     except Exception:  # noqa: BLE001
         raise ResetSafetyError from None
     if (
@@ -163,7 +186,7 @@ def validate_database(configuration: ResetConfiguration) -> None:
         configuration.cluster_identifier,
     ):
         raise ResetSafetyError
-    if prepared or subscriptions or not executor_superuser:
+    if prepared or subscriptions or not executor_permitted:
         raise ResetSafetyError
 
 
@@ -222,6 +245,17 @@ def validate_identity(configuration: ResetConfiguration) -> StagingResetIdentity
     return identity
 
 
+def _control_row(
+    control: psycopg.Connection[Any], configuration: ResetConfiguration
+) -> tuple[Any, ...] | None:
+    """Read the control connection's database, cluster, and gate-privilege facts."""
+    if configuration.platform == "render":
+        return control.execute(
+            _RENDER_CONTROL, (configuration.database_name,)
+        ).fetchone()
+    return control.execute(_RAILWAY_CONTROL).fetchone()
+
+
 class DatabaseMaintenance:
     """Keep the target executor while a trusted control connection gates writers."""
 
@@ -247,9 +281,7 @@ class DatabaseMaintenance:
                 connect_timeout=5,
                 options="-c statement_timeout=5000 -c lock_timeout=5000",
             )
-            row = self._control.execute(
-                "SELECT current_database(), (pg_control_system()).system_identifier, rolsuper FROM pg_roles WHERE rolname = current_user"
-            ).fetchone()
+            row = _control_row(self._control, self.configuration)
             if row is None or (str(row[0]), str(row[1]), bool(row[2])) != (
                 "postgres",
                 self.configuration.cluster_identifier,
@@ -317,11 +349,24 @@ class DatabaseMaintenance:
                 denied.close()
                 raise ResetSafetyError
             connection.ensure_connection()
-            executor_pid = connection.connection.info.backend_pid
-            self._control.execute(
-                "SELECT pg_terminate_backend(pid, 5000) FROM pg_stat_activity WHERE datname = %s AND pid <> %s",
-                (self.configuration.database_name, executor_pid),
-            )
+            if self.configuration.platform == "render":
+                # Ask the server for the executor pid, as the replica did, so the
+                # terminate filter never depends on what the client reports.
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT pg_backend_pid()")
+                    executor_pid = cursor.fetchone()[0]
+                # The owner can end only its own role's sessions. Another role's
+                # client stays and fails the quiescence count below.
+                self._control.execute(
+                    "SELECT pg_terminate_backend(pid, 5000) FROM pg_stat_activity WHERE datname = %s AND pid <> %s AND usename = current_user",
+                    (self.configuration.database_name, executor_pid),
+                )
+            else:
+                executor_pid = connection.connection.info.backend_pid
+                self._control.execute(
+                    "SELECT pg_terminate_backend(pid, 5000) FROM pg_stat_activity WHERE datname = %s AND pid <> %s",
+                    (self.configuration.database_name, executor_pid),
+                )
             assert_quiescent(self.configuration)
         except Exception:  # noqa: BLE001
             raise ResetSafetyError from None
@@ -333,9 +378,7 @@ class DatabaseMaintenance:
             validate_database(self.configuration)
             validate_identity(self.configuration)
             assert_quiescent(self.configuration)
-            row = self._control.execute(
-                "SELECT current_database(), (pg_control_system()).system_identifier, rolsuper FROM pg_roles WHERE rolname = current_user"
-            ).fetchone()
+            row = _control_row(self._control, self.configuration)
             if row is None or (str(row[0]), str(row[1]), bool(row[2])) != (
                 "postgres",
                 self.configuration.cluster_identifier,
@@ -360,9 +403,16 @@ def assert_quiescent(configuration: ResetConfiguration) -> None:
                 "SELECT datallowconn FROM pg_database WHERE datname = current_database()"
             )
             allowed = cursor.fetchone()[0]
-            cursor.execute(
-                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()"
-            )
+            if configuration.platform == "render":
+                # Every client session has a role. Role-less rows are background
+                # workers such as autovacuum, which the owner cannot end.
+                cursor.execute(
+                    "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND usename IS NOT NULL"
+                )
+            else:
+                cursor.execute(
+                    "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()"
+                )
             count = cursor.fetchone()[0]
     except Exception:  # noqa: BLE001
         raise ResetSafetyError from None
