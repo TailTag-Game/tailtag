@@ -559,8 +559,14 @@ def test_render_transport_sends_the_key_only_as_a_bearer_header(
 
 @pytest.mark.parametrize(
     ("tty", "typed"),
-    ((False, API_KEY), (True, "not-a-render-key"), (True, ""), (True, None)),
-    ids=("no-terminal", "malformed", "empty", "echo-fallback"),
+    (
+        (False, API_KEY),
+        (True, "bad key"),
+        (True, "bad\r\nInjected: header"),
+        (True, ""),
+        (True, None),
+    ),
+    ids=("no-terminal", "whitespace", "control-characters", "empty", "echo-fallback"),
 )
 def test_key_prompt_requires_a_terminal_and_a_render_key(
     promote: ModuleType, monkeypatch: MonkeyPatch, tty: bool, typed: str | None
@@ -579,3 +585,18 @@ def test_key_prompt_requires_a_terminal_and_a_render_key(
 
     with pytest.raises(ValueError):
         promote._prompt_key()
+
+
+def test_key_prompt_accepts_any_printable_key_format(
+    promote: ModuleType, monkeypatch: MonkeyPatch
+) -> None:
+    """#409 AC9: Render decides whether a key works. The prompt checks no prefix."""
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True, raising=False)
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: True, raising=False)
+
+    def getpass(*_: object, **__: object) -> str:
+        return "rsk_scoped-key.Format_1"
+
+    monkeypatch.setattr(promote.getpass, "getpass", getpass)
+
+    assert promote._prompt_key() == "rsk_scoped-key.Format_1"

@@ -41,7 +41,6 @@ from config import replacement_target_binding
 
 _API: Final = "https://api.render.com/v1"
 _CONFIRMATION: Final = "promote-tailtag-render-staging"
-_API_KEY: Final = re.compile(r"rnd_[A-Za-z0-9]{16,128}")
 _DEPLOY_ID: Final = re.compile(r"dep-[a-z0-9]{1,60}")
 _MAX_RESPONSE_BYTES: Final = 1_048_576
 _TIMEOUT_SECONDS: Final = 30
@@ -112,7 +111,8 @@ def _prompt_key() -> str:
             key = getpass.getpass("Render API key: ", stream=sys.stderr)
         except getpass.GetPassWarning:
             raise ValueError("hidden prompt unavailable") from None
-    if _API_KEY.fullmatch(key) is None:
+    # Render rejects a wrong key. This check only keeps the header intact.
+    if not key or any(c.isspace() or not c.isprintable() for c in key):
         raise ValueError("render api key invalid")
     return key
 
