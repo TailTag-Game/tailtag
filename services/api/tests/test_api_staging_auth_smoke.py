@@ -481,7 +481,9 @@ def test_only_exact_staging_target_is_accepted_before_prompt_or_provider_access(
     assert runtime.events == []
 
 
-RENDER_STAGING_URL = "https://tailtag-api-staging.onrender.com"
+# staging.tailtag.app serves Render Staging since the 2026-10-30 cutover.
+RENDER_STAGING_URL = STAGING_URL
+RENDER_HOST_URL = "https://tailtag-api-staging.onrender.com"
 RENDER_STAGING_SERVICE = "srv-d0staging000000000000"
 RENDER_DEVELOPMENT_SERVICE = "srv-d0development00000000"
 RENDER_STAGING_ENVIRONMENT = {
@@ -539,10 +541,10 @@ def test_render_staging_target_runs_against_the_pinned_origin(
         {**RENDER_STAGING_ENVIRONMENT, "RENDER": "false"},
         {
             **RENDER_STAGING_ENVIRONMENT,
-            "API_BASE_URL": STAGING_URL,
-            "TAILTAG_STAGING_API_BASE_URL": STAGING_URL,
+            "API_BASE_URL": RENDER_HOST_URL,
+            "TAILTAG_STAGING_API_BASE_URL": RENDER_HOST_URL,
         },
-        {**RENDER_STAGING_ENVIRONMENT, "TAILTAG_STAGING_API_BASE_URL": STAGING_URL},
+        {**RENDER_STAGING_ENVIRONMENT, "TAILTAG_STAGING_API_BASE_URL": RENDER_HOST_URL},
         {**RENDER_STAGING_ENVIRONMENT, "CLERK_STAGING_SMOKE_USER_ID": ""},
         {**RENDER_STAGING_ENVIRONMENT, **STAGING_ENVIRONMENT},
     ),
@@ -551,7 +553,7 @@ def test_render_staging_target_runs_against_the_pinned_origin(
         "development-service",
         "unpinned-service",
         "not-render",
-        "staging-host-before-cutover",
+        "render-host-after-cutover",
         "mismatched-origins",
         "no-user",
         "mixed-hosts",
