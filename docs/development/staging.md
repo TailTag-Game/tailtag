@@ -215,6 +215,182 @@ image per response. Exact-instance SSH plus the #201 join establishes D's image
 identity; final active membership bounds the current-serving claim. Detailed
 readiness semantics belong to OR-4 and migration/recovery semantics to OR-7.
 
+## Render Staging promotion (#409)
+
+[ADR 0011](../adrs/0011-move-v0-hosting-from-railway-to-render.md) moves
+Staging to Render. `scripts/api_staging_render_promote.py` is the only
+routine path that deploys Render Staging. It keeps every gate of the
+[#202 contract](../specs/2026-09-16-controlled-staging-promotion.md). The
+[promotion contract](replacement-staging-promotion-contract.md#render-staging-identity-409)
+says how Render proves the deploy identity. The Railway procedure above stays
+until #412. After `staging.tailtag.app` moves to Render, the Railway
+promotion command is retired, and nobody runs it again.
+
+### Before a Render promotion
+
+You need these items:
+
+- A scoped Render API key. Create it in the Render dashboard under
+  **Account Settings > API Keys > Create API key**. Select the TailTag
+  workspace. Grant Services Read, and Deploys Read and Run. Do not store the
+  key. The command asks for it at a hidden prompt for each run.
+- The key `render_staging_api_service_id` in the owner-only
+  `~/.config/tailtag/staging-clean-rebuild-targets.json` manifest. Its value
+  is the `srv-…` part of the `tailtag-api-staging` dashboard URL. The command
+  accepts only the ID that matches the code-owned #407 pin. It never reads the
+  target from an argument or an environment variable.
+- A reviewed full commit SHA S. The #202 eligibility rules apply without
+  change: S is an accepted `main` ancestor with a successful `api.yml` push
+  run.
+- The approved Finn GitHub identity. The command checks it.
+
+Scoped keys are in early access. If you cannot create one, a classic key works
+only when your account sees exactly one workspace. Otherwise the workspace
+check fails closed.
+
+From the repository root, run:
+
+```bash
+SOURCE_SHA='replace-with-reviewed-full-40-character-main-ancestor-SHA'
+uv --directory services/api run --locked --no-sync python ../../scripts/api_staging_render_promote.py \
+  --source-sha "$SOURCE_SHA" --confirm promote-tailtag-render-staging
+```
+
+### What the Render command checks
+
+Before submission, the command stops if one of these checks fails:
+
+- The service settings from the Render API: the name `tailtag-api-staging`,
+  this repository, branch `main`, auto-deploy `off`, a Docker web service that
+  is not suspended, `/health/ready`, and the pre-deploy command
+  `python -m config.replacement_migrate`.
+- The workspace: the key sees exactly one team workspace, and that workspace
+  owns the service.
+- An idle service: no Staging deploy is in progress. Render runs one deploy at
+  a time, and a queued deploy can be skipped.
+
+Then the command submits S once with `commitId`. It saves the returned
+`dep-…` ID D at `docs/development/staging-deployments/<D>.json` before it
+watches the deploy. It reads D every 10 seconds, for up to 30 minutes.
+
+| Render status of D | Receipt outcome |
+| --- | --- |
+| `live` with commit S | Deployment, migration, startup, and readiness SUCCEEDED. |
+| `pre_deploy_failed` | Migration FAILED. The overall result is `OR7_HANDOFF`. |
+| `build_failed`, `canceled`, or `deactivated` before `live` | Deployment FAILED. |
+| `update_failed` | Readiness FAILED. Startup is INDETERMINATE. |
+| Any other status, or a timeout | INDETERMINATE. |
+
+After D is `live`, the command reads `/health/identity` and `/health/ready`
+on the public Render Staging origin. The identity must show S, `staging`, and
+`deployment_id: null`. Then it runs `task api-smoke` against the same origin.
+Last, D must still be `live`. If another deploy is `live`, the result is
+SUPERSEDED. If no deploy is `live`, the result is INACTIVE.
+
+The result table in [Expected operation and evidence](#expected-operation-and-evidence)
+applies to the Render receipts too. A 202 response or a missing deploy ID
+means that the command has no D. Stop, and do not submit again. Check the
+Render dashboard for a deploy of S first.
+
+A `FAIL_GUARD` pre-deploy failure means that a check failed before any
+migration ran. Before the Render Staging database pin lands, every Render
+Staging deploy fails this way, and the previous version keeps serving.
+
+### Deploys outside the promotion
+
+A Blueprint sync or a variable change that deploys Render Staging is an
+uncontrolled deploy. A Blueprint sync deploys the latest `main` commit, even
+with auto-deploy off. After such a deploy, promote the intended SHA with this
+command before any Staging proof counts.
+
+### Render Staging smoke checks
+
+Run the credential-free preflight:
+
+```bash
+uv --directory services/api run --locked --no-sync python ../../scripts/api_staging_preflight.py --render-staging
+```
+
+Render has no command that copies service variables into a local process. So
+the authenticated and media smokes run locally. Copy each value from the
+`tailtag-api-staging` **Environment** page. Run each block in bash. In zsh,
+start `bash --noprofile --norc` first, and type `exit` when the block
+finishes.
+
+The Clerk JWT public key is not a secret, and it has several lines. Paste the
+whole PEM block at the visible prompt, then press Ctrl-D on an empty line.
+
+```bash
+read -rs -p "Synthetic Clerk user ID: " CLERK_STAGING_SMOKE_USER_ID; echo
+read -r -p "Render Staging service ID: " RENDER_SERVICE_ID
+echo "Paste CLERK_JWT_KEY, then press Ctrl-D:"
+IFS= read -r -d '' CLERK_JWT_KEY
+export CLERK_STAGING_SMOKE_USER_ID RENDER_SERVICE_ID CLERK_JWT_KEY
+RENDER=true \
+CLERK_AUTHORIZED_PARTIES=https://accounts.staging.tailtag.app \
+DJANGO_SETTINGS_MODULE=config.settings.production \
+TAILTAG_STAGING_AUTH_SMOKE_CONFIRM=run-clerk-render-staging-auth-smoke \
+API_BASE_URL=https://tailtag-api-staging.onrender.com \
+TAILTAG_STAGING_API_BASE_URL=https://tailtag-api-staging.onrender.com \
+task api-staging-auth-smoke
+unset CLERK_STAGING_SMOKE_USER_ID RENDER_SERVICE_ID CLERK_JWT_KEY
+```
+
+```bash
+read -rs -p "MEDIA_STORAGE_ENDPOINT_URL: " MEDIA_STORAGE_ENDPOINT_URL; echo
+read -rs -p "MEDIA_STORAGE_BUCKET_NAME: " MEDIA_STORAGE_BUCKET_NAME; echo
+read -rs -p "MEDIA_STORAGE_ACCESS_KEY_ID: " MEDIA_STORAGE_ACCESS_KEY_ID; echo
+read -rs -p "MEDIA_STORAGE_SECRET_ACCESS_KEY: " MEDIA_STORAGE_SECRET_ACCESS_KEY; echo
+read -r -p "Render Staging service ID: " RENDER_SERVICE_ID
+export MEDIA_STORAGE_ENDPOINT_URL MEDIA_STORAGE_BUCKET_NAME \
+  MEDIA_STORAGE_ACCESS_KEY_ID MEDIA_STORAGE_SECRET_ACCESS_KEY RENDER_SERVICE_ID
+RENDER=true MEDIA_STORAGE_REGION=auto \
+DJANGO_SECRET_KEY=local-media-smoke-placeholder \
+DJANGO_ALLOWED_HOSTS=localhost DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost \
+DATABASE_URL=postgresql://placeholder:placeholder@localhost:5432/placeholder \
+TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM=run-r2-render-staging-media-storage-smoke \
+task api-media-storage-smoke
+unset MEDIA_STORAGE_ENDPOINT_URL MEDIA_STORAGE_BUCKET_NAME \
+  MEDIA_STORAGE_ACCESS_KEY_ID MEDIA_STORAGE_SECRET_ACCESS_KEY RENDER_SERVICE_ID
+```
+
+Each smoke fails unless the service ID matches the pinned Render Staging
+service and the confirmation names Render Staging. Before the switch, the
+public origin is `https://tailtag-api-staging.onrender.com`.
+
+### Move staging.tailtag.app to Render
+
+The owner approves the switch, and the issue records the date. Run the steps
+in this order:
+
+1. Merge the cutover change. It sets the Render Staging phase to `canonical`.
+2. On the `tailtag-api-staging` **Environment** page, set
+   `DJANGO_ALLOWED_HOSTS` to
+   `staging.tailtag.app,tailtag-api-staging.onrender.com`. Set
+   `DJANGO_CSRF_TRUSTED_ORIGINS` to `https://staging.tailtag.app`. Choose
+   **Save only**, so that no deploy starts with a half-changed profile.
+3. Run the Blueprint sync. It deploys the latest `main` commit with the new
+   phase. Do not promote yet. In the `canonical` phase, the promotion checks
+   `https://staging.tailtag.app`, and that name still points to Railway.
+4. Under **Settings > Custom Domains**, add `staging.tailtag.app`.
+5. In Porkbun, point the `staging` CNAME record to
+   `tailtag-api-staging.onrender.com`. Remove any AAAA record for the name.
+6. In Render, verify the domain. Wait for the certificate.
+7. Promote the intended SHA. The sync deploy in step 3 is uncontrolled, so
+   this receipt is the first one that counts.
+8. Run the preflight and the authenticated smoke against
+   `https://staging.tailtag.app`.
+
+Render health checks send the `onrender.com` host until the domain is
+verified, and the custom domain after it. So in the `canonical` phase,
+readiness on Render allows exactly these two hosts. Keep the Render subdomain
+on.
+
+After the switch, Railway Staging stays as the rollback target until #412.
+Do not promote, reset, or run the simulator against Railway Staging. To roll
+back, point the Porkbun `staging` CNAME back to its Railway target. Railway
+still holds its custom domain and its `canonical` settings.
+
 ## Controlled promotion acceptance evidence (2026-09-16)
 
 The owner-squashed [PR #233](https://github.com/TailTag-Game/tailtag/pull/233)

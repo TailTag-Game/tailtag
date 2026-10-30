@@ -160,6 +160,15 @@ def _validate_staging_phase(source_sha: str | None, host: str) -> None:
         )
     else:
         origin = f"https://{_STAGING_HOST}"
+        if host == "render":
+            # Render health checks send the onrender host until the custom
+            # domain is verified, so that pinned host stays allowed (#409).
+            render_hosts = set(settings.ALLOWED_HOSTS) - {_STAGING_HOST}
+            if len(render_hosts) != 1:
+                raise ValueError
+            render_host = render_hosts.pop()
+            replacement_target_binding.pinned_render_origin("staging", render_host)
+            probe_hosts = frozenset({render_host})
     public_host = origin.removeprefix("https://")
     # The Railway candidate used its own staging-next Clerk instance. A Render
     # candidate signs in through the current Staging instance (#407 G14).

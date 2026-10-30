@@ -24,6 +24,11 @@ _DEVELOPMENT_EVENT_RETRY_SECONDS: Final = 5
 # before the new SHA serves traffic.
 _RENDER_DEPLOY_DEADLINE_SECONDS: Final = 20 * 60
 _RENDER_DEPLOY_RETRY_SECONDS: Final = 15
+# The public Render Staging origin follows the phase. The cutover PR changes
+# this value to "canonical" when staging.tailtag.app moves to Render (#409).
+_RENDER_STAGING_PHASE: str = "candidate"
+_RENDER_STAGING_HOST: Final = "tailtag-api-staging.onrender.com"
+_RENDER_STAGING_FLAG: Final = "--render-staging"
 _DEVELOPMENT_FLAGS: Final = frozenset(
     {
         "--development-current",
@@ -174,6 +179,41 @@ def validate_candidate_target() -> dict[str, object]:
     return {"phase": "candidate", "identity": first}
 
 
+def render_staging_origin() -> str:
+    """Return the public Render Staging origin for the current phase."""
+    if _RENDER_STAGING_PHASE == "canonical":
+        return _STAGING_URL
+    api_directory = Path(__file__).resolve().parents[1] / "services/api"
+    if str(api_directory) not in sys.path:
+        sys.path.insert(0, str(api_directory))
+    from config import replacement_target_binding
+
+    try:
+        return replacement_target_binding.pinned_render_origin(
+            "staging", _RENDER_STAGING_HOST
+        )
+    except replacement_target_binding.TargetBindingError:
+        raise TargetSafetyError from None
+
+
+def validate_render_staging_target(
+    expected_sha: str | None = None,
+) -> RenderBackendIdentity:
+    """Make one stable-identity readiness observation of Render Staging."""
+    origin = render_staging_origin()
+    if expected_sha is not None and _SOURCE_SHA.fullmatch(expected_sha) is None:
+        raise TargetSafetyError
+    first = _validate_identity(_fetch_json(f"{origin}/health/identity"), render=True)
+    if expected_sha is not None and first["source_sha"] != expected_sha:
+        raise TargetSafetyError
+    if _fetch_json(f"{origin}/health/ready") != {"status": "ok"}:
+        raise TargetSafetyError
+    second = _validate_identity(_fetch_json(f"{origin}/health/identity"), render=True)
+    if second != first:
+        raise TargetSafetyError
+    return first
+
+
 def validate_development_candidate_target(
     expected_sha: str | None, *, render: bool = False
 ) -> BackendIdentity | RenderBackendIdentity:
@@ -260,6 +300,8 @@ def main() -> int:
             result = validate_development_candidate_target(expected_sha, render=render)
         elif sys.argv[1] == "--candidate":
             result = validate_candidate_target()
+        elif sys.argv[1] == _RENDER_STAGING_FLAG:
+            result = validate_render_staging_target()
         else:
             result = validate_target(sys.argv[1])
         print(json.dumps(result))

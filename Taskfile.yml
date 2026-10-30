@@ -27,6 +27,7 @@ x-api-helpers: &api-helpers >-
   {{.REPOSITORY_ROOT}}/scripts/api_media_storage_smoke.py
   {{.REPOSITORY_ROOT}}/scripts/api_deployment_identity.py
   {{.REPOSITORY_ROOT}}/scripts/api_staging_promote.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_render_promote.py
   {{.REPOSITORY_ROOT}}/scripts/api_staging_preflight.py
   {{.REPOSITORY_ROOT}}/scripts/api_staging_operator_inspect.py
   {{.REPOSITORY_ROOT}}/scripts/api_staging_operator_matrix.py
@@ -244,7 +245,7 @@ tasks:
 
   # Silent so a failure prints only go-task's footer, never the command text.
   api-media-storage-smoke:
-    desc: "Run guarded live media storage verification against Render Development or Railway Development or Staging."
+    desc: "Run guarded live media storage verification against Render or Railway Development or Staging."
     silent: true
     vars:
       REPOSITORY_ROOT: *repository-root

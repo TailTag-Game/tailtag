@@ -31,6 +31,7 @@ _MANIFEST_PATH: Final = (
 )
 _CANDIDATE_HOST_KEY: Final = "rebuild_staging_candidate_api_domain"
 _DEVELOPMENT_HOST_KEY: Final = "rebuild_development_api_domain"
+_RENDER_STAGING_SERVICE_KEY: Final = "render_staging_api_service_id"
 _CANDIDATE_HOST: Final = re.compile(
     r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+"
 )
@@ -308,3 +309,14 @@ def load_development_candidate_origin() -> str:
     if not isinstance(hostname, str):
         raise TargetBindingError
     return pinned_development_candidate_origin(hostname)
+
+
+def load_render_staging_service_id() -> str:
+    """Return the Render Staging service ID only from the pinned owner-only manifest."""
+    service_id = _read_local_manifest(_MANIFEST_PATH).get(_RENDER_STAGING_SERVICE_KEY)
+    if (
+        fingerprint_render_service("staging", service_id)
+        != _EXPECTED_RENDER_DIGESTS["staging"]
+    ):
+        raise TargetBindingError
+    return cast(str, service_id)

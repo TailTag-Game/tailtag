@@ -1119,3 +1119,116 @@ def test_render_development_preflight_waits_through_a_full_render_deploy(
     )
     assert fake_clock.elapsed >= elapsed_before_new_sha
     assert fake_clock.elapsed < preflight._RENDER_DEPLOY_DEADLINE_SECONDS
+
+
+RENDER_STAGING_ORIGIN: Final = "https://tailtag-api-staging.onrender.com"
+RENDER_STAGING_IDENTITY: Final = {**IDENTITY, "deployment_id": None}
+
+
+def test_render_staging_cli_checks_the_pinned_candidate_origin(
+    preflight: ModuleType,
+    monkeypatch: MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """#409 AC5/AC13: the Render Staging host reports no runtime deploy ID."""
+    calls: list[str] = []
+    responses: list[object] = [
+        RENDER_STAGING_IDENTITY,
+        {"status": "ok"},
+        RENDER_STAGING_IDENTITY,
+    ]
+
+    def fetch(url: str) -> object:
+        calls.append(url)
+        return responses.pop(0)
+
+    monkeypatch.setattr(preflight, "_fetch_json", fetch)
+    monkeypatch.setattr(sys, "argv", ["api_staging_preflight.py", "--render-staging"])
+
+    assert preflight.main() == 0
+    assert json.loads(capsys.readouterr().out) == RENDER_STAGING_IDENTITY
+    assert calls == [
+        RENDER_STAGING_ORIGIN + "/health/identity",
+        RENDER_STAGING_ORIGIN + "/health/ready",
+        RENDER_STAGING_ORIGIN + "/health/identity",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("identity", "expected_sha"),
+    (
+        (IDENTITY, None),
+        ({**RENDER_STAGING_IDENTITY, "environment": "development"}, None),
+        (RENDER_STAGING_IDENTITY, "b" * 40),
+    ),
+    ids=("railway-deploy-id", "development-identity", "other-sha"),
+)
+def test_render_staging_preflight_rejects_identities_outside_its_target(
+    preflight: ModuleType,
+    monkeypatch: MonkeyPatch,
+    identity: dict[str, object],
+    expected_sha: str | None,
+) -> None:
+    """#409 AC8: only a null-ID Staging identity of the expected SHA passes."""
+    responses: list[object] = [identity, {"status": "ok"}, identity]
+
+    def fetch(_: str) -> object:
+        return responses.pop(0)
+
+    monkeypatch.setattr(preflight, "_fetch_json", fetch)
+    with pytest.raises(preflight.TargetSafetyError):
+        preflight.validate_render_staging_target(expected_sha)
+
+
+def test_render_staging_origin_follows_the_cutover_phase(
+    preflight: ModuleType, monkeypatch: MonkeyPatch
+) -> None:
+    """#409 AC13: one constant moves the public origin at the cutover."""
+    assert preflight.render_staging_origin() == RENDER_STAGING_ORIGIN
+    monkeypatch.setattr(preflight, "_RENDER_STAGING_PHASE", "canonical")
+    assert preflight.render_staging_origin() == "https://staging.tailtag.app"
+
+
+RENDER_STAGING_SERVICE: Final = "srv-d0staging000000000000"
+
+
+@pytest.mark.parametrize(
+    ("service_id", "accepted"),
+    (
+        (RENDER_STAGING_SERVICE, True),
+        ("srv-d0development00000000", False),
+        ("not-a-service-id", False),
+        (None, False),
+    ),
+    ids=("pinned", "other-service", "malformed", "missing"),
+)
+def test_render_staging_service_id_comes_only_from_the_pinned_manifest(
+    monkeypatch: MonkeyPatch, tmp_path: Path, service_id: object, accepted: bool
+) -> None:
+    """#409 AC7: the promotion target is the manifest ID that matches its pin."""
+    path = _manifest(tmp_path)
+    document = json.loads(path.read_text())
+    if service_id is not None:
+        document["render_staging_api_service_id"] = service_id
+    path.write_text(json.dumps(document))
+    monkeypatch.setattr(replacement_target_binding, "_MANIFEST_PATH", path)
+    monkeypatch.setattr(
+        replacement_target_binding,
+        "_EXPECTED_RENDER_DIGESTS",
+        {
+            "staging": replacement_target_binding.fingerprint_render_service(
+                "staging", RENDER_STAGING_SERVICE
+            )
+        },
+    )
+    monkeypatch.setenv("RENDER_SERVICE_ID", "srv-d0fromenvironment0000")
+
+    if accepted:
+        assert (
+            replacement_target_binding.load_render_staging_service_id()
+            == RENDER_STAGING_SERVICE
+        )
+    else:
+        _assert_binding_denied(
+            replacement_target_binding.load_render_staging_service_id
+        )

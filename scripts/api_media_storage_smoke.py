@@ -38,8 +38,11 @@ _PERMITTED_TARGETS: Final = MappingProxyType(
 )
 # A local run against Render names the pinned service ID itself, because
 # Render has no command that copies service variables into a local process.
-_RENDER_DEVELOPMENT_CONFIRMATION: Final = (
-    "run-r2-render-development-media-storage-smoke"
+_RENDER_CONFIRMATIONS: Final = MappingProxyType(
+    {
+        "development": "run-r2-render-development-media-storage-smoke",
+        "staging": "run-r2-render-staging-media-storage-smoke",
+    }
 )
 _PRESIGN_EXPIRY_SECONDS: Final = 600
 _FETCH_TIMEOUT_SECONDS: Final = 10
@@ -187,13 +190,12 @@ def target_label(environment: Mapping[str, str]) -> str | None:
     confirm = environment.get("TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM")
     try:
         if replacement_target_binding.runtime_host(environment) == "render":
-            if (
-                replacement_target_binding.validate_runtime_target(environment)
-                != "development"
-                or confirm != _RENDER_DEVELOPMENT_CONFIRMATION
-            ):
+            render_environment = replacement_target_binding.validate_runtime_target(
+                environment
+            )
+            if confirm != _RENDER_CONFIRMATIONS.get(render_environment):
                 return None
-            return "render development/api"
+            return f"render {render_environment}/api"
     except replacement_target_binding.TargetBindingError:
         return None
     environment_name = environment.get("RAILWAY_ENVIRONMENT_NAME")

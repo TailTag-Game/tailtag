@@ -1034,9 +1034,12 @@ def render_settings(
     else:
         host = RENDER_STAGING_HOST if phase == "candidate" else "staging.tailtag.app"
         parties = CANONICAL_STAGING_PARTIES
+    # Render health checks send the onrender host until the custom domain is
+    # verified, so the canonical Render profile allows both hosts (#409 AC14).
+    allowed_hosts = [host, RENDER_STAGING_HOST] if phase == "canonical" else [host]
     return {
         **configured_deployed_settings(clerk_public_key),
-        "ALLOWED_HOSTS": [host],
+        "ALLOWED_HOSTS": allowed_hosts,
         "CSRF_TRUSTED_ORIGINS": [f"https://{host}"],
         "CLERK_AUTHENTICATION": ClerkVerificationConfiguration(
             jwt_key=clerk_public_key, authorized_parties=parties
@@ -1051,6 +1054,7 @@ def render_settings(
         ("development", None, RENDER_DEVELOPMENT_HOST),
         ("staging", "candidate", RENDER_STAGING_HOST),
         ("staging", "canonical", "staging.tailtag.app"),
+        ("staging", "canonical", RENDER_STAGING_HOST),
     ),
 )
 def test_readiness_accepts_complete_render_profiles(
@@ -1145,6 +1149,49 @@ def test_readiness_denies_render_profiles_outside_the_pins(
             ),
         )
     effective.update(overrides)
+
+    with override_settings(**effective), pytest.raises(ImproperlyConfigured) as caught:
+        validate_configuration()
+
+    assert str(caught.value) == "Health configuration unavailable"
+
+
+@pytest.mark.parametrize(
+    "settings_override",
+    (
+        {"ALLOWED_HOSTS": ["staging.tailtag.app"]},
+        {"ALLOWED_HOSTS": ["staging.tailtag.app", "other-api.onrender.com"]},
+        {"ALLOWED_HOSTS": ["staging.tailtag.app", RENDER_DEVELOPMENT_HOST]},
+        {
+            "ALLOWED_HOSTS": [
+                "staging.tailtag.app",
+                RENDER_STAGING_HOST,
+                "other-api.onrender.com",
+            ]
+        },
+        {"CSRF_TRUSTED_ORIGINS": [f"https://{RENDER_STAGING_HOST}"]},
+    ),
+    ids=(
+        "staging-host-only",
+        "unpinned-render-host",
+        "development-render-host",
+        "extra-host",
+        "render-csrf-origin",
+    ),
+)
+def test_readiness_denies_render_canonical_profiles_outside_the_pins(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+    valid_clerk_public_key: str,
+    settings_override: dict[str, object],
+) -> None:
+    """#409 AC14: canonical Render allows exactly the public and pinned hosts."""
+    configure_render_identity(monkeypatch, tmp_path, environment="staging")
+    monkeypatch.setenv("TAILTAG_STAGING_TARGET_PHASE", "canonical")
+    effective = render_settings(
+        valid_clerk_public_key, environment="staging", phase="canonical"
+    )
+    effective.update(settings_override)
 
     with override_settings(**effective), pytest.raises(ImproperlyConfigured) as caught:
         validate_configuration()
