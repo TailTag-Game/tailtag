@@ -58,7 +58,7 @@ SENSITIVE_VALUES = (
 )
 SYNTHETIC_PORTAL_ORIGIN = "https://accounts.staging.synthetic.invalid"
 SYNTHETIC_INSTANCE_ID = "ins_staging_synthetic"
-FROZEN_INSTANCE_FINGERPRINT = "eb6daf25d12b85eb"
+FROZEN_INSTANCE_FINGERPRINT = "328b851879c17392"
 FROZEN_PORTAL_ORIGIN = "https://accounts.staging.tailtag.app"
 SUCCESS_LINES = (
     "PASS target staging/api",

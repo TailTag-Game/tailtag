@@ -34,7 +34,9 @@ from config import replacement_target_binding
 
 os = SimpleNamespace(environ=_stdlib_os.environ, path=_stdlib_os.path)
 
-STAGING_CLERK_INSTANCE_FINGERPRINT: Final = "eb6daf25d12b85eb"
+# The current Staging Production instance, primary domain staging.tailtag.app.
+# eb6daf25d12b85eb was the retired Staging generation (#219 finding, #409).
+STAGING_CLERK_INSTANCE_FINGERPRINT: Final = "328b851879c17392"
 STAGING_CLERK_PORTAL_ORIGIN: Final = "https://accounts.staging.tailtag.app"
 # Clerk documents ordinary session tokens as short-lived (60 seconds):
 # https://clerk.com/docs/guides/development/testing/postman-or-insomnia

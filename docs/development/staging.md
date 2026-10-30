@@ -328,22 +328,35 @@ uv --directory services/api run --locked --no-sync python ../../scripts/api_stag
 
 Render has no command that copies service variables into a local process. So
 the authenticated and media smokes run locally. Copy each value from the
-`tailtag-api-staging` **Environment** page. Run each block in bash. In zsh,
-start `bash --noprofile --norc` first, and type `exit` when the block
-finishes.
+`tailtag-api-staging` **Environment** page. Run each block in zsh, the default
+macOS shell, like the other blocks on this page.
+
+The smoke verifies the session token with the API's own verifier, which loads
+the production settings. On Railway, `railway run` supplied every service
+variable. Here the block sets the Clerk values and harmless placeholders for
+the other required settings. The smoke does not connect to the database or to
+media storage.
 
 The Clerk JWT public key is not a secret, and it has several lines. Paste the
-whole PEM block at the visible prompt, then press Ctrl-D on an empty line.
+whole PEM block at the prompt. Make sure that the cursor is on an empty line
+after `-----END PUBLIC KEY-----`, then press Ctrl-D once.
 
-```bash
-read -rs -p "Synthetic Clerk user ID: " CLERK_STAGING_SMOKE_USER_ID; echo
-read -r -p "Render Staging service ID: " RENDER_SERVICE_ID
-echo "Paste CLERK_JWT_KEY, then press Ctrl-D:"
-IFS= read -r -d '' CLERK_JWT_KEY
+```zsh
+read -rs 'CLERK_STAGING_SMOKE_USER_ID?Synthetic Clerk user ID: '
+print
+read -r 'RENDER_SERVICE_ID?Render Staging service ID: '
+print 'Paste CLERK_JWT_KEY, then press Ctrl-D on an empty line:'
+CLERK_JWT_KEY="$(cat)"
 export CLERK_STAGING_SMOKE_USER_ID RENDER_SERVICE_ID CLERK_JWT_KEY
-RENDER=true \
+RENDER=true CLERK_AUTHENTICATION_ENABLED=true \
 CLERK_AUTHORIZED_PARTIES=https://accounts.staging.tailtag.app \
 DJANGO_SETTINGS_MODULE=config.settings.production \
+DJANGO_SECRET_KEY=local-auth-smoke-placeholder \
+DJANGO_ALLOWED_HOSTS=localhost DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost \
+DATABASE_URL=postgresql://placeholder:placeholder@localhost:5432/placeholder \
+MEDIA_STORAGE_ENDPOINT_URL=https://media.example.test \
+MEDIA_STORAGE_BUCKET_NAME=placeholder MEDIA_STORAGE_REGION=auto \
+MEDIA_STORAGE_ACCESS_KEY_ID=placeholder MEDIA_STORAGE_SECRET_ACCESS_KEY=placeholder \
 TAILTAG_STAGING_AUTH_SMOKE_CONFIRM=run-clerk-render-staging-auth-smoke \
 API_BASE_URL=https://tailtag-api-staging.onrender.com \
 TAILTAG_STAGING_API_BASE_URL=https://tailtag-api-staging.onrender.com \
@@ -351,12 +364,12 @@ task api-staging-auth-smoke
 unset CLERK_STAGING_SMOKE_USER_ID RENDER_SERVICE_ID CLERK_JWT_KEY
 ```
 
-```bash
-read -rs -p "MEDIA_STORAGE_ENDPOINT_URL: " MEDIA_STORAGE_ENDPOINT_URL; echo
-read -rs -p "MEDIA_STORAGE_BUCKET_NAME: " MEDIA_STORAGE_BUCKET_NAME; echo
-read -rs -p "MEDIA_STORAGE_ACCESS_KEY_ID: " MEDIA_STORAGE_ACCESS_KEY_ID; echo
-read -rs -p "MEDIA_STORAGE_SECRET_ACCESS_KEY: " MEDIA_STORAGE_SECRET_ACCESS_KEY; echo
-read -r -p "Render Staging service ID: " RENDER_SERVICE_ID
+```zsh
+read -rs 'MEDIA_STORAGE_ENDPOINT_URL?MEDIA_STORAGE_ENDPOINT_URL: '; print
+read -rs 'MEDIA_STORAGE_BUCKET_NAME?MEDIA_STORAGE_BUCKET_NAME: '; print
+read -rs 'MEDIA_STORAGE_ACCESS_KEY_ID?MEDIA_STORAGE_ACCESS_KEY_ID: '; print
+read -rs 'MEDIA_STORAGE_SECRET_ACCESS_KEY?MEDIA_STORAGE_SECRET_ACCESS_KEY: '; print
+read -r 'RENDER_SERVICE_ID?Render Staging service ID: '
 export MEDIA_STORAGE_ENDPOINT_URL MEDIA_STORAGE_BUCKET_NAME \
   MEDIA_STORAGE_ACCESS_KEY_ID MEDIA_STORAGE_SECRET_ACCESS_KEY RENDER_SERVICE_ID
 RENDER=true MEDIA_STORAGE_REGION=auto \
