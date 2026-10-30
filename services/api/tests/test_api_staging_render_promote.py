@@ -456,10 +456,33 @@ def test_live_deploy_of_another_commit_is_indeterminate(harness: Harness) -> Non
     assert harness.smoke_urls == []
 
 
-def test_public_identity_mismatch_fails_before_smoke(harness: Harness) -> None:
-    """#409 AC8: the public identity must show S. The preflight tests cover the rest."""
-    public_identity = {**RENDER_IDENTITY, "source_sha": OTHER_SHA}
-    harness.identity = [public_identity, {"status": "ok"}, public_identity]
+OLD_IDENTITY = {**RENDER_IDENTITY, "source_sha": OTHER_SHA}
+
+
+def test_identity_waits_while_render_drains_the_old_instance(
+    harness: Harness,
+) -> None:
+    """#409 AC8: after live, the old instance can still answer for a while."""
+    harness.identity = [
+        OLD_IDENTITY,
+        OLD_IDENTITY,
+        RENDER_IDENTITY,
+        {"status": "ok"},
+        OLD_IDENTITY,
+        RENDER_IDENTITY,
+        {"status": "ok"},
+        RENDER_IDENTITY,
+    ]
+
+    assert harness.module.main() == 0
+
+    assert harness.receipt_json()["identity_outcome"] == "SUCCEEDED"
+    assert harness.identity == []
+
+
+def test_identity_that_never_shows_s_fails_before_smoke(harness: Harness) -> None:
+    """#409 AC8: the wait is bounded, and the identity must finally show S."""
+    harness.identity = [OLD_IDENTITY] * 1000
 
     assert harness.module.main() == 1
 

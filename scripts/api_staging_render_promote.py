@@ -48,6 +48,10 @@ _TIMEOUT_SECONDS: Final = 30
 # to 15 minutes for health checks before it goes live.
 _DEPLOY_DEADLINE_SECONDS: Final = 30 * 60
 _POLL_SECONDS: Final = 10
+# After a deploy goes live, Render keeps the old instance serving while it
+# drains, for up to 300 seconds. The public identity can show the old SHA then.
+_IDENTITY_DEADLINE_SECONDS: Final = 5 * 60
+_IDENTITY_POLL_SECONDS: Final = 5
 _IN_PROGRESS: Final = frozenset(
     {
         "created",
@@ -241,6 +245,20 @@ def _lifecycle(key: str, service_id: str, record: Evidence) -> bool:
     return False
 
 
+def _public_identity_converges(source_sha: str) -> bool:
+    """Read the public identity until it stably shows S, within a bounded wait."""
+    deadline = time.monotonic() + _IDENTITY_DEADLINE_SECONDS
+    while True:
+        try:
+            api_staging_preflight.validate_render_staging_target(source_sha)
+        except api_staging_preflight.TargetSafetyError:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(_IDENTITY_POLL_SECONDS)
+        else:
+            return True
+
+
 def _final_active(key: str, service_id: str, record: Evidence) -> None:
     deploy = _deploy(key, service_id, record)
     status = deploy.get("status")
@@ -313,9 +331,7 @@ def main() -> int:
         _persist(record)
         if not _lifecycle(key, service_id, record):
             return _result(record)
-        try:
-            api_staging_preflight.validate_render_staging_target(source_sha)
-        except api_staging_preflight.TargetSafetyError:
+        if not _public_identity_converges(source_sha):
             record["identity_outcome"] = "FAILED"
             record["overall_outcome"] = "FAILED"
             _persist(record)

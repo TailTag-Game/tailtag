@@ -286,7 +286,9 @@ watches the deploy. It reads D every 10 seconds, for up to 30 minutes.
 
 After D is `live`, the command reads `/health/identity` and `/health/ready`
 on the public Render Staging origin. The identity must show S, `staging`, and
-`deployment_id: null`. Then it runs `task api-smoke` against the same origin.
+`deployment_id: null`. Render keeps the old instance serving for a while after
+a deploy goes live, so the identity can still show the old SHA. The command
+reads again every 5 seconds, for up to 5 minutes. Then it runs `task api-smoke` against the same origin.
 Last, D must still be `live`. If another deploy is `live`, the result is
 SUPERSEDED. If no deploy is `live`, the result is INACTIVE.
 
