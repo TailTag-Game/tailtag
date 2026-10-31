@@ -208,7 +208,9 @@ def _run(argv: list[str] | None) -> tuple[int, str]:
 
 def main(argv: list[str] | None = None) -> int:
     status, result = _run(argv)
-    print(RESULT_PREFIX + result, flush=True)
+    # An interrupted prompt leaves the cursor mid-line, so start a new line.
+    # The result is then always a line of its own.
+    print("\n" + RESULT_PREFIX + result, flush=True)
     return status
 
 

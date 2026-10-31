@@ -7,6 +7,7 @@ import importlib
 import sys
 from collections.abc import Callable
 from io import StringIO
+from pathlib import Path
 from typing import NoReturn, cast
 
 import pytest
@@ -22,6 +23,7 @@ from tests import (
 from tests import (
     test_staging_validation_operator as lifecycle,
 )
+from tests.test_render_job import pin_render_staging
 
 STAGING_SERVICE = "srv-stagingops0"
 DEVELOPMENT_SERVICE = "srv-developops0"
@@ -145,9 +147,17 @@ def test_lifecycle_provision_on_render_staging_needs_the_render_phrase(
 
 @pytest.mark.django_db
 def test_emergency_create_and_decommission_use_render_text_on_render_staging(
-    monkeypatch: pytest.MonkeyPatch, render_runtime: object
+    monkeypatch: pytest.MonkeyPatch, render_runtime: object, tmp_path: Path
 ) -> None:
-    """Both emergency commands bind the #204 sentinel and name Render Staging."""
+    """Both emergency commands bind the AC5 pin and the #204 sentinel on Render."""
+    pin_render_staging(monkeypatch, tmp_path)
+    safety = importlib.import_module("rehearsal.safety")
+    bound: list[str] = []
+
+    def validate_database(configuration: object) -> None:
+        bound.append(cast(str, getattr(configuration, "platform", None)))
+
+    monkeypatch.setattr(safety, "validate_database", validate_database)
     emergency._install_registry()  # pyright: ignore[reportPrivateUsage]
 
     emergency._invoke(  # pyright: ignore[reportPrivateUsage]
@@ -163,6 +173,36 @@ def test_emergency_create_and_decommission_use_render_text_on_render_staging(
     assert prompts == ["Decommission the Render Staging emergency operator? [Y/N]: "]
     assert cast(bool, actor.is_superuser) is False  # pyright: ignore[reportUnknownMemberType]
     assert not actor.has_usable_password()
+    assert bound == ["render", "render"]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("command", ["emergency-create", "emergency-decommission"])
+def test_direct_render_emergency_command_needs_the_ac5_database_gate(
+    monkeypatch: pytest.MonkeyPatch, render_runtime: object, command: str
+) -> None:
+    """A direct manage.py run on Render cannot skip the pinned database check."""
+    emergency._install_registry()  # pyright: ignore[reportPrivateUsage]
+    if command == "emergency-decommission":
+        emergency._make_emergency()  # pyright: ignore[reportPrivateUsage]
+    superusers = list(
+        User.objects.filter(is_superuser=True).values_list("pk", "password")
+    )
+
+    with pytest.raises(CommandError, match="Staging database binding is unavailable"):
+        if command == "emergency-create":
+            emergency._invoke(  # pyright: ignore[reportPrivateUsage]
+                monkeypatch, confirmation="bootstrap Render Staging emergency operator"
+            )
+        else:
+            emergency._invoke_decommission(  # pyright: ignore[reportPrivateUsage]
+                monkeypatch, confirmation="Y"
+            )
+
+    assert (
+        list(User.objects.filter(is_superuser=True).values_list("pk", "password"))
+        == superusers
+    )
 
 
 @pytest.mark.django_db

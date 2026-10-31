@@ -28,16 +28,20 @@ def deterministic_storage(settings: SettingsWrapper) -> None:
 # visible.
 #
 # test_replacement_migrate.py runs the Railway pre-deploy wrapper under
-# production settings. That is remote Linux code, a spec non-goal.
+# production settings. That is remote Linux code, a spec non-goal. The two
+# Render operator test modules (#410) reuse the POSIX-only command test
+# helpers, and they test commands that run only in the Linux image.
 WINDOWS_SKIPPED_MODULES = frozenset(
     {
         "test_http_runtime_telemetry.py",
+        "test_render_operator.py",
         "test_replacement_migrate.py",
         "test_staging_emergency_operator.py",
         "test_staging_emergency_operator_ssh.py",
         "test_staging_managed_auth_diagnose_ssh.py",
         "test_staging_managed_operator_recovery.py",
         "test_staging_managed_password_rotate_ssh.py",
+        "test_staging_operator_commands_render.py",
         "test_staging_operator_matrix.py",
         "test_staging_validation_operator.py",
     }

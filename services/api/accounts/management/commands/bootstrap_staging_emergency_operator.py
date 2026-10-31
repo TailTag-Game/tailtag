@@ -116,7 +116,23 @@ def require_staging_target() -> Literal["railway", "render"]:
 
 
 def _require_database_binding() -> None:
-    """Bind the same transactional connection to the provisioned #204 sentinel."""
+    """Bind the same transactional connection to the provisioned #204 sentinel.
+
+    On Render, the connection must also equal the AC5 pinned private values,
+    so a direct command run cannot skip the check that the SSH entry point
+    makes. Railway keeps its launcher-side database fingerprints.
+    """
+    if staging_platform(os.environ) == "render":
+        from rehearsal.safety import (
+            ResetSafetyError,
+            load_configuration,
+            validate_database,
+        )
+
+        try:
+            validate_database(load_configuration(os.environ))
+        except ResetSafetyError:
+            raise CommandError("Staging database binding is unavailable.") from None
     registry = StagingResetIdentity.objects.get(pk=1)
     with connection.cursor() as cursor:
         cursor.execute(

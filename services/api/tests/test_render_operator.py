@@ -122,7 +122,9 @@ def test_emergency_create_binds_the_pinned_database_then_runs_the_command(
     """The AC5 pinned values bind the database before the first prompt."""
     emergency._install_registry()  # pyright: ignore[reportPrivateUsage]
     bound: list[object] = []
-    monkeypatch.setattr(operator, "validate_database", bound.append)
+    # The entry point and the command each check the pinned database.
+    safety = importlib.import_module("rehearsal.safety")
+    monkeypatch.setattr(safety, "validate_database", bound.append)
     answers(
         monkeypatch,
         "bootstrap Render Staging emergency operator",
@@ -134,8 +136,7 @@ def test_emergency_create_binds_the_pinned_database_then_runs_the_command(
     status, _, result = run(operator, monkeypatch, "emergency-create")
 
     assert status == 0
-    assert len(bound) == 1
-    assert getattr(bound[0], "platform", None) == "render"
+    assert [getattr(item, "platform", None) for item in bound] == ["render", "render"]
     assert result == PREFIX + "PASS emergency-create"
     assert User.objects.filter(
         clerk_user_id=emergency.IDENTIFIER, is_superuser=True
