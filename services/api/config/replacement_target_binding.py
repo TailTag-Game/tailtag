@@ -62,6 +62,20 @@ _EXPECTED_RENDER_HOST_DIGESTS: Final[dict[str, str]] = {
     "development": "55770374ef59dccf72a2aa1c98a9a1eaccbd140c2924a1a60376ff0161ae72c0",
     "staging": "e4625e95b760af49f9bfa9cdbc968fe98606c371426099c82d40d9a5e3fc4d37",
 }
+# The owner computes this digest from their private Render reset file. Empty
+# admits no Render reset configuration.
+_EXPECTED_RENDER_RESET_DIGEST: Final[str] = ""
+RENDER_RESET_NAMES: Final = (
+    "TAILTAG_STAGING_RESET_ENABLED",
+    "TAILTAG_STAGING_RESET_ID",
+    "TAILTAG_STAGING_DATABASE_SYSTEM_ID",
+    "TAILTAG_STAGING_DATABASE_HOST",
+    "TAILTAG_STAGING_DATABASE_PORT",
+    "TAILTAG_STAGING_DATABASE_NAME",
+    "TAILTAG_STAGING_RESET_OWNER_CLERK_ID",
+    "TAILTAG_STAGING_RESET_CATCHER_CLERK_ID",
+    "TAILTAG_STAGING_RESET_MEDIA_KEY",
+)
 _RAILWAY_RUNTIME_MARKERS: Final = (
     "RAILWAY_ENVIRONMENT_NAME",
     "RAILWAY_DEPLOYMENT_ID",
@@ -175,6 +189,25 @@ def validate_runtime_target(actual: Mapping[str, str]) -> str:
     except (KeyError, TypeError):
         raise TargetBindingError from None
     return environment_name
+
+
+def fingerprint_render_reset_configuration(values: Mapping[str, str]) -> str:
+    """Hash exactly the nine private Render Staging reset values."""
+    if frozenset(values) != frozenset(RENDER_RESET_NAMES):
+        raise TargetBindingError
+    fields = (
+        "tailtag-render-staging-reset-v1",
+        *(f"{name}={values[name]}" for name in RENDER_RESET_NAMES),
+    )
+    return hashlib.sha256("\0".join(fields).encode("utf-8")).hexdigest()
+
+
+def validate_render_reset_configuration(values: Mapping[str, str]) -> None:
+    """Require the Render reset values to equal the owner's pinned private file."""
+    if not _EXPECTED_RENDER_RESET_DIGEST or (
+        fingerprint_render_reset_configuration(values) != _EXPECTED_RENDER_RESET_DIGEST
+    ):
+        raise TargetBindingError
 
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:

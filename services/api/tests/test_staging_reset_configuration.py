@@ -349,3 +349,153 @@ def test_validate_database_denies_a_real_non_superuser_role(
                 )
             )
             control.execute(drop_role)
+
+
+RENDER_STAGING_SERVICE = "srv-stagingtest0"
+RENDER_DEVELOPMENT_SERVICE = "srv-developtest0"
+RENDER_PRIVATE_NAMES = (
+    "TAILTAG_STAGING_RESET_ENABLED",
+    "TAILTAG_STAGING_RESET_ID",
+    "TAILTAG_STAGING_DATABASE_SYSTEM_ID",
+    "TAILTAG_STAGING_DATABASE_HOST",
+    "TAILTAG_STAGING_DATABASE_PORT",
+    "TAILTAG_STAGING_DATABASE_NAME",
+    "TAILTAG_STAGING_RESET_OWNER_CLERK_ID",
+    "TAILTAG_STAGING_RESET_CATCHER_CLERK_ID",
+    "TAILTAG_STAGING_RESET_MEDIA_KEY",
+)
+
+
+def render_private(**overrides: str) -> dict[str, str]:
+    """Return the nine private reset values as the owner's Render file holds them."""
+    values = {name: reset_environment()[name] for name in RENDER_PRIVATE_NAMES}
+    return {**values, "TAILTAG_STAGING_DATABASE_HOST": "dpg-stagingtest-a", **overrides}
+
+
+def render_environment(**overrides: str) -> dict[str, str]:
+    """Return a Render Staging runtime with the nine values as service variables."""
+    return {
+        "RENDER": "true",
+        "RENDER_SERVICE_ID": RENDER_STAGING_SERVICE,
+        **render_private(),
+        **overrides,
+    }
+
+
+@pytest.fixture
+def render_safety(safety: ModuleType, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Pin fictitious Render services and the owner's file digest for this test."""
+    binding = importlib.import_module("config.replacement_target_binding")
+    monkeypatch.setattr(
+        binding,
+        "_EXPECTED_RENDER_DIGESTS",
+        {
+            "development": binding.fingerprint_render_service(
+                "development", RENDER_DEVELOPMENT_SERVICE
+            ),
+            "staging": binding.fingerprint_render_service(
+                "staging", RENDER_STAGING_SERVICE
+            ),
+        },
+    )
+    monkeypatch.setattr(
+        binding,
+        "_EXPECTED_RENDER_RESET_DIGEST",
+        binding.fingerprint_render_reset_configuration(render_private()),
+    )
+    return safety
+
+
+def test_load_configuration_admits_render_staging_values_that_match_the_pin(
+    render_safety: ModuleType,
+) -> None:
+    """#410 AC5: Render service variables equal to the owner's pinned file pass."""
+    configuration = render_safety.load_configuration(render_environment())
+
+    assert configuration == render_safety.ResetConfiguration(
+        environment_id=RESET_ID,
+        cluster_identifier="742391",
+        database_host="dpg-stagingtest-a",
+        database_port="5432",
+        database_name="tailtag_staging",
+        owner_clerk_id="user_rehearsal_owner",
+        catcher_clerk_id="user_rehearsal_catcher",
+        media_key=MEDIA_KEY,
+        platform="render",
+    )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    (
+        pytest.param(
+            {
+                "TAILTAG_STAGING_RESET_MEDIA_KEY": "images/fedcba9876543210fedcba9876543210.png"
+            },
+            id="value-differs-from-pinned-file",
+        ),
+        pytest.param(
+            {"RENDER_SERVICE_ID": RENDER_DEVELOPMENT_SERVICE}, id="render-development"
+        ),
+        pytest.param({"RENDER_SERVICE_ID": "srv-unpinned0"}, id="unpinned-service"),
+        pytest.param({"RENDER": "false"}, id="not-render-runtime"),
+        pytest.param({"RAILWAY_ENVIRONMENT_NAME": "staging"}, id="mixed-platform"),
+    ),
+)
+def test_render_reset_configuration_is_denied(
+    render_safety: ModuleType, overrides: Mapping[str, str]
+) -> None:
+    """#410 AC5/AC11: a changed value or a non-Staging Render target fails closed."""
+    with pytest.raises(render_safety.ResetSafetyError):
+        render_safety.load_configuration(render_environment(**overrides))
+
+
+@pytest.mark.parametrize(
+    "missing_name",
+    ("TAILTAG_STAGING_RESET_ENABLED", "TAILTAG_STAGING_RESET_MEDIA_KEY"),
+)
+def test_a_missing_render_reset_value_fails_closed(
+    render_safety: ModuleType, missing_name: str
+) -> None:
+    """#410 AC5: a missing service variable never takes a default."""
+    environment = render_environment()
+    del environment[missing_name]
+
+    with pytest.raises(render_safety.ResetSafetyError):
+        render_safety.load_configuration(environment)
+
+
+def test_render_reset_fails_closed_until_the_owner_pins_a_digest(
+    render_safety: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#410 AC5: an empty pin admits no Render configuration at all."""
+    binding = importlib.import_module("config.replacement_target_binding")
+    monkeypatch.setattr(binding, "_EXPECTED_RENDER_RESET_DIGEST", "")
+
+    with pytest.raises(render_safety.ResetSafetyError):
+        render_safety.load_configuration(render_environment())
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    (
+        pytest.param({"TAILTAG_STAGING_DATABASE_NAME": "postgres"}, id="control-db"),
+        pytest.param({"TAILTAG_STAGING_RESET_ENABLED": "false"}, id="disabled"),
+    ),
+)
+def test_pinned_render_values_still_pass_the_private_value_grammar(
+    render_safety: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    overrides: Mapping[str, str],
+) -> None:
+    """#410 AC5: a matching digest does not excuse an unsafe or disabled reset."""
+    binding = importlib.import_module("config.replacement_target_binding")
+    unsafe = render_private(**overrides)
+    monkeypatch.setattr(
+        binding,
+        "_EXPECTED_RENDER_RESET_DIGEST",
+        binding.fingerprint_render_reset_configuration(unsafe),
+    )
+
+    with pytest.raises(render_safety.ResetSafetyError):
+        render_safety.load_configuration(render_environment(**unsafe))

@@ -149,6 +149,7 @@ def _dedicated_target(
     owner: str | None = None,
     executor: str | None = None,
     platform: str = "railway",
+    portless: bool | None = None,
 ) -> Generator[MaintenanceTarget]:
     control = control_url()
     target = urlunparse(urlparse(control)._replace(path=f"/{DEDICATED_DATABASE}"))
@@ -169,6 +170,11 @@ def _dedicated_target(
         database_settings["USER"] = executor
         database_settings["PASSWORD"] = ROLE_PASSWORD
         target = _role_url(target, executor)
+    database_port = str(database_settings["PORT"])
+    if platform == "render" if portless is None else portless:
+        # The Render internal URL names no port, so libpq uses its 5432 default.
+        assert database_port == "5432"
+        database_settings["PORT"] = ""
     connection.ensure_connection()
     try:
         with connection.cursor() as cursor:
@@ -179,7 +185,7 @@ def _dedicated_target(
                 environment_id=uuid.uuid4(),
                 cluster_identifier=system_identifier,
                 database_host=str(database_settings["HOST"]),
-                database_port=str(database_settings["PORT"]),
+                database_port=database_port,
                 database_name=DEDICATED_DATABASE,
                 owner_clerk_id="user_rehearsal_owner",
                 catcher_clerk_id="user_rehearsal_catcher",
@@ -406,13 +412,17 @@ def test_render_maintenance_gates_drains_and_reopens_as_the_non_superuser_owner(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    ("platform", "owner", "executor"),
+    ("platform", "owner", "executor", "portless"),
     (
-        pytest.param("render", None, None, id="render-superuser-executor"),
-        pytest.param("render", None, RENDER_OWNER, id="render-executor-not-owner"),
+        pytest.param("render", None, None, True, id="render-superuser-executor"),
         pytest.param(
-            "railway", RENDER_OWNER, RENDER_OWNER, id="railway-needs-superuser"
+            "render", None, RENDER_OWNER, True, id="render-executor-not-owner"
         ),
+        pytest.param(
+            "railway", RENDER_OWNER, RENDER_OWNER, False, id="railway-needs-superuser"
+        ),
+        # The Render port-less rule must not reach Railway.
+        pytest.param("railway", None, None, True, id="railway-url-without-port"),
     ),
 )
 def test_maintenance_refuses_an_executor_its_platform_does_not_permit(
@@ -422,14 +432,15 @@ def test_maintenance_refuses_an_executor_its_platform_does_not_permit(
     platform: str,
     owner: str | None,
     executor: str | None,
+    portless: bool,
 ) -> None:
-    """#410 AC4: Render needs the owner without superuser; Railway still needs superuser."""
+    """#410 AC4/AC11: each platform admits only its own executor and URL form."""
     events: list[str] = []
     monkeypatch.setattr(safety, "validate_identity", validated_identity)
     monkeypatch.setattr(safety.psycopg, "connect", _observe_control(events))
 
     with _dedicated_target(
-        safety, owner=owner, executor=executor, platform=platform
+        safety, owner=owner, executor=executor, platform=platform, portless=portless
     ) as target:
         with pytest.raises(safety.ResetSafetyError):
             safety.validate_database(target.configuration)
