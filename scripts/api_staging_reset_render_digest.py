@@ -13,6 +13,11 @@ import sys
 from pathlib import Path
 from typing import Final, NoReturn
 
+_REPOSITORY_ROOT: Final = Path(__file__).resolve().parents[1]
+for _path in (_REPOSITORY_ROOT, _REPOSITORY_ROOT / "services" / "api"):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
+
 from scripts.api_staging_reset_ssh import (
     _read_configuration,  # pyright: ignore[reportPrivateUsage]
 )
