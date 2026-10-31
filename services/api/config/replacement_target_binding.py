@@ -62,9 +62,12 @@ _EXPECTED_RENDER_HOST_DIGESTS: Final[dict[str, str]] = {
     "development": "55770374ef59dccf72a2aa1c98a9a1eaccbd140c2924a1a60376ff0161ae72c0",
     "staging": "e4625e95b760af49f9bfa9cdbc968fe98606c371426099c82d40d9a5e3fc4d37",
 }
-# The owner computes this digest from their private Render reset file. Empty
-# admits no Render reset configuration.
-_EXPECTED_RENDER_RESET_DIGEST: Final[str] = ""
+# The owner computes this digest from their private Render reset file with
+# scripts/api_staging_reset_render_digest.py. Empty admits no Render reset
+# configuration. Pinned for the fresh Render Staging baseline (#410 AC5).
+_EXPECTED_RENDER_RESET_DIGEST: Final[str] = (
+    "f8ff2ea4e1cba6b6230c3d361a05914f4fc8e45edc912c4be17488233b32c0a6"
+)
 RENDER_RESET_NAMES: Final = (
     "TAILTAG_STAGING_RESET_ENABLED",
     "TAILTAG_STAGING_RESET_ID",
