@@ -1,4 +1,4 @@
-"""Create one dedicated emergency operator on the pinned Railway Staging API."""
+"""Create one dedicated emergency operator on the pinned Railway or Render Staging API."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import os
 import re
 import sys
 import warnings
-from typing import NoReturn, cast
+from typing import Literal, NoReturn, cast
 
 from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
@@ -19,6 +19,7 @@ from django.core.management.base import CommandParser
 from django.db import DatabaseError, connection, transaction
 
 from accounts.models import User
+from accounts.staging_target import staging_platform
 from catches.models import Catch
 from config.replacement_target_binding import (
     TargetBindingError,
@@ -30,6 +31,7 @@ from profiles.models import PlayerProfile
 from rehearsal.models import StagingResetIdentity
 
 CONFIRMATION_PHRASE = "bootstrap Railway Staging emergency operator"
+RENDER_CONFIRMATION_PHRASE = "bootstrap Render Staging emergency operator"
 _IDENTIFIER = re.compile(r"staging_emergency_[a-z0-9_]{1,48}\Z", re.ASCII)
 
 
@@ -93,6 +95,26 @@ def _hidden_input(prompt: str) -> str:
         raise CommandError("Hidden terminal input is unavailable.") from None
 
 
+def require_staging_target() -> Literal["railway", "render"]:
+    """Admit only the pinned Railway or Render Staging API, and name its host."""
+    platform = staging_platform(os.environ)
+    if platform is None:
+        raise CommandError("This command is unavailable for the current target.")
+    if platform == "railway":
+        if (
+            os.environ.get("RAILWAY_ENVIRONMENT_NAME") != "staging"
+            or os.environ.get("RAILWAY_SERVICE_NAME") != "api"
+        ):
+            raise CommandError("This command is unavailable for the current target.")
+        try:
+            validate_runtime_target(os.environ)
+        except TargetBindingError:
+            raise CommandError(
+                "This command is unavailable for the current target."
+            ) from None
+    return platform
+
+
 def _require_database_binding() -> None:
     """Bind the same transactional connection to the provisioned #204 sentinel."""
     registry = StagingResetIdentity.objects.get(pk=1)
@@ -121,17 +143,7 @@ class Command(BaseCommand):
         return parser
 
     def handle(self, *args: object, **options: object) -> None:
-        if (
-            os.environ.get("RAILWAY_ENVIRONMENT_NAME") != "staging"
-            or os.environ.get("RAILWAY_SERVICE_NAME") != "api"
-        ):
-            raise CommandError("This command is unavailable for the current target.")
-        try:
-            validate_runtime_target(os.environ)
-        except TargetBindingError:
-            raise CommandError(
-                "This command is unavailable for the current target."
-            ) from None
+        platform = require_staging_target()
         if not sys.stdin.isatty() or not sys.stdout.isatty():
             raise CommandError("This command requires an interactive terminal.")
         if (
@@ -141,7 +153,10 @@ class Command(BaseCommand):
             or logging.getLogger("django.db.backends").isEnabledFor(logging.DEBUG)
         ):
             raise CommandError("Query debugging must be disabled.")
-        if input("Confirmation: ") != CONFIRMATION_PHRASE:
+        phrase = (
+            RENDER_CONFIRMATION_PHRASE if platform == "render" else CONFIRMATION_PHRASE
+        )
+        if input("Confirmation: ") != phrase:
             raise CommandError("Confirmation failed.")
 
         identifier = _hidden_input("Operator identifier: ")

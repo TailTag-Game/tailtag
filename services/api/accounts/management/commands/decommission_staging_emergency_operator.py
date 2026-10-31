@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import sys
 from typing import NoReturn
 
@@ -18,15 +17,15 @@ from accounts.management.commands.bootstrap_staging_emergency_operator import (
     _has_forbidden_attachment,  # pyright: ignore[reportPrivateUsage]
     _require_database_binding,  # pyright: ignore[reportPrivateUsage]
     inspect_emergency_state,
+    require_staging_target,
 )
 from accounts.models import User
-from config.replacement_target_binding import (
-    TargetBindingError,
-    validate_runtime_target,
-)
 from rehearsal.models import StagingResetIdentity
 
 CONFIRMATION_PROMPT = "Decommission the Railway Staging emergency operator? [Y/N]: "
+RENDER_CONFIRMATION_PROMPT = (
+    "Decommission the Render Staging emergency operator? [Y/N]: "
+)
 
 
 class Command(BaseCommand):
@@ -40,17 +39,7 @@ class Command(BaseCommand):
         return parser
 
     def handle(self, *args: object, **options: object) -> None:
-        if (
-            os.environ.get("RAILWAY_ENVIRONMENT_NAME") != "staging"
-            or os.environ.get("RAILWAY_SERVICE_NAME") != "api"
-        ):
-            raise CommandError("This command is unavailable for the current target.")
-        try:
-            validate_runtime_target(os.environ)
-        except TargetBindingError:
-            raise CommandError(
-                "This command is unavailable for the current target."
-            ) from None
+        platform = require_staging_target()
         if not sys.stdin.isatty() or not sys.stdout.isatty():
             raise CommandError("This command requires an interactive terminal.")
         if (
@@ -60,7 +49,10 @@ class Command(BaseCommand):
             or logging.getLogger("django.db.backends").isEnabledFor(logging.DEBUG)
         ):
             raise CommandError("Query debugging must be disabled.")
-        if input(CONFIRMATION_PROMPT) != "Y":
+        prompt = (
+            RENDER_CONFIRMATION_PROMPT if platform == "render" else CONFIRMATION_PROMPT
+        )
+        if input(prompt) != "Y":
             raise CommandError("Confirmation failed.")
 
         try:

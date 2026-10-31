@@ -131,6 +131,11 @@ def provision_arguments() -> tuple[str, ...]:
 @pytest.fixture
 def harness(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Harness:
     """A pinned Render Staging runtime whose image was built from SOURCE_SHA."""
+    return pin_render_staging(monkeypatch, tmp_path)
+
+
+def pin_render_staging(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Harness:
+    """Pin fictitious Render services, the AC5 digest, and the job's build file."""
     binding = importlib.import_module("config.replacement_target_binding")
     monkeypatch.setattr(
         binding,
