@@ -195,16 +195,22 @@ These rules are the V0 accessibility baseline. Shared widgets (#139) must meet t
 | Touch target | At least `size.minTarget` wide and high on Android and iOS |
 | Text scale | Core controls stay usable at 200% text scale |
 | Status | Color is never the only signal. See [Status needs more than color](#status-needs-more-than-color). |
-| Focus | A focus indicator uses `primary`, which has 6.13:1 contrast on `surface` |
+| Selected state | A selected or toggled control tells screen readers its state. Use a standard Material control, or set `selected` or `toggled` in `Semantics` on a custom control. |
+| Focus | The focus indicator color depends on the background. Use `primary` on `surface`, `surfaceDim`, `surfaceBright`, and the `surfaceContainer` roles. Use `inversePrimary` on `inverseSurface`, for example on a snackbar action. |
 
 The `size.minTarget` minimum also covers the 44 pt minimum in the Apple guidelines.
 
-#139 will use these `flutter_test` checks to prove the rules:
+#139 will use these `flutter_test` checks to prove the contrast, target, and label rules:
 
 - `androidTapTargetGuideline`
 - `iOSTapTargetGuideline`
 - `textContrastGuideline`
 - `labeledTapTargetGuideline`
+
+These four checks do not test text scale or selected state. #139 will add two widget tests for those rules:
+
+- A text-scale test sets `TextScaler.linear(2.0)`. It makes sure that no text overflows and that each core control can still be tapped.
+- A selected-state test uses `matchesSemantics` to make sure that a selected control reports its state.
 
 ### Contrast table
 
@@ -261,6 +267,8 @@ The ratios use the WCAG 2.2 contrast formula on the values in `tokens.json`. The
 | `outline` | `surface` | Component edge | 4.23:1 | 3:1 | Pass |
 | `outline` | `surfaceContainerHighest` | Component edge | 3.45:1 | 3:1 | Pass |
 | `primary` | `surface` | Focus indicator | 6.13:1 | 3:1 | Pass |
+| `primary` | `surfaceDim` | Focus indicator | 4.60:1 | 3:1 | Pass |
+| `inversePrimary` | `inverseSurface` | Focus indicator | 7.68:1 | 3:1 | Pass |
 | `outlineVariant` | `surface` | Decorative divider | 1.61:1 | None | Decorative only |
 
 ## Brand
