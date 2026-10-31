@@ -146,6 +146,44 @@ def test_lifecycle_provision_on_render_staging_needs_the_render_phrase(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("phrase", ["render", "railway"])
+def test_managed_bootstrap_on_render_staging_needs_the_render_phrase(
+    monkeypatch: pytest.MonkeyPatch, render_runtime: object, phrase: str
+) -> None:
+    """A fresh Render Staging gets its managed operator only with the Render phrase."""
+    from django.contrib.auth.models import Group
+
+    terminal = recovery.Tty()
+    monkeypatch.setattr(sys, "stdin", terminal)
+    monkeypatch.setattr(sys, "stdout", terminal)
+    confirmation = (
+        "bootstrap Render Staging operator"
+        if phrase == "render"
+        else "bootstrap Railway Staging operator"
+    )
+    monkeypatch.setattr("builtins.input", lambda _prompt="": confirmation)
+
+    def read_hidden(prompt: str = "", **_: object) -> str:
+        if prompt == "Operator identifier: ":
+            return recovery.OLD_IDENTIFIER
+        return recovery.OLD_PASSWORD
+
+    monkeypatch.setattr(getpass, "getpass", read_hidden)
+
+    if phrase == "railway":
+        with pytest.raises(CommandError, match="Confirmation failed"):
+            call_command("bootstrap_staging_operator", stdout=terminal)
+        assert not User.objects.filter(clerk_user_id=recovery.OLD_IDENTIFIER).exists()
+        return
+    call_command("bootstrap_staging_operator", stdout=terminal)
+    operator = User.objects.get(clerk_user_id=recovery.OLD_IDENTIFIER)
+    assert operator.is_staff
+    assert operator.check_password(recovery.OLD_PASSWORD)
+    group = Group.objects.get(name=recovery.MANAGED_GROUP)
+    assert set(operator.groups.values_list("pk", flat=True)) == {group.pk}  # pyright: ignore[reportUnknownMemberType]
+
+
+@pytest.mark.django_db
 def test_emergency_create_and_decommission_use_render_text_on_render_staging(
     monkeypatch: pytest.MonkeyPatch, render_runtime: object, tmp_path: Path
 ) -> None:
@@ -268,6 +306,7 @@ def _forbidden_prompt(_prompt: str = "", **_: object) -> NoReturn:
                 "emergency-decommission",
                 "replace_staging_managed_operator",
                 "rotate_staging_managed_password",
+                "managed-create",
             )
         ),
         ("lifecycle", "mixed"),
@@ -294,5 +333,7 @@ def test_every_command_refuses_other_render_targets_before_any_prompt(
             call_command("bootstrap_staging_emergency_operator", stdout=terminal)
         elif command == "emergency-decommission":
             call_command("decommission_staging_emergency_operator", stdout=terminal)
+        elif command == "managed-create":
+            call_command("bootstrap_staging_operator", stdout=terminal)
         else:
             run_guarded(monkeypatch, command, confirmation="", hidden=())

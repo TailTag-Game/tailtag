@@ -46,7 +46,11 @@ _CONFIRMATIONS: Final = {
     "reset": "reset-tailtag-staging",
     "provision": "provision-tailtag-staging-reset",
 }
-_READ_ONLY: Final = ("reconcile", "inspect")
+_READ_ONLY: Final = ("reconcile", "inspect", "emergency-state")
+_EMERGENCY_STATES: Final = frozenset(
+    {"ABSENT", "READY", "DECOMMISSIONED", "MISMATCH", "INDETERMINATE", "FAIL_BINDING"}
+)
+_VALID_EMERGENCY_STATES: Final = frozenset({"ABSENT", "READY", "DECOMMISSIONED"})
 _DEPLOY_ID: Final = re.compile(r"dep-[a-z0-9]{1,60}")
 _JOB_ID: Final = re.compile(r"job-[0-9a-z]{20}")
 _OWNER_ID: Final = re.compile(r"tea-[a-z0-9]{1,60}")
@@ -83,6 +87,14 @@ class _SafeArgumentParser(argparse.ArgumentParser):
 
 class _Indeterminate(Exception):
     """The job may have run, but its result cannot be proved."""
+
+
+class JobFailure(Exception):
+    """A job's result is unknown. The phase names the job when Render made one."""
+
+    def __init__(self, phase: str) -> None:
+        super().__init__(phase)
+        self.phase = phase
 
 
 def _list(value: object) -> list[object]:
@@ -256,9 +268,16 @@ def _read_only_outcome(result: dict[str, object], operation: str) -> str:
             _valid_output(json.dumps({"result": code, "checks": result["checks"]}))
         except (TypeError, ValueError):
             raise _Indeterminate from None
-    elif set(result) != common or code not in STATUS_CODES:
-        raise _Indeterminate
-    outcome = "PASS" if code == "PASS" else "FAIL"
+        passed = code == "PASS"
+    elif operation == "emergency-state":
+        if set(result) != common or code not in _EMERGENCY_STATES:
+            raise _Indeterminate
+        passed = code in _VALID_EMERGENCY_STATES
+    else:
+        if set(result) != common or code not in STATUS_CODES:
+            raise _Indeterminate
+        passed = code == "PASS"
+    outcome = "PASS" if passed else "FAIL"
     if result.get("outcome") != outcome:
         raise _Indeterminate
     return outcome
@@ -287,6 +306,41 @@ def _settled(key: str, service_id: str, target: _Target) -> bool:
         if time.monotonic() >= deadline:
             return False
         time.sleep(_SETTLE_POLL_SECONDS)
+
+
+def run_job(
+    key: str, service_id: str, owner_id: str, operation: str, source_sha: str
+) -> tuple[str, str, str]:
+    """Start one job of S, wait for it, and return its outcome, line, and job ID.
+
+    It never retries or cancels the job. Any unproved result raises JobFailure.
+    """
+    command = (
+        f"python -m rehearsal.render_job --operation {operation} "
+        f"--source-sha {source_sha}"
+    )
+    if operation in _CONFIRMATIONS:
+        command += f" --confirm {_CONFIRMATIONS[operation]}"
+    try:
+        job_id, created_at = _start(key, service_id, command)
+    except (KeyboardInterrupt, TypeError, ValueError):
+        raise JobFailure("submission indeterminate") from None
+    try:
+        status = _wait(key, service_id, job_id)
+        line = _result_line(key, owner_id, job_id, created_at)
+        outcome = _outcome(line, operation, source_sha)
+        if (status == "succeeded") != (outcome == "PASS") or status == "canceled":
+            raise _Indeterminate
+    except (_Indeterminate, KeyboardInterrupt, TypeError, ValueError):
+        raise JobFailure(f"indeterminate {job_id}") from None
+    return outcome, line, job_id
+
+
+def result_code(line: str) -> object:
+    """Return the "result" field of a validated read-only result line."""
+    return cast(dict[str, object], json.loads(line.removeprefix(_RESULT_PREFIX))).get(
+        "result"
+    )
 
 
 def _fail(phase: str) -> int:
@@ -321,24 +375,12 @@ def main(argv: list[str] | None = None) -> int:
     ):
         return _fail("target")
     owner_id, _, source_sha = target
-    command = (
-        f"python -m rehearsal.render_job --operation {operation} "
-        f"--source-sha {source_sha}"
-    )
-    if operation in _CONFIRMATIONS:
-        command += f" --confirm {_CONFIRMATIONS[operation]}"
     try:
-        job_id, created_at = _start(key, service_id, command)
-    except (KeyboardInterrupt, TypeError, ValueError):
-        return _fail("submission indeterminate")
-    try:
-        status = _wait(key, service_id, job_id)
-        line = _result_line(key, owner_id, job_id, created_at)
-        outcome = _outcome(line, operation, source_sha)
-        if (status == "succeeded") != (outcome == "PASS") or status == "canceled":
-            raise _Indeterminate
-    except (_Indeterminate, KeyboardInterrupt, TypeError, ValueError):
-        return _fail(f"indeterminate {job_id}")
+        outcome, line, job_id = run_job(
+            key, service_id, owner_id, operation, source_sha
+        )
+    except JobFailure as failure:
+        return _fail(failure.phase)
     if outcome == "FAIL":
         print(line)
         return 1
