@@ -15,7 +15,10 @@ from django.db import connection
 from psycopg import sql
 
 from config.replacement_target_binding import (
+    RENDER_RESET_NAMES,
     TargetBindingError,
+    runtime_host,
+    validate_render_reset_configuration,
     validate_runtime_target,
 )
 from media.keys import validate_image_key
@@ -75,7 +78,13 @@ _RENDER_CONTROL = (
 
 
 def load_configuration(environment: Mapping[str, str]) -> ResetConfiguration:
-    """Parse only the independently configured, canonical Staging facts."""
+    """Admit only the pinned Staging runtime, then parse its private reset facts."""
+    try:
+        platform = runtime_host(environment)
+    except TargetBindingError:
+        raise ResetSafetyError from None
+    if platform == "render":
+        return _load_render_configuration(environment)
     required = (
         "RAILWAY_ENVIRONMENT_NAME",
         "RAILWAY_PROJECT_ID",
@@ -105,6 +114,27 @@ def load_configuration(environment: Mapping[str, str]) -> ResetConfiguration:
             {**values, "RAILWAY_SERVICE_NAME": environment["RAILWAY_SERVICE_NAME"]}
         )
     except (KeyError, TargetBindingError):
+        raise ResetSafetyError
+    return _parse_private_values(values, "railway")
+
+
+def _load_render_configuration(environment: Mapping[str, str]) -> ResetConfiguration:
+    """Admit Render Staging only when its values equal the owner's pinned file."""
+    try:
+        if validate_runtime_target(environment) != "staging":
+            raise ResetSafetyError
+        values = {name: environment[name] for name in RENDER_RESET_NAMES}
+        validate_render_reset_configuration(values)
+    except (KeyError, TargetBindingError):
+        raise ResetSafetyError from None
+    return _parse_private_values(values, "render")
+
+
+def _parse_private_values(
+    values: Mapping[str, str], platform: Literal["railway", "render"]
+) -> ResetConfiguration:
+    """Parse the canonical private reset facts shared by both platforms."""
+    if values["TAILTAG_STAGING_RESET_ENABLED"] != "true":
         raise ResetSafetyError
     try:
         environment_id = uuid.UUID(values["TAILTAG_STAGING_RESET_ID"])
@@ -142,7 +172,7 @@ def load_configuration(environment: Mapping[str, str]) -> ResetConfiguration:
     except ValueError:
         raise ResetSafetyError from None
     return ResetConfiguration(
-        environment_id, cluster, host, port, name, owner, catcher, media_key
+        environment_id, cluster, host, port, name, owner, catcher, media_key, platform
     )
 
 
@@ -174,9 +204,13 @@ def validate_database(configuration: ResetConfiguration) -> None:
             executor_permitted = cursor.fetchone()[0]
     except Exception:  # noqa: BLE001
         raise ResetSafetyError from None
+    port = str(database.get("PORT", ""))
+    if configuration.platform == "render" and port == "":
+        # The Render internal URL names no port, so libpq uses 5432.
+        port = "5432"
     if (
         str(database.get("HOST", "")),
-        str(database.get("PORT", "")),
+        port,
         name,
         cluster,
     ) != (
