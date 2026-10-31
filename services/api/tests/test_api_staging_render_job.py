@@ -265,6 +265,7 @@ def test_provision_job_uses_its_own_confirmation_and_command(
     [
         ("wrong-confirmation", "confirmation"),
         ("swapped-confirmation", "confirmation"),
+        ("missing-confirmation", "confirmation"),
         ("personal-workspace", "target"),
         ("deploy-in-progress", "target"),
         ("two-live-deploys", "target"),
@@ -286,6 +287,8 @@ def test_target_mismatch_fails_closed_before_any_job_starts(
         arguments[-1] = "reset-tailtag-production"
     elif case == "swapped-confirmation":
         arguments[-1] = "provision-tailtag-staging-reset"
+    elif case == "missing-confirmation":
+        arguments = arguments[:1]
     elif case == "personal-workspace":
         render.owners = [{"owner": {"id": OWNER_ID, "type": "user"}}]
     elif case == "deploy-in-progress":
@@ -420,3 +423,140 @@ def test_receipts_are_read_from_the_repository_record() -> None:
     assert cast(Path, module._RECEIPTS) == (  # pyright: ignore[reportPrivateUsage]
         REPOSITORY_ROOT / "docs/development/staging-deployments"
     )
+
+
+# AC7: read-only registry reconcile and operator inspect jobs.
+
+RECONCILE_CHECKS = {
+    "registry_singleton": "PASS",
+    "registry_structure": "PASS",
+    "root_completeness": "PASS",
+    **{
+        key: "MATCH"
+        for key in (
+            "reset_environment_id",
+            "database_name_private_registry",
+            "cluster_identifier_private_registry",
+            "database_name_actual_private",
+            "database_name_actual_registry",
+            "cluster_identifier_actual_private",
+            "cluster_identifier_actual_registry",
+            "owner_binding_private_registry",
+            "catcher_binding_private_registry",
+            "media_binding_private_registry",
+            "database_host_runtime_private",
+            "database_port_runtime_private",
+        )
+    },
+}
+
+
+def read_only_result(operation: str, result: str, **extra: object) -> dict[str, object]:
+    value: dict[str, object] = {
+        "operation": operation,
+        "outcome": "PASS" if result == "PASS" else "FAIL",
+        "source_sha": SOURCE_SHA,
+        "result": result,
+    }
+    if operation == "reconcile":
+        value["checks"] = RECONCILE_CHECKS if result in {"PASS", "MISMATCH"} else {}
+    value.update(extra)
+    return value
+
+
+def use_read_only_job(render: FakeRender, operation: str, line: object) -> str:
+    command = (
+        f"python -m rehearsal.render_job --operation {operation} "
+        f"--source-sha {SOURCE_SHA}"
+    )
+    render.submission = (201, render.job("pending", start_command=command))
+    render.log_pages = [{"logs": [log(cast(str, line))], "hasMore": False}]
+    return command
+
+
+@pytest.mark.parametrize("operation", ["reconcile", "inspect"])
+def test_read_only_job_takes_no_confirmation_and_prints_its_pass_line(
+    harness: Harness, capsys: pytest.CaptureFixture[str], operation: str
+) -> None:
+    """AC7: the read-only checks use the same launcher and target checks."""
+    line = result_line(read_only_result(operation, "PASS"))
+    command = use_read_only_job(harness.render, operation, line)
+
+    status, out, _ = harness.run(capsys, operation)
+
+    assert (status, out) == (0, line + "\n")
+    assert harness.render.body == {"startCommand": command}
+
+
+@pytest.mark.parametrize(
+    ("operation", "result", "extra"),
+    [
+        (
+            "reconcile",
+            "MISMATCH",
+            {"checks": {**RECONCILE_CHECKS, "reset_environment_id": "MISMATCH"}},
+        ),
+        ("reconcile", "FAIL_QUERY", {}),
+        ("inspect", "FAIL_FIXTURE_MISSING", {}),
+    ],
+)
+def test_a_completed_read_only_check_that_does_not_pass_exits_one(
+    harness: Harness,
+    capsys: pytest.CaptureFixture[str],
+    operation: str,
+    result: str,
+    extra: dict[str, object],
+) -> None:
+    """The launcher prints the check result, but exits 0 only for PASS."""
+    harness.render.statuses = ["running", "failed"]
+    line = result_line(read_only_result(operation, result, **extra))
+    use_read_only_job(harness.render, operation, line)
+
+    status, out, err = harness.run(capsys, operation)
+
+    assert (status, out, err) == (1, line + "\n", "")
+
+
+@pytest.mark.parametrize(
+    ("operation", "line"),
+    [
+        (
+            "reconcile",
+            read_only_result(
+                "reconcile",
+                "PASS",
+                checks={
+                    **RECONCILE_CHECKS,
+                    "media_binding_private_registry": "MISMATCH",
+                },
+            ),
+        ),
+        ("inspect", read_only_result("inspect", "FAIL_UNLISTED")),
+        ("inspect", {**read_only_result("inspect", "PASS"), "outcome": "FAIL"}),
+    ],
+)
+def test_an_inconsistent_read_only_line_is_indeterminate(
+    harness: Harness,
+    capsys: pytest.CaptureFixture[str],
+    operation: str,
+    line: dict[str, object],
+) -> None:
+    """A PASS that hides a mismatch, an unknown code, or another operation fails."""
+    # The job status agrees with the line, so only the line itself is wrong.
+    harness.render.statuses = ["succeeded" if line["outcome"] == "PASS" else "failed"]
+    use_read_only_job(harness.render, operation, result_line(line))
+
+    status, out, err = harness.run(capsys, operation)
+
+    assert (status, out, err) == (1, "", f"FAIL render job indeterminate {JOB_ID}\n")
+
+
+def test_read_only_job_refuses_a_confirmation(
+    harness: Harness, capsys: pytest.CaptureFixture[str]
+) -> None:
+    status, out, err = harness.run(
+        capsys, "reconcile", "--confirm", "reset-tailtag-staging"
+    )
+
+    assert (status, out, err) == (1, "", "FAIL render job confirmation\n")
+    assert not harness.render.submitted

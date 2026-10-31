@@ -6,14 +6,16 @@ import importlib
 import json
 import os
 from pathlib import Path
-from types import ModuleType
-from typing import Self
+from types import ModuleType, SimpleNamespace
+from typing import Self, cast
 
 import pytest
 
 from tests.test_staging_reset_configuration import (
+    MEDIA_KEY,
     RENDER_DEVELOPMENT_SERVICE,
     RENDER_STAGING_SERVICE,
+    RESET_ID,
     render_environment,
     render_private,
 )
@@ -204,6 +206,7 @@ def test_provision_job_registers_and_validates_the_sentinel_without_a_gate(
         ("wrong-confirmation", "confirmation"),
         ("swapped-confirmation", "confirmation"),
         ("unknown-argument", "confirmation"),
+        ("missing-confirmation", "confirmation"),
         ("other-build", "target"),
         ("railway-marker", "target"),
         ("development-service", "target"),
@@ -226,6 +229,8 @@ def test_job_refuses_before_any_database_work(
         arguments[-1] = "provision-tailtag-staging-reset"
     elif case == "unknown-argument":
         arguments.append("--force")
+    elif case == "missing-confirmation":
+        arguments = arguments[:-2]
     elif case == "other-build":
         arguments = list(reset_arguments(OTHER_SHA))
     elif case == "railway-marker":
@@ -312,3 +317,156 @@ def test_entry_point_restores_the_process_streams(
     output = capfd.readouterr()
     assert output.out == "after\n"
     assert output.err == "after\n"
+
+
+# AC7: read-only registry reconcile and operator inspect jobs.
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+
+
+def read_only_arguments(operation: str) -> tuple[str, ...]:
+    return ("--operation", operation, "--source-sha", SOURCE_SHA)
+
+
+def registry(**overrides: object) -> SimpleNamespace:
+    """A registry row that matches the pinned private Render values."""
+    values: dict[str, object] = {
+        "pk": 1,
+        "environment_id": RESET_ID,
+        "cluster_identifier": "742391",
+        "database_name": "tailtag_staging",
+        "owner": SimpleNamespace(clerk_user_id="user_rehearsal_owner"),
+        "catcher": SimpleNamespace(clerk_user_id="user_rehearsal_catcher"),
+        "media_key": MEDIA_KEY,
+        "convention_id": None,
+        "first_fursuit_id": None,
+        "second_fursuit_id": None,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+@pytest.mark.parametrize(
+    "copy",
+    [
+        ("rehearsal/registry_reconcile.py", "api_staging_registry_reconcile_remote.py"),
+        ("rehearsal/operator_inspect.py", "api_staging_operator_inspect.py"),
+    ],
+)
+def test_in_image_check_copies_equal_the_reviewed_railway_sources(
+    copy: tuple[str, str],
+) -> None:
+    """The Railway tests protect both copies until #412 deletes the Railway side."""
+    image, railway = copy
+    assert (REPOSITORY_ROOT / "services/api" / image).read_bytes() == (
+        REPOSITORY_ROOT / "scripts" / railway
+    ).read_bytes()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(("port", "outcome"), [("", "PASS"), ("6543", "FAIL")])
+def test_reconcile_job_compares_the_runtime_with_the_pinned_private_values(
+    harness: Harness,
+    capfd: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    port: str,
+    outcome: str,
+) -> None:
+    """A Render URL with no port means 5432, as in the reset gate (#408)."""
+    reconcile = importlib.import_module("rehearsal.registry_reconcile")
+    monkeypatch.setattr(reconcile, "read_registry", registry)
+    monkeypatch.setattr(
+        reconcile,
+        "read_actual_database_facts",
+        lambda: ("tailtag_staging", "742391", "dpg-stagingtest-a", port),
+    )
+
+    status, result, _ = harness.run(capfd, *read_only_arguments("reconcile"))
+
+    assert result is not None
+    checks = cast(dict[str, str], result.pop("checks"))
+    assert (status, result) == (
+        0 if outcome == "PASS" else 1,
+        {
+            "operation": "reconcile",
+            "outcome": outcome,
+            "source_sha": SOURCE_SHA,
+            "result": "PASS" if outcome == "PASS" else "MISMATCH",
+        },
+    )
+    assert checks["database_port_runtime_private"] == (
+        "MATCH" if outcome == "PASS" else "MISMATCH"
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_read_only_jobs_cannot_write_to_the_database(
+    harness: Harness,
+    capfd: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The checks run in a read-only transaction, so a write fails the query."""
+    from django.contrib.auth.models import Group
+
+    reconcile = importlib.import_module("rehearsal.registry_reconcile")
+
+    def writing_registry() -> None:
+        Group.objects.create(name="tailtag-read-only-probe")
+
+    monkeypatch.setattr(reconcile, "read_registry", writing_registry)
+
+    status, result, _ = harness.run(capfd, *read_only_arguments("reconcile"))
+
+    assert (status, result) == (
+        1,
+        {
+            "operation": "reconcile",
+            "outcome": "FAIL",
+            "source_sha": SOURCE_SHA,
+            "result": "FAIL_QUERY",
+            "checks": {},
+        },
+    )
+    assert not Group.objects.filter(name="tailtag-read-only-probe").exists()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("case", ["empty-database", "passing-checks"])
+def test_inspect_job_reports_the_operator_inspector_status(
+    harness: Harness,
+    capfd: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+) -> None:
+    """The job runs the reviewed #243 ORM checks after its own target binding."""
+    if case == "passing-checks":
+        inspector = importlib.import_module("rehearsal.operator_inspect")
+        monkeypatch.setattr(inspector, "_inspect_orm_preconditions", lambda: "PASS")
+
+    status, result, _ = harness.run(capfd, *read_only_arguments("inspect"))
+
+    expected = "PASS" if case == "passing-checks" else "FAIL_FIXTURE_MISSING"
+    assert (status, result) == (
+        0 if expected == "PASS" else 1,
+        {
+            "operation": "inspect",
+            "outcome": "PASS" if expected == "PASS" else "FAIL",
+            "source_sha": SOURCE_SHA,
+            "result": expected,
+        },
+    )
+
+
+def test_read_only_jobs_take_no_confirmation(
+    harness: Harness, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """A confirmation belongs only to a mutation, so a read-only job refuses one."""
+    arguments = (
+        *read_only_arguments("reconcile"),
+        "--confirm",
+        "reset-tailtag-staging",
+    )
+
+    status, result, _ = harness.run(capfd, *arguments)
+
+    assert (status, result) == (1, {"outcome": "FAIL", "phase": "confirmation"})
