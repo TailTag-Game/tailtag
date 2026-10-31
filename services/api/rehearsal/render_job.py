@@ -1,4 +1,8 @@
-"""Run one guarded #204 reset or sentinel provision as a Render Staging job (#410).
+"""Run one guarded #204 Staging operation as a Render Staging job (#410).
+
+The operations are the reset, the sentinel provision, and two read-only
+checks: the registry reconcile and the #243 operator inspect. The read-only
+checks run in a read-only database transaction.
 
 The local launcher `scripts/api_staging_render_job.py` starts this module with
 `python -m rehearsal.render_job`. The job binds its own image build and Render
@@ -30,6 +34,7 @@ _CONFIRMATIONS: Final = {
     "reset": "reset-tailtag-staging",
     "provision": "provision-tailtag-staging-reset",
 }
+_READ_ONLY: Final = frozenset({"reconcile", "inspect"})
 
 
 class _SafeArgumentParser(argparse.ArgumentParser):
@@ -72,13 +77,17 @@ def _arguments(argv: list[str] | None) -> tuple[str, str]:
     parser = _SafeArgumentParser(add_help=False, allow_abbrev=False)
     parser.add_argument("--operation", required=True)
     parser.add_argument("--source-sha", required=True)
-    parser.add_argument("--confirm", required=True)
+    parser.add_argument("--confirm")
     try:
         arguments = parser.parse_args(argv)
     except (SystemExit, ValueError):
         raise _Failure("confirmation") from None
     operation = arguments.operation
-    if (
+    # Only a mutation takes a confirmation, and it must be its exact one.
+    if operation in _READ_ONLY:
+        if arguments.confirm is not None:
+            raise _Failure("confirmation")
+    elif (
         operation not in _CONFIRMATIONS
         or arguments.confirm != _CONFIRMATIONS[operation]
     ):
@@ -107,11 +116,18 @@ def _bind_runtime(source_sha: str) -> None:
         raise _Failure("target")
 
 
-def _configuration() -> ResetConfiguration:
+def _setup() -> None:
     import django
 
     try:
         django.setup()
+    except Exception:  # noqa: BLE001 - never leak a settings value
+        raise _Failure("configuration") from None
+
+
+def _configuration() -> ResetConfiguration:
+    _setup()
+    try:
         from rehearsal.safety import load_configuration
 
         return load_configuration(os.environ)
@@ -157,11 +173,82 @@ def _provision(configuration: ResetConfiguration) -> None:
         raise _Failure("provision") from None
 
 
+def _reconcile(configuration: ResetConfiguration) -> dict[str, object]:
+    """Compare the private values, the registry, and the live database facts."""
+    from rehearsal import registry_reconcile as reconcile
+
+    try:
+        registry = reconcile.read_registry()
+        name, cluster, host, port = reconcile.read_actual_database_facts()
+        # The Render internal database URL names no port, so libpq uses 5432.
+        checks = reconcile.compare_authorities(
+            configuration, registry, name, cluster, host, port or "5432"
+        )
+    except reconcile._AmbiguousRegistry:  # pyright: ignore[reportPrivateUsage]
+        checks = {
+            "registry_singleton": "AMBIGUOUS",
+            **{
+                key: "INDETERMINATE"
+                for key in (
+                    *reconcile._STRUCTURAL_KEYS[1:],  # pyright: ignore[reportPrivateUsage]
+                    *reconcile._EQUALITY_KEYS,  # pyright: ignore[reportPrivateUsage]
+                )
+            },
+        }
+    except Exception:  # noqa: BLE001 - never leak a query value
+        return {"result": "FAIL_QUERY", "checks": {}}
+    passed = checks["registry_singleton"] == "PASS" and all(
+        value in {"PASS", "MATCH"} for value in checks.values()
+    )
+    return {"result": "PASS" if passed else "MISMATCH", "checks": checks}
+
+
+def _inspect() -> dict[str, object]:
+    from rehearsal import operator_inspect
+
+    return {
+        "result": operator_inspect._inspect_orm_preconditions()  # pyright: ignore[reportPrivateUsage]
+    }
+
+
+def _read_only(operation: str) -> dict[str, object]:
+    """Run one check in a read-only transaction, so it can never write."""
+    from collections.abc import Callable
+
+    from django.db import connection, transaction
+
+    check: Callable[[], dict[str, object]]
+    if operation == "reconcile":
+        configuration = _configuration()
+        check = lambda: _reconcile(configuration)
+        failure: dict[str, object] = {"result": "FAIL_QUERY", "checks": {}}
+    else:
+        _setup()
+        check = _inspect
+        failure = {"result": "FAIL_EXECUTION"}
+    try:
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute("SET TRANSACTION READ ONLY")
+            return check()
+    except Exception:  # noqa: BLE001 - never leak a query value
+        return failure
+
+
 def _run(argv: list[str] | None) -> tuple[int, dict[str, object]]:
     operation: str | None = None
     try:
         operation, source_sha = _arguments(argv)
         _bind_runtime(source_sha)
+        if operation in _READ_ONLY:
+            check = _read_only(operation)
+            passed = check["result"] == "PASS"
+            return 0 if passed else 1, {
+                "operation": operation,
+                "outcome": "PASS" if passed else "FAIL",
+                "source_sha": source_sha,
+                **check,
+            }
         configuration = _configuration()
         result: dict[str, object] = {
             "operation": operation,
@@ -181,7 +268,9 @@ def _run(argv: list[str] | None) -> tuple[int, dict[str, object]]:
     except BaseException:  # noqa: BLE001 - an unknown failure is never success
         if operation is None:
             return 1, {"outcome": "FAIL", "phase": "confirmation"}
-        phase = "maintenance unknown" if operation == "reset" else "provision"
+        phase = {"reset": "maintenance unknown", "provision": "provision"}.get(
+            operation, "target"
+        )
         return 1, {"operation": operation, "outcome": "FAIL", "phase": phase}
     return 0, result
 

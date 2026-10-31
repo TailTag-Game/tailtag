@@ -1,4 +1,7 @@
-"""Start one guarded #204 reset or sentinel provision as a Render Staging job (#410).
+"""Start one guarded #204 Staging operation as a Render Staging job (#410).
+
+The operations are the reset and the sentinel provision, which need their
+exact confirmation, and the read-only registry reconcile and operator inspect.
 
 The launcher makes every target check before and after the job, starts exactly
 one job, and prints the one result line that the job writes to the Render Logs
@@ -25,9 +28,13 @@ for _path in (_REPOSITORY_ROOT, _REPOSITORY_ROOT / "services" / "api"):
 
 from scripts import api_staging_preflight
 from scripts import api_staging_render_promote as promote
+from scripts.api_staging_operator_inspect import STATUS_CODES
 from scripts.api_staging_promote import (
     _SOURCE_SHA,  # pyright: ignore[reportPrivateUsage]
     _mapping,  # pyright: ignore[reportPrivateUsage]
+)
+from scripts.api_staging_registry_reconcile import (
+    _valid_output,  # pyright: ignore[reportPrivateUsage]
 )
 from scripts.api_staging_reset_ssh import (
     _EXPECTED_COUNTS,  # pyright: ignore[reportPrivateUsage]
@@ -39,6 +46,7 @@ _CONFIRMATIONS: Final = {
     "reset": "reset-tailtag-staging",
     "provision": "provision-tailtag-staging-reset",
 }
+_READ_ONLY: Final = ("reconcile", "inspect")
 _DEPLOY_ID: Final = re.compile(r"dep-[a-z0-9]{1,60}")
 _JOB_ID: Final = re.compile(r"job-[0-9a-z]{20}")
 _OWNER_ID: Final = re.compile(r"tea-[a-z0-9]{1,60}")
@@ -209,13 +217,17 @@ def _outcome(line: str, operation: str, source_sha: str) -> str:
     result = _mapping(json.loads(line.removeprefix(_RESULT_PREFIX)))
     if result is None or result.get("operation") != operation:
         raise _Indeterminate
-    if result.get("outcome") == "FAIL":
+    if result.get("outcome") == "FAIL" and "phase" in result:
         if set(result) != {"operation", "outcome", "phase"} or (
             result.get("phase") not in _FAIL_PHASES
         ):
             raise _Indeterminate
         return "FAIL"
+    if result.get("source_sha") != source_sha:
+        raise _Indeterminate
     common = {"operation", "outcome", "source_sha"}
+    if operation in _READ_ONLY:
+        return _read_only_outcome(result, operation)
     if operation == "reset":
         valid = (
             set(result) == common | {"baseline_version", "counts"}
@@ -230,9 +242,26 @@ def _outcome(line: str, operation: str, source_sha: str) -> str:
         )
     if not valid or result.get("outcome") != "PASS":
         raise _Indeterminate
-    if result.get("source_sha") != source_sha:
-        raise _Indeterminate
     return "PASS"
+
+
+def _read_only_outcome(result: dict[str, object], operation: str) -> str:
+    """Accept only the fixed Railway result schema, and PASS only for PASS."""
+    code = result.get("result")
+    common = {"operation", "outcome", "source_sha", "result"}
+    if operation == "reconcile":
+        if set(result) != common | {"checks"}:
+            raise _Indeterminate
+        try:
+            _valid_output(json.dumps({"result": code, "checks": result["checks"]}))
+        except (TypeError, ValueError):
+            raise _Indeterminate from None
+    elif set(result) != common or code not in STATUS_CODES:
+        raise _Indeterminate
+    outcome = "PASS" if code == "PASS" else "FAIL"
+    if result.get("outcome") != outcome:
+        raise _Indeterminate
+    return outcome
 
 
 def _settled(key: str, service_id: str, target: _Target) -> bool:
@@ -268,11 +297,12 @@ def _fail(phase: str) -> int:
 def main(argv: list[str] | None = None) -> int:
     try:
         parser = _SafeArgumentParser(add_help=False, allow_abbrev=False)
-        parser.add_argument("operation", choices=tuple(_CONFIRMATIONS))
-        parser.add_argument("--confirm", required=True)
+        parser.add_argument("operation", choices=(*_CONFIRMATIONS, *_READ_ONLY))
+        parser.add_argument("--confirm")
         arguments = parser.parse_args(argv)
         operation = cast(str, arguments.operation)
-        if arguments.confirm != _CONFIRMATIONS[operation]:
+        # Only a mutation takes a confirmation, and it must be its exact one.
+        if arguments.confirm != _CONFIRMATIONS.get(operation):
             raise ValueError("arguments invalid")
     except (SystemExit, ValueError):
         return _fail("confirmation")
@@ -293,8 +323,10 @@ def main(argv: list[str] | None = None) -> int:
     owner_id, _, source_sha = target
     command = (
         f"python -m rehearsal.render_job --operation {operation} "
-        f"--source-sha {source_sha} --confirm {_CONFIRMATIONS[operation]}"
+        f"--source-sha {source_sha}"
     )
+    if operation in _CONFIRMATIONS:
+        command += f" --confirm {_CONFIRMATIONS[operation]}"
     try:
         job_id, created_at = _start(key, service_id, command)
     except (KeyboardInterrupt, TypeError, ValueError):
