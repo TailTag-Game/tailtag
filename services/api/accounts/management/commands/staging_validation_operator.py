@@ -1,4 +1,4 @@
-"""Manage the dedicated #243 validation operator on Railway Staging."""
+"""Manage the dedicated #243 validation operator on Railway or Render Staging."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from django.db import DatabaseError, connection, transaction
 from django.db.models import Q
 
 from accounts.models import User
+from accounts.staging_target import staging_platform
 from catches.models import Catch
 from conventions.models import ConventionEnrollment
 from fursuits.models import Fursuit
@@ -33,6 +34,11 @@ CONFIRMATIONS = {
     "provision": "provision Railway Staging validation operator",
     "decommission": "Y",
     "rotate_password": "rotate Railway Staging validation operator password",
+}
+RENDER_CONFIRMATIONS = {
+    "provision": "provision Render Staging validation operator",
+    "decommission": "Y",
+    "rotate_password": "rotate Render Staging validation operator password",
 }
 
 
@@ -70,22 +76,28 @@ class Command(BaseCommand):
         action = options.get("action")
         if not isinstance(action, str) or action not in CONFIRMATIONS:
             raise CommandError("Invalid command arguments.")
-        if (
-            os.environ.get("RAILWAY_ENVIRONMENT_NAME") != "staging"
-            or os.environ.get("RAILWAY_SERVICE_NAME") != "api"
+        platform = staging_platform(os.environ)
+        if platform is None or (
+            platform == "railway"
+            and (
+                os.environ.get("RAILWAY_ENVIRONMENT_NAME") != "staging"
+                or os.environ.get("RAILWAY_SERVICE_NAME") != "api"
+            )
         ):
             raise CommandError("This command is unavailable for the current target.")
         if not sys.stdin.isatty() or not sys.stdout.isatty():
             raise CommandError("This command requires an interactive terminal.")
         if settings.DEBUG or connection.force_debug_cursor:
             raise CommandError("Query debugging must be disabled.")
+        host = "Render" if platform == "render" else "Railway"
         if action == "decommission":
             confirmed = (
-                input("Decommission Railway Staging validation operator? [Y/N]: ")
+                input(f"Decommission {host} Staging validation operator? [Y/N]: ")
                 == "Y"
             )
         else:
-            confirmed = input("Confirmation: ") == CONFIRMATIONS[action]
+            phrases = RENDER_CONFIRMATIONS if platform == "render" else CONFIRMATIONS
+            confirmed = input("Confirmation: ") == phrases[action]
         if not confirmed:
             raise CommandError("Confirmation failed.")
 

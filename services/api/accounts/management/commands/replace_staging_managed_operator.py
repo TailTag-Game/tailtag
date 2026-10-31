@@ -19,6 +19,7 @@ from django.core.management.base import CommandParser
 from django.db import DatabaseError, connection, transaction
 
 from accounts.models import User
+from accounts.staging_target import staging_platform
 from catches.models import Catch
 from config import build_identity
 from config.replacement_target_binding import (
@@ -34,6 +35,7 @@ from rehearsal.models import StagingResetIdentity
 from .bootstrap_staging_operator import EXPECTED_PERMISSION_NAMES, OPERATOR_GROUP_NAME
 
 CONFIRMATION_PHRASE = "replace Railway Staging managed operator"
+RENDER_CONFIRMATION_PHRASE = "replace Render Staging managed operator"
 LIMITED_GROUP_NAME = "TailTag #243 Validation Operator"
 LIMITED_PERMISSION_NAMES = frozenset(
     {"profiles.set_profile_enabled", "profiles.view_playerprofile"}
@@ -97,7 +99,9 @@ class Command(BaseCommand):
         ):
             raise CommandError("Managed operator replacement failed.") from None
 
-        if input("Confirmation: ") != CONFIRMATION_PHRASE:
+        if input("Confirmation: ") != self._phrase(
+            CONFIRMATION_PHRASE, RENDER_CONFIRMATION_PHRASE
+        ):
             raise CommandError("Confirmation failed.")
         identifier = _hidden_input("New operator identifier: ")
         if not _IDENTIFIER.fullmatch(identifier):
@@ -305,7 +309,17 @@ class Command(BaseCommand):
         return rows
 
     @staticmethod
+    def _phrase(railway: str, render: str) -> str:
+        """Name the platform in the confirmation, after the target check passed."""
+        return render if staging_platform(os.environ) == "render" else railway
+
+    @staticmethod
     def _target_matches(expected: object) -> bool:
+        """Join the expected identity to this exact Railway or Render Staging API.
+
+        Render sets no runtime deploy ID, so on Render the build identity, and
+        therefore the expected identity, holds a deployment_id of None.
+        """
         if not isinstance(expected, dict):
             return False
         identity = cast(dict[str, object], expected)
@@ -315,17 +329,23 @@ class Command(BaseCommand):
             "deployment_id",
         }:
             return False
+        platform = staging_platform(os.environ)
         if (
-            identity.get("environment") != "staging"
+            platform is None
+            or identity.get("environment") != "staging"
             or not isinstance(identity.get("source_sha"), str)
             or re.fullmatch(r"[0-9a-f]{40}", cast(str, identity["source_sha"])) is None
-            or not isinstance(identity.get("deployment_id"), str)
+        ):
+            return False
+        if platform == "railway" and (
+            not isinstance(identity.get("deployment_id"), str)
             or os.environ.get("RAILWAY_ENVIRONMENT_NAME") != "staging"
             or os.environ.get("RAILWAY_SERVICE_NAME") != "api"
         ):
             return False
         try:
-            validate_runtime_target(os.environ)
+            if platform == "railway":
+                validate_runtime_target(os.environ)
             return build_identity.get_identity() == identity
         except (TargetBindingError, ValueError, OSError):
             return False

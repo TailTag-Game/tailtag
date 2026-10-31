@@ -1,8 +1,9 @@
 """Run one guarded #204 Staging operation as a Render Staging job (#410).
 
-The operations are the reset, the sentinel provision, and two read-only
-checks: the registry reconcile and the #243 operator inspect. The read-only
-checks run in a read-only database transaction.
+The operations are the reset, the sentinel provision, and three read-only
+checks: the registry reconcile, the #243 operator inspect, and the #243
+emergency operator state. The read-only checks run in a read-only database
+transaction.
 
 The local launcher `scripts/api_staging_render_job.py` starts this module with
 `python -m rehearsal.render_job`. The job binds its own image build and Render
@@ -34,7 +35,14 @@ _CONFIRMATIONS: Final = {
     "reset": "reset-tailtag-staging",
     "provision": "provision-tailtag-staging-reset",
 }
-_READ_ONLY: Final = frozenset({"reconcile", "inspect"})
+_READ_ONLY: Final = frozenset({"reconcile", "inspect", "emergency-state"})
+# A read-only check passes when its observation is valid. An emergency state
+# is valid when it is one of the three exact states.
+_PASSING: Final = {
+    "reconcile": frozenset({"PASS"}),
+    "inspect": frozenset({"PASS"}),
+    "emergency-state": frozenset({"ABSENT", "READY", "DECOMMISSIONED"}),
+}
 
 
 class _SafeArgumentParser(argparse.ArgumentParser):
@@ -63,6 +71,12 @@ def reset_baseline(configuration: ResetConfiguration) -> dict[str, int]:
 
 def provision_identity(configuration: ResetConfiguration) -> None:
     from rehearsal.reset import provision_identity as implementation
+
+    implementation(configuration)
+
+
+def validate_database(configuration: ResetConfiguration) -> None:
+    from rehearsal.safety import validate_database as implementation
 
     implementation(configuration)
 
@@ -211,6 +225,19 @@ def _inspect() -> dict[str, object]:
     }
 
 
+def _emergency_state(configuration: ResetConfiguration) -> dict[str, object]:
+    """Bind the pinned database, then classify the #243 emergency operator."""
+    from accounts.management.commands.bootstrap_staging_emergency_operator import (
+        inspect_emergency_state,
+    )
+
+    try:
+        validate_database(configuration)
+    except Exception:  # noqa: BLE001 - never leak a database value
+        return {"result": "FAIL_BINDING"}
+    return {"result": inspect_emergency_state()}
+
+
 def _read_only(operation: str) -> dict[str, object]:
     """Run one check in a read-only transaction, so it can never write."""
     from collections.abc import Callable
@@ -222,6 +249,10 @@ def _read_only(operation: str) -> dict[str, object]:
         configuration = _configuration()
         check = lambda: _reconcile(configuration)
         failure: dict[str, object] = {"result": "FAIL_QUERY", "checks": {}}
+    elif operation == "emergency-state":
+        configuration = _configuration()
+        check = lambda: _emergency_state(configuration)
+        failure = {"result": "INDETERMINATE"}
     else:
         _setup()
         check = _inspect
@@ -242,7 +273,7 @@ def _run(argv: list[str] | None) -> tuple[int, dict[str, object]]:
         _bind_runtime(source_sha)
         if operation in _READ_ONLY:
             check = _read_only(operation)
-            passed = check["result"] == "PASS"
+            passed = check["result"] in _PASSING[operation]
             return 0 if passed else 1, {
                 "operation": operation,
                 "outcome": "PASS" if passed else "FAIL",
