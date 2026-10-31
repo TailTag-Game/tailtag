@@ -19,6 +19,7 @@ from .replace_staging_managed_operator import (
 )
 
 CONFIRMATION_PHRASE = "rotate Railway Staging managed operator password"
+RENDER_CONFIRMATION_PHRASE = "rotate Render Staging managed operator password"
 
 
 class Command(_GuardedCommand):
@@ -52,7 +53,9 @@ class Command(_GuardedCommand):
         except DatabaseError:
             raise CommandError("Managed password rotation failed.") from None
 
-        if input("Confirmation: ") != CONFIRMATION_PHRASE:
+        if input("Confirmation: ") != self._phrase(
+            CONFIRMATION_PHRASE, RENDER_CONFIRMATION_PHRASE
+        ):
             raise CommandError("Confirmation failed.")
         self.stdout.write("PREPARED")
         password = _hidden_input("Password: ")
