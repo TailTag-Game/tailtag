@@ -560,3 +560,45 @@ def test_read_only_job_refuses_a_confirmation(
 
     assert (status, out, err) == (1, "", "FAIL render job confirmation\n")
     assert not harness.render.submitted
+
+
+@pytest.mark.parametrize(
+    ("state", "outcome", "expected"),
+    [
+        ("ABSENT", "PASS", "pass"),
+        ("MISMATCH", "FAIL", "printed"),
+        ("READY", "FAIL", "indeterminate"),
+        ("UNLISTED", "FAIL", "indeterminate"),
+    ],
+)
+def test_emergency_state_line_passes_only_for_an_exact_state(
+    harness: Harness,
+    capsys: pytest.CaptureFixture[str],
+    state: str,
+    outcome: str,
+    expected: str,
+) -> None:
+    """A valid state passes, a mismatch prints, and an odd line is indeterminate."""
+    line = result_line(
+        {
+            "operation": "emergency-state",
+            "outcome": outcome,
+            "source_sha": SOURCE_SHA,
+            "result": state,
+        }
+    )
+    harness.render.statuses = ["succeeded" if outcome == "PASS" else "failed"]
+    use_read_only_job(harness.render, "emergency-state", line)
+
+    status, out, err = harness.run(capsys, "emergency-state")
+
+    if expected == "pass":
+        assert (status, out, err) == (0, line + "\n", "")
+    elif expected == "printed":
+        assert (status, out, err) == (1, line + "\n", "")
+    else:
+        assert (status, out, err) == (
+            1,
+            "",
+            f"FAIL render job indeterminate {JOB_ID}\n",
+        )

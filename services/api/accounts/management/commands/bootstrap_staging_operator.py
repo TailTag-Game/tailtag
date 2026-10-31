@@ -1,4 +1,4 @@
-"""Bootstrap the limited Django operator for Railway Staging only."""
+"""Bootstrap the managed Django operator for Railway or Render Staging only."""
 
 from __future__ import annotations
 
@@ -16,10 +16,12 @@ from django.core.management.base import CommandParser
 from django.db import DatabaseError, IntegrityError, transaction
 
 from accounts.models import User
+from accounts.staging_target import staging_platform
 
 REQUIRED_ENVIRONMENT = "staging"
 REQUIRED_SERVICE = "api"
 CONFIRMATION_PHRASE = "bootstrap Railway Staging operator"
+RENDER_CONFIRMATION_PHRASE = "bootstrap Render Staging operator"
 OPERATOR_GROUP_NAME = "TailTag Field Beta Operators"
 EXPECTED_PERMISSION_NAMES = {
     "catches.delete_catch",
@@ -44,7 +46,7 @@ __all__ = ["Command"]
 
 
 class Command(BaseCommand):
-    """Create or reconcile the guarded Railway Staging operator."""
+    """Create or reconcile the guarded Railway or Render Staging operator."""
 
     def create_parser(
         self, prog_name: str, subcommand: str, **kwargs: object
@@ -56,14 +58,21 @@ class Command(BaseCommand):
 
     def handle(self, *args: object, **options: object) -> None:
         """Create or rotate the limited operator after guarded confirmation."""
-        if (
-            os.environ.get("RAILWAY_ENVIRONMENT_NAME") != REQUIRED_ENVIRONMENT
-            or os.environ.get("RAILWAY_SERVICE_NAME") != REQUIRED_SERVICE
+        platform = staging_platform(os.environ)
+        if platform is None or (
+            platform == "railway"
+            and (
+                os.environ.get("RAILWAY_ENVIRONMENT_NAME") != REQUIRED_ENVIRONMENT
+                or os.environ.get("RAILWAY_SERVICE_NAME") != REQUIRED_SERVICE
+            )
         ):
             raise CommandError("This command is unavailable for the current target.")
         if not sys.stdin.isatty() or not sys.stdout.isatty():
             raise CommandError("This command requires an interactive terminal.")
-        if input("Confirmation: ") != CONFIRMATION_PHRASE:
+        phrase = (
+            RENDER_CONFIRMATION_PHRASE if platform == "render" else CONFIRMATION_PHRASE
+        )
+        if input("Confirmation: ") != phrase:
             raise CommandError("Confirmation failed.")
 
         operator_id = getpass.getpass("Operator identifier: ")

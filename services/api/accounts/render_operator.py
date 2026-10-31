@@ -24,6 +24,12 @@ RESULT_PREFIX: Final = "TAILTAG-RENDER-OPERATOR "
 # Each operation: its command, the command's options, and the operator
 # inspector status it requires first, or None for a database binding instead.
 _OPERATIONS: Final[dict[str, tuple[str, dict[str, str], str | None]]] = {
+    # A fresh Render Staging has no managed operator, so this creates it.
+    "managed-create": (
+        "bootstrap_staging_operator",
+        {},
+        "FAIL_MANAGED_OPERATOR_MISSING",
+    ),
     "lifecycle-provision": (
         "staging_validation_operator",
         {"action": "provision"},
@@ -47,7 +53,7 @@ _OPERATIONS: Final[dict[str, tuple[str, dict[str, str], str | None]]] = {
 _IDENTITY_COMMANDS: Final = frozenset(
     {"rotate_staging_managed_password", "replace_staging_managed_operator"}
 )
-# Every fixed CommandError message of the five commands. A test fails when a
+# Every fixed CommandError message of the six commands. A test fails when a
 # command gains a message that this set does not hold.
 COMMAND_MESSAGES: Final = frozenset(
     {
@@ -68,7 +74,9 @@ COMMAND_MESSAGES: Final = frozenset(
         "Managed operator state changed.",
         "Managed password postcondition failed.",
         "Managed password rotation failed.",
+        "Operator bootstrap failed.",
         "Operator identifier is invalid.",
+        "Operator identifier is required.",
         "Operator identifier is unavailable.",
         "Password does not meet operator requirements.",
         "Passwords do not match.",

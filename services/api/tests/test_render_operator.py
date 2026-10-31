@@ -371,3 +371,17 @@ def test_every_fixed_command_message_is_in_the_allowlist() -> None:
                 messages.add(cast(str, node.args[0].value))
     assert len(messages) > 20
     assert messages <= render_operator.COMMAND_MESSAGES
+
+
+@pytest.mark.django_db
+def test_managed_create_requires_the_managed_operator_to_be_missing(
+    operator: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Managed create runs only before a managed operator exists."""
+    inspector(monkeypatch, "PASS")
+    forbid_prompts(monkeypatch)
+
+    assert run(operator, monkeypatch, "managed-create")[::2] == (
+        1,
+        PREFIX + "FAIL managed-create precondition",
+    )
