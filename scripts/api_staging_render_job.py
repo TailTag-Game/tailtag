@@ -1,0 +1,324 @@
+"""Start one guarded #204 reset or sentinel provision as a Render Staging job (#410).
+
+The launcher makes every target check before and after the job, starts exactly
+one job, and prints the one result line that the job writes to the Render Logs
+API. It exits 0 only for a consistent PASS. It never retries or cancels a job,
+because a reset can stop between its gate and its resume.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+import time
+import urllib.parse
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Final, NoReturn, cast
+
+_REPOSITORY_ROOT: Final = Path(__file__).resolve().parents[1]
+for _path in (_REPOSITORY_ROOT, _REPOSITORY_ROOT / "services" / "api"):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
+
+from scripts import api_staging_preflight
+from scripts import api_staging_render_promote as promote
+from scripts.api_staging_promote import (
+    _SOURCE_SHA,  # pyright: ignore[reportPrivateUsage]
+    _mapping,  # pyright: ignore[reportPrivateUsage]
+)
+from scripts.api_staging_reset_ssh import (
+    _EXPECTED_COUNTS,  # pyright: ignore[reportPrivateUsage]
+)
+
+_RECEIPTS: Path = _REPOSITORY_ROOT / "docs/development/staging-deployments"
+_RESULT_PREFIX: Final = "TAILTAG-RENDER-JOB "
+_CONFIRMATIONS: Final = {
+    "reset": "reset-tailtag-staging",
+    "provision": "provision-tailtag-staging-reset",
+}
+_DEPLOY_ID: Final = re.compile(r"dep-[a-z0-9]{1,60}")
+_JOB_ID: Final = re.compile(r"job-[0-9a-z]{20}")
+_OWNER_ID: Final = re.compile(r"tea-[a-z0-9]{1,60}")
+_PENDING: Final = frozenset({"pending", "running"})
+# The reset gate holds the database closed, so a job normally ends in minutes.
+_JOB_DEADLINE_SECONDS: Final = 20 * 60
+_JOB_POLL_SECONDS: Final = 5
+# The Logs API can show a line some seconds after the job has ended.
+_LOG_DEADLINE_SECONDS: Final = 2 * 60
+_LOG_POLL_SECONDS: Final = 5
+_LOG_PAGES: Final = 50
+# Render keeps an old instance serving for up to 300 seconds after a restart.
+_SETTLE_DEADLINE_SECONDS: Final = 5 * 60
+_SETTLE_POLL_SECONDS: Final = 10
+_FAIL_PHASES: Final = frozenset(
+    {
+        "target",
+        "configuration",
+        "provision",
+        "maintenance unknown",
+        "maintenance retained",
+        "committed maintenance retained",
+    }
+)
+
+_Target = tuple[str, str, str]
+
+
+class _SafeArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> NoReturn:
+        del message
+        raise ValueError("arguments invalid")
+
+
+class _Indeterminate(Exception):
+    """The job may have run, but its result cannot be proved."""
+
+
+def _list(value: object) -> list[object]:
+    if not isinstance(value, list):
+        raise TypeError("render observation invalid")
+    return cast(list[object], value)
+
+
+def _target(key: str, service_id: str) -> _Target:
+    """Return the workspace, live deploy, and source SHA that Staging serves."""
+    service = _mapping(promote._get(key, f"/services/{service_id}"))  # pyright: ignore[reportPrivateUsage]
+    owner_id = service.get("ownerId") if service else None
+    if not isinstance(owner_id, str) or _OWNER_ID.fullmatch(owner_id) is None:
+        raise ValueError("render workspace invalid")
+    live = _list(
+        promote._get(key, f"/services/{service_id}/deploys?status=live&limit=20")  # pyright: ignore[reportPrivateUsage]
+    )
+    entry = _mapping(live[0]) if len(live) == 1 else None
+    deploy = _mapping(entry.get("deploy")) if entry else None
+    commit = _mapping(deploy.get("commit")) if deploy else None
+    deploy_id = deploy.get("id") if deploy else None
+    source_sha = commit.get("id") if commit else None
+    if (
+        deploy is None
+        or deploy.get("status") != "live"
+        or not isinstance(deploy_id, str)
+        or _DEPLOY_ID.fullmatch(deploy_id) is None
+        or not isinstance(source_sha, str)
+        or _SOURCE_SHA.fullmatch(source_sha) is None
+    ):
+        raise ValueError("live deploy invalid")
+    receipt = _mapping(json.loads((_RECEIPTS / f"{deploy_id}.json").read_text()))
+    if receipt is None or not (
+        receipt.get("deployment_id") == deploy_id
+        and receipt.get("source_sha") == source_sha
+        and receipt.get("environment") == "staging"
+        and receipt.get("overall_outcome") == "SUCCEEDED"
+        and receipt.get("final_active_state") == "ACTIVE"
+    ):
+        raise ValueError("deploy receipt invalid")
+    api_staging_preflight.validate_render_staging_target(source_sha)
+    instances = _list(promote._get(key, f"/services/{service_id}/instances"))  # pyright: ignore[reportPrivateUsage]
+    instance = _mapping(instances[0]) if len(instances) == 1 else None
+    if instance is None or not isinstance(instance.get("id"), str):
+        raise ValueError("instance invalid")
+    return owner_id, deploy_id, source_sha
+
+
+def _start(key: str, service_id: str, command: str) -> tuple[str, str]:
+    status, payload = promote._render(  # pyright: ignore[reportPrivateUsage]
+        key, "POST", f"/services/{service_id}/jobs", {"startCommand": command}
+    )
+    job = _mapping(payload)
+    job_id = job.get("id") if job else None
+    created_at = job.get("createdAt") if job else None
+    if (
+        status != 201
+        or job is None
+        or not isinstance(job_id, str)
+        or _JOB_ID.fullmatch(job_id) is None
+        or job.get("serviceId") != service_id
+        or job.get("startCommand") != command
+        or not isinstance(created_at, str)
+    ):
+        raise ValueError("job submission indeterminate")
+    return job_id, created_at
+
+
+def _wait(key: str, service_id: str, job_id: str) -> str:
+    deadline = time.monotonic() + _JOB_DEADLINE_SECONDS
+    while True:
+        job = _mapping(promote._get(key, f"/services/{service_id}/jobs/{job_id}"))  # pyright: ignore[reportPrivateUsage]
+        if job is None or job.get("id") != job_id:
+            raise _Indeterminate
+        status = job.get("status")
+        if status in {"succeeded", "failed", "canceled"}:
+            return cast(str, status)
+        if status not in _PENDING or time.monotonic() >= deadline:
+            raise _Indeterminate
+        time.sleep(_JOB_POLL_SECONDS)
+
+
+def _result_lines(key: str, owner_id: str, job_id: str, created_at: str) -> list[str]:
+    """Read every log line of the job and keep the lines with the result prefix."""
+    window = {
+        "startTime": created_at,
+        "endTime": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+    }
+    lines: list[str] = []
+    for _ in range(_LOG_PAGES):
+        query = urllib.parse.urlencode(
+            {
+                "ownerId": owner_id,
+                "resource": job_id,
+                **window,
+                "direction": "forward",
+                "limit": 100,
+            }
+        )
+        page = _mapping(promote._get(key, f"/logs?{query}"))  # pyright: ignore[reportPrivateUsage]
+        if page is None:
+            raise _Indeterminate
+        for item in _list(page.get("logs")):
+            entry = _mapping(item)
+            message = entry.get("message") if entry else None
+            if not isinstance(message, str):
+                raise _Indeterminate
+            if message.startswith(_RESULT_PREFIX):
+                lines.append(message)
+        if page.get("hasMore") is not True:
+            return lines
+        start, end = page.get("nextStartTime"), page.get("nextEndTime")
+        if not isinstance(start, str) or not isinstance(end, str):
+            raise _Indeterminate
+        window = {"startTime": start, "endTime": end}
+    raise _Indeterminate
+
+
+def _result_line(key: str, owner_id: str, job_id: str, created_at: str) -> str:
+    deadline = time.monotonic() + _LOG_DEADLINE_SECONDS
+    while True:
+        lines = _result_lines(key, owner_id, job_id, created_at)
+        if len(lines) == 1:
+            return lines[0]
+        if lines or time.monotonic() >= deadline:
+            raise _Indeterminate
+        time.sleep(_LOG_POLL_SECONDS)
+
+
+def _outcome(line: str, operation: str, source_sha: str) -> str:
+    """Return PASS or FAIL for a well-formed result line of this exact job."""
+    result = _mapping(json.loads(line.removeprefix(_RESULT_PREFIX)))
+    if result is None or result.get("operation") != operation:
+        raise _Indeterminate
+    if result.get("outcome") == "FAIL":
+        if set(result) != {"operation", "outcome", "phase"} or (
+            result.get("phase") not in _FAIL_PHASES
+        ):
+            raise _Indeterminate
+        return "FAIL"
+    common = {"operation", "outcome", "source_sha"}
+    if operation == "reset":
+        valid = (
+            set(result) == common | {"baseline_version", "counts"}
+            and type(result.get("baseline_version")) is int
+            and result.get("baseline_version") == 1
+            and result.get("counts") == _EXPECTED_COUNTS
+        )
+    else:
+        valid = (
+            set(result) == common | {"provision_postcondition"}
+            and result.get("provision_postcondition") == "PASS"
+        )
+    if not valid or result.get("outcome") != "PASS":
+        raise _Indeterminate
+    if result.get("source_sha") != source_sha:
+        raise _Indeterminate
+    return "PASS"
+
+
+def _settled(key: str, service_id: str, target: _Target) -> bool:
+    """Wait until Staging again serves the same deploy as before the job.
+
+    The web instance can restart during the reset gate, and an old instance can
+    serve for a short time after a restart. So one failed read is not final.
+    """
+    deadline = time.monotonic() + _SETTLE_DEADLINE_SECONDS
+    while True:
+        try:
+            promote._preflight(key, service_id)  # pyright: ignore[reportPrivateUsage]
+            if _target(key, service_id) == target:
+                return True
+        except (
+            OSError,
+            TypeError,
+            UnicodeError,
+            ValueError,
+            api_staging_preflight.TargetSafetyError,
+        ):
+            pass
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(_SETTLE_POLL_SECONDS)
+
+
+def _fail(phase: str) -> int:
+    print(f"FAIL render job {phase}", file=sys.stderr)
+    return 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    try:
+        parser = _SafeArgumentParser(add_help=False, allow_abbrev=False)
+        parser.add_argument("operation", choices=tuple(_CONFIRMATIONS))
+        parser.add_argument("--confirm", required=True)
+        arguments = parser.parse_args(argv)
+        operation = cast(str, arguments.operation)
+        if arguments.confirm != _CONFIRMATIONS[operation]:
+            raise ValueError("arguments invalid")
+    except (SystemExit, ValueError):
+        return _fail("confirmation")
+    try:
+        service_id = promote._service_id()  # pyright: ignore[reportPrivateUsage]
+        key = promote._prompt_key()  # pyright: ignore[reportPrivateUsage]
+        promote._preflight(key, service_id)  # pyright: ignore[reportPrivateUsage]
+        target = _target(key, service_id)
+    except (
+        KeyboardInterrupt,
+        OSError,
+        TypeError,
+        UnicodeError,
+        ValueError,
+        api_staging_preflight.TargetSafetyError,
+    ):
+        return _fail("target")
+    owner_id, _, source_sha = target
+    command = (
+        f"python -m rehearsal.render_job --operation {operation} "
+        f"--source-sha {source_sha} --confirm {_CONFIRMATIONS[operation]}"
+    )
+    try:
+        job_id, created_at = _start(key, service_id, command)
+    except (KeyboardInterrupt, TypeError, ValueError):
+        return _fail("submission indeterminate")
+    try:
+        status = _wait(key, service_id, job_id)
+        line = _result_line(key, owner_id, job_id, created_at)
+        outcome = _outcome(line, operation, source_sha)
+        if (status == "succeeded") != (outcome == "PASS") or status == "canceled":
+            raise _Indeterminate
+    except (_Indeterminate, KeyboardInterrupt, TypeError, ValueError):
+        return _fail(f"indeterminate {job_id}")
+    if outcome == "FAIL":
+        print(line)
+        return 1
+    try:
+        settled = _settled(key, service_id, target)
+    except KeyboardInterrupt:
+        settled = False
+    if not settled:
+        return _fail(f"target changed {job_id}")
+    print(line)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

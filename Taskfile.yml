@@ -52,6 +52,7 @@ x-api-helpers: &api-helpers >-
   {{.REPOSITORY_ROOT}}/scripts/api_staging_reset.py
   {{.REPOSITORY_ROOT}}/scripts/api_staging_reset_ssh.py
   {{.REPOSITORY_ROOT}}/scripts/api_staging_reset_render_digest.py
+  {{.REPOSITORY_ROOT}}/scripts/api_staging_render_job.py
   {{.REPOSITORY_ROOT}}/scripts/api_staging_restore_drill.py
   {{.REPOSITORY_ROOT}}/scripts/staging_restore_integrity.py
   {{.REPOSITORY_ROOT}}/scripts/clerk_development_session.py
