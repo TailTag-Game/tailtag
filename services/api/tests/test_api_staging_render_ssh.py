@@ -374,3 +374,41 @@ def test_plans_cover_every_operation_of_the_in_image_entry_point() -> None:
 
     operations = render_operator._OPERATIONS  # pyright: ignore[reportPrivateUsage]
     assert set(cast(dict[str, object], launcher()._PLANS)) == set(operations)
+
+
+COUNTS_SHA256 = "c" * 64
+
+
+def test_restore_count_checks_the_target_then_runs_one_counting_session(
+    fakes: Fakes, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """AC13: the restore counter runs on the exact instance with the digest."""
+    status, out, err = run(capsys, "restore-count", "--expected-counts", COUNTS_SHA256)
+
+    assert (status, out, err) == (0, "PASS render ssh restore-count\n", "")
+    # It reads no Staging state, so no job runs. The target checks still do.
+    assert fakes.events == ["whoami", "whoami", "ssh"]
+    [(argv, _)] = fakes.ssh_calls
+    assert argv[-1] == (
+        "cd /app && exec /app/.venv/bin/python -m rehearsal.render_restore_count "
+        f"--source-sha {SOURCE_SHA} --expected-counts {COUNTS_SHA256}"
+    )
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ("restore-count",),
+        ("restore-count", "--expected-counts", "c" * 63),
+        ("restore-count", "--expected-counts", f"{COUNTS_SHA256};id"),
+        ("emergency-create", "--expected-counts", COUNTS_SHA256),
+    ],
+)
+def test_only_the_restore_counter_takes_one_exact_digest(
+    fakes: Fakes, capsys: pytest.CaptureFixture[str], arguments: tuple[str, ...]
+) -> None:
+    """The digest goes into the remote command, so it must be 64 hex characters."""
+    status, out, err = run(capsys, *arguments)
+
+    assert (status, out, err) == (1, "", "FAIL render ssh arguments\n")
+    assert fakes.events == []

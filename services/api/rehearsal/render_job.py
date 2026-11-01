@@ -1,9 +1,9 @@
 """Run one guarded #204 Staging operation as a Render Staging job (#410).
 
-The operations are the reset, the sentinel provision, and three read-only
-checks: the registry reconcile, the #243 operator inspect, and the #243
-emergency operator state. The read-only checks run in a read-only database
-transaction.
+The operations are the reset, the sentinel provision, and four read-only
+checks: the registry reconcile, the #243 operator inspect, the #243 emergency
+operator state, and the row counts for the PITR drill. The read-only checks run
+in a read-only database transaction.
 
 The local launcher `scripts/api_staging_render_job.py` starts this module with
 `python -m rehearsal.render_job`. The job binds its own image build and Render
@@ -35,13 +35,14 @@ _CONFIRMATIONS: Final = {
     "reset": "reset-tailtag-staging",
     "provision": "provision-tailtag-staging-reset",
 }
-_READ_ONLY: Final = frozenset({"reconcile", "inspect", "emergency-state"})
+_READ_ONLY: Final = frozenset({"reconcile", "inspect", "emergency-state", "row-counts"})
 # A read-only check passes when its observation is valid. An emergency state
 # is valid when it is one of the three exact states.
 _PASSING: Final = {
     "reconcile": frozenset({"PASS"}),
     "inspect": frozenset({"PASS"}),
     "emergency-state": frozenset({"ABSENT", "READY", "DECOMMISSIONED"}),
+    "row-counts": frozenset({"PASS"}),
 }
 
 
@@ -238,6 +239,29 @@ def _emergency_state(configuration: ResetConfiguration) -> dict[str, object]:
     return {"result": inspect_emergency_state()}
 
 
+def _row_counts() -> dict[str, object]:
+    """Count every public table, then record the end time T in UTC (AC13)."""
+    from django.db import connection
+
+    from rehearsal.row_counts import count_rows, digest
+
+    with connection.cursor() as cursor:
+        # The shared counter takes the psycopg cursor under Django's wrapper.
+        counts = count_rows(cursor.cursor)
+        cursor.execute(
+            "SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC', "
+            '\'YYYY-MM-DD"T"HH24:MI:SS.US"Z"\')'
+        )
+        [(captured_at,)] = cursor.fetchall()
+    return {
+        "result": "PASS",
+        "tables": len(counts),
+        "counts": counts,
+        "counts_sha256": digest(counts),
+        "captured_at": captured_at,
+    }
+
+
 def _read_only(operation: str) -> dict[str, object]:
     """Run one check in a read-only transaction, so it can never write."""
     from collections.abc import Callable
@@ -253,6 +277,10 @@ def _read_only(operation: str) -> dict[str, object]:
         configuration = _configuration()
         check = lambda: _emergency_state(configuration)
         failure = {"result": "INDETERMINATE"}
+    elif operation == "row-counts":
+        _setup()
+        check = _row_counts
+        failure = {"result": "FAIL_QUERY"}
     else:
         _setup()
         check = _inspect

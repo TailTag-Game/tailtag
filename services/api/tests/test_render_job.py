@@ -462,6 +462,56 @@ def test_inspect_job_reports_the_operator_inspector_status(
     )
 
 
+def orm_counts() -> dict[str, int]:
+    """Count every table through the ORM, and prove that no table is missing."""
+    from django.apps import apps
+    from django.db import connection
+    from django.db.migrations.recorder import MigrationRecorder
+
+    models = [*apps.get_models(include_auto_created=True), MigrationRecorder.Migration]
+    counts = {
+        model._meta.db_table: model._base_manager.count()  # pyright: ignore[reportPrivateUsage]
+        for model in models
+    }
+    assert set(counts) == set(connection.introspection.table_names())
+    return dict(sorted(counts.items()))
+
+
+@pytest.mark.django_db(transaction=True)
+def test_row_counts_job_counts_every_public_table_and_records_its_time(
+    harness: Harness, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """AC13: the exact count of every public table, its digest, and time T."""
+    import hashlib
+    import re
+
+    from django.contrib.auth.models import Group
+
+    Group.objects.create(name="tailtag-row-count-probe")
+    expected = orm_counts()
+
+    status, result, _ = harness.run(capfd, *read_only_arguments("row-counts"))
+
+    assert result is not None
+    captured_at = cast(str, result.pop("captured_at"))
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z", captured_at)
+    canonical = json.dumps(expected, sort_keys=True, separators=(",", ":"))
+    assert (status, result) == (
+        0,
+        {
+            "operation": "row-counts",
+            "outcome": "PASS",
+            "source_sha": SOURCE_SHA,
+            "result": "PASS",
+            "tables": len(expected),
+            "counts": expected,
+            "counts_sha256": hashlib.sha256(canonical.encode()).hexdigest(),
+        },
+    )
+    assert expected["django_migrations"] > 0
+    assert expected["auth_group"] == 1
+
+
 def test_read_only_jobs_take_no_confirmation(
     harness: Harness, capfd: pytest.CaptureFixture[str]
 ) -> None:

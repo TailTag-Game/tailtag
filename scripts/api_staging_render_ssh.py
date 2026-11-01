@@ -8,6 +8,10 @@ one interactive session on that exact instance, where
 live deploy, and read-only jobs check the state again. It passes only when the
 session exits 0 and every check matches. It never retries a session or a job.
 
+The `restore-count` operation runs the AC13 PITR restore counter instead. It
+reads no Staging state, so no job runs, but every target check still does. The
+counter itself compares the new database with the digest that the owner passes.
+
 For the create, provision, decommission, and emergency operations, the jobs
 after the session show the new state. No read-only job can see a new password
 or a replaced login. So for the two password rotations and the managed
@@ -74,6 +78,8 @@ _PLANS: Final[dict[str, tuple[_Checks, _Checks]]] = {
         (("emergency-state", "DECOMMISSIONED"), ("inspect", "PASS")),
     ),
 }
+_RESTORE_COUNT: Final = "restore-count"
+_DIGEST: Final = re.compile(r"[0-9a-f]{64}")
 _CLI_IDENTITY: Final = {"name": "Finn the Panther", "email": "finn@finnthepanther.com"}
 _CLI_TIMEOUT_SECONDS: Final = 30
 _TARGET_ERRORS: Final = (
@@ -155,12 +161,21 @@ def _checks(
             raise _Failure(f"{phase} {operation}")
 
 
-def _session(instance_id: str, operation: str, source_sha: str) -> int:
-    """Open one session on the exact instance, on the operator's own terminal."""
-    remote = (
+def _remote(operation: str, source_sha: str, expected_counts: str | None) -> str:
+    """Return the fixed in-image command. Each value in it was validated first."""
+    if operation == _RESTORE_COUNT:
+        return (
+            "cd /app && exec /app/.venv/bin/python -m rehearsal.render_restore_count "
+            f"--source-sha {source_sha} --expected-counts {expected_counts}"
+        )
+    return (
         "cd /app && exec /app/.venv/bin/python -m accounts.render_operator "
         f"--operation {operation} --source-sha {source_sha}"
     )
+
+
+def _session(instance_id: str, remote: str) -> int:
+    """Open one session on the exact instance, on the operator's own terminal."""
     try:
         return subprocess.run(
             [
@@ -183,7 +198,7 @@ def _session(instance_id: str, operation: str, source_sha: str) -> int:
         return 1
 
 
-def _run(operation: str) -> None:
+def _run(operation: str, expected_counts: str | None) -> None:
     if not _interactive():
         raise _Failure("terminal")
     _cli_identity()
@@ -196,7 +211,7 @@ def _run(operation: str) -> None:
         instance_id = _instance(key, service_id)
     except _TARGET_ERRORS:
         raise _Failure("target") from None
-    before, after = _PLANS[operation]
+    before, after = _PLANS.get(operation, ((), ()))
     _checks(key, service_id, target, before, "precondition")
     try:
         promote._preflight(key, service_id)  # pyright: ignore[reportPrivateUsage]
@@ -209,7 +224,7 @@ def _run(operation: str) -> None:
         raise _Failure("target") from None
     _cli_identity()
     job.progress("opening the render ssh session")
-    if _session(instance_id, operation, target[2]) != 0:
+    if _session(instance_id, _remote(operation, target[2], expected_counts)) != 0:
         # The command may have committed before the session failed, so the
         # state is unknown. Run the read-only inspect job before any retry.
         raise _Failure("session uncertain")
@@ -226,13 +241,21 @@ def _run(operation: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     try:
         parser = _SafeArgumentParser(add_help=False, allow_abbrev=False)
-        parser.add_argument("operation", choices=tuple(_PLANS))
-        operation = cast(str, parser.parse_args(argv).operation)
+        parser.add_argument("operation", choices=(*_PLANS, _RESTORE_COUNT))
+        parser.add_argument("--expected-counts")
+        arguments = parser.parse_args(argv)
+        operation = cast(str, arguments.operation)
+        expected_counts = cast(str | None, arguments.expected_counts)
+        # Only the restore counter takes a digest, and it must be exact hex.
+        if (operation == _RESTORE_COUNT) != (expected_counts is not None) or (
+            expected_counts is not None and _DIGEST.fullmatch(expected_counts) is None
+        ):
+            raise ValueError("arguments invalid")
     except (SystemExit, ValueError):
         print("FAIL render ssh arguments", file=sys.stderr)
         return 1
     try:
-        _run(operation)
+        _run(operation, expected_counts)
     except _Failure as failure:
         print(f"FAIL render ssh {operation} {failure.phase}", file=sys.stderr)
         return 1
