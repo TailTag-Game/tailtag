@@ -375,6 +375,23 @@ def test_launcher_exits_zero_only_for_a_consistent_pass(
         assert (out, err) == ("", f"FAIL render job indeterminate {JOB_ID}\n")
 
 
+def test_a_terminal_sees_each_wait_and_the_job_id_before_the_result(
+    harness: Harness, capsys: pytest.CaptureFixture[str], monkeypatch: MonkeyPatch
+) -> None:
+    """The operator sees each silent wait on stderr, and the job ID to look up."""
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
+
+    status, out, err = harness.run(capsys, *RESET)
+
+    assert (status, out) == (0, result_line(RESET_PASS) + "\n")
+    assert err == (
+        "... checking the Render Staging target\n"
+        "... starting the reset job\n"
+        f"... job {JOB_ID} started, waiting for its result\n"
+        "... waiting until Staging serves the same deploy again\n"
+    )
+
+
 def test_a_web_restart_after_the_job_settles_before_the_pass_line(
     harness: Harness, capsys: pytest.CaptureFixture[str]
 ) -> None:

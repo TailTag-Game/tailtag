@@ -6,6 +6,7 @@ import importlib
 import io
 import json
 import subprocess
+import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import ModuleType
@@ -334,6 +335,23 @@ def test_a_changed_live_deploy_after_the_session_fails(
         "FAIL render ssh lifecycle-decommission target changed\n",
     )
     assert len(fakes.ssh_calls) == 1
+
+
+def test_a_terminal_sees_each_wait_around_the_session(
+    fakes: Fakes, capsys: pytest.CaptureFixture[str], monkeypatch: MonkeyPatch
+) -> None:
+    """The operator sees when to wait and when the session prompts begin."""
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
+    plan(fakes, "lifecycle-rotate-password")
+
+    status, out, err = run(capsys, "lifecycle-rotate-password")
+
+    assert (status, out) == (0, "PASS render ssh lifecycle-rotate-password\n")
+    assert err == (
+        "... checking the Render Staging target\n"
+        "... opening the render ssh session\n"
+        "... waiting until Staging serves the same deploy again\n"
+    )
 
 
 def test_a_non_terminal_refuses_before_any_provider_call(

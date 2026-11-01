@@ -190,6 +190,7 @@ def _run(operation: str) -> None:
     try:
         service_id = promote._service_id()  # pyright: ignore[reportPrivateUsage]
         key = promote._prompt_key()  # pyright: ignore[reportPrivateUsage]
+        job.progress("checking the Render Staging target")
         promote._preflight(key, service_id)  # pyright: ignore[reportPrivateUsage]
         target = job._target(key, service_id)  # pyright: ignore[reportPrivateUsage]
         instance_id = _instance(key, service_id)
@@ -207,10 +208,12 @@ def _run(operation: str) -> None:
     except _TARGET_ERRORS:
         raise _Failure("target") from None
     _cli_identity()
+    job.progress("opening the render ssh session")
     if _session(instance_id, operation, target[2]) != 0:
         # The command may have committed before the session failed, so the
         # state is unknown. Run the read-only inspect job before any retry.
         raise _Failure("session uncertain")
+    job.progress("waiting until Staging serves the same deploy again")
     try:
         settled = job._settled(key, service_id, target)  # pyright: ignore[reportPrivateUsage]
     except KeyboardInterrupt:

@@ -308,6 +308,12 @@ def _settled(key: str, service_id: str, target: _Target) -> bool:
         time.sleep(_SETTLE_POLL_SECONDS)
 
 
+def progress(message: str) -> None:
+    """Show the operator what the launcher waits for, only on a terminal."""
+    if sys.stderr.isatty():
+        print(f"... {message}", file=sys.stderr, flush=True)
+
+
 def run_job(
     key: str, service_id: str, owner_id: str, operation: str, source_sha: str
 ) -> tuple[str, str, str]:
@@ -321,10 +327,12 @@ def run_job(
     )
     if operation in _CONFIRMATIONS:
         command += f" --confirm {_CONFIRMATIONS[operation]}"
+    progress(f"starting the {operation} job")
     try:
         job_id, created_at = _start(key, service_id, command)
     except (KeyboardInterrupt, TypeError, ValueError):
         raise JobFailure("submission indeterminate") from None
+    progress(f"job {job_id} started, waiting for its result")
     try:
         status = _wait(key, service_id, job_id)
         line = _result_line(key, owner_id, job_id, created_at)
@@ -363,6 +371,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         service_id = promote._service_id()  # pyright: ignore[reportPrivateUsage]
         key = promote._prompt_key()  # pyright: ignore[reportPrivateUsage]
+        progress("checking the Render Staging target")
         promote._preflight(key, service_id)  # pyright: ignore[reportPrivateUsage]
         target = _target(key, service_id)
     except (
@@ -384,6 +393,7 @@ def main(argv: list[str] | None = None) -> int:
     if outcome == "FAIL":
         print(line)
         return 1
+    progress("waiting until Staging serves the same deploy again")
     try:
         settled = _settled(key, service_id, target)
     except KeyboardInterrupt:
