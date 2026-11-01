@@ -430,6 +430,337 @@ Do not promote, reset, or run the simulator against Railway Staging. To roll
 back, point the Porkbun `staging` CNAME back to its Railway target. Railway
 still holds its custom domain and its `canonical` settings.
 
+## Render Staging operations and recovery (#410)
+
+This section covers the #204 reset, the #243 operator commands, database
+recovery, and application rollback on Render Staging. The Railway procedures
+in this runbook stay until #412. Do not run them against Render Staging.
+
+### Which method each command uses
+
+A one-off job is a short task that Render runs on its own instance from the
+live image. A command that prompts needs a terminal, so it runs over
+`render ssh` instead.
+
+| Operation | Method | Launcher arguments |
+| --- | --- | --- |
+| Sentinel provision | Job | `api_staging_render_job.py provision --confirm provision-tailtag-staging-reset` |
+| Reset, reseed, and baseline provision | Job | `api_staging_render_job.py reset --confirm reset-tailtag-staging` |
+| Registry reconcile | Read-only job | `api_staging_render_job.py reconcile` |
+| Operator inspect | Read-only job | `api_staging_render_job.py inspect` |
+| Emergency operator state | Read-only job | `api_staging_render_job.py emergency-state` |
+| Row counts for a PITR drill | Read-only job | `api_staging_render_job.py row-counts` |
+| Managed operator create | `render ssh` | `api_staging_render_ssh.py managed-create` |
+| Limited operator provision | `render ssh` | `api_staging_render_ssh.py lifecycle-provision` |
+| Limited operator password rotation | `render ssh` | `api_staging_render_ssh.py lifecycle-rotate-password` |
+| Limited operator decommission | `render ssh` | `api_staging_render_ssh.py lifecycle-decommission` |
+| Managed operator password rotation | `render ssh` | `api_staging_render_ssh.py managed-password-rotate` |
+| Managed operator replace | `render ssh` | `api_staging_render_ssh.py managed-operator-replace` |
+| Emergency operator create | `render ssh` | `api_staging_render_ssh.py emergency-create` |
+| Emergency operator decommission | `render ssh` | `api_staging_render_ssh.py emergency-decommission` |
+| PITR restore count | `render ssh` | `api_staging_render_ssh.py restore-count --expected-counts <digest>` |
+
+These tools have no Render version, and #412 deletes them: the #243 matrix,
+restart, and managed-auth diagnosis tools, and the #207 logical-dump drill.
+
+### Before a Render operation
+
+You need these items:
+
+- The Render API key and the manifest key `render_staging_api_service_id`
+  from [Before a Render promotion](#before-a-render-promotion).
+- A `SUCCEEDED` receipt for the live deploy in
+  `docs/development/staging-deployments/` in your checkout. The promotion
+  command writes it there.
+- For `render ssh`: the Render CLI signed in as Finn the Panther. The
+  launcher checks `render whoami` before and after its checks.
+
+Wait one minute after a promotion, so that the old instance stops. Run every
+launcher from the repository root in your own terminal, because each one asks
+for the API key at a hidden prompt. While a launcher waits, it prints progress
+lines that start with `...` on stderr. Make sure that nothing else changes
+Staging while a launcher runs.
+
+### One-off jobs
+
+```bash
+uv --directory services/api run --locked --no-sync python ../../scripts/api_staging_render_job.py inspect
+```
+
+Replace `inspect` with the operation from the table above. The reset and the
+sentinel provision also need their exact `--confirm` value.
+
+The launcher checks the workspace, the one live deploy and its receipt, the
+public identity, and the one running instance. Then it starts exactly one job
+of the live commit. It reads the one `TAILTAG-RENDER-JOB` result line from the
+Render Logs API and prints it. After the job, it waits up to 5 minutes until
+Staging serves the same deploy again. It exits 0 only for a `PASS` result. It
+never retries or cancels a job, because a reset can stop between its gate and
+its resume.
+
+The read-only jobs run in a read-only database transaction. A reconcile
+`MISMATCH` exits 1, which is stricter than the Railway command.
+
+| Output | Meaning | Next step |
+| --- | --- | --- |
+| `FAIL render job confirmation` | The operation or its `--confirm` value is wrong. | Nothing ran. Fix the command. |
+| `FAIL render job target` | A target check failed before the job. | Nothing ran. After a promotion, wait one minute and run it again. |
+| `FAIL render job submission indeterminate` | The launcher cannot tell if Render started a job. | Look for a new job in the service logs before you run anything again. |
+| `FAIL render job indeterminate <job>` | The job started, but its result is not proven. | For a reset, follow [Reset recovery on Render](#reset-recovery-on-render). Otherwise run `inspect`. |
+| `FAIL render job target changed <job>` | The job ended, but Staging serves another deploy. | Run the preflight. Promote the intended SHA before more work. |
+| A `TAILTAG-RENDER-JOB` line with `"outcome": "FAIL"` | The job ran and failed. | Read its `phase` or `result`. |
+
+### The reset on Render
+
+The reset closes the Staging database with `ALLOW_CONNECTIONS false`, resets
+and reseeds it, then opens it again. While the database is closed, the web
+service fails its health checks, and Render restarts it after 60 seconds. The
+job runs on its own instance, so that restart does not stop the reset.
+
+A deploy cannot go live while the database is closed. Its pre-deploy
+migration needs the database. A dashboard rollback also runs the pre-deploy
+command, so a rollback cannot go live either. Still, do not start a
+promotion, rollback, Blueprint sync, or variable change during a reset.
+
+The Render reset has one limit that the Railway reset does not. The Railway
+reset reads the public identity again after it opens the database, and it
+closes the database again if the identity changed. The Render job cannot do
+this, because `scripts/` is not in the image. So if the target changed, the
+launcher exits 1 with `target changed <job>`, and Staging stays open. The
+owner accepted this limit on 2026-10-31.
+
+### Reset recovery on Render
+
+Use this procedure when a reset reports `maintenance unknown`,
+`maintenance retained`, or `committed maintenance retained`. Also use it for
+`indeterminate` after a reset. A retained gate is an intentional outage.
+
+1. Do not run the reset again. Do not start a deploy.
+2. In the Render dashboard, open `tailtag-api-staging`, then **Shell**.
+3. Read the connection flag from the `postgres` database:
+
+   ```bash
+   python - <<'PY'
+   import os
+   import psycopg
+   from psycopg.conninfo import conninfo_to_dict
+
+   url = os.environ["DATABASE_URL"]
+   target = conninfo_to_dict(url)["dbname"]
+   with psycopg.connect(url, dbname="postgres", autocommit=True) as control:
+       row = control.execute(
+           "SELECT datallowconn FROM pg_database WHERE datname = %s", (target,)
+       ).fetchone()
+       print("allow_connections", row[0])
+   PY
+   ```
+
+4. If it prints `allow_connections False`, open the database as its owner:
+
+   ```bash
+   python - <<'PY'
+   import os
+   import psycopg
+   from psycopg import sql
+   from psycopg.conninfo import conninfo_to_dict
+
+   url = os.environ["DATABASE_URL"]
+   target = conninfo_to_dict(url)["dbname"]
+   with psycopg.connect(url, dbname="postgres", autocommit=True) as control:
+       control.execute(
+           sql.SQL("ALTER DATABASE {} WITH ALLOW_CONNECTIONS true").format(
+               sql.Identifier(target)
+           )
+       )
+       row = control.execute(
+           "SELECT datallowconn FROM pg_database WHERE datname = %s", (target,)
+       ).fetchone()
+       print("allow_connections", row[0])
+   PY
+   ```
+
+5. Make sure that it prints `allow_connections True`. Then run
+   `api_staging_preflight.py --render-staging`, and the `inspect` and
+   `reconcile` jobs.
+6. A phase that starts with `committed` means that the reset changed the
+   data. The other phases mean that the data did not change. Before the next
+   rehearsal, make sure that `inspect` and `reconcile` pass.
+
+The executor owns the Staging database and is not a superuser. The #410 AC3
+probe showed that this role can connect to `postgres` and run the
+`ALTER DATABASE` statement. If the Shell cannot open, or a statement fails,
+stop and ask for a new plan. Do not restart the database or delete a service.
+
+### Operator commands over render ssh
+
+```bash
+uv --directory services/api run --locked --no-sync python ../../scripts/api_staging_render_ssh.py managed-create
+```
+
+Replace `managed-create` with the operation from the table above. The
+launcher checks the terminal and `render whoami`. Then it makes the same
+target checks as a job, and it finds the exact instance ID. It runs the
+read-only jobs that prove the state the command needs. It checks the target,
+the instance, and `render whoami` again. Then it opens one session on that
+instance:
+
+```text
+render ssh <instance> -o text -- -o UpdateHostKeys=no -t "<in-image command>"
+```
+
+In the session, `accounts.render_operator` binds the runtime and the build,
+then runs the command. Each command asks for its own Render phrase:
+
+| Operation | Phrase |
+| --- | --- |
+| `managed-create` | `bootstrap Render Staging operator` |
+| `lifecycle-provision` | `provision Render Staging validation operator` |
+| `lifecycle-rotate-password` | `rotate Render Staging validation operator password` |
+| `lifecycle-decommission` | `Y` |
+| `managed-password-rotate` | `rotate Render Staging managed operator password` |
+| `managed-operator-replace` | `replace Render Staging managed operator` |
+| `emergency-create` | `bootstrap Render Staging emergency operator` |
+| `emergency-decommission` | `Y` at `Decommission the Render Staging emergency operator? [Y/N]:` |
+
+The session ends with `TAILTAG-RENDER-OPERATOR PASS <operation>` or a `FAIL`
+line. After the session, the launcher waits for the same deploy and runs the
+read-only jobs again. The last line is `PASS render ssh <operation>` or
+`FAIL render ssh <operation> <phase>`.
+
+| Phase | Meaning | Next step |
+| --- | --- | --- |
+| `terminal` | The launcher has no terminal. | Run it in your own terminal. |
+| `target` | A target check failed. | Nothing ran. After a promotion, wait one minute. |
+| `precondition <job>` | Staging is not in the state that the command needs. | Nothing ran. Read the `inspect` and `reconcile` results. |
+| `session uncertain` | The session did not exit 0. | The command can have committed. Run `inspect` before any retry. |
+| `target changed` | Staging serves another deploy after the session. | Run the preflight and `inspect`. |
+| `postcondition <job>` | The new state is not the expected one. | Run `inspect`. |
+
+The Render CLI passes the exit status of the session on. A wrong phrase gave
+`session uncertain` in the live #410 run, which proved this. No read-only job
+can see a new password or a replaced login. So for
+`lifecycle-rotate-password`, `managed-password-rotate`, and
+`managed-operator-replace`, PASS rests on the session exit status. The jobs
+after those sessions show only that the roles stay valid.
+
+`lifecycle-decommission` cannot be undone on Staging. The inactive User and
+group block a new provision, and `inspect` then reports
+`FAIL_LIMITED_OPERATOR_STATE`. The live #410 run skipped it for this reason.
+
+### Restore the database with PITR
+
+The Render recovery path for the Staging database is a point-in-time recovery
+(PITR) into a new database. The #207 logical-dump drill has no Render version.
+Render starts a PITR only from the dashboard, so no job or command starts it.
+
+Render facts, from the
+[Render backup docs](https://render.com/docs/postgresql-backups):
+
+- The restore starts from the database's **Recovery** page and makes a new
+  database. The source database does not change.
+- The dashboard does not accept a restore time within 10 minutes of now.
+- The new database copies the IP allowlist of the source.
+- **Customize Recovery** sets the plan, the project, and the environment.
+
+Keep the new database in the Staging environment. Staging has network
+isolation, so `tailtag-api-staging` reaches only databases in its own
+environment by their internal URL.
+
+To practice a restore and check it:
+
+1. Start a quiet window. Make sure that nothing writes to Staging until the
+   restore starts.
+2. Run the `row-counts` job. Its result line holds the count of every
+   `public` table, the `counts_sha256` digest, and `captured_at`, the time T
+   in UTC.
+3. At least 10 minutes later, open **Recovery** on `tailtag-postgres-staging`,
+   then **Restore Database**. Choose the first time that the dashboard accepts
+   at or after T. In **Customize Recovery**, choose the cheapest plan and the
+   smallest size, the TailTag project, and the Staging environment.
+4. When the new database is available, check its allowlist with
+   `render pg get <name> -o json | jq -c '.data | {name, status, ipAllowList}'`.
+   If the list is not `[]`, run `render pg update <name> --clear-ip-allow-list`.
+5. Copy the internal URL of the new database from **Connect > Internal**.
+6. Run `api_staging_render_ssh.py restore-count --expected-counts <counts_sha256>`.
+   Paste the internal URL only at its `Recovery database URL:` prompt.
+
+The counter accepts only a Render internal host that is not the live Staging
+database. It counts the new database in a read-only transaction with the same
+code as the job. It prints the counts and `same_system_identifier`, then
+`TAILTAG-RENDER-RESTORE PASS restore-count` only when the digests are equal.
+A PITR copies the database files, so `same_system_identifier` is `true`. The
+counter records that value, but it does not gate on it.
+
+After the check, delete the new database in its **Settings**, after owner
+approval. It is a paid resource. Record its create time, delete time, and cost.
+
+The practice drill on 2026-11-01 passed: all 25 tables matched. The #410 issue
+holds the record. Moving Staging to a restored database is a different
+operation. It changes the pinned database identity of the guards, so it needs
+a reviewed plan first.
+
+### Application rollback on Render
+
+The [#206 compatibility gate](#fail-closed-compatibility-gate) still decides
+whether a rollback is safe. Roll back only to an old application that is
+proven compatible with the current schema and data.
+
+Render facts, from the [Render rollback docs](https://render.com/docs/rollbacks)
+and the #410 drill:
+
+- A rollback makes a new deploy D from the build of the target deploy R. It
+  does not rebuild.
+- A rollback uses the environment variables of R. So a variable that changed
+  after R goes back to its old value.
+- A dashboard rollback turns auto-deploy off. Staging already has it off.
+- The pre-deploy command runs during a rollback. The Render docs do not say
+  this, and the #410 drill showed it.
+
+Run the rollback in this order:
+
+1. Start a quiet window. Make sure that no Staging variable changed after R
+   went live.
+2. Record the deploy list:
+
+   ```zsh
+   SERVICE_ID="$(jq -r .render_staging_api_service_id ~/.config/tailtag/staging-clean-rebuild-targets.json)"
+   render deploys list "$SERVICE_ID" -o json | jq -c '[.. | objects | select(has("trigger") and has("status"))] | .[:8][] | {id, status, trigger, commit: .commit.id, createdAt, finishedAt}'
+   unset SERVICE_ID
+   ```
+
+3. In the dashboard, open the `tailtag-api-staging` deploy list, find R, and
+   click **Rollback**, then **Rollback to this deploy**. Do this only once. If
+   it fails, do not retry.
+4. In the log of D, record whether the pre-deploy step printed `PASS`.
+5. Record the deploy list again. Make sure that it shows exactly one new
+   deploy D, with trigger `rollback`, status `live`, and the commit of R.
+6. Wait one minute. Run `api_staging_preflight.py --render-staging`, read
+   `/health/ready`, and run the
+   [authenticated smoke](#render-staging-smoke-checks).
+7. Restore the current SHA with an exact-SHA
+   [Render promotion](#render-staging-promotion-409). Never use a second
+   rollback.
+
+The drill on 2026-11-01 rolled back from `22a307f` to `43d12ae` and promoted
+`22a307f` again. It proved the mechanics only, because no migration changed
+between the two deploys.
+
+### Database IP allowlists
+
+Both Render databases must have an empty IP allowlist. An empty list blocks
+every connection from outside Render. The Blueprint `render.yaml` declares
+`ipAllowList: []` for both, so a Blueprint sync keeps them closed. To check a
+database:
+
+```bash
+render pg get tailtag-postgres-staging -o json | jq -c '.data | {name, status, ipAllowList}'
+```
+
+If the list is not `[]`, run
+`render pg update tailtag-postgres-staging --clear-ip-allow-list`, then check
+again. On 2026-11-01, both `tailtag-postgres-staging` and
+`tailtag-postgres-development` showed `[]`.
+
 ## Controlled promotion acceptance evidence (2026-09-16)
 
 The owner-squashed [PR #233](https://github.com/TailTag-Game/tailtag/pull/233)
@@ -614,6 +945,9 @@ workspace, project, environment, and service listed above. Use explicit
 selectors, not a guessed linked context.
 
 ### PostgreSQL backup restoration drill (#207)
+
+This drill has no Render version. For Render Staging, use
+[Restore the database with PITR](#restore-the-database-with-pitr).
 
 The frozen [backup restoration contract](../specs/2026-09-22-v0-postgresql-backup-restore.md)
 and [implementation plan](../specs/2026-09-22-v0-postgresql-backup-restore-implementation-plan.md)
