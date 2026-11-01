@@ -1,7 +1,8 @@
 """Start one guarded #204 Staging operation as a Render Staging job (#410).
 
 The operations are the reset and the sentinel provision, which need their
-exact confirmation, and the read-only registry reconcile and operator inspect.
+exact confirmation, and the read-only registry reconcile, operator inspect,
+emergency operator state, and row counts.
 
 The launcher makes every target check before and after the job, starts exactly
 one job, and prints the one result line that the job writes to the Render Logs
@@ -40,13 +41,15 @@ from scripts.api_staging_reset_ssh import (
     _EXPECTED_COUNTS,  # pyright: ignore[reportPrivateUsage]
 )
 
+from rehearsal import row_counts
+
 _RECEIPTS: Path = _REPOSITORY_ROOT / "docs/development/staging-deployments"
 _RESULT_PREFIX: Final = "TAILTAG-RENDER-JOB "
 _CONFIRMATIONS: Final = {
     "reset": "reset-tailtag-staging",
     "provision": "provision-tailtag-staging-reset",
 }
-_READ_ONLY: Final = ("reconcile", "inspect", "emergency-state")
+_READ_ONLY: Final = ("reconcile", "inspect", "emergency-state", "row-counts")
 _EMERGENCY_STATES: Final = frozenset(
     {"ABSENT", "READY", "DECOMMISSIONED", "MISMATCH", "INDETERMINATE", "FAIL_BINDING"}
 )
@@ -54,6 +57,7 @@ _VALID_EMERGENCY_STATES: Final = frozenset({"ABSENT", "READY", "DECOMMISSIONED"}
 _DEPLOY_ID: Final = re.compile(r"dep-[a-z0-9]{1,60}")
 _JOB_ID: Final = re.compile(r"job-[0-9a-z]{20}")
 _OWNER_ID: Final = re.compile(r"tea-[a-z0-9]{1,60}")
+_CAPTURED_AT: Final = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z")
 _PENDING: Final = frozenset({"pending", "running"})
 # The reset gate holds the database closed, so a job normally ends in minutes.
 _JOB_DEADLINE_SECONDS: Final = 20 * 60
@@ -273,6 +277,14 @@ def _read_only_outcome(result: dict[str, object], operation: str) -> str:
         if set(result) != common or code not in _EMERGENCY_STATES:
             raise _Indeterminate
         passed = code in _VALID_EMERGENCY_STATES
+    elif operation == "row-counts":
+        passed = code == "PASS"
+        if not (
+            _valid_row_counts(result)
+            if passed
+            else set(result) == common and code == "FAIL_QUERY"
+        ):
+            raise _Indeterminate
     else:
         if set(result) != common or code not in STATUS_CODES:
             raise _Indeterminate
@@ -281,6 +293,35 @@ def _read_only_outcome(result: dict[str, object], operation: str) -> str:
     if result.get("outcome") != outcome:
         raise _Indeterminate
     return outcome
+
+
+def _valid_row_counts(result: dict[str, object]) -> bool:
+    """A count PASS needs whole counts, their total, digest, and time T (AC13)."""
+    counts = _mapping(result.get("counts"))
+    captured_at = result.get("captured_at")
+    return (
+        set(result)
+        == {
+            "operation",
+            "outcome",
+            "source_sha",
+            "result",
+            "tables",
+            "counts",
+            "counts_sha256",
+            "captured_at",
+        }
+        and counts is not None
+        # AC13 names the migration table, and an empty schema proves nothing.
+        and "django_migrations" in counts
+        and all(type(count) is int and count >= 0 for count in counts.values())
+        and type(result.get("tables")) is int
+        and result.get("tables") == len(counts)
+        and result.get("counts_sha256")
+        == row_counts.digest(cast(dict[str, int], counts))
+        and isinstance(captured_at, str)
+        and _CAPTURED_AT.fullmatch(captured_at) is not None
+    )
 
 
 def _settled(key: str, service_id: str, target: _Target) -> bool:

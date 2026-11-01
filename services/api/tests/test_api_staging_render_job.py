@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import sys
@@ -468,6 +469,12 @@ RECONCILE_CHECKS = {
 }
 
 
+ROW_COUNTS = {"auth_group": 1, "django_migrations": 42}
+ROW_COUNTS_SHA256 = hashlib.sha256(
+    json.dumps(ROW_COUNTS, sort_keys=True, separators=(",", ":")).encode()
+).hexdigest()
+
+
 def read_only_result(operation: str, result: str, **extra: object) -> dict[str, object]:
     value: dict[str, object] = {
         "operation": operation,
@@ -477,6 +484,11 @@ def read_only_result(operation: str, result: str, **extra: object) -> dict[str, 
     }
     if operation == "reconcile":
         value["checks"] = RECONCILE_CHECKS if result in {"PASS", "MISMATCH"} else {}
+    if operation == "row-counts" and result == "PASS":
+        value["tables"] = len(ROW_COUNTS)
+        value["counts"] = ROW_COUNTS
+        value["counts_sha256"] = ROW_COUNTS_SHA256
+        value["captured_at"] = "2026-11-01T18:00:00.123456Z"
     value.update(extra)
     return value
 
@@ -491,7 +503,7 @@ def use_read_only_job(render: FakeRender, operation: str, line: object) -> str:
     return command
 
 
-@pytest.mark.parametrize("operation", ["reconcile", "inspect"])
+@pytest.mark.parametrize("operation", ["reconcile", "inspect", "row-counts"])
 def test_read_only_job_takes_no_confirmation_and_prints_its_pass_line(
     harness: Harness, capsys: pytest.CaptureFixture[str], operation: str
 ) -> None:
@@ -515,6 +527,7 @@ def test_read_only_job_takes_no_confirmation_and_prints_its_pass_line(
         ),
         ("reconcile", "FAIL_QUERY", {}),
         ("inspect", "FAIL_FIXTURE_MISSING", {}),
+        ("row-counts", "FAIL_QUERY", {}),
     ],
 )
 def test_a_completed_read_only_check_that_does_not_pass_exits_one(
@@ -550,6 +563,31 @@ def test_a_completed_read_only_check_that_does_not_pass_exits_one(
         ),
         ("inspect", read_only_result("inspect", "FAIL_UNLISTED")),
         ("inspect", {**read_only_result("inspect", "PASS"), "outcome": "FAIL"}),
+        # AC13: the digest, the table total, and each count must agree.
+        ("row-counts", read_only_result("row-counts", "PASS", counts_sha256="0" * 64)),
+        ("row-counts", read_only_result("row-counts", "PASS", tables=3)),
+        (
+            "row-counts",
+            read_only_result(
+                "row-counts",
+                "PASS",
+                tables=1,
+                counts={"auth_group": -1},
+                counts_sha256=hashlib.sha256(b'{"auth_group":-1}').hexdigest(),
+            ),
+        ),
+        ("row-counts", read_only_result("row-counts", "PASS", captured_at="today")),
+        (
+            "row-counts",
+            read_only_result(
+                "row-counts",
+                "PASS",
+                tables=1,
+                counts={"auth_group": 1},
+                counts_sha256=hashlib.sha256(b'{"auth_group":1}').hexdigest(),
+            ),
+        ),
+        ("row-counts", read_only_result("row-counts", "FAIL_UNLISTED")),
     ],
 )
 def test_an_inconsistent_read_only_line_is_indeterminate(
