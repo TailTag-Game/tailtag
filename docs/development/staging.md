@@ -297,6 +297,11 @@ reads again every 5 seconds, for up to 5 minutes. Then it runs `task api-smoke` 
 Last, D must still be `live`. If another deploy is `live`, the result is
 SUPERSEDED. If no deploy is `live`, the result is INACTIVE.
 
+The old instance can still run for about a minute after the promotion
+passes. While it runs, Render lists two instances. The #410 job and
+`render ssh` launchers need exactly one, so they stop at `FAIL ... target`
+and change nothing. Wait a minute after a promotion before you run them.
+
 The result table in [Expected operation and evidence](#expected-operation-and-evidence)
 applies to the Render receipts too. A 202 response or a missing deploy ID
 means that the command has no D. Stop, and do not submit again. Check the
