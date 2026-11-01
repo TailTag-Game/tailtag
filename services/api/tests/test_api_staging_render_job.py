@@ -571,9 +571,10 @@ def test_a_completed_read_only_check_that_does_not_pass_exits_one(
             read_only_result(
                 "row-counts",
                 "PASS",
-                tables=1,
-                counts={"auth_group": -1},
-                counts_sha256=hashlib.sha256(b'{"auth_group":-1}').hexdigest(),
+                counts={**ROW_COUNTS, "auth_group": -1},
+                counts_sha256=hashlib.sha256(
+                    b'{"auth_group":-1,"django_migrations":42}'
+                ).hexdigest(),
             ),
         ),
         ("row-counts", read_only_result("row-counts", "PASS", captured_at="today")),
