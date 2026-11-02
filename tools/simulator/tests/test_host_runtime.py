@@ -1653,7 +1653,13 @@ def test_run_local_prepares_then_binds_then_runs_and_resolves_the_receipt_locall
                 "-",
             ]
             # The used file is create-once: the same manifest never starts again.
-            with rig.start() as again:
+            with rig.start(
+                stdin_tty=True,
+                stdout_tty=True,
+                paths={"platform": platform},
+                cwd=None,
+                **changes,
+            ) as again:
                 assert again.wait(timeout=20) == 1
             assert rig.ops() == ["prepare", "run", "recovery-resolve"]
 
