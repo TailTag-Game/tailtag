@@ -6,15 +6,20 @@ from collections.abc import Mapping
 from typing import Final, cast
 
 from simulation_fixtures import inspection
-from simulation_fixtures.remote import target_matches
+from simulation_pool import target
 
 _IDENTITY_KEYS: Final = frozenset({"source_sha", "deployment_id", "environment"})
 _REQUEST_KEYS: Final = frozenset({"operation", "identity", "arguments"})
 _ARGUMENT_KEYS: Final = frozenset({"pool", "run_id", "identities"})
 
 
-def _response(result: str, data: dict[str, object] | None = None) -> dict[str, object]:
-    return {"result": result, "data": data or {}}
+def _response(
+    result: str, data: dict[str, object] | None = None, instance: str | None = None
+) -> dict[str, object]:
+    response: dict[str, object] = {"result": result, "data": data or {}}
+    if instance is not None:
+        response["instance"] = instance
+    return response
 
 
 def execute(
@@ -37,16 +42,20 @@ def execute(
     typed_identity = cast(Mapping[str, object], identity)
     if frozenset(typed_identity) != _IDENTITY_KEYS:
         return _response("FAIL_REQUEST")
-    if not target_matches(typed_identity, runtime_identity, environ):
+    try:
+        instance = target.check(
+            typed_identity, runtime_identity, environ, fields.get("expected_instance")
+        )
+    except target.TargetRefused:
         return _response("FAIL_TARGET")
     arguments = fields.get("arguments")
     if (
-        frozenset(fields) != _REQUEST_KEYS
+        frozenset(fields) - {"expected_instance"} != _REQUEST_KEYS
         or fields["operation"] not in ("inspect", "inspect-population-v1")
         or not isinstance(arguments, Mapping)
         or frozenset(cast(Mapping[str, object], arguments)) != _ARGUMENT_KEYS
     ):
-        return _response("FAIL_REQUEST")
+        return _response("FAIL_REQUEST", instance=instance)
     typed_arguments = cast(Mapping[str, object], arguments)
     operation = (
         inspection.inspect_population
@@ -58,4 +67,4 @@ def execute(
         cast(str, typed_arguments["run_id"]),
         cast(Mapping[str, int], typed_arguments["identities"]),
     )
-    return _response(outcome.result, outcome.data)
+    return _response(outcome.result, outcome.data, instance)

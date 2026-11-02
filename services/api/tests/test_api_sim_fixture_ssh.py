@@ -70,6 +70,13 @@ def launcher() -> ModuleType:
     return importlib.import_module("scripts.api_sim_fixture_ssh")
 
 
+@pytest.fixture(autouse=True)
+def railway_staging(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These cases cover the Railway path; #411 Render cases are separate."""
+    relay = importlib.import_module("scripts.api_sim_render_relay")
+    monkeypatch.setattr(relay, "active", lambda: False)
+
+
 def completed(
     output: object, *, returncode: int = 0
 ) -> subprocess.CompletedProcess[str]:

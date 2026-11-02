@@ -19,6 +19,7 @@ BACKEND_RELEVANT_FILES = {
     "scripts/render_development_deploy.py",
     "scripts/api_sim_fixture_ssh.py",
     "scripts/api_sim_inspect_ssh.py",
+    "scripts/api_sim_render_relay.py",
     "scripts/api_sim_pool_ssh.py",
     "scripts/api_staging_emergency_operator_ssh.py",
     "scripts/api_staging_emergency_operator_decommission_ssh.py",
