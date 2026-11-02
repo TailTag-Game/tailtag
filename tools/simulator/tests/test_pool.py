@@ -11,7 +11,7 @@ import json
 import logging
 import subprocess
 import sys
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +31,8 @@ from tailtag_simulator import clerk
 from tailtag_simulator.__main__ import main
 from tailtag_simulator.clerk import ClerkFailed, open_admin
 from tailtag_simulator.pool import (
+    INSTANCE_PIN,
+    InstancePin,
     LauncherChannel,
     LeaseFailed,
     pool_display_name,
@@ -239,6 +241,73 @@ def test_a_launcher_that_cannot_be_started_is_a_lease_failure() -> None:
         asyncio.run(channel.call(*REQUEST))
 
     assert exc.value.result == "FAIL_LAUNCHER"
+
+
+INSTANCE = "srv-d0staging000000000000-874b544b8-k7qws"
+OTHER_INSTANCE = "srv-d0staging000000000000-54fcd9cd8d-wthkj"
+
+
+@pytest.fixture
+def instance_pin() -> Iterator[InstancePin]:
+    INSTANCE_PIN.value = None
+    yield INSTANCE_PIN
+    INSTANCE_PIN.value = None
+
+
+def _render_pass(instance: object) -> str:
+    return json.dumps({"data": {}, "result": "PASS", "instance": instance}) + "\n"
+
+
+def test_the_first_render_reply_pins_its_instance_for_every_later_relay(
+    tmp_path: Path, instance_pin: InstancePin
+) -> None:
+    """#411 AC3: later relays name the pinned instance, so the remote refuses any other."""
+    (tmp_path / "first").mkdir()
+    (tmp_path / "later").mkdir()
+    first, first_record = launcher(tmp_path / "first", _render_pass(INSTANCE))
+    later, later_record = launcher(tmp_path / "later", _render_pass(INSTANCE))
+
+    asyncio.run(first.call(*REQUEST))
+    asyncio.run(later.call(*REQUEST))
+
+    assert "expected_instance" not in json.loads(
+        json.loads(first_record.read_text())["stdin"]
+    )
+    assert (
+        json.loads(json.loads(later_record.read_text())["stdin"])["expected_instance"]
+        == INSTANCE
+    )
+    assert instance_pin.value == INSTANCE
+
+
+@pytest.mark.parametrize(
+    ("pinned", "instance"),
+    [
+        (INSTANCE, OTHER_INSTANCE),
+        (None, "srv-d0staging000000000000-k7qws"),
+        (None, 7),
+    ],
+    ids=["replaced", "malformed", "not-text"],
+)
+def test_a_reply_from_another_or_malformed_instance_is_a_lease_failure(
+    tmp_path: Path, instance_pin: InstancePin, pinned: str | None, instance: object
+) -> None:
+    instance_pin.value = pinned
+    channel, _ = launcher(tmp_path, _render_pass(instance))
+
+    with pytest.raises(LeaseFailed) as exc:
+        asyncio.run(channel.call(*REQUEST))
+
+    assert exc.value.result == "FAIL_LAUNCHER"
+    assert instance_pin.value == pinned
+
+
+def test_a_railway_reply_sets_no_pin(tmp_path: Path, instance_pin: InstancePin) -> None:
+    channel, _ = launcher(tmp_path, _pass() + "\n")
+
+    asyncio.run(channel.call(*REQUEST))
+
+    assert instance_pin.value is None
 
 
 # -- CLI wiring (P-6 recovery commands, staging-only smoke) ---------------------------

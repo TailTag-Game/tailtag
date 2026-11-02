@@ -208,6 +208,8 @@ def test_local_accepts_a_reported_source_sha() -> None:
         ("", None),
         ("staging", STAGING_ORIGIN),
         ("staging", "https://example.test"),
+        # #411 AC2: the Render host name is not the Staging target.
+        ("staging", "https://tailtag-api-staging.onrender.com"),
         ("local", "https://staging.tailtag.app"),
         ("local", "http://127.0.0.1:8001"),
         ("local", "https://127.0.0.1:8000"),

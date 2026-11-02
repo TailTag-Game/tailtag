@@ -49,6 +49,7 @@ def source_repo(tmp_path: Path) -> Path:
             "scripts/api_sim_pool_ssh.py": "# committed host launcher\n",
             "scripts/api_sim_fixture_ssh.py": "# committed host launcher\n",
             "scripts/api_sim_inspect_ssh.py": "# committed host launcher\n",
+            "scripts/api_sim_render_relay.py": "# committed host launcher\n",
             "scripts/api_staging_reset_ssh.py": "# committed shared host launcher\n",
             "scripts/api_staging_preflight.py": "# committed host target preflight\n",
             "services/api/pyproject.toml": "# committed host dependency declaration\n",

@@ -44,6 +44,7 @@ FROZEN_ROOT_HELPERS = frozenset(
         "scripts/mobile_openapi.py",
         "scripts/api_sim_fixture_ssh.py",
         "scripts/api_sim_inspect_ssh.py",
+        "scripts/api_sim_render_relay.py",
         "scripts/api_sim_pool_ssh.py",
         "scripts/api_staging_reset.py",
         "scripts/api_staging_reset_ssh.py",

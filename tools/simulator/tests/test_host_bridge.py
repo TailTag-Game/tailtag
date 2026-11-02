@@ -1222,8 +1222,12 @@ def test_unfinished_health_close_is_bounded_and_never_pins_capacity(
 
 
 def test_health_evidence_is_closed_and_counts_live_not_live_and_invalid(
-    socket_root: Path,
+    socket_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # #411 G13: the bridge records the Render instance that the relays pinned.
+    instance = "srv-d0staging000000000000-874b544b8-k7qws"
+    monkeypatch.setattr(host_bridge.INSTANCE_PIN, "value", instance)
+
     async def execute() -> None:
         now = [100.0]
         launch = manifest()
@@ -1252,7 +1256,9 @@ def test_health_evidence_is_closed_and_counts_live_not_live_and_invalid(
                 "health",
                 "heartbeat",
                 "revocation",
+                "render_instance",
             }
+            assert evidence["render_instance"] == instance
             assert evidence["health"] == health_counters()
             assert evidence["heartbeat"] == {"failed": 0, "failure_offsets": []}
             assert evidence["revocation"] is None

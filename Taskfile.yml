@@ -49,6 +49,7 @@ x-api-helpers: &api-helpers >-
   {{.REPOSITORY_ROOT}}/scripts/api_sim_pool_ssh.py
   {{.REPOSITORY_ROOT}}/scripts/api_sim_fixture_ssh.py
   {{.REPOSITORY_ROOT}}/scripts/api_sim_inspect_ssh.py
+  {{.REPOSITORY_ROOT}}/scripts/api_sim_render_relay.py
   {{.REPOSITORY_ROOT}}/scripts/api_staging_reset.py
   {{.REPOSITORY_ROOT}}/scripts/api_staging_reset_ssh.py
   {{.REPOSITORY_ROOT}}/scripts/api_staging_reset_render_digest.py

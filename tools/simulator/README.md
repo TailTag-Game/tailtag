@@ -32,9 +32,12 @@ cleans up or retains each run's state. Design: [spec](../../docs/specs/2026-10-0
   RETAIN. Fixture setup (#220) extends SETUP; privileged read-only reconciliation (#222)
   extends RECONCILIATION; cleanup and retention (#223) run after RECONCILIATION, once
   SIMULATION has finished. There is no plugin registry.
-- Pool and fixture commands are host-only. The lease and fixture channels need the
-  Railway CLI and the owner manifest, so they run from a maintainer machine through
-  `task`, not in the container image.
+- Pool and fixture commands are host-only. They run from a maintainer machine through
+  `task`, not in the container image. On Render Staging, the lease, fixture and
+  inspection channels use plain `ssh` with a Render SSH key, the pinned gateway host
+  key and the owner manifest. The first reply names the Render instance, and every
+  later relay in the same process must reach that instance (#411). On Railway, they
+  need the Railway CLI.
 
 ## External Staging host
 
@@ -138,7 +141,8 @@ with no secrets and no network target.
 A durable pool of synthetic Staging identities that a run leases, uses through the real
 authentication boundary, and releases (#219,
 [spec](../../docs/specs/2026-10-02-synthetic-identity-pool.md)). Pool commands run only
-from a maintainer machine with the Railway CLI, and only against Staging.
+from a maintainer machine with Render SSH access (the Railway CLI on Railway), and only
+against Staging.
 
 ```bash
 task sim-pool-provision POOL=p1 SIZE=50   # create missing users and slots; idempotent

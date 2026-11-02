@@ -17,7 +17,11 @@ from tailtag_simulator.host_protocol import (
     encode_frame,
     validate_manifest,
 )
-from tailtag_simulator.pool import LAUNCHER_TIMEOUT_SECONDS, run_launcher
+from tailtag_simulator.pool import (
+    INSTANCE_PIN,
+    LAUNCHER_TIMEOUT_SECONDS,
+    run_launcher,
+)
 
 RelayDispatch = Callable[
     [str, dict[str, object]], Awaitable[tuple[str, dict[str, object]]]
@@ -240,6 +244,8 @@ class BridgeSession:
                 "failure_offsets": list(self._heartbeat_failure_offsets),
             },
             "revocation": None if self._revocation is None else dict(self._revocation),
+            # The Render Staging instance that every relay reached (#411 G13).
+            "render_instance": INSTANCE_PIN.value,
         }
 
     def _envelope(
