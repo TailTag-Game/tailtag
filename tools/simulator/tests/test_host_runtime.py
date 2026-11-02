@@ -1524,14 +1524,66 @@ def test_run_local_refuses_unsafe_start_before_prepare(fault: str) -> None:
         assert list(root.rglob("*.used.json")) == []
 
 
+RENDER_LOCAL_FAULTS = [
+    "render-api-key",
+    "render-cli-config-dir",
+    "render-cli-login",
+    "render-cli-in-tools",
+    "railway-login",
+]
+
+
+@pytest.mark.parametrize("fault", RENDER_LOCAL_FAULTS)
+def test_run_local_on_render_refuses_any_render_credential_but_the_ssh_key(
+    fault: str,
+) -> None:
+    """#411 AC6: in Render mode the session SSH key is the only Render credential."""
+    with owned_root() as root:
+        rig = LocalRig(root, "released")
+        changes: dict[str, str | None] = {"RAILWAY_NO_AUTO_UPDATE": None}
+        if fault == "render-api-key":
+            changes["RENDER_API_KEY"] = "rnd_SENTINEL"
+        elif fault == "render-cli-config-dir":
+            changes["RENDER_CLI_CONFIG_DIR"] = str(root / "render-config")
+        elif fault == "render-cli-login":
+            (rig.home / ".render").mkdir()
+            (rig.home / ".render/cli.yaml").write_text("")
+        elif fault == "render-cli-in-tools":
+            executable(rig.tools / "bin/render", "")
+        elif fault == "railway-login":
+            (rig.home / ".railway").mkdir()
+        with rig.start(
+            stdin_tty=True,
+            stdout_tty=True,
+            paths={"platform": "render"},
+            cwd=None,
+            **changes,
+        ) as process:
+            assert process.wait(timeout=20) == 1
+        assert rig.ops() == []
+        assert list(root.rglob("*.used.json")) == []
+
+
+@pytest.mark.parametrize("platform", ["railway", "render"])
 @pytest.mark.parametrize("outcome", ["released", "runner_failure"])
 def test_run_local_prepares_then_binds_then_runs_and_resolves_the_receipt_locally(
-    outcome: str,
+    outcome: str, platform: str
 ) -> None:
     """#316 AC8/C2/C3: order, sockets before run, workspace relays, local resolve."""
     with owned_root() as root:
         rig = LocalRig(root, outcome)
-        with rig.start() as process:
+        changes: dict[str, str | None] = {}
+        if platform == "render":
+            # #411 AC6: Render mode needs neither the Railway CLI nor its setting.
+            (rig.tools / "bin/railway").unlink()
+            changes["RAILWAY_NO_AUTO_UPDATE"] = None
+        with rig.start(
+            stdin_tty=True,
+            stdout_tty=True,
+            paths={"platform": platform},
+            cwd=None,
+            **changes,
+        ) as process:
             assert process.wait(timeout=30) == (0 if outcome == "released" else 1)
         entries = records(root / "runner.jsonl")
         prepare, run = entries[0], entries[1]
@@ -1575,7 +1627,9 @@ def test_run_local_prepares_then_binds_then_runs_and_resolves_the_receipt_locall
             ]
             assert Path(relay["cwd"]).resolve() == rig.workspace.resolve()
             env = relay["env"]
-            assert env["RAILWAY_NO_AUTO_UPDATE"] == "1"
+            assert env.get("RAILWAY_NO_AUTO_UPDATE") == (
+                "1" if platform == "railway" else None
+            )
             assert env["HOME"] == str(rig.home)
             assert Path(env["UV"]).name == "uv"
             assert Path(env["UV"]).is_relative_to(rig.tools)
