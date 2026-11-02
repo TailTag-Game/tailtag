@@ -59,6 +59,42 @@ def test_staging_phase_gate_requires_stable_identity_around_readiness(
     )
 
 
+@pytest.mark.parametrize(
+    "deployment_id",
+    [IDENTITY["deployment_id"], None],
+    ids=["railway", "render"],
+)
+def test_runtime_target_check_accepts_both_staging_identity_shapes(
+    deployment_id: object,
+) -> None:
+    """#411 AC2: Render Staging reports no deploy ID; the relays pin its instance."""
+    body = {**IDENTITY, "deployment_id": deployment_id}
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health/identity":
+            return httpx.Response(200, json=body)
+        return httpx.Response(200, json={"status": "ok"})
+
+    async def execute() -> dict[str, object]:
+        runtime = SafetyRuntime({})
+        async with open_client(
+            ORIGIN, transport=httpx.MockTransport(respond)
+        ) as client:
+
+            async def probe() -> dict[str, object]:
+                return (
+                    await verify_target(client, resolve_target("staging", None))
+                ).identity()
+
+            runtime.bind_probe(probe)
+            with runtime.scope(), runtime.phase("simulation"):
+                identity = await runtime.check_target()
+        assert runtime.abort_reason is None
+        return identity
+
+    assert asyncio.run(execute()) == body
+
+
 @pytest.mark.parametrize("status", [408, 429])
 @pytest.mark.parametrize("path", ["/health/identity", "/health/ready"])
 def test_transient_health_http_pauses_admission_until_next_healthy_probe(

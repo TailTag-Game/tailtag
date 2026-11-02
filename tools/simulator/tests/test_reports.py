@@ -88,7 +88,7 @@ INVALID_VALUES = [
     (("performance", "resource_context", "reason"), "SENTINEL-detail"),
     (("source", "simulator_sha", "value"), "f" * 39),
     (("source", "provenance"), "unknown"),
-    (("target", "starting", "value", "deployment_id"), None),
+    (("target", "starting", "value", "deployment_id"), "deploy-1"),
     (("target", "final", "value", "source_sha"), "0" * 40),
     (("phases", "cleanup", "status"), "passed"),
     (("phases", "simulation", "status"), "failed"),

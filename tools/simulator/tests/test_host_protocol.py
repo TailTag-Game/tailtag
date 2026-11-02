@@ -49,8 +49,17 @@ def section(value: dict[str, object], key: str) -> dict[str, object]:
     return cast(dict[str, object], value[key])
 
 
-def test_normalized_manifest_is_detached_and_accepts_host_boundary_population() -> None:
+@pytest.mark.parametrize(
+    "deployment_id",
+    [IDENTITY["deployment_id"], None],
+    ids=["railway", "render"],
+)
+def test_normalized_manifest_is_detached_and_accepts_host_boundary_population(
+    deployment_id: object,
+) -> None:
     supplied = manifest()
+    # #411 AC4: Render Staging reports no deploy ID.
+    section(supplied, "backend_identity")["deployment_id"] = deployment_id
     configuration = resolve_traffic_config(
         {
             "pool": "alpha",

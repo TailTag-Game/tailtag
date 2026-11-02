@@ -192,10 +192,13 @@ def validate_manifest(value: object) -> dict[str, object]:
         else:
             _convention_shape(launch, config, safety)
         identity = _mapping(launch["backend_identity"])
+        # Render Staging reports no deploy ID (#411).
         if (
             set(identity) != {"source_sha", "deployment_id", "environment"}
             or not _hex(identity["source_sha"], 40)
-            or not _uuid(identity["deployment_id"])
+            or not (
+                identity["deployment_id"] is None or _uuid(identity["deployment_id"])
+            )
             or identity["environment"] != "staging"
         ):
             raise _invalid()
