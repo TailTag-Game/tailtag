@@ -125,6 +125,25 @@ def test_every_other_runtime_or_pin_is_refused(
         check(identity, environ, expected_instance)
 
 
+@pytest.mark.parametrize(
+    "environ",
+    [{"RAILWAY_ENVIRONMENT_NAME": "development", "RAILWAY_SERVICE_NAME": "api"}, {}],
+    ids=["railway-development", "no-platform"],
+)
+def test_a_runtime_without_a_render_instance_never_loads_the_binding(
+    monkeypatch: pytest.MonkeyPatch, environ: Mapping[str, str]
+) -> None:
+    """Loading the binding resolves the home directory, which fails on Windows."""
+
+    def unexpected(_environ: Mapping[str, str]) -> bool:
+        raise AssertionError
+
+    monkeypatch.setattr(target, "_render_staging", unexpected)
+
+    with pytest.raises(target.TargetRefused):
+        check(RENDER_IDENTITY, environ)
+
+
 def test_render_runtime_identity_must_equal_the_request() -> None:
     with pytest.raises(target.TargetRefused):
         check(

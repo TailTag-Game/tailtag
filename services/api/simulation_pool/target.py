@@ -51,12 +51,14 @@ def check(
     else:
         instance = environ.get("RENDER_INSTANCE_ID")
         match = None if instance is None else _RENDER_INSTANCE.fullmatch(instance)
+        # The binding module is consulted last, so a runtime without a Render
+        # instance is refused without importing it.
         valid = (
-            _render_staging(environ)
-            and identity.get("deployment_id") is None
+            identity.get("deployment_id") is None
             and match is not None
             and match.group(1) == environ.get("RENDER_SERVICE_ID")
             and expected_instance in (None, instance)
+            and _render_staging(environ)
         )
     if not (
         valid
