@@ -17,7 +17,7 @@ from contextlib import suppress
 from datetime import UTC, datetime
 from itertools import pairwise
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Final, cast
 
 from .client import open_client
 from .evaluation import EvaluationFailed, evaluate, write_evaluation
@@ -593,16 +593,45 @@ def _executable(path: Path) -> bool:
     return path.is_file() and os.access(path, os.X_OK)
 
 
-def _refuse_local(workspace: Path, tools: Path) -> Path | None:
+# The relays see only the tools directory and these system directories.
+_RELAY_SYSTEM_PATH: Final = ("/usr/local/bin", "/usr/bin", "/bin")
+
+
+def _render_credential_free(tools: Path) -> bool:
+    """True when the host holds no Render CLI, CLI login or API key (#411 AC6).
+
+    In Render mode the per-session SSH key is the only cloud credential, so a
+    Railway login also refuses the start (#411 AC7 F4).
+    """
+    home = Path(os.environ["HOME"])
+    return (
+        "RENDER_API_KEY" not in os.environ
+        and "RENDER_CLI_CONFIG_DIR" not in os.environ
+        and not (home / ".render/cli.yaml").exists()
+        and not (home / ".railway").exists()
+        and not any(
+            (Path(directory) / "render").exists()
+            for directory in (str(tools / "bin"), *_RELAY_SYSTEM_PATH)
+        )
+    )
+
+
+def _refuse_local(workspace: Path, tools: Path, platform: str) -> Path | None:
     """Return the host `uv` when every start condition holds; otherwise None (C1)."""
     uv = next((p for p in (tools / "uv", tools / "bin/uv") if _executable(p)), None)
     if (
-        os.environ.get("RAILWAY_NO_AUTO_UPDATE") != "1"
+        (
+            platform == "railway"
+            and (
+                os.environ.get("RAILWAY_NO_AUTO_UPDATE") != "1"
+                or not _executable(tools / "bin/railway")
+            )
+        )
+        or (platform == "render" and not _render_credential_free(tools))
         or not (os.isatty(0) and os.isatty(1))  # The Clerk prompt needs a terminal.
         or not (workspace / "Taskfile.yml").is_file()
         or not (workspace / "services/api").is_dir()
         or not _executable(tools / "bin/task")
-        or not _executable(tools / "bin/railway")
     ):
         return None
     return uv
@@ -615,6 +644,7 @@ async def run_local_session(
     tools: Path,
     state_dir: Path,
     *,
+    platform: str = "railway",
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> int:
@@ -622,7 +652,7 @@ async def run_local_session(
     try:
         manifest = validate_manifest(manifest)
         uv = (
-            _refuse_local(workspace, tools)
+            _refuse_local(workspace, tools, platform)
             if all(map(_plain_absolute, (host_root, workspace, tools, state_dir)))
             else None
         )
@@ -641,13 +671,12 @@ async def run_local_session(
         base = host_root / "runs" / run_id
         # Explicit and minimal: nothing of the operator's own PATH reaches the relays.
         env = {
-            "PATH": os.pathsep.join(
-                [str(tools / "bin"), "/usr/local/bin", "/usr/bin", "/bin"]
-            ),
+            "PATH": os.pathsep.join([str(tools / "bin"), *_RELAY_SYSTEM_PATH]),
             "UV": str(uv),
-            "RAILWAY_NO_AUTO_UPDATE": "1",
             "HOME": os.environ["HOME"],
         }
+        if platform == "railway":
+            env["RAILWAY_NO_AUTO_UPDATE"] = "1"
 
         async def spawn() -> asyncio.subprocess.Process:
             # Same process group: a terminal Ctrl-C reaches the runner as it does over ssh -tt.
@@ -706,6 +735,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     local = commands.add_parser("run-local")
     for name in ("manifest", "host-root", "workspace", "tools", "state-dir"):
         local.add_argument("--" + name, type=Path, required=True)
+    # Render Staging relays need only the session SSH key (#411).
+    local.add_argument("--platform", choices=("railway", "render"), default="railway")
     collect = commands.add_parser("collect")
     collect.add_argument("--host", required=True)
     collect.add_argument("--host-root", type=Path, required=True)
@@ -735,6 +766,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.workspace,
                 args.tools,
                 args.state_dir,
+                platform=args.platform,
             )
         )
     except Exception:  # noqa: BLE001 - public error is deliberately detail-free
