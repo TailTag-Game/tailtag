@@ -198,9 +198,10 @@ def _source(value: object) -> None:
 def _identity(value: object, name: str) -> bool:
     identity = _object(value, {"source_sha", "deployment_id", "environment"})
     if name == "staging":
+        # Render Staging reports no deploy ID (#411).
         return (
             _hex(identity["source_sha"], 40)
-            and _uuid(identity["deployment_id"])
+            and (identity["deployment_id"] is None or _uuid(identity["deployment_id"]))
             and identity["environment"] == "staging"
         )
     return (

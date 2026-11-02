@@ -186,7 +186,8 @@ def parse_baseline(value: object) -> dict[str, Any]:
     backend = closed_object(
         report["backend"], {"deployment_id", "source_sha", "environment"}
     )
-    require(uuid_text(backend["deployment_id"]))
+    # Render Staging reports no deploy ID (#411).
+    require(backend["deployment_id"] is None or uuid_text(backend["deployment_id"]))
     require(
         hex_digest(backend["source_sha"], 40) and backend["environment"] == "staging"
     )

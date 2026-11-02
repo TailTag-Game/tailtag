@@ -146,11 +146,15 @@ def _identity(value: object, local: bool) -> dict[str, object]:
         )
     else:
         try:
+            # Render Staging reports no deploy ID (#411).
             valid = (
                 environment == "staging"
                 and valid_sha
-                and isinstance(deployment, str)
-                and str(uuid.UUID(deployment)) == deployment
+                and (
+                    deployment is None
+                    or isinstance(deployment, str)
+                    and str(uuid.UUID(deployment)) == deployment
+                )
             )
         except ValueError:
             valid = False

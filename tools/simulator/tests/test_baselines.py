@@ -219,11 +219,28 @@ def assert_metrics(actual: dict[str, Any], expected: dict[str, Any]) -> None:
             assert actual[name] == pytest.approx(value), name
 
 
+def _render_backend(report: dict[str, Any]) -> None:
+    # #411 AC4: Render Staging reports no deploy ID.
+    for name in ("starting", "final"):
+        report["target"][name]["value"]["deployment_id"] = None
+    report["safety"]["target"]["identity"]["deployment_id"] = None
+
+
+@pytest.mark.parametrize(
+    ("edit", "deployment"),
+    [(None, DEPLOYMENT), (_render_backend, None)],
+    ids=["railway", "render"],
+)
 def test_first_promotion_records_the_run_without_thresholds_or_baseline(
-    tmp_path: Path,
+    tmp_path: Path, edit: Edit | None, deployment: str | None
 ) -> None:
     inputs = build(
-        tmp_path, thresholds=None, baseline=None, companion=DEFAULT, context=DEFAULT
+        tmp_path,
+        report=edit,
+        thresholds=None,
+        baseline=None,
+        companion=DEFAULT,
+        context=DEFAULT,
     )
     report = json.loads(inputs.report.read_text())
     slug = baseline_slug(inputs.key)
@@ -261,7 +278,7 @@ def test_first_promotion_records_the_run_without_thresholds_or_baseline(
             "value"
         ],
         "backend": {
-            "deployment_id": DEPLOYMENT,
+            "deployment_id": deployment,
             "source_sha": SOURCE_SHA,
             "environment": "staging",
         },

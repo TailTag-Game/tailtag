@@ -77,8 +77,9 @@ their launcher behavior.
 - Before the token prompt, two `/health/identity` reads must each be a 200 JSON object
   with exactly `source_sha`, `deployment_id`, and `environment`, and must agree.
   Staging requires environment `staging`, a 40-character lowercase hex `source_sha`,
-  and a canonical UUID `deployment_id`. Local requires `environment` and
-  `deployment_id` to be null. Anything else fails closed.
+  and a `deployment_id` that is a canonical UUID (Railway) or null (Render, which
+  reports no deploy ID). Local requires `environment` and `deployment_id` to be
+  null. Anything else fails closed.
 - Redirects are never followed and any redirect is a failure. Responses are read with
   a 65536-byte cap (a page of presigned image URLs is tens of KB) and a 10-second timeout.
 - Output is fixed stage lines (`PASS target <name>`, `PASS setup`, `PASS simulation`,
