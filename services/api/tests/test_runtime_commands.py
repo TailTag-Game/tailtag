@@ -12,7 +12,7 @@ from typing import cast
 
 import pytest
 
-from tests.process_support import minimal_environment
+from tests.process_support import minimal_environment, skip_on_windows
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = SERVICE_ROOT.parents[1]
@@ -192,6 +192,7 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
     assert "POSTGRES_PASSWORD=tailtag-local-password" in environment_template
 
 
+@skip_on_windows("Gunicorn imports fcntl and pwd, which Windows does not have.")
 def test_gunicorn_runs_three_sync_workers_over_the_render_default() -> None:
     """#448 AC3: `gunicorn.conf.py` wins over the `WEB_CONCURRENCY=1` Render sets."""
     resolve = (
