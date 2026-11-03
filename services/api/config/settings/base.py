@@ -142,6 +142,7 @@ def database_from_url(database_url: str) -> dict[str, object]:
         "PORT": str(parsed.port or ""),
         # Bounded well below Gunicorn's 30-second worker timeout, so an
         # unreachable database raises (and is recorded) instead of the worker
-        # being killed first.
-        "OPTIONS": {"connect_timeout": 5},
+        # being killed first. `tcp_user_timeout` (milliseconds) also bounds a
+        # query on a reused connection whose peer stopped acknowledging (#448).
+        "OPTIONS": {"connect_timeout": 5, "tcp_user_timeout": 10_000},
     }

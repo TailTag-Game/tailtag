@@ -44,11 +44,27 @@ appear only in these signals.
 
 ## PostgreSQL
 
-The API opens a new PostgreSQL connection for each request that uses the
-database, including every `/health/ready` check, and closes it at the end of
-the request. Each attempt adds a count of 1 to
+In Development and Staging, each Gunicorn worker keeps its PostgreSQL
+connection between requests (`CONN_MAX_AGE` is 60 seconds). Django checks the
+age only when a request starts or ends. It does not close a connection on a
+timer, so an idle worker keeps its connection until its next request or until
+the process stops. Before it reuses the connection in a new request, Django
+checks that the connection still works (`CONN_HEALTH_CHECKS`). If the check
+fails, Django opens a new connection. Local `runserver` still opens a new
+connection for each request.
+
+Each connection has `tcp_user_timeout` set to 10 seconds. If PostgreSQL stops
+acknowledging sent data, for example after a silent network drop, the query
+fails after 10 seconds. This is well below Gunicorn's 30-second worker
+timeout, so the request fails and is recorded instead of the worker being
+killed.
+
+Each new connection attempt adds a count of 1 to
 `tailtag.db.connection.attempts` and one value, in milliseconds, to
-`tailtag.db.connection.duration`. A connection attempt waits at most 5
+`tailtag.db.connection.duration`. These signals count new connections, not
+requests. A busy worker opens about one connection each minute, so the count
+follows workers, restarts, and dropped connections. The duration covers only
+new connections. Reused connections add nothing to either signal. A connection attempt waits at most 5
 seconds for each address the database host name resolves to. The DNS lookup
 itself is not included, so a host with both an IPv4 and an IPv6 address can
 take about 10 seconds to fail.
@@ -89,29 +105,35 @@ aggregate query timing is an estimate.
 
 ### Connection capacity
 
-Each Gunicorn sync worker holds at most one connection, and only while it is
-handling a request. The API's peak is therefore
-`workers × replicas` connections, plus any one-off processes such as
-migrations.
+Each Gunicorn sync worker holds at most one connection. Since #448, a worker
+keeps that connection between requests, also while it is idle. Expect about
+one open connection for each worker at all times, not only under load. The API's peak
+is therefore about `2 × workers` during a deploy, when the old and the new
+instance both run. Add one pre-deploy migration and each open relay or
+operator `render ssh` session.
 
-| Setting | Development (2026-09-30) |
+| Setting | Development and Staging on Render (2026-11-03) |
 | --- | --- |
-| API replicas | 1 |
-| Gunicorn workers | 1 (default; no `WEB_CONCURRENCY` or `GUNICORN_CMD_ARGS`) |
+| API instances | 1 |
+| Gunicorn workers | 3 sync workers, set in `services/api/gunicorn.conf.py` |
 | Gunicorn worker timeout | 30 seconds (default) |
-| PostgreSQL `max_connections` | 100, with 3 reserved for superusers |
+| `CONN_MAX_AGE` | 60 seconds, with `CONN_HEALTH_CHECKS` on |
+| PostgreSQL `max_connections` | 100, the Render limit for plans under 8 GB of memory |
+| Expected API peak | about 10: 6 during a deploy, 1 migration, and a few ssh sessions |
 
-The API cannot exhaust PostgreSQL's connections at this size, so
-`too_many_connections` means something else is holding them. The API has no
-connection pool, so there is no pool to exhaust and no pool-exhaustion signal.
+Render sets `WEB_CONCURRENCY=1` on the `0.5c-512mb` plan. The `workers`
+value in `gunicorn.conf.py` overrides it. The API cannot exhaust PostgreSQL's
+connections at this size, so `too_many_connections` means something else
+holds them. The API has no connection pool, so there is no pool to exhaust
+and no pool-exhaustion signal.
 
-Railway does not report PostgreSQL connection counts. To see them, run
-`SELECT count(*) FROM pg_stat_activity` on the Postgres service.
+To count connections, run `SELECT count(*) FROM pg_stat_activity` on the
+database.
 
-**Revisit this section** if the API adds persistent connections
-(`CONN_MAX_AGE`), a connection pool, PgBouncer, async workers, or raises
-workers or replicas close to `max_connections`. Pool wait and exhaustion become
-real signals then and need their own telemetry.
+Revisit this section if the API adds a connection pool, PgBouncer, async
+workers, or threads, or raises workers or instances close to
+`max_connections`. Pool wait and exhaustion then become real signals and need
+their own telemetry.
 
 ## Media storage
 
@@ -192,19 +214,22 @@ connect.
 ## Correlating with readiness
 
 `/health/ready` returns 503 when its configuration check fails or when it
-cannot open a PostgreSQL connection and run `SELECT 1`. Its responses are
+cannot open or reuse a PostgreSQL connection and run `SELECT 1`. Its responses are
 defined by [#203](https://github.com/TailTag-Game/tailtag/issues/203) and do
 not change; they never say which dependency failed or why.
 
-Each readiness check makes one connection attempt, so a readiness failure
-caused by PostgreSQL also appears as a failed `tailtag.db.connection.attempts`
-with a reason. That reason is the detail readiness deliberately leaves out.
+A readiness check reuses the worker's connection when it can. It adds a
+connection attempt only when it opens a new connection or replaces one that
+failed the health check. So connection attempts are a partial signal for
+readiness. A readiness failure caused by PostgreSQL appears as a failed
+`tailtag.db.connection.attempts` with a reason only if the check tried to open
+a connection. That reason is the detail readiness deliberately leaves out.
 
 - Readiness 503 with failed connection attempts: PostgreSQL. The reason says
   which kind.
 - Readiness 503 with no failed connection attempts at the same time: either
-  the configuration check failed, or the connection opened (and was recorded
-  as `succeeded`) and `SELECT 1` then failed. Readiness does not log which.
+  the configuration check failed, or a connection opened or was reused and
+  `SELECT 1` then failed. Readiness does not log which.
   If other routes are also returning 5xx with database errors in Sentry,
   suspect PostgreSQL after the connection opened; otherwise compare the
   environment's variables with the #203 configuration rules.
@@ -212,8 +237,9 @@ with a reason. That reason is the detail readiness deliberately leaves out.
   readiness. Media uploads and image reads fail while the rest of the API
   works.
 
-Readiness checks are included in the connection-attempt counts. When traffic
-is low, most attempts may be readiness checks.
+Readiness checks that open a new connection are included in the
+connection-attempt counts. Readiness checks that reuse a connection add
+nothing.
 
 ## Limits
 

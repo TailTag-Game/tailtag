@@ -46,7 +46,7 @@ or one of Sentry's default user widgets such as `count_unique(user)`.
 | D5 | Are requests slow? | Spans | `p50(span.duration)` and `p95(span.duration)` where `is_transaction` is `true`, grouped by `transaction` |
 | D6 | Are catches succeeding? | Application Metrics | `sum(tailtag.catches.confirmation)`, grouped by `tailtag.outcome` |
 | D7 | Why are catches rejected? | Application Metrics | `sum(tailtag.catches.confirmation)` where `tailtag.outcome` is `rejected`, grouped by `tailtag.reason` |
-| D8 | Is PostgreSQL healthy? | Application Metrics | Two widgets: `sum(tailtag.db.connection.attempts)`, line, grouped by `tailtag.outcome` and `tailtag.reason`; and `p95(tailtag.db.connection.duration)`, line |
+| D8 | Is PostgreSQL healthy? | Application Metrics | Two widgets: `sum(tailtag.db.connection.attempts)`, line, grouped by `tailtag.outcome` and `tailtag.reason`; and `p95(tailtag.db.connection.duration)`, line. Both count new connections, not requests: a worker reuses its connection for up to 60 seconds |
 | D9 | Is authentication abnormal? | Application Metrics | `sum(tailtag.authentication.verification)`, grouped by `tailtag.reason` |
 | D10 | Is media storage failing? | Application Metrics | `sum(tailtag.media.storage.operations)` where `tailtag.outcome` is `failed`, grouped by `rpc.method` and `tailtag.reason` (see below) |
 | D11 | Which build is observed? | Application Metrics | `sum(tailtag.http.server.requests)`, bar, grouped by `release` |

@@ -58,6 +58,12 @@ LABEL org.opencontainers.image.source="https://github.com/TailTag-Game/tailtag" 
     org.opencontainers.image.description="TailTag development API" \
     org.tailtag.delivery-probe="wait-for-ci-trigger-refresh-2026-08-16"
 
+# tini runs as PID 1 and reaps the `render ssh` session processes, which
+# Gunicorn would otherwise log as worker exits (#448).
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y tini \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=ghcr.io/astral-sh/uv:0.9.17 /uv /uvx /bin/
 
 ENV PATH="/app/.venv/bin:$PATH" \
@@ -88,4 +94,5 @@ COPY --chown=tailtag:tailtag . ./
 
 RUN python manage.py collectstatic --settings=config.settings.build --noinput
 
+ENTRYPOINT ["tini", "--"]
 CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]

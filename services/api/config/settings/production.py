@@ -43,7 +43,14 @@ CSRF_TRUSTED_ORIGINS = comma_separated_values(
     name="DJANGO_CSRF_TRUSTED_ORIGINS",
 )
 DATABASES = {
-    "default": database_from_url(required_environment_value("DATABASE_URL")),
+    "default": {
+        **database_from_url(required_environment_value("DATABASE_URL")),
+        # Each Gunicorn worker keeps its connection for up to 60 seconds and
+        # checks it before reuse, so a restart or restore costs one reconnect.
+        # Local settings keep Django's default of 0 for `runserver` (#448).
+        "CONN_MAX_AGE": 60,
+        "CONN_HEALTH_CHECKS": True,
+    },
 }
 
 CLERK_AUTHENTICATION = load_clerk_authentication_configuration(os.environ)
