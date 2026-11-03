@@ -180,6 +180,8 @@ def test_database_configuration_uses_telemetry_backend_and_bounded_connect_timeo
     assert configuration["ENGINE"] == "observability.postgresql"
     options = cast(dict[str, object], configuration["OPTIONS"])
     assert options["connect_timeout"] == 5
+    # #448: a reused connection cannot block past Gunicorn's 30-second timeout.
+    assert options["tcp_user_timeout"] == 10_000
     assert "pool" not in options
     assert configuration.get("CONN_MAX_AGE", 0) == 0
 
