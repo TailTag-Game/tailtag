@@ -44,11 +44,18 @@ appear only in these signals.
 
 ## PostgreSQL
 
-The API opens a new PostgreSQL connection for each request that uses the
-database, including every `/health/ready` check, and closes it at the end of
-the request. Each attempt adds a count of 1 to
+In Development and Staging, each Gunicorn worker keeps its PostgreSQL
+connection for up to 60 seconds (`CONN_MAX_AGE`). Before it reuses the
+connection in a new request, Django checks that the connection still works
+(`CONN_HEALTH_CHECKS`). If the check fails, Django opens a new connection.
+Local `runserver` still opens a new connection for each request.
+
+Each new connection attempt adds a count of 1 to
 `tailtag.db.connection.attempts` and one value, in milliseconds, to
-`tailtag.db.connection.duration`. A connection attempt waits at most 5
+`tailtag.db.connection.duration`. These signals count new connections, not
+requests. A busy worker opens about one connection each minute, so the count
+follows workers, restarts, and dropped connections. The duration covers only
+new connections. Reused connections add nothing to either signal. A connection attempt waits at most 5
 seconds for each address the database host name resolves to. The DNS lookup
 itself is not included, so a host with both an IPv4 and an IPv6 address can
 take about 10 seconds to fail.
@@ -89,29 +96,34 @@ aggregate query timing is an estimate.
 
 ### Connection capacity
 
-Each Gunicorn sync worker holds at most one connection, and only while it is
-handling a request. The API's peak is therefore
-`workers × replicas` connections, plus any one-off processes such as
-migrations.
+Each Gunicorn sync worker holds at most one connection. Since #448, a worker
+keeps that connection between requests for up to 60 seconds. The API's peak
+is therefore about `2 × workers` during a deploy, when the old and the new
+instance both run. Add one pre-deploy migration and each open relay or
+operator `render ssh` session.
 
-| Setting | Development (2026-09-30) |
+| Setting | Development and Staging on Render (2026-11-03) |
 | --- | --- |
-| API replicas | 1 |
-| Gunicorn workers | 1 (default; no `WEB_CONCURRENCY` or `GUNICORN_CMD_ARGS`) |
+| API instances | 1 |
+| Gunicorn workers | 3 sync workers, set in `services/api/gunicorn.conf.py` |
 | Gunicorn worker timeout | 30 seconds (default) |
-| PostgreSQL `max_connections` | 100, with 3 reserved for superusers |
+| `CONN_MAX_AGE` | 60 seconds, with `CONN_HEALTH_CHECKS` on |
+| PostgreSQL `max_connections` | 100, the Render limit for plans under 8 GB of memory |
+| Expected API peak | about 10: 6 during a deploy, 1 migration, and a few ssh sessions |
 
-The API cannot exhaust PostgreSQL's connections at this size, so
-`too_many_connections` means something else is holding them. The API has no
-connection pool, so there is no pool to exhaust and no pool-exhaustion signal.
+Render sets `WEB_CONCURRENCY=1` on the `0.5c-512mb` plan. The `workers`
+value in `gunicorn.conf.py` overrides it. The API cannot exhaust PostgreSQL's
+connections at this size, so `too_many_connections` means something else
+holds them. The API has no connection pool, so there is no pool to exhaust
+and no pool-exhaustion signal.
 
-Railway does not report PostgreSQL connection counts. To see them, run
-`SELECT count(*) FROM pg_stat_activity` on the Postgres service.
+To count connections, run `SELECT count(*) FROM pg_stat_activity` on the
+database.
 
-**Revisit this section** if the API adds persistent connections
-(`CONN_MAX_AGE`), a connection pool, PgBouncer, async workers, or raises
-workers or replicas close to `max_connections`. Pool wait and exhaustion become
-real signals then and need their own telemetry.
+Revisit this section if the API adds a connection pool, PgBouncer, async
+workers, or threads, or raises workers or instances close to
+`max_connections`. Pool wait and exhaustion then become real signals and need
+their own telemetry.
 
 ## Media storage
 

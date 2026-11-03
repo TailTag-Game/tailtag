@@ -78,6 +78,7 @@ def run_settings_import(
     inspect_clerk_configuration: bool = False,
     inspect_static_configuration: bool = False,
     inspect_tracing: bool = False,
+    inspect_database: bool = False,
     pre_import_patch: str = "",
     capture_improperly_configured: bool = False,
 ) -> subprocess.CompletedProcess[str]:
@@ -110,9 +111,16 @@ def run_settings_import(
         "import sentry_sdk; "
         "print(sentry_sdk.get_client().options.get('traces_sampler') is not None)"
     )
+    database_inspection = (
+        "from django.conf import settings; "
+        "database = settings.DATABASES['default']; "
+        "print(database['CONN_MAX_AGE'], database['CONN_HEALTH_CHECKS'])"
+    )
     command = pre_import_patch + (
         inspection
         if inspect_clerk_configuration
+        else database_inspection
+        if inspect_database
         else static_inspection
         if inspect_static_configuration
         else "import config.settings.production; " + tracing_inspection
@@ -197,6 +205,14 @@ def test_production_settings_accept_all_required_values() -> None:
     completed = run_settings_import(VALID_ENVIRONMENT)
 
     assert completed.returncode == 0, completed.stderr
+
+
+def test_production_settings_reuse_health_checked_database_connections() -> None:
+    """#448 AC1: a worker keeps its connection for 60 seconds and checks it first."""
+    completed = run_settings_import(VALID_ENVIRONMENT, inspect_database=True)
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout == "60 True\n"
 
 
 def test_production_settings_configure_production_static_delivery_without_media_leakage() -> (

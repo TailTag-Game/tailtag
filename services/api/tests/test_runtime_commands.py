@@ -5,10 +5,14 @@ from __future__ import annotations
 import json
 import re
 import shlex
+import subprocess
+import sys
 from pathlib import Path
 from typing import cast
 
 import pytest
+
+from tests.process_support import minimal_environment
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = SERVICE_ROOT.parents[1]
@@ -145,6 +149,13 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
     )
     assert gunicorn_command in production
     assert production.index(static_collection) < production.index(gunicorn_command)
+    # #448 AC7: tini is PID 1, so finished `render ssh` children are not
+    # reaped by Gunicorn and logged as worker exits.
+    assert "apt-get install --no-install-recommends -y tini" in production
+    init_entrypoint = 'ENTRYPOINT ["tini", "--"]'
+    assert init_entrypoint in production
+    assert production.index(init_entrypoint) < production.index(gunicorn_command)
+    assert "ENTRYPOINT" not in development
     assert "migrate" not in development
     assert "migrate" not in production
     assert "collectstatic" not in development
@@ -179,6 +190,28 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
         in environment_template
     )
     assert "POSTGRES_PASSWORD=tailtag-local-password" in environment_template
+
+
+def test_gunicorn_runs_three_sync_workers_over_the_render_default() -> None:
+    """#448 AC3: `gunicorn.conf.py` wins over the `WEB_CONCURRENCY=1` Render sets."""
+    resolve = (
+        "import sys; sys.argv = ['gunicorn', 'config.wsgi:application']; "
+        "from gunicorn.app.wsgiapp import WSGIApplication; "
+        "configuration = WSGIApplication().cfg; "
+        "print(configuration.workers, configuration.worker_class_str)"
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-c", resolve],
+        cwd=SERVICE_ROOT,
+        env={**minimal_environment(), "WEB_CONCURRENCY": "1"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout == "3 sync\n"
 
 
 def test_production_image_records_oci_attribution() -> None:
