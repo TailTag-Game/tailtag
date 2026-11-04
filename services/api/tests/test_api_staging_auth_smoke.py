@@ -481,10 +481,9 @@ def test_only_exact_staging_target_is_accepted_before_prompt_or_provider_access(
     assert runtime.events == []
 
 
-# Until the #452 cutover, Virginia Staging answers only on its onrender host,
-# and staging.tailtag.app still points at frozen Oregon Staging.
-RENDER_STAGING_URL = "https://tailtag-api-stg.onrender.com"
-CANONICAL_STAGING_URL = STAGING_URL
+# staging.tailtag.app serves Virginia Staging since the #452 cutover.
+RENDER_STAGING_URL = STAGING_URL
+RENDER_HOST_URL = "https://tailtag-api-stg.onrender.com"
 RENDER_STAGING_SERVICE = "srv-d0staging000000000000"
 RENDER_DEVELOPMENT_SERVICE = "srv-d0development00000000"
 RENDER_STAGING_ENVIRONMENT = {
@@ -542,13 +541,10 @@ def test_render_staging_target_runs_against_the_pinned_origin(
         {**RENDER_STAGING_ENVIRONMENT, "RENDER": "false"},
         {
             **RENDER_STAGING_ENVIRONMENT,
-            "API_BASE_URL": CANONICAL_STAGING_URL,
-            "TAILTAG_STAGING_API_BASE_URL": CANONICAL_STAGING_URL,
+            "API_BASE_URL": RENDER_HOST_URL,
+            "TAILTAG_STAGING_API_BASE_URL": RENDER_HOST_URL,
         },
-        {
-            **RENDER_STAGING_ENVIRONMENT,
-            "TAILTAG_STAGING_API_BASE_URL": CANONICAL_STAGING_URL,
-        },
+        {**RENDER_STAGING_ENVIRONMENT, "TAILTAG_STAGING_API_BASE_URL": RENDER_HOST_URL},
         {**RENDER_STAGING_ENVIRONMENT, "CLERK_STAGING_SMOKE_USER_ID": ""},
         {**RENDER_STAGING_ENVIRONMENT, **STAGING_ENVIRONMENT},
     ),
@@ -557,7 +553,7 @@ def test_render_staging_target_runs_against_the_pinned_origin(
         "development-service",
         "unpinned-service",
         "not-render",
-        "canonical-host-before-cutover",
+        "render-host-after-cutover",
         "mismatched-origins",
         "no-user",
         "mixed-hosts",

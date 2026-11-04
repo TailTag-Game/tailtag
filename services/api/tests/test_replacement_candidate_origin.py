@@ -1121,7 +1121,7 @@ def test_render_development_preflight_waits_through_a_full_render_deploy(
     assert fake_clock.elapsed < preflight._RENDER_DEPLOY_DEADLINE_SECONDS
 
 
-# staging.tailtag.app serves Render Staging since the 2026-10-30 cutover.
+# staging.tailtag.app serves Virginia Staging since the #452 cutover.
 RENDER_STAGING_ORIGIN: Final = "https://staging.tailtag.app"
 RENDER_STAGING_HOST_ORIGIN: Final = "https://tailtag-api-stg.onrender.com"
 RENDER_STAGING_IDENTITY: Final = {**IDENTITY, "deployment_id": None}
@@ -1149,11 +1149,10 @@ def test_render_staging_cli_checks_the_current_public_origin(
 
     assert preflight.main() == 0
     assert json.loads(capsys.readouterr().out) == RENDER_STAGING_IDENTITY
-    # Until the #452 cutover, the current origin is the Virginia onrender host.
     assert calls == [
-        RENDER_STAGING_HOST_ORIGIN + "/health/identity",
-        RENDER_STAGING_HOST_ORIGIN + "/health/ready",
-        RENDER_STAGING_HOST_ORIGIN + "/health/identity",
+        RENDER_STAGING_ORIGIN + "/health/identity",
+        RENDER_STAGING_ORIGIN + "/health/ready",
+        RENDER_STAGING_ORIGIN + "/health/identity",
     ]
 
 
@@ -1186,14 +1185,10 @@ def test_render_staging_preflight_rejects_identities_outside_its_target(
 def test_render_staging_origin_follows_the_cutover_phase(
     preflight: ModuleType, monkeypatch: MonkeyPatch
 ) -> None:
-    """#409 AC4/AC13, #452 AC7: one constant moves the public origin.
-
-    Until the #452 cutover, Virginia Staging answers only on its pinned onrender
-    host, and staging.tailtag.app still points at Oregon.
-    """
-    assert preflight.render_staging_origin() == RENDER_STAGING_HOST_ORIGIN
-    monkeypatch.setattr(preflight, "_RENDER_STAGING_PHASE", "canonical")
+    """#409 AC4/AC13, #452 AC17: one constant moves the public origin."""
     assert preflight.render_staging_origin() == RENDER_STAGING_ORIGIN
+    monkeypatch.setattr(preflight, "_RENDER_STAGING_PHASE", "candidate")
+    assert preflight.render_staging_origin() == RENDER_STAGING_HOST_ORIGIN
 
 
 RENDER_STAGING_SERVICE: Final = "srv-d0staging000000000000"
