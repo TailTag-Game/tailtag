@@ -85,61 +85,7 @@ projects:
         permissions:
           protection: enabled
         services:
-          - type: web
-            name: tailtag-api-staging
-            runtime: docker
-            region: oregon
-            plan: 0.5c-512mb
-            repo: https://github.com/TailTag-Game/tailtag
-            branch: main
-            dockerfilePath: ./services/api/Dockerfile
-            dockerContext: ./services/api
-            autoDeployTrigger: "off"
-            preDeployCommand: python -m config.replacement_migrate
-            healthCheckPath: /health/ready
-            envVars:
-              - key: PORT
-                value: "8000"
-              # The guarded pre-deploy migration requires this exact module.
-              - key: DJANGO_SETTINGS_MODULE
-                value: config.settings.production
-              - key: PGSSLMODE
-                value: require
-              - key: DATABASE_URL
-                fromDatabase:
-                  name: tailtag-postgres-staging
-                  property: connectionString
-              - key: DJANGO_SECRET_KEY
-                generateValue: true
-              - key: DJANGO_ALLOWED_HOSTS
-                sync: false
-              - key: DJANGO_CSRF_TRUSTED_ORIGINS
-                sync: false
-              # staging.tailtag.app serves Render Staging since 2026-10-30 (#409).
-              - key: TAILTAG_STAGING_TARGET_PHASE
-                value: canonical
-              - key: CLERK_AUTHENTICATION_ENABLED
-                value: "true"
-              - key: CLERK_JWT_KEY
-                sync: false
-              - key: CLERK_AUTHORIZED_PARTIES
-                value: https://accounts.staging.tailtag.app,https://simulator.staging.tailtag.app
-              - key: MEDIA_STORAGE_ENDPOINT_URL
-                sync: false
-              - key: MEDIA_STORAGE_BUCKET_NAME
-                sync: false
-              - key: MEDIA_STORAGE_REGION
-                value: auto
-              - key: MEDIA_STORAGE_ACCESS_KEY_ID
-                sync: false
-              - key: MEDIA_STORAGE_SECRET_ACCESS_KEY
-                sync: false
-              - key: SENTRY_DSN
-                sync: false
-              - key: SENTRY_TRACES_SAMPLE_RATE
-                value: "1.0"
-          # Virginia Staging (ADR 0012, #452). It replaces the Oregon service
-          # above after the cutover, and the Oregon entries then go away.
+          # Virginia Staging (ADR 0012, #452).
           - type: web
             name: tailtag-api-stg
             runtime: docker
@@ -194,11 +140,6 @@ projects:
               - key: SENTRY_TRACES_SAMPLE_RATE
                 value: "1.0"
         databases:
-          - name: tailtag-postgres-staging
-            region: oregon
-            plan: 0.1c-256mb
-            postgresMajorVersion: "18"
-            ipAllowList: []
           - name: tailtag-postgres-stg
             region: virginia
             plan: 0.1c-256mb
