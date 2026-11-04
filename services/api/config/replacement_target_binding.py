@@ -56,7 +56,7 @@ _RENDER_ENVIRONMENTS: Final = ("development", "staging")
 _RENDER_SERVICE_ID: Final = re.compile(r"srv-[a-z0-9]{1,60}")
 _EXPECTED_RENDER_DIGESTS: Final[dict[str, str]] = {
     "development": "64d011b1894192693c980dd0f18d90965df3f56b45b2c604a2a79e2ca2617010",
-    # Virginia Staging (ADR 0012, #452). Oregon Staging is frozen.
+    # Virginia Staging (ADR 0012, #452).
     "staging": "38c9d94cbcb405005988ca158bc4c81e23a066b13b538e8d8aa7148963a94470",
 }
 _EXPECTED_RENDER_HOST_DIGESTS: Final[dict[str, str]] = {

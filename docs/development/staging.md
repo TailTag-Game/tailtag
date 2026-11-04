@@ -472,11 +472,13 @@ verified, and the custom domain after it. So in the `canonical` phase,
 readiness on Render allows exactly these two hosts. Keep the Render subdomain
 on.
 
-After the #452 cutover, Oregon Staging (`tailtag-api-staging`) stays as the
-rollback target until #452 removes it. Do not promote, reset, or run the
-simulator against Oregon Staging. To roll back, add `staging.tailtag.app` on
-the Oregon service again, then point the Porkbun `staging` CNAME back to
-`tailtag-api-staging.onrender.com`. Railway Staging stays frozen until #412.
+On 2026-11-04, the owner ended the #452 rollback window early and deleted
+Oregon Staging (`tailtag-api-staging` and `tailtag-postgres-staging`) without
+a logical export. No earlier Render Staging service remains as a rollback
+target. To recover Virginia Staging, use
+[application rollback](#application-rollback-on-render) or
+[PITR](#restore-the-database-with-pitr). Railway Staging stays frozen until
+#412.
 
 ## Render Staging operations and recovery (#410)
 
