@@ -223,7 +223,10 @@ readiness semantics belong to OR-4 and migration/recovery semantics to OR-7.
 ## Render Staging promotion (#409)
 
 [ADR 0011](../adrs/0011-move-v0-hosting-from-railway-to-render.md) moves
-Staging to Render. `scripts/api_staging_render_promote.py` is the only
+Staging to Render. Since 2026-11-04, Render Staging runs in the Virginia
+region ([ADR 0012](../adrs/0012-run-staging-and-production-in-render-virginia.md)),
+as `tailtag-api-stg` and `tailtag-postgres-stg`.
+`scripts/api_staging_render_promote.py` is the only
 routine path that deploys Render Staging. It keeps every gate of the
 [#202 contract](../specs/2026-09-16-controlled-staging-promotion.md). The
 [promotion contract](replacement-staging-promotion-contract.md#render-staging-identity-409)
@@ -242,7 +245,7 @@ You need these items:
   it at a hidden prompt for each run.
 - The key `render_staging_api_service_id` in the owner-only
   `~/.config/tailtag/staging-clean-rebuild-targets.json` manifest. Its value
-  is the `srv-…` part of the `tailtag-api-staging` dashboard URL. The command
+  is the `srv-…` part of the `tailtag-api-stg` dashboard URL. The command
   accepts only the ID that matches the code-owned #407 pin. It never reads the
   target from an argument or an environment variable.
 - A reviewed full commit SHA S. The #202 eligibility rules apply without
@@ -267,7 +270,7 @@ uv --directory services/api run --locked --no-sync python ../../scripts/api_stag
 
 Before submission, the command stops if one of these checks fails:
 
-- The service settings from the Render API: the name `tailtag-api-staging`,
+- The service settings from the Render API: the name `tailtag-api-stg`,
   this repository, branch `main`, auto-deploy `off`, a Docker web service that
   is not suspended, `/health/ready`, and the pre-deploy command
   `python -m config.replacement_migrate`.
@@ -338,7 +341,7 @@ uv --directory services/api run --locked --no-sync python ../../scripts/api_stag
 
 Render has no command that copies service variables into a local process. So
 the authenticated and media smokes run locally. Copy each value from the
-`tailtag-api-staging` **Environment** page. Run each block in zsh, the default
+`tailtag-api-stg` **Environment** page. Run each block in zsh, the default
 macOS shell, like the other blocks on this page.
 
 The smoke verifies the session token with the API's own verifier, which loads
@@ -420,42 +423,60 @@ unset MEDIA_STORAGE_ENDPOINT_URL MEDIA_STORAGE_BUCKET_NAME \
 ```
 
 Each smoke fails unless the service ID matches the pinned Render Staging
-service and the confirmation names Render Staging. Since the 2026-10-30
-switch, the public origin is `https://staging.tailtag.app`. Before the switch,
-it was `https://tailtag-api-staging.onrender.com`.
+service and the confirmation names Render Staging. The public origin is
+`https://staging.tailtag.app`. Before a cutover to a new service, the smokes
+use the onrender host of that service, for example
+`https://tailtag-api-stg.onrender.com`.
 
-### Move staging.tailtag.app to Render
+### Move staging.tailtag.app to a new Render service
 
-The owner approved the switch on 2026-10-30, and #409 records the date. Run
-the steps in this order:
+The #409 cutover moved `staging.tailtag.app` from Railway to Render Oregon on
+2026-10-30. The #452 cutover moved it to Render Virginia on 2026-11-04. A
+future move to a new service uses the #452 order.
 
-1. Merge the cutover change. It sets the Render Staging phase to `canonical`.
-2. On the `tailtag-api-staging` **Environment** page, set
-   `DJANGO_ALLOWED_HOSTS` to
-   `staging.tailtag.app,tailtag-api-staging.onrender.com`. Set
-   `DJANGO_CSRF_TRUSTED_ORIGINS` to `https://staging.tailtag.app`. Choose
-   **Save only**, so that no deploy starts with a half-changed profile.
+Before the cutover, make sure that the new service passes the preflight, the
+authenticated smoke, and the media smoke on its onrender host. Its database
+also needs the baseline. See
+[Prepare a new Render Staging database](#prepare-a-new-render-staging-database-452).
+
+Run the steps in this order:
+
+1. Merge the cutover change. It sets the Render Staging phase to `canonical`
+   in `render.yaml` and in `scripts/api_staging_preflight.py`.
+2. On the **Environment** page of the new service, set
+   `DJANGO_ALLOWED_HOSTS` to `staging.tailtag.app,<service>.onrender.com`.
+   Set `DJANGO_CSRF_TRUSTED_ORIGINS` to `https://staging.tailtag.app`.
+   Choose **Save only**, so that no deploy starts with a half-changed profile.
 3. Run the Blueprint sync. It deploys the latest `main` commit with the new
-   phase. Do not promote yet. In the `canonical` phase, the promotion checks
-   `https://staging.tailtag.app`, and that name still points to Railway.
-4. Under **Settings > Custom Domains**, add `staging.tailtag.app`.
-5. In Porkbun, point the `staging` CNAME record to
-   `tailtag-api-staging.onrender.com`. Remove any AAAA record for the name.
-6. In Render, verify the domain. Wait for the certificate.
-7. Promote the intended SHA. The sync deploy in step 3 is uncontrolled, so
+   phase. Wait until the deploy is live.
+4. Under **Settings > Custom Domains** of the new service, add
+   `staging.tailtag.app`.
+5. Make sure that `https://staging.tailtag.app/health/ready` returns 200 and
+   that `/health/identity` names the commit from step 3.
+6. In Porkbun, point the `staging` CNAME record to `<service>.onrender.com`.
+   Remove any AAAA record for the name.
+7. In Render, wait for the certificate.
+8. Promote the intended SHA. The sync deploy in step 3 is uncontrolled, so
    this receipt is the first one that counts.
-8. Run the preflight and the authenticated smoke against
+9. Run the preflight and the authenticated smoke against
    `https://staging.tailtag.app`.
+
+Do not add the custom domain before step 3 is live. Render verifies a domain
+that it already serves at once, without a DNS change. From that moment,
+Render sends `staging.tailtag.app` to the new service. A service in the
+`candidate` phase refuses that host, so the name returns 400. This happened
+for about 11 minutes during the #452 cutover.
 
 Render health checks send the `onrender.com` host until the domain is
 verified, and the custom domain after it. So in the `canonical` phase,
 readiness on Render allows exactly these two hosts. Keep the Render subdomain
 on.
 
-After the switch, Railway Staging stays as the rollback target until #412.
-Do not promote, reset, or run the simulator against Railway Staging. To roll
-back, point the Porkbun `staging` CNAME back to its Railway target. Railway
-still holds its custom domain and its `canonical` settings.
+After the #452 cutover, Oregon Staging (`tailtag-api-staging`) stays as the
+rollback target until #452 removes it. Do not promote, reset, or run the
+simulator against Oregon Staging. To roll back, add `staging.tailtag.app` on
+the Oregon service again, then point the Porkbun `staging` CNAME back to
+`tailtag-api-staging.onrender.com`. Railway Staging stays frozen until #412.
 
 ## Render Staging operations and recovery (#410)
 
@@ -563,7 +584,7 @@ Use this procedure when a reset reports `maintenance unknown`,
 `indeterminate` after a reset. A retained gate is an intentional outage.
 
 1. Do not run the reset again. Do not start a deploy.
-2. In the Render dashboard, open `tailtag-api-staging`, then **Shell**.
+2. In the Render dashboard, open `tailtag-api-stg`, then **Shell**.
 3. Read the connection flag from the `postgres` database:
 
    ```bash
@@ -674,11 +695,49 @@ after those sessions show only that the roles stay valid.
 group block a new provision, and `inspect` then reports
 `FAIL_LIMITED_OPERATOR_STATE`. The live #410 run skipped it for this reason.
 
+### Prepare a new Render Staging database (#452)
+
+A new Staging database starts with the schema only. The #452 move rebuilt the
+baseline on `tailtag-postgres-stg` in this order. A future new database uses
+the same order.
+
+1. Pin the new database binding digest in a PR. Until that pin lands, a
+   promotion stops at `FAIL_GUARD`. Promote the pin commit. The first
+   migration on the new database runs in this promotion.
+2. In the **Shell** of the new service, run a read-only probe. It must show
+   that the app role owns the database and is not a superuser, and that no
+   sentinel row exists. It also lists the ordinary users and the objects under
+   `images/`. The #452 probe is in `.refinement/452-ac10-probe.md` of the
+   maintainer checkout.
+3. Make sure that the reset owner and the reset catcher both have a clean
+   ordinary User. If one is missing, run the
+   [authenticated smoke](#render-staging-smoke-checks) once as that Clerk
+   account. The smoke creates the User through one normal API call.
+4. Make sure that the designated image exists. Render Staging services share
+   one R2 bucket, so the image key from the earlier service stays valid.
+5. Back up `~/.config/tailtag/staging-reset-render.env`. Then change four
+   values: a new `TAILTAG_STAGING_RESET_ID` UUID, and the database system ID,
+   host, and name from the probe. Keep the file mode `0600`.
+6. Run `scripts/api_staging_reset_render_digest.py` and pin its output as
+   `_EXPECTED_RENDER_RESET_DIGEST` in a PR.
+7. On the **Environment** page of the new service, choose **Add from .env**,
+   paste the nine values, and choose **Save only**.
+8. Promote the pin commit. Then run the `provision`, `reset`, `reconcile`, and
+   `inspect` jobs. Before the operators exist, `inspect` reports
+   `FAIL_MANAGED_OPERATOR_MISSING`.
+9. Run `managed-create`, then `lifecycle-provision`, over `render ssh`. After
+   `lifecycle-provision`, `inspect` passes.
+10. After the cutover, register the simulator pools again with
+    `task sim-pool-provision`. Each run must print `created=0`, because the
+    Clerk accounts already exist.
+
 ### Restore the database with PITR
 
 The Render recovery path for the Staging database is a point-in-time recovery
 (PITR) into a new database. The #207 logical-dump drill has no Render version.
 Render starts a PITR only from the dashboard, so no job or command starts it.
+The PITR history of `tailtag-postgres-stg` starts at its creation on
+2026-11-04 at 06:28:38Z.
 
 Render facts, from the
 [Render backup docs](https://render.com/docs/postgresql-backups):
@@ -690,7 +749,7 @@ Render facts, from the
 - **Customize Recovery** sets the plan, the project, and the environment.
 
 Keep the new database in the Staging environment. Staging has network
-isolation, so `tailtag-api-staging` reaches only databases in its own
+isolation, so `tailtag-api-stg` reaches only databases in its own
 environment by their internal URL.
 
 To practice a restore and check it:
@@ -700,7 +759,7 @@ To practice a restore and check it:
 2. Run the `row-counts` job. Its result line holds the count of every
    `public` table, the `counts_sha256` digest, and `captured_at`, the time T
    in UTC.
-3. At least 10 minutes later, open **Recovery** on `tailtag-postgres-staging`,
+3. At least 10 minutes later, open **Recovery** on `tailtag-postgres-stg`,
    then **Restore Database**. Choose the first time that the dashboard accepts
    at or after T. In **Customize Recovery**, choose the cheapest plan and the
    smallest size, the TailTag project, and the Staging environment.
@@ -755,7 +814,7 @@ Run the rollback in this order:
    unset SERVICE_ID
    ```
 
-3. In the dashboard, open the `tailtag-api-staging` deploy list, find R, and
+3. In the dashboard, open the `tailtag-api-stg` deploy list, find R, and
    click **Rollback**, then **Rollback to this deploy**. Do this only once. If
    it fails, do not retry.
 4. In the log of D, record whether the pre-deploy step printed `PASS`.
@@ -780,13 +839,13 @@ every connection from outside Render. The Blueprint `render.yaml` declares
 database:
 
 ```bash
-render pg get tailtag-postgres-staging -o json | jq -c '.data | {name, status, ipAllowList}'
+render pg get tailtag-postgres-stg -o json | jq -c '.data | {name, status, ipAllowList}'
 ```
 
 If the list is not `[]`, run
-`render pg update tailtag-postgres-staging --clear-ip-allow-list`, then check
-again. On 2026-11-01, both `tailtag-postgres-staging` and
-`tailtag-postgres-development` showed `[]`.
+`render pg update tailtag-postgres-stg --clear-ip-allow-list`, then check
+again. On 2026-11-01, the Development database showed `[]`. On 2026-11-04,
+`tailtag-postgres-stg` showed `[]`.
 
 ## Controlled promotion acceptance evidence (2026-09-16)
 
