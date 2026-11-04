@@ -12,7 +12,7 @@ TailTag is a monorepo for the community-led rebuild of a social convention game.
 - Clerk as the player authentication authority
 - A TailTag-owned internal application user identity for domain relationships, separate from Clerk
 - A modular monolith backend
-- Render for V0 backend hosting ([ADR 0011](adrs/0011-move-v0-hosting-from-railway-to-render.md)). Development and Staging run on Railway until the move finishes.
+- Render for V0 backend hosting ([ADR 0011](adrs/0011-move-v0-hosting-from-railway-to-render.md)). Staging and Production use the Virginia region, and Development uses Oregon ([ADR 0012](adrs/0012-run-staging-and-production-in-render-virginia.md)). Development and Staging run on Railway until the move finishes.
 
 The historical Django POC has been promoted and reset at `services/api/`. Its POC-only authentication, session/CSRF behavior, fursuit fields, routes, deletion behavior, and other experimental choices were evaluation evidence, not V0 requirements.
 
@@ -274,6 +274,7 @@ Architecture decisions are recorded in:
 - [0007 — Use Railway and Sentry for V0 observability](adrs/0007-v0-observability-backend.md) (proposed)
 - [0008 — Use asyncio and httpx for headless simulation](adrs/0008-use-asyncio-httpx-for-headless-simulation.md)
 - [0010 — Keep Railway for V0 hosting after the GCP evaluation](adrs/0010-keep-railway-for-v0-hosting-after-gcp-evaluation.md) (superseded by 0011)
-- [0011 — Move V0 hosting from Railway to Render](adrs/0011-move-v0-hosting-from-railway-to-render.md)
+- [0011 — Move V0 hosting from Railway to Render](adrs/0011-move-v0-hosting-from-railway-to-render.md) (region clause superseded by 0012)
+- [0012 — Run Staging and Production in the Render Virginia region](adrs/0012-run-staging-and-production-in-render-virginia.md)
 
 See [the ADR index](adrs/README.md) for the decision threshold and format.
