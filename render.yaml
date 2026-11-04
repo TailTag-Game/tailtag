@@ -141,7 +141,7 @@ projects:
           # Virginia Staging (ADR 0012, #452). It replaces the Oregon service
           # above after the cutover, and the Oregon entries then go away.
           - type: web
-            name: tailtag-api-staging-virginia
+            name: tailtag-api-stg
             runtime: docker
             region: virginia
             plan: 0.5c-512mb
@@ -162,7 +162,7 @@ projects:
                 value: require
               - key: DATABASE_URL
                 fromDatabase:
-                  name: tailtag-postgres-staging-virginia
+                  name: tailtag-postgres-stg
                   property: connectionString
               - key: DJANGO_SECRET_KEY
                 generateValue: true
@@ -200,7 +200,7 @@ projects:
             plan: 0.1c-256mb
             postgresMajorVersion: "18"
             ipAllowList: []
-          - name: tailtag-postgres-staging-virginia
+          - name: tailtag-postgres-stg
             region: virginia
             plan: 0.1c-256mb
             postgresMajorVersion: "18"
