@@ -65,9 +65,9 @@ _EXPECTED_RENDER_HOST_DIGESTS: Final[dict[str, str]] = {
 }
 # The owner computes this digest from their private Render reset file with
 # scripts/api_staging_reset_render_digest.py. Empty admits no Render reset
-# configuration. Pinned for the fresh Render Staging baseline (#410 AC5).
+# configuration. Pinned for the Virginia Staging baseline (ADR 0012, #452).
 _EXPECTED_RENDER_RESET_DIGEST: Final[str] = (
-    "f8ff2ea4e1cba6b6230c3d361a05914f4fc8e45edc912c4be17488233b32c0a6"
+    "3c974ba3ad7785c34f45395bffa625f327f263b2da642d7641b3af450b9c022f"
 )
 RENDER_RESET_NAMES: Final = (
     "TAILTAG_STAGING_RESET_ENABLED",
