@@ -27,9 +27,9 @@ until #412 retires Railway. The rest of this guide describes Railway.
 | Item | Target |
 | --- | --- |
 | Blueprint | `render.yaml`, project `tailtag`, environment `development` |
-| API service | `tailtag-api-development` |
-| Database | `tailtag-postgres-development` |
-| Public API | `https://tailtag-api-development.onrender.com` |
+| API service | `tailtag-api-dev` |
+| Database | `tailtag-postgres-dev` |
+| Public API | `https://tailtag-api-development.onrender.com` (the host keeps the original service name) |
 
 ### Delivery
 
@@ -80,7 +80,7 @@ word. After a `FAIL_MIGRATION`, do these steps:
 
 1. Do not start the deploy again. A retry can apply more of a partial
    migration.
-2. Open the **Shell** tab of `tailtag-api-development`. The shell runs the
+2. Open the **Shell** tab of `tailtag-api-dev`. The shell runs the
    previous version, which still serves traffic.
 3. Run
    `python manage.py showmigrations --settings=config.settings.production`.
@@ -108,7 +108,7 @@ task api-auth-smoke
 
 Render has no command that copies service variables into a local process. So
 the media smoke runs locally with values that you enter at hidden prompts.
-Copy each value from the `tailtag-api-development` **Environment** page. The
+Copy each value from the `tailtag-api-dev` **Environment** page. The
 service ID is the `srv-…` part of the dashboard URL.
 
 Run this block in bash. In zsh, `read -p` reads from a coprocess and does not
@@ -139,7 +139,7 @@ Development service.
 
 ### Development operator on Render
 
-Open the **Shell** tab of `tailtag-api-development` in the Render dashboard.
+Open the **Shell** tab of `tailtag-api-dev` in the Render dashboard.
 Run:
 
 ```text
