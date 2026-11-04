@@ -14,7 +14,8 @@ _EXPECTED_BINDING_DIGESTS: Final = {
 }
 _EXPECTED_RENDER_BINDING_DIGESTS: Final[dict[str, str]] = {
     "development": "fc7b82cb795038b14c4fc120c86a6de75dbedaf457fac60cfd7b42557f55e484",
-    "staging": "d5a9b31d3ead279e72b97068c2139d306901411dc958eba6e118332a6323a53c",
+    # tailtag-postgres-stg in Virginia (ADR 0012, #452).
+    "staging": "a1e2b4ed0ccb407e7c2b88c22a693d0565c77e9a4d46e2f4f3e1dcfade402e9b",
 }
 
 
