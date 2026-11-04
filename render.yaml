@@ -170,10 +170,9 @@ projects:
                 sync: false
               - key: DJANGO_CSRF_TRUSTED_ORIGINS
                 sync: false
-              # Only the onrender host is allowed until the #452 cutover moves
-              # staging.tailtag.app here.
+              # staging.tailtag.app serves Virginia Staging since the #452 cutover.
               - key: TAILTAG_STAGING_TARGET_PHASE
-                value: candidate
+                value: canonical
               - key: CLERK_AUTHENTICATION_ENABLED
                 value: "true"
               - key: CLERK_JWT_KEY
