@@ -33,7 +33,8 @@ API_KEY = "rnd_SyntheticRenderKey0123456789"
 RUN_ID = 35179642379
 CREATED_AT = "2026-10-30T12:00:00.000000Z"
 # staging.tailtag.app serves Render Staging since the 2026-10-30 cutover.
-RENDER_ORIGIN = "https://staging.tailtag.app"
+# The current public origin: the Virginia onrender host until the #452 cutover.
+RENDER_ORIGIN = "https://tailtag-api-stg.onrender.com"
 RENDER_IDENTITY = {
     "source_sha": SOURCE_SHA,
     "deployment_id": None,
@@ -45,7 +46,7 @@ def service(**overrides: object) -> dict[str, object]:
     """Return the Render service fields that the preflight reads back."""
     value: dict[str, object] = {
         "id": SERVICE_ID,
-        "name": "tailtag-api-staging",
+        "name": "tailtag-api-stg",
         "ownerId": OWNER_ID,
         "type": "web_service",
         "repo": "https://github.com/TailTag-Game/tailtag",
@@ -282,6 +283,8 @@ def _details(**overrides: object) -> dict[str, object]:
         ("service", service(autoDeployTrigger="checksPass")),
         ("service", service(branch="feature")),
         ("service", service(name="tailtag-api-development")),
+        # Oregon Staging is frozen after the #452 pin swap.
+        ("service", service(name="tailtag-api-staging")),
         ("service", service(repo="https://github.com/other/tailtag")),
         ("service", service(suspended="suspended")),
         ("service", service(id="srv-d0other0000000000000")),
@@ -308,6 +311,7 @@ def _details(**overrides: object) -> dict[str, object]:
         "auto-deploy-on",
         "other-branch",
         "other-name",
+        "oregon-name",
         "other-repo",
         "suspended",
         "other-service",

@@ -1,7 +1,7 @@
 """Carry one simulation relay request to Render Staging (#411 AC3, AC5).
 
-The relays reach the Render Staging API over plain `ssh` to the Oregon
-gateway, with the gateway host key pinned here. The first call of a command or
+The relays reach the Render Staging API over plain `ssh` to the Virginia
+gateway (ADR 0012), with the gateway host key pinned here. The first call of a command or
 run uses the service user, and the remote answer names the instance that ran
 it. Later calls name that instance and use its exact ssh user. If the instance
 is gone, ssh fails. If it was replaced, the remote check answers
@@ -25,10 +25,10 @@ from scripts import api_staging_reset_ssh as _reset_ssh
 _run = _reset_ssh._run  # pyright: ignore[reportPrivateUsage]
 _json_loads = _reset_ssh._json_loads  # pyright: ignore[reportPrivateUsage]
 
-GATEWAY: Final = "ssh.oregon.render.com"
-# Render documents this key as SHA256:KkZPgnApmttFYSkdJsCi7B01sgZPMI6kY53MDbbanGM.
+GATEWAY: Final = "ssh.virginia.render.com"
+# Render documents this key as SHA256:NCpSwboPnqL/Nvyy2Qc8Kgzpc3P/f3w5wDphhc+UZO0.
 _GATEWAY_KEY: Final = (
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFON8eay2FgHDBIVOLxWn/AWnsDJhCVvlY1igWEFoLD2"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ6uO0jKQX9IjefnLz+pxTgfPhsPBhNuvxmvCFrxqxAM"
 )
 _INSTANCE: Final = re.compile(r"(srv-[a-z0-9]{1,60})-[0-9a-f]{1,32}-([a-z0-9]{5})")
 # The remote answers without an instance only before its target check passes.
@@ -54,8 +54,12 @@ _SSH_OPTIONS: Final = (
 
 
 def active() -> bool:
-    """True once Render serves the canonical Staging origin (#409)."""
-    return _staging_preflight._RENDER_STAGING_PHASE == "canonical"  # pyright: ignore[reportPrivateUsage]
+    """True while Render serves Staging in either phase (#409, #452).
+
+    Before the #452 cutover, the Virginia pools are rebuilt over these relays
+    in the candidate phase. The Railway relay path stays frozen until #412.
+    """
+    return _staging_preflight._RENDER_STAGING_PHASE in {"candidate", "canonical"}  # pyright: ignore[reportPrivateUsage]
 
 
 def _service_id() -> str:

@@ -28,8 +28,8 @@ IDENTITY: dict[str, object] = {
     "environment": "staging",
 }
 GATEWAY_KEY = (
-    "ssh.oregon.render.com ssh-ed25519 "
-    "AAAAC3NzaC1lZDI1NTE5AAAAIFON8eay2FgHDBIVOLxWn/AWnsDJhCVvlY1igWEFoLD2\n"
+    "ssh.virginia.render.com ssh-ed25519 "
+    "AAAAC3NzaC1lZDI1NTE5AAAAIJ6uO0jKQX9IjefnLz+pxTgfPhsPBhNuvxmvCFrxqxAM\n"
 )
 CALLER_REQUEST: dict[str, object] = {
     "operation": "status",
@@ -122,7 +122,7 @@ def test_first_call_uses_the_service_user_and_relays_the_instance(
         "ProxyCommand=none",
     } <= options
     assert call["known_hosts"] == GATEWAY_KEY
-    assert arguments[-2] == f"{SERVICE}@ssh.oregon.render.com"
+    assert arguments[-2] == f"{SERVICE}@ssh.virginia.render.com"
     assert shlex.split(arguments[-1])[:3] == ["/app/.venv/bin/python", "-I", "-c"]
     assert call["input"] == {**CALLER_REQUEST, "identity": IDENTITY}
     assert "privatepool" not in " ".join(arguments)
@@ -137,7 +137,7 @@ def test_a_pinned_call_uses_the_exact_instance_user(
 
     assert (code, response) == (0, {**PASS, "instance": INSTANCE})
     [call] = calls
-    assert call["arguments"][-2] == f"{SERVICE}-k7qws@ssh.oregon.render.com"
+    assert call["arguments"][-2] == f"{SERVICE}-k7qws@ssh.virginia.render.com"
     assert call["input"]["expected_instance"] == INSTANCE
 
 
@@ -307,3 +307,13 @@ def test_each_in_image_bootstrap_prints_the_instance_it_ran_on(
         "data": {},
         "instance": INSTANCE,
     }
+
+
+@pytest.mark.parametrize("phase", ["candidate", "canonical"])
+def test_relays_reach_render_staging_in_both_phases(
+    relay: ModuleType, monkeypatch: pytest.MonkeyPatch, phase: str
+) -> None:
+    """#452 AC11: the pools move to Virginia before the cutover, so the relays
+    must not fall back to the frozen Railway path in the candidate phase."""
+    monkeypatch.setattr(relay._staging_preflight, "_RENDER_STAGING_PHASE", phase)
+    assert relay.active() is True
