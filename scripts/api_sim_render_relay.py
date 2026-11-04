@@ -56,10 +56,14 @@ _SSH_OPTIONS: Final = (
 def active() -> bool:
     """True while Render serves Staging in either phase (#409, #452).
 
-    Before the #452 cutover, the Virginia pools are rebuilt over these relays
-    in the candidate phase. The Railway relay path stays frozen until #412.
+    The Railway relay path stays frozen until #412, so no phase falls back to
+    it. `execute` refuses every request until the canonical phase.
     """
     return _staging_preflight._RENDER_STAGING_PHASE in {"candidate", "canonical"}  # pyright: ignore[reportPrivateUsage]
+
+
+def _canonical() -> bool:
+    return _staging_preflight._RENDER_STAGING_PHASE == "canonical"  # pyright: ignore[reportPrivateUsage]
 
 
 def _service_id() -> str:
@@ -96,6 +100,11 @@ def execute(
     timeout: int,
 ) -> dict[str, object]:
     """Run one relay request on the Render Staging instance; any deviation raises."""
+    # The simulator targets only staging.tailtag.app. Before the #452 cutover
+    # that name still serves Oregon, so a relay to the Virginia instance would
+    # split one run across two databases. Refuse until the canonical phase.
+    if not _canonical():
+        return {"result": "FAIL_TARGET", "data": {}}
     identity = _identity()
     if "expected_identity" in request and request["expected_identity"] != identity:
         return {"result": "FAIL_TARGET", "data": {}}
