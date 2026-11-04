@@ -1,6 +1,6 @@
 # Move V0 hosting from Railway to Render
 
-**Status:** accepted (2026-10-29)
+**Status:** accepted (2026-10-29). [ADR 0012](0012-run-staging-and-production-in-render-virginia.md) supersedes its region clause (2026-11-04).
 
 This ADR supersedes [ADR 0010](0010-keep-railway-for-v0-hosting-after-gcp-evaluation.md). It also replaces the Railway choice in [ADR 0004](0004-use-railway-for-v0-hosting.md).
 
