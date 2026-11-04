@@ -249,7 +249,7 @@ To stop a session's privileged authority from anywhere, revoke the host's CLI se
 
 ### Render session
 
-On Render Staging, the relays need one Render credential on the host: a per-session SSH key. The relays run plain `ssh` to `ssh.oregon.render.com` and pin the gateway host key `SHA256:KkZPgnApmttFYSkdJsCi7B01sgZPMI6kY53MDbbanGM` in code. The host holds no Render CLI, no CLI login and no API key. `run-local --platform render` refuses to start in any of these cases:
+On Render Staging, the relays need one Render credential on the host: a per-session SSH key. The relays run plain `ssh` to the Virginia gateway `ssh.virginia.render.com` (ADR 0012) and pin the gateway host key `SHA256:NCpSwboPnqL/Nvyy2Qc8Kgzpc3P/f3w5wDphhc+UZO0` in code. The host holds no Render CLI, no CLI login and no API key. `run-local --platform render` refuses to start in any of these cases:
 
 - `RENDER_API_KEY` or `RENDER_CLI_CONFIG_DIR` is set.
 - `~/.render/cli.yaml` exists. That file is the Render CLI login.
@@ -259,7 +259,7 @@ On Render Staging, the relays need one Render credential on the host: a per-sess
 #### One-time Render setup
 
 1. Make sure that 2FA is on for the maintainer's Render account.
-2. Install a release and a workspace from #446 (`0115504`) or later. Earlier releases have only the Railway relays.
+2. Install a release and a workspace from #455 or later. Earlier releases have only the Railway relays or the Oregon Render relays.
 3. On the host, add the key `render_staging_api_service_id` to `~/.config/tailtag/staging-clean-rebuild-targets.json`. Copy its value from the maintainer's own manifest. Keep the file mode 0600. The file then holds six keys: the five `rebuild_*` identifiers from the [one-time setup](#one-time-setup) and this Render key. The Render relays refuse to run without it.
 4. Make sure that `command -v render` prints nothing and that `~/.render` and `~/.railway` do not exist.
 5. Run `ls -la ~/.ssh`. It must hold no private key: only `authorized_keys`, and `config` if it exists.
@@ -269,7 +269,7 @@ On Render Staging, the relays need one Render credential on the host: a per-sess
 Do not start a session unless the Render Dashboard is reachable from a second device, because the Dashboard is the [Render kill switch](#render-kill-switch). Do steps 1 to 5 of the [Railway session start](#session-start) first. Then do these steps:
 
 1. Run `export PATH="/srv/tailtag-simulator/tools/bin:$PATH"`. Do not set `RAILWAY_NO_AUTO_UPDATE` or any `RENDER_` variable.
-2. Run the first negative control (#411 AC9). No `Host ssh.oregon.render.com` block exists yet, so ssh offers its default keys:
+2. Run the first negative control (#411 AC9). No `Host ssh.virginia.render.com` block exists yet, so ssh offers its default keys:
 
    ```sh
    cd "/srv/tailtag-simulator/operator/$SIMULATOR_SHA"
@@ -279,7 +279,7 @@ Do not start a session unless the Render Dashboard is reachable from a second de
 
    The relay must print `FAIL_LAUNCHER`. If it prints `PASS`, a default key on the host can reach Render. Stop and find that key.
 3. Generate an ed25519 key with the comment `tailtag-sim-<date>` in the chosen location.
-4. Add a `Host ssh.oregon.render.com` block to `~/.ssh/config` with `IdentityFile` set to that key, `IdentitiesOnly yes` and `ForwardAgent no`. The relays bring their own pinned host key, so `known_hosts` needs no entry.
+4. Add a `Host ssh.virginia.render.com` block to `~/.ssh/config` with `IdentityFile` set to that key, `IdentitiesOnly yes` and `ForwardAgent no`. The relays bring their own pinned host key, so `known_hosts` needs no entry.
 5. Run the command from step 2 again. The new key is not on Render yet, so the relay must print `FAIL_LAUNCHER`.
 6. In the Render Dashboard, open Account Settings, then SSH Public Keys. Remove any leftover key whose name starts with `tailtag-sim-`. That prefix is reserved for session keys. Add the session public key with the name `tailtag-sim-<date>`.
 7. Run the command from step 2 again. It must print `PASS` and an `instance` value. Record all three results.
@@ -292,7 +292,7 @@ The session end is mandatory after any exit, including a crash or a reboot.
 1. In the Render Dashboard, remove the session key `tailtag-sim-<date>`.
 2. With the key file and the `Host` block still in place, run the command from step 2 of the session start. It must print `FAIL_LAUNCHER`. If it prints `PASS`, the key is still on Render. Remove it again, and repeat this step.
 3. If the private key still exists, run `shred -u` on it. Remove the public key.
-4. Remove the `Host ssh.oregon.render.com` block from `~/.ssh/config`.
+4. Remove the `Host ssh.virginia.render.com` block from `~/.ssh/config`.
 5. On the Mac, open the SSH Public Keys page in the Dashboard. Make sure that no `tailtag-sim-` key remains.
 
 #### Render kill switch

@@ -130,7 +130,7 @@ def _preflight(key: str, service_id: str) -> None:
         raise ValueError("staging configuration invalid")
     if not (
         service.get("id") == service_id
-        and service.get("name") == "tailtag-api-staging"
+        and service.get("name") == "tailtag-api-stg"
         and service.get("type") == "web_service"
         and service.get("repo") == "https://github.com/TailTag-Game/tailtag"
         and service.get("branch") == "main"

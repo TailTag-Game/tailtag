@@ -56,11 +56,12 @@ _RENDER_ENVIRONMENTS: Final = ("development", "staging")
 _RENDER_SERVICE_ID: Final = re.compile(r"srv-[a-z0-9]{1,60}")
 _EXPECTED_RENDER_DIGESTS: Final[dict[str, str]] = {
     "development": "64d011b1894192693c980dd0f18d90965df3f56b45b2c604a2a79e2ca2617010",
-    "staging": "19b4021269c4003848c9aa8b9373037bd0d2c5fd00a2f7e17d13b6060d13d405",
+    # Virginia Staging (ADR 0012, #452). Oregon Staging is frozen.
+    "staging": "38c9d94cbcb405005988ca158bc4c81e23a066b13b538e8d8aa7148963a94470",
 }
 _EXPECTED_RENDER_HOST_DIGESTS: Final[dict[str, str]] = {
     "development": "55770374ef59dccf72a2aa1c98a9a1eaccbd140c2924a1a60376ff0161ae72c0",
-    "staging": "e4625e95b760af49f9bfa9cdbc968fe98606c371426099c82d40d9a5e3fc4d37",
+    "staging": "ba833a5e9735b26c26c656e7a62d3b484ffc6de047366439bc903907599a78f4",
 }
 # The owner computes this digest from their private Render reset file with
 # scripts/api_staging_reset_render_digest.py. Empty admits no Render reset

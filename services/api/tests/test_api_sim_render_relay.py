@@ -28,8 +28,8 @@ IDENTITY: dict[str, object] = {
     "environment": "staging",
 }
 GATEWAY_KEY = (
-    "ssh.oregon.render.com ssh-ed25519 "
-    "AAAAC3NzaC1lZDI1NTE5AAAAIFON8eay2FgHDBIVOLxWn/AWnsDJhCVvlY1igWEFoLD2\n"
+    "ssh.virginia.render.com ssh-ed25519 "
+    "AAAAC3NzaC1lZDI1NTE5AAAAIJ6uO0jKQX9IjefnLz+pxTgfPhsPBhNuvxmvCFrxqxAM\n"
 )
 CALLER_REQUEST: dict[str, object] = {
     "operation": "status",
@@ -63,6 +63,7 @@ def install(
     """Replace the public identity, the manifest pin and ssh; record each ssh call."""
     calls: list[dict[str, Any]] = []
     monkeypatch.setattr(relay, "active", lambda: True)
+    monkeypatch.setattr(relay._staging_preflight, "_RENDER_STAGING_PHASE", "canonical")
     monkeypatch.setattr(relay, "_identity", lambda: dict(IDENTITY))
     monkeypatch.setattr(relay, "_service_id", lambda: SERVICE)
 
@@ -122,7 +123,7 @@ def test_first_call_uses_the_service_user_and_relays_the_instance(
         "ProxyCommand=none",
     } <= options
     assert call["known_hosts"] == GATEWAY_KEY
-    assert arguments[-2] == f"{SERVICE}@ssh.oregon.render.com"
+    assert arguments[-2] == f"{SERVICE}@ssh.virginia.render.com"
     assert shlex.split(arguments[-1])[:3] == ["/app/.venv/bin/python", "-I", "-c"]
     assert call["input"] == {**CALLER_REQUEST, "identity": IDENTITY}
     assert "privatepool" not in " ".join(arguments)
@@ -137,7 +138,7 @@ def test_a_pinned_call_uses_the_exact_instance_user(
 
     assert (code, response) == (0, {**PASS, "instance": INSTANCE})
     [call] = calls
-    assert call["arguments"][-2] == f"{SERVICE}-k7qws@ssh.oregon.render.com"
+    assert call["arguments"][-2] == f"{SERVICE}-k7qws@ssh.virginia.render.com"
     assert call["input"]["expected_instance"] == INSTANCE
 
 
@@ -307,3 +308,33 @@ def test_each_in_image_bootstrap_prints_the_instance_it_ran_on(
         "data": {},
         "instance": INSTANCE,
     }
+
+
+@pytest.mark.parametrize("phase", ["candidate", "canonical"])
+def test_relays_never_fall_back_to_the_frozen_railway_path(
+    relay: ModuleType, monkeypatch: pytest.MonkeyPatch, phase: str
+) -> None:
+    """#452 AC7: Render owns Staging in both phases."""
+    monkeypatch.setattr(relay._staging_preflight, "_RENDER_STAGING_PHASE", phase)
+    assert relay.active() is True
+
+
+def test_candidate_phase_refuses_before_any_identity_read_or_ssh(
+    relay: ModuleType, launcher: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#452 AC11: the simulator targets staging.tailtag.app, which serves Oregon
+    until the cutover, so a Virginia relay would split one run across two
+    databases."""
+    calls = install(relay, monkeypatch, PASS)
+    monkeypatch.setattr(relay._staging_preflight, "_RENDER_STAGING_PHASE", "candidate")
+
+    def no_identity() -> dict[str, object]:
+        raise AssertionError("identity read")
+
+    monkeypatch.setattr(relay, "_identity", no_identity)
+    code, response = invoke(
+        launcher, {**CALLER_REQUEST, "expected_identity": dict(IDENTITY)}
+    )
+
+    assert (code, response) == (1, {"result": "FAIL_TARGET", "data": {}})
+    assert calls == []
