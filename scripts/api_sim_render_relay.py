@@ -100,9 +100,10 @@ def execute(
     timeout: int,
 ) -> dict[str, object]:
     """Run one relay request on the Render Staging instance; any deviation raises."""
-    # The simulator targets only staging.tailtag.app. Before the #452 cutover
-    # that name still serves Oregon, so a relay to the Virginia instance would
-    # split one run across two databases. Refuse until the canonical phase.
+    # The simulator targets only staging.tailtag.app. In the candidate phase
+    # that name serves another Staging service, so a relay to the candidate
+    # instance splits one run across two databases (#452). Refuse until
+    # the canonical phase.
     if not _canonical():
         return {"result": "FAIL_TARGET", "data": {}}
     identity = _identity()

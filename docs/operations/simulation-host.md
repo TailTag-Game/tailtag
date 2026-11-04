@@ -259,7 +259,7 @@ On Render Staging, the relays need one Render credential on the host: a per-sess
 #### One-time Render setup
 
 1. Make sure that 2FA is on for the maintainer's Render account.
-2. Install a release and a workspace from #455 or later. Earlier releases have only the Railway relays or the Oregon Render relays.
+2. Install a release and a workspace from #459 or later. Earlier releases have only the Railway relays or the Oregon Render relays, or they refuse every relay before the Virginia cutover.
 3. On the host, add the key `render_staging_api_service_id` to `~/.config/tailtag/staging-clean-rebuild-targets.json`. Copy its value from the maintainer's own manifest. Keep the file mode 0600. The file then holds six keys: the five `rebuild_*` identifiers from the [one-time setup](#one-time-setup) and this Render key. The Render relays refuse to run without it.
 4. Make sure that `command -v render` prints nothing and that `~/.render` and `~/.railway` do not exist.
 5. Run `ls -la ~/.ssh`. It must hold no private key: only `authorized_keys`, and `config` if it exists.
