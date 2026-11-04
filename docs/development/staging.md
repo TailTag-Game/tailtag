@@ -374,6 +374,33 @@ task api-staging-auth-smoke
 unset CLERK_STAGING_SMOKE_USER_ID RENDER_SERVICE_ID CLERK_JWT_KEY
 ```
 
+The auth smoke needs six values. The block asks for the first three. The
+smoke asks for the other three while it runs. Each prompt hides what you type.
+
+| Prompt | Where to get the value |
+|--------|------------------------|
+| `Synthetic Clerk user ID` | Clerk dashboard, Staging application, Production instance, Users. Open the dedicated smoke user and copy its User ID (`user_…`). Its Public metadata must hold `"tailtag_environment": "staging"` and `"tailtag_synthetic": true`. Do not use a pool or fixture identity. |
+| `Render Staging service ID` | The `srv-…` ID of the Render Staging service. It must match the pinned service, or the smoke stops. |
+| `CLERK_JWT_KEY` | The Render Staging service Environment page. Copy the whole PEM block, from `-----BEGIN PUBLIC KEY-----` to `-----END PUBLIC KEY-----`. Clerk shows the same key under API keys, Show JWT public key, PEM. |
+| `Clerk Staging Production secret:` | Clerk dashboard, Staging application, Production instance, API keys. Copy the Secret key (`sk_live_…`). |
+| `Clerk Staging smoke-only session ID:` | A fresh browser session of the smoke user. The steps follow this table. |
+| `Clerk Staging session token:` | The same browser session. The steps follow this table. |
+
+The smoke revokes the session that you give it. So use a new session that
+nothing else uses:
+
+1. Before you start the smoke, open a private browser window.
+2. Go to `https://accounts.staging.tailtag.app/sign-in` and sign in as the smoke user.
+3. Open the browser console. In Chrome on macOS, press Cmd-Option-J.
+4. When the smoke asks for the session ID, run `copy(Clerk.session.id)` and paste the result.
+5. When the smoke asks for the token, run `copy(await Clerk.session.getToken({skipCache:true}))`.
+6. Paste the token at once. A session token expires after 60 seconds.
+
+The secret key, the session ID, and the token are sensitive. Before you copy
+them, turn off clipboard history and clipboard sync. Clear the clipboard after
+each paste. Never put these values in chat, an issue, a file, or shell
+history. The PASS and FAIL lines that the smoke prints hold none of them.
+
 ```zsh
 read -rs 'MEDIA_STORAGE_ENDPOINT_URL?MEDIA_STORAGE_ENDPOINT_URL: '; print
 read -rs 'MEDIA_STORAGE_BUCKET_NAME?MEDIA_STORAGE_BUCKET_NAME: '; print
