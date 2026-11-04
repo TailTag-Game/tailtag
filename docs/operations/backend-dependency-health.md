@@ -130,6 +130,10 @@ and no pool-exhaustion signal.
 To count connections, run `SELECT count(*) FROM pg_stat_activity` on the
 database.
 
+After a `normal-profile` run on 2026-11-04, Staging showed 4 connections,
+including the counting session. That is one for each worker. See the
+[#448 Staging proof](../specs/2026-11-04-connection-reuse-workers-staging-proof.md).
+
 Revisit this section if the API adds a connection pool, PgBouncer, async
 workers, or threads, or raises workers or instances close to
 `max_connections`. Pool wait and exhaustion then become real signals and need
