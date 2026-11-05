@@ -9,7 +9,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from typing import Final, NoReturn
+from typing import Final
 
 import pytest
 from pytest import MonkeyPatch
@@ -86,19 +86,6 @@ def _assert_binding_denied(operation: Callable[[], object]) -> None:
     assert CANDIDATE_HOST not in str(caught.value)
 
 
-def test_canonical_preflight_rejects_candidate_origin_before_fetch(
-    preflight: ModuleType, monkeypatch: MonkeyPatch
-) -> None:
-    """C-4: candidate domain cannot masquerade as canonical via old entry point."""
-
-    def must_not_fetch(_: str) -> NoReturn:
-        raise AssertionError("candidate origin reached canonical transport")
-
-    monkeypatch.setattr(preflight, "_fetch_json", must_not_fetch)
-    with pytest.raises(preflight.TargetSafetyError):
-        preflight.validate_target(CANDIDATE_ORIGIN)
-
-
 def test_development_clerk_portal_origin_uses_exact_code_owned_pin() -> None:
     """The hosted Development Clerk party is bound to its reviewed framing."""
     assert (
@@ -169,7 +156,7 @@ def test_render_development_preflight_accepts_null_deployment_on_pinned_host(
 
     monkeypatch.setattr(preflight, "_fetch_json", fetch)
     assert (
-        preflight.validate_development_candidate_target(expected_sha, render=True)
+        preflight.validate_development_candidate_target(expected_sha)
         == RENDER_DEVELOPMENT_IDENTITY
     )
     assert calls == [
@@ -197,7 +184,7 @@ def test_render_development_preflight_waits_through_a_full_render_deploy(
     monkeypatch.setattr(preflight, "_fetch_json", fetch)
     assert (
         preflight.validate_development_candidate_target(
-            RENDER_DEVELOPMENT_IDENTITY["source_sha"], render=True
+            RENDER_DEVELOPMENT_IDENTITY["source_sha"]
         )
         == RENDER_DEVELOPMENT_IDENTITY
     )

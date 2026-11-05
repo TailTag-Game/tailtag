@@ -79,14 +79,6 @@ def _json_loads(value: str) -> object:
     return json.loads(value, object_pairs_hook=_reject_duplicate_keys)
 
 
-def active() -> bool:
-    """True while Render serves Staging in either phase (#409, #452).
-
-    `execute` refuses every request until the canonical phase.
-    """
-    return _staging_preflight._RENDER_STAGING_PHASE in {"candidate", "canonical"}  # pyright: ignore[reportPrivateUsage]
-
-
 def _canonical() -> bool:
     return _staging_preflight._RENDER_STAGING_PHASE == "canonical"  # pyright: ignore[reportPrivateUsage]
 

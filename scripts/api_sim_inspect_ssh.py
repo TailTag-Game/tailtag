@@ -81,7 +81,7 @@ def _caller_request(stdin: TextIO) -> dict[str, object]:
         raise ValueError
     if "expected_identity" in request:
         _staging_preflight._validate_identity(  # pyright: ignore[reportPrivateUsage]
-            request["expected_identity"], render=_render_relay.active()
+            request["expected_identity"]
         )
     return request
 
