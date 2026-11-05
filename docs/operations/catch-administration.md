@@ -50,10 +50,17 @@ The privacy and sanitization guarantees are divided into application-controlled 
    This redirect replaces the browser's address bar and history, preventing downstream same-origin navigation from leaking credential tokens via `Referer` headers.
 3. **Application and container logging boundaries:**
    - **Django structured logging:** Application audit logging (including operator deletion logs) logs only internal entity IDs and never dumps raw GET query strings.
-   - **Gunicorn container runtime:** In production, Gunicorn is invoked without `--access-logfile` (`CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]`). Gunicorn does not emit HTTP request-line access logs to container stdout or stderr, ensuring container runtime logs in Railway do not capture query parameters.
+   - **Gunicorn container runtime:** In production, Gunicorn is invoked without `--access-logfile` (`CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]`). Gunicorn does not emit HTTP request-line access logs to container stdout or stderr, ensuring container runtime logs in Render do not capture query parameters.
 
-#### Railway edge HTTP-log boundary and operational constraint
+#### Edge HTTP-log boundary and operational constraint
 
+- Render edge HTTP logs: TailTag runs Development and Staging on Render. Render
+  HTTP request logs show the method, path, status, and a `requestID`. No one
+  has yet checked whether a query string can appear in a Render HTTP request
+  log. Until someone repeats the Railway-era check below on Render, make no
+  guarantee about Render edge logs.
+- Railway-era record: the next three bullets are dated evidence from Railway
+  Development, which is now frozen. They do not describe Render.
 - **Documented Railway HTTP-log shape:** Railway's maintained
   [`railway logs` documentation](https://docs.railway.com/cli/logs#http-logs)
   describes edge HTTP logs as separate structured fields, including `method`,

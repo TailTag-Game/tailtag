@@ -8,7 +8,7 @@ troubleshooting—see the [API README](../../services/api/README.md).
 For the Flutter app at `apps/mobile/`, see [Mobile contributor
 environment](mobile.md): host-side `task mobile-setup`, `task mobile-check`,
 `task mobile-doctor`, and `task mobile-run DEVICE=<id>`, plus configuration and
-Local/Railway Development connectivity. The backend flow below is separate and
+Local/Render Development connectivity. The backend flow below is separate and
 runs in the devcontainer.
 
 The Django/DRF service at `services/api` is a minimal V0 foundation. Historical
@@ -197,8 +197,7 @@ These tasks also run natively on Windows: `api-replacement-auth-smoke`,
 `sim-journeys`, `sim-convention`, `sim-cleanup`, `sim-retained`, and
 `sim-image`. Windows CI exercises their file-access checks, process-tree
 cleanup, and restore-drill streaming with local files and fake commands. It
-does not run a live Staging reset, restore drill, or simulation against
-Railway, so those runs are not verified on Windows.
+does not run a live Staging reset, restore drill, or simulation, so those runs are not verified on Windows.
 
 - **Private files.** The tooling reads Staging secrets and bindings only from
   owner-only files. On Windows that means the owner is you, and the only

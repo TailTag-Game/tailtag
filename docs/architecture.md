@@ -12,93 +12,75 @@ TailTag is a monorepo for the community-led rebuild of a social convention game.
 - Clerk as the player authentication authority
 - A TailTag-owned internal application user identity for domain relationships, separate from Clerk
 - A modular monolith backend
-- Render for V0 backend hosting ([ADR 0011](adrs/0011-move-v0-hosting-from-railway-to-render.md)). Staging and Production use the Virginia region, and Development uses Oregon ([ADR 0012](adrs/0012-run-staging-and-production-in-render-virginia.md)). Development and Staging run on Railway until the move finishes.
+- Render for V0 backend hosting ([ADR 0011](adrs/0011-move-v0-hosting-from-railway-to-render.md)). Staging and Production use the Virginia region, and Development uses Oregon ([ADR 0012](adrs/0012-run-staging-and-production-in-render-virginia.md)). Development and Staging both run on Render. Railway Development and Staging are frozen, and #412 retires them.
 
 The historical Django POC has been promoted and reset at `services/api/`. Its POC-only authentication, session/CSRF behavior, fursuit fields, routes, deletion behavior, and other experimental choices were evaluation evidence, not V0 requirements.
 
 ## Staging boundary
 
-TailTag has one persistent Railway `staging` environment in the existing
-`TailTag` project, with isolated `api`, PostgreSQL/volume, runtime
-configuration/secrets, Clerk Production application, private R2 ownership, and
-public API `https://staging.tailtag.app`. It is a synthetic-data
-production-rehearsal backend, while Railway `development` remains the mutable
-contributor/integration environment. TailTag has no Production environment.
-Staging autodeploy is disabled after its one-time bootstrap. The boundary does
-not define immutable builds (#201) or repeatable promotion behavior (#202); see
-the maintained [Staging runbook](development/staging.md).
+TailTag has one persistent Staging environment on Render in the Virginia
+region. It has an isolated `tailtag-api-stg` service, a `tailtag-postgres-stg`
+database, runtime configuration and secrets, a Clerk Production application,
+private R2 ownership, and public API `https://staging.tailtag.app`. It is a
+synthetic-data production-rehearsal backend, while Render Development remains
+the mutable contributor/integration environment. TailTag has no Production
+environment. Render auto-deploy is off for Staging. Each Staging deploy runs
+through the promotion script `scripts/api_staging_render_promote.py`. The
+boundary does not define immutable builds (#201) or repeatable promotion
+behavior (#202). See the maintained [Staging runbook](development/staging.md).
 
 ## Backend phases
 
-Phase 0 established the clean `services/api` foundation and local contributor environment. Phase 1 now has authoritative backend CI and pre-merge GitHub validation through `task api-check`, its persistent Railway development environment, an explicit Railway pre-deploy migration step, post-deploy HTTP smoke verification, and an enforced normal-contributor delivery path from protected `main` to Railway development. This document does not define production deployment configuration or product application behavior.
+Phase 0 established the clean `services/api` foundation and local contributor environment. Phase 1 now has authoritative backend CI and pre-merge GitHub validation through `task api-check`, its persistent Render Development environment, an explicit Render pre-deploy migration step, post-deploy HTTP smoke verification, and an enforced normal-contributor delivery path from protected `main` to Render Development. This document does not define production deployment configuration or product application behavior.
 
-## Shared Railway development environment
+## Render development environment
 
-The V0 development environment is a single, explicitly non-production Railway
-project and environment:
+The V0 development environment is a single, explicitly non-production Render
+environment. The Blueprint `render.yaml` defines it, and Render hosts it in
+the Oregon region ([ADR 0011](adrs/0011-move-v0-hosting-from-railway-to-render.md),
+[ADR 0012](adrs/0012-run-staging-and-production-in-render-virginia.md)).
 
 | Item | Established configuration |
 | --- | --- |
-| Workspace | `Finn the Panther's Projects` |
-| Project / environment | `TailTag` / `development` |
-| API service | `api`, sourced from `TailTag-Game/tailtag` on `main` |
-| API service root | `/services/api` |
-| Runtime | The existing `services/api/Dockerfile` production image and its Gunicorn CMD on port 8000. Railway supplies `PORT=8000` to the container as platform runtime configuration for networking and health checking. |
-| PostgreSQL service | Railway-managed `Postgres` service, reachable only through the API's Railway reference variable. |
-| Public API endpoint | `https://dev.tailtag.app` |
+| Blueprint | `render.yaml`, project `tailtag`, environment `development` |
+| API service | `tailtag-api-dev`, a Docker web service that builds `main` from `TailTag-Game/tailtag` |
+| Docker context | `services/api`, using `services/api/Dockerfile` |
+| Runtime | The existing production image and its Gunicorn CMD on port 8000. The Blueprint sets `PORT=8000`. |
+| PostgreSQL | Render Postgres `tailtag-postgres-dev` (PostgreSQL 18). The API reads it through `DATABASE_URL`. The Blueprint sets an empty IP allow list. |
+| Public API endpoint | `https://tailtag-api-development.onrender.com` |
 | Platform health check | `/health/ready` |
 
-The API service owns these development variable names without recording their
-rendered values: `DATABASE_URL` references `${{Postgres.DATABASE_URL}}`,
-`DJANGO_SECRET_KEY` is generated and managed in Railway, and
-`DJANGO_ALLOWED_HOSTS` plus `DJANGO_CSRF_TRUSTED_ORIGINS` derive from the
-Development API domain. `PORT=8000` is Railway platform runtime
-configuration, supplied to the container to match the existing Gunicorn
-binding; it is not a Django application variable. `healthcheck.railway.app` is
-an allowed host so Railway can evaluate deployment readiness. No SQLite fallback
-or public database endpoint is configured.
+The Blueprint names the development variables without recording secret values.
+Render generates `DJANGO_SECRET_KEY`. `DATABASE_URL` comes from the
+`tailtag-postgres-dev` database. The Blueprint sets
+`DJANGO_SETTINGS_MODULE=config.settings.production` and `PGSSLMODE=require`.
+Secret and host values use `sync: false`, so they live only in Render. `PORT=8000`
+is platform runtime configuration that matches the Gunicorn binding. It is not a
+Django application variable. No SQLite fallback exists.
 
-The `api` service's Railway service settings configure the pre-deploy command
-`python manage.py migrate --settings=config.settings.production --noinput`.
-Railway runs it for each API deployment attempt after the candidate image is
-built and before the candidate Gunicorn process starts. It uses the same
-production settings and `DATABASE_URL` reference as the API process; no
-migration-specific database configuration exists. This is an explicit deployment
-migration step, not a global exactly-once guarantee: a redeploy is a new attempt
-and may run the command again. Django records applied migrations, so an
-already-current schema normally makes a subsequent invocation a no-op.
+Render runs the pre-deploy command `python -m config.replacement_migrate` for
+each deploy attempt. It runs after the candidate image is built and before the
+new version takes traffic. It uses the same production settings and
+`DATABASE_URL` as the API process. A redeploy is a new attempt and can run the
+command again. Django records applied migrations, so a current schema normally
+makes the next run a no-op.
 
 The Docker CMD, Gunicorn process, Django startup, health endpoints, and local
-`task api-run` command do not run migrations. A non-zero pre-deploy command
-fails the candidate deployment before it becomes active; deployment state and
-deployment logs provide the diagnostic record. See the maintained
+`task api-run` command do not run migrations. If the pre-deploy command fails,
+the deploy fails and the previous version keeps serving. The deploy state and
+deploy log are the diagnostic record. See the maintained
 [backend development delivery operations](development/backend-delivery-operations.md)
 guide for recovery and rollback boundaries.
 
-The API service has normal GitHub autodeploy enabled for the
-`TailTag-Game/tailtag` `main` branch. Its Railway trigger is configured with
-Wait for CI (`checkSuites: true`), which Railway documents as holding a
-candidate while the pushed-`main` GitHub workflows run, then skipping it on
-failure. This is defense in depth after, not a replacement for, GitHub's
-pre-merge protections. Configuration alone is not proof of that temporal
-gate: a fresh normal reviewed merge must show Railway `WAITING` before the
-push validation completes; see the main-to-Railway delivery review for the
-observed verification boundary.
-
-Railway evaluates API deployment relevance independently from the broader CI
-relevance contract. Its only API watch path is `services/api/**`. Therefore,
-changes only to the root `Taskfile.yml`, `scripts/api_smoke.py`,
-`.github/workflows/api.yml`, documentation, or a future frontend do not
-create an unnecessary API deployment unless a later approved runtime build
-change makes one of those paths directly relevant.
-
-For a Git-triggered `main` commit outside that watch path, the expected
-no-delivery result is an exact-SHA metadata-only Railway evaluation record with
-status `SKIPPED` and reason `No changes to watched files`. If that record is
-absent after the defined observation window, the exercise is inconclusive.
-Railway must not run an API build, pre-deploy migration, readiness check, or
-application deployment, and it must not create the GitHub deployment that
-would trigger the post-deploy smoke workflow.
+Render auto-deploy is off (`autoDeployTrigger: "off"`). The
+`Render Development deploy` GitHub Actions workflow starts each deploy through
+a Render deploy hook (#408). It runs for a merge to `main` that changes
+`services/api/**`. It waits for the other workflows on the commit. If one of
+them failed, it does not deploy. After the deploy, it waits until
+`/health/identity` shows the commit and then runs `task api-smoke` against the
+public API. The workflow does not provision PostgreSQL or change Render
+settings. A smoke failure is a failed Actions run with endpoint-level
+diagnostics, not an automatic rollback or redeploy.
 
 For normal contributor delivery, the active `Protect main` GitHub ruleset
 requires a pull request, one approval, resolved review conversations, squash
@@ -106,40 +88,20 @@ merge, and the stable `API foundation checks` status check. That check exists
 on every pull request: relevant pull requests run the canonical
 `task api-check`, while irrelevant ones complete through the explicit
 successful skip path. The same workflow also runs for every push to `main`,
-using the same job and canonical command, so Railway Wait for CI validates the
-resulting `main` commit before deploying it.
+using the same job and canonical command. The deploy workflow waits for that
+run before it deploys the resulting `main` commit.
 
 The repository owner retains a pull-request-only ruleset bypass as an
 exceptional, auditable administrative or recovery override. It is outside the
-normal contributor delivery path and must not be used for routine development,
-or delivery. Owner-operated #78/#80 validation changes may use the bypass when
-the override is intentional and recorded, but those merges validate delivery
-mechanics rather than the human-review path. The active ruleset remains the
-evidence that normal contributors require review. This design does not claim
-that a deliberately privileged administrator can never override GitHub
-protections; it ensures that a normal contributor cannot cause Railway
-development delivery while bypassing required pull-request CI and review.
+normal contributor delivery path and must not be used for routine development
+or delivery. The active ruleset remains the evidence that normal contributors
+require review. This design does not claim that a deliberately privileged
+administrator can never override GitHub protections. It ensures that a normal
+contributor cannot cause a Render Development deploy while bypassing required
+pull-request CI and review.
 
-The dedicated GitHub Actions post-deploy smoke workflow reacts only when the
-observed Railway GitHub integration reports a `success` deployment status for
-`TailTag / development` created by `railway-app[bot]`. It also supports a manual
-rerun. Both paths use the non-secret repository Actions variable
-`TAILTAG_DEVELOPMENT_API_BASE_URL` and invoke `task api-smoke` against the
-already-running public API; they neither deploy, migrate, provision PostgreSQL,
-nor control Railway. A smoke failure is a clear failed Actions run with
-endpoint-level diagnostics, not an automatic rollback or redeploy.
-
-Railway deployment metadata records the Git-triggered commit SHA, and the
-GitHub `deployment_status` event supplies its deployment SHA/ref to the #77
-verifier. Together with the matching `main` push workflow SHA, this provides
-Stage 1 infrastructure-level revision attribution. The HTTP check separately
-proves the shared development endpoint satisfied the smoke contract after the
-successful deployment event; a stable-endpoint response is not cryptographically
-bound to that SHA. If another deployment supersedes it before smoke runs, record
-that race as evidence rather than adding an application version endpoint.
-Railway's `/health/ready` platform health check remains distinct from this
-broader external smoke verification. This environment contains no production
-environment, preview environment, Redis, workers, cron service, or other
+This environment contains no production environment, preview environment
+(`previews.generation` is `off`), Redis, workers, cron service, or other
 application infrastructure.
 
 Delivery failures have distinct primary surfaces:
@@ -148,12 +110,20 @@ Delivery failures have distinct primary surfaces:
 | --- | --- |
 | Pre-merge backend CI | GitHub `API foundation checks`; the PR cannot normally merge. |
 | Missing approval or unresolved review | GitHub ruleset and PR merge requirements; the PR cannot normally merge. |
-| Post-merge CI | GitHub Actions plus Railway's waiting/skipped candidate state; no candidate is promoted after a failed workflow. |
-| Migration | Railway pre-deploy logs/status; the candidate fails before application promotion. |
-| Build, deploy, or readiness | Railway deployment state and logs. |
-| Post-deploy smoke | The #77 GitHub Actions verifier; Railway deployment succeeded but broader HTTP verification failed. |
+| Post-merge CI | GitHub Actions. The deploy workflow does not deploy after a failed workflow. |
+| Migration | Render pre-deploy command result in the deploy log. The previous version keeps serving. |
+| Build, deploy, or readiness | Render deploy state and logs. |
+| Post-deploy smoke | The `Render Development deploy` run. The deploy succeeded, but broader HTTP verification failed. |
 
-#78 adds no automatic rollback behavior.
+The delivery path adds no automatic rollback behavior.
+
+Staging uses the same Blueprint with its own services and its own promotion
+path. See the [Staging runbook](development/staging.md).
+
+Railway history: Development and Staging ran on Railway before ADR 0011. The
+Railway environments are frozen, and #412 retires them. The Railway delivery
+design (#77, #78, #80) remains in git history and in the historical records.
+
 
 ## Architectural constraints
 
@@ -186,9 +156,9 @@ A generated, low-level OpenAPI client and DTO layer may model the wire API, but 
 
 ### Runtime configuration and authentication
 
-TailTag owns a typed `AppConfig` populated from compile-time Dart defines. Selecting a local versus Railway Development API is configuration rather than flavors or schemes. Compile-time values embedded in an application are not secrets. This does not repurpose the existing backend-smoke `TAILTAG_DEVELOPMENT_API_BASE_URL` variable or the fixed `http://localhost:3000` auth-tooling origin as the mobile configuration contract.
+TailTag owns a typed `AppConfig` populated from compile-time Dart defines. Selecting a local versus Render Development API is configuration rather than flavors or schemes. Compile-time values embedded in an application are not secrets. This does not repurpose the existing backend-smoke `TAILTAG_DEVELOPMENT_API_BASE_URL` variable or the fixed `http://localhost:3000` auth-tooling origin as the mobile configuration contract.
 
-The approved Local API root is `http://127.0.0.1:8000` on the contributor host. Android emulators and USB-connected Android devices reach it through `adb reverse`, which `task mobile-run` applies, so the app keeps the same root. Dart-owned sockets are not governed by Android network security configuration or iOS App Transport Security, so no cleartext policy is configured; a future platform-owned HTTP client must add a debug-only, host-scoped policy and must not enable cleartext release-wide. See [the mobile contributor guide](development/mobile.md). Authenticated Local testing requires HTTPS termination or the HTTPS Railway Development API.
+The approved Local API root is `http://127.0.0.1:8000` on the contributor host. Android emulators and USB-connected Android devices reach it through `adb reverse`, which `task mobile-run` applies, so the app keeps the same root. Dart-owned sockets are not governed by Android network security configuration or iOS App Transport Security, so no cleartext policy is configured; a future platform-owned HTTP client must add a debug-only, host-scoped policy and must not enable cleartext release-wide. See [the mobile contributor guide](development/mobile.md). Authenticated Local testing requires HTTPS termination or the HTTPS Render Development API.
 
 The official Clerk iOS and Android SDKs are contained behind the TailTag-owned `AuthSession` boundary in `lib/core/auth/` ([ADR 0009](adrs/0009-use-native-clerk-sdks-for-mobile-auth.md)). Clerk owns session persistence and token refresh. TailTag must not create a separate persistent bearer-token store, and product features receive no Clerk types.
 
@@ -219,8 +189,8 @@ Clerk subject
 
 Profile-surface reads may lazily materialize the default incomplete profile
 row. Participation eligibility is a separate fail-closed lookup: it never
-creates, repairs, or infers profile state. Composed Railway validation for this
-flow is owned by #120; #113 adds no Railway profile smoke command.
+creates, repairs, or infers profile state. Composed hosted validation for this
+flow is owned by #120; #113 adds no hosted profile smoke command.
 
 ## Current repository and open decisions
 
@@ -239,7 +209,7 @@ Accepted backend and mobile architecture choices do not settle every V0/V1 detai
 
 ## Verification architecture
 
-`task doctor` (the Python `scripts/doctor.py`; `scripts/doctor.sh` is a POSIX wrapper for it) validates the local Git/GitHub setup, repository location, remote, branch, working-tree state, required backend/devcontainer artifacts, and host Docker/Compose readiness. Inside the TailTag devcontainer it additionally checks the selected Python version, `uv`, locked dependencies, canonical task commands, and non-mutating PostgreSQL connectivity. The API workflow (`.github/workflows/api.yml`) runs on pull requests, pushes to `main`, and manual dispatches. On a pull request, its relevance classifier runs the canonical root `task api-check` validation contract only when the change can affect backend validation; otherwise the same stable job reports the explicit successful skip. On a push to `main`, it force-runs that same contract for Railway Wait for CI.
+`task doctor` (the Python `scripts/doctor.py`; `scripts/doctor.sh` is a POSIX wrapper for it) validates the local Git/GitHub setup, repository location, remote, branch, working-tree state, required backend/devcontainer artifacts, and host Docker/Compose readiness. Inside the TailTag devcontainer it additionally checks the selected Python version, `uv`, locked dependencies, canonical task commands, and non-mutating PostgreSQL connectivity. The API workflow (`.github/workflows/api.yml`) runs on pull requests, pushes to `main`, and manual dispatches. On a pull request, its relevance classifier runs the canonical root `task api-check` validation contract only when the change can affect backend validation; otherwise the same stable job reports the explicit successful skip. On a push to `main`, it force-runs that same contract, and the `Render Development deploy` workflow waits for it.
 
 Setup in the Taskfile, CI, and devcontainer synchronizes both locked projects:
 the API and the separate non-package Semgrep CE project. CI then runs exactly
@@ -271,7 +241,7 @@ Architecture decisions are recorded in:
 - [0004 — Use Railway for V0 hosting](adrs/0004-use-railway-for-v0-hosting.md) (superseded by 0011)
 - [0005 — Use a modular monolith for V0](adrs/0005-use-modular-monolith-for-v0.md)
 - [0006 — Use Flutter for mobile V0](adrs/0006-use-flutter-for-mobile-v0.md)
-- [0007 — Use Railway and Sentry for V0 observability](adrs/0007-v0-observability-backend.md) (proposed)
+- [0007 — Use Render and Sentry for V0 observability](adrs/0007-v0-observability-backend.md) (proposed)
 - [0008 — Use asyncio and httpx for headless simulation](adrs/0008-use-asyncio-httpx-for-headless-simulation.md)
 - [0010 — Keep Railway for V0 hosting after the GCP evaluation](adrs/0010-keep-railway-for-v0-hosting-after-gcp-evaluation.md) (superseded by 0011)
 - [0011 — Move V0 hosting from Railway to Render](adrs/0011-move-v0-hosting-from-railway-to-render.md) (region clause superseded by 0012)

@@ -21,9 +21,9 @@ Inspect the relevant issue and spec before editing. Do not invent product or arc
 - Clerk as the player authentication authority
 - A TailTag-owned internal application user identity, separate from Clerk
 - A modular monolith backend in the monorepo
-- Render as the V0 backend hosting platform (ADR 0011). Development and Staging run on Railway until the move finishes.
+- Render as the V0 backend hosting platform (ADR 0011). Development runs in Oregon and Staging runs in Virginia (ADR 0012). Railway Development and Staging are frozen, and #412 retires them.
 - Backend Phase 0 promotes and resets the POC into a clean `services/api` foundation and establishes the local contributor environment.
-- Backend Phase 1 establishes CI/CD and the shared Railway development environment.
+- Backend Phase 1 establishes CI/CD and the shared development environment (now on Render).
 
 The completed Django POC remains historical evaluation evidence. Its POC-only routes, session/CSRF behavior, fursuit fields, deletion behavior, and other experimental choices are not authoritative V0 requirements.
 

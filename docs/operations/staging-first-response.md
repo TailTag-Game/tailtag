@@ -1,8 +1,9 @@
 # Staging backend first response
 
-This is the first-response guide for the replacement Railway
-`TailTag` / `staging` backend at `https://staging.tailtag.app`. It
-covers the nine V0 operational scenarios in [#208](https://github.com/TailTag-Game/tailtag/issues/208).
+This is the first-response guide for the Render Staging backend at
+`https://staging.tailtag.app`. The backend is the web service `tailtag-api-stg`
+and the database `tailtag-postgres-stg`. This guide covers the nine V0
+operational scenarios in [#208](https://github.com/TailTag-Game/tailtag/issues/208).
 Use it with the [Staging runbook](../development/staging.md), the
 [operator authorization runbook](operator-authorization-audit.md), and the
 [readiness evidence matrix](../development/v0-backend-operational-readiness-matrix.md).
@@ -10,37 +11,36 @@ It does not authorize a new deployment, reset, rollback, restore, credential
 change, database repair, or provider configuration change. Those actions retain
 their own target checks, operator authority, and approval boundaries.
 
-The September 25 [replacement handoff receipt](../development/staging-deployments/c34c45bb-6eb8-488d-8114-d1dd931cf25e.json)
-proves a public/exact-instance identity join for its observation window only.
 The current [readiness matrix](../development/v0-backend-operational-readiness-matrix.md)
-records the replacement #204 baseline, #243 operator/audit results, and #207
-isolated restore. Historical target-pinned commands for the retired Staging
-generation do not apply to the replacement, even though both generations used
-the `TailTag` display name. Use only the current code-pinned commands.
+records the #204 baseline, the #243 operator and audit results, and the #207
+isolated restore. Those results come from the Railway era, before the Render
+move. They are historical records and do not prove the current Render target.
+Use only the current commands in the Staging runbook.
 
 ## Common first check and evidence
 
-1. Identify `Finn the Panther's Projects` / `TailTag` / `staging`;
-   select the
-   exact `api` deployment and, for database incidents, the environment-local
-   `Postgres` service. Development is a separate contributor environment.
-   Stop if the target or acting account cannot be verified. Never infer the
-   target from a stale CLI link, a shared public response, or a `latest` label.
+1. Identify the Render project `tailtag`, environment `staging`. Select the
+   exact `tailtag-api-stg` deploy and, for database incidents, the
+   `tailtag-postgres-stg` database. Development is a separate contributor
+   environment. Stop if the target or acting account cannot be verified. Never
+   infer the target from a stale CLI setting, a shared public response, or a
+   `latest` label.
 2. Run the [credential-free canonical preflight](../development/staging.md#health-and-public-staging-preflight-203)
    if HTTP is reachable. It performs only health/identity GETs. Record its
-   fixed outcome and safe source SHA/deployment ID. If it fails, inspect the
-   exact Railway service/deployment directly; do not bypass the guard to send
+   fixed outcome and the safe source SHA. If it fails, inspect the exact
+   Render service and deploy directly. Do not bypass the guard to send
    acceptance, reset, or simulation traffic. `/health/live` proves only a
-   responding process; `/health/ready` proves local configuration and a small
+   responding process. `/health/ready` proves local configuration and a small
    PostgreSQL query, not Clerk or R2 provider availability.
-3. In Railway `TailTag` → `staging` → `api` → **Deployments**, bind
-   diagnostics to the
-   affected deployment ID. Inspect its status, build output, pre-deploy
-   migration output, startup/runtime output, instances, and lifecycle events
-   as appropriate. For database symptoms inspect `staging` → `Postgres`
-   service/deployment status and targeted diagnostics. Use bounded reads and
-   sanitize before sharing; logs may contain sensitive details. Do not treat a
-   successful event or shared URL alone as exact-deployment proof.
+3. In the Render dashboard, open `tailtag-api-stg` and its deploy list. Bind
+   diagnostics to the affected deploy ID D. Inspect its status, build log,
+   pre-deploy migration log, and runtime logs as appropriate. Use `render logs`
+   with the service ID and a time window for bounded reads. For database
+   symptoms, open `tailtag-postgres-stg` and read its status and metrics. To
+   follow one request, use [backend logging](backend-logging.md#following-one-request).
+   Sanitize before sharing, because logs can contain sensitive details. Render
+   keeps logs for 14 days on Pro, so keep the sanitized evidence you need before
+   then. Do not treat a live status or a shared URL alone as exact-deploy proof.
 4. Record the observation time, exact environment/service, safe SHA and
    deployment ID when known, health results, first failing stage, affected
    operation, action owner, and fixed outcome. Preserve the selected
@@ -49,29 +49,30 @@ the `TailTag` display name. Use only the current code-pinned commands.
    names, raw requests/responses, database contents, or broad log exports.
 5. If the first safe action below does not resolve the symptom, stop new
    rehearsal activity and escalate to the backend maintainer and the owner of
-   the affected Railway, Clerk, or R2 resource. Keep Staging's existing state
+   the affected Render, Clerk, or R2 resource. Keep Staging's existing state
    intact until the recovery decision is explicit. Follow the relevant linked
    procedure; do not improvise a database mutation or use #204 reset as a
    recovery shortcut.
 
-The existing #202 [controlled promotion](../development/staging.md#controlled-staging-promotion-202),
-#206 [migration/application recovery contract](https://github.com/TailTag-Game/tailtag/issues/206),
-#204 [synthetic reset](../development/staging.md#synthetic-baseline-reset-and-reseed-204),
-and #207 [isolated restore drill](../development/staging.md#postgresql-backup-restoration-drill-207)
+The [Render Staging promotion](../development/staging.md#render-staging-promotion-409),
+the #206 [migration/application recovery contract](https://github.com/TailTag-Game/tailtag/issues/206),
+the #204 [synthetic reset](../development/staging.md#synthetic-baseline-reset-and-reseed-204),
+and the [PITR restore](../development/staging.md#restore-the-database-with-pitr)
 are separate opt-in operations. A failed pre-deploy migration does not prove
 that the database is unchanged. An application rollback does not reverse schema
 or restore R2 objects. If compatibility is uncertain, preserve the database
-and fix forward. The exact live Railway compatible-rollback/pre-deploy rehearsal
-is deferred to [#241](https://github.com/TailTag-Game/tailtag/issues/241).
+and fix forward. The #410 drill proved the Render rollback mechanics only,
+because no migration changed between its two deploys. See
+[Application rollback on Render](../development/staging.md#application-rollback-on-render).
 
 ## Bad deployment
 
 **Recognize and diagnose.** A candidate fails build, pre-deploy, startup,
 readiness, exact-image identity, smoke, or active-deployment checks; or a newly
-active revision correlates with a new symptom. Use the #202 promotion receipt's
-source SHA and returned deployment ID. Inspect only that D's Railway lifecycle
-and relevant build/pre-deploy/deployment output. Confirm whether the old serving
-deployment remains active. Distinguish a failed attempt from a bad active
+active revision correlates with a new symptom. Use the promotion receipt's
+source SHA and its `dep-...` deploy ID D. Inspect only that D's Render deploy
+status and its build, pre-deploy, and runtime logs. Confirm whether the old
+serving deploy remains live. Distinguish a failed attempt from a bad active
 revision; do not diagnose by public HTTP alone.
 
 **First safe mitigation and recovery.** Stop further promotion attempts and
@@ -80,38 +81,39 @@ the existing serving deployment and correct the cause through the reviewed
 code/configuration process. If it became active, use the #206 compatibility
 decision before considering any application rollback. When rollback proof is
 missing or the database state is ambiguous, use a reviewed forward fix through
-#202. A lost submission response or interrupted `PENDING` record is
-indeterminate: inspect the exact attempt before any new submission.
+a new Render promotion. A lost submission response or interrupted `PENDING`
+record is indeterminate: inspect the exact attempt before any new submission.
 
 **Preserve / avoid.** Retain S, D, validation run/attempt, sanitized failed
-gate, active-set observation and relevant migration output. Do not rerun a
-promotion blindly, use `railway up` or Deploy Latest Commit, reverse a
-migration, assume pre-deploy failure had no database effect, or call rollback
-without the exact compatibility decision.
+gate, live-deploy observation and relevant migration output. Do not rerun a
+promotion blindly, start a deploy outside the promotion command (a Blueprint
+sync or a variable change), reverse a migration, assume pre-deploy failure had
+no database effect, or call rollback without the exact compatibility decision.
 
 ## Database unavailable or degraded
 
 **Recognize and diagnose.** Compare `/health/live` with `/health/ready` and
 the API deployment's errors. A live process with readiness 503 suggests the
 database or required local configuration, not an automatic diagnosis of
-PostgreSQL failure. Inspect the selected Staging `Postgres` service/deployment
-state and bounded database-related API/pre-deploy diagnostics. Check whether a
+PostgreSQL failure. Inspect the status and metrics of `tailtag-postgres-stg` in
+Render and bounded database-related API and pre-deploy logs. Check whether a
 reset connection gate or migration/recovery operation is in progress before
 interpreting denied connections.
 
 **First safe mitigation and recovery.** Pause writes, reset, promotion and
 rehearsal activity; preserve the current database and exact deployment state.
-If an approved reset left its maintenance gate closed, use only the verified
-control-database [recovery procedure](../development/staging.md#synthetic-baseline-reset-and-reseed-204)
-after its own target and cluster checks. The replacement #204 sentinel and
-baseline passed the [guarded live reset and matrix readback](../development/v0-backend-operational-readiness-matrix.md#replacement-or-5--204-reset-evidence-2026-09-29)
-in their observation window. If the current operation's
-own target or cluster guard fails, stop and hand off to the backend and Railway
+If an approved reset left its maintenance gate closed, use only the
+[Reset recovery on Render](../development/staging.md#reset-recovery-on-render) procedure after its
+own target checks. The Railway-era #204 sentinel and baseline passed the
+[guarded live reset and matrix readback](../development/v0-backend-operational-readiness-matrix.md#replacement-or-5--204-reset-evidence-2026-09-29)
+in their observation window. That result is historical. If the current
+operation's own target guard fails, stop and hand off to the backend and Render
 resource owners. For partial
 migration state use #206's reviewed
-forward-fix decision; for suspected data loss use #207's restore evidence to
-plan separately approved recovery. The #207 drill restores to an isolated
-target and is not an instruction to replace Staging's active database.
+forward-fix decision. For suspected data loss use the
+[PITR restore](../development/staging.md#restore-the-database-with-pitr) to plan separately approved
+recovery. A PITR restore makes a new database and does not replace Staging's
+active database.
 
 **Preserve / avoid.** Retain readiness/live results, D, Postgres status,
 operation window and sanitized error class. Do not terminate PostgreSQL to
@@ -130,11 +132,11 @@ the token or changing an ordinary account.
 
 **First safe mitigation and recovery.** Pause authenticated rehearsal and
 preserve the current identity/configuration. Escalate configuration or provider
-faults to the backend/Clerk owner. Any bounded synthetic authenticated check
-requires an owner-controlled replacement-target procedure and session cleanup;
-the retired [Clerk smoke command](../development/staging.md#clerk-authenticated-smoke)
-is unsupported here. Resume only after the owning fix and a safe canonical
-authenticated check. Readiness alone does not validate live Clerk service.
+faults to the backend/Clerk owner. Run a bounded synthetic authenticated check
+only with the [Render Staging authenticated smoke](../development/staging.md#render-staging-smoke-checks).
+It needs an owner-controlled synthetic Clerk user and session cleanup. Resume
+only after the owning fix and a safe canonical authenticated check. Readiness
+alone does not validate live Clerk service.
 
 **Preserve / avoid.** Retain only sanitized failure class, time, D, smoke
 stage/cleanup outcome and provider incident reference if public. Do not put
@@ -148,14 +150,14 @@ the provider merely to reproduce an outage.
 R2 upload, HEAD/GET, presigned GET, or deletion failures. Review exact-D API
 diagnostics, Staging-owned private bucket/credential configuration through
 approved names/ownership (never rendered values), and the affected media
-operation. Use read-only R2 ownership and provider status/diagnostics first.
-The pinned [historical Staging media smoke](../development/staging.md#http-configuration-and-media)
-is unsupported for the replacement target.
+operation. Use read-only R2 ownership and provider status/diagnostics first. Run the media
+check with the Render Staging media smoke in
+[Render Staging smoke checks](../development/staging.md#render-staging-smoke-checks).
 
 **First safe mitigation and recovery.** Pause new media operations and retain
 existing object references. Escalate R2 access or availability to its owner;
-use a reviewed configuration/code fix and then an owner-controlled bounded
-replacement-target check with cleanup. For a partial
+use a reviewed configuration/code fix and then the owner-controlled Render
+media smoke, which cleans up. For a partial
 replace/remove, follow the [media lifecycle boundary](../development/backend-delivery-operations.md#media-lifecycle-and-recovery-boundary):
 a failed best-effort deletion can leave an orphan, while a committed absent
 reference must not be recreated from a stale object. Investigate object and
@@ -168,26 +170,24 @@ or assume application rollback restores R2 state.
 
 ## Abnormal API load
 
-**Recognize and diagnose.** In Railway, select `TailTag` → `staging` → `api` →
-**Deployments** → the exact affected D. Review its status and bounded
-deployment/runtime logs alongside canonical liveness and readiness. Correlate
-the time window with known controlled promotions, resets, synthetic rehearsal
-or smoke activity and its task owner. Staging resource metrics/dashboard
-availability has not been substantiated for this runbook. Request rate and
-latency are on the
+**Recognize and diagnose.** In Render, open `tailtag-api-stg` and its deploy
+list. Select the exact affected D. Review its status and bounded logs alongside
+canonical liveness and readiness. Read the CPU, memory, and bandwidth graphs
+for the same time window. Correlate the window with known controlled
+promotions, resets, synthetic rehearsal or smoke activity and its task owner.
+Request rate and latency are on the
 [field-beta dashboard](field-beta-operations.md#dashboard), and M3 alerts on
-severe sustained latency, but do not assume a resource alert or quantitative
-capacity threshold exists. Record that gap for #198 while using the exact-D
-diagnostic surface that does exist.
+severe sustained latency. Do not assume that a Render resource alert or a
+quantitative capacity threshold exists. Record that gap for #198.
 
 **First safe mitigation and recovery.** Stop only known task-owned synthetic
 traffic under the maintainer's control and pause new rehearsal/acceptance
 jobs. Keep the serving deployment and database stable while the backend and
-Railway owners classify the load. A scale/configuration change or traffic
+Render owners classify the load. A scale/configuration change or traffic
 control requires its own reviewed operation. Verify return to ordinary
 health and observed resource behavior before resuming rehearsal.
 
-**Preserve / avoid.** Retain time window, D, Railway resource/status summary,
+**Preserve / avoid.** Retain time window, D, Render resource and status summary,
 health outcome and known synthetic-job identifiers without personal data.
 Do not induce load or terminate services to test response. Severe sustained
 latency is alerted by M3 in the
@@ -222,7 +222,7 @@ replace a credential arbitrarily, or treat a stale preview as write authority.
 `OperatorAuditEvent` has no viewer. If an approved bounded audit read is
 unavailable, preserve the action time and sanitized target class, stop further
 correction or resumption, and escalate to the backend/database owner.
-Application and Railway logs are not audit proof.
+Application and Render logs are not audit proof.
 Detection and alerting are described in the
 [field-beta operations guide](field-beta-operations.md).
 
@@ -252,7 +252,7 @@ hide an unexplained defect, or manufacture data corruption for rehearsal.
 `OperatorAuditEvent` has no viewer. If an approved bounded audit read is
 unavailable, preserve the action time and sanitized target class, stop further
 correction or resumption, and escalate to the backend/database owner.
-Application and Railway logs are not audit proof.
+Application and Render logs are not audit proof.
 
 ## Application rollback
 
@@ -260,63 +260,52 @@ Application and Railway logs are not audit proof.
 application code/runtime and that the exact previous image is available.
 Use #206's O/N/D identity, complete migration delta, actual PostgreSQL schema
 and persisted-state review, old-code read/write compatibility proof where
-practical, and Railway `canRollback=true` before considering the action.
-Dashboard presence or schema shape alone is insufficient. A failed or
-ambiguous check is a NO-GO.
+practical, and an exact previous deploy R in the Render deploy list before
+considering the action. Dashboard presence or schema shape alone is
+insufficient. A failed or ambiguous check is a NO-GO.
 
 **First safe mitigation and recovery.** Preserve the current database and
 choose a reviewed forward fix by default. Only an explicitly approved,
-positively compatible rollback uses the exact Railway selected-deployment
-action and #206's exact resulting-D observation; an ambiguous mutation
-response must not be retried. Restore the intended source through a new #202
-exact-SHA promotion after separate review. The retired-generation #206
-candidate was NO-GO because older code could
-invalidate a limited operator's local authentication. That finding is not a
-replacement-generation rollback rehearsal. Do not create a migration merely to
-make a rollback candidate.
+positively compatible rollback follows
+[Application rollback on Render](../development/staging.md#application-rollback-on-render). Run it
+once, and do not retry a failed rollback. Restore the intended source through a
+new exact-SHA Render promotion after separate review. The Railway-era #206
+candidate was NO-GO because older code could invalidate a limited operator's
+local authentication. That finding does not cover a Render rollback. Do not
+create a migration merely to make a rollback candidate.
 
-**Preserve / avoid.** Retain O/N/D, `canRollback`, reviewed schema/data and
-old-code proof outcomes, approval decision, new exact-D lifecycle and final
-active set. Do not reverse schema, treat rollback as database restore, use
-`latest`, assume pre-deploy is a no-op, or retry an indeterminate mutation.
-The exact live Railway compatible-rollback/pre-deploy gap remains [#241](https://github.com/TailTag-Game/tailtag/issues/241).
+**Preserve / avoid.** Retain O/N/D, R, reviewed schema/data and old-code proof
+outcomes, approval decision, the new deploy D and the final live deploy. Do not
+reverse schema, treat rollback as database restore, use `latest`, assume
+pre-deploy is a no-op, or retry a failed rollback. The #410 drill proved the
+Render rollback mechanics only.
 
 ## Restore from backup
 
 **Recognize and diagnose.** Establish whether this is data loss/corruption,
 database unavailability, or a reversible code/configuration failure. Record
-the source identity and intended recovery point. Review the maintained #207
-[isolated restore procedure](../development/staging.md#postgresql-backup-restoration-drill-207)
-and the [replacement GO receipt](../development/staging-recovery/20260929T063432Z-issue-207-restore-d4480275113242e7bba0b25387cdf6eb.json).
-The September 23 logical dump/restore proved isolated PostgreSQL 18 restore,
-integrity checks, matching-revision backend usability, Staging nonimpact and
-cleanup for the retired database; its [GO receipt](../development/staging-recovery/20260923T165714Z-issue-207-restore-d6def5ea5b9442c7992d301a575c6f8b.json)
-and earlier failed preflight are historical. The guarded drill now uses the
-owner-only, code-pinned replacement Staging selectors. Read-only discovery at
-2026-09-29 04:09 UTC found a ready Postgres volume, zero Railway API backups
-and schedules, and no backups in Railway's Backups panel. The panel described
-backup creation and PITR as Pro features while this workspace was on Hobby.
-Treat these as point-in-time observations. The September 29 replacement receipt
-records a real logical dump and isolated PostgreSQL 18 restore, 36 of 43 named
-checks passed, matching-revision backend usability, Staging nonimpact and
-verified cleanup. Catch, session and credential representative reads, their
-relationship checks, and Catch provenance were `NOT_EXERCISED` because their
-source tables were empty. Four of those relationship/provenance statuses were
-corrected in the retained receipt from captured zero source counts after the
-run; no restore was repeated. This proves isolated restore for the observed
-replacement source and recovery point, not active Staging restoration, PITR or
-Production recovery.
+the source identity and intended recovery point. Review the maintained
+[PITR restore procedure](../development/staging.md#restore-the-database-with-pitr). The PITR history
+of `tailtag-postgres-stg` starts at its creation on 2026-11-04 at 06:28:38Z.
+A recovery point must fall inside that history, and the dashboard does not
+accept a time within 10 minutes of now. A practice drill on 2026-11-01 passed on
+an earlier Render database, and all 25 tables matched. Treat that result as a
+point-in-time observation. It proves a PITR restore into a new database for
+that source. It does not prove restoration of active Staging, and it does not
+prove Production recovery. The Railway-era logical dump and isolated restore receipts are
+historical. See [the Railway drill record](../development/staging.md#railway-postgresql-backup-restoration-drill-207).
 
 **First safe mitigation and recovery.** Stop writes and preserve the source
 database, current deployment, and relevant logs while the backend/database
-owners decide the recovery target and data-loss boundary. The #207 command is
-a guarded **drill to a disposable isolated target**, not active Staging
-restoration. A real active-environment restore requires its own reviewed plan,
-authorization, target isolation, and validation. Never use #204 reset as a
-substitute for backup recovery.
+owners decide the recovery target and data-loss boundary. A PITR restore makes
+a new database and leaves the source unchanged. It is not active Staging
+restoration. Moving Staging to a restored database changes the pinned database
+identity of the guards, so it needs a reviewed plan, authorization, target
+isolation, and validation first. Never use #204 reset as a substitute for
+backup recovery.
 
 **Preserve / avoid.** Retain sanitized source/target class, recovery-point
 time, outcome, backend/integrity checks, nonimpact and cleanup result. Do not
-publish a dump or row contents, point the API at the drill clone, infer internal
-PITR state from the Backups panel, or rerun a restore solely to duplicate #208
-evidence.
+publish a dump or row contents, point the API at the practice copy, or rerun a
+restore solely to duplicate #208 evidence. After owner approval, delete the
+practice database, because it is a paid resource.

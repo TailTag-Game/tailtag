@@ -36,8 +36,7 @@ cleans up or retains each run's state. Design: [spec](../../docs/specs/2026-10-0
   `task`, not in the container image. On Render Staging, the lease, fixture and
   inspection channels use plain `ssh` with a Render SSH key, the pinned gateway host
   key and the owner manifest. The first reply names the Render instance, and every
-  later relay in the same process must reach that instance (#411). On Railway, they
-  need the Railway CLI.
+  later relay in the same process must reach that instance (#411).
 
 ## External Staging host
 
@@ -45,7 +44,7 @@ The [external simulation host runbook](../../docs/operations/simulation-host.md)
 describes the approved DigitalOcean NYC3 host, immutable `linux/amd64` image
 archive delivery, the host operator session, finite profiles, supervision,
 artifact retrieval and exact-run recovery. Gameplay remains direct public HTTPS.
-Privileged Railway relays run on the host only during an attended session. Profile examples are in
+Privileged Render relays run on the host only during an attended session. Profile examples are in
 `host/normal-profile.json` and `host/stop-profile.json`, with separate
 `host/safety.json`. Preparation/offline evidence and separately authorized paid-host
 provisioning/live traffic are distinct gates. No automatic restart or CI load run
@@ -80,9 +79,9 @@ their launcher behavior.
 - Before the token prompt, two `/health/identity` reads must each be a 200 JSON object
   with exactly `source_sha`, `deployment_id`, and `environment`, and must agree.
   Staging requires environment `staging`, a 40-character lowercase hex `source_sha`,
-  and a `deployment_id` that is a canonical UUID (Railway) or null (Render, which
-  reports no deploy ID). Local requires `environment` and `deployment_id` to be
-  null. Anything else fails closed.
+  and a `deployment_id` that is null (Render reports no deploy ID). The check also
+  accepts a canonical UUID until #412 removes the Railway code. Local requires
+  `environment` and `deployment_id` to be null. Anything else fails closed.
 - Redirects are never followed and any redirect is a failure. Responses are read with
   a 65536-byte cap (a page of presigned image URLs is tens of KB) and a 10-second timeout.
 - Output is fixed stage lines (`PASS target <name>`, `PASS setup`, `PASS simulation`,
@@ -141,8 +140,7 @@ with no secrets and no network target.
 A durable pool of synthetic Staging identities that a run leases, uses through the real
 authentication boundary, and releases (#219,
 [spec](../../docs/specs/2026-10-02-synthetic-identity-pool.md)). Pool commands run only
-from a maintainer machine with Render SSH access (the Railway CLI on Railway), and only
-against Staging.
+from a maintainer machine with Render SSH access, and only against Staging.
 
 ```bash
 task sim-pool-provision POOL=p1 SIZE=50   # create missing users and slots; idempotent
@@ -190,7 +188,7 @@ task sim-pool-readmit POOL=p1 INDEX=7     # re-admit a repaired quarantined iden
 fursuits, and activations on Staging, then proves them through public reads (#220,
 [spec](../../docs/specs/2026-10-02-simulation-fixture-provisioning.md)). It is the
 host-only Staging proof and the template that the journeys below extend. Like the pool
-commands it runs only from a maintainer machine with the Railway CLI, only against
+commands it runs only from a maintainer machine with Render SSH access, only against
 Staging.
 
 ```bash
@@ -473,7 +471,7 @@ always before the leases are released.
   completed). The exit code is 0 only if setup, every journey, reconciliation, cleanup
   and release passed.
 - **Prerequisites:** unchanged from [Journeys](#journeys), plus one more SSH call
-  through the same Railway CLI access. `inspect` only reads, so nothing else needs to
+  through the same Render SSH access. `inspect` only reads, so nothing else needs to
   be provisioned or promoted by hand beyond the merged code.
 
 ## Convention populations
@@ -957,7 +955,7 @@ as catastrophic errors. These settings are initial safety policy, not SLOs.
 
 Convention execution requires supervision. `--unattended` (or `UNATTENDED=1` with
 `task sim-convention`) refuses execution. Automated resource monitoring is
-reported as unavailable. The operator observes Railway/Sentry evidence and can
+reported as unavailable. The operator observes Render/Sentry evidence and can
 request `resource_saturation` by sending **SIGUSR1 to the Python run process**:
 
 ```sh
@@ -969,7 +967,7 @@ terminal/process listing. Do not signal the task parent or another run. The CLI
 registers the handler with the running event loop, waking idle execution, and
 removes it and restores the previous process handler on exit. The signal latches a
 sanitized abort reason, cancels and awaits owned traffic, and writes schema-4
-report evidence. Record the relevant Railway/Sentry observation separately;
+report evidence. Record the relevant Render/Sentry observation separately;
 the signal itself does not measure saturation. Ctrl-C retains interruption
 semantics. Every safety abort exits nonzero.
 

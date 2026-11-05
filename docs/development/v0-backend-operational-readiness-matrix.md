@@ -9,6 +9,15 @@ decision](#replacement-final-readiness-decision-2026-09-29). The completed
 supplies replacement OR-6 below.
 Parent: [#197](https://github.com/TailTag-Game/tailtag/issues/197). Scope and verification classes: [#208](https://github.com/TailTag-Game/tailtag/issues/208).
 
+Platform note (2026-11-04, #412): All evidence, commands, and verdicts below
+come from the Railway era, when Staging and Development ran on Railway. Both
+now run on Render (ADR 0011 and ADR 0012), and Railway Staging is frozen until
+#412 retires it. Read each Railway reference below as Railway-era evidence, not
+as current guidance. For current procedures, use the
+[Staging runbook](staging.md), the
+[Staging first-response guide](../operations/staging-first-response.md), and
+[backend development delivery operations](backend-delivery-operations.md).
+
 The two detailed tables below retain the pre-decision evidence inventory; the
 historical final-disposition section supersedes their `Pending` review notes.
 The tables and dispositions below preserve the retired-generation evidence.
@@ -268,6 +277,9 @@ not a final readiness verdict.
 | OR-8 / #207: backup restore and integrity | [Final September 23 GO record](staging-recovery/20260923T165714Z-issue-207-restore-d6def5ea5b9442c7992d301a575c6f8b.json), [procedure](staging.md#postgresql-backup-restoration-drill-207) | Inherited exercise + operational review | Real Staging `pg_dump`, isolated PostgreSQL 18 restore, matching-revision backend reads, constraints, source nonimpact, cleanup | Final record: `outcome=GO`, `backend_usability=PASS`, `staging_nonimpact=PASS`, `cleanup_verified=true`, `limitations=[]`; no rerun for #208 | Source Catch, session and credential tables were empty, so representative reads are `NOT_EXERCISED`; schema, constraints and relationship checks passed. Earlier [failed preflight](staging-recovery/2026-09-22-issue-207-preflight-diagnosis.md) is historical, not the final outcome | **Pending** only for material drift or an unusable recovery procedure | None identified |
 
 ## Minimum first-response runbooks
+
+The Railway surfaces named in this section are Railway-era evidence. Current
+Staging diagnostics use Render, as the Staging first-response guide describes.
 
 Each `Pending` operational review must trace the six fields named above against
 current surfaces. The [Staging first-response draft](../operations/staging-first-response.md)
