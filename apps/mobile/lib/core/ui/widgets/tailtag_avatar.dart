@@ -71,6 +71,7 @@ class TailTagAvatar extends StatelessWidget {
         : Image.network(
             url,
             fit: BoxFit.cover,
+            cacheWidth: _decodeWidth(context),
             frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
               final loaded = wasSynchronouslyLoaded || frame != null;
               return loaded ? child : placeholder;
@@ -89,6 +90,24 @@ class TailTagAvatar extends StatelessWidget {
       ),
     };
     return ExcludeSemantics(child: shaped);
+  }
+
+  /// The width to decode a circle image at, or null for the photo variant.
+  ///
+  /// The server stores the original photo, so a small circle must not
+  /// decode a full phone photo. The image covers the circle, so its shorter
+  /// side must reach the circle size. Twice the circle width keeps any
+  /// image up to a 2:1 landscape shape sharp.
+  int? _decodeWidth(BuildContext context) {
+    final diameter = switch (size) {
+      AvatarSize.small => TokenSize.avatarSmall,
+      AvatarSize.large => TokenSize.avatarLarge,
+      AvatarSize.photo => null,
+    };
+    if (diameter == null) {
+      return null;
+    }
+    return (diameter * 2 * MediaQuery.devicePixelRatioOf(context)).ceil();
   }
 
   Widget _circle(Widget child, double diameter) {

@@ -1,4 +1,3 @@
-import "package:flutter/foundation.dart";
 import "package:flutter/material.dart";
 import "package:flutter_test/flutter_test.dart";
 import "package:tailtag_mobile/core/ui/tailtag_theme.dart";
@@ -182,26 +181,26 @@ void main() {
     test(name, () => expect(actual(), matcher));
   }
 
-  testWidgets("the back button uses the adaptive back icon on iOS", (
-    tester,
-  ) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-    final navigator = GlobalKey<NavigatorState>();
-    await tester.pumpWidget(
-      MaterialApp(
-        navigatorKey: navigator,
-        theme: buildTailTagTheme(),
-        home: const Scaffold(body: Text("Home")),
-      ),
-    );
-    navigator.currentState!.push(
-      MaterialPageRoute<void>(
-        builder: (_) => Scaffold(appBar: AppBar(title: const Text("Detail"))),
-      ),
-    );
-    await tester.pumpAndSettle();
+  testWidgets(
+    "the back button uses the adaptive back icon on iOS",
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+    (tester) async {
+      final navigator = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navigator,
+          theme: buildTailTagTheme(),
+          home: const Scaffold(body: Text("Home")),
+        ),
+      );
+      navigator.currentState!.push(
+        MaterialPageRoute<void>(
+          builder: (_) => Scaffold(appBar: AppBar(title: const Text("Detail"))),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.byIcon(Icons.arrow_back_ios), findsOneWidget);
-    debugDefaultTargetPlatformOverride = null;
-  });
+      expect(find.byIcon(Icons.arrow_back_ios), findsOneWidget);
+    },
+  );
 }

@@ -267,7 +267,11 @@ WidgetStateBorderSide focusRing(Color color, {BorderSide? otherwise}) {
 /// Reads the TailTag theme parts that Material has no role for.
 extension TailTagThemeContext on BuildContext {
   /// The TailTag status colors of the current theme.
-  TailTagColors get tailTag => Theme.of(this).extension<TailTagColors>()!;
+  ///
+  /// A theme without the extension, for example a plain `ThemeData` in a
+  /// test or a `Theme` override, gets the V0 light values.
+  TailTagColors get tailTag =>
+      Theme.of(this).extension<TailTagColors>() ?? TailTagColors.light;
 
   /// The colors and icon of [tone] in the current theme.
   StatusStyle statusStyle(StatusTone tone) {

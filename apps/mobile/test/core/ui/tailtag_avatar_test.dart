@@ -141,6 +141,28 @@ void main() {
     });
   }
 
+  for (final MapEntry(key: size, value: diameter) in sizes.entries) {
+    testWidgets("a $size avatar decodes its image at twice its pixel width", (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        themed(
+          TailTagAvatar(
+            name: "Sable",
+            kind: AvatarKind.fursuit,
+            imageUrl: "https://media.example/sable.png",
+            size: size,
+          ),
+        ),
+      );
+      final image = tester.widget<Image>(find.byType(Image)).image;
+      expect(image, isA<ResizeImage>());
+      expect((image as ResizeImage).width, (diameter * 2 * 3).ceil());
+    });
+  }
+
   testWidgets("a photo avatar is a square at the full width of its parent", (
     tester,
   ) async {

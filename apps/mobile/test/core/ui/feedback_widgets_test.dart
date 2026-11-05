@@ -71,6 +71,28 @@ void main() {
       });
     }
 
+    testWidgets("a badge keeps the V0 status colors under a theme without "
+        "the TailTag extension", (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(),
+          home: const Scaffold(
+            body: StatusBadge(tone: StatusTone.success, label: "Out now"),
+          ),
+        ),
+      );
+      final ink = tester.widget<Ink>(
+        find.descendant(
+          of: find.byType(StatusBadge),
+          matching: find.byType(Ink),
+        ),
+      );
+      expect(
+        (ink.decoration! as ShapeDecoration).color,
+        TokenStatusColors.successContainer,
+      );
+    });
+
     testWidgets("a badge has no action and its text joins its row", (
       tester,
     ) async {
