@@ -21,14 +21,15 @@ gtrotsuka and RadiantCyrus can review a change before or after the merge. If a d
 
 ### Material first
 
-Each component is a Material 3 widget that ships with Flutter. #139 styles it through a `ThemeData` component theme, for example `FilledButtonThemeData`. TailTag status colors, spacing, and radii go in a `ThemeExtension`.
+Each component is a Material 3 widget that ships with Flutter. #139 styles it through a `ThemeData` component theme, for example `FilledButtonThemeData`. TailTag status colors go in a `ThemeExtension`. Spacing, radii, sizes, and elevations are Dart constants, so widgets can use them in `const` values.
 
-Material has no widget for four parts. Only these four are TailTag widgets:
+Material has no widget for five parts. Only these five are TailTag widgets:
 
 1. The [avatar](#avatar) with its image placeholder
 2. The [empty state](#empty-state)
 3. The [status banner](#status-banner)
-4. The [button](#button) loading state
+4. The [button](#button), for its variants and its loading state
+5. The [badge](#badge), because the chip theme cannot style a badge apart from a filter chip
 
 ### Component section template
 
@@ -52,8 +53,11 @@ The states table always has six rows: normal, pressed, focused, disabled, loadin
 These rules apply to every component unless its section says otherwise.
 
 - Pressed: the Material pressed state layer shows over the component. A state layer is a see-through overlay in the content color.
-- Focused: a focus ring shows around the component. The ring color follows the [focus rule](README.md#accessibility) in the design README. Keyboard, switch access, and screen reader focus use this state.
-- Focus ring shape: the ring is `size.focusRing.width` wide. On buttons and icon buttons, it sits `size.focusRing.gap` outside the component edge. The gap keeps a `color.scheme.primary` ring visible next to a primary or destructive fill, so every button variant uses the same ring color.
+- Focused: keyboard, switch access, and screen reader focus use this state. The look depends on the component:
+  - Buttons, icon buttons, and chips show a focus ring. The ring color follows the [focus rule](README.md#accessibility) in the design README.
+  - Text fields show a thicker `color.scheme.primary` border.
+  - List rows, tappable cards, switch rows, and navigation destinations show the Material focus state layer. Flutter cannot draw a ring on these widgets through the theme.
+- Focus ring shape: the ring is `size.focusRing.width` wide. It sits `size.focusRing.gap` outside the component edge. The gap keeps a `color.scheme.primary` ring visible next to a primary or destructive fill, so every button variant uses the same ring color.
 - Disabled: the component uses the Material disabled colors, which are `color.scheme.onSurface` at reduced opacity. WCAG does not set a contrast minimum for disabled controls. A disabled control must not be the only way to explain why an action is not available.
 
 ## Visual direction
@@ -104,13 +108,13 @@ The V0 inventory has these components and no others.
 
 | Component | Flutter widget | TailTag widget | Flows |
 |-----------|----------------|----------------|-------|
-| [Button](#button) | `FilledButton`, `FilledButton.tonal`, `TextButton` | Loading state | F1 to F8 |
+| [Button](#button) | `FilledButton`, `TextButton` | Yes: variants and loading state | F1 to F8 |
 | [Icon button](#icon-button) | `IconButton` | No | F2, F4, F7 |
 | [Text field](#text-field) | `TextFormField` | No | F1, F2, F4 |
 | [Card](#card) | `Card` | No | F3, F4, F7, F8 |
 | [List row](#list-row) | `ListTile` | No | F2 to F5, F9 |
-| [Avatar](#avatar) | `CircleAvatar` and `ClipRRect` | Yes | F2, F4, F8, F9 |
-| [Badge](#badge) | `Chip` | No | F3, F5, F6, F8 |
+| [Avatar](#avatar) | `ClipOval`, `ClipRRect`, and `Image.network` | Yes | F2, F4, F8, F9 |
+| [Badge](#badge) | `Chip` | Yes | F3, F5, F6, F8 |
 | [Chip](#chip) | `FilterChip` | No | F9 |
 | [Dialog](#dialog) | `AlertDialog` | No | F5, F7 |
 | [Bottom sheet](#bottom-sheet) | `showModalBottomSheet` | No | F2, F3, F4 |
@@ -150,7 +154,7 @@ No V0 flow needs these parts. A later change can add one with the [change proces
 - Given a wait is longer than 500 ms, a [loading indicator](#loading-indicator) shows. Given a wait is shorter, no loading indicator shows. This stops a flash on a fast response.
 - V0 has no skeletons.
 - Every loading state has visible text or a screen reader label, for example "Loading catches". No loading state uses only motion.
-- The 500 ms delay is a rule, not a separate component. #139 decides where its shared code lives.
+- The 500 ms delay is a rule, not a separate component. `DelayedVisibility` in `apps/mobile/lib/core/ui/` holds its shared code.
 
 ### Forms and validation
 
@@ -229,8 +233,7 @@ The [contrast table](README.md#contrast-table) in the design README covers the t
 | `error` | `surfaceContainerLowest` | Text | 6.46:1 | 4.5:1 | Pass | Text field error text and label inside a white field or sheet |
 | `primary` | `surfaceContainer` | Text | 5.55:1 | 4.5:1 | Pass | Selected navigation bar label |
 | `outline` | `surfaceContainerLowest` | Component edge | 4.46:1 | 3:1 | Pass | Text field and chip edge on white |
-| `primary` | `surfaceContainerLowest` | Focus indicator | 6.46:1 | 3:1 | Pass | Focus ring in a card, sheet, dialog, or text field |
-| `primary` | `surfaceContainer` | Focus indicator | 5.55:1 | 3:1 | Pass | Focus ring in the navigation bar |
+| `primary` | `surfaceContainerLowest` | Focus indicator | 6.46:1 | 3:1 | Pass | Focus ring on a button or chip in a card, sheet, or dialog, and the focused text field border |
 
 These pairs come from the design README contrast table and also cover new uses in this file:
 
@@ -269,13 +272,13 @@ Flows: F1 sign-in, F2 save profile, F3 enroll, F4 save fursuit, F5 and F7 confir
 | Variant | Widget | Theme class |
 |---------|--------|-------------|
 | Primary | `FilledButton` | `FilledButtonThemeData` |
-| Secondary | `FilledButton.tonal` with the primary container colors | `FilledButtonThemeData` |
+| Secondary | `FilledButton` with the primary container colors | `FilledButtonThemeData` |
 | Secondary, inside a dialog or banner | `TextButton` | `TextButtonThemeData` |
 | Destructive | `FilledButton` with the error colors | `FilledButtonThemeData` |
 
-Flutter gives `FilledButton.tonal` the secondary container colors by default. The theme cannot tell a tonal button from a filled one, so one shared button style sets the primary container colors. The destructive button uses a shared style in the same way.
+Flutter gives `FilledButton.tonal` the secondary container colors by default. The theme cannot tell one filled button variant from another, so `TailTagButton` sets the secondary and destructive colors on each button. The shape, size, and text style come from the theme.
 
-The loading state is a TailTag widget. It wraps the Material button. See the loading row in the states table.
+The TailTag widget `TailTagButton` builds every variant and the loading state. It wraps the Material button. Features use it for every button, so no feature sets the tonal or destructive colors itself. See the loading row in the states table.
 
 #### Content limits
 
@@ -482,7 +485,7 @@ Elevated only.
 |-------|------|----------|
 | Normal | `color.scheme.surfaceContainerLowest` fill, `elevation.level1` with a `color.scheme.primary` shadow | A tappable card opens its target. |
 | Pressed | Pressed state layer over the card (tappable cards only) | Not applicable |
-| Focused | Focus ring (tappable cards only) | Enter or space opens the target. |
+| Focused | Focus state layer (tappable cards only) | Enter or space opens the target. |
 | Disabled | Not applicable | Not applicable |
 | Loading | Not applicable | The screen shows the loading indicator. |
 | Error | Not applicable | The screen shows a status banner. |
@@ -493,7 +496,7 @@ Elevated only.
 - A card with buttons is a group. Each button is its own target.
 - Touch target: a tappable card is at least `size.minTarget` high.
 - 200% text scale: the card grows taller. Text never clips.
-- Focus: a tappable card shows the focus ring. A card with buttons takes no focus of its own. Its buttons do.
+- Focus: a tappable card shows the focus state layer. A card with buttons takes no focus of its own. Its buttons do.
 
 #### Tokens
 
@@ -543,7 +546,7 @@ Flows: F2 profile values, F3 conventions, F4 fursuits, F5 activations, F9 catch 
 |-------|------|----------|
 | Normal | Transparent background on the screen surface | A navigation or choice row acts on tap. |
 | Pressed | Pressed state layer with `radius.large` corners | Not applicable |
-| Focused | Focus ring | Enter or space acts. |
+| Focused | Focus state layer | Enter or space acts. |
 | Disabled | Disabled colors | No action. Use it only when the reason shows on the screen. |
 | Loading | Not applicable | The list shows the loading indicator. |
 | Error | Not applicable | The list shows a status banner. |
@@ -555,7 +558,7 @@ Flows: F2 profile values, F3 conventions, F4 fursuits, F5 activations, F9 catch 
 - A navigation row and a choice row have the button role. An info row has no role.
 - A choice row reports its selected state.
 - Touch target: at least `size.minTarget` high.
-- Focus: focus ring.
+- Focus: focus state layer.
 - 200% text scale: the row grows taller. The leading avatar stays at the top.
 
 #### Tokens
@@ -582,7 +585,7 @@ Flows: F2 the player avatar, F4 the fursuit photo, F8 the catch preview, F9 the 
 
 #### Flutter widget
 
-A TailTag widget. It builds on `CircleAvatar` for the circle variants and `ClipRRect` for the photo variant.
+A TailTag widget. It clips the image to a circle with `ClipOval` for the circle variants, and with `ClipRRect` for the photo variant. It loads the image with `Image.network`, so the placeholder shows while the image loads and when it fails.
 
 The widget takes an image URL, a name, and a kind: player or fursuit.
 
@@ -646,7 +649,7 @@ Flows: F3 the active convention, F5 the activation state of a fursuit, F6 a furs
 
 #### Flutter widget
 
-`Chip` with no action and no border, styled through `ChipThemeData`. The variant colors come from the `ThemeExtension`.
+A TailTag widget, `StatusBadge`. It builds a `Chip` with no action and no border. The chip theme styles filter chips as pills, so the badge sets its own shape and its variant colors from the `ThemeExtension`.
 
 #### Content limits
 
@@ -681,7 +684,7 @@ Variants use status meanings only. Features map their states onto these variants
 
 - The badge text is part of the label of the row or card around it. The badge has no role of its own.
 - The icon and the text are the non-color cue.
-- 200% text scale: the badge grows. If it does not fit next to the title, it moves below the title.
+- 200% text scale: the badge grows. If it does not fit next to the title, it moves below the title. In a list row, `StatusBadge.rowTrailing` and `StatusBadge.rowSubtitle` move it below the title when the text scale is above 1.3.
 - Touch target: not applicable. A badge has no action.
 - Focus: not applicable. Focus goes to the row or card around the badge.
 
@@ -947,7 +950,7 @@ One. The whole row is the target.
 |-------|------|----------|
 | Normal | Off: `color.scheme.outline` track border, `Icons.close` in the thumb. On: `color.scheme.primary` track, `Icons.check` in the thumb. | A tap sends the change to the server. |
 | Pressed | Pressed state layer on the row | Not applicable |
-| Focused | Focus ring around the row | Enter or space toggles. |
+| Focused | Focus state layer on the row | Enter or space toggles. |
 | Disabled | Disabled colors | No action |
 | Loading | The row is disabled. After 500 ms, the subtitle says "Updating" and a small spinner shows. | The switch stays in its old position until the server answers. Then it moves. |
 | Error | The switch stays in its old position. | The screen shows a status banner. |
@@ -962,7 +965,7 @@ Turning activation off (F5) shows the confirmation dialog first. See [Confirmati
 - The thumb icon and the thumb position are the non-color cue for on and off.
 - Loading: the "Updating" subtitle is the non-motion cue.
 - Touch target: the whole row, at least `size.minTarget` high.
-- Focus: focus ring.
+- Focus: focus state layer.
 - 200% text scale: the row grows taller. The switch stays at the end of the row.
 
 #### Tokens
@@ -1240,7 +1243,7 @@ One.
 |-------|------|----------|
 | Normal | `color.scheme.surfaceContainer` fill, `elevation.level2`. Outlined icon and label in `color.scheme.onSurfaceVariant`. | A tap opens the section. |
 | Pressed | Pressed state layer on the destination | Not applicable |
-| Focused | Focus ring around the destination | Enter or space opens the section. |
+| Focused | Focus state layer on the destination | Enter or space opens the section. |
 | Disabled | Not applicable | Not applicable |
 | Loading | Not applicable | Not applicable |
 | Error | Not applicable | Not applicable |
@@ -1251,7 +1254,7 @@ One.
 - Each destination is a tab with a selected state.
 - The change from the Outlined icon to the Filled icon is the non-color cue for selection.
 - Touch target: each destination is at least `size.minTarget` wide and high.
-- Focus: focus ring.
+- Focus: focus state layer.
 - 200% text scale: labels stay on one line. #139 tests that they do not clip.
 
 #### Tokens

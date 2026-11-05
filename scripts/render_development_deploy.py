@@ -42,13 +42,16 @@ _APP_PATHS: Final = (
     "docs/specs/2026-09-22-v0-migration-application-rollback-implementation-plan.md",
     "docs/development/staging-recovery/2026-09-22-issue-206-no-go.json",
 )
+# The mobile workflow also runs for the design token values, because its token
+# parity test reads them.
+_MOBILE_PATHS: Final = (*_APP_PATHS, "docs/design/tokens.json")
 # Each workflow that runs on a push to main, with its path filter. A test keeps
 # this table equal to the files in .github/workflows, so a new or changed
 # workflow cannot escape the gate.
 _PUSH_WORKFLOWS: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType(
     {
         "TailTag API": _APP_PATHS,
-        "Mobile App Build Test": _APP_PATHS,
+        "Mobile App Build Test": _MOBILE_PATHS,
         "Windows parity": _APP_PATHS,
         "TailTag Simulator": (
             "tools/simulator/**",

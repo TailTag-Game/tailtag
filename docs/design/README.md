@@ -200,7 +200,7 @@ These rules are the V0 accessibility baseline. Shared widgets (#139) must meet t
 | Text scale | Core controls stay usable at 200% text scale |
 | Status | Color is never the only signal. See [Status needs more than color](#status-needs-more-than-color). |
 | Selected state | A selected or toggled control tells screen readers its state. Use a standard Material control, or set `selected` or `toggled` in `Semantics` on a custom control. |
-| Focus | The focus indicator color depends on the background. Use `primary` on `surface`, `surfaceDim`, `surfaceBright`, and the `surfaceContainer` roles. Use `inversePrimary` on `inverseSurface`, for example on a snackbar action. The ring is `size.focusRing.width` wide. On buttons it sits `size.focusRing.gap` outside the edge. |
+| Focus | The focus indicator color depends on the background. Use `primary` on `surface`, `surfaceDim`, `surfaceBright`, and the `surfaceContainer` roles. Use `inversePrimary` on `inverseSurface`, for example on a snackbar action. Buttons, icon buttons, and chips show a ring. The ring is `size.focusRing.width` wide and sits `size.focusRing.gap` outside the edge. Text fields show a thicker border. List rows, tappable cards, switch rows, and navigation destinations show the Material focus state layer, because Flutter cannot draw a ring on them through the theme. That state layer does not meet the 3:1 focus indicator minimum. It meets WCAG 2.2 AA 2.4.7, Focus Visible. |
 
 The `size.minTarget` minimum also covers the 44 pt minimum in the Apple guidelines.
 
@@ -214,7 +214,7 @@ The `size.minTarget` minimum also covers the 44 pt minimum in the Apple guidelin
 These four checks do not test text scale or selected state. #139 will add two widget tests for those rules:
 
 - A text-scale test sets `TextScaler.linear(2.0)`. It makes sure that no text overflows and that each core control can still be tapped.
-- A selected-state test uses `matchesSemantics` to make sure that a selected control reports its state.
+- A selected-state test uses `isSemantics` to make sure that a selected control reports its state.
 
 ### Contrast table
 
