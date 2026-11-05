@@ -7,7 +7,7 @@ This file records the V0 review of the shared Flutter components against the des
 | Item | Value |
 |------|-------|
 | Design source | [`tokens.json`](tokens.json), [`components.md`](components.md), and the design [README](README.md) on `main` at `406e290` |
-| Code | `apps/mobile/lib/core/ui/` and the showcase in `apps/mobile/lib/showcase/` at `1c5aa20` |
+| Code | `apps/mobile/lib/core/ui/` and the showcase in `apps/mobile/lib/showcase/` at `1c5aa20`, merged into `main` as `7aeb4f3` (#471) |
 | Date | 2026-11-05 |
 | Reviewer | The #140 implementation agent. The project owner approves this record in the #140 pull request. |
 
@@ -102,9 +102,9 @@ Flutter limits two text styles below 200%. The bottom navigation bar labels stop
 
 ## Follow-ups
 
-The project owner approves each follow-up before an issue opens.
+The project owner approved both follow-ups on 2026-11-05.
 
 | ID | Follow-up | Issue |
 |----|-----------|-------|
-| F-1 | Decide whether list rows, tappable cards, switch rows, and navigation destinations need a focus ring that meets 3:1 | Pending |
-| F-2 | Add a focus order rule to `components.md`: a screen puts its body and its bottom navigation bar in separate focus groups | Pending |
+| F-1 | Decide whether list rows, tappable cards, switch rows, and navigation destinations need a focus ring that meets 3:1 | #472 |
+| F-2 | Add a focus order rule to `components.md`: a screen puts its body and its bottom navigation bar in separate focus groups | #473 |
