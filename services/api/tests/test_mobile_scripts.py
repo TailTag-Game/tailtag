@@ -135,10 +135,13 @@ class RunFixture(MobileFixture):
         *,
         host_os: str = "Darwin",
         devcontainer: bool = False,
+        showcase: bool = False,
     ) -> Outcome:
         extra = {"DEVICE": device} if device is not None else {}
         if devcontainer:
             extra["TAILTAG_DEVCONTAINER"] = "1"
+        if showcase:
+            extra["TAILTAG_MOBILE_ENTRY"] = "showcase"
         outcome = run_script(
             self.root / "scripts/mobile_run.py",
             [],
@@ -190,6 +193,7 @@ class StopCase:
     setup: Setup | None = None
     host_os: str = "Darwin"
     devcontainer: bool = False
+    showcase: bool = False
     # True when the run must stop before the configuration is even validated.
     before_configuration: bool = True
 
@@ -208,6 +212,14 @@ STOP_CASES = {
             DEVICE_LISTING,
             *NO_DEVICE_HELP,
         ),
+    ),
+    "showcase-device-missing": StopCase(
+        None,
+        (
+            "DEVICE is required: choose one connected target.",
+            "Then run: task mobile-showcase DEVICE=<id>",
+        ),
+        showcase=True,
     ),
     "device-id-with-unsafe-characters": StopCase(
         "x;touch pwned",
@@ -285,7 +297,10 @@ def test_mobile_run_stops_with_a_message_before_launching_flutter(
         case.setup(fixture)
 
     outcome = fixture.run(
-        case.device, host_os=case.host_os, devcontainer=case.devcontainer
+        case.device,
+        host_os=case.host_os,
+        devcontainer=case.devcontainer,
+        showcase=case.showcase,
     )
 
     assert outcome.status == 1, outcome.output
@@ -360,6 +375,24 @@ def test_mobile_run_launches_flutter_with_the_config_and_propagates_its_exit_cod
         assert calls.index(forwards[0]) < calls.index(launches[0])
 
 
+@pytest.mark.parametrize("device", ["emulator-5554", "ABCD-1234"])
+def test_mobile_showcase_launches_the_showcase_with_no_configuration(
+    tmp_path: Path, device: str
+) -> None:
+    fixture = make_run_fixture(tmp_path)
+    remove_path("apps/mobile/config/development.json")(fixture)
+    fixture.tools.configure(check_stdout="http://127.0.0.1:8000\n", run_status=0)
+
+    outcome = fixture.run(device, showcase=True)
+
+    assert outcome.status == 0, outcome.output
+    assert fixture.flutter_runs() == [
+        ("flutter", "run", "-d", device, "--target=lib/showcase/main.dart")
+    ]
+    assert not any(call.args[:1] == ("dart",) for call in fixture.tools.calls("fvm"))
+    assert fixture.tools.calls("adb") == []
+
+
 # --- Taskfile wiring ----------------------------------------------------------
 
 
@@ -377,6 +410,12 @@ def test_mobile_run_launches_flutter_with_the_config_and_propagates_its_exit_cod
             [r"scripts/mobile_run\.py"],
             [r"mobile_run\.sh"],
             id="mobile-run-launches-the-python-script",
+        ),
+        pytest.param(
+            "mobile-showcase",
+            [r"TAILTAG_MOBILE_ENTRY=showcase .*scripts/mobile_run\.py"],
+            [r"dart-define"],
+            id="mobile-showcase-launches-the-python-script",
         ),
     ],
 )

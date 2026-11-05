@@ -6,6 +6,10 @@ It never boots or chooses a device. It validates the mobile configuration, then
 forwards the Local API port to an Android target before it launches
 `fvm flutter run` and exits with Flutter's exit code. Standard library and
 `fvm_sdk` only, Python 3.9 or newer.
+
+With TAILTAG_MOBILE_ENTRY=showcase (task mobile-showcase DEVICE=<id>), it runs
+the component showcase in lib/showcase/main.dart instead. The showcase needs no
+configuration file and no Local API, so it skips both steps.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ CONFIG_TEMPLATE = (
     "cp apps/mobile/config/development.example.json apps/mobile/config/development.json"
 )
 SAFE_DEVICE_ID = re.compile(r"[A-Za-z0-9._:-]+")
+SHOWCASE_TARGET = "lib/showcase/main.dart"
 
 
 def die(message: str) -> NoReturn:
@@ -68,7 +73,9 @@ def device_platform(fvm: str, mobile_directory: Path, device: str) -> str | None
     return None
 
 
-def stop_without_device(fvm: str, mobile_directory: Path, device: str) -> NoReturn:
+def stop_without_device(
+    fvm: str, mobile_directory: Path, device: str, task: str
+) -> NoReturn:
     """Explain how to pick a connected device, then stop."""
     if device:
         print("DEVICE is not a connected device id.", file=sys.stderr, flush=True)
@@ -81,7 +88,7 @@ def stop_without_device(fvm: str, mobile_directory: Path, device: str) -> NoRetu
     subprocess.run([fvm, "flutter", "devices"], cwd=mobile_directory, check=False)
     print(f"\nStart an Android emulator: {fvm_sdk.ANDROID_START_HINT}")
     print(f"Start an iOS simulator (macOS): {fvm_sdk.IOS_START_HINT}")
-    print("Then run: task mobile-run DEVICE=<id>")
+    print(f"Then run: task {task} DEVICE=<id>")
     sys.exit(1)
 
 
@@ -135,6 +142,7 @@ def main() -> int:
     fvm_sdk.configure_output()
     mobile_directory = Path(__file__).resolve().parent.parent / "apps/mobile"
     device = os.environ.get("DEVICE", "")
+    showcase = os.environ.get("TAILTAG_MOBILE_ENTRY") == "showcase"
 
     if os.environ.get("TAILTAG_DEVCONTAINER") == "1":
         die("Mobile commands run on the host, not in the TailTag devcontainer.")
@@ -145,7 +153,12 @@ def main() -> int:
 
     platform = device_platform(fvm, mobile_directory, device)
     if platform is None:
-        stop_without_device(fvm, mobile_directory, device)
+        stop_without_device(
+            fvm,
+            mobile_directory,
+            device,
+            "mobile-showcase" if showcase else "mobile-run",
+        )
 
     if not (platform.startswith("android") or platform == "ios"):
         die(
@@ -156,19 +169,16 @@ def main() -> int:
             "iOS targets need macOS with Xcode; choose an Android device or emulator on this host."
         )
 
-    origin = check_configuration(fvm, mobile_directory)
-    if origin.startswith("http://") and platform.startswith("android"):
-        forward_local_api(origin, device)
+    if showcase:
+        entry = f"--target={SHOWCASE_TARGET}"
+    else:
+        origin = check_configuration(fvm, mobile_directory)
+        if origin.startswith("http://") and platform.startswith("android"):
+            forward_local_api(origin, device)
+        entry = f"--dart-define-from-file={CONFIG_FILE}"
 
     process = subprocess.Popen(
-        [
-            fvm,
-            "flutter",
-            "run",
-            "-d",
-            device,
-            f"--dart-define-from-file={CONFIG_FILE}",
-        ],
+        [fvm, "flutter", "run", "-d", device, entry],
         cwd=mobile_directory,
     )
     while True:

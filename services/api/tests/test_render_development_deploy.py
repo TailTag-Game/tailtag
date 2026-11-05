@@ -144,6 +144,8 @@ def test_ci_state_requires_every_other_workflow_to_pass(
         (["docs/development/getting-started.md"], frozenset[str]()),
         (["README.md", "CONTRIBUTING.md"], frozenset[str]()),
         (["docs/design/tokens.json"], frozenset({"Mobile App Build Test"})),
+        (["docs/design/components.md"], frozenset({"Mobile App Build Test"})),
+        (["docs/design/README.md"], frozenset[str]()),
     ),
     ids=(
         "backend",
@@ -156,6 +158,8 @@ def test_ci_state_requires_every_other_workflow_to_pass(
         "docs-only",
         "root-docs-only",
         "design-tokens",
+        "design-components",
+        "design-readme",
     ),
 )
 def test_expected_workflows_follow_each_path_filter(

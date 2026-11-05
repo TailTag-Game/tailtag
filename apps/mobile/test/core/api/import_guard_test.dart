@@ -155,6 +155,32 @@ List<String> findUiBoundaryImports(Directory uiRoot) {
   return violations;
 }
 
+/// Every file under [libRoot], outside `showcase/`, that imports a showcase
+/// file. The showcase is a separate entry point, so app code must not reach
+/// it. [libRoot] is a parameter so the guard can be shown to fail.
+List<String> findShowcaseImportsOutsideShowcase(Directory libRoot) {
+  final violations = <String>[];
+  if (!libRoot.existsSync()) {
+    return violations;
+  }
+  for (final entity in libRoot.listSync(recursive: true)) {
+    if (entity is! File || !entity.path.endsWith(".dart")) {
+      continue;
+    }
+    final relative = entity.path.substring(libRoot.path.length);
+    if (relative.replaceAll(r"\", "/").startsWith("/showcase/")) {
+      continue;
+    }
+    for (final match in _directive.allMatches(entity.readAsStringSync())) {
+      final target = match.group(2)!;
+      if (_libPath(entity.uri, target)?.startsWith("showcase/") ?? false) {
+        violations.add("${entity.path}: $target");
+      }
+    }
+  }
+  return violations;
+}
+
 void main() {
   test("lib/core/ui stays business-agnostic", () {
     expect(
@@ -275,6 +301,60 @@ void main() {
 
         expect(
           findForbiddenImports(features),
+          c.flagged ? hasLength(1) : isEmpty,
+        );
+      });
+    }
+  });
+
+  test("lib/showcase keeps to the shared UI boundary", () {
+    expect(
+      findUiBoundaryImports(Directory("lib/showcase").absolute),
+      isEmpty,
+      reason:
+          "The showcase needs no configuration, API, Clerk session, "
+          "navigation, or app state.",
+    );
+  });
+
+  test("only lib/showcase imports the showcase", () {
+    expect(
+      findShowcaseImportsOutsideShowcase(Directory("lib").absolute),
+      isEmpty,
+      reason: "Store builds start at lib/main.dart and never reach it.",
+    );
+  });
+
+  group("the showcase rule itself", () {
+    const cases = <({String path, String directive, bool flagged})>[
+      (
+        path: "lib/app/router.dart",
+        directive:
+            'import "package:tailtag_mobile/showcase/showcase_app.dart";',
+        flagged: true,
+      ),
+      (
+        path: "lib/main.dart",
+        directive: 'import "showcase/main.dart";',
+        flagged: true,
+      ),
+      (
+        path: "lib/showcase/main.dart",
+        directive: 'import "showcase_app.dart";',
+        flagged: false,
+      ),
+    ];
+
+    for (final c in cases) {
+      test("${c.flagged ? "flags" : "allows"} ${c.path}: ${c.directive}", () {
+        final sandbox = Directory.systemTemp.createTempSync("showcase_guard_");
+        addTearDown(() => sandbox.deleteSync(recursive: true));
+        File("${sandbox.path}/${c.path}")
+          ..createSync(recursive: true)
+          ..writeAsStringSync("${c.directive}\n");
+
+        expect(
+          findShowcaseImportsOutsideShowcase(Directory("${sandbox.path}/lib")),
           c.flagged ? hasLength(1) : isEmpty,
         );
       });
