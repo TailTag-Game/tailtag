@@ -808,10 +808,6 @@ not provision a database, migrate, roll back, or stop the service. A stable-URL
 smoke result proves the HTTP contract after the deploy, not that each response
 is provably served by that deployment's SHA. The identity check covers the SHA.
 
-The `.github/workflows/post-deploy-smoke.yml` workflow reacts only to Railway
-deployment events. It is a Railway-era workflow that #412 removes. Do not rely
-on it.
-
 ### Protected main-to-development delivery
 
 Normal contributor delivery is a composed GitHub and Render control path:

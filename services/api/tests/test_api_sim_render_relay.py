@@ -255,6 +255,212 @@ def test_each_launcher_sends_its_own_bootstrap_through_the_render_relay(
     assert shlex.split(call["arguments"][-1])[3] == module._BOOTSTRAP
 
 
+_Case = tuple[str, dict[str, object], dict[str, object]]
+_POOL_CASE: _Case = (
+    "scripts.api_sim_pool_ssh",
+    CALLER_REQUEST,
+    {"result": "PASS", "data": {"indexes": [0, 1]}},
+)
+_FIXTURE_CASE: _Case = (
+    "scripts.api_sim_fixture_ssh",
+    {"operation": "retained", "arguments": {}},
+    {"result": "PASS", "data": {"status": "provisioned", "counts": {"fursuit": 2}}},
+)
+_INSPECT_CASE: _Case = (
+    "scripts.api_sim_inspect_ssh",
+    {
+        "operation": "inspect",
+        "arguments": {
+            "pool": "privatepool",
+            "run_id": "55555555-5555-4555-8555-555555555555",
+            "identities": {"owner0": 1},
+        },
+    },
+    {
+        "result": "PASS",
+        "data": {
+            "catches": [],
+            "fursuits": [{"id": 35, "owner": 5}],
+            "fixture_photos_unchanged": True,
+            "avatars": [3, 5],
+        },
+    },
+)
+
+
+@pytest.mark.parametrize("pin", ["matching", "changed-sha", "malformed"])
+@pytest.mark.parametrize(
+    ("name", "caller_request", "reply"),
+    [_POOL_CASE, _FIXTURE_CASE, _INSPECT_CASE],
+    ids=["pool", "fixture", "inspect"],
+)
+def test_expected_run_identity_is_checked_before_ssh_and_stripped_from_remote_wire(
+    relay: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    caller_request: dict[str, object],
+    reply: dict[str, object],
+    pin: str,
+) -> None:
+    """#227 AC11: a new Staging deployment cannot silently replace the run target.
+
+    The matching case also relays one exact valid payload through each launcher's
+    own output validator.
+    """
+    module = importlib.import_module(name)
+    calls = install(relay, monkeypatch, {**reply, "instance": INSTANCE})
+    expected: dict[str, object] = dict(IDENTITY)
+    if pin == "changed-sha":
+        expected["source_sha"] = "b" * 40
+    elif pin == "malformed":
+        expected["SENTINEL-secret"] = "private"
+
+    code, response = invoke(module, {**caller_request, "expected_identity": expected})
+
+    if pin == "matching":
+        assert (code, response) == (0, {**reply, "instance": INSTANCE})
+        [call] = calls
+        assert call["input"] == {**caller_request, "identity": IDENTITY}
+    else:
+        assert code == 1
+        assert response == (
+            FAILURE if pin == "malformed" else {"result": "FAIL_TARGET", "data": {}}
+        )
+        assert calls == []
+    assert "SENTINEL" not in json.dumps(response)
+
+
+_LISTED_RUN = {
+    "run_id": "55555555-5555-4555-8555-555555555555",
+    "pool": "alpha",
+    "reason": "journeys",
+    "age_days": 3,
+}
+_FIXTURE_COUNTS = {"convention": 1, "enrollment": 3, "fursuit": 2, "activation": 2}
+_CATCH: dict[str, object] = {
+    "id": 11,
+    "catcher": 8,
+    "fursuit": 34,
+    "fursuit_owner": 5,
+    "run_convention": True,
+    "provenance": True,
+    "in_window": True,
+    "caught_at": "2026-10-03T19:41:53.769123Z",
+}
+_FOREIGN_CATCH: dict[str, object] = {
+    **_CATCH,
+    "id": 12,
+    "catcher": None,
+    "fursuit_owner": None,
+    "run_convention": False,
+    "provenance": False,
+    "in_window": False,
+    "caught_at": "2026-10-03T19:41:53Z",
+}
+_FIXTURE_PASSES: list[dict[str, object]] = [
+    {"result": "PASS", "data": _FIXTURE_COUNTS},
+    {"result": "PASS", "data": {"status": "provisioned", "counts": _FIXTURE_COUNTS}},
+    {
+        "result": "PASS",
+        "data": {
+            **_FIXTURE_COUNTS,
+            "catch": 1,
+            "session": 1,
+            "credential": 2,
+            "image": 4,
+            "readmitted": 5,
+        },
+    },
+    {"result": "PASS", "data": {"quarantined": 4}},
+    {
+        "result": "PASS",
+        "data": {
+            "runs": [_LISTED_RUN, {**_LISTED_RUN, "reason": "unfinished"}],
+            "retained": 1,
+            "unfinished": 1,
+        },
+    },
+    {"result": "PASS", "data": {"runs": [], "retained": 0, "unfinished": 0}},
+]
+_FIXTURE_FAILURES = (
+    "FAIL_REQUEST",
+    "FAIL_TARGET",
+    "FAIL_RUN_EXISTS",
+    "FAIL_LEASE",
+    "FAIL_INVARIANT",
+    "FAIL_ERROR",
+    "FAIL_RUN_UNKNOWN",
+    "FAIL_BOOTSTRAP",
+    "FAIL_ATTRIBUTION",
+    "FAIL_STORAGE",
+    "FAIL_VERIFY",
+    "FAIL_LIMIT",
+)
+_INSPECT_REPLIES: list[dict[str, object]] = [
+    {
+        "result": "PASS",
+        "data": {
+            "catches": [_CATCH, _FOREIGN_CATCH],
+            "fursuits": [{"id": 35, "owner": 5}],
+            "fixture_photos_unchanged": True,
+            "avatars": [3, 5],
+        },
+    },
+    *(
+        {"result": code, "data": {}}
+        for code in (
+            "FAIL_REQUEST",
+            "FAIL_TARGET",
+            "FAIL_LEASE",
+            "FAIL_RUN_UNKNOWN",
+            "FAIL_LIMIT",
+            "FAIL_BOOTSTRAP",
+        )
+    ),
+]
+# Each launcher: the relay timeout it must pass, and every valid result shape.
+_VALID_RESULTS: list[tuple[str, int, dict[str, object]]] = [
+    ("scripts.api_sim_pool_ssh", 30, {"result": "PASS", "data": {"indexes": [0, 1]}}),
+    (
+        "scripts.api_sim_pool_ssh",
+        30,
+        {"result": "FAIL_INSUFFICIENT", "data": {"available": 1}},
+    ),
+    ("scripts.api_sim_pool_ssh", 30, {"result": "FAIL_TARGET", "data": {}}),
+    *(("scripts.api_sim_fixture_ssh", 150, reply) for reply in _FIXTURE_PASSES),
+    (
+        "scripts.api_sim_fixture_ssh",
+        150,
+        {"result": "FAIL_DIRTY", "data": {"quarantined": 2}},
+    ),
+    *(
+        ("scripts.api_sim_fixture_ssh", 150, {"result": code, "data": {}})
+        for code in _FIXTURE_FAILURES
+    ),
+    *(("scripts.api_sim_inspect_ssh", 30, reply) for reply in _INSPECT_REPLIES),
+]
+_REQUESTS = {case[0]: case[1] for case in (_POOL_CASE, _FIXTURE_CASE, _INSPECT_CASE)}
+
+
+@pytest.mark.parametrize(("name", "timeout", "remote"), _VALID_RESULTS)
+def test_each_launcher_relays_every_valid_result_shape_with_its_timeout(
+    relay: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    timeout: int,
+    remote: dict[str, object],
+) -> None:
+    """The output validator accepts each shape a remote sends, within the timeout."""
+    module = importlib.import_module(name)
+    calls = install(relay, monkeypatch, {**remote, "instance": INSTANCE})
+
+    code, response = invoke(module, _REQUESTS[name])
+
+    assert code == (0 if remote["result"] == "PASS" else 1)
+    assert response == {**remote, "instance": INSTANCE}
+    assert [call["timeout"] for call in calls] == [timeout]
+
+
 _STUB_REMOTE = (
     "def execute(request, *, runtime_identity, environ):\n"
     f"    return {{'result': 'PASS', 'data': {{}}, 'instance': {INSTANCE!r}}}\n"

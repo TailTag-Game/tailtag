@@ -1362,14 +1362,11 @@ print(json.dumps({{"result": "PASS", "data": data}}))
 """
 
 LOCAL_FAULTS = [
-    "auto-update-unset",
-    "auto-update-0",
     "stdin-not-tty",
     "stdout-not-tty",
     "no-taskfile",
     "no-services-api",
     "no-task",
-    "railway-not-executable",
     "no-uv",
     "relative-tools",
     "symlinked-host-root",
@@ -1399,7 +1396,7 @@ class LocalRig:
         (self.workspace / "services/api").mkdir(parents=True)
         (self.tools / "bin").mkdir(parents=True)
         executable(self.tools / "bin/task", TASK.format(root=str(root)))
-        for tool in (self.tools / "bin/railway", self.tools / "uv"):
+        for tool in (self.tools / "uv",):
             executable(tool, "")
         self.home = root / "home"
         self.home.mkdir()
@@ -1407,7 +1404,6 @@ class LocalRig:
     def environment(self, **changes: str | None) -> dict[str, str]:
         env = {
             **os.environ,
-            "RAILWAY_NO_AUTO_UPDATE": "1",
             "HOME": str(self.home),
             "PATH": "/tt316-sentinel-bin" + os.pathsep + os.environ["PATH"],
         }
@@ -1479,19 +1475,13 @@ def test_run_local_refuses_unsafe_start_before_prepare(fault: str) -> None:
     with owned_root() as root:
         rig = LocalRig(root, "released")
         changes: dict[str, str | None] = {}
-        if fault == "auto-update-unset":
-            changes["RAILWAY_NO_AUTO_UPDATE"] = None
-        elif fault == "auto-update-0":
-            changes["RAILWAY_NO_AUTO_UPDATE"] = "0"
-        elif fault == "no-taskfile":
+        if fault == "no-taskfile":
             (rig.workspace / "Taskfile.yml").unlink()
         elif fault == "no-services-api":
             (rig.workspace / "services/api").rmdir()
             (rig.workspace / "services").rmdir()
         elif fault == "no-task":
             (rig.tools / "bin/task").unlink()
-        elif fault == "railway-not-executable":
-            (rig.tools / "bin/railway").chmod(0o600)
         elif fault == "no-uv":
             # The plan does not say whether uv sits at tools/uv or tools/bin/uv.
             (rig.tools / "uv").unlink()
@@ -1529,7 +1519,6 @@ RENDER_LOCAL_FAULTS = [
     "render-cli-config-dir",
     "render-cli-login",
     "render-cli-in-tools",
-    "railway-login",
 ]
 
 
@@ -1540,7 +1529,7 @@ def test_run_local_on_render_refuses_any_render_credential_but_the_ssh_key(
     """#411 AC6: in Render mode the session SSH key is the only Render credential."""
     with owned_root() as root:
         rig = LocalRig(root, "released")
-        changes: dict[str, str | None] = {"RAILWAY_NO_AUTO_UPDATE": None}
+        changes: dict[str, str | None] = {}
         if fault == "render-api-key":
             changes["RENDER_API_KEY"] = "rnd_SENTINEL"
         elif fault == "render-cli-config-dir":
@@ -1550,12 +1539,10 @@ def test_run_local_on_render_refuses_any_render_credential_but_the_ssh_key(
             (rig.home / ".render/cli.yaml").write_text("")
         elif fault == "render-cli-in-tools":
             executable(rig.tools / "bin/render", "")
-        elif fault == "railway-login":
-            (rig.home / ".railway").mkdir()
         with rig.start(
             stdin_tty=True,
             stdout_tty=True,
-            paths={"platform": "render"},
+            paths=None,
             cwd=None,
             **changes,
         ) as process:
@@ -1564,23 +1551,18 @@ def test_run_local_on_render_refuses_any_render_credential_but_the_ssh_key(
         assert list(root.rglob("*.used.json")) == []
 
 
-@pytest.mark.parametrize("platform", ["railway", "render"])
 @pytest.mark.parametrize("outcome", ["released", "runner_failure"])
 def test_run_local_prepares_then_binds_then_runs_and_resolves_the_receipt_locally(
-    outcome: str, platform: str
+    outcome: str,
 ) -> None:
     """#316 AC8/C2/C3: order, sockets before run, workspace relays, local resolve."""
     with owned_root() as root:
         rig = LocalRig(root, outcome)
         changes: dict[str, str | None] = {}
-        if platform == "render":
-            # #411 AC6: Render mode needs neither the Railway CLI nor its setting.
-            (rig.tools / "bin/railway").unlink()
-            changes["RAILWAY_NO_AUTO_UPDATE"] = None
         with rig.start(
             stdin_tty=True,
             stdout_tty=True,
-            paths={"platform": platform},
+            paths=None,
             cwd=None,
             **changes,
         ) as process:
@@ -1627,9 +1609,7 @@ def test_run_local_prepares_then_binds_then_runs_and_resolves_the_receipt_locall
             ]
             assert Path(relay["cwd"]).resolve() == rig.workspace.resolve()
             env = relay["env"]
-            assert env.get("RAILWAY_NO_AUTO_UPDATE") == (
-                "1" if platform == "railway" else None
-            )
+            assert "RAILWAY_NO_AUTO_UPDATE" not in env
             assert env["HOME"] == str(rig.home)
             assert Path(env["UV"]).name == "uv"
             assert Path(env["UV"]).is_relative_to(rig.tools)
@@ -1656,7 +1636,7 @@ def test_run_local_prepares_then_binds_then_runs_and_resolves_the_receipt_locall
             with rig.start(
                 stdin_tty=True,
                 stdout_tty=True,
-                paths={"platform": platform},
+                paths=None,
                 cwd=None,
                 **changes,
             ) as again:

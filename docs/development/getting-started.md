@@ -192,12 +192,11 @@ A few checks differ visibly on Windows:
 #### Staging operator and simulator Staging tasks
 
 These tasks also run natively on Windows: `api-replacement-auth-smoke`,
-`api-staging-reset-ssh`, `api-staging-reset-provision-ssh`,
-`api-staging-restore-drill`, the `sim-pool-*` tasks, `sim-fixture-smoke`,
-`sim-journeys`, `sim-convention`, `sim-cleanup`, `sim-retained`, and
-`sim-image`. Windows CI exercises their file-access checks, process-tree
-cleanup, and restore-drill streaming with local files and fake commands. It
-does not run a live Staging reset, restore drill, or simulation, so those runs are not verified on Windows.
+the `sim-pool-*` tasks, `sim-fixture-smoke`, `sim-journeys`,
+`sim-convention`, `sim-cleanup`, `sim-retained`, and `sim-image`. Windows CI
+exercises their file-access checks and process-tree cleanup with local files
+and fake commands. It does not run a live Staging simulation, so those runs are
+not verified on Windows.
 
 - **Private files.** The tooling reads Staging secrets and bindings only from
   owner-only files. On Windows that means the owner is you, and the only

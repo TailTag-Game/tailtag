@@ -103,7 +103,6 @@ def requests(monkeypatch: MonkeyPatch) -> list[tuple[str, str]]:
         (
             [
                 *CI_PASSED,
-                workflow("TailTag post-deploy smoke", conclusion="failure"),
                 workflow("Render Development deploy", "in_progress", None),
             ],
             "passed",
@@ -118,7 +117,7 @@ def requests(monkeypatch: MonkeyPatch) -> list[tuple[str, str]]:
         "skipped-passes",
         "failure-blocks",
         "cancel-blocks",
-        "excluded-workflows-ignored",
+        "excluded-workflow-ignored",
         "malformed-run",
     ),
 )

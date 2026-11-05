@@ -76,7 +76,6 @@ jobs:
               - '!scripts/staging_*'
               - '!.github/workflows/api.yml'
               - '!.github/workflows/simulator.yml'
-              - '!.github/workflows/post-deploy-smoke.yml'
             schema:
               - 'services/api/openapi/**'
       - name: Skip mobile app change detection

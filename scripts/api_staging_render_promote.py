@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import getpass
 import json
 import os
@@ -14,9 +15,10 @@ import urllib.error
 import urllib.request
 import warnings
 from collections.abc import Mapping
+from datetime import datetime
 from http.client import HTTPException
 from pathlib import Path
-from typing import Final, cast
+from typing import Final, NoReturn, TypedDict, cast
 
 _REPOSITORY_ROOT: Final = Path(__file__).resolve().parents[1]
 for _path in (_REPOSITORY_ROOT, _REPOSITORY_ROOT / "services" / "api"):
@@ -24,21 +26,11 @@ for _path in (_REPOSITORY_ROOT, _REPOSITORY_ROOT / "services" / "api"):
         sys.path.insert(0, str(_path))
 
 from scripts import api_staging_preflight
-from scripts.api_staging_promote import (
-    _SOURCE_SHA,  # pyright: ignore[reportPrivateUsage]
-    Evidence,
-    _eligible,  # pyright: ignore[reportPrivateUsage]
-    _mapping,  # pyright: ignore[reportPrivateUsage]
-    _new_evidence,  # pyright: ignore[reportPrivateUsage]
-    _persist,  # pyright: ignore[reportPrivateUsage]
-    _result,  # pyright: ignore[reportPrivateUsage]
-    _run,  # pyright: ignore[reportPrivateUsage]
-    _SafeArgumentParser,  # pyright: ignore[reportPrivateUsage]
-    _timestamp,  # pyright: ignore[reportPrivateUsage]
-)
 
 from config import replacement_target_binding
 
+_SOURCE_SHA = re.compile(r"[0-9a-f]{40}")
+_REPOSITORY: Final = "TailTag-Game/tailtag"
 _API: Final = "https://api.render.com/v1"
 _CONFIRMATION: Final = "promote-tailtag-render-staging"
 _DEPLOY_ID: Final = re.compile(r"dep-[a-z0-9]{1,60}")
@@ -62,6 +54,221 @@ _IN_PROGRESS: Final = frozenset(
     }
 )
 _PRE_DEPLOY_COMMAND: Final = "python -m config.replacement_migrate"
+
+
+class Evidence(TypedDict):
+    source_sha: str
+    deployment_id: str
+    environment: str
+    deployment_timestamp: str | None
+    accepted_main_sha: str
+    validation_run_id: int
+    validation_run_attempt: int
+    deployment_outcome: str
+    migration_outcome: str
+    startup_outcome: str
+    readiness_outcome: str
+    identity_outcome: str
+    smoke_outcome: str
+    final_active_state: str
+    overall_outcome: str
+
+
+class _SafeArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> NoReturn:
+        del message
+        raise ValueError("arguments invalid")
+
+
+def _run(
+    arguments: list[str],
+    *,
+    input: str | None = None,
+    env: Mapping[str, str] | None = None,
+    cwd: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        arguments,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        shell=False,
+        timeout=_TIMEOUT_SECONDS,
+        input=input,
+        env=env,
+        cwd=cwd,
+    )
+
+
+def _json_command(
+    arguments: list[str], *, input: str | None = None
+) -> Mapping[str, object]:
+    completed = _run(arguments, input=input)
+    if completed.returncode != 0:
+        raise ValueError("external operation failed")
+    try:
+        value: object = json.loads(completed.stdout)
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError("external operation failed") from error
+    if not isinstance(value, dict):
+        raise TypeError("external operation failed")
+    response = cast(dict[str, object], value)
+    if response.get("errors"):
+        raise ValueError("external operation failed")
+    return response
+
+
+def _mapping(value: object) -> dict[str, object] | None:
+    return (
+        dict(cast(Mapping[str, object], value)) if isinstance(value, Mapping) else None
+    )
+
+
+def _gh(endpoint: str) -> Mapping[str, object]:
+    identity = _run(["gh", "api", "user", "--jq", ".login"])
+    if identity.returncode != 0 or identity.stdout.strip() != "FinnThePanther":
+        raise ValueError("github identity unavailable")
+    return _json_command(["gh", "api", endpoint])
+
+
+def _timestamp(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return (
+        value if parsed.tzinfo is not None and parsed.utcoffset() is not None else None
+    )
+
+
+def _evidence_path(deployment_id: str) -> Path:
+    return (
+        _REPOSITORY_ROOT
+        / "docs"
+        / "development"
+        / "staging-deployments"
+        / f"{deployment_id}.json"
+    )
+
+
+def _persist(record: Evidence) -> None:
+    path = _evidence_path(record["deployment_id"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(record, sort_keys=True) + "\n")
+    temporary.replace(path)
+
+
+def _new_evidence(
+    source_sha: str, main_sha: str, run: Mapping[str, object], deployment_id: str
+) -> Evidence:
+    run_id = run.get("id")
+    attempt = run.get("run_attempt")
+    if (
+        type(run_id) is not int
+        or run_id <= 0
+        or type(attempt) is not int
+        or attempt <= 0
+    ):
+        raise ValueError("validation record invalid")
+    return {
+        "source_sha": source_sha,
+        "deployment_id": deployment_id,
+        "environment": "staging",
+        "deployment_timestamp": None,
+        "accepted_main_sha": main_sha,
+        "validation_run_id": run_id,
+        "validation_run_attempt": attempt,
+        "deployment_outcome": "PENDING",
+        "migration_outcome": "PENDING",
+        "startup_outcome": "PENDING",
+        "readiness_outcome": "PENDING",
+        "identity_outcome": "PENDING",
+        "smoke_outcome": "PENDING",
+        "final_active_state": "NOT_CHECKED",
+        "overall_outcome": "PENDING",
+    }
+
+
+def _eligible(source_sha: str) -> tuple[str, Mapping[str, object]]:
+    commit = _gh(f"/repos/{_REPOSITORY}/commits/{source_sha}")
+    if commit.get("sha") != source_sha:
+        raise ValueError("candidate invalid")
+    main = _gh(f"/repos/{_REPOSITORY}/commits/main")
+    main_sha = main.get("sha")
+    if not isinstance(main_sha, str) or _SOURCE_SHA.fullmatch(main_sha) is None:
+        raise ValueError("main invalid")
+    comparison = _gh(
+        f"/repos/{_REPOSITORY}/compare/{source_sha}...{main_sha}?per_page=1"
+    )
+    base = _mapping(comparison.get("base_commit"))
+    merge_base = _mapping(comparison.get("merge_base_commit"))
+    if not (
+        base is not None
+        and merge_base is not None
+        and base.get("sha") == source_sha
+        and merge_base.get("sha") == source_sha
+        and comparison.get("behind_by") == 0
+        and comparison.get("status") in {"ahead", "identical"}
+    ):
+        raise ValueError("candidate ineligible")
+    page = 1
+    selected: dict[str, object] | None = None
+    while True:
+        runs = _gh(
+            f"/repos/{_REPOSITORY}/actions/workflows/api.yml/runs?head_sha={source_sha}&event=push&status=success&per_page=100&page={page}"
+        )
+        raw_rows = runs.get("workflow_runs")
+        if not isinstance(raw_rows, list):
+            raise TypeError("validation unavailable")
+        rows = cast(list[object], raw_rows)
+        for row in rows:
+            candidate = _mapping(row)
+            repository = _mapping(candidate.get("repository")) if candidate else None
+            if (
+                candidate is not None
+                and type(candidate.get("id")) is int
+                and repository is not None
+                and repository.get("full_name") == _REPOSITORY
+                and candidate.get("path") == ".github/workflows/api.yml"
+                and candidate.get("head_sha") == source_sha
+                and candidate.get("event") == "push"
+                and candidate.get("status") == "completed"
+                and candidate.get("conclusion") == "success"
+            ):
+                selected = candidate
+                break
+        if selected is not None or len(rows) < 100:
+            break
+        page += 1
+    if selected is None or type(selected.get("id")) is not int:
+        raise ValueError("validation unavailable")
+    verified = _gh(f"/repos/{_REPOSITORY}/actions/runs/{selected['id']}")
+    repository = _mapping(verified.get("repository"))
+    if not (
+        repository is not None
+        and repository.get("full_name") == _REPOSITORY
+        and verified.get("id") == selected.get("id")
+        and verified.get("path") == ".github/workflows/api.yml"
+        and verified.get("head_sha") == source_sha
+        and verified.get("event") == "push"
+        and verified.get("status") == "completed"
+        and verified.get("conclusion") == "success"
+    ):
+        raise ValueError("validation unavailable")
+    return main_sha, verified
+
+
+def _result(record: Evidence) -> int:
+    print(
+        f"promotion {record['source_sha']} {record['deployment_id']} "
+        f"{record['overall_outcome']} "
+        f"docs/development/staging-deployments/{record['deployment_id']}.json"
+    )
+    return 0 if record["overall_outcome"] == "SUCCEEDED" else 1
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):

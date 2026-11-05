@@ -78,7 +78,7 @@ are out of scope.
 `Detect mobile changes` skips both platform jobs for a pull request that
 changes only files that cannot affect the mobile app: `services/api/`,
 `tools/simulator/`, `.semgrep/`, `docs/`, root `*.md` files, `scripts/api_*`,
-`scripts/staging_*`, and the api, simulator, and post-deploy-smoke workflows.
+`scripts/staging_*`, and the api and simulator workflows.
 Any other path, including a new or unknown one, runs them, so the filter fails
 safe. Every push to `main` and every manual dispatch runs both jobs. The one
 exception inside `services/api/` is `services/api/openapi/`, the OpenAPI
