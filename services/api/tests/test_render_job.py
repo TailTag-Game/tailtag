@@ -70,7 +70,6 @@ class Harness:
         self.failures: set[str] = set()
 
     def maintenance(self, configuration: object) -> Maintenance:
-        assert configuration.platform == "render"  # type: ignore[attr-defined]
         return Maintenance(self.events, self.failures)
 
     def reset(self, _configuration: object) -> dict[str, int]:
@@ -429,7 +428,7 @@ def test_inspect_job_reports_the_operator_inspector_status(
     """The job runs the reviewed #243 ORM checks after its own target binding."""
     if case == "passing-checks":
         inspector = importlib.import_module("rehearsal.operator_inspect")
-        monkeypatch.setattr(inspector, "_inspect_orm_preconditions", lambda: "PASS")
+        monkeypatch.setattr(inspector, "inspect_orm_preconditions", lambda: "PASS")
 
     status, result, _ = harness.run(capfd, *read_only_arguments("inspect"))
 

@@ -104,13 +104,6 @@ def control_url() -> str:
 
 
 @pytest.fixture
-def maintenance_target(safety: ModuleType) -> Generator[MaintenanceTarget]:
-    """Point Django at one disposable DB and always restore/drop only that DB."""
-    with _dedicated_target(safety) as target:
-        yield target
-
-
-@pytest.fixture
 def local_roles() -> Generator[None]:
     """Create task-owned login roles that are never superusers, then drop them."""
     with psycopg.connect(control_url(), autocommit=True) as database:
@@ -130,10 +123,14 @@ def render_owner_target(
     safety: ModuleType, local_roles: None
 ) -> Generator[MaintenanceTarget]:
     """Run the executor as the non-superuser owner, like Render Postgres."""
-    with _dedicated_target(
-        safety, owner=RENDER_OWNER, executor=RENDER_OWNER, platform="render"
-    ) as target:
+    with _dedicated_target(safety, owner=RENDER_OWNER, executor=RENDER_OWNER) as target:
         yield target
+
+
+@pytest.fixture
+def maintenance_target(render_owner_target: MaintenanceTarget) -> MaintenanceTarget:
+    """Point Django at one disposable DB and always restore/drop only that DB."""
+    return render_owner_target
 
 
 def _role_url(url: str, role: str) -> str:
@@ -148,8 +145,7 @@ def _dedicated_target(
     *,
     owner: str | None = None,
     executor: str | None = None,
-    platform: str = "railway",
-    portless: bool | None = None,
+    portless: bool = True,
 ) -> Generator[MaintenanceTarget]:
     control = control_url()
     target = urlunparse(urlparse(control)._replace(path=f"/{DEDICATED_DATABASE}"))
@@ -171,7 +167,7 @@ def _dedicated_target(
         database_settings["PASSWORD"] = ROLE_PASSWORD
         target = _role_url(target, executor)
     database_port = str(database_settings["PORT"])
-    if platform == "render" if portless is None else portless:
+    if portless:
         # The Render internal URL names no port, so libpq uses its 5432 default.
         assert database_port == "5432"
         database_settings["PORT"] = ""
@@ -190,7 +186,6 @@ def _dedicated_target(
                 owner_clerk_id="user_rehearsal_owner",
                 catcher_clerk_id="user_rehearsal_catcher",
                 media_key=MEDIA_KEY,
-                platform=platform,
             ),
             target_url=target,
             control_url=control,
@@ -412,36 +407,25 @@ def test_render_maintenance_gates_drains_and_reopens_as_the_non_superuser_owner(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    ("platform", "owner", "executor", "portless"),
+    ("owner", "executor"),
     (
-        pytest.param("render", None, None, True, id="render-superuser-executor"),
-        pytest.param(
-            "render", None, RENDER_OWNER, True, id="render-executor-not-owner"
-        ),
-        pytest.param(
-            "railway", RENDER_OWNER, RENDER_OWNER, False, id="railway-needs-superuser"
-        ),
-        # The Render port-less rule must not reach Railway.
-        pytest.param("railway", None, None, True, id="railway-url-without-port"),
+        pytest.param(None, None, id="render-superuser-executor"),
+        pytest.param(None, RENDER_OWNER, id="render-executor-not-owner"),
     ),
 )
-def test_maintenance_refuses_an_executor_its_platform_does_not_permit(
+def test_maintenance_refuses_an_executor_render_does_not_permit(
     safety: ModuleType,
     local_roles: None,
     monkeypatch: pytest.MonkeyPatch,
-    platform: str,
     owner: str | None,
     executor: str | None,
-    portless: bool,
 ) -> None:
-    """#410 AC4/AC11: each platform admits only its own executor and URL form."""
+    """#410 AC4/AC11: Render admits only the non-superuser database owner."""
     events: list[str] = []
     monkeypatch.setattr(safety, "validate_identity", validated_identity)
     monkeypatch.setattr(safety.psycopg, "connect", _observe_control(events))
 
-    with _dedicated_target(
-        safety, owner=owner, executor=executor, platform=platform, portless=portless
-    ) as target:
+    with _dedicated_target(safety, owner=owner, executor=executor) as target:
         with pytest.raises(safety.ResetSafetyError):
             safety.validate_database(target.configuration)
         with (

@@ -43,8 +43,6 @@ STAGING_CLERK_PORTAL_ORIGIN: Final = "https://accounts.staging.tailtag.app"
 # Smoke/provider safety bound; not a TailTag application auth contract.
 MAX_PROVIDER_SESSION_TOKEN_LIFETIME_SECONDS = 60
 
-_STAGING_URL: Final = "https://staging.tailtag.app"
-_CONFIRMATION: Final = "run-clerk-staging-auth-smoke"
 # A local run against Render names the pinned service ID itself, because
 # Render has no command that copies service variables into a local process.
 _RENDER_CONFIRMATION: Final = "run-clerk-render-staging-auth-smoke"
@@ -339,16 +337,7 @@ def _valid_target(environment: Mapping[str, str]) -> tuple[str, str] | None:
             return _valid_render_target(environment, user_id)
     except replacement_target_binding.TargetBindingError:
         return None
-    if (
-        environment.get("RAILWAY_ENVIRONMENT_NAME") != "staging"
-        or environment.get("RAILWAY_SERVICE_NAME") != "api"
-        or environment.get("TAILTAG_STAGING_AUTH_SMOKE_CONFIRM") != _CONFIRMATION
-        or environment.get("API_BASE_URL") != _STAGING_URL
-        or environment.get("TAILTAG_STAGING_API_BASE_URL") != _STAGING_URL
-        or not user_id
-    ):
-        return None
-    return _STAGING_URL, user_id
+    return None
 
 
 def _valid_render_target(

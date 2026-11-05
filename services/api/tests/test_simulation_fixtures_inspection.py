@@ -51,12 +51,26 @@ from tests.simulation_fixtures_test_support import (
 # transaction a plain ``django_db`` test already holds open.
 pytestmark = pytest.mark.django_db(transaction=True)
 
+from tests.render_target_support import (
+    DEVELOPMENT_SERVICE,
+    INSTANCE,
+    RENDER_STAGING_ENVIRON,
+    UNPINNED_SERVICE,
+    pin_render_services,
+)
+
 IDENTITY = {
     "source_sha": "a" * 40,
-    "deployment_id": "11111111-1111-4111-8111-111111111111",
+    "deployment_id": None,
     "environment": "staging",
 }
-ENVIRON = {"RAILWAY_ENVIRONMENT_NAME": "staging", "RAILWAY_SERVICE_NAME": "api"}
+ENVIRON = RENDER_STAGING_ENVIRON
+
+
+@pytest.fixture(autouse=True)
+def render_pins(monkeypatch: pytest.MonkeyPatch) -> None:
+    pin_render_services(monkeypatch)
+
 
 # Deliberately not ascending in role order, and offset from user primary keys, so a
 # role-order or user-id shortcut cannot pass for a pool index.
@@ -561,6 +575,7 @@ def test_record_caps_and_the_output_fits_the_launcher_limit(
         runtime_identity=IDENTITY,
         environ=ENVIRON,
     )
+    response.pop("instance", None)
 
     if result == "FAIL_LIMIT":
         assert response == {"result": "FAIL_LIMIT", "data": {}}
@@ -754,9 +769,13 @@ def execute(
     runtime_identity: Mapping[str, object] = IDENTITY,
     environ: Mapping[str, str] = ENVIRON,
 ) -> dict[str, object]:
-    return inspection_remote.execute(
+    response = inspection_remote.execute(
         payload, runtime_identity=runtime_identity, environ=environ
     )
+    # Render names the instance it served. The shapes below cover the rest.
+    if "instance" in response:
+        assert response.pop("instance") == INSTANCE
+    return response
 
 
 @pytest.mark.parametrize(
@@ -770,18 +789,22 @@ def execute(
         ),
         (
             IDENTITY,
-            {**ENVIRON, "RAILWAY_ENVIRONMENT_NAME": "development"},
+            {**ENVIRON, "RENDER_SERVICE_ID": DEVELOPMENT_SERVICE},
             request("inspect"),
         ),
-        (IDENTITY, {**ENVIRON, "RAILWAY_SERVICE_NAME": "worker"}, request("inspect")),
+        (
+            IDENTITY,
+            {**ENVIRON, "RENDER_SERVICE_ID": UNPINNED_SERVICE},
+            request("inspect"),
+        ),
         # The target is proven before the request is even validated.
         (IDENTITY, {}, request("drop_table", {"unexpected": 1})),
     ),
     ids=(
         "source-sha-mismatch",
         "deployment-mismatch",
-        "not-the-staging-environment",
-        "not-the-api-service",
+        "render-development-service",
+        "render-unpinned-service",
         "mismatch-before-validation",
     ),
 )

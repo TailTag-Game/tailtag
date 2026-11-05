@@ -221,9 +221,7 @@ def _reconcile(configuration: ResetConfiguration) -> dict[str, object]:
 def _inspect() -> dict[str, object]:
     from rehearsal import operator_inspect
 
-    return {
-        "result": operator_inspect._inspect_orm_preconditions()  # pyright: ignore[reportPrivateUsage]
-    }
+    return {"result": operator_inspect.inspect_orm_preconditions()}
 
 
 def _emergency_state(configuration: ResetConfiguration) -> dict[str, object]:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import NoReturn, Self, cast
 
@@ -33,8 +34,8 @@ REBUILD_STAGING = "33333333-3333-4333-8333-333333333333"
 REBUILD_API = "d4444444-4444-4444-8444-444444444444"
 REBUILD_POSTGRES = "55555555-5555-4555-8555-555555555555"
 OLD_PROJECT = "66666666-6666-4666-8666-666666666666"
-DEVELOPMENT_CANDIDATE_HOST = "dev.tailtag.app"
-DEVELOPMENT_CANDIDATE_ORIGIN = f"https://{DEVELOPMENT_CANDIDATE_HOST}"
+RENDER_DEVELOPMENT_CUSTOM_HOST = "dev.tailtag.app"
+DEVELOPMENT_CANDIDATE_ORIGIN = f"https://{RENDER_DEVELOPMENT_CUSTOM_HOST}"
 RAILWAY_DEVELOPMENT_HOST_EXAMPLE = "synthetic-development-api.up.railway.app"
 DEVELOPMENT_CLERK_PORTAL_ORIGIN = "https://holy-lioness-3896.accounts.dev"
 
@@ -87,71 +88,66 @@ def write_build_identity(path: Path, source_sha: str = SOURCE_SHA) -> None:
 def configure_replacement_runtime(
     monkeypatch: MonkeyPatch, *, environment: str
 ) -> None:
-    """Pin synthetic provider IDs while exercising actual deployed readiness."""
+    """Pin synthetic Render services and hosts for actual deployed readiness."""
+    for name in list(os.environ):
+        if name.startswith("RAILWAY_"):
+            monkeypatch.delenv(name)
     monkeypatch.setattr(
         replacement_target_binding,
-        "_EXPECTED_DIGESTS",
+        "_EXPECTED_RENDER_DIGESTS",
         {
-            role: replacement_target_binding.fingerprint_tuple(role, *values)
-            for role, values in {
-                "development-api": (
-                    REBUILD_PROJECT,
-                    REBUILD_DEVELOPMENT,
-                    REBUILD_API,
-                ),
-                "development-postgres": (
-                    REBUILD_PROJECT,
-                    REBUILD_DEVELOPMENT,
-                    REBUILD_POSTGRES,
-                ),
-                "staging-api": (REBUILD_PROJECT, REBUILD_STAGING, REBUILD_API),
-                "staging-postgres": (
-                    REBUILD_PROJECT,
-                    REBUILD_STAGING,
-                    REBUILD_POSTGRES,
-                ),
-            }.items()
+            "development": replacement_target_binding.fingerprint_render_service(
+                "development", RENDER_DEVELOPMENT_SERVICE
+            ),
+            "staging": replacement_target_binding.fingerprint_render_service(
+                "staging", RENDER_STAGING_SERVICE
+            ),
         },
     )
-    monkeypatch.setenv("RAILWAY_PROJECT_ID", REBUILD_PROJECT)
-    monkeypatch.setenv(
-        "RAILWAY_ENVIRONMENT_ID",
-        REBUILD_STAGING if environment == "staging" else REBUILD_DEVELOPMENT,
+    monkeypatch.setattr(
+        replacement_target_binding,
+        "_EXPECTED_RENDER_HOST_DIGESTS",
+        {
+            "development": replacement_target_binding.fingerprint_render_hostname(
+                "development", RENDER_DEVELOPMENT_CUSTOM_HOST
+            ),
+            "staging": replacement_target_binding.fingerprint_render_hostname(
+                "staging", RENDER_STAGING_HOST
+            ),
+        },
     )
-    monkeypatch.setenv("RAILWAY_SERVICE_ID", REBUILD_API)
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv(
+        "RENDER_SERVICE_ID",
+        RENDER_STAGING_SERVICE
+        if environment == "staging"
+        else RENDER_DEVELOPMENT_SERVICE,
+    )
 
 
-def configure_staging_identity(
-    monkeypatch: MonkeyPatch, tmp_path: Path, *, deployment_id: str = DEPLOYMENT_ID
-) -> None:
-    """Provide only #201's baked artifact and Railway runtime mapping."""
+def configure_staging_identity(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    """Provide the baked artifact and the pinned Render Staging runtime."""
     metadata_path = tmp_path / "build-identity.json"
     write_build_identity(metadata_path)
     monkeypatch.setattr(build_identity, "_METADATA_PATH", metadata_path)
-    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "staging")
-    monkeypatch.setenv("RAILWAY_DEPLOYMENT_ID", deployment_id)
-    monkeypatch.setenv("RAILWAY_SERVICE_NAME", "api")
     monkeypatch.setenv("TAILTAG_STAGING_TARGET_PHASE", "canonical")
     configure_replacement_runtime(monkeypatch, environment="staging")
 
 
 def configure_development_identity(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
-    """Provide the #201 runtime identity allowed for a Development deployment."""
+    """Provide the pinned Render Development runtime with no baked artifact."""
     monkeypatch.setattr(build_identity, "_METADATA_PATH", tmp_path / "absent.json")
-    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "development")
-    monkeypatch.setenv("RAILWAY_DEPLOYMENT_ID", DEPLOYMENT_ID)
-    monkeypatch.setenv("RAILWAY_SERVICE_NAME", "api")
     configure_replacement_runtime(monkeypatch, environment="development")
 
 
 def configured_development_candidate_settings(
     clerk_public_key: str,
 ) -> dict[str, object]:
-    """Return the exact replacement Development effective settings profile."""
+    """Return the exact Render Development effective settings profile."""
     return {
         **configured_deployed_settings(clerk_public_key),
-        "ALLOWED_HOSTS": [DEVELOPMENT_CANDIDATE_HOST, "healthcheck.railway.app"],
-        "CSRF_TRUSTED_ORIGINS": [DEVELOPMENT_CANDIDATE_ORIGIN],
+        "ALLOWED_HOSTS": [RENDER_DEVELOPMENT_CUSTOM_HOST],
+        "CSRF_TRUSTED_ORIGINS": [f"https://{RENDER_DEVELOPMENT_CUSTOM_HOST}"],
         "CLERK_AUTHENTICATION": ClerkVerificationConfiguration(
             jwt_key=clerk_public_key,
             authorized_parties=(
@@ -165,17 +161,9 @@ def configured_development_candidate_settings(
 def configure_development_candidate_identity(
     monkeypatch: MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Provide the complete synthetic replacement Development runtime and pin."""
+    """Provide the complete synthetic Render Development runtime and pin."""
     configure_development_identity(monkeypatch, tmp_path)
     write_build_identity(tmp_path / "absent.json")
-    monkeypatch.setattr(
-        replacement_target_binding,
-        "_EXPECTED_DEVELOPMENT_CANDIDATE_HOST_DIGEST",
-        replacement_target_binding.fingerprint_development_candidate_hostname(
-            DEVELOPMENT_CANDIDATE_HOST
-        ),
-        raising=False,
-    )
 
 
 def configure_local_profile(monkeypatch: MonkeyPatch) -> None:
@@ -191,7 +179,7 @@ def configured_deployed_settings(clerk_public_key: str) -> dict[str, object]:
     return {
         "DEBUG": False,
         "SECRET_KEY": "test-deployed-secret-key",
-        "ALLOWED_HOSTS": ["staging.tailtag.app", "healthcheck.railway.app"],
+        "ALLOWED_HOSTS": ["staging.tailtag.app", RENDER_STAGING_HOST],
         "CSRF_TRUSTED_ORIGINS": ["https://staging.tailtag.app"],
         "SESSION_COOKIE_SECURE": True,
         "CSRF_COOKIE_SECURE": True,
@@ -401,19 +389,19 @@ def test_deployed_configuration_joins_actual_runtime_to_replacement_pin(
     tmp_path: Path,
     valid_clerk_public_key: str,
 ) -> None:
-    """T-3: valid source/settings cannot make an old-project runtime ready."""
+    """T-3: valid source/settings cannot make an unpinned runtime ready."""
     configure_staging_identity(monkeypatch, tmp_path)
     monkeypatch.setattr(settings, "SETTINGS_MODULE", "config.settings.production")
 
     with override_settings(**configured_deployed_settings(valid_clerk_public_key)):
         assert validate_configuration() is None
 
-        monkeypatch.setenv("RAILWAY_PROJECT_ID", OLD_PROJECT)
+        monkeypatch.setenv("RENDER_SERVICE_ID", "srv-d0unpinned00000000000")
         with pytest.raises(ImproperlyConfigured) as caught:
             validate_configuration()
 
     assert str(caught.value) == "Health configuration unavailable"
-    assert OLD_PROJECT not in str(caught.value)
+    assert "srv-d0unpinned00000000000" not in str(caught.value)
 
 
 @pytest.mark.django_db
@@ -431,7 +419,7 @@ def test_readiness_rejects_development_deployment_without_baked_source_sha(
     with override_settings(
         **configured_development_candidate_settings(valid_clerk_public_key)
     ):
-        response = client.get("/health/ready", HTTP_HOST=DEVELOPMENT_CANDIDATE_HOST)
+        response = client.get("/health/ready", HTTP_HOST=RENDER_DEVELOPMENT_CUSTOM_HOST)
 
     assert response.status_code == 503
     assert response.json() == {"status": "unavailable"}
@@ -452,168 +440,10 @@ def test_readiness_accepts_complete_replacement_development_profile(
     with override_settings(
         **configured_development_candidate_settings(valid_clerk_public_key)
     ):
-        response = client.get("/health/ready", HTTP_HOST=DEVELOPMENT_CANDIDATE_HOST)
+        response = client.get("/health/ready", HTTP_HOST=RENDER_DEVELOPMENT_CUSTOM_HOST)
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
-    assert response["Cache-Control"] == "no-store"
-
-
-@pytest.mark.parametrize(
-    ("runtime_override", "settings_override"),
-    (
-        ({"RAILWAY_PROJECT_ID": OLD_PROJECT}, {}),
-        ({"RAILWAY_ENVIRONMENT_ID": REBUILD_STAGING}, {}),
-        ({"RAILWAY_DEPLOYMENT_ID": None}, {}),
-        ({}, {"ALLOWED_HOSTS": ["staging.tailtag.app", "healthcheck.railway.app"]}),
-        (
-            {},
-            {
-                "ALLOWED_HOSTS": [
-                    RAILWAY_DEVELOPMENT_HOST_EXAMPLE,
-                    "healthcheck.railway.app",
-                ],
-                "CSRF_TRUSTED_ORIGINS": [f"https://{RAILWAY_DEVELOPMENT_HOST_EXAMPLE}"],
-            },
-        ),
-        (
-            {},
-            {
-                "ALLOWED_HOSTS": [
-                    DEVELOPMENT_CANDIDATE_HOST,
-                    "healthcheck.railway.app",
-                    "other.invalid",
-                ]
-            },
-        ),
-        ({}, {"CSRF_TRUSTED_ORIGINS": ["https://staging.tailtag.app"]}),
-        (
-            {},
-            {
-                "CSRF_TRUSTED_ORIGINS": [
-                    DEVELOPMENT_CANDIDATE_ORIGIN,
-                    "https://other.invalid",
-                ]
-            },
-        ),
-        ({}, {"CLERK_AUTHENTICATION": ("http://localhost:3000",)}),
-        ({}, {"CLERK_AUTHENTICATION": (DEVELOPMENT_CLERK_PORTAL_ORIGIN,)}),
-        (
-            {},
-            {
-                "CLERK_AUTHENTICATION": (
-                    "http://localhost:3000",
-                    "https://other.accounts.dev",
-                )
-            },
-        ),
-        (
-            {},
-            {
-                "CLERK_AUTHENTICATION": (
-                    "http://localhost:3000",
-                    DEVELOPMENT_CLERK_PORTAL_ORIGIN,
-                    "https://other.accounts.dev",
-                )
-            },
-        ),
-        (
-            {},
-            {
-                "CLERK_AUTHENTICATION": (
-                    DEVELOPMENT_CLERK_PORTAL_ORIGIN,
-                    "http://localhost:3000",
-                )
-            },
-        ),
-    ),
-    ids=(
-        "old-project",
-        "staging-environment",
-        "missing-deployment",
-        "staging-host",
-        "railway-development-origin",
-        "extra-host",
-        "staging-csrf",
-        "extra-csrf",
-        "localhost-only-clerk-party",
-        "portal-only-clerk-party",
-        "wrong-clerk-portal-party",
-        "extra-clerk-party",
-        "swapped-clerk-party-order",
-    ),
-)
-def test_development_readiness_denies_other_generation_or_origin_sets(
-    monkeypatch: MonkeyPatch,
-    tmp_path: Path,
-    valid_clerk_public_key: str,
-    runtime_override: dict[str, str | None],
-    settings_override: dict[str, object],
-) -> None:
-    """D-2: project/environment swaps and origin drift fail with fixed error."""
-    configure_development_candidate_identity(monkeypatch, tmp_path)
-    monkeypatch.setattr(settings, "SETTINGS_MODULE", "config.settings.production")
-    for name, value in runtime_override.items():
-        if value is None:
-            monkeypatch.delenv(name)
-        else:
-            monkeypatch.setenv(name, value)
-    parties = settings_override.get("CLERK_AUTHENTICATION")
-    if isinstance(parties, tuple):
-        settings_override = {
-            "CLERK_AUTHENTICATION": ClerkVerificationConfiguration(
-                jwt_key=valid_clerk_public_key,
-                authorized_parties=cast(tuple[str, ...], parties),
-            )
-        }
-    configured = {
-        **configured_development_candidate_settings(valid_clerk_public_key),
-        **settings_override,
-    }
-    with override_settings(**configured), pytest.raises(ImproperlyConfigured) as caught:
-        validate_configuration()
-    assert str(caught.value) == "Health configuration unavailable"
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize(
-    "runtime_overrides",
-    (
-        {"RAILWAY_ENVIRONMENT_NAME": None},
-        {"RAILWAY_DEPLOYMENT_ID": None},
-        {"RAILWAY_ENVIRONMENT_NAME": "production"},
-        {"RAILWAY_ENVIRONMENT_NAME": "preview"},
-        {"RAILWAY_SERVICE_NAME": "worker"},
-    ),
-    ids=(
-        "missing-environment",
-        "missing-deployment-id",
-        "production-environment",
-        "unknown-environment",
-        "wrong-service",
-    ),
-)
-def test_readiness_rejects_unrecognized_or_incomplete_deployed_runtime(
-    client: Client,
-    monkeypatch: MonkeyPatch,
-    tmp_path: Path,
-    valid_clerk_public_key: str,
-    runtime_overrides: dict[str, str | None],
-) -> None:
-    """AC-3: deployed profile/runtime classification denies uncertainty and mismatch."""
-    configure_development_identity(monkeypatch, tmp_path)
-    monkeypatch.setattr(settings, "SETTINGS_MODULE", "config.settings.production")
-    for name, value in runtime_overrides.items():
-        if value is None:
-            monkeypatch.delenv(name, raising=False)
-        else:
-            monkeypatch.setenv(name, value)
-
-    with override_settings(**configured_deployed_settings(valid_clerk_public_key)):
-        response = client.get("/health/ready", HTTP_HOST="staging.tailtag.app")
-
-    assert response.status_code == 503
-    assert response.json() == {"status": "unavailable"}
     assert response["Cache-Control"] == "no-store"
 
 
@@ -736,43 +566,6 @@ def test_readiness_rejects_malformed_effective_clerk_authorized_party(
     assert response.status_code == 503
     assert response.json() == {"status": "unavailable"}
     assert response["Cache-Control"] == "no-store"
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize(
-    ("source_sha", "deployment_id"),
-    (
-        (None, DEPLOYMENT_ID),
-        ("not-a-source-sha", DEPLOYMENT_ID),
-        (SOURCE_SHA, "not-a-uuid"),
-    ),
-    ids=("missing-sha", "malformed-sha", "malformed-deployment-id"),
-)
-def test_readiness_hides_invalid_deployed_identity(
-    client: Client,
-    monkeypatch: MonkeyPatch,
-    tmp_path: Path,
-    source_sha: str | None,
-    deployment_id: str,
-    valid_clerk_public_key: str,
-) -> None:
-    """AC-2/3/9: invalid build/runtime identity is a fixed readiness denial."""
-    metadata_path = tmp_path / "build-identity.json"
-    metadata_path.write_text(json.dumps({"source_sha": source_sha}))
-    monkeypatch.setattr(build_identity, "_METADATA_PATH", metadata_path)
-    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "staging")
-    monkeypatch.setenv("RAILWAY_DEPLOYMENT_ID", deployment_id)
-    monkeypatch.setenv("RAILWAY_SERVICE_NAME", "api")
-    configure_replacement_runtime(monkeypatch, environment="staging")
-    monkeypatch.setattr(settings, "SETTINGS_MODULE", "config.settings.production")
-
-    with override_settings(**configured_deployed_settings(valid_clerk_public_key)):
-        response = client.get("/health/ready", HTTP_HOST="staging.tailtag.app")
-
-    assert response.status_code == 503
-    assert response.json() == {"status": "unavailable"}
-    assert response["Cache-Control"] == "no-store"
-    assert SENSITIVE_DIAGNOSTIC not in response.content.decode()
 
 
 @pytest.mark.django_db
@@ -1083,6 +876,38 @@ def test_readiness_accepts_complete_render_profiles(
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "marker",
+    (
+        "RAILWAY_ENVIRONMENT_NAME",
+        "RAILWAY_DEPLOYMENT_ID",
+        "RAILWAY_SERVICE_NAME",
+        "RAILWAY_PROJECT_ID",
+    ),
+)
+def test_readiness_fails_closed_when_a_retired_host_marker_is_present(
+    client: Client,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+    valid_clerk_public_key: str,
+    marker: str,
+) -> None:
+    """#412 AC11: a valid Render profile is refused once any Railway marker exists."""
+    configure_render_identity(monkeypatch, tmp_path, environment="development")
+    monkeypatch.setattr("media.storage.boto3.client", fail_vendor_call)
+    monkeypatch.setattr("authentication.clerk.authenticate_request", fail_vendor_call)
+    profile = render_settings(valid_clerk_public_key, environment="development")
+
+    with override_settings(**profile):
+        healthy = client.get("/health/ready", HTTP_HOST=RENDER_DEVELOPMENT_HOST)
+        monkeypatch.setenv(marker, "retired")
+        refused = client.get("/health/ready", HTTP_HOST=RENDER_DEVELOPMENT_HOST)
+
+    assert healthy.status_code == 200
+    assert refused.status_code == 503
 
 
 @pytest.mark.parametrize(

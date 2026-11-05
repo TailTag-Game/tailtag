@@ -11,7 +11,6 @@ BACKEND_RELEVANT_FILES = {
     "Taskfile.yml",
     "scripts/api_smoke.py",
     "scripts/api_auth_smoke.py",
-    "scripts/api_replacement_auth_smoke.py",
     "scripts/api_staging_auth_smoke.py",
     "scripts/render_development_deploy.py",
     "scripts/api_sim_fixture_ssh.py",

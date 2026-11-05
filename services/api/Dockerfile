@@ -50,7 +50,6 @@ CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
 
 FROM python:3.13-slim-bookworm AS production
 
-ARG RAILWAY_GIT_COMMIT_SHA
 ARG RENDER_GIT_COMMIT
 
 LABEL org.opencontainers.image.source="https://github.com/TailTag-Game/tailtag" \
@@ -79,7 +78,7 @@ RUN groupadd --system tailtag \
     && chown tailtag:tailtag /app
 
 COPY docker/write_build_identity.py /tmp/write_build_identity.py
-RUN RAILWAY_GIT_COMMIT_SHA="$RAILWAY_GIT_COMMIT_SHA" RENDER_GIT_COMMIT="$RENDER_GIT_COMMIT" \
+RUN RENDER_GIT_COMMIT="$RENDER_GIT_COMMIT" \
         python /tmp/write_build_identity.py /opt/tailtag/build-identity.json \
     && rm /tmp/write_build_identity.py \
     && chmod 0755 /opt/tailtag \

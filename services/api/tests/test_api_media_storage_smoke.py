@@ -29,15 +29,20 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 from scripts import api_media_storage_smoke as smoke
 
+RENDER_DEVELOPMENT_SERVICE = "srv-d0development00000000"
+RENDER_STAGING_SERVICE = "srv-d0staging000000000000"
+RENDER_UNPINNED_SERVICE = "srv-d0unpinned00000000000"
 VALID_ENVIRONMENT = {
-    "RAILWAY_ENVIRONMENT_NAME": "development",
-    "RAILWAY_SERVICE_NAME": "api",
-    "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": "run-r2-development-media-storage-smoke",
+    "RENDER": "true",
+    "RENDER_SERVICE_ID": RENDER_DEVELOPMENT_SERVICE,
+    "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": (
+        "run-r2-render-development-media-storage-smoke"
+    ),
 }
 STAGING_ENVIRONMENT = {
-    "RAILWAY_ENVIRONMENT_NAME": "staging",
-    "RAILWAY_SERVICE_NAME": "api",
-    "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": "run-r2-staging-media-storage-smoke",
+    "RENDER": "true",
+    "RENDER_SERVICE_ID": RENDER_STAGING_SERVICE,
+    "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": "run-r2-render-staging-media-storage-smoke",
 }
 SENSITIVE_VALUES = (
     "r2-development-bucket-synthetic",
@@ -232,10 +237,10 @@ def assert_sanitized(
     "environment",
     (
         {},
-        {**VALID_ENVIRONMENT, "RAILWAY_ENVIRONMENT_NAME": "Development"},
-        {**VALID_ENVIRONMENT, "RAILWAY_SERVICE_NAME": "API"},
-        {**VALID_ENVIRONMENT, "RAILWAY_SERVICE_NAME": "worker"},
-        {**VALID_ENVIRONMENT, "RAILWAY_ENVIRONMENT_NAME": "production"},
+        {**VALID_ENVIRONMENT, "RENDER_SERVICE_ID": RENDER_UNPINNED_SERVICE},
+        {**VALID_ENVIRONMENT, "RENDER": "false"},
+        {**VALID_ENVIRONMENT, "RAILWAY_SERVICE_NAME": "api"},
+        {**VALID_ENVIRONMENT, "RENDER_SERVICE_ID": ""},
         {
             **VALID_ENVIRONMENT,
             "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": "yes",
@@ -243,13 +248,10 @@ def assert_sanitized(
         {
             **STAGING_ENVIRONMENT,
             "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": (
-                "run-r2-development-media-storage-smoke"
+                "run-r2-render-development-media-storage-smoke"
             ),
         },
-        {
-            **VALID_ENVIRONMENT,
-            "RAILWAY_ENVIRONMENT_NAME": "staging",
-        },
+        {**VALID_ENVIRONMENT, "RENDER_SERVICE_ID": RENDER_STAGING_SERVICE},
         {
             **VALID_ENVIRONMENT,
             "RAILWAY_ENVIRONMENT_NAME": (
@@ -275,22 +277,13 @@ def test_invalid_or_cross_matched_media_target_stops_before_every_runtime_bounda
     "environment",
     (
         {},
-        {
-            "RAILWAY_ENVIRONMENT_NAME": "development",
-            "RAILWAY_SERVICE_NAME": "api",
-        },
-        {
-            "RAILWAY_ENVIRONMENT_NAME": "development",
-            "RAILWAY_SERVICE_NAME": "worker",
-        },
+        {"RENDER": "true", "RENDER_SERVICE_ID": RENDER_DEVELOPMENT_SERVICE},
+        {"RENDER": "true", "RENDER_SERVICE_ID": RENDER_UNPINNED_SERVICE},
         {
             "RAILWAY_ENVIRONMENT_NAME": "production",
             "RAILWAY_SERVICE_NAME": "api",
         },
-        {
-            "RAILWAY_ENVIRONMENT_NAME": "staging",
-            "RAILWAY_SERVICE_NAME": "api",
-        },
+        {"RENDER": "true", "RENDER_SERVICE_ID": RENDER_STAGING_SERVICE},
     ),
 )
 def test_media_target_guard_rejects_missing_confirmation_without_none_equality_bypass(
@@ -605,41 +598,28 @@ def test_recording_runtime_models_storage_exists_after_delete(
     "environment",
     (
         {},
+        {key: value for key, value in VALID_ENVIRONMENT.items() if key != "RENDER"},
         {
             key: value
             for key, value in VALID_ENVIRONMENT.items()
-            if key != "RAILWAY_ENVIRONMENT_NAME"
-        },
-        {
-            key: value
-            for key, value in VALID_ENVIRONMENT.items()
-            if key != "RAILWAY_SERVICE_NAME"
+            if key != "RENDER_SERVICE_ID"
         },
         {
             key: value
             for key, value in VALID_ENVIRONMENT.items()
             if key != "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM"
         },
-        {
-            "RAILWAY_ENVIRONMENT_NAME": "development",
-            "RAILWAY_SERVICE_NAME": "api",
-        },
-        {
-            "RAILWAY_ENVIRONMENT_NAME": "development",
-            "RAILWAY_SERVICE_NAME": "worker",
-        },
+        {"RENDER": "true", "RENDER_SERVICE_ID": RENDER_DEVELOPMENT_SERVICE},
+        {"RENDER": "true", "RENDER_SERVICE_ID": RENDER_UNPINNED_SERVICE},
         {
             "RAILWAY_ENVIRONMENT_NAME": "production",
             "RAILWAY_SERVICE_NAME": "api",
         },
-        {
-            "RAILWAY_ENVIRONMENT_NAME": "staging",
-            "RAILWAY_SERVICE_NAME": "api",
-        },
-        {**VALID_ENVIRONMENT, "RAILWAY_ENVIRONMENT_NAME": "Development"},
-        {**VALID_ENVIRONMENT, "RAILWAY_SERVICE_NAME": "API"},
-        {**VALID_ENVIRONMENT, "RAILWAY_SERVICE_NAME": "worker"},
-        {**VALID_ENVIRONMENT, "RAILWAY_ENVIRONMENT_NAME": "production"},
+        {"RENDER": "true", "RENDER_SERVICE_ID": RENDER_STAGING_SERVICE},
+        {**VALID_ENVIRONMENT, "RENDER_SERVICE_ID": RENDER_UNPINNED_SERVICE},
+        {**VALID_ENVIRONMENT, "RENDER": "false"},
+        {**VALID_ENVIRONMENT, "RAILWAY_SERVICE_NAME": "api"},
+        {**VALID_ENVIRONMENT, "RENDER_SERVICE_ID": ""},
         {**VALID_ENVIRONMENT, "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": "yes"},
         {
             **VALID_ENVIRONMENT,
@@ -759,7 +739,7 @@ def test_main_success_reports_only_safe_pass_stages(
 
     output = capsys.readouterr().out
     assert output.splitlines() == [
-        "PASS target development/api",
+        "PASS target render development/api",
         "PASS upload",
         "PASS object exists",
         "PASS presigned GET bytes",
@@ -784,11 +764,9 @@ def test_staging_main_success_identifies_only_the_staging_api_target(
 
     assert smoke.main() == 0
 
-    assert capsys.readouterr().out.splitlines()[0] == "PASS target staging/api"
+    assert capsys.readouterr().out.splitlines()[0] == "PASS target render staging/api"
 
 
-RENDER_DEVELOPMENT_SERVICE = "srv-d0development00000000"
-RENDER_STAGING_SERVICE = "srv-d0staging000000000000"
 RENDER_ENVIRONMENT = {
     "RENDER": "true",
     "RENDER_SERVICE_ID": RENDER_DEVELOPMENT_SERVICE,
@@ -796,7 +774,7 @@ RENDER_ENVIRONMENT = {
 }
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def render_pins(monkeypatch: MonkeyPatch) -> None:
     binding = smoke.replacement_target_binding
     monkeypatch.setattr(
@@ -853,9 +831,9 @@ def test_render_main_success_identifies_only_the_pinned_service(
     (
         {
             **RENDER_ENVIRONMENT,
-            "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": VALID_ENVIRONMENT[
-                "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM"
-            ],
+            "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": (
+                "run-r2-development-media-storage-smoke"
+            ),
         },
         {**RENDER_ENVIRONMENT, "RENDER_SERVICE_ID": RENDER_STAGING_SERVICE},
         {
@@ -866,10 +844,10 @@ def test_render_main_success_identifies_only_the_pinned_service(
         },
         {**RENDER_ENVIRONMENT, "RENDER_SERVICE_ID": "srv-d0unpinned00000000000"},
         {**RENDER_ENVIRONMENT, "RENDER": "false"},
-        {**RENDER_ENVIRONMENT, **VALID_ENVIRONMENT},
+        {**RENDER_ENVIRONMENT, "RAILWAY_ENVIRONMENT_NAME": "development"},
     ),
     ids=(
-        "railway-confirmation",
+        "retired-confirmation",
         "staging-service-development-phrase",
         "development-service-staging-phrase",
         "unpinned",

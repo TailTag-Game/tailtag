@@ -1,4 +1,4 @@
-"""Bootstrap the managed Django operator for Railway or Render Staging only."""
+"""Bootstrap the managed Django operator for Render Staging only."""
 
 from __future__ import annotations
 
@@ -18,9 +18,6 @@ from django.db import DatabaseError, IntegrityError, transaction
 from accounts.models import User
 from accounts.staging_target import staging_platform
 
-REQUIRED_ENVIRONMENT = "staging"
-REQUIRED_SERVICE = "api"
-CONFIRMATION_PHRASE = "bootstrap Railway Staging operator"
 RENDER_CONFIRMATION_PHRASE = "bootstrap Render Staging operator"
 OPERATOR_GROUP_NAME = "TailTag Field Beta Operators"
 EXPECTED_PERMISSION_NAMES = {
@@ -46,7 +43,7 @@ __all__ = ["Command"]
 
 
 class Command(BaseCommand):
-    """Create or reconcile the guarded Railway or Render Staging operator."""
+    """Create or reconcile the guarded Render Staging operator."""
 
     def create_parser(
         self, prog_name: str, subcommand: str, **kwargs: object
@@ -58,21 +55,11 @@ class Command(BaseCommand):
 
     def handle(self, *args: object, **options: object) -> None:
         """Create or rotate the limited operator after guarded confirmation."""
-        platform = staging_platform(os.environ)
-        if platform is None or (
-            platform == "railway"
-            and (
-                os.environ.get("RAILWAY_ENVIRONMENT_NAME") != REQUIRED_ENVIRONMENT
-                or os.environ.get("RAILWAY_SERVICE_NAME") != REQUIRED_SERVICE
-            )
-        ):
+        if staging_platform(os.environ) is None:
             raise CommandError("This command is unavailable for the current target.")
         if not sys.stdin.isatty() or not sys.stdout.isatty():
             raise CommandError("This command requires an interactive terminal.")
-        phrase = (
-            RENDER_CONFIRMATION_PHRASE if platform == "render" else CONFIRMATION_PHRASE
-        )
-        if input("Confirmation: ") != phrase:
+        if input("Confirmation: ") != RENDER_CONFIRMATION_PHRASE:
             raise CommandError("Confirmation failed.")
 
         operator_id = getpass.getpass("Operator identifier: ")

@@ -30,12 +30,6 @@ from media.images import normalize_image
 from media.keys import create_image_key
 from media.storage import S3MediaStorage
 
-_PERMITTED_TARGETS: Final = MappingProxyType(
-    {
-        ("development", "api"): "run-r2-development-media-storage-smoke",
-        ("staging", "api"): "run-r2-staging-media-storage-smoke",
-    }
-)
 # A local run against Render names the pinned service ID itself, because
 # Render has no command that copies service variables into a local process.
 _RENDER_CONFIRMATIONS: Final = MappingProxyType(
@@ -186,7 +180,7 @@ def valid_target(environment: Mapping[str, str]) -> bool:
 
 
 def target_label(environment: Mapping[str, str]) -> str | None:
-    """Name the one confirmed Railway or pinned Render target, or return None."""
+    """Name the one confirmed pinned Render target, or return None."""
     confirm = environment.get("TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM")
     try:
         if replacement_target_binding.runtime_host(environment) == "render":
@@ -198,14 +192,7 @@ def target_label(environment: Mapping[str, str]) -> str | None:
             return f"render {render_environment}/api"
     except replacement_target_binding.TargetBindingError:
         return None
-    environment_name = environment.get("RAILWAY_ENVIRONMENT_NAME")
-    service_name = environment.get("RAILWAY_SERVICE_NAME")
-    if not isinstance(environment_name, str) or not isinstance(service_name, str):
-        return None
-    confirmation = _PERMITTED_TARGETS.get((environment_name, service_name))
-    if confirmation is None or confirm != confirmation:
-        return None
-    return f"{environment_name}/{service_name}"
+    return None
 
 
 def run(environment: Mapping[str, str], runtime: SmokeRuntime) -> SmokeOutcome:

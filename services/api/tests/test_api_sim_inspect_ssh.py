@@ -273,8 +273,6 @@ def test_real_bootstrap_reaches_the_inspection_entry_point_and_prints_one_line(
         "MEDIA_STORAGE_REGION": "auto",
         "MEDIA_STORAGE_ACCESS_KEY_ID": "ci-not-a-real-access-key",
         "MEDIA_STORAGE_SECRET_ACCESS_KEY": "ci-not-a-real-secret-key",
-        "RAILWAY_ENVIRONMENT_NAME": "development",
-        "RAILWAY_SERVICE_NAME": "api",
     }
 
     completed_process = subprocess.run(

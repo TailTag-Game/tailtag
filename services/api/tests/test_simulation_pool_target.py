@@ -13,13 +13,12 @@ STAGING_SERVICE = "srv-d0staging000000000000"
 DEVELOPMENT_SERVICE = "srv-d0development00000000"
 INSTANCE = f"{STAGING_SERVICE}-874b544b8-k7qws"
 OTHER_INSTANCE = f"{STAGING_SERVICE}-54fcd9cd8d-wthkj"
-RAILWAY_IDENTITY: dict[str, object] = {
+RENDER_IDENTITY: dict[str, object] = {
     "source_sha": "a" * 40,
-    "deployment_id": "11111111-1111-4111-8111-111111111111",
+    "deployment_id": None,
     "environment": "staging",
 }
-RENDER_IDENTITY: dict[str, object] = {**RAILWAY_IDENTITY, "deployment_id": None}
-RAILWAY = {"RAILWAY_ENVIRONMENT_NAME": "staging", "RAILWAY_SERVICE_NAME": "api"}
+RAILWAY = {"RAILWAY_PROJECT_ID": "retired"}
 RENDER = {
     "RENDER": "true",
     "RENDER_SERVICE_ID": STAGING_SERVICE,
@@ -63,10 +62,6 @@ def test_render_staging_returns_its_instance(expected_instance: object) -> None:
     assert check(RENDER_IDENTITY, RENDER, expected_instance) == INSTANCE
 
 
-def test_railway_staging_keeps_its_rule_and_has_no_instance() -> None:
-    assert check(RAILWAY_IDENTITY, RAILWAY) is None
-
-
 @pytest.mark.parametrize(
     ("identity", "environ", "expected_instance"),
     [
@@ -93,8 +88,14 @@ def test_railway_staging_keeps_its_rule_and_has_no_instance() -> None:
             {**RENDER, "RENDER_INSTANCE_ID": f"{STAGING_SERVICE}-k7qws"},
             None,
         ),
-        (RAILWAY_IDENTITY, RENDER, None),
-        (RAILWAY_IDENTITY, RAILWAY, INSTANCE),
+        (
+            {
+                **RENDER_IDENTITY,
+                "deployment_id": "11111111-1111-4111-8111-111111111111",
+            },
+            RENDER,
+            None,
+        ),
         (RENDER_IDENTITY, RAILWAY, None),
         ({**RENDER_IDENTITY, "environment": "development"}, RENDER, None),
         ({**RENDER_IDENTITY, "source_sha": None}, RENDER, None),
@@ -109,8 +110,7 @@ def test_railway_staging_keeps_its_rule_and_has_no_instance() -> None:
         "render-instance-other-service",
         "render-instance-without-hex",
         "render-with-deploy-id",
-        "railway-with-pin",
-        "railway-without-deploy-id",
+        "railway-marker-only",
         "not-staging",
         "no-source-sha",
         "no-platform",
@@ -127,8 +127,8 @@ def test_every_other_runtime_or_pin_is_refused(
 
 @pytest.mark.parametrize(
     "environ",
-    [{"RAILWAY_ENVIRONMENT_NAME": "development", "RAILWAY_SERVICE_NAME": "api"}, {}],
-    ids=["railway-development", "no-platform"],
+    [RAILWAY, {}],
+    ids=["railway-marker", "no-platform"],
 )
 def test_a_runtime_without_a_render_instance_never_loads_the_binding(
     monkeypatch: pytest.MonkeyPatch, environ: Mapping[str, str]

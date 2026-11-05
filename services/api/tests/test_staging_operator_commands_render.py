@@ -105,15 +105,15 @@ def run_guarded(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("phrase", ["render", "railway"])
+@pytest.mark.parametrize("phrase", ["render", "retired"])
 def test_lifecycle_provision_on_render_staging_needs_the_render_phrase(
     monkeypatch: pytest.MonkeyPatch, render_runtime: object, phrase: str
 ) -> None:
-    """The Railway phrase cannot confirm a Render action, so a mixup fails closed."""
+    """The retired phrase cannot confirm a Render action, so a mixup fails closed."""
     confirmation = (
         "provision Render Staging validation operator"
         if phrase == "render"
-        else lifecycle.PROVISION_CONFIRMATION
+        else "provision Railway Staging validation operator"
     )
     secrets = (
         lifecycle.OPERATOR_IDENTIFIER,
@@ -127,11 +127,10 @@ def test_lifecycle_provision_on_render_staging_needs_the_render_phrase(
             "provision",
             confirmation=confirmation,
             hidden_inputs=secrets if phrase == "render" else (),
-            environment=None,
-            service=None,
+            install_target=False,
         )
 
-    if phrase == "railway":
+    if phrase == "retired":
         with pytest.raises(CommandError, match="Confirmation failed"):
             provision()
         assert not User.objects.filter(
@@ -146,7 +145,7 @@ def test_lifecycle_provision_on_render_staging_needs_the_render_phrase(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("phrase", ["render", "railway"])
+@pytest.mark.parametrize("phrase", ["render", "retired"])
 def test_managed_bootstrap_on_render_staging_needs_the_render_phrase(
     monkeypatch: pytest.MonkeyPatch, render_runtime: object, phrase: str
 ) -> None:
@@ -170,7 +169,7 @@ def test_managed_bootstrap_on_render_staging_needs_the_render_phrase(
 
     monkeypatch.setattr(getpass, "getpass", read_hidden)
 
-    if phrase == "railway":
+    if phrase == "retired":
         with pytest.raises(CommandError, match="Confirmation failed"):
             call_command("bootstrap_staging_operator", stdout=terminal)
         assert not User.objects.filter(clerk_user_id=recovery.OLD_IDENTIFIER).exists()
@@ -193,7 +192,7 @@ def test_emergency_create_and_decommission_use_render_text_on_render_staging(
     bound: list[str] = []
 
     def validate_database(configuration: object) -> None:
-        bound.append(cast(str, getattr(configuration, "platform", None)))
+        bound.append("bound")
 
     monkeypatch.setattr(safety, "validate_database", validate_database)
     emergency._install_registry()  # pyright: ignore[reportPrivateUsage]
@@ -211,7 +210,7 @@ def test_emergency_create_and_decommission_use_render_text_on_render_staging(
     assert prompts == ["Decommission the Render Staging emergency operator? [Y/N]: "]
     assert cast(bool, actor.is_superuser) is False  # pyright: ignore[reportUnknownMemberType]
     assert not actor.has_usable_password()
-    assert bound == ["render", "render"]
+    assert bound == ["bound", "bound"]
 
 
 @pytest.mark.django_db
@@ -270,7 +269,7 @@ def test_managed_replace_and_rotate_accept_a_render_identity_with_no_deploy_id(
 
 
 @pytest.mark.django_db
-def test_render_refuses_an_expected_identity_with_a_railway_deploy_id(
+def test_render_refuses_an_expected_identity_with_a_deploy_id(
     monkeypatch: pytest.MonkeyPatch, render_runtime: object
 ) -> None:
     """Rotate inherits this check from replace, so one command proves it."""
@@ -284,7 +283,7 @@ def test_render_refuses_an_expected_identity_with_a_railway_deploy_id(
             hidden=(),
             expected_identity={
                 **RENDER_IDENTITY,
-                "deployment_id": recovery.DEPLOYMENT_ID,
+                "deployment_id": "cbe83780-0256-49c2-b026-34709ddb69b0",
             },
         )
 

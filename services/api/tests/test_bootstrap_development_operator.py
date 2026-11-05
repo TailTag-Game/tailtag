@@ -1,4 +1,4 @@
-"""Acceptance coverage for the guarded Railway Development operator command."""
+"""Acceptance coverage for the guarded Render Development operator command."""
 
 from __future__ import annotations
 
@@ -23,7 +23,6 @@ from tests.process_support import minimal_environment
 
 COMMAND_MODULE = "accounts.management.commands.bootstrap_development_operator"
 COMMAND_NAME = "bootstrap_development_operator"
-CONFIRMATION_PHRASE = "bootstrap Railway Development operator"
 OPERATOR_IDENTIFIER = "operator_development_170"
 INITIAL_PASSWORD = "railway-development-operator-password-2026"
 ROTATED_PASSWORD = "reconciled-operator-password-2026"
@@ -97,13 +96,44 @@ def assert_sensitive_values_are_not_emitted(
         assert value not in rendered
 
 
+RENDER_DEVELOPMENT_SERVICE = "srv-d0development00000000"
+RENDER_STAGING_SERVICE = "srv-d0staging000000000000"
+CONFIRMATION_PHRASE = "bootstrap Render Development operator"
+
+
+def install_render_target(
+    monkeypatch: pytest.MonkeyPatch, service_id: str | None, **extra: str
+) -> None:
+    """Pin synthetic Render services and present one Render runtime identity."""
+    binding = importlib.import_module("config.replacement_target_binding")
+    monkeypatch.setattr(
+        binding,
+        "_EXPECTED_RENDER_DIGESTS",
+        {
+            environment: binding.fingerprint_render_service(environment, service)
+            for environment, service in (
+                ("development", RENDER_DEVELOPMENT_SERVICE),
+                ("staging", RENDER_STAGING_SERVICE),
+            )
+        },
+    )
+    if service_id is None:
+        monkeypatch.delenv("RENDER", raising=False)
+        monkeypatch.delenv("RENDER_SERVICE_ID", raising=False)
+    else:
+        monkeypatch.setenv("RENDER", "true")
+        monkeypatch.setenv("RENDER_SERVICE_ID", service_id)
+    for name, value in extra.items():
+        monkeypatch.setenv(name, value)
+
+
 def invoke_command(
     monkeypatch: pytest.MonkeyPatch,
     *,
     confirmation: str = CONFIRMATION_PHRASE,
     private_inputs: Iterable[str] = (),
-    environment: str | None = "development",
-    service: str | None = "api",
+    service_id: str | None = RENDER_DEVELOPMENT_SERVICE,
+    install_target: bool = True,
     stdin: StringIO | None = None,
     stdout: StringIO | None = None,
     stderr: StringIO | None = None,
@@ -131,14 +161,8 @@ def invoke_command(
 
     monkeypatch.setattr("builtins.input", confirmation_input)
     monkeypatch.setattr(private_input_module, "getpass", private_input)
-    if environment is None:
-        monkeypatch.delenv("RAILWAY_ENVIRONMENT_NAME", raising=False)
-    else:
-        monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", environment)
-    if service is None:
-        monkeypatch.delenv("RAILWAY_SERVICE_NAME", raising=False)
-    else:
-        monkeypatch.setenv("RAILWAY_SERVICE_NAME", service)
+    if install_target:
+        install_render_target(monkeypatch, service_id)
 
     call_command(COMMAND_NAME, stdout=stdout, stderr=stderr)
     return stdout, stderr
@@ -356,8 +380,7 @@ def test_concurrent_first_bootstraps_create_and_reconcile_one_full_operator(
     monkeypatch.setattr(sys, "stdout", shared_terminal)
     monkeypatch.setattr("builtins.input", confirmation_input)
     monkeypatch.setattr(command_module.getpass, "getpass", private_input)
-    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "development")
-    monkeypatch.setenv("RAILWAY_SERVICE_NAME", "api")
+    install_render_target(monkeypatch, RENDER_DEVELOPMENT_SERVICE)
 
     executor: ThreadPoolExecutor | None = None
     try:
@@ -580,20 +603,14 @@ def test_bootstrap_refuses_to_elevate_existing_nonoperators(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("environment", "service"),
-    (
-        (None, "api"),
-        ("Development", "api"),
-        ("production", "api"),
-        ("development", None),
-        ("development", "API"),
-        ("development", "worker"),
-    ),
+    "service_id",
+    (None, RENDER_STAGING_SERVICE, "srv-d0unpinned00000000000"),
+    ids=("no-render-markers", "staging-service", "unpinned-service"),
 )
-def test_bootstrap_rejects_wrong_or_missing_railway_target_without_mutation(
-    monkeypatch: pytest.MonkeyPatch, environment: str | None, service: str | None
+def test_bootstrap_rejects_wrong_or_missing_render_target_without_mutation(
+    monkeypatch: pytest.MonkeyPatch, service_id: str | None
 ) -> None:
-    """AC-5/8: only exact Railway Development api metadata may reach the command."""
+    """AC-5/8: only the pinned Render Development service may reach the command."""
     unrelated = User.objects.create_user("unrelated_target_guard_user")
     unrelated_before = stored_user_state(unrelated)
     stdout = TtyStream()
@@ -602,8 +619,7 @@ def test_bootstrap_rejects_wrong_or_missing_railway_target_without_mutation(
     with pytest.raises(CommandError) as error:
         invoke_command(
             monkeypatch,
-            environment=environment,
-            service=service,
+            service_id=service_id,
             stdout=stdout,
             stderr=stderr,
         )
@@ -691,33 +707,6 @@ def test_bootstrap_rejects_invalid_input_without_mutation_or_secret_output(
     )
 
 
-RENDER_DEVELOPMENT_SERVICE = "srv-d0development00000000"
-RENDER_STAGING_SERVICE = "srv-d0staging000000000000"
-RENDER_CONFIRMATION_PHRASE = "bootstrap Render Development operator"
-
-
-def install_render_target(
-    monkeypatch: pytest.MonkeyPatch, service_id: str, **extra: str
-) -> None:
-    """Pin synthetic Render services and present one Render runtime identity."""
-    binding = importlib.import_module("config.replacement_target_binding")
-    monkeypatch.setattr(
-        binding,
-        "_EXPECTED_RENDER_DIGESTS",
-        {
-            environment: binding.fingerprint_render_service(environment, service)
-            for environment, service in (
-                ("development", RENDER_DEVELOPMENT_SERVICE),
-                ("staging", RENDER_STAGING_SERVICE),
-            )
-        },
-    )
-    monkeypatch.setenv("RENDER", "true")
-    monkeypatch.setenv("RENDER_SERVICE_ID", service_id)
-    for name, value in extra.items():
-        monkeypatch.setenv(name, value)
-
-
 @pytest.mark.django_db
 def test_bootstrap_creates_the_operator_on_the_pinned_render_development_service(
     monkeypatch: pytest.MonkeyPatch,
@@ -726,10 +715,7 @@ def test_bootstrap_creates_the_operator_on_the_pinned_render_development_service
     install_render_target(monkeypatch, RENDER_DEVELOPMENT_SERVICE)
     stdout, _ = invoke_command(
         monkeypatch,
-        confirmation=RENDER_CONFIRMATION_PHRASE,
         private_inputs=(OPERATOR_IDENTIFIER, INITIAL_PASSWORD, INITIAL_PASSWORD),
-        environment=None,
-        service=None,
     )
 
     assert stdout.getvalue() == CREATED_OUTPUT
@@ -740,16 +726,16 @@ def test_bootstrap_creates_the_operator_on_the_pinned_render_development_service
 @pytest.mark.parametrize(
     ("service_id", "confirmation", "extra"),
     (
-        (RENDER_DEVELOPMENT_SERVICE, CONFIRMATION_PHRASE, {}),
-        (RENDER_STAGING_SERVICE, RENDER_CONFIRMATION_PHRASE, {}),
-        ("srv-d0unpinned00000000000", RENDER_CONFIRMATION_PHRASE, {}),
+        (RENDER_DEVELOPMENT_SERVICE, "bootstrap Render Staging operator", {}),
+        (RENDER_STAGING_SERVICE, CONFIRMATION_PHRASE, {}),
+        ("srv-d0unpinned00000000000", CONFIRMATION_PHRASE, {}),
         (
             RENDER_DEVELOPMENT_SERVICE,
-            RENDER_CONFIRMATION_PHRASE,
+            CONFIRMATION_PHRASE,
             {"RAILWAY_ENVIRONMENT_NAME": "development", "RAILWAY_SERVICE_NAME": "api"},
         ),
     ),
-    ids=("railway-phrase", "render-staging", "unpinned-service", "mixed-hosts"),
+    ids=("staging-phrase", "render-staging", "unpinned-service", "mixed-hosts"),
 )
 def test_bootstrap_refuses_every_other_render_target_without_mutation(
     monkeypatch: pytest.MonkeyPatch,
@@ -765,8 +751,7 @@ def test_bootstrap_refuses_every_other_render_target_without_mutation(
             monkeypatch,
             confirmation=confirmation,
             private_inputs=(OPERATOR_IDENTIFIER, INITIAL_PASSWORD, INITIAL_PASSWORD),
-            environment=extra.get("RAILWAY_ENVIRONMENT_NAME"),
-            service=extra.get("RAILWAY_SERVICE_NAME"),
+            install_target=False,
         )
 
     assert User.objects.filter(clerk_user_id=OPERATOR_IDENTIFIER).count() == 0

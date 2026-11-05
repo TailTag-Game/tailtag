@@ -22,7 +22,6 @@ from accounts.management.commands.bootstrap_staging_emergency_operator import (
 from accounts.models import User
 from rehearsal.models import StagingResetIdentity
 
-CONFIRMATION_PROMPT = "Decommission the Railway Staging emergency operator? [Y/N]: "
 RENDER_CONFIRMATION_PROMPT = (
     "Decommission the Render Staging emergency operator? [Y/N]: "
 )
@@ -39,7 +38,7 @@ class Command(BaseCommand):
         return parser
 
     def handle(self, *args: object, **options: object) -> None:
-        platform = require_staging_target()
+        require_staging_target()
         if not sys.stdin.isatty() or not sys.stdout.isatty():
             raise CommandError("This command requires an interactive terminal.")
         if (
@@ -49,10 +48,7 @@ class Command(BaseCommand):
             or logging.getLogger("django.db.backends").isEnabledFor(logging.DEBUG)
         ):
             raise CommandError("Query debugging must be disabled.")
-        prompt = (
-            RENDER_CONFIRMATION_PROMPT if platform == "render" else CONFIRMATION_PROMPT
-        )
-        if input(prompt) != "Y":
+        if input(RENDER_CONFIRMATION_PROMPT) != "Y":
             raise CommandError("Confirmation failed.")
 
         try:

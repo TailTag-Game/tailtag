@@ -6,14 +6,12 @@ import json
 import os
 import re
 import sys
-import uuid
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Final, TypedDict, cast
 
 _METADATA_PATH: Final = Path("/opt/tailtag/build-identity.json")
 _SOURCE_SHA_PATTERN: Final = re.compile(r"[0-9a-f]{40}")
-_ENVIRONMENT_PATTERN: Final = re.compile(r"[a-z][a-z0-9-]{0,62}")
 
 
 class Identity(TypedDict):
@@ -22,15 +20,6 @@ class Identity(TypedDict):
     source_sha: str | None
     deployment_id: str | None
     environment: str | None
-
-
-def _valid_uuid(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        return str(uuid.UUID(value)) if str(uuid.UUID(value)) == value else None
-    except ValueError:
-        return None
 
 
 def _load_identity(metadata_path: Path, environment: Mapping[str, str]) -> Identity:
@@ -54,14 +43,14 @@ def _load_identity(metadata_path: Path, environment: Mapping[str, str]) -> Ident
                 raise ValueError("identity metadata invalid")
             source_sha = stored_source_sha
 
-    if "RENDER" in environment or "RENDER_SERVICE_ID" in environment:
-        # Import only on Render: the binding module resolves the operator home
-        # directory at import, and every settings import loads this module.
-        from config import replacement_target_binding
+    # Import here, not at module load: the binding module resolves the operator
+    # home directory at import, and every settings import loads this module.
+    from config import replacement_target_binding
 
+    # A retired-host marker raises here, whether or not Render variables exist.
+    if replacement_target_binding.runtime_host(environment) == "render":
         # Render sets no runtime deploy ID. Only the matched pin names the
-        # environment, so a service display name cannot select one. The
-        # binding also rejects Railway markers next to Render ones.
+        # environment, so a service display name cannot select one.
         render_environment = replacement_target_binding.validate_runtime_target(
             environment
         )
@@ -73,26 +62,7 @@ def _load_identity(metadata_path: Path, environment: Mapping[str, str]) -> Ident
             "environment": render_environment,
         }
 
-    environment_name = environment.get("RAILWAY_ENVIRONMENT_NAME")
-    if environment_name is not None and not _ENVIRONMENT_PATTERN.fullmatch(
-        environment_name
-    ):
-        raise ValueError("runtime identity invalid")
-
-    deployment_id = environment.get("RAILWAY_DEPLOYMENT_ID")
-    if deployment_id is not None and _valid_uuid(deployment_id) is None:
-        raise ValueError("runtime identity invalid")
-
-    if environment_name == "staging" and (source_sha is None or deployment_id is None):
-        raise ValueError("staging identity incomplete")
-    if deployment_id is not None and environment_name is None:
-        raise ValueError("runtime identity incomplete")
-
-    return {
-        "source_sha": source_sha,
-        "deployment_id": deployment_id,
-        "environment": environment_name,
-    }
+    return {"source_sha": source_sha, "deployment_id": None, "environment": None}
 
 
 def get_identity() -> Identity:

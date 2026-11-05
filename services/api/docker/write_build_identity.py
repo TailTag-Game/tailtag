@@ -9,8 +9,8 @@ import sys
 from pathlib import Path
 
 _SOURCE_SHA = re.compile(r"[0-9a-f]{40}")
-# Each host passes the commit under its own build argument name.
-_ARGUMENTS = ("RAILWAY_GIT_COMMIT_SHA", "RENDER_GIT_COMMIT")
+# Render passes the commit under this build argument name.
+_ARGUMENTS = ("RENDER_GIT_COMMIT",)
 
 
 def main(argv: list[str]) -> int:

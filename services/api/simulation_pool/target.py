@@ -34,32 +34,23 @@ def check(
     environ: Mapping[str, str],
     expected_instance: object,
 ) -> str | None:
-    """Return this Render instance, or None on Railway Staging.
+    """Return this Render instance.
 
     Raises `TargetRefused` outside the named Staging API. On Render, a request
     that names an instance must reach exactly that instance, so a restart or a
     redeploy during a run fails closed.
     """
-    if (
-        environ.get("RAILWAY_ENVIRONMENT_NAME") == "staging"
-        and environ.get("RAILWAY_SERVICE_NAME") == "api"
-    ):
-        instance = None
-        valid = isinstance(identity.get("deployment_id"), str) and (
-            expected_instance is None
-        )
-    else:
-        instance = environ.get("RENDER_INSTANCE_ID")
-        match = None if instance is None else _RENDER_INSTANCE.fullmatch(instance)
-        # The binding module is consulted last, so a runtime without a Render
-        # instance is refused without importing it.
-        valid = (
-            identity.get("deployment_id") is None
-            and match is not None
-            and match.group(1) == environ.get("RENDER_SERVICE_ID")
-            and expected_instance in (None, instance)
-            and _render_staging(environ)
-        )
+    instance = environ.get("RENDER_INSTANCE_ID")
+    match = None if instance is None else _RENDER_INSTANCE.fullmatch(instance)
+    # The binding module is consulted last, so a runtime without a Render
+    # instance is refused without importing it.
+    valid = (
+        identity.get("deployment_id") is None
+        and match is not None
+        and match.group(1) == environ.get("RENDER_SERVICE_ID")
+        and expected_instance in (None, instance)
+        and _render_staging(environ)
+    )
     if not (
         valid
         and identity.get("environment") == "staging"

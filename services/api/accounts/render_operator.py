@@ -4,7 +4,7 @@ The local launcher starts this module with `python -m accounts.render_operator`
 in an interactive `render ssh` session. Before any prompt, it binds the Render
 Staging runtime and the image build to the expected source SHA. For the
 lifecycle and managed commands, it then requires the read-only operator
-inspector status that the Railway bootstrap required. For the emergency
+inspector status. For the emergency
 commands, it binds the database to the pinned private values and keeps that
 one physical connection for the whole command. The last line it prints is the
 result. It names a command's failure message only when the message is in a
