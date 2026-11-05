@@ -28,10 +28,11 @@ Every run is attended. The maintainer starts it in a
 the Clerk secret at the hidden prompt. The bridge runs on the host, inside
 `run-local`, until the run ends:
 
-- privileged Staging setup and reconciliation go through `railway ssh`, which
-  uses the maintainer's personal Railway login;
-- the host holds a Railway login and an SSH key only during a host operator
-  session, and never a Clerk credential;
+- privileged Staging setup and reconciliation go through plain `ssh` to the
+  Render Virginia gateway, as the
+  [Render session](simulation-host.md#render-session) describes;
+- the host holds only a per-session Render SSH key during a host operator
+  session, and never a Clerk credential or a Render CLI login;
 - `--unattended` stays refused;
 - no timer or scheduler starts runs.
 

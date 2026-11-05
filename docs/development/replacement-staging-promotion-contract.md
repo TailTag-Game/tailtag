@@ -7,6 +7,12 @@ and [#201 deployment identity join](../specs/2026-09-16-backend-build-deployment
 after the replacement environment became canonical. The retired project's
 promotion receipts remain historical.
 
+Railway-era note: Items 1 to 6 below describe the Railway Staging promotion.
+Railway Staging is frozen, and #412 retires it. Render Staging promotes
+through the contract in
+[Render Staging identity (#409)](#render-staging-identity-409), which keeps
+items 1, 2, 4, and 5 with the exceptions it lists.
+
 ## Acceptance contract
 
 1. Load the replacement `staging` API project, environment, and service selectors

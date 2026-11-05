@@ -166,7 +166,7 @@ mobile), with the base URL from
   feature-repository issue.
 - **Fakes and fixtures.** Tests use `test/support/api_test_support.dart`: a
   `FakeHttpClient` at the network boundary, a `FakeApiTokenProvider`, and
-  `createTestTransport`, so no test needs Railway or Clerk.
+  `createTestTransport`, so no test needs a hosted API or Clerk.
 - **Import guard.** `test/core/api/import_guard_test.dart` fails if any
   `lib/features/**` file imports `package:http`, `package:tailtag_api`, or
   `core/api/` other than `api_failure.dart` and `api_cancellation.dart`.
@@ -287,7 +287,6 @@ The configuration selects the API, rather than using flavors or schemes:
 | --- | --- |
 | Local | `http://127.0.0.1:8000` |
 | Render Development | `https://tailtag-api-development.onrender.com` |
-| Railway Development, until #412 retires it | `https://dev.tailtag.app` |
 
 ### Render Development
 
@@ -298,7 +297,6 @@ file already contains its approved root,
 and no production configuration. Use it whenever the Local API is unreachable
 from your device (see below) or when you need authenticated requests, because
 the Clerk token transport rule below forbids sending a token over HTTP.
-Railway Development keeps `https://dev.tailtag.app` until #412 retires it.
 
 ### Local API connectivity
 

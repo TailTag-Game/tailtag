@@ -1,63 +1,54 @@
 # Staging runbook
 
-This is the maintainer runbook for TailTag's persistent Railway **Staging**
-backend: a controlled production-rehearsal target for maintainers with the
-needed Railway, Clerk, and Cloudflare access. The replacement generation became
-canonical during the 2026-09-24 rebuild. It is separate from the mutable
-contributor/integration [Development runbook](backend-delivery-operations.md).
-It covers the controlled promotion procedure below. It is not a production SRE
-guide or a source of credentials.
+This is the maintainer runbook for TailTag's persistent Staging backend on
+Render. Staging is a controlled production-rehearsal target for maintainers
+with the needed Render, Clerk, and Cloudflare access. It is separate from the
+mutable contributor and integration [Development runbook](backend-delivery-operations.md).
+It covers the Render promotion, operations, and recovery procedures below. It
+is not a production SRE guide or a source of credentials.
+
+Staging ran on Railway until 2026-10-30. Railway Development and Railway
+Staging still exist, but they are frozen and nobody uses them. Issue #412
+retires them. The Railway records are in
+[History (Railway era)](#history-railway-era).
+
 For common backend incidents, follow the
 [Staging first-response procedures](../operations/staging-first-response.md)
 and their [#208 evidence matrix](v0-backend-operational-readiness-matrix.md).
 
 ## Supported target and boundary
 
-Use only the code-pinned replacement Railway target below. Its temporary
-`TailTag Rebuild` display name was changed to `TailTag`. The retired project
-also used the `TailTag` name, so verify the project ID against the code-owned
-replacement pin; a display name alone cannot select the target. Historical
-retired-project receipts do not establish replacement readiness.
+Use only the Render Staging target below. It runs in the Virginia region
+([ADR 0012](../adrs/0012-run-staging-and-production-in-render-virginia.md)).
+The commands check the target against code-owned pins, so a display name alone
+cannot select it.
 
 | Item | Value |
 | --- | --- |
-| Workspace | `Finn the Panther's Projects` |
-| Project / environment | Replacement project (currently displayed as `TailTag`) / `staging` |
-| Services | `api`, `Postgres` |
+| Render workspace | The TailTag team workspace |
+| Project / environment | `tailtag` / `staging` |
+| Services | Web service `tailtag-api-stg`, Postgres `tailtag-postgres-stg` |
+| Region | Virginia |
 | Canonical public API | `https://staging.tailtag.app` |
 
-The sanitized [replacement canonical handoff receipt](staging-deployments/c34c45bb-6eb8-488d-8114-d1dd931cf25e.json)
-records source `fc1376e9b4387cb46e37ef3f60191b2ce7f06c68`, deployment
-`c34c45bb-6eb8-488d-8114-d1dd931cf25e`, and a successful public/exact-instance
-join observed on 2026-09-25. It is a point-in-time target receipt, not proof of
-the current active deployment or of the new database, #204 baseline, operator
-roles, or restore state. The subsequent
-[replacement prerequisite readback](staging-replacement-prerequisite-attempt-2026-09-25.md)
-did not establish database facts; #204 sentinel, fixtures, operator inspection,
-and #243 cases 1–9 remain unverified on this generation.
+The promotion command saves a sanitized receipt for each deploy in
+`docs/development/staging-deployments/`. A receipt is a point-in-time record.
+It does not prove the current deployment.
 
-The later [single guarded promotion receipt](staging-deployments/2adc748c-ee54-4446-958c-f49a384925be.json)
-records source `99e6466e1bd5432025c085134e72c2c46eb92dbc` and deployment
-`2adc748c-ee54-4446-958c-f49a384925be` as `SUCCEEDED` and `ACTIVE` on
-2026-09-25. Fresh canonical public and exact-instance readback matched that
-tuple afterward. This receipt supersedes the handoff receipt for current
-deployment identification; it does not establish #204 or #243 readiness.
+Command boundary. Run the Render commands below only from a reviewed
+repository revision. They load the owner-only
+`~/.config/tailtag/staging-clean-rebuild-targets.json` manifest and check its
+code-owned pins before any provider operation. They never read a target from an
+argument or an environment variable. Do not substitute a service ID or reuse
+old private configuration to make a command address another target.
 
-**Command boundary:** use the #202 promotion command below only from a reviewed
-repository revision that includes the [replacement target binding
-contract](replacement-staging-promotion-contract.md). It loads the owner-only
-replacement manifest and checks its code-owned pins before provider operations.
-Older revisions with retired-project selectors are historical and must not be
-used against the replacement project. Do not substitute a project ID or reuse old
-private configuration to make an old command address the replacement.
-
-Staging owns its Railway environment instances, PostgreSQL service and volume,
-runtime configuration and secrets, and public API networking. The API reaches
-its database through the environment-local `Postgres` reference; never copy or
-record a rendered database URL. Its private R2 bucket is Staging-owned, with a
-single-bucket Object Read & Write credential. The
-R2 account endpoint may be shared platform infrastructure; the bucket and
-credential must not be.
+Staging owns its Render web service and PostgreSQL database, its runtime
+configuration and secrets, and its public API networking. The API reaches its
+database through the internal URL of `tailtag-postgres-stg` in the same Render
+environment. Never copy or record a database URL. Its private R2 bucket is
+Staging-owned, with a single-bucket Object Read & Write credential. The R2
+account endpoint can be shared platform infrastructure. The bucket and the
+credential must not be shared.
 
 `TailTag Staging Replacement` is a separate Clerk application using its
 dedicated Production instance, not Development's Clerk application or instance. The
@@ -76,150 +67,6 @@ data, production data, or ordinary user accounts. Development remains the
 mutable contributor/integration environment. TailTag has no Production
 environment, deployment target, or production data.
 
-## Retired-generation bootstrap and deployment history
-
-The one-time bootstrap for the former `TailTag` project is complete. Staging
-GitHub autodeploy is disabled while
-the `main` source connection remains. Reviewed Staging configuration was
-committed with deployment suppressed; after the Staging-only volume wipe, the
-previously stopped PostgreSQL instance used its existing image path once, and
-`staging/api` used the existing **Deploy the repo TailTag-Game/tailtag** entry
-point once. The dated 2026-09-16 observation records bootstrap `main` commit
-`4293d271ce1ab262b688c5b723a119aa02c232b7`; it is an observation only, not an
-immutable-artifact guarantee or #201 build identity.
-
-Do not repeat or generalize that bootstrap into a routine. Bootstrap itself
-establishes neither #201 immutable build identity nor #202 repeatable promotion.
-Use the separate identity and controlled-promotion procedures below. No reset/
-reseed process, observability system, recovery drill or health behavior is added.
-
-The original CLI duplication unexpectedly deployed inherited configuration
-before review. Those deployments were stopped, configuration was replaced while
-offline, and the Staging volume was wiped before the supported bootstrap. That
-initial interval is not proof of isolation and is not asserted to be free of
-prior exposure. The current reviewed isolated bootstrap and the evidence below
-are the usable proof.
-
-## Controlled Staging promotion (#202)
-
-Retired on 2026-10-30. `staging.tailtag.app` serves Render Staging, so use the
-[Render Staging promotion](#render-staging-promotion-409). Do not run the
-Railway command below again. Railway Staging stays as a frozen rollback target
-until #412.
-
-The frozen [controlled promotion contract](../specs/2026-09-16-controlled-staging-promotion.md)
-is authoritative. This is the only routine Staging promotion path. It uses
-Railway `serviceInstanceDeployV2` with an explicit immutable candidate SHA and
-captures the returned deployment ID. Staging GitHub autodeploy stays disabled.
-Do not use `railway up`, Deploy Latest Commit, branch mutation or a deployment
-branch. Development retains its existing independent delivery path.
-
-### Before promotion
-
-Coordinate a maintainer operation window: no concurrent Staging configuration
-changes or unrelated pending staged changes. Review the canonical target and
-current configuration in Railway without exporting variables. Stop on a mismatch;
-do not repair configuration or authentication as part of promotion. Only an
-operator authorized for the canonical Staging/API target may run this command.
-
-Use a reviewed full commit SHA from accepted `TailTag-Game/tailtag` main history,
-containing the #201 identity implementation. It may be an older ancestor: main
-can advance after selection. It must resolve in the repository and have a
-completed successful push run of `.github/workflows/api.yml` with exactly the
-same head SHA. A successful PR run or workflow dispatch does not qualify.
-The operator checks remote ancestry and exact push validation; it does not use
-local branch state or duplicate backend relevance logic.
-
-Verify approved Finn GitHub/Railway identities; the command repeats the required
-checks. An identity mismatch, failed identity lookup, authentication/access
-failure or failed authenticated operation ends the task. Do not switch accounts,
-repair credentials, use another session or retry the failure.
-
-Before invoking the command on the replacement generation, require the
-reviewed replacement binding in the common baseline and the private
-`~/.config/tailtag/staging-clean-rebuild-targets.json` manifest with its established file
-ownership and mode. The command checks the replacement `staging` API selectors
-against code-owned pins and fails closed when the manifest is unavailable or
-mismatched. It does not accept target selectors from arguments or environment
-variables. The retired-generation receipts below cannot authorize a new
-replacement deployment.
-
-The replacement API uses the guarded
-`python -m config.replacement_migrate` Railway pre-deploy command established
-by the [replacement launch contract](../specs/2026-09-24-replacement-api-launch.md).
-The retired direct `manage.py migrate` command is not a valid replacement
-pre-deploy setting. A mismatch stops promotion before submission.
-
-From the repository root, with existing locked dependencies installed:
-
-```bash
-SOURCE_SHA='replace-with-reviewed-full-40-character-main-ancestor-SHA'
-uv --directory services/api run --locked --no-sync python ../../scripts/api_staging_promote.py \
-  --source-sha "$SOURCE_SHA" --confirm promote-tailtag-staging
-```
-
-The confirmation authorizes this one exact-SHA Staging submission, not recovery
-or configuration changes. The command is opt-in and is never invoked by ordinary
-CI, `task api-check`, application startup or a health check.
-
-### Expected operation and evidence
-
-After eligibility and target/configuration checks, the command submits S once
-and immediately checkpoints returned D at
-`docs/development/staging-deployments/<D>.json`. Every subsequent lifecycle/event
-lookup is for D. It observes the existing pre-deploy migration, startup and
-readiness gates, reads image identity on an explicitly selected RUNNING instance
-of D, reuses #201's exact-deployment join, and checks image source equals S.
-Then it runs the existing canonical credential-free HTTP smoke and checks the
-Staging/API active-deployment set immediately before declaring success.
-
-A zero exit is current-promotion success only when all required outcomes
-succeeded and exact D was still active at declaration. The evidence includes
-source SHA, D, Staging environment, exact Railway createdAt timestamp, accepted
-main SHA, validation run/attempt, deployment/migration/startup/readiness/identity/
-smoke outcomes, final active state and overall result. Only fixed outcome codes
-and allowlisted public identities are retained; no raw CLI output, metadata,
-event errors, environment values, private URLs or logs.
-
-| Result | Operator action |
-| --- | --- |
-| Candidate/target/configuration rejected before submission | Stop; there is no returned D and no deployment was intentionally submitted. Correct the prerequisite through its normal owning process. |
-| PENDING record with progressing deployment | The command observes successful exact-D reads every five seconds, for up to 20 minutes. Do not start a second promotion. |
-| SUCCEEDED / ACTIVE | Review and retain the sanitized record. This is a point-in-time success claim; subsequent deployments may change current state. |
-| SUPERSEDED | Keep valid historical D evidence; do not report successful current promotion. No automatic resubmission. |
-| INACTIVE | D is not active and no replacement is observed. Ordinary promotion did not succeed. |
-| FAILED | Stop ordinary promotion at the first failed gate. Inspect the safe exact-D owning surface before any separately approved next operation. |
-| INDETERMINATE or interrupted PENDING | The command cannot establish complete evidence. Do not assume failure was clean, success occurred, or that submission did not happen. Preserve known S/D and inspect exact D. |
-| OR7_HANDOFF | Ambiguous migration/database state requires OR-7's reviewed recovery decision. This procedure performs no recovery. |
-
-A lost mutation response can mean Railway accepted a deployment although D was
-not received. Stop; do not resubmit or discover a substitute through "latest."
-If checkpoint persistence fails after D is returned, preserve only the emitted
-safe S/D identifiers in the repository evidence location and stop. Review any
-interrupted record before committing it; never convert it to success based on
-a later shared-URL response alone.
-
-### Safe first diagnostics and recovery boundary
-
-Start with the captured D's status, target fields, instances and paginated
-lifecycle events. PRE_DEPLOY_COMMAND is the Django migration gate;
-MIGRATE_VOLUMES is not. A completed event alone is insufficient to prove success.
-Error/skip/conflicting or missing evidence must not be treated as a passed gate.
-NOT_REACHED requires affirmative evidence that the attempt stopped before the
-step; absence alone is indeterminate.
-
-For a failed gate, inspect only D's relevant Railway build/pre-deploy/deployment
-surface. Do not export general metadata, variables, private URLs, screenshots
-or indiscriminate logs. Record only sanitized fixed outcomes. A migration error
-does not prove database state was unchanged; ambiguous/partial state hands off
-to OR-7. This flow never automatically retries, reverses migrations, rolls back
-application/database state, restores data or deliberately terminates services.
-
-The smoke checks the shared public endpoint and does not attest the serving
-image per response. Exact-instance SSH plus the #201 join establishes D's image
-identity; final active membership bounds the current-serving claim. Detailed
-readiness semantics belong to OR-4 and migration/recovery semantics to OR-7.
-
 ## Render Staging promotion (#409)
 
 [ADR 0011](../adrs/0011-move-v0-hosting-from-railway-to-render.md) moves
@@ -230,9 +77,8 @@ as `tailtag-api-stg` and `tailtag-postgres-stg`.
 routine path that deploys Render Staging. It keeps every gate of the
 [#202 contract](../specs/2026-09-16-controlled-staging-promotion.md). The
 [promotion contract](replacement-staging-promotion-contract.md#render-staging-identity-409)
-says how Render proves the deploy identity. The Railway procedure above stays
-until #412. After `staging.tailtag.app` moves to Render, the Railway
-promotion command is retired, and nobody runs it again.
+says how Render proves the deploy identity. The Railway promotion command is
+retired. See [Controlled Staging promotion (#202)](#controlled-staging-promotion-202).
 
 ### Before a Render promotion
 
@@ -305,10 +151,24 @@ passes. While it runs, Render lists two instances. The #410 job and
 `render ssh` launchers need exactly one, so they stop at `FAIL ... target`
 and change nothing. Wait a minute after a promotion before you run them.
 
-The result table in [Expected operation and evidence](#expected-operation-and-evidence)
-applies to the Render receipts too. A 202 response or a missing deploy ID
-means that the command has no D. Stop, and do not submit again. Check the
-Render dashboard for a deploy of S first.
+The command ends with one of these results:
+
+| Result | Operator action |
+| --- | --- |
+| Candidate, target, or configuration rejected before submission | Stop. There is no D and the command submitted nothing. Fix the prerequisite through its normal owning process. |
+| PENDING record with a progressing deploy | The command reads D every 10 seconds, for up to 30 minutes. Do not start a second promotion. |
+| SUCCEEDED / ACTIVE | Review and keep the sanitized receipt. This is a point-in-time success claim. Later deploys can change the current state. |
+| SUPERSEDED | Keep the receipt as history. Do not report a successful current promotion. The command does not submit again. |
+| INACTIVE | D is not live and no other deploy is live. The promotion did not succeed. |
+| FAILED | Stop at the first failed gate. Read the Render deploy log of D before any other approved operation. |
+| INDETERMINATE or interrupted PENDING | The command cannot prove the result. Do not assume that the deploy failed, succeeded, or never started. Keep S and D and read the Render deploy of D. |
+| OR7_HANDOFF | Ambiguous migration or database state needs the reviewed recovery decision of OR-7. This procedure does no recovery. |
+
+A 202 response or a missing deploy ID means that the command has no D. Stop,
+and do not submit again. Check the Render dashboard for a deploy of S first.
+If the command cannot save the receipt after it gets D, keep only S and D from
+its output and stop. Review an interrupted receipt before you commit it. Never
+change it to success because the public URL answers.
 
 A `FAIL_GUARD` pre-deploy failure means that a check failed before any
 migration ran. The previous version keeps serving. The first Render Staging
@@ -323,6 +183,10 @@ or `FAIL_MIGRATION` line:
 render logs -r "$RENDER_SERVICE_ID" --start 2026-10-30T18:49:00Z \
   --end 2026-10-30T19:00:00Z --direction forward --limit 500 -o text
 ```
+
+A migration error does not prove that the database is unchanged. A partial or
+ambiguous state goes to OR-7. The command never retries, reverses migrations,
+rolls back, restores data, or ends services on its own.
 
 ### Deploys outside the promotion
 
@@ -345,10 +209,9 @@ the authenticated and media smokes run locally. Copy each value from the
 macOS shell, like the other blocks on this page.
 
 The smoke verifies the session token with the API's own verifier, which loads
-the production settings. On Railway, `railway run` supplied every service
-variable. Here the block sets the Clerk values and harmless placeholders for
-the other required settings. The smoke does not connect to the database or to
-media storage.
+the production settings. The block sets the Clerk values and harmless
+placeholders for the other required settings. The smoke does not connect to
+the database or to media storage.
 
 The Clerk JWT public key is not a secret, and it has several lines. Paste the
 whole PEM block at the prompt. Make sure that the cursor is on an empty line
@@ -430,7 +293,7 @@ use the onrender host of that service, for example
 
 ### Move staging.tailtag.app to a new Render service
 
-The #409 cutover moved `staging.tailtag.app` from Railway to Render Oregon on
+The #409 cutover moved `staging.tailtag.app` to Render Oregon on
 2026-10-30. The #452 cutover moved it to Render Virginia on 2026-11-04. A
 future move to a new service uses the #452 order.
 
@@ -477,14 +340,12 @@ Oregon Staging (`tailtag-api-staging` and `tailtag-postgres-staging`) without
 a logical export. No earlier Render Staging service remains as a rollback
 target. To recover Virginia Staging, use
 [application rollback](#application-rollback-on-render) or
-[PITR](#restore-the-database-with-pitr). Railway Staging stays frozen until
-#412.
+[PITR](#restore-the-database-with-pitr).
 
 ## Render Staging operations and recovery (#410)
 
 This section covers the #204 reset, the #243 operator commands, database
-recovery, and application rollback on Render Staging. The Railway procedures
-in this runbook stay until #412. Do not run them against Render Staging.
+recovery, and application rollback on Render Staging.
 
 ### Which method each command uses
 
@@ -510,8 +371,10 @@ live image. A command that prompts needs a terminal, so it runs over
 | Emergency operator decommission | `render ssh` | `api_staging_render_ssh.py emergency-decommission` |
 | PITR restore count | `render ssh` | `api_staging_render_ssh.py restore-count --expected-counts <digest>` |
 
-These tools have no Render version, and #412 deletes them: the #243 matrix,
-restart, and managed-auth diagnosis tools, and the #207 logical-dump drill.
+The #243 matrix, restart, and managed-auth diagnosis tools and the #207
+logical-dump drill have no Render version, and #412 deletes them. They are not
+current procedures. For database recovery, use
+[PITR](#restore-the-database-with-pitr).
 
 ### Before a Render operation
 
@@ -549,7 +412,7 @@ never retries or cancels a job, because a reset can stop between its gate and
 its resume.
 
 The read-only jobs run in a read-only database transaction. A reconcile
-`MISMATCH` exits 1, which is stricter than the Railway command.
+`MISMATCH` exits 1.
 
 | Output | Meaning | Next step |
 | --- | --- | --- |
@@ -572,12 +435,10 @@ migration needs the database. A dashboard rollback also runs the pre-deploy
 command, so a rollback cannot go live either. Still, do not start a
 promotion, rollback, Blueprint sync, or variable change during a reset.
 
-The Render reset has one limit that the Railway reset does not. The Railway
-reset reads the public identity again after it opens the database, and it
-closes the database again if the identity changed. The Render job cannot do
-this, because `scripts/` is not in the image. So if the target changed, the
-launcher exits 1 with `target changed <job>`, and Staging stays open. The
-owner accepted this limit on 2026-10-31.
+The Render reset has one limit. It cannot read the public identity again after
+it opens the database, because `scripts/` is not in the image. So if the
+target changed, the launcher exits 1 with `target changed <job>`, and Staging
+stays open. The owner accepted this limit on 2026-10-31.
 
 ### Reset recovery on Render
 
@@ -849,27 +710,6 @@ If the list is not `[]`, run
 again. On 2026-11-01, the Development database showed `[]`. On 2026-11-04,
 `tailtag-postgres-stg` showed `[]`.
 
-## Controlled promotion acceptance evidence (2026-09-16)
-
-The owner-squashed [PR #233](https://github.com/TailTag-Game/tailtag/pull/233)
-provided candidate `c09c0b441b35d070ed04c73f3a22e34f7f0f2803`.
-Its exact completed successful push API validation was
-[run 35185145714](https://github.com/TailTag-Game/tailtag/actions/runs/35185145714),
-attempt 1. One supported operator invocation submitted that SHA and captured
-returned D `d7e69108-a6d8-4355-b1ec-8b83057ca11b` before observation.
-
-The [sanitized repository record](staging-deployments/d7e69108-a6d8-4355-b1ec-8b83057ca11b.json)
-records deployment createdAt `2026-09-17T05:20:35.320Z`, every required gate
-SUCCEEDED, final active state ACTIVE and overall SUCCEEDED. Exact-instance image
-source matched the candidate through #201's unchanged join; canonical smoke
-passed. The final exact-D active check was the last remote gate before success.
-
-This validates #202's normal promotion path on the retired generation. It is a
-point-in-time declaration and durable historical evidence, not a promise about
-later serving state or replacement-project delivery.
-Bootstrap and older #201 observations below remain separate historical evidence.
-Staging autodeploy stayed disabled; no recovery or deliberate failure test ran.
-
 ## Migration and application-image recovery (#206)
 
 The authoritative [#206 migration and application rollback
@@ -917,67 +757,8 @@ read/write coverage, retained new migration records/objects, negative constraint
 coverage, and proof that O does not reinterpret or mutate newer valid state
 unsafely. This is pair-specific maintainer review, not a generic analyzer.
 
-### Retired-generation candidate conclusion: NO-GO
-
-The preferred representative boundary was old
-`04f8383fe750bec712ced27a1932b82b1eabb292`, retained as deployment
-`57f17ef7-7b34-4c2f-9272-b8091b1eafad`, to new
-`77b6c55130f1b69304a8fd748590b4bbad3bf721`. It contains only additive
-`rehearsal.0001_initial`, but `77b6c55` was never deployed to Staging, so no
-exact retained new image exists for that rehearsal.
-
-The retained old-to-current boundary instead reaches active deployment
-`cbe83780-0256-49c2-b026-34709ddb69b0`, source
-`856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a`, and crosses the additional
-account/operator/audit migrations recorded in the #206 evidence. The old image
-is technically Railway rollback-capable, but it is not application-safe against
-current Staging state. [PR #239](https://github.com/TailTag-Game/tailtag/pull/239)
-change permits a staff/non-superuser to hold a usable local password and
-authentication state, and that state is valid and current. When loaded and
-saved by O, its usable password becomes unusable. O
-also lacks the newer authorization/audit semantics. This affirmative result
-means schema compatibility was insufficient for that old pair and establishes
-**NO-GO for that live Staging application rollback**. It does not establish a current
-replacement-generation rollback pair. The #206 policy remains authoritative;
-the exact live compatible Railway rehearsal remains assigned to #241.
-
-Deployment `3acf7fee-260b-472d-9b20-d1dd76efcb25`, source
-`756f48e2d90bbb803060cd015e8bcf2d47ad4fbc`, to current has no migration delta.
-It would validate Railway mechanics only, not representative schema/application
-recovery. No live mutation was performed, authorized, or required; no artificial
-migration pair will be created. The safe recovery is a reviewed forward fix.
-
-### Verified Railway interface and future exact evidence
-
-Read-only GraphQL inspection verified `Deployment.canRollback: Boolean!` and
-`deploymentRollback(id: String!): Boolean!`. The mutation selects an exact
-historical deployment and does not return the resulting deployment ID. Railway
-documents stored-image reuse and historical variable-snapshot restoration without
-a rebuild. PRE_DEPLOY_COMMAND remains **unverified** during rollback; observe
-its lifecycle only for an exact future result deployment.
-
-For a future qualifying pair:
-
-1. Establish an exclusive Staging operation window and reverify approved
-   identities and the canonical target.
-2. Capture rollback target **R**, current active deployment **A**, their source
-   SHAs, image digests, snapshot IDs, `canRollback`, canonical configuration,
-   and the complete scoped pre-operation deployment set without variable values.
-3. Invoke `deploymentRollback(id: R)` exactly once.
-4. Derive exactly one new deployment **D** from scoped pre/post sets, after the
-   invocation, and require D source/image identity to match R. Zero or multiple
-   candidates, concurrency, or a lost response is **INDETERMINATE**: stop and
-   do not retry blindly. Record the exact result deployment identity,
-   source/image match, and lifecycle evidence before proceeding. The
-   attribution target is exact D, never `latest`.
-5. Inspect lifecycle events for exact D, including whether
-   `PRE_DEPLOY_COMMAND` occurred; compare D/R variable snapshots without values;
-   use #201 image-local identity and the exact-deployment join; and require D
-   active.
-6. Run canonical Staging HTTP smoke and focused affected-domain read/write proof.
-   Shared-endpoint smoke is never image attribution.
-7. Restore A's source through #202 exact-SHA promotion, never a second rollback,
-   and verify that restoration as its own exact deployment.
+For the rollback steps on Render, see
+[Application rollback on Render](#application-rollback-on-render).
 
 ### Windows operator setup
 
@@ -1017,9 +798,7 @@ bindings only from owner-only files, so set up the private location first.
   was created from an elevated shell, run `icacls <file> /setowner
   "$env:USERNAME"`. Remove other entries with `icacls <file> /remove <name>` or
   repeat the `/inheritance:r /grant:r` command on the file.
-- **Docker.** The restore drill accepts only `npipe:////./pipe/<name>` as the
-  Docker endpoint on Windows; a remote pipe host is refused.
-- **Evidence.** Files the tools create (restore-drill evidence, simulator
+- **Evidence.** Files the tools create (simulator
   reports and evaluations) get the same three-entry access list, with
   inheritance off.
 
@@ -1027,15 +806,410 @@ Live Staging runs from Windows are not verified by CI.
 
 ## Opt-in verification procedures
 
-These are maintainer-only live operations, separate from ordinary CI and
-`task api-check`. First verify the Railway context and stop if it is not the
-workspace, project, environment, and service listed above. Use explicit
-selectors, not a guessed linked context.
+These are maintainer-only live operations. They are separate from ordinary CI
+and `task api-check`. Each Render launcher checks its target before it acts.
+Before you run one, make sure that it addresses `tailtag-api-stg` in the
+Render workspace listed above.
 
 ### PostgreSQL backup restoration drill (#207)
 
 This drill has no Render version. For Render Staging, use
-[Restore the database with PITR](#restore-the-database-with-pitr).
+[Restore the database with PITR](#restore-the-database-with-pitr). The Railway
+drill is in [History (Railway era)](#railway-postgresql-backup-restoration-drill-207).
+
+### Synthetic baseline reset and reseed (#204)
+
+The [frozen reset contract](../specs/2026-09-17-staging-synthetic-reset-reseed.md)
+and [implementation handoff](../specs/2026-09-17-staging-synthetic-reset-reseed-implementation-plan.md)
+define a small canonical baseline. Local implementation, independent review
+and two-run live acceptance were completed for the retired generation. The
+replacement normal-path result and its evidence boundary are recorded in
+[Railway reset preparation and SSH reset (#204)](#railway-reset-preparation-and-ssh-reset-204).
+The contract records sanitized local and live verification evidence, including
+the initially missing fixtures and their separately authorized preparation.
+
+Reset preserves all Users/admin permissions, reusable Clerk identities,
+designated media, migration history/schema, and the reset sentinel. It restores
+two registered profiles, one Convention, two registered Fursuits, two active
+enrollments and two activations. Owned catches, sessions and credentials are zero.
+An owner starts a fresh catch session through normal API behavior for catching
+rehearsals. Fixtures are resolved through preserved explicit registry bindings,
+never by name/prefix or because all Staging state is synthetic. Conflicting
+unowned dependencies deny reset instead of enlarging its deletion scope.
+
+On Render, run the reset as a one-off job with `api_staging_render_job.py reset`.
+See [Which method each command uses](#which-method-each-command-uses) and
+[The reset on Render](#the-reset-on-render). To prepare the baseline on a new
+database, follow [Prepare a new Render Staging database (#452)](#prepare-a-new-render-staging-database-452).
+If a reset leaves the database closed, follow
+[Reset recovery on Render](#reset-recovery-on-render).
+
+#### Maintenance and expected result
+
+The guarded entry point performs #203 preflight only at
+`https://staging.tailtag.app`, verifies runtime/capability, actual connected
+database/sentinel, registered identity bindings and read-only media availability.
+It opens and retains the target executor and a separate control connection.
+The control connection temporarily disables all new target-database connections,
+terminates other target sessions and positively proves sole-executor quiescence
+before destructive cleanup. PostgreSQL connection gating covers ordinary API,
+admin and replacement-instance writes without application writers joining a lock.
+Any prepared transaction, subscription, unresolved writer or identity uncertainty
+denies reset. Plan for a Staging maintenance outage; coordinate rehearsal users
+and privileged operators and do not run other database administration concurrently.
+
+Scoped cleanup, baseline reconstruction and semantic validation occur in one
+transaction. Root fursuit public UUIDs remain stable; database PKs/timestamps are
+not semantic equivalence keys. Reset neither calls Django flush/truncate nor
+mutates Clerk/R2. It reuses designated objects, and does not remove old uploaded
+objects or unowned simulation data. Simulation media cleanup belongs to #199/#220.
+
+On successful commit and validation, the procedure restores database connections
+and proves canonical readiness and unchanged application identity. Only then is
+success reported with allowlisted counts and source/deployment identity. The
+baseline becomes authoritative after reset and normal service resumption; later
+gameplay can change it. A second reset restores the same semantic baseline.
+
+#### Failure and recovery
+
+A transaction failure restores prior domain state. Failure after connection
+gating retains maintenance rather than silently reopening writes. A committed
+reset with failed resumption is reported separately; it is not a rollback or
+successful rehearsal. Failure to prove re-gating is maintenance-unknown and needs
+operator inspection. Never run an unguarded retry to bypass denial.
+
+On Render, the steps are in [Reset recovery on Render](#reset-recovery-on-render).
+For interruption/executor loss or retained maintenance, an approved operator must
+first reverify the exact Staging endpoint/resource, connected control-cluster
+identity and target database name using privately stored expected configuration.
+Inspect the reset phase and whether domain commit happened; stop if uncertain.
+Use that verified separate control database to restore the target's originally
+enabled `ALLOW_CONNECTIONS` flag, then run canonical #203 preflight and inspect
+semantic baseline or prior-state evidence before resuming rehearsals. Recovery
+does not delete any domain/external state, create a sentinel, or bypass identity
+checks. Do not restart Postgres or delete a service/volume as cleanup.
+
+The temporary database connection flag is restored on success; a retained gate
+is an intentional outage requiring this recovery procedure. No test container or
+network is retained by the live operator procedure. Reset is neither a Django
+migration nor a backup/recovery substitute; OR-8 owns backup/restore.
+
+### Immutable build and deployment identity (#201)
+
+The frozen [build and deployment identity
+specification](../specs/2026-09-16-backend-build-deployment-identity.md) defines
+the authoritative contract.
+
+`config.build_identity.get_identity()` is the shared application source for the
+root-owned, image-local build artifact and the explicit runtime deployment ID
+and environment. It has no provider credentials or control-plane query. Its
+operator entry point emits only those three fields.
+
+Render sets no runtime deploy ID, so `deployment_id` is null on Render Staging.
+The promotion command ties deploy D to source SHA S through the Render API and
+the public `/health/identity`. See the
+[promotion contract](replacement-staging-promotion-contract.md#render-staging-identity-409).
+The Railway exact-instance proof is in
+[History (Railway era)](#railway-exact-instance-identity-proof-201).
+
+### HTTP, configuration, and media
+
+#### Health and public Staging preflight (#203)
+
+The [health and environment-safety contract](../specs/2026-09-16-backend-health-environment-safety.md)
+defines the three public signals:
+
+- `/health/live`: HTTP 200 with `{"status":"ok"}` means the process can answer.
+  It does not depend on database, vendor availability, or identity validity.
+- `/health/ready`: HTTP 200 with `{"status":"ok"}` means required effective local
+  configuration is valid and the configured PostgreSQL database answers a small
+  query. Invalid configuration or database failure returns sanitized HTTP 503
+  with `{"status":"unavailable"}`. Clerk and storage are checked locally, without
+  vendor requests. This is not proof of credential authorization or vendor uptime.
+- `/health/identity`: returns only #201's image/runtime `source_sha`,
+  `deployment_id`, and `environment`; invalid identity returns sanitized HTTP 503.
+  It contains no deployment timestamp, resource identifiers, or configuration dump.
+  Render sets no deploy ID, so `deployment_id` is null on Render Staging.
+
+All health/identity responses use `Cache-Control: no-store`. Intended local
+settings can retain disabled Clerk authentication and filesystem storage, but
+cannot qualify as a Staging acceptance target. Deployed readiness requires valid
+authentication/storage and safe deployed configuration; Staging additionally
+requires its valid baked/runtime identity.
+
+Before acceptance or simulation traffic, future tooling must call the reusable,
+credential-free primitive `scripts.api_staging_preflight.validate_render_staging_target()`.
+To run the same guard from the repository root:
+
+```bash
+uv --directory services/api run --locked --no-sync python ../../scripts/api_staging_preflight.py --render-staging
+```
+
+The command takes no URL. It reads the one Render Staging origin that the code
+pins. In the canonical phase, that origin is `https://staging.tailtag.app`. It
+disables redirects and ambient proxies, validates the Staging identity,
+requires readiness, and requires unchanged identity across the preflight
+observations. Timeout, malformed or unexpected responses, missing identity,
+and any uncertainty deny traffic. Failure is a fixed sanitized error with
+nonzero exit status. Success prints only the three-field observed identity
+JSON. The guard makes health and identity GETs only.
+
+Future #199 reports must capture the observed source SHA. The deployment ID is
+null on Render. This guard protects against accidental or misconfigured
+targeting. It is not remote attestation and not a promise that a deployment
+cannot change afterward. It needs no provider credentials or expected
+candidate SHA. The promotion receipt, not this guard, ties a deploy ID to a
+source SHA.
+
+Run the existing credential-free HTTP smoke only against the canonical public
+URL. It checks the existing health, schema, and docs contract; it does not
+deploy or change Staging or establish the #203 identity/target-safety contract.
+
+```bash
+API_BASE_URL=https://staging.tailtag.app task api-smoke
+```
+
+For the authenticated smoke and the media smoke on Render, use
+[Render Staging smoke checks](#render-staging-smoke-checks).
+
+Do not share object keys, bucket names, presigned URLs, signatures, response
+material, or rendered variable values. A failed deletion or absence check is a
+failure, not a warning.
+
+### Clerk authenticated smoke
+
+The Render Staging authenticated smoke is in
+[Render Staging smoke checks](#render-staging-smoke-checks). Its block asks for
+the synthetic Clerk user ID. The smoke asks for the Clerk secret key, the
+session ID, and the session token at hidden prompts. Never place a secret, a
+session ID, or a JWT in an argument, an environment, shell history, a log, a
+file, chat, or a URL.
+
+The smoke accepts only the exact Render Staging target and the canonical public
+API. It confirms the dedicated Production instance and the synthetic metadata.
+Then it checks `/api/me/` with an unchanged cryptographic verifier. The named
+60-second ordinary-token bound is Clerk provider-smoke safety, not a TailTag
+domain or API contract. The smoke never creates sessions, mints tokens, uses
+tickets or templates, or introduces frontend or protocol behavior.
+
+Before the smoke selects the session, sign out or revoke the session by hand if
+setup fails. After the smoke accepts the exact selected session, revoke is
+mandatory in `finally`. A cleanup failure takes priority and needs manual
+remediation. A revoked session's already issued token can stay acceptable until
+its short expiry, so do not claim instant invalidation.
+
+## Operator audit acceptance matrix (#205)
+
+The [#208 evidence handoff](staging-operator-validation-205.md) records which
+bounded live outcomes can currently be substantiated; the matrix below is the
+approved test definition, not a result record.
+
+The #243 matrix command has no Render version, so a new run needs a new
+reviewed plan. Run this matrix only with separate explicit authorization, in
+isolated Staging, using disposable synthetic records. It is a bounded field-beta proof, not a
+general admin test suite. Follow the [operator authorization and audit
+runbook](../operations/operator-authorization-audit.md) for the exact
+provisioning and permission boundary.
+
+| Case | Required proof |
+| --- | --- |
+| 1 | An ordinary player cannot browse or inspect sensitive admin records and cannot execute a sensitive admin mutation. |
+| 2 | An `is_staff=True` user without the target sensitive permission is denied; exactly one sanitized `denied` audit row is retained and no mutation occurs. |
+| 3 | An explicitly permitted non-superuser operator succeeds on one representative sensitive operation. |
+| 4 | An operator permitted for one action cannot cross a different sensitive permission boundary. |
+| 5 | An emergency superuser succeeds and the durable record has `actor_class=emergency_superuser`. |
+| 6 | A successful action creates exactly one sanitized durable audit row containing action, actor class, target type/ID, `succeeded`, and time. |
+| 7 | An unauthorized or denied mutation creates exactly one sanitized `denied` audit row. |
+| 8 | A profile or fursuit disable cascade preserves transactional data-integrity behavior and creates exactly one top-level audit row. |
+| 9 | Catch create/add, edit, bulk, and every alternate gameplay authority or award path remain unavailable. |
+
+Use #204 to restore/reset disposable synthetic domain state where appropriate;
+it does not delete retained audit evidence. Do not reset an audit row away as
+part of this proof.
+
+The protected durable database audit record contains the actor application/Django
+user ID required by the audit contract. It is not a shareable evidence artifact.
+
+### Sanitized evidence template
+
+Record only: matrix case, action, actor class, target type/ID, outcome (for
+example, `succeeded`), time, and a fixed pass/fail result. Sanitized evidence
+must not record actor application/Django user ID. Do not record credentials,
+provider identifiers, emails, tokens, QR payloads, private URLs, raw request
+bodies, or raw logs.
+
+## Safety and evidence handling
+
+Keep `sk_live_` credentials, session IDs, and JWTs strictly hiddenTTY. Do not
+put them in argv, environment, history, logs, files, chat, or URLs. Do not
+record raw bucket names, private URLs, screenshots, dumps, email
+addresses, user IDs, credentials, tokens, or session IDs. Sanitize diagnostics
+before sharing them.
+
+The dated 2026-09-16 record reports only safe public identifiers, fixed stages,
+and short one-way fingerprints. A resource fingerprint is a SHA-256 prefix of
+a resource ID/name. A configuration fingerprint is an approved framed field
+tuple; tuple inequality does **not** prove that every individual field differs.
+Use the independent owned-resource identities, scope review, and successful
+bounded checks as complementary evidence.
+
+## History (Railway era)
+
+Staging ran on Railway until 2026-10-30. Every section below is a historical
+record from Railway, before the Render move. None of it is a current
+procedure. Do not run a command in these sections. Railway Development and
+Railway Staging are frozen, and #412 retires them.
+
+### Railway handoff and promotion receipts (2026-09-25)
+
+Historical record from Railway, before the Render move. It is not a current procedure.
+
+The sanitized [replacement canonical handoff receipt](staging-deployments/c34c45bb-6eb8-488d-8114-d1dd931cf25e.json)
+records source `fc1376e9b4387cb46e37ef3f60191b2ce7f06c68`, deployment
+`c34c45bb-6eb8-488d-8114-d1dd931cf25e`, and a successful public/exact-instance
+join observed on 2026-09-25. It is a point-in-time target receipt, not proof of
+the current active deployment or of the new database, #204 baseline, operator
+roles, or restore state. The subsequent
+[replacement prerequisite readback](staging-replacement-prerequisite-attempt-2026-09-25.md)
+did not establish database facts; #204 sentinel, fixtures, operator inspection,
+and #243 cases 1–9 remain unverified on this generation.
+
+The later [single guarded promotion receipt](staging-deployments/2adc748c-ee54-4446-958c-f49a384925be.json)
+records source `99e6466e1bd5432025c085134e72c2c46eb92dbc` and deployment
+`2adc748c-ee54-4446-958c-f49a384925be` as `SUCCEEDED` and `ACTIVE` on
+2026-09-25. Fresh canonical public and exact-instance readback matched that
+tuple afterward. This receipt supersedes the handoff receipt for current
+deployment identification; it does not establish #204 or #243 readiness.
+
+### Retired-generation bootstrap and deployment history
+
+Historical record from Railway, before the Render move. It is not a current procedure.
+
+The one-time bootstrap for the former `TailTag` project is complete. Staging
+GitHub autodeploy is disabled while
+the `main` source connection remains. Reviewed Staging configuration was
+committed with deployment suppressed; after the Staging-only volume wipe, the
+previously stopped PostgreSQL instance used its existing image path once, and
+`staging/api` used the existing **Deploy the repo TailTag-Game/tailtag** entry
+point once. The dated 2026-09-16 observation records bootstrap `main` commit
+`4293d271ce1ab262b688c5b723a119aa02c232b7`; it is an observation only, not an
+immutable-artifact guarantee or #201 build identity.
+
+Do not repeat or generalize that bootstrap into a routine. Bootstrap itself
+establishes neither #201 immutable build identity nor #202 repeatable promotion.
+Use the separate identity and controlled-promotion procedures below. No reset/
+reseed process, observability system, recovery drill or health behavior is added.
+
+The original CLI duplication unexpectedly deployed inherited configuration
+before review. Those deployments were stopped, configuration was replaced while
+offline, and the Staging volume was wiped before the supported bootstrap. That
+initial interval is not proof of isolation and is not asserted to be free of
+prior exposure. The current reviewed isolated bootstrap and the evidence below
+are the usable proof.
+
+### Controlled Staging promotion (#202)
+
+Historical record from Railway, before the Render move. It is not a current procedure.
+
+Railway Staging promotion used Railway `serviceInstanceDeployV2` with an
+explicit immutable candidate SHA and captured the returned deployment ID. Its
+command, `api_staging_promote.py`, was retired on 2026-10-30. Use the
+[Render Staging promotion](#render-staging-promotion-409). The Render command
+keeps every gate of the frozen
+[controlled promotion contract](../specs/2026-09-16-controlled-staging-promotion.md).
+
+### Controlled promotion acceptance evidence (2026-09-16)
+
+Historical record from Railway, before the Render move. It is not a current procedure.
+
+The owner-squashed [PR #233](https://github.com/TailTag-Game/tailtag/pull/233)
+provided candidate `c09c0b441b35d070ed04c73f3a22e34f7f0f2803`.
+Its exact completed successful push API validation was
+[run 35185145714](https://github.com/TailTag-Game/tailtag/actions/runs/35185145714),
+attempt 1. One supported operator invocation submitted that SHA and captured
+returned D `d7e69108-a6d8-4355-b1ec-8b83057ca11b` before observation.
+
+The [sanitized repository record](staging-deployments/d7e69108-a6d8-4355-b1ec-8b83057ca11b.json)
+records deployment createdAt `2026-09-17T05:20:35.320Z`, every required gate
+SUCCEEDED, final active state ACTIVE and overall SUCCEEDED. Exact-instance image
+source matched the candidate through #201's unchanged join; canonical smoke
+passed. The final exact-D active check was the last remote gate before success.
+
+This validates #202's normal promotion path on the retired generation. It is a
+point-in-time declaration and durable historical evidence, not a promise about
+later serving state or replacement-project delivery.
+Bootstrap and older #201 observations below remain separate historical evidence.
+Staging autodeploy stayed disabled; no recovery or deliberate failure test ran.
+
+### Retired-generation candidate conclusion: NO-GO
+
+Historical record from Railway, before the Render move. It is not a current procedure.
+
+The preferred representative boundary was old
+`04f8383fe750bec712ced27a1932b82b1eabb292`, retained as deployment
+`57f17ef7-7b34-4c2f-9272-b8091b1eafad`, to new
+`77b6c55130f1b69304a8fd748590b4bbad3bf721`. It contains only additive
+`rehearsal.0001_initial`, but `77b6c55` was never deployed to Staging, so no
+exact retained new image exists for that rehearsal.
+
+The retained old-to-current boundary instead reaches active deployment
+`cbe83780-0256-49c2-b026-34709ddb69b0`, source
+`856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a`, and crosses the additional
+account/operator/audit migrations recorded in the #206 evidence. The old image
+is technically Railway rollback-capable, but it is not application-safe against
+current Staging state. [PR #239](https://github.com/TailTag-Game/tailtag/pull/239)
+change permits a staff/non-superuser to hold a usable local password and
+authentication state, and that state is valid and current. When loaded and
+saved by O, its usable password becomes unusable. O
+also lacks the newer authorization/audit semantics. This affirmative result
+means schema compatibility was insufficient for that old pair and establishes
+**NO-GO for that live Staging application rollback**. It does not establish a current
+replacement-generation rollback pair. The #206 policy remains authoritative;
+the exact live compatible Railway rehearsal remains assigned to #241.
+
+Deployment `3acf7fee-260b-472d-9b20-d1dd76efcb25`, source
+`756f48e2d90bbb803060cd015e8bcf2d47ad4fbc`, to current has no migration delta.
+It would validate Railway mechanics only, not representative schema/application
+recovery. No live mutation was performed, authorized, or required; no artificial
+migration pair will be created. The safe recovery is a reviewed forward fix.
+
+### Verified Railway interface and future exact evidence
+
+Historical record from Railway, before the Render move. It is not a current procedure.
+
+Read-only GraphQL inspection verified `Deployment.canRollback: Boolean!` and
+`deploymentRollback(id: String!): Boolean!`. The mutation selects an exact
+historical deployment and does not return the resulting deployment ID. Railway
+documents stored-image reuse and historical variable-snapshot restoration without
+a rebuild. PRE_DEPLOY_COMMAND remains **unverified** during rollback; observe
+its lifecycle only for an exact future result deployment.
+
+For a future qualifying pair:
+
+1. Establish an exclusive Staging operation window and reverify approved
+   identities and the canonical target.
+2. Capture rollback target **R**, current active deployment **A**, their source
+   SHAs, image digests, snapshot IDs, `canRollback`, canonical configuration,
+   and the complete scoped pre-operation deployment set without variable values.
+3. Invoke `deploymentRollback(id: R)` exactly once.
+4. Derive exactly one new deployment **D** from scoped pre/post sets, after the
+   invocation, and require D source/image identity to match R. Zero or multiple
+   candidates, concurrency, or a lost response is **INDETERMINATE**: stop and
+   do not retry blindly. Record the exact result deployment identity,
+   source/image match, and lifecycle evidence before proceeding. The
+   attribution target is exact D, never `latest`.
+5. Inspect lifecycle events for exact D, including whether
+   `PRE_DEPLOY_COMMAND` occurred; compare D/R variable snapshots without values;
+   use #201 image-local identity and the exact-deployment join; and require D
+   active.
+6. Run canonical Staging HTTP smoke and focused affected-domain read/write proof.
+   Shared-endpoint smoke is never image attribution.
+7. Restore A's source through #202 exact-SHA promotion, never a second rollback,
+   and verify that restoration as its own exact deployment.
+
+### Railway PostgreSQL backup restoration drill (#207)
+
+Historical record from Railway, before the Render move. It is not a current procedure.
 
 The frozen [backup restoration contract](../specs/2026-09-22-v0-postgresql-backup-restore.md)
 and [implementation plan](../specs/2026-09-22-v0-postgresql-backup-restore-implementation-plan.md)
@@ -1104,24 +1278,9 @@ exact limitation and strongest safe database/schema evidence under AC-6. That
 substitute explains the gap; it does not meet #207's GO requirement for backend
 readability or authorize closing the issue.
 
-### Synthetic baseline reset and reseed (#204)
+### Railway reset preparation and SSH reset (#204)
 
-The [frozen reset contract](../specs/2026-09-17-staging-synthetic-reset-reseed.md)
-and [implementation handoff](../specs/2026-09-17-staging-synthetic-reset-reseed-implementation-plan.md)
-define a small canonical baseline. Local implementation, independent review
-and two-run live acceptance were completed for the retired generation. The
-replacement normal-path result and its evidence boundary are recorded below.
-The contract records sanitized local and live verification evidence, including
-the initially missing fixtures and their separately authorized preparation.
-
-Reset preserves all Users/admin permissions, reusable Clerk identities,
-designated media, migration history/schema, and the reset sentinel. It restores
-two registered profiles, one Convention, two registered Fursuits, two active
-enrollments and two activations. Owned catches, sessions and credentials are zero.
-An owner starts a fresh catch session through normal API behavior for catching
-rehearsals. Fixtures are resolved through preserved explicit registry bindings,
-never by name/prefix or because all Staging state is synthetic. Conflicting
-unowned dependencies deny reset instead of enlarging its deletion scope.
+Historical record from Railway, before the Render move. It is not a current procedure.
 
 #### One-time preparation for replacement Staging: completed
 
@@ -1279,68 +1438,14 @@ filenames in that directory. This proves the controlled normal path; failure and
 interruption cases are exercised offline, and ordinary resumed gameplay can
 subsequently change the baseline.
 
-#### Maintenance and expected result
+### Railway exact-instance identity proof (#201)
 
-The guarded entry point performs #203 preflight only at
-`https://staging.tailtag.app`, verifies runtime/capability, actual connected
-database/sentinel, registered identity bindings and read-only media availability.
-It opens and retains the target executor and a separate control connection.
-The control connection temporarily disables all new target-database connections,
-terminates other target sessions and positively proves sole-executor quiescence
-before destructive cleanup. PostgreSQL connection gating covers ordinary API,
-admin and replacement-instance writes without application writers joining a lock.
-Any prepared transaction, subscription, unresolved writer or identity uncertainty
-denies reset. Plan for a Staging maintenance outage; coordinate rehearsal users
-and privileged operators and do not run other database administration concurrently.
-
-Scoped cleanup, baseline reconstruction and semantic validation occur in one
-transaction. Root fursuit public UUIDs remain stable; database PKs/timestamps are
-not semantic equivalence keys. Reset neither calls Django flush/truncate nor
-mutates Clerk/R2. It reuses designated objects, and does not remove old uploaded
-objects or unowned simulation data. Simulation media cleanup belongs to #199/#220.
-
-On successful commit and validation, the procedure restores database connections
-and proves canonical readiness and unchanged application identity. Only then is
-success reported with allowlisted counts and source/deployment identity. The
-baseline becomes authoritative after reset and normal service resumption; later
-gameplay can change it. A second reset restores the same semantic baseline.
-
-#### Failure and recovery
-
-A transaction failure restores prior domain state. Failure after connection
-gating retains maintenance rather than silently reopening writes. A committed
-reset with failed resumption is reported separately; it is not a rollback or
-successful rehearsal. Failure to prove re-gating is maintenance-unknown and needs
-operator inspection. Never run an unguarded retry to bypass denial.
-
-For interruption/executor loss or retained maintenance, an approved operator must
-first reverify the exact Staging endpoint/resource, connected control-cluster
-identity and target database name using privately stored expected configuration.
-Inspect the reset phase and whether domain commit happened; stop if uncertain.
-Use that verified separate control database to restore the target's originally
-enabled `ALLOW_CONNECTIONS` flag, then run canonical #203 preflight and inspect
-semantic baseline or prior-state evidence before resuming rehearsals. Recovery
-does not delete any domain/external state, create a sentinel, or bypass identity
-checks. Do not restart Postgres or delete a service/volume as cleanup.
-
-The temporary database connection flag is restored on success; a retained gate
-is an intentional outage requiring this recovery procedure. No test container or
-network is retained by the live operator procedure. Reset is neither a Django
-migration nor a backup/recovery substitute; OR-8 owns backup/restore.
-
-### Immutable build and deployment identity (#201)
+Historical record from Railway, before the Render move. It is not a current procedure.
 
 The 2026-09-16 bootstrap observation is historical only: it predates the #201
 implementation and is excluded from its final acceptance evidence. Do not use
 it to claim an immutable build identity, a current deployment, or a completed
-deployment workflow. The frozen [build and deployment identity
-specification](../specs/2026-09-16-backend-build-deployment-identity.md) defines
-the authoritative contract.
-
-`config.build_identity.get_identity()` is the shared application source for the
-root-owned, image-local build artifact and the explicit runtime deployment ID
-and environment. It has no Railway credentials or control-plane query. Its
-operator entry point emits only those three fields.
+deployment workflow.
 
 Before any authorized #201 proof operation, confirm the repository author and
 committer are both `Finn the Panther <finn@finnthepanther.com>`, and confirm
@@ -1399,54 +1504,9 @@ Final #201 acceptance passed for source
 readback, exact-record join, GitHub resolution, and smoke evidence. This is
 historical evidence for that deployment rather than an ongoing serving claim.
 
-### HTTP, configuration, and media
+### Railway live preflight validation (#203, 2026-09-17)
 
-#### Health and public Staging preflight (#203)
-
-The [health and environment-safety contract](../specs/2026-09-16-backend-health-environment-safety.md)
-defines the three public signals:
-
-- `/health/live`: HTTP 200 with `{"status":"ok"}` means the process can answer.
-  It does not depend on database, vendor availability, or identity validity.
-- `/health/ready`: HTTP 200 with `{"status":"ok"}` means required effective local
-  configuration is valid and the configured PostgreSQL database answers a small
-  query. Invalid configuration or database failure returns sanitized HTTP 503
-  with `{"status":"unavailable"}`. Clerk and storage are checked locally, without
-  vendor requests. This is not proof of credential authorization or vendor uptime.
-- `/health/identity`: returns only #201's image/runtime `source_sha`,
-  `deployment_id`, and `environment`; invalid identity returns sanitized HTTP 503.
-  It contains no deployment timestamp, resource identifiers, or configuration dump.
-
-All health/identity responses use `Cache-Control: no-store`. Intended local
-settings can retain disabled Clerk authentication and filesystem storage, but
-cannot qualify as a Staging acceptance target. Deployed readiness requires valid
-authentication/storage and safe deployed configuration; Staging additionally
-requires its valid baked/runtime identity.
-
-Before acceptance or simulation traffic, future tooling must call the reusable,
-credential-free primitive `scripts.api_staging_preflight.validate_target()`.
-To run the same guard from the repository root:
-
-```bash
-uv --directory services/api run --locked --no-sync python ../../scripts/api_staging_preflight.py https://staging.tailtag.app
-```
-
-The command rejects every origin except that exact literal before networking.
-No trailing slash, explicit port, alternate host, path, credentials, HTTP,
-Development, Production, or localhost override is accepted. It disables redirects
-and ambient proxies, validates positive Staging identity, requires readiness, and
-requires unchanged identity across the preflight observations. Timeout, malformed
-or unexpected responses, missing identity, and any uncertainty deny traffic.
-Failure is a fixed sanitized error with nonzero exit status; success prints only
-the three-field observed identity JSON. The guard makes health/identity GETs only.
-
-Future #199 reports must capture the observed source SHA and deployment ID.
-This is protection against accidental/misconfigured targeting, not remote
-attestation or a promise that a deployment cannot change afterward. It needs no
-Railway credentials, deployment timestamp, or expected candidate SHA. Optional
-operator correlation requires a separately reviewed replacement-bound
-exact-instance procedure; the retired SSH invocation above cannot provide it.
-That enrichment is separate from permission to send acceptance traffic.
+Historical record from Railway, before the Render move. It is not a current procedure.
 
 Live #203 validation passed on 2026-09-17 after controlled promotion of merged
 revision `04f8383fe750bec712ced27a1932b82b1eabb292`, validated by exact push
@@ -1469,20 +1529,13 @@ The promotion record's timestamp is optional operator correlation evidence;
 public preflight neither obtains nor requires it. These are point-in-time
 observations, not a promise about subsequent serving state.
 
-Run the existing credential-free HTTP smoke only against the canonical public
-URL. It checks the existing health, schema, and docs contract; it does not
-deploy or change Staging or establish the #203 identity/target-safety contract.
+### Retired Railway configuration fingerprint commands
 
-```bash
-API_BASE_URL=https://staging.tailtag.app task api-smoke
-```
+Historical record from Railway, before the Render move. It is not a current procedure.
 
-The following configuration-fingerprint, media-smoke, and Clerk-smoke
-`railway run --project` invocations pin the **retired Railway project**. They
-are historical examples, unsupported for replacement Staging. Do not execute
-them for the replacement or substitute a guessed project ID. The retired
-configuration-fingerprint command emitted only resource/configuration
-fingerprints, never values:
+The retired configuration-fingerprint command emitted only resource and
+configuration fingerprints, never values. It pinned the retired Railway project
+and is unsupported.
 
 ```bash
 DJANGO_SETTINGS_MODULE=config.settings.production \
@@ -1501,120 +1554,9 @@ railway run --project 85324de4-be6a-49c3-a3f9-6cac13877849 --no-local --service 
 uv run --project services/api --locked --no-sync python scripts/api_environment_fingerprint.py
 ```
 
-The retired synthetic R2 upload/read/delete/absence check used that same
-project. Its cleanup and final absence check were mandatory:
+### 2026-09-28 replacement parity readback
 
-```bash
-DJANGO_SETTINGS_MODULE=config.settings.production \
-TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM=run-r2-staging-media-storage-smoke \
-railway run --project 85324de4-be6a-49c3-a3f9-6cac13877849 --no-local --service api --environment staging -- \
-task api-media-storage-smoke
-```
-
-Do not share object keys, bucket names, presigned URLs, signatures, response
-material, or rendered variable values. A failed deletion or absence check is a
-failure, not a warning.
-
-### Clerk authenticated smoke
-
-The command below is the retired-generation Production-Clerk smoke launcher
-and is unsupported for replacement Staging. A replacement authenticated smoke
-requires a separately reviewed, code-pinned launcher and owner-controlled
-bounded validation; do not use the retired command below. The historical
-procedure used a TTY and first required the operator to disable clipboard
-history and synchronization before copying any Backend secret,
-session ID, or JWT. Then sign in through `/sign-in`, open `/user`, and copy the
-session ID in the browser console with `copy(Clerk.session.id)`. Only when the
-command prompts, obtain a fresh ordinary token with
-`copy(await Clerk.session.getToken({skipCache:true}))`. Paste each value
-directly into the hidden prompt, clear the clipboard immediately afterwards,
-and never place a secret, session ID, or JWT in an argument, environment,
-shell history, log, file, chat, or URL.
-
-The synthetic user ID is non-secret but must still be entered through a hidden
-local read before it is supplied only to the command's child environment:
-
-```zsh
-read -rs 'CLERK_STAGING_SMOKE_USER_ID?Synthetic Clerk user ID: '
-print
-DJANGO_SETTINGS_MODULE=config.settings.production \
-TAILTAG_STAGING_AUTH_SMOKE_CONFIRM=run-clerk-staging-auth-smoke \
-API_BASE_URL=https://staging.tailtag.app \
-TAILTAG_STAGING_API_BASE_URL=https://staging.tailtag.app \
-CLERK_STAGING_SMOKE_USER_ID="$CLERK_STAGING_SMOKE_USER_ID" \
-railway run --project 85324de4-be6a-49c3-a3f9-6cac13877849 --no-local --service api --environment staging -- \
-task api-staging-auth-smoke
-unset CLERK_STAGING_SMOKE_USER_ID
-```
-
-The command accepts only the exact `staging`/`api` target and canonical public
-API, confirms the dedicated Production instance and synthetic metadata, then
-checks `/api/me/` using an unchanged cryptographic verifier. The named
-60-second ordinary-token bound is Clerk provider-smoke safety, not a TailTag
-domain or API contract. It never creates sessions, mints tokens, uses tickets
-or templates, or introduces frontend/protocol behavior.
-
-Before selection, sign out or revoke manually if setup fails. After the exact
-selected session is accepted, revoke is mandatory in `finally`; cleanup failure
-takes priority and requires manual remediation. A revoked session's already
-issued token can remain acceptable until its short expiry, so do not claim
-instant invalidation.
-
-## Operator audit acceptance matrix (#205)
-
-The [#208 evidence handoff](staging-operator-validation-205.md) records which
-bounded live outcomes can currently be substantiated; the matrix below is the
-approved test definition, not a result record.
-
-Run this matrix only with separate explicit authorization, in isolated Staging,
-using disposable synthetic records. It is a bounded field-beta proof, not a
-general admin test suite. Follow the [operator authorization and audit
-runbook](../operations/operator-authorization-audit.md) for the exact
-provisioning and permission boundary.
-
-| Case | Required proof |
-| --- | --- |
-| 1 | An ordinary player cannot browse or inspect sensitive admin records and cannot execute a sensitive admin mutation. |
-| 2 | An `is_staff=True` user without the target sensitive permission is denied; exactly one sanitized `denied` audit row is retained and no mutation occurs. |
-| 3 | An explicitly permitted non-superuser operator succeeds on one representative sensitive operation. |
-| 4 | An operator permitted for one action cannot cross a different sensitive permission boundary. |
-| 5 | An emergency superuser succeeds and the durable record has `actor_class=emergency_superuser`. |
-| 6 | A successful action creates exactly one sanitized durable audit row containing action, actor class, target type/ID, `succeeded`, and time. |
-| 7 | An unauthorized or denied mutation creates exactly one sanitized `denied` audit row. |
-| 8 | A profile or fursuit disable cascade preserves transactional data-integrity behavior and creates exactly one top-level audit row. |
-| 9 | Catch create/add, edit, bulk, and every alternate gameplay authority or award path remain unavailable. |
-
-Use #204 to restore/reset disposable synthetic domain state where appropriate;
-it does not delete retained audit evidence. Do not reset an audit row away as
-part of this proof.
-
-The protected durable database audit record contains the actor application/Django
-user ID required by the audit contract. It is not a shareable evidence artifact.
-
-### Sanitized evidence template
-
-Record only: matrix case, action, actor class, target type/ID, outcome (for
-example, `succeeded`), time, and a fixed pass/fail result. Sanitized evidence
-must not record actor application/Django user ID. Do not record credentials,
-provider identifiers, emails, tokens, QR payloads, private URLs, raw request
-bodies, or raw logs.
-
-## Safety and evidence handling
-
-Keep `sk_live_` credentials, session IDs, and JWTs strictly hiddenTTY. Do not
-put them in argv, environment, history, logs, files, chat, or URLs. Do not
-record raw bucket names, private Railway URLs, screenshots, dumps, email
-addresses, user IDs, credentials, tokens, or session IDs. Sanitize diagnostics
-before sharing them.
-
-The dated 2026-09-16 record reports only safe public identifiers, fixed stages,
-and short one-way fingerprints. A resource fingerprint is a SHA-256 prefix of
-a resource ID/name. A configuration fingerprint is an approved framed field
-tuple; tuple inequality does **not** prove that every individual field differs.
-Use the independent owned-resource identities, scope review, and successful
-bounded checks as complementary evidence.
-
-## 2026-09-28 replacement parity readback
+Historical record from Railway, before the Render move. It is not a current procedure.
 
 This is a point-in-time, read-only comparison for the replacement `TailTag` /
 `development` and `staging`. The repository-pinned replacement project selectors
@@ -1687,7 +1629,9 @@ The resource-ownership descriptions above have a fresh provider inventory as
 of this readback. Reconcile any future configuration change against this record
 without publishing values or private selectors.
 
-## 2026-09-16 sanitized parity record
+### 2026-09-16 sanitized parity record
+
+Historical record from Railway, before the Render move. It is not a current procedure.
 
 The following fingerprint and live-smoke evidence belongs to the retired
 `TailTag` Railway generation. It remains historical and does not establish

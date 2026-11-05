@@ -23,9 +23,7 @@ Use the official signed Docker apt repository. Host control uses owner-local uv 
 
 Disable disk-backed swap, kernel/process core dumps and terminal recording before credential entry. Verify `swapon --show` is empty, `ulimit -c` is zero in the operator session, and `/proc/sys/kernel/core_pattern` is exactly `|/bin/false`; Docker also applies core limit zero. Host prepare/run require Linux amd64 and a nonroot owner. CI configures these same swap/core settings only on its disposable Ubuntu 24.04 runner so the real Linux admission/signal test runs without bypassing policy; it starts no hosted load. Do not run `script`, record a raw TTY, enable shell tracing around prompts, or retain unsanitized diagnostic transcripts. Docker uses logging driver `none`. Clerk secrets are hidden interactive inputs only; no arguments, environment variables, files or image layers carry them.
 
-Railway credentials exist on the host only during an attended [host operator session](#host-operator-session). During a session, the host holds a Railway login and a registered SSH key. They reach every environment and every service variable in the Railway workspace, and Production too once it exists. Nothing remains on the host outside a session. `railway logout` does not revoke the login, so every session ends with a revoke on the Railway account security page and the removal of the session key. If the host is compromised during a session, revoke all Railway sessions and SSH keys. Then rotate the account and workspace tokens, and every variable that `railway variable list` can read. Production must not be created in this Railway workspace until host sessions are reviewed again, or Production gets its own workspace. The workload container runs as the same Linux user as the session. A separate container user is required before Production shares this workspace.
-
-On Render Staging, the only Render credential on the host is a per-session SSH key. The [Render trust rules](#render-trust-and-compromise) apply.
+Render credentials exist on the host only during an attended [host operator session](#host-operator-session). During a session, the host holds one per-session SSH key that Render accepts. Nothing remains on the host outside a session. The [Render trust rules](#trust-and-compromise) cover a compromised host. The workload container runs as the same Linux user as the session. A separate container user is required before Production shares this Render account.
 
 Keep a private SSH configuration, for example:
 
@@ -119,7 +117,7 @@ HOST_PY="$HOST_ROOT/releases/$SIMULATOR_SHA/.venv/bin/python"
 
 `install-runtime` verifies the new trusted archive/source and performs locked no-dev sync. Select the new `SIMULATOR_SHA`, runtime and fresh prepare/run only after installation succeeds. Preserve the previous approved release for rollback; a failed installation does not change the selected release or authorize traffic.
 
-Bootstrap prints the exact installed host Python path and records package/uv/Python versions in `/srv/tailtag-simulator/tools/versions.txt`. Incoming archive/metadata must remain readable by the dedicated owner. No repository clone, GitHub credential, Railway credential or maintainer home directory is transferred. Installation failures prevent host readiness; a local bootstrap review does not establish that installation on an unprovisioned VM succeeded.
+Bootstrap prints the exact installed host Python path and records package/uv/Python versions in `/srv/tailtag-simulator/tools/versions.txt`. Incoming archive/metadata must remain readable by the dedicated owner. No repository clone, GitHub credential, Render credential or maintainer home directory is transferred. Installation failures prevent host readiness; a local bootstrap review does not establish that installation on an unprovisioned VM succeeded.
 
 ## Profiles and run supervision
 
@@ -150,27 +148,33 @@ The supervisor polls health every five seconds, allowing two seconds per request
 
 ## Host operator session
 
-A host operator session runs an attended run from the host itself. The bridge, the Railway relays and the host runner run as `tailtag_sim` in one tmux session, with no SSH between them. The maintainer can disconnect, and the run continues. The [trust rules](#host-selection-and-private-inventory) above apply.
+A host operator session runs an attended run from the host itself. The bridge, the Render relays and the host runner run as `tailtag_sim` in one tmux session, with no SSH between them. The maintainer can disconnect, and the run continues. The [trust rules](#host-selection-and-private-inventory) above apply.
 
-Staging runs on Render since 2026-10-30 (#409). For Render Staging, use the [Render session](#render-session). The Railway steps below stay until #412 retires Railway Staging.
+### Render session
+
+Staging runs on Render since 2026-10-30 (#409). The relays need one Render credential on the host: a per-session SSH key. The relays run plain `ssh` to the Virginia gateway `ssh.virginia.render.com` (ADR 0012) and pin the gateway host key `SHA256:NCpSwboPnqL/Nvyy2Qc8Kgzpc3P/f3w5wDphhc+UZO0` in code. The host holds no Render CLI, no CLI login and no API key. `run-local --platform render` refuses to start in any of these cases:
+
+- `RENDER_API_KEY` or `RENDER_CLI_CONFIG_DIR` is set.
+- `~/.render/cli.yaml` exists. That file is the Render CLI login.
+- A `render` program is in the tools directory or in the relay path.
+- `~/.railway` exists. That folder is a login that an old host session left behind.
 
 ### One-time setup
 
 Do these steps once, and again after each new release.
 
-1. Make sure that 2FA is on for the maintainer's Railway account.
+1. Make sure that 2FA is on for the maintainer's Render account.
 2. On the host, install go-task 3.53.1 into `/srv/tailtag-simulator/tools/bin`. Check it against the pinned SHA-256 in `.github/actions/install-go-task/action.yml`.
-3. On the host, install the latest Railway CLI into `/srv/tailtag-simulator/tools/bin`. Check the download against the SHA-256 that GitHub publishes for that release asset. The CLI updates itself only from a `bin` directory.
-4. Append the output of `task --version` and `railway --version`, and the SHA-256 of each binary, to `/srv/tailtag-simulator/tools/versions.txt`. Bootstrap rewrites that file, so append them again after any bootstrap.
-5. On the host, install the selector manifest at `~/.config/tailtag/staging-clean-rebuild-targets.json` with mode 0600. It holds only the five `rebuild_*` identifiers that `validate_selectors` reads. Copy those keys from the maintainer's own manifest, and no others.
-6. On the Mac, create the workspace archive from a clean checkout of the installed release SHA:
+3. Append the output of `task --version` and the SHA-256 of the `task` binary to `/srv/tailtag-simulator/tools/versions.txt`. Bootstrap rewrites that file, so append them again after any bootstrap.
+4. On the host, install the selector manifest at `~/.config/tailtag/staging-clean-rebuild-targets.json` with mode 0600. It holds six keys: the five `rebuild_*` identifiers that `validate_selectors` reads, and `render_staging_api_service_id`. Copy those keys from the maintainer's own manifest, and no others. The Render relays refuse to run without the Render key.
+5. Use a release and a workspace from #459 or later. Earlier releases do not work with Virginia Staging. On the Mac, create the workspace archive from a clean checkout of the installed release SHA:
 
    ```sh
    git archive --format=tar.gz -o "$TRANSFER/workspace.tar.gz" "$SIMULATOR_SHA"
    shasum -a 256 "$TRANSFER/workspace.tar.gz"
    ```
 
-7. Copy the archive to `/srv/tailtag-simulator/incoming/` with scp. On the host, install the workspace from the release directory:
+6. Copy the archive to `/srv/tailtag-simulator/incoming/` with scp. On the host, install the workspace from the release directory:
 
    ```sh
    HOST_ROOT=/srv/tailtag-simulator
@@ -181,7 +185,7 @@ Do these steps once, and again after each new release.
 
    The command makes sure that the archive digest matches and that the SHA names an installed release. It extracts into `operator/<sha>` with private modes, then runs a locked `uv sync` of `services/api`. Any failure leaves no workspace.
 
-8. On a host bootstrapped before forwarding was turned off, apply the new sshd policy once from the trusted provider console as root. Bootstrap writes the same file on a new host.
+7. On a host bootstrapped before forwarding was turned off, apply the new sshd policy once from the trusted provider console as root. Bootstrap writes the same file on a new host.
 
    ```sh
    printf 'Match User %s\n    DisableForwarding yes\n    PermitTunnel no\n    PermitTTY yes\nMatch all\n' tailtag_sim > /etc/ssh/sshd_config.d/90-tailtag.conf
@@ -190,24 +194,34 @@ Do these steps once, and again after each new release.
 
    If `sshd -t` fails, do not reload. Report the error.
 
+8. Make sure that `command -v render` prints nothing and that `~/.render` and `~/.railway` do not exist.
+9. Run `ls -la ~/.ssh`. It must hold no private key: only `authorized_keys`, and `config` if it exists.
+
 ### Session start
 
-Run these steps in order, in a new SSH login as `tailtag_sim`. Do not start a session unless railway.com is reachable from a second device, because the dashboard is the [kill switch](#kill-switch).
+Run these steps in order, in a new SSH login as `tailtag_sim`. Do not start a session unless the Render Dashboard is reachable from a second device, because the Dashboard is the [kill switch](#kill-switch).
 
 1. Run `tmux new-session -s operator`. Do not use tmux `pipe-pane` or any session logging.
 2. Run `umask 077`, and turn off shell history with `set +o history`.
 3. Make sure that `swapon --show` is empty, `ulimit -c` is 0, and `/proc/sys/kernel/core_pattern` is `|/bin/false`.
 4. Make sure that systemd-logind `KillUserProcesses` is false, so tmux survives an SSH logout.
 5. Choose the key location. Create an owner-only test file in `/dev/shm`, detach tmux, log out of SSH, log in again and reattach. If the file is still there, keep the key in `/dev/shm`. If it is gone, keep the key in the owner-only workspace instead, and remove it with `shred -u` at session end.
-6. Run `export PATH="/srv/tailtag-simulator/tools/bin:$PATH"`. Then run `railway upgrade`, and record `railway --version` and the SHA-256 of the `railway` binary.
-7. Run `export RAILWAY_NO_AUTO_UPDATE=1`. Make sure that `railway autoupdate status` reports disabled, and that `~/.railway/staged-update` and `~/.railway/backups` do not exist.
+6. Run `export PATH="/srv/tailtag-simulator/tools/bin:$PATH"`. Do not set any `RENDER_` variable.
+7. Run the first negative control (#411 AC9). No `Host ssh.virginia.render.com` block exists yet, so ssh offers its default keys:
+
+   ```sh
+   cd "/srv/tailtag-simulator/operator/$SIMULATOR_SHA"
+   printf '%s' '{"operation":"status","pool":"host228","arguments":{}}' \
+     | UV=/srv/tailtag-simulator/tools/uv task -s api-sim-pool-ssh
+   ```
+
+   The relay must print `FAIL_LAUNCHER`. If it prints `PASS`, a default key on the host can reach Render. Stop and find that key.
 8. Generate an ed25519 key with the comment `tailtag-sim-<date>` in the chosen location.
-9. Add a `Host ssh.railway.com` block to `~/.ssh/config` with `IdentityFile` set to that key, `IdentitiesOnly yes`, `ForwardAgent no` and `StrictHostKeyChecking yes`.
-10. Make sure that the `ssh.railway.com` host key fingerprint equals the recorded value `SHA256:+S1xg92FrnHz6pY3bpkmh1OGtWQGNANXilPzlxA7B1g`.
-11. Run `railway login --browserless`, and enter the pairing code from the Mac. Make sure that `stat -c %a ~/.railway/config.json` prints `600`.
-12. Run `railway ssh keys list` and record the output. Remove any leftover `tailtag-sim-*` key by its exact name. The `tailtag-sim-` prefix is reserved for session keys.
-13. Link the key pair into `~/.ssh/`, because the Railway CLI looks for keys only there and in the SSH agent. Run `ln -s <key> ~/.ssh/tailtag-sim-session` and `ln -s <key>.pub ~/.ssh/tailtag-sim-session.pub`. The key bytes stay in the chosen location.
-14. Run `railway ssh keys add --key ~/.ssh/tailtag-sim-session.pub --name tailtag-sim-<date>`.
+9. Add a `Host ssh.virginia.render.com` block to `~/.ssh/config` with `IdentityFile` set to that key, `IdentitiesOnly yes` and `ForwardAgent no`. The relays bring their own pinned host key, so `known_hosts` needs no entry.
+10. Run the command from step 7 again. The new key is not on Render yet, so the relay must print `FAIL_LAUNCHER`.
+11. In the Render Dashboard, open Account Settings, then SSH Public Keys. Remove any leftover key whose name starts with `tailtag-sim-`. That prefix is reserved for session keys. Add the session public key with the name `tailtag-sim-<date>`.
+12. Run the command from step 7 again. It must print `PASS` and an `instance` value. Record all three results.
+13. Run workloads as in [Running a workload](#running-a-workload).
 
 ### Running a workload
 
@@ -226,80 +240,27 @@ cd "$RELEASE_DIR"
   --release "$RELEASE_DIR/release.json" --output "$STATE/manifests/smoke-1.json"
 .venv/bin/python -m tailtag_simulator.host_operator run-local \
   --manifest "$STATE/manifests/smoke-1.json" --host-root "$HOST_ROOT" \
-  --workspace "$WORKSPACE" --tools "$HOST_ROOT/tools" --state-dir "$STATE"
+  --workspace "$WORKSPACE" --tools "$HOST_ROOT/tools" --state-dir "$STATE" \
+  --platform render
 ```
 
-For Render Staging, add `--platform render` to `run-local`. The default is `--platform railway`. On Railway, `run-local` refuses to start unless `RAILWAY_NO_AUTO_UPDATE` is `1` and stdin and stdout are terminals. It also refuses unless the workspace and the tools are complete. It writes `<UUID>.used.json` and `<UUID>.bridge.json` in the state directory, and `sim-host-collect` copies them with the run. Enter the Clerk Staging secret at the hidden prompt. Each workload needs a fresh `prepare` and a new manifest.
+Always pass `--platform render` to `run-local`. The default in code is still `--platform railway`, which refuses to start on this host. Issue #412 removes the flag. `run-local` also refuses to start unless stdin and stdout are terminals. It refuses unless the workspace and the tools are complete. It writes `<UUID>.used.json` and `<UUID>.bridge.json` in the state directory, and `sim-host-collect` copies them with the run. Enter the Clerk Staging secret at the hidden prompt. Each workload needs a fresh `prepare` and a new manifest.
 
 ### Session end
 
 The session end is mandatory after any exit, including a crash or a reboot.
 
-1. If the shell is new, for example after a reboot, run `umask 077`, `export PATH="/srv/tailtag-simulator/tools/bin:$PATH"` and `export RAILWAY_NO_AUTO_UPDATE=1` before any `railway` command.
-2. Run `railway ssh keys remove`, and choose the session key by its exact name.
-3. If the private key still exists, run `shred -u` on it. Remove the public key.
-4. Remove the `Host ssh.railway.com` block from `~/.ssh/config`, and run `rm -f ~/.ssh/tailtag-sim-session ~/.ssh/tailtag-sim-session.pub`.
-5. Run `railway logout`, then `rm -rf ~/.railway`.
-6. Revoke the host's CLI session on the Railway account security page (railway.com/account/security). Logout alone leaves the login valid on Railway's side.
-7. On the Mac, run `railway ssh keys list`. Make sure that no `tailtag-sim-*` key remains.
-
-### Kill switch
-
-To stop a session's privileged authority from anywhere, revoke the host's CLI session and remove its key on railway.com. Every relay then fails with `FAIL_LAUNCHER`. The run fails with `FAIL_LEASE` after three failed heartbeats, and its hold stays in place. If the relays fail fast, this takes about three minutes. If they hang until the 180 s launcher timeout, it takes up to about twelve minutes. Recover the held run from the Mac with the [recovery procedure](#recovery-and-refusal-handling). With access to the host, reattach tmux and press Ctrl-C, or use the controlled stop below.
-
-### Render session
-
-On Render Staging, the relays need one Render credential on the host: a per-session SSH key. The relays run plain `ssh` to the Virginia gateway `ssh.virginia.render.com` (ADR 0012) and pin the gateway host key `SHA256:NCpSwboPnqL/Nvyy2Qc8Kgzpc3P/f3w5wDphhc+UZO0` in code. The host holds no Render CLI, no CLI login and no API key. `run-local --platform render` refuses to start in any of these cases:
-
-- `RENDER_API_KEY` or `RENDER_CLI_CONFIG_DIR` is set.
-- `~/.render/cli.yaml` exists. That file is the Render CLI login.
-- A `render` program is in the tools directory or in the relay path.
-- `~/.railway` exists. That folder is a Railway CLI login.
-
-#### One-time Render setup
-
-1. Make sure that 2FA is on for the maintainer's Render account.
-2. Install a release and a workspace from #459 or later. Earlier releases have only the Railway relays or the Oregon Render relays, or they refuse every relay before the Virginia cutover.
-3. On the host, add the key `render_staging_api_service_id` to `~/.config/tailtag/staging-clean-rebuild-targets.json`. Copy its value from the maintainer's own manifest. Keep the file mode 0600. The file then holds six keys: the five `rebuild_*` identifiers from the [one-time setup](#one-time-setup) and this Render key. The Render relays refuse to run without it.
-4. Make sure that `command -v render` prints nothing and that `~/.render` and `~/.railway` do not exist.
-5. Run `ls -la ~/.ssh`. It must hold no private key: only `authorized_keys`, and `config` if it exists.
-
-#### Render session start
-
-Do not start a session unless the Render Dashboard is reachable from a second device, because the Dashboard is the [Render kill switch](#render-kill-switch). Do steps 1 to 5 of the [Railway session start](#session-start) first. Then do these steps:
-
-1. Run `export PATH="/srv/tailtag-simulator/tools/bin:$PATH"`. Do not set `RAILWAY_NO_AUTO_UPDATE` or any `RENDER_` variable.
-2. Run the first negative control (#411 AC9). No `Host ssh.virginia.render.com` block exists yet, so ssh offers its default keys:
-
-   ```sh
-   cd "/srv/tailtag-simulator/operator/$SIMULATOR_SHA"
-   printf '%s' '{"operation":"status","pool":"host228","arguments":{}}' \
-     | UV=/srv/tailtag-simulator/tools/uv task -s api-sim-pool-ssh
-   ```
-
-   The relay must print `FAIL_LAUNCHER`. If it prints `PASS`, a default key on the host can reach Render. Stop and find that key.
-3. Generate an ed25519 key with the comment `tailtag-sim-<date>` in the chosen location.
-4. Add a `Host ssh.virginia.render.com` block to `~/.ssh/config` with `IdentityFile` set to that key, `IdentitiesOnly yes` and `ForwardAgent no`. The relays bring their own pinned host key, so `known_hosts` needs no entry.
-5. Run the command from step 2 again. The new key is not on Render yet, so the relay must print `FAIL_LAUNCHER`.
-6. In the Render Dashboard, open Account Settings, then SSH Public Keys. Remove any leftover key whose name starts with `tailtag-sim-`. That prefix is reserved for session keys. Add the session public key with the name `tailtag-sim-<date>`.
-7. Run the command from step 2 again. It must print `PASS` and an `instance` value. Record all three results.
-8. Run workloads as in [Running a workload](#running-a-workload), with `--platform render`.
-
-#### Render session end
-
-The session end is mandatory after any exit, including a crash or a reboot.
-
 1. In the Render Dashboard, remove the session key `tailtag-sim-<date>`.
-2. With the key file and the `Host` block still in place, run the command from step 2 of the session start. It must print `FAIL_LAUNCHER`. If it prints `PASS`, the key is still on Render. Remove it again, and repeat this step.
+2. With the key file and the `Host` block still in place, run the command from step 7 of the session start. It must print `FAIL_LAUNCHER`. If it prints `PASS`, the key is still on Render. Remove it again, and repeat this step.
 3. If the private key still exists, run `shred -u` on it. Remove the public key.
 4. Remove the `Host ssh.virginia.render.com` block from `~/.ssh/config`.
 5. On the Mac, open the SSH Public Keys page in the Dashboard. Make sure that no `tailtag-sim-` key remains.
 
-#### Render kill switch
+### Kill switch
 
-To stop a session's authority from anywhere, remove the session key in the Render Dashboard. The gateway then refuses the key, and every later relay fails with `FAIL_LAUNCHER`. Removal does not end a connection that is already open. Each relay is one call with its own timeout, so an in-flight relay can finish, but nothing stays connected past that timeout. The run fails with `FAIL_LEASE` after three failed heartbeats, and its hold stays in place. If the relays fail fast, this takes about three minutes. If they hang until the 180 s launcher timeout, it takes up to about twelve minutes. Recover the held run from the Mac with the [recovery procedure](#recovery-and-refusal-handling).
+To stop a session's authority from anywhere, remove the session key in the Render Dashboard. The gateway then refuses the key, and every later relay fails with `FAIL_LAUNCHER`. Removal does not end a connection that is already open. Each relay is one call with its own timeout, so an in-flight relay can finish, but nothing stays connected past that timeout. The run fails with `FAIL_LEASE` after three failed heartbeats, and its hold stays in place. If the relays fail fast, this takes about three minutes. If they hang until the 180 s launcher timeout, it takes up to about twelve minutes. Recover the held run from the Mac with the [recovery procedure](#recovery-and-refusal-handling). With access to the host, reattach tmux and press Ctrl-C, or use the controlled stop below.
 
-#### Render trust and compromise
+### Trust and compromise
 
 The session key opens a shell on every Render service that the maintainer's account can reach by SSH, in every workspace. That includes Render Development, and Production once it exists. Production must not be created in this Render account until host sessions are reviewed again (#316 C8).
 
@@ -313,13 +274,13 @@ A shell on the Staging instance can read every Staging service variable. The hos
 
 The key also reaches Development, so rotate the same values there. It also reaches every SSH-enabled service in the other workspaces of the account, so rotate their secrets too.
 
-#### Render detection window
+### Detection window
 
 Each run pins one Render instance. The first relay reply names the instance, and every later relay must reach it. A restart or a redeploy replaces the instance, and the relays then fail closed. But a replaced instance keeps accepting ssh for about 3.5 minutes (#411 G12). So a restart or a same-SHA redeploy in the last 3.5 minutes of a run is not detected. Do not restart, redeploy or promote Staging during a run. Record this limit with each load run that serves as parity evidence.
 
 ## Observation and controlled stop
 
-For the authorized normal run, observe host Docker CPU/memory and Linux CPU steal, report realized active/in-flight peaks and scheduling lag, and observe existing Staging Railway/Sentry evidence. The companion samples CPU/memory percentages and the cumulative Linux CPU-steal tick counter; retain its actual units, rather than label raw ticks a percentage. Record offered/admitted/skipped/completed work from the report alongside these observations. Record unavailable evidence explicitly; automated backend saturation monitoring is unavailable. Generator saturation or resource failure requires investigation and separate resizing authorization before larger work. Do not equate an offered actor count or a single VM run with backend capacity.
+For the authorized normal run, observe host Docker CPU/memory and Linux CPU steal, report realized active/in-flight peaks and scheduling lag, and observe existing Staging Render/Sentry evidence. The companion samples CPU/memory percentages and the cumulative Linux CPU-steal tick counter; retain its actual units, rather than label raw ticks a percentage. Record offered/admitted/skipped/completed work from the report alongside these observations. Record unavailable evidence explicitly; automated backend saturation monitoring is unavailable. Generator saturation or resource failure requires investigation and separate resizing authorization before larger work. Do not equate an offered actor count or a single VM run with backend capacity.
 
 For the separately authorized small stop run, prepare `stop-profile.json` into a new manifest and have a second SSH session ready before you start `run-local`. Interrupt promptly after setup with Ctrl-C in the operator tmux pane, or with the host stop command. Do not wait for a chat response during the finite traffic window. In that new host session, set `SIMULATOR_SHA` and canonical `RUN_ID` from the original trusted manifest, then establish the release cwd and absolute Python explicitly:
 
@@ -448,9 +409,9 @@ closed value per signal:
 | `http_5xx` | `tailtag.http.server.requests` with `http.response.status_class` `5xx`, by `http.route` | [service signals](backend-service-signals.md) |
 | `server_latency` | Sentry trace p95 by transaction for the routes in the simulator README's operation table | [service signals](backend-service-signals.md) |
 | `db_connections` | `tailtag.db.connection.attempts` outcomes and `tailtag.db.connection.duration` p95 | [dependency health](backend-dependency-health.md#postgresql) |
-| `worker_timeouts` | `WORKER TIMEOUT` or `SIGKILL` lines from `gunicorn.error`: `render logs` for Render Staging, Railway logs for Railway Staging | [runtime failures](backend-service-signals.md#runtime-failures) |
-| `restarts_or_oom` | Restarts, redeploys and out-of-memory kills: the Render service Events page, or Railway deployment events | [dependency health](backend-dependency-health.md#runtime-resources) |
-| `runtime_resources` | API service CPU and memory for the window: the Render service Metrics page, or the Railway graphs | [dependency health](backend-dependency-health.md#runtime-resources) |
+| `worker_timeouts` | `WORKER TIMEOUT` or `SIGKILL` lines from `gunicorn.error`: `render logs` for Render Staging | [runtime failures](backend-service-signals.md#runtime-failures) |
+| `restarts_or_oom` | Restarts, redeploys and out-of-memory kills: the Render service Events page | [dependency health](backend-dependency-health.md#runtime-resources) |
+| `runtime_resources` | API service CPU and memory for the window: the Render service Metrics page | [dependency health](backend-dependency-health.md#runtime-resources) |
 | `domain_outcomes` | #213 outcome counts, such as `tailtag.catches.confirmation` rejected by `tailtag.reason` | [domain outcomes](backend-domain-outcomes.md) |
 
 Use `observed_pressure` only for evidence of saturation or failure inside the
