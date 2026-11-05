@@ -2,12 +2,13 @@
 
 This folder is the source of truth for the TailTag V0 design tokens. A design token is a named design value, such as a color or a spacing step. The tokens set color roles, text styles, spacing, shape, elevation, icon rules, and the accessibility baseline. Shared Flutter widgets (#139) and the component set (#138) use them.
 
-This folder has two files:
+This folder has three files:
 
 | File | Contents |
 |------|----------|
 | [`tokens.json`](tokens.json) | Every token value. It is the only source of values. |
 | `README.md` | The meaning and usage of each token group, and the rules that go with them. |
+| [`components.md`](components.md) | The V0 shared components, their states, and their accessibility rules. |
 
 This README does not repeat token values. To find a value, look it up in `tokens.json` by its token name, for example `color.scheme.primary`.
 
@@ -87,7 +88,7 @@ Material 3 has an error role but no success or warning role. The `color.status` 
 | `success`, `onSuccess`, `successContainer`, `onSuccessContainer` | A completed action, for example a confirmed catch | `#2E7D32` |
 | `warning`, `onWarning`, `warningContainer`, `onWarningContainer` | A state that needs attention but is not an error, for example a slow connection | `#FFB300` |
 
-Each status palette uses the Material custom color tones. Tone 40 is the color and tone 100 is its "on" color. Tone 90 is the container and tone 10 is its "on" color. The status colors are not harmonized with the seed. Harmonizing moves a color toward the seed hue, and here it moves warning toward error.
+Each status palette uses the Material custom color tones. Tone 40 is the color and tone 100 is its "on" color. Tone 90 is the container and tone 10 is its "on" color. The success container also caps its chroma at the warning container chroma, so a success badge does not outshout the content next to it. Chroma is the colorfulness of a color in the Material HCT color space. The status colors are not harmonized with the seed. Harmonizing moves a color toward the seed hue, and here it moves warning toward error.
 
 ### Status needs more than color
 
@@ -110,7 +111,7 @@ The token names are Material role names, so a later dark set can use the same na
 
 Text uses the platform system font, `font.family.system`. Flutter uses Roboto on Android and SF Pro on iOS. The repository bundles no font file.
 
-The `typography` group holds the 15 Material 3 text styles from Flutter 3.47.2 `Typography.englishLike2021`.
+The `typography` group holds the 15 Material 3 text styles from Flutter 3.47.2 `Typography.englishLike2021`. Three styles are heavier than the Material default: `headlineSmall`, `titleLarge`, and `titleMedium` use weight 600, so screen, card, and row titles read clearly from a distance.
 
 | Styles | Use |
 |--------|-----|
@@ -145,13 +146,13 @@ The `radius` group is the Material 3 shape scale. It sets corner radii.
 | Token | Use |
 |-------|-----|
 | `radius.none` | Edge-to-edge images and full-width bars |
-| `radius.extraSmall` | Text fields, menus, and snackbars |
-| `radius.small` | Chips |
-| `radius.medium` | Cards |
-| `radius.large` | Side sheets and large floating buttons |
+| `radius.extraSmall` | Menus |
+| `radius.small` | Badges, and a photo inside a card |
+| `radius.medium` | Text fields and snackbars |
+| `radius.large` | Cards, status banners, and the pressed or selected shape of a list row |
 | `radius.extraLarge` | Dialogs and bottom sheets |
 
-Buttons and other pill-shaped controls use a stadium shape (`StadiumBorder`). A stadium shape has fully round ends, so it has no radius token.
+A larger container has a larger radius. Buttons, chips, the switch, and the navigation bar indicator use a stadium shape (`StadiumBorder`), because a pill means "press me". A stadium shape has fully round ends, so it has no radius token. The [component set](components.md#visual-direction) explains these rules.
 
 ## Elevation
 
@@ -173,7 +174,7 @@ Icons come from Material Icons. Flutter includes them through `uses-material-des
 - The default style is Outlined, for example `Icons.home_outlined`.
 - The Filled version marks a selected state, for example `Icons.home` on the selected tab.
 - Back, share, and more use `Icons.adaptive.arrow_back`, `Icons.adaptive.share`, and `Icons.adaptive.more`. On iOS these show the iOS-style shapes.
-- Icons inside buttons and chips use `size.icon.small`. All other icons use `size.icon.medium`.
+- Icons inside buttons and chips use `size.icon.small`. The empty state icon uses `size.icon.large`. All other icons use `size.icon.medium`.
 - Every icon-only control must have a text label for screen readers, for example through `tooltip` or `Semantics`.
 
 ## Image placeholders
@@ -181,8 +182,11 @@ Icons come from Material Icons. Flutter includes them through `uses-material-des
 A player or fursuit without an image shows a placeholder.
 
 - The placeholder shows initials from the display name or fursuit name. It uses up to two initials.
-- The background is `surfaceContainerHighest` and the initials are `onSurfaceVariant`.
+- A player placeholder has a `primaryContainer` background and `onPrimaryContainer` initials.
+- A fursuit placeholder has a `tertiaryContainer` background and `onTertiaryContainer` initials.
 - If the name is empty, the placeholder shows `Icons.person_outlined` for a player or `Icons.pets_outlined` for a fursuit, in the same colors.
+- The icon and the name next to the placeholder tell a player from a fursuit. Color is not the only signal.
+- Avatars are circles. A list row avatar is `size.avatar.small`, and a header avatar is `size.avatar.large`.
 
 ## Accessibility
 
@@ -196,7 +200,7 @@ These rules are the V0 accessibility baseline. Shared widgets (#139) must meet t
 | Text scale | Core controls stay usable at 200% text scale |
 | Status | Color is never the only signal. See [Status needs more than color](#status-needs-more-than-color). |
 | Selected state | A selected or toggled control tells screen readers its state. Use a standard Material control, or set `selected` or `toggled` in `Semantics` on a custom control. |
-| Focus | The focus indicator color depends on the background. Use `primary` on `surface`, `surfaceDim`, `surfaceBright`, and the `surfaceContainer` roles. Use `inversePrimary` on `inverseSurface`, for example on a snackbar action. |
+| Focus | The focus indicator color depends on the background. Use `primary` on `surface`, `surfaceDim`, `surfaceBright`, and the `surfaceContainer` roles. Use `inversePrimary` on `inverseSurface`, for example on a snackbar action. The ring is `size.focusRing.width` wide. On buttons it sits `size.focusRing.gap` outside the edge. |
 
 The `size.minTarget` minimum also covers the 44 pt minimum in the Apple guidelines.
 
@@ -214,7 +218,7 @@ These four checks do not test text scale or selected state. #139 will add two wi
 
 ### Contrast table
 
-The ratios use the WCAG 2.2 contrast formula on the values in `tokens.json`. The table includes every text and background pair in the tokens. It also includes the status pairs and the placeholder pair (`onSurfaceVariant` on `surfaceContainerHighest`).
+The ratios use the WCAG 2.2 contrast formula on the values in `tokens.json`. The table includes every text and background pair in the tokens. It also includes the status pairs and the two placeholder pairs (`onPrimaryContainer` on `primaryContainer`, and `onTertiaryContainer` on `tertiaryContainer`).
 
 | Foreground | Background | Kind | Ratio | Minimum | Result |
 |---|---|---|---|---|---|
@@ -227,7 +231,7 @@ The ratios use the WCAG 2.2 contrast formula on the values in `tokens.json`. The
 | `onError` | `error` | Text | 6.46:1 | 4.5:1 | Pass |
 | `onErrorContainer` | `errorContainer` | Text | 7.24:1 | 4.5:1 | Pass |
 | `onSuccess` | `success` | Text | 6.44:1 | 4.5:1 | Pass |
-| `onSuccessContainer` | `successContainer` | Text | 13.18:1 | 4.5:1 | Pass |
+| `onSuccessContainer` | `successContainer` | Text | 13.20:1 | 4.5:1 | Pass |
 | `onWarning` | `warning` | Text | 6.46:1 | 4.5:1 | Pass |
 | `onWarningContainer` | `warningContainer` | Text | 13.26:1 | 4.5:1 | Pass |
 | `onPrimaryFixed` | `primaryFixed` | Text | 13.31:1 | 4.5:1 | Pass |
