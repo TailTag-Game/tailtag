@@ -9,17 +9,14 @@ import sys
 import time
 import urllib.error
 import urllib.request
-import uuid
 from http.client import HTTPException
 from pathlib import Path
-from typing import Final, Literal, TypedDict, cast, overload
+from typing import Final, TypedDict, cast
 
 _STAGING_URL: Final = "https://staging.tailtag.app"
 _IDENTITY_FIELDS: Final = frozenset({"source_sha", "deployment_id", "environment"})
 _SOURCE_SHA: Final = re.compile(r"[0-9a-f]{40}")
 _MAX_RESPONSE_BYTES: Final = 4096
-_DEVELOPMENT_EVENT_DEADLINE_SECONDS: Final = 120
-_DEVELOPMENT_EVENT_RETRY_SECONDS: Final = 5
 # A Render deploy that CI starts must build and run the pre-deploy migration
 # before the new SHA serves traffic.
 _RENDER_DEPLOY_DEADLINE_SECONDS: Final = 20 * 60
@@ -35,12 +32,6 @@ _DEVELOPMENT_FLAGS: Final = frozenset(
         "--render-development-candidate",
     }
 )
-
-
-class BackendIdentity(TypedDict):
-    source_sha: str
-    deployment_id: str
-    environment: str
 
 
 class RenderBackendIdentity(TypedDict):
@@ -97,64 +88,23 @@ def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]
     return result
 
 
-@overload
 def _validate_identity(
-    value: object,
-    *,
-    expected_environment: str = "staging",
-    render: Literal[False] = False,
-) -> BackendIdentity: ...
-@overload
-def _validate_identity(
-    value: object, *, expected_environment: str = "staging", render: Literal[True]
-) -> RenderBackendIdentity: ...
-@overload
-def _validate_identity(
-    value: object, *, expected_environment: str = "staging", render: bool
-) -> BackendIdentity | RenderBackendIdentity: ...
-def _validate_identity(
-    value: object, *, expected_environment: str = "staging", render: bool = False
-) -> BackendIdentity | RenderBackendIdentity:
+    value: object, *, expected_environment: str = "staging"
+) -> RenderBackendIdentity:
     if not isinstance(value, dict):
         raise TargetSafetyError
     identity = cast(dict[str, object], value)
     if frozenset(identity) != _IDENTITY_FIELDS:
         raise TargetSafetyError
     source_sha = identity["source_sha"]
-    deployment_id = identity["deployment_id"]
-    environment = identity["environment"]
     if (
         not isinstance(source_sha, str)
         or _SOURCE_SHA.fullmatch(source_sha) is None
-        or (deployment_id is not None if render else not _canonical_uuid(deployment_id))
-        or environment != expected_environment
+        or identity["deployment_id"] is not None
+        or identity["environment"] != expected_environment
     ):
         raise TargetSafetyError
-    if render:
-        return cast(RenderBackendIdentity, identity)
-    return cast(BackendIdentity, identity)
-
-
-def _canonical_uuid(value: object) -> bool:
-    if not isinstance(value, str):
-        return False
-    try:
-        return str(uuid.UUID(value)) == value
-    except ValueError:
-        return False
-
-
-def validate_target(base_url: str) -> BackendIdentity:
-    """Return observed safe identity only for the exact, healthy Staging target."""
-    if base_url != _STAGING_URL:
-        raise TargetSafetyError
-    first = _validate_identity(_fetch_json(f"{base_url}/health/identity"))
-    if _fetch_json(f"{base_url}/health/ready") != {"status": "ok"}:
-        raise TargetSafetyError
-    second = _validate_identity(_fetch_json(f"{base_url}/health/identity"))
-    if second != first:
-        raise TargetSafetyError
-    return first
+    return cast(RenderBackendIdentity, identity)
 
 
 def render_staging_origin() -> str:
@@ -181,20 +131,20 @@ def validate_render_staging_target(
     origin = render_staging_origin()
     if expected_sha is not None and _SOURCE_SHA.fullmatch(expected_sha) is None:
         raise TargetSafetyError
-    first = _validate_identity(_fetch_json(f"{origin}/health/identity"), render=True)
+    first = _validate_identity(_fetch_json(f"{origin}/health/identity"))
     if expected_sha is not None and first["source_sha"] != expected_sha:
         raise TargetSafetyError
     if _fetch_json(f"{origin}/health/ready") != {"status": "ok"}:
         raise TargetSafetyError
-    second = _validate_identity(_fetch_json(f"{origin}/health/identity"), render=True)
+    second = _validate_identity(_fetch_json(f"{origin}/health/identity"))
     if second != first:
         raise TargetSafetyError
     return first
 
 
 def validate_development_candidate_target(
-    expected_sha: str | None, *, render: bool = False
-) -> BackendIdentity | RenderBackendIdentity:
+    expected_sha: str | None,
+) -> RenderBackendIdentity:
     """Verify the pinned public Development target and optional event source."""
     api_directory = Path(__file__).resolve().parents[1] / "services/api"
     if str(api_directory) not in sys.path:
@@ -216,33 +166,25 @@ def validate_development_candidate_target(
     if expected_sha is not None and _SOURCE_SHA.fullmatch(expected_sha) is None:
         raise TargetSafetyError
     if expected_sha is None:
-        return _attempt_development_candidate(origin, None, render=render)
-    deadline = time.monotonic() + (
-        _RENDER_DEPLOY_DEADLINE_SECONDS
-        if render
-        else _DEVELOPMENT_EVENT_DEADLINE_SECONDS
-    )
-    interval = (
-        _RENDER_DEPLOY_RETRY_SECONDS if render else _DEVELOPMENT_EVENT_RETRY_SECONDS
-    )
+        return _attempt_development_candidate(origin, None)
+    deadline = time.monotonic() + _RENDER_DEPLOY_DEADLINE_SECONDS
     while True:
         try:
-            return _attempt_development_candidate(origin, expected_sha, render=render)
+            return _attempt_development_candidate(origin, expected_sha)
         except TargetSafetyError:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise
-            time.sleep(min(interval, remaining))
+            time.sleep(min(_RENDER_DEPLOY_RETRY_SECONDS, remaining))
 
 
 def _attempt_development_candidate(
-    origin: str, expected_sha: str | None, *, render: bool
-) -> BackendIdentity | RenderBackendIdentity:
+    origin: str, expected_sha: str | None
+) -> RenderBackendIdentity:
     """Make one stable-identity readiness observation of the Development target."""
     first = _validate_identity(
         _fetch_json(f"{origin}/health/identity"),
         expected_environment="development",
-        render=render,
     )
     if expected_sha is not None and first["source_sha"] != expected_sha:
         raise TargetSafetyError
@@ -251,7 +193,6 @@ def _attempt_development_candidate(
     second = _validate_identity(
         _fetch_json(f"{origin}/health/identity"),
         expected_environment="development",
-        render=render,
     )
     if second != first:
         raise TargetSafetyError
@@ -265,17 +206,16 @@ def main() -> int:
         return 1
     try:
         if sys.argv[1] in _DEVELOPMENT_FLAGS:
-            render = sys.argv[1].startswith("--render-")
             expected_sha = None
             if sys.argv[1].endswith("-candidate"):
                 expected_sha = os.environ.get("TAILTAG_EXPECTED_SOURCE_SHA")
                 if expected_sha is None:
                     raise TargetSafetyError
-            result = validate_development_candidate_target(expected_sha, render=render)
+            result = validate_development_candidate_target(expected_sha)
         elif sys.argv[1] == _RENDER_STAGING_FLAG:
             result = validate_render_staging_target()
         else:
-            result = validate_target(sys.argv[1])
+            raise TargetSafetyError
         print(json.dumps(result))
     except TargetSafetyError:
         label = "development" if sys.argv[1] in _DEVELOPMENT_FLAGS else "staging"

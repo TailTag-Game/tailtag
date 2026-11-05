@@ -95,7 +95,6 @@ def install_seams(
     del launcher
     calls: list[str] = []
     relay = importlib.import_module("scripts.api_sim_render_relay")
-    monkeypatch.setattr(relay, "active", lambda: True)
     monkeypatch.setattr(relay._staging_preflight, "_RENDER_STAGING_PHASE", "canonical")
     monkeypatch.setattr(relay, "_identity", lambda: dict(IDENTITY))
     monkeypatch.setattr(relay, "_service_id", lambda: RENDER_SERVICE)

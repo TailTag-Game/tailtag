@@ -62,7 +62,6 @@ def install(
 ) -> list[dict[str, Any]]:
     """Replace the public identity, the manifest pin and ssh; record each ssh call."""
     calls: list[dict[str, Any]] = []
-    monkeypatch.setattr(relay, "active", lambda: True)
     monkeypatch.setattr(relay._staging_preflight, "_RENDER_STAGING_PHASE", "canonical")
     monkeypatch.setattr(relay, "_identity", lambda: dict(IDENTITY))
     monkeypatch.setattr(relay, "_service_id", lambda: SERVICE)
@@ -514,15 +513,6 @@ def test_each_in_image_bootstrap_prints_the_instance_it_ran_on(
         "data": {},
         "instance": INSTANCE,
     }
-
-
-@pytest.mark.parametrize("phase", ["candidate", "canonical"])
-def test_relays_never_fall_back_to_the_frozen_railway_path(
-    relay: ModuleType, monkeypatch: pytest.MonkeyPatch, phase: str
-) -> None:
-    """#452 AC7: Render owns Staging in both phases."""
-    monkeypatch.setattr(relay._staging_preflight, "_RENDER_STAGING_PHASE", phase)
-    assert relay.active() is True
 
 
 def test_candidate_phase_refuses_before_any_identity_read_or_ssh(
