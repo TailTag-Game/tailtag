@@ -106,7 +106,106 @@ List<String> findClerkImportsOutsideAuth(Directory libRoot) {
   return violations;
 }
 
+/// Packages that shared UI must not import: network, generated API, Clerk,
+/// navigation, and app state.
+const _uiForbiddenPackages = [
+  "package:http/",
+  "package:tailtag_api/",
+  "package:tailtag_clerk/",
+  "package:go_router/",
+  "package:flutter_riverpod/",
+];
+
+/// `lib/` folders that shared UI must not import.
+const _uiForbiddenPaths = [
+  "app/",
+  "features/",
+  "core/auth/",
+  "core/config/",
+  "core/session/",
+];
+
+/// Every `file: directive` under [uiRoot] that breaks the shared UI
+/// boundary. Shared UI may import only `api_failure.dart` from `core/api/`,
+/// for the generic error mapping. [uiRoot] is a parameter so the guard can
+/// be shown to fail.
+List<String> findUiBoundaryImports(Directory uiRoot) {
+  final violations = <String>[];
+  if (!uiRoot.existsSync()) {
+    return violations;
+  }
+  for (final entity in uiRoot.listSync(recursive: true)) {
+    if (entity is! File || !entity.path.endsWith(".dart")) {
+      continue;
+    }
+    for (final match in _directive.allMatches(entity.readAsStringSync())) {
+      final target = match.group(2)!;
+      final path = _libPath(entity.uri, target);
+      final forbidden =
+          _uiForbiddenPackages.any(target.startsWith) ||
+          (path != null &&
+              (_uiForbiddenPaths.any(path.startsWith) ||
+                  (path.startsWith("core/api/") &&
+                      path != "core/api/api_failure.dart")));
+      if (forbidden) {
+        violations.add("${entity.path}: $target");
+      }
+    }
+  }
+  return violations;
+}
+
 void main() {
+  test("lib/core/ui stays business-agnostic", () {
+    expect(
+      findUiBoundaryImports(Directory("lib/core/ui").absolute),
+      isEmpty,
+      reason:
+          "Shared UI makes no API calls and knows no Clerk, repository, "
+          "navigation, or feature state.",
+    );
+  });
+
+  group("the shared UI rule itself", () {
+    const cases = <({String directive, bool flagged})>[
+      (
+        directive: 'import "package:tailtag_mobile/core/api/api_failure.dart";',
+        flagged: false,
+      ),
+      (directive: 'import "../api/api_failure.dart";', flagged: false),
+      (directive: 'import "package:flutter/material.dart";', flagged: false),
+      (
+        directive:
+            'import "package:tailtag_mobile/core/api/api_transport.dart";',
+        flagged: true,
+      ),
+      (
+        directive: 'import "package:tailtag_mobile/core/auth/auth_state.dart";',
+        flagged: true,
+      ),
+      (directive: 'import "../session/current_user.dart";', flagged: true),
+      (directive: 'import "../../app/router.dart";', flagged: true),
+      (directive: 'import "package:go_router/go_router.dart";', flagged: true),
+      (
+        directive: 'import "package:flutter_riverpod/flutter_riverpod.dart";',
+        flagged: true,
+      ),
+    ];
+
+    for (final c in cases) {
+      test("${c.flagged ? "flags" : "allows"} ${c.directive}", () {
+        final sandbox = Directory.systemTemp.createTempSync("ui_guard_");
+        addTearDown(() => sandbox.deleteSync(recursive: true));
+        final ui = Directory("${sandbox.path}/lib/core/ui")
+          ..createSync(recursive: true);
+        File("${ui.path}/sample.dart")
+            .writeAsStringSync("${c.directive}\n\nvoid main() {}\n");
+
+        expect(findUiBoundaryImports(ui), c.flagged ? hasLength(1) : isEmpty);
+      });
+    }
+  });
+
   test("lib/features never reaches the HTTP client or generated API", () {
     expect(
       findForbiddenImports(Directory("lib/features").absolute),

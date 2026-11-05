@@ -1,7 +1,8 @@
 name: Mobile App Build Test
 on:
   # Documentation-only changes start no app workflow. Keep this list equal to
-  # _APP_PATHS in scripts/render_development_deploy.py.
+  # _MOBILE_PATHS in scripts/render_development_deploy.py. It adds the design
+  # token values, which the mobile token parity test reads.
   pull_request:
     paths:
       - '**'
@@ -18,6 +19,7 @@ on:
       - 'docs/specs/2026-09-22-v0-migration-application-rollback.md'
       - 'docs/specs/2026-09-22-v0-migration-application-rollback-implementation-plan.md'
       - 'docs/development/staging-recovery/2026-09-22-issue-206-no-go.json'
+      - 'docs/design/tokens.json'
   push: # Post-merge compile test. The paths list skips documentation-only pushes.
     branches:
       - main
@@ -36,6 +38,7 @@ on:
       - 'docs/specs/2026-09-22-v0-migration-application-rollback.md'
       - 'docs/specs/2026-09-22-v0-migration-application-rollback-implementation-plan.md'
       - 'docs/development/staging-recovery/2026-09-22-issue-206-no-go.json'
+      - 'docs/design/tokens.json'
   workflow_dispatch:
 
 permissions:
@@ -48,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      mobile: ${{ steps.filter.outputs.mobile == 'true' || steps.filter.outputs.schema == 'true' || steps.skip-filter.outputs.mobile }}
+      mobile: ${{ steps.filter.outputs.mobile == 'true' || steps.filter.outputs.schema == 'true' || steps.filter.outputs.tokens == 'true' || steps.skip-filter.outputs.mobile }}
     steps:
       - name: Detect mobile app changes
         id: filter
@@ -62,7 +65,10 @@ jobs:
           # exception inside `services/api/**` is the committed OpenAPI schema
           # snapshot, the input to the generated mobile API client: the
           # separate `schema` filter runs mobile CI for it, while the rest of
-          # `services/api/**` stays excluded.
+          # `services/api/**` stays excluded. In the same way, the `tokens`
+          # filter runs mobile CI for the design token values, which the
+          # mobile token parity test reads, while the rest of `docs/**` stays
+          # excluded.
           predicate-quantifier: 'every'
           filters: |
             mobile:
@@ -78,6 +84,8 @@ jobs:
               - '!.github/workflows/simulator.yml'
             schema:
               - 'services/api/openapi/**'
+            tokens:
+              - 'docs/design/tokens.json'
       - name: Skip mobile app change detection
         id: skip-filter
         if: github.event_name != 'pull_request'

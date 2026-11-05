@@ -1,8 +1,10 @@
 import "package:flutter/material.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 import "package:flutter_test/flutter_test.dart";
+import "package:tailtag_mobile/app/app.dart";
 import "package:tailtag_mobile/app/router.dart";
 import "package:tailtag_mobile/core/config/app_config.dart";
+import "package:tailtag_mobile/core/ui/tailtag_theme.dart";
 import "package:tailtag_mobile/main.dart" as app;
 
 void main() {
@@ -31,6 +33,20 @@ void main() {
       findsOneWidget,
     );
     expect(find.text("TailTag"), findsOneWidget);
+  });
+
+  testWidgets("the app uses the TailTag theme and stays light in dark mode", (
+    tester,
+  ) async {
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+    addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+    await tester.pumpWidget(const ProviderScope(child: TailTagApp()));
+    await tester.pumpAndSettle();
+
+    final theme = Theme.of(tester.element(find.text("TailTag")));
+    expect(theme.brightness, Brightness.light);
+    expect(theme.colorScheme, tailTagColorScheme);
+    expect(theme.extension<TailTagColors>(), same(TailTagColors.light));
   });
 
   test("production main fails fast naming both keys without dart-defines", () {
