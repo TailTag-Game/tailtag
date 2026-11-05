@@ -73,7 +73,8 @@ class _TokenRow extends StatelessWidget {
         Text("Blaze the red fox", style: style),
         "size ${_number(style.fontSize!)}, "
             "weight ${style.fontWeight!.value}, "
-            "line height ${_number(style.height!)}",
+            "line height ${_number(style.height!)}, "
+            "letter spacing ${_number(style.letterSpacing!)}",
       ),
       final double number => (
         _DimensionSample(group: group, value: number),

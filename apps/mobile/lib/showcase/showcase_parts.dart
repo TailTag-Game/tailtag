@@ -326,22 +326,27 @@ class _ShowcaseConfirmDialogState extends State<ShowcaseConfirmDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.title),
-      content: Text(widget.body),
-      actions: [
-        TailTagButton(
-          label: "Cancel",
-          variant: TailTagButtonVariant.secondaryText,
-          onPressed: _loading ? null : () => Navigator.of(context).pop(false),
-        ),
-        TailTagButton(
-          label: widget.confirmLabel,
-          variant: TailTagButtonVariant.destructive,
-          loading: _loading,
-          onPressed: _confirm,
-        ),
-      ],
+    // While the action runs, back and a tap on the scrim do not close the
+    // dialog. It stays open until the server answers.
+    return PopScope(
+      canPop: !_loading,
+      child: AlertDialog(
+        title: Text(widget.title),
+        content: Text(widget.body),
+        actions: [
+          TailTagButton(
+            label: "Cancel",
+            variant: TailTagButtonVariant.secondaryText,
+            onPressed: _loading ? null : () => Navigator.of(context).pop(false),
+          ),
+          TailTagButton(
+            label: widget.confirmLabel,
+            variant: TailTagButtonVariant.destructive,
+            loading: _loading,
+            onPressed: _confirm,
+          ),
+        ],
+      ),
     );
   }
 }
