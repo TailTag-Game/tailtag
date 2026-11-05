@@ -53,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      mobile: ${{ steps.filter.outputs.mobile == 'true' || steps.filter.outputs.schema == 'true' || steps.filter.outputs.design == 'true' || steps.skip-filter.outputs.mobile }}
+      mobile: ${{ steps.filter.outputs.mobile == 'true' || steps.filter.outputs.schema == 'true' || steps.filter.outputs.tokens == 'true' || steps.filter.outputs.components == 'true' || steps.skip-filter.outputs.mobile }}
     steps:
       - name: Detect mobile app changes
         id: filter
@@ -67,10 +67,12 @@ jobs:
           # exception inside `services/api/**` is the committed OpenAPI schema
           # snapshot, the input to the generated mobile API client: the
           # separate `schema` filter runs mobile CI for it, while the rest of
-          # `services/api/**` stays excluded. In the same way, the `design`
-          # filter runs mobile CI for the design token values and the
-          # component inventory, which the mobile parity and showcase tests
-          # read, while the rest of `docs/**` stays excluded.
+          # `services/api/**` stays excluded. In the same way, the `tokens`
+          # and `components` filters run mobile CI for the design token
+          # values and the component inventory, which the mobile parity and
+          # showcase tests read, while the rest of `docs/**` stays excluded.
+          # With `every`, a file must match all patterns of one filter, so
+          # each carve-in filter has exactly one pattern.
           predicate-quantifier: 'every'
           filters: |
             mobile:
@@ -86,8 +88,9 @@ jobs:
               - '!.github/workflows/simulator.yml'
             schema:
               - 'services/api/openapi/**'
-            design:
+            tokens:
               - 'docs/design/tokens.json'
+            components:
               - 'docs/design/components.md'
       - name: Skip mobile app change detection
         id: skip-filter
