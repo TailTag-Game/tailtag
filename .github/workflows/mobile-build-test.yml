@@ -20,6 +20,7 @@ on:
       - 'docs/specs/2026-09-22-v0-migration-application-rollback-implementation-plan.md'
       - 'docs/development/staging-recovery/2026-09-22-issue-206-no-go.json'
       - 'docs/design/tokens.json'
+      - 'docs/design/components.md'
   push: # Post-merge compile test. The paths list skips documentation-only pushes.
     branches:
       - main
@@ -39,6 +40,7 @@ on:
       - 'docs/specs/2026-09-22-v0-migration-application-rollback-implementation-plan.md'
       - 'docs/development/staging-recovery/2026-09-22-issue-206-no-go.json'
       - 'docs/design/tokens.json'
+      - 'docs/design/components.md'
   workflow_dispatch:
 
 permissions:
@@ -51,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      mobile: ${{ steps.filter.outputs.mobile == 'true' || steps.filter.outputs.schema == 'true' || steps.filter.outputs.tokens == 'true' || steps.skip-filter.outputs.mobile }}
+      mobile: ${{ steps.filter.outputs.mobile == 'true' || steps.filter.outputs.schema == 'true' || steps.filter.outputs.tokens == 'true' || steps.filter.outputs.components == 'true' || steps.skip-filter.outputs.mobile }}
     steps:
       - name: Detect mobile app changes
         id: filter
@@ -66,9 +68,11 @@ jobs:
           # snapshot, the input to the generated mobile API client: the
           # separate `schema` filter runs mobile CI for it, while the rest of
           # `services/api/**` stays excluded. In the same way, the `tokens`
-          # filter runs mobile CI for the design token values, which the
-          # mobile token parity test reads, while the rest of `docs/**` stays
-          # excluded.
+          # and `components` filters run mobile CI for the design token
+          # values and the component inventory, which the mobile parity and
+          # showcase tests read, while the rest of `docs/**` stays excluded.
+          # With `every`, a file must match all patterns of one filter, so
+          # each carve-in filter has exactly one pattern.
           predicate-quantifier: 'every'
           filters: |
             mobile:
@@ -86,6 +90,8 @@ jobs:
               - 'services/api/openapi/**'
             tokens:
               - 'docs/design/tokens.json'
+            components:
+              - 'docs/design/components.md'
       - name: Skip mobile app change detection
         id: skip-filter
         if: github.event_name != 'pull_request'

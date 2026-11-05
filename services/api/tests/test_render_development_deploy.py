@@ -144,6 +144,8 @@ def test_ci_state_requires_every_other_workflow_to_pass(
         (["docs/development/getting-started.md"], frozenset[str]()),
         (["README.md", "CONTRIBUTING.md"], frozenset[str]()),
         (["docs/design/tokens.json"], frozenset({"Mobile App Build Test"})),
+        (["docs/design/components.md"], frozenset({"Mobile App Build Test"})),
+        (["docs/design/README.md"], frozenset[str]()),
     ),
     ids=(
         "backend",
@@ -156,6 +158,8 @@ def test_ci_state_requires_every_other_workflow_to_pass(
         "docs-only",
         "root-docs-only",
         "design-tokens",
+        "design-components",
+        "design-readme",
     ),
 )
 def test_expected_workflows_follow_each_path_filter(
@@ -369,6 +373,30 @@ def test_deploy_workflow_keeps_the_secret_and_inputs_inside_the_gate() -> None:
         "astral-sh/setup-uv",
         "./.github/actions/install-go-task",
     }
+
+
+def test_every_quantifier_path_filters_can_match_and_are_read() -> None:
+    """With `predicate-quantifier: every`, a file must match all patterns of a
+    filter. A filter with two positive patterns never matches, so each filter
+    has one positive pattern, and a job output reads it."""
+    checked = 0
+    for path in WORKFLOWS.glob("*.yml"):
+        for job in _workflow(path.name)["jobs"].values():
+            outputs = " ".join(str(value) for value in job.get("outputs", {}).values())
+            for step in job.get("steps", []):
+                options = step.get("with", {})
+                if "dorny/paths-filter" not in step.get("uses", ""):
+                    continue
+                if options.get("predicate-quantifier") != "every":
+                    continue
+                filters = cast(dict[str, list[str]], yaml.safe_load(options["filters"]))
+                for name, patterns in filters.items():
+                    positive = [p for p in patterns if not p.startswith("!")]
+                    assert len(positive) == 1, f"{path.name} {name}: {positive}"
+                    read = f"steps.{step['id']}.outputs.{name} == 'true'"
+                    assert read in outputs, f"{path.name}: no output reads {name}"
+                    checked += 1
+    assert checked >= 3
 
 
 def test_gate_tables_match_the_real_workflows() -> None:

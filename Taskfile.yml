@@ -342,6 +342,16 @@ tasks:
       - task: mobile-sdk-guard
       - DEVICE='{{.DEVICE | default "" | replace "'" "'\"'\"'"}}' {{.UV | toSlash}} run --no-project python "{{.REPOSITORY_ROOT}}/scripts/mobile_run.py"
 
+  mobile-showcase:
+    desc: "Run the component showcase on a connected Android or iOS target: DEVICE=id (host; needs no config file)."
+    silent: true
+    vars:
+      REPOSITORY_ROOT: *repository-root
+    cmds:
+      - task: mobile-host-guard
+      - task: mobile-sdk-guard
+      - TAILTAG_MOBILE_ENTRY=showcase DEVICE='{{.DEVICE | default "" | replace "'" "'\"'\"'"}}' {{.UV | toSlash}} run --no-project python "{{.REPOSITORY_ROOT}}/scripts/mobile_run.py"
+
   mobile-api-generate:
     desc: "Regenerate the Dart API client package from the OpenAPI snapshot (host)."
     silent: true

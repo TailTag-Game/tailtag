@@ -1,6 +1,6 @@
 # TailTag V0 shared components
 
-This file defines the shared components for the TailTag V0 app. A shared component is a user interface part that more than one screen uses, such as a button or a list row. #139 builds these components in Flutter. #140 shows them in a showcase and checks that the code matches this file.
+This file defines the shared components for the TailTag V0 app. A shared component is a user interface part that more than one screen uses, such as a button or a list row. #139 builds these components in Flutter. The [showcase](../../apps/mobile/lib/core/ui/README.md#showcase) shows each component in its states. The [parity review](parity-review.md) records how the code matches this file.
 
 This file uses the design tokens in [`tokens.json`](tokens.json). A design token is a named design value, such as a color or a spacing step. The [design README](README.md) explains each token group. This file names tokens, for example `color.scheme.primary`, but it does not repeat their values.
 

@@ -21,6 +21,9 @@ need macOS with Xcode):
 - `task mobile-run DEVICE=<id>` launches the app on one connected Android or iOS
   target, using `config/development.json` copied from
   `config/development.example.json`.
+- `task mobile-showcase DEVICE=<id>` launches the component showcase, a
+  development-only app that shows the shared components and tokens. It needs no
+  configuration file. See [Shared UI](lib/core/ui/README.md#showcase).
 
 Setup, configuration, local connectivity, CI, and the API contract and client
 conventions are in

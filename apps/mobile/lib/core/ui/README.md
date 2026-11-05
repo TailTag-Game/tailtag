@@ -26,10 +26,26 @@ This folder holds the TailTag theme and the shared widgets. A shared widget is a
 - Wrap a loading indicator in `DelayedVisibility`, so a fast response does not flash.
 - For padding and gaps, use the `Token` constants, for example `TokenSpacing.lg`. Do not write a literal size or color.
 
+## Showcase
+
+The showcase is a development-only app that shows each shared component in its states. It also shows every token with the value that the code uses. Use it to pick a component or a variant, and to review a change.
+
+- To run it, use `task mobile-showcase DEVICE=<id>` from the repository root. It needs no configuration file, API, or Clerk session.
+- The code is in `lib/showcase/`. Its entry point is `lib/showcase/main.dart`, so store builds never include it. No app code imports it.
+- A switch in the showcase app bar sets 200% text scale.
+- Buttons, icon buttons, chips, and text fields show their focused look as fixed examples. Rows, cards, switch rows, and navigation destinations show their pressed and focused layers only live. Press and hold one, or use Tab on a keyboard.
+
+## How to pick a variant
+
+1. Find the component in the showcase, or in the `components.md` inventory.
+2. Pick the variant that matches your case, for example a secondary `TailTagButton` in a banner.
+3. If no variant fits, do not change the look in your feature. Request a change as described below.
+
 ## Rules
 
 - Shared UI makes no API calls. It imports no Clerk code, repository, router, provider, or feature code. `test/core/api/import_guard_test.dart` checks this. The one exception is `api_failure.dart`, which `generic_error.dart` maps.
 - A feature must not copy a shared widget to change it. If a shared widget does not fit a need, change it here through the request process below.
+- A feature must not wrap a shared widget only to change its colors, shape, or text style. That is a screen-specific fork. Request a variant instead.
 
 ## How to change a token
 
@@ -42,3 +58,4 @@ This folder holds the TailTag theme and the shared widgets. A shared widget is a
 1. Open a pull request that changes `docs/design/components.md`. The new part must name at least one V0 flow as its consumer. See "Source of truth and changes" in that file.
 2. The project owner approves and merges it.
 3. Then add the widget here, with tests in `test/core/ui/`.
+4. In the same pull request, add or change its section in the showcase. The section title is the component name in the `components.md` inventory. `test/showcase/showcase_test.dart` fails until the showcase sections match the inventory.
