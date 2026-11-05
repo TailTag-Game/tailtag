@@ -911,7 +911,6 @@ def test_relay_dispatch_runs_the_given_task_in_the_workspace_with_exactly_the_gi
     environment = {
         "PATH": f"{task.parent}:/usr/bin:/bin",
         "UV": "/srv/tools/uv",
-        "RAILWAY_NO_AUTO_UPDATE": "1",
         "HOME": str(socket_root),
     }
     monkeypatch.setenv("TT316_INHERITED_SENTINEL", "leak")

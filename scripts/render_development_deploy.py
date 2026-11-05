@@ -20,10 +20,8 @@ _REPOSITORY: Final = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 _HOOK: Final = re.compile(
     r"https://api\.render\.com/deploy/srv-[a-z0-9]{1,60}\?key=[A-Za-z0-9_-]{1,200}"
 )
-# This workflow and the Railway post-deploy smoke are not CI for the commit.
-_EXCLUDED_WORKFLOWS: Final = frozenset(
-    {"Render Development deploy", "TailTag post-deploy smoke"}
-)
+# This workflow is not CI for the commit.
+_EXCLUDED_WORKFLOWS: Final = frozenset({"Render Development deploy"})
 # The app workflows share one ordered path filter. GitHub applies it in order:
 # a "!" pattern excludes a path, and a later positive pattern includes it again.
 # Documentation-only changes match no pattern. A test keeps this list equal to
@@ -59,7 +57,6 @@ _PUSH_WORKFLOWS: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType(
             "scripts/api_sim_fixture_ssh.py",
             "scripts/api_sim_inspect_ssh.py",
             "scripts/api_sim_render_relay.py",
-            "scripts/api_staging_reset_ssh.py",
             "scripts/api_staging_preflight.py",
             "services/api/pyproject.toml",
             "services/api/uv.lock",

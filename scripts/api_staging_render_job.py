@@ -29,20 +29,42 @@ for _path in (_REPOSITORY_ROOT, _REPOSITORY_ROOT / "services" / "api"):
 
 from scripts import api_staging_preflight
 from scripts import api_staging_render_promote as promote
-from scripts.api_staging_operator_inspect import STATUS_CODES
-from scripts.api_staging_promote import (
-    _SOURCE_SHA,  # pyright: ignore[reportPrivateUsage]
-    _mapping,  # pyright: ignore[reportPrivateUsage]
-)
-from scripts.api_staging_registry_reconcile import (
-    _valid_output,  # pyright: ignore[reportPrivateUsage]
-)
-from scripts.api_staging_reset_ssh import (
-    _EXPECTED_COUNTS,  # pyright: ignore[reportPrivateUsage]
-)
 
 from rehearsal import row_counts
+from rehearsal.operator_inspect import STATUS_CODES
 
+_mapping = promote._mapping  # pyright: ignore[reportPrivateUsage]
+_SOURCE_SHA = promote._SOURCE_SHA  # pyright: ignore[reportPrivateUsage]
+
+_EXPECTED_COUNTS: Final = {
+    "profiles": 2,
+    "conventions": 1,
+    "fursuits": 2,
+    "enrollments": 2,
+    "activations": 2,
+    "catches": 0,
+    "sessions": 0,
+    "credentials": 0,
+}
+_CHECKS: Final = frozenset(
+    {
+        "registry_singleton",
+        "registry_structure",
+        "root_completeness",
+        "reset_environment_id",
+        "database_name_private_registry",
+        "cluster_identifier_private_registry",
+        "database_name_actual_private",
+        "database_name_actual_registry",
+        "cluster_identifier_actual_private",
+        "cluster_identifier_actual_registry",
+        "owner_binding_private_registry",
+        "catcher_binding_private_registry",
+        "media_binding_private_registry",
+        "database_host_runtime_private",
+        "database_port_runtime_private",
+    }
+)
 _RECEIPTS: Path = _REPOSITORY_ROOT / "docs/development/staging-deployments"
 _RESULT_PREFIX: Final = "TAILTAG-RENDER-JOB "
 _CONFIRMATIONS: Final = {
@@ -130,7 +152,7 @@ def _target(key: str, service_id: str) -> _Target:
         or _SOURCE_SHA.fullmatch(source_sha) is None
     ):
         raise ValueError("live deploy invalid")
-    receipt = _mapping(json.loads((_RECEIPTS / f"{deploy_id}.json").read_text()))
+    receipt = _mapping(json.loads((_RECEIPTS / f"{deploy_id}.json").read_text()))  # pyright: ignore[reportPrivateUsage]
     if receipt is None or not (
         receipt.get("deployment_id") == deploy_id
         and receipt.get("source_sha") == source_sha
@@ -261,8 +283,67 @@ def _outcome(line: str, operation: str, source_sha: str) -> str:
     return "PASS"
 
 
+def _valid_output(raw: str) -> dict[str, object]:
+    value = json.loads(raw)
+    if not isinstance(value, dict):
+        raise TypeError
+    output = cast(dict[str, object], value)
+    if frozenset(output) != frozenset({"result", "checks"}):
+        raise ValueError
+    result = output["result"]
+    checks = output["checks"]
+    if result not in {
+        "PASS",
+        "MISMATCH",
+        "FAIL_INVALID_INPUT",
+        "FAIL_CONFIGURATION",
+        "FAIL_QUERY",
+        "FAIL_EXECUTION",
+    } or not isinstance(checks, dict):
+        raise ValueError
+    typed_checks = cast(dict[object, object], checks)
+    if result in {"PASS", "MISMATCH"}:
+        if frozenset(typed_checks) != _CHECKS:
+            raise ValueError
+        if typed_checks["registry_singleton"] not in {"PASS", "MISSING", "AMBIGUOUS"}:
+            raise ValueError
+        if any(
+            typed_checks[key] not in {"PASS", "MISMATCH", "INDETERMINATE"}
+            for key in ("registry_structure", "root_completeness")
+        ):
+            raise ValueError
+        if any(
+            typed_checks[key] not in {"MATCH", "MISMATCH", "INDETERMINATE"}
+            for key in _CHECKS
+            - {"registry_singleton", "registry_structure", "root_completeness"}
+        ):
+            raise ValueError
+        expected_result = (
+            "PASS"
+            if all(
+                typed_checks[key] == "PASS"
+                for key in (
+                    "registry_singleton",
+                    "registry_structure",
+                    "root_completeness",
+                )
+            )
+            and all(
+                typed_checks[key] == "MATCH"
+                for key in _CHECKS
+                - {"registry_singleton", "registry_structure", "root_completeness"}
+            )
+            else "MISMATCH"
+        )
+        if result != expected_result:
+            raise ValueError
+    elif typed_checks:
+        raise ValueError
+    return output
+
+
 def _read_only_outcome(result: dict[str, object], operation: str) -> str:
-    """Accept only the fixed Railway result schema, and PASS only for PASS."""
+    """Accept only the fixed result schema, and PASS only for PASS."""
     code = result.get("result")
     common = {"operation", "outcome", "source_sha", "result"}
     if operation == "reconcile":

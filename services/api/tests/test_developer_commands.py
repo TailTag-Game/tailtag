@@ -150,8 +150,8 @@ def semgrep_scan_tokens(dry_run: str) -> list[list[str]]:
         reviewed_registry_targets = {
             (REPOSITORY_ROOT / helper).as_posix()
             for helper in (
-                "scripts/api_staging_registry_reconcile.py",
-                "scripts/api_staging_registry_reconcile_remote.py",
+                "scripts/api_staging_preflight.py",
+                "scripts/api_staging_reset.py",
             )
             if helper in FROZEN_ROOT_HELPERS
         }
@@ -441,10 +441,8 @@ def test_semgrep_checker_allows_only_the_trusted_prefix_and_reviewed_targets() -
         "semgrep scan --config .semgrep/rules"
     )
     reviewed = [
-        (REPOSITORY_ROOT / "scripts/api_staging_registry_reconcile.py").as_posix(),
-        (
-            REPOSITORY_ROOT / "scripts/api_staging_registry_reconcile_remote.py"
-        ).as_posix(),
+        (REPOSITORY_ROOT / "scripts/api_staging_preflight.py").as_posix(),
+        (REPOSITORY_ROOT / "scripts/api_staging_reset.py").as_posix(),
     ]
     accepted = " ".join((command, ".semgrep/tests", *reviewed))
 
@@ -634,7 +632,6 @@ def test_strict_type_check_includes_the_root_helpers() -> None:
         "api_auth_smoke.py",
         "api_staging_auth_smoke.py",
         "api_media_storage_smoke.py",
-        "api_environment_fingerprint.py",
         "clerk_development_session.py",
     ):
         assert f"../../scripts/{script}" in pyright["include"]

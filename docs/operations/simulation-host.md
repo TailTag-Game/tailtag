@@ -152,12 +152,11 @@ A host operator session runs an attended run from the host itself. The bridge, t
 
 ### Render session
 
-Staging runs on Render since 2026-10-30 (#409). The relays need one Render credential on the host: a per-session SSH key. The relays run plain `ssh` to the Virginia gateway `ssh.virginia.render.com` (ADR 0012) and pin the gateway host key `SHA256:NCpSwboPnqL/Nvyy2Qc8Kgzpc3P/f3w5wDphhc+UZO0` in code. The host holds no Render CLI, no CLI login and no API key. `run-local --platform render` refuses to start in any of these cases:
+Staging runs on Render since 2026-10-30 (#409). The relays need one Render credential on the host: a per-session SSH key. The relays run plain `ssh` to the Virginia gateway `ssh.virginia.render.com` (ADR 0012) and pin the gateway host key `SHA256:NCpSwboPnqL/Nvyy2Qc8Kgzpc3P/f3w5wDphhc+UZO0` in code. The host holds no Render CLI, no CLI login and no API key. `run-local` refuses to start in any of these cases:
 
 - `RENDER_API_KEY` or `RENDER_CLI_CONFIG_DIR` is set.
 - `~/.render/cli.yaml` exists. That file is the Render CLI login.
 - A `render` program is in the tools directory or in the relay path.
-- `~/.railway` exists. That folder is a login that an old host session left behind.
 
 ### One-time setup
 
@@ -194,7 +193,7 @@ Do these steps once, and again after each new release.
 
    If `sshd -t` fails, do not reload. Report the error.
 
-8. Make sure that `command -v render` prints nothing and that `~/.render` and `~/.railway` do not exist.
+8. Make sure that `command -v render` prints nothing and that `~/.render` does not exist.
 9. Run `ls -la ~/.ssh`. It must hold no private key: only `authorized_keys`, and `config` if it exists.
 
 ### Session start
@@ -240,11 +239,10 @@ cd "$RELEASE_DIR"
   --release "$RELEASE_DIR/release.json" --output "$STATE/manifests/smoke-1.json"
 .venv/bin/python -m tailtag_simulator.host_operator run-local \
   --manifest "$STATE/manifests/smoke-1.json" --host-root "$HOST_ROOT" \
-  --workspace "$WORKSPACE" --tools "$HOST_ROOT/tools" --state-dir "$STATE" \
-  --platform render
+  --workspace "$WORKSPACE" --tools "$HOST_ROOT/tools" --state-dir "$STATE"
 ```
 
-Always pass `--platform render` to `run-local`. The default in code is still `--platform railway`, which refuses to start on this host. Issue #412 removes the flag. `run-local` also refuses to start unless stdin and stdout are terminals. It refuses unless the workspace and the tools are complete. It writes `<UUID>.used.json` and `<UUID>.bridge.json` in the state directory, and `sim-host-collect` copies them with the run. Enter the Clerk Staging secret at the hidden prompt. Each workload needs a fresh `prepare` and a new manifest.
+`run-local` always uses Render. It also refuses to start unless stdin and stdout are terminals. It refuses unless the workspace and the tools are complete. It writes `<UUID>.used.json` and `<UUID>.bridge.json` in the state directory, and `sim-host-collect` copies them with the run. Enter the Clerk Staging secret at the hidden prompt. Each workload needs a fresh `prepare` and a new manifest.
 
 ### Session end
 

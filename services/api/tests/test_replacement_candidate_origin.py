@@ -448,24 +448,6 @@ def test_candidate_cli_hides_missing_or_malformed_manifest(
     assert str(path) not in captured.err
 
 
-def test_canonical_mutation_consumer_rejects_candidate_envelope(
-    preflight: ModuleType, monkeypatch: MonkeyPatch
-) -> None:
-    """C-4: candidate evidence cannot authorize the canonical reset launcher."""
-    consumer = importlib.import_module("scripts.api_staging_reset_ssh")
-
-    def candidate_as_canonical(_: str) -> dict[str, object]:
-        return {"phase": "candidate", "identity": IDENTITY}
-
-    monkeypatch.setattr(
-        preflight,
-        "validate_target",
-        candidate_as_canonical,
-    )
-    with pytest.raises(ValueError, match="preflight unavailable"):
-        consumer._preflight()
-
-
 @pytest.mark.parametrize("phase", ("candidate", "canonical"))
 def test_deployed_staging_readiness_accepts_only_matching_exact_phase_profile(
     monkeypatch: MonkeyPatch,

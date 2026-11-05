@@ -187,12 +187,10 @@ def promote() -> ModuleType:
 
 @pytest.fixture
 def harness(promote: ModuleType, monkeypatch: MonkeyPatch, tmp_path: Path) -> Harness:
-    staging_promote = importlib.import_module("scripts.api_staging_promote")
     preflight = importlib.import_module("scripts.api_staging_preflight")
     value = Harness(promote, tmp_path)
     clock = FakeClock()
     monkeypatch.setattr(promote, "_REPOSITORY_ROOT", tmp_path)
-    monkeypatch.setattr(staging_promote, "_REPOSITORY_ROOT", tmp_path)
     monkeypatch.setattr(promote, "_render", value.render)
     monkeypatch.setattr(promote, "_service_id", lambda: SERVICE_ID)
     monkeypatch.setattr(promote, "_prompt_key", lambda: API_KEY)
@@ -356,6 +354,269 @@ def test_target_eligibility_or_key_failure_stops_before_any_render_call(
         monkeypatch.setattr(harness.module, seam, eligible)
     else:
         monkeypatch.setattr(harness.module, seam, _raise_value_error)
+
+    assert harness.module.main() == 1
+
+    assert harness.render.calls == []
+    assert not harness.receipt.exists()
+
+
+def workflow_run(*, run_id: int = RUN_ID, **overrides: object) -> dict[str, object]:
+    return {
+        "id": run_id,
+        "run_attempt": 1,
+        "path": ".github/workflows/api.yml",
+        "repository": {"full_name": "TailTag-Game/tailtag"},
+        "head_sha": SOURCE_SHA,
+        "event": "push",
+        "status": "completed",
+        "conclusion": "success",
+        **overrides,
+    }
+
+
+def comparison(
+    *, merge_base: str = SOURCE_SHA, behind_by: int = 0, status: str = "ahead"
+) -> dict[str, object]:
+    return {
+        "base_commit": {"sha": SOURCE_SHA},
+        "merge_base_commit": {"sha": merge_base},
+        "behind_by": behind_by,
+        "status": status,
+    }
+
+
+class FakeGitHub:
+    """The `gh api` boundary for the eligibility check. It never starts gh."""
+
+    def __init__(
+        self,
+        *,
+        resolved: str = SOURCE_SHA,
+        main: str = MAIN_SHA,
+        compared: Mapping[str, object] | None = None,
+        run_pages: tuple[list[dict[str, object]], ...] = ([workflow_run()],),
+        validated: Mapping[str, object] | None = None,
+    ) -> None:
+        self.resolved = resolved
+        self.main = main
+        self.compared = compared or comparison()
+        self.run_pages = run_pages
+        self.validated = validated or workflow_run()
+        self.run_queries: list[str] = []
+
+    def __call__(self, endpoint: str) -> Mapping[str, object]:
+        if endpoint.endswith(f"/commits/{SOURCE_SHA}"):
+            return {"sha": self.resolved}
+        if endpoint.endswith("/commits/main"):
+            return {"sha": self.main}
+        if "/compare/" in endpoint:
+            assert endpoint.endswith(f"{SOURCE_SHA}...{self.main}?per_page=1")
+            return self.compared
+        if "/actions/workflows/api.yml/runs" in endpoint:
+            assert f"head_sha={SOURCE_SHA}&event=push&status=success" in endpoint
+            self.run_queries.append(endpoint)
+            return {"workflow_runs": self.run_pages[len(self.run_queries) - 1]}
+        if endpoint.endswith(f"/actions/runs/{RUN_ID}"):
+            return self.validated
+        raise AssertionError(f"unexpected GitHub endpoint {endpoint}")
+
+
+@pytest.mark.parametrize(
+    ("main", "compared"),
+    (
+        (MAIN_SHA, comparison()),
+        (SOURCE_SHA, comparison(status="identical")),
+    ),
+    ids=("older-main-ancestor", "identical-current-main"),
+)
+def test_eligibility_accepts_an_older_ancestor_and_the_identical_main_commit(
+    promote: ModuleType,
+    monkeypatch: MonkeyPatch,
+    main: str,
+    compared: Mapping[str, object],
+) -> None:
+    """#409 AC2/AC3: S is eligible when it is an ancestor of main or main itself."""
+    monkeypatch.setattr(promote, "_gh", FakeGitHub(main=main, compared=compared))
+
+    accepted_main, run = promote._eligible(SOURCE_SHA)
+
+    assert accepted_main == main
+    assert run["id"] == RUN_ID
+
+
+@pytest.mark.parametrize(
+    "github",
+    (
+        FakeGitHub(compared=comparison(merge_base=MAIN_SHA)),
+        FakeGitHub(compared=comparison(behind_by=1)),
+        FakeGitHub(compared=comparison(status="diverged")),
+        FakeGitHub(resolved=OTHER_SHA),
+        FakeGitHub(main="abbreviated"),
+        FakeGitHub(run_pages=([workflow_run(event="pull_request")],)),
+        FakeGitHub(run_pages=([workflow_run(head_sha=OTHER_SHA)],)),
+        FakeGitHub(run_pages=([],)),
+        FakeGitHub(validated=workflow_run(path=".github/workflows/other.yml")),
+        FakeGitHub(validated=workflow_run(repository={"full_name": "other/repo"})),
+        FakeGitHub(validated=workflow_run(status="in_progress")),
+        FakeGitHub(validated=workflow_run(conclusion="failure")),
+        FakeGitHub(validated=workflow_run(run_id=RUN_ID + 1)),
+        FakeGitHub(validated=workflow_run(run_id=True)),
+    ),
+    ids=(
+        "merge-base-is-not-s",
+        "main-moved-behind",
+        "diverged",
+        "s-resolves-to-another-commit",
+        "main-is-not-a-full-sha",
+        "pull-request-run-only",
+        "run-for-another-sha",
+        "no-run",
+        "revalidated-wrong-path",
+        "revalidated-wrong-repository",
+        "revalidated-not-completed",
+        "revalidated-not-successful",
+        "revalidated-other-run-id",
+        "revalidated-boolean-run-id",
+    ),
+)
+def test_eligibility_rejects_an_ineligible_commit_or_validation_run(
+    promote: ModuleType, monkeypatch: MonkeyPatch, github: FakeGitHub
+) -> None:
+    """#409 AC2/AC3: local, stale, diverged, or unvalidated S never qualifies."""
+    monkeypatch.setattr(promote, "_gh", github)
+
+    with pytest.raises(ValueError):
+        promote._eligible(SOURCE_SHA)
+
+
+def test_eligibility_follows_run_pages_past_a_full_page_without_a_qualifier(
+    promote: ModuleType, monkeypatch: MonkeyPatch
+) -> None:
+    """#409 AC3: a valid run on page two cannot hide behind 100 other run rows."""
+    first_page = [
+        workflow_run(run_id=RUN_ID + index, event="pull_request")
+        for index in range(100)
+    ]
+    github = FakeGitHub(run_pages=(first_page, [workflow_run()]))
+    monkeypatch.setattr(promote, "_gh", github)
+
+    _, run = promote._eligible(SOURCE_SHA)
+
+    assert run["id"] == RUN_ID
+    assert [query.rsplit("page=", 1)[1] for query in github.run_queries] == ["1", "2"]
+
+
+def fake_run(
+    monkeypatch: MonkeyPatch,
+    promote: ModuleType,
+    *answers: subprocess.CompletedProcess[str],
+) -> list[list[str]]:
+    """Answer each subprocess call in order, and record every argument list."""
+    calls: list[list[str]] = []
+    pending = list(answers)
+
+    def run(
+        arguments: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(arguments)
+        return pending.pop(0)
+
+    monkeypatch.setattr(promote, "_run", run)
+    return calls
+
+
+def process(stdout: str, returncode: int = 0) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess([], returncode, stdout, "")
+
+
+@pytest.mark.parametrize(
+    "identity",
+    (process("someone-else\n"), process("FinnThePanther\n", returncode=1)),
+    ids=("other-login", "failed-login-check"),
+)
+def test_github_calls_need_the_exact_maintainer_login(
+    promote: ModuleType,
+    monkeypatch: MonkeyPatch,
+    identity: subprocess.CompletedProcess[str],
+) -> None:
+    """Only the FinnThePanther account can read the eligibility evidence."""
+    calls = fake_run(monkeypatch, promote, identity)
+
+    with pytest.raises(ValueError):
+        promote._gh("/repos/TailTag-Game/tailtag/commits/main")
+
+    assert calls == [["gh", "api", "user", "--jq", ".login"]]
+
+
+def test_github_call_reads_one_endpoint_after_the_login_check(
+    promote: ModuleType, monkeypatch: MonkeyPatch
+) -> None:
+    calls = fake_run(
+        monkeypatch, promote, process("FinnThePanther\n"), process('{"sha": "x"}')
+    )
+
+    assert promote._gh("/endpoint") == {"sha": "x"}
+    assert calls[1] == ["gh", "api", "/endpoint"]
+
+
+@pytest.mark.parametrize(
+    "answer",
+    (
+        process("{}", returncode=1),
+        process("not json"),
+        process("[]"),
+        process('{"errors": [{"message": "private"}]}'),
+    ),
+    ids=("non-zero-exit", "not-json", "not-an-object", "errors-key"),
+)
+def test_external_json_command_fails_closed(
+    promote: ModuleType,
+    monkeypatch: MonkeyPatch,
+    answer: subprocess.CompletedProcess[str],
+) -> None:
+    fake_run(monkeypatch, promote, answer)
+
+    with pytest.raises((TypeError, ValueError)):
+        promote._json_command(["gh", "api", "/x"])
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    (
+        (CREATED_AT, CREATED_AT),
+        ("2026-09-17T00:16:10+02:00", "2026-09-17T00:16:10+02:00"),
+        ("2026-09-17T00:16:10.526", None),
+        ("promotion-untrusted-diagnostic-secret", None),
+        (None, None),
+        (20260917, None),
+    ),
+    ids=("zulu", "offset", "naive", "sensitive-string", "none", "number"),
+)
+def test_timestamp_needs_an_iso_value_with_a_timezone(
+    promote: ModuleType, value: object, expected: str | None
+) -> None:
+    assert promote._timestamp(value) == expected
+
+
+@pytest.mark.parametrize(
+    "run",
+    (
+        {"id": True, "run_attempt": 1},
+        {"id": RUN_ID, "run_attempt": True},
+        {"id": RUN_ID},
+    ),
+    ids=("boolean-run-id", "boolean-attempt", "missing-attempt"),
+)
+def test_validation_run_without_integer_ids_stops_before_any_render_call(
+    harness: Harness, monkeypatch: MonkeyPatch, run: dict[str, object]
+) -> None:
+    """#409 AC3: the receipt needs the run ID and attempt as real integers."""
+
+    def eligible(_: str) -> tuple[str, dict[str, object]]:
+        return MAIN_SHA, run
+
+    monkeypatch.setattr(harness.module, "_eligible", eligible)
 
     assert harness.module.main() == 1
 

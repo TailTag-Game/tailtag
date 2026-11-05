@@ -50,8 +50,8 @@ items 1, 2, 4, and 5 with the exceptions it lists.
 
 ## Test surface and scope guard
 
-Use the existing offline command seams and synthetic Railway/GitHub responses
-in `test_api_staging_promote.py` and `test_api_deployment_identity.py`. Stub only
+Use the existing offline command seams and synthetic Render/GitHub responses
+in `test_api_staging_render_promote.py`. Stub only
 the existing reviewed replacement target-loader seam with synthetic selector
 tuples for unit tests; keep the actual owner-only manifest parsing and fingerprint
 pins covered by their current tests. Add negative cases for unavailable/wrong

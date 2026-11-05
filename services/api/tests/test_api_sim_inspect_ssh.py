@@ -31,6 +31,7 @@ IDENTITY = {
     "deployment_id": "11111111-1111-4111-8111-111111111111",
     "environment": "staging",
 }
+RENDER_SERVICE = "srv-d0staging000000000000"
 PROJECT_ID = "a1111111-1111-4111-8111-111111111111"
 ENVIRONMENT_ID = "c3333333-3333-4333-8333-333333333333"
 SERVICE_ID = "d4444444-4444-4444-8444-444444444444"
@@ -95,13 +96,6 @@ def launcher() -> ModuleType:
     return importlib.import_module("scripts.api_sim_inspect_ssh")
 
 
-@pytest.fixture(autouse=True)
-def railway_staging(monkeypatch: pytest.MonkeyPatch) -> None:
-    """These cases cover the Railway path; #411 Render cases are separate."""
-    relay = importlib.import_module("scripts.api_sim_render_relay")
-    monkeypatch.setattr(relay, "active", lambda: False)
-
-
 def completed(
     output: object, *, returncode: int = 0
 ) -> subprocess.CompletedProcess[str]:
@@ -118,30 +112,32 @@ def install_seams(
     monkeypatch: pytest.MonkeyPatch,
     run: Callable[..., subprocess.CompletedProcess[str]],
 ) -> list[str]:
-    """Substitute every provider seam; the returned list records call order."""
+    """Replace the public identity, the service pin and ssh; record each ssh call.
+
+    A real remote names the instance it ran on, so the seam adds one when the
+    stand-in answer is a JSON object without it.
+    """
+    del launcher
     calls: list[str] = []
-
-    def record(name: str, value: object = None) -> Callable[..., object]:
-        def seam(*_args: object, **_kwargs: object) -> object:
-            calls.append(name)
-            return value
-
-        return seam
-
-    monkeypatch.setattr(launcher, "_railway_identity", record("railway"))
-    monkeypatch.setattr(launcher, "_preflight", record("preflight", dict(IDENTITY)))
-    monkeypatch.setattr(
-        launcher,
-        "_target_ids",
-        record("target", (PROJECT_ID, ENVIRONMENT_ID, SERVICE_ID, POSTGRES_ID)),
-    )
-    monkeypatch.setattr(launcher, "_active_instance", record("instance", INSTANCE_ID))
+    relay = importlib.import_module("scripts.api_sim_render_relay")
+    monkeypatch.setattr(relay, "active", lambda: True)
+    monkeypatch.setattr(relay._staging_preflight, "_RENDER_STAGING_PHASE", "canonical")
+    monkeypatch.setattr(relay, "_identity", lambda: dict(IDENTITY))
+    monkeypatch.setattr(relay, "_service_id", lambda: RENDER_SERVICE)
 
     def run_seam(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
         calls.append("run")
-        return run(*args, **kwargs)
+        result = run(*args, **kwargs)
+        try:
+            reply = json.loads(result.stdout)
+        except ValueError:
+            return result
+        if isinstance(reply, dict) and "instance" not in reply:
+            reply["instance"] = f"{RENDER_SERVICE}-874b544b8-k7qws"
+            result.stdout = json.dumps(reply)
+        return result
 
-    monkeypatch.setattr(launcher, "_run", run_seam)
+    monkeypatch.setattr(relay, "_run", run_seam)
     return calls
 
 
@@ -150,73 +146,6 @@ def invoke(launcher: ModuleType, request: object | str) -> tuple[int, str]:
     stdout = io.StringIO()
     code = launcher.main([], stdin=io.StringIO(text), stdout=stdout)
     return code, stdout.getvalue()
-
-
-@pytest.mark.parametrize(
-    ("remote", "exit_code"),
-    (
-        ({"result": "PASS", "data": DATA}, 0),
-        ({"result": "PASS", "data": EMPTY_DATA}, 0),
-        *(
-            ({"result": code, "data": {}}, 1)
-            for code in (
-                "FAIL_REQUEST",
-                "FAIL_TARGET",
-                "FAIL_LEASE",
-                "FAIL_RUN_UNKNOWN",
-                "FAIL_LIMIT",
-                "FAIL_BOOTSTRAP",
-            )
-        ),
-    ),
-)
-def test_one_pinned_ssh_call_carries_the_request_on_stdin_only(
-    launcher: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-    remote: dict[str, object],
-    exit_code: int,
-) -> None:
-    """R-4: every valid inspection result is relayed once; no private data in argv."""
-    executions: list[tuple[list[str], str | None]] = []
-
-    def run(
-        arguments: list[str], *, input: str | None = None, **_kwargs: object
-    ) -> subprocess.CompletedProcess[str]:
-        executions.append((arguments, input))
-        return completed(remote)
-
-    calls = install_seams(launcher, monkeypatch, run)
-
-    code, output = invoke(launcher, CALLER_REQUEST)
-
-    assert code == exit_code
-    assert json.loads(output) == remote
-    assert calls == ["railway", "preflight", "target", "instance", "run"]
-    ((arguments, stdin_text),) = executions
-    assert arguments[:-1] == [
-        "railway",
-        "ssh",
-        "--project",
-        PROJECT_ID,
-        "--service",
-        SERVICE_ID,
-        "--environment",
-        ENVIRONMENT_ID,
-        "--deployment-instance",
-        INSTANCE_ID,
-        "--",
-        "/app/.venv/bin/python",
-        "-I",
-        "-c",
-    ]
-    compile(arguments[-1], "<bootstrap>", "exec")
-    assert all(
-        sensitive not in part
-        for part in arguments
-        for sensitive in (SECRET_POOL, SECRET_RUN_ID)
-    )
-    assert stdin_text is not None
-    assert json.loads(stdin_text) == {**CALLER_REQUEST, "identity": IDENTITY}
 
 
 def _with_data(**changes: object) -> dict[str, object]:
@@ -258,7 +187,7 @@ def _without_catch_key(key: str) -> dict[str, object]:
         completed(_with_data(fursuits=[{"id": 35, "owner": 5, "name": "private"}])),
         completed(_with_data(fixture_photos_unchanged="private")),
         completed(_with_data(avatars=["private"])),
-        subprocess.TimeoutExpired(cmd="railway", timeout=1),
+        subprocess.TimeoutExpired(cmd="ssh", timeout=1),
     ),
     ids=(
         "nonzero-exit-with-valid-body",
@@ -430,51 +359,5 @@ def test_population_operation_survives_the_pinned_stdin_relay(
     code, output = invoke(launcher, request)
 
     assert code == 0
-    assert json.loads(output) == {"result": "PASS", "data": EMPTY_DATA}
+    assert json.loads(output)["data"] == EMPTY_DATA
     assert sent == [{**request, "identity": IDENTITY}]
-
-
-@pytest.mark.parametrize(
-    "pin", ["matching", "changed-sha", "changed-deployment", "malformed"]
-)
-def test_expected_run_identity_is_checked_before_ssh_and_stripped_from_remote_wire(
-    launcher: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-    pin: str,
-) -> None:
-    """#227 AC11: a valid new Staging deployment cannot silently replace the run target."""
-    expected: dict[str, object] = dict(IDENTITY)
-    if pin == "changed-sha":
-        expected["source_sha"] = "b" * 40
-    elif pin == "changed-deployment":
-        expected["deployment_id"] = "22222222-2222-4222-8222-222222222222"
-    elif pin == "malformed":
-        expected["SENTINEL-secret"] = "private"
-    sent: list[object] = []
-
-    def run(
-        arguments: list[str],
-        *,
-        input: str | None = None,
-        **_kwargs: object,
-    ) -> subprocess.CompletedProcess[str]:
-        assert input is not None
-        sent.append(json.loads(input))
-        return completed({"result": "PASS", "data": EMPTY_DATA})
-
-    calls = install_seams(launcher, monkeypatch, run)
-    code, output = invoke(launcher, {**CALLER_REQUEST, "expected_identity": expected})
-    if pin == "matching":
-        assert code == 0
-        assert json.loads(output) == {"result": "PASS", "data": EMPTY_DATA}
-        assert sent == [{**CALLER_REQUEST, "identity": IDENTITY}]
-    else:
-        assert code != 0
-        assert sent == []
-        assert json.loads(output) == {
-            "result": "FAIL_LAUNCHER" if pin == "malformed" else "FAIL_TARGET",
-            "data": {},
-        }
-        if pin == "malformed":
-            assert calls == []
-    assert "SENTINEL" not in output

@@ -50,7 +50,6 @@ def source_repo(tmp_path: Path) -> Path:
             "scripts/api_sim_fixture_ssh.py": "# committed host launcher\n",
             "scripts/api_sim_inspect_ssh.py": "# committed host launcher\n",
             "scripts/api_sim_render_relay.py": "# committed host launcher\n",
-            "scripts/api_staging_reset_ssh.py": "# committed shared host launcher\n",
             "scripts/api_staging_preflight.py": "# committed host target preflight\n",
             "services/api/pyproject.toml": "# committed host dependency declaration\n",
             "services/api/uv.lock": "# committed host dependency lock\n",
@@ -156,7 +155,7 @@ def test_changed_or_untracked_runtime_inputs_cannot_claim_a_clean_git_identity(
         shadow = source_repo / f"scripts/api_sim_fixture_ssh{EXTENSION_SUFFIXES[0]}"
         shadow.write_bytes(b"SENTINEL_native_loader_input")
     elif change == "host_dangling_package":
-        (source_repo / "scripts/api_staging_reset_ssh").symlink_to(
+        (source_repo / "scripts/api_sim_pool_ssh").symlink_to(
             tmp_path / "SENTINEL-missing-package", target_is_directory=True
         )
     elif change in {"namespace_extension", "initializer_extension"}:

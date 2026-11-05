@@ -658,3 +658,25 @@ def test_emergency_state_line_passes_only_for_an_exact_state(
             "",
             f"FAIL render job indeterminate {JOB_ID}\n",
         )
+
+
+def test_reconcile_result_schema_accepts_only_the_fixed_checks() -> None:
+    """A reconcile PASS needs every fixed check, and no extra field or other result."""
+    job = importlib.import_module("scripts.api_staging_render_job")
+    checks = {name: "MATCH" for name in job._CHECKS}  # pyright: ignore[reportPrivateUsage]
+    checks.update(
+        registry_singleton="PASS", registry_structure="PASS", root_completeness="PASS"
+    )
+    valid = {"result": "PASS", "checks": checks}
+
+    assert job._valid_output(json.dumps(valid)) == valid  # pyright: ignore[reportPrivateUsage]
+    malformed_results: tuple[dict[str, object], ...] = (
+        {**valid, "extra": True},
+        {"result": "MISMATCH", "checks": checks},
+        {"result": "PASS", "checks": {**checks, "registry_singleton": "MISSING"}},
+        {"result": "PASS", "checks": {}},
+        {"result": "FAIL_QUERY", "checks": checks},
+    )
+    for malformed in malformed_results:
+        with pytest.raises((TypeError, ValueError)):
+            job._valid_output(json.dumps(malformed))  # pyright: ignore[reportPrivateUsage]

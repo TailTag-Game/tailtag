@@ -37,9 +37,8 @@ for _path in (_REPOSITORY_ROOT, _REPOSITORY_ROOT / "services" / "api"):
 from scripts import api_staging_preflight
 from scripts import api_staging_render_job as job
 from scripts import api_staging_render_promote as promote
-from scripts.api_staging_promote import (
-    _mapping,  # pyright: ignore[reportPrivateUsage]
-)
+
+_mapping = promote._mapping  # pyright: ignore[reportPrivateUsage]
 
 _Checks = tuple[tuple[str, str], ...]
 # Each operation: the read-only job results it needs before the session, and

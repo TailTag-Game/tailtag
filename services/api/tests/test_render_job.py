@@ -351,23 +351,6 @@ def registry(**overrides: object) -> SimpleNamespace:
     return SimpleNamespace(**values)
 
 
-@pytest.mark.parametrize(
-    "copy",
-    [
-        ("rehearsal/registry_reconcile.py", "api_staging_registry_reconcile_remote.py"),
-        ("rehearsal/operator_inspect.py", "api_staging_operator_inspect.py"),
-    ],
-)
-def test_in_image_check_copies_equal_the_reviewed_railway_sources(
-    copy: tuple[str, str],
-) -> None:
-    """The Railway tests protect both copies until #412 deletes the Railway side."""
-    image, railway = copy
-    assert (REPOSITORY_ROOT / "services/api" / image).read_bytes() == (
-        REPOSITORY_ROOT / "scripts" / railway
-    ).read_bytes()
-
-
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(("port", "outcome"), [("", "PASS"), ("6543", "FAIL")])
 def test_reconcile_job_compares_the_runtime_with_the_pinned_private_values(

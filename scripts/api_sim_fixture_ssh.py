@@ -11,14 +11,8 @@ from typing import Final, TextIO, cast
 
 from scripts import api_sim_render_relay as _render_relay
 from scripts import api_staging_preflight as _staging_preflight
-from scripts import api_staging_reset_ssh as _reset_ssh
 
-_target_ids = _reset_ssh._target_ids  # pyright: ignore[reportPrivateUsage]
-_active_instance = _reset_ssh._active_instance  # pyright: ignore[reportPrivateUsage]
-_preflight = _reset_ssh._preflight  # pyright: ignore[reportPrivateUsage]
-_railway_identity = _reset_ssh._railway_identity  # pyright: ignore[reportPrivateUsage]
-_run = _reset_ssh._run  # pyright: ignore[reportPrivateUsage]
-_json_loads = _reset_ssh._json_loads  # pyright: ignore[reportPrivateUsage]
+_json_loads = _render_relay._json_loads  # pyright: ignore[reportPrivateUsage]
 
 _MAX_REQUEST_BYTES: Final = 64 * 1024
 _REQUEST_KEYS: Final = frozenset({"operation", "arguments"})
@@ -182,45 +176,9 @@ def _validated_output(raw: str) -> dict[str, object]:
 
 
 def _execute(request: dict[str, object]) -> dict[str, object]:
-    if _render_relay.active():
-        return _render_relay.execute(
-            request, _BOOTSTRAP, _validated_output, timeout=_SSH_TIMEOUT_SECONDS
-        )
-    _railway_identity()
-    identity = _preflight()
-    if "expected_identity" in request and request["expected_identity"] != identity:
-        return {"result": "FAIL_TARGET", "data": {}}
-    remote_request = {
-        key: value for key, value in request.items() if key != "expected_identity"
-    }
-    project_id, environment_id, service_id, _ = _target_ids()
-    instance = _active_instance(identity)
-    execution = _run(
-        [
-            "railway",
-            "ssh",
-            "--project",
-            project_id,
-            "--service",
-            service_id,
-            "--environment",
-            environment_id,
-            "--deployment-instance",
-            instance,
-            "--",
-            "/app/.venv/bin/python",
-            "-I",
-            "-c",
-            _BOOTSTRAP,
-        ],
-        input=json.dumps(
-            {**remote_request, "identity": identity}, separators=(",", ":")
-        ),
-        timeout=_SSH_TIMEOUT_SECONDS,
+    return _render_relay.execute(
+        request, _BOOTSTRAP, _validated_output, timeout=_SSH_TIMEOUT_SECONDS
     )
-    if execution.returncode != 0:
-        raise ValueError
-    return _validated_output(execution.stdout)
 
 
 def main(

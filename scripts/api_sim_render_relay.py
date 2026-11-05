@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import re
 import shlex
+import subprocess
 import sys
 import tempfile
 from collections.abc import Callable, Mapping
@@ -20,11 +21,8 @@ from pathlib import Path
 from typing import Final, cast
 
 from scripts import api_staging_preflight as _staging_preflight
-from scripts import api_staging_reset_ssh as _reset_ssh
 
-_run = _reset_ssh._run  # pyright: ignore[reportPrivateUsage]
-_json_loads = _reset_ssh._json_loads  # pyright: ignore[reportPrivateUsage]
-
+_TIMEOUT_SECONDS: Final = 30
 GATEWAY: Final = "ssh.virginia.render.com"
 # Render documents this key as SHA256:NCpSwboPnqL/Nvyy2Qc8Kgzpc3P/f3w5wDphhc+UZO0.
 _GATEWAY_KEY: Final = (
@@ -53,11 +51,38 @@ _SSH_OPTIONS: Final = (
 )
 
 
+def _run(
+    arguments: list[str], *, input: str | None = None, timeout: int = _TIMEOUT_SECONDS
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        arguments,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        shell=False,
+        timeout=timeout,
+        input=input,
+    )
+
+
+def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def _json_loads(value: str) -> object:
+    return json.loads(value, object_pairs_hook=_reject_duplicate_keys)
+
+
 def active() -> bool:
     """True while Render serves Staging in either phase (#409, #452).
 
-    The Railway relay path stays frozen until #412, so no phase falls back to
-    it. `execute` refuses every request until the canonical phase.
+    `execute` refuses every request until the canonical phase.
     """
     return _staging_preflight._RENDER_STAGING_PHASE in {"candidate", "canonical"}  # pyright: ignore[reportPrivateUsage]
 

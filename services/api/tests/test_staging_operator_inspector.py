@@ -46,7 +46,7 @@ from rehearsal import baseline
 from rehearsal.models import StagingResetIdentity
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-SCRIPT = REPOSITORY_ROOT / "scripts" / "api_staging_operator_inspect.py"
+SCRIPT = REPOSITORY_ROOT / "services" / "api" / "rehearsal" / "operator_inspect.py"
 SOURCE_SHA = "a" * 40
 DEPLOYMENT_ID = "11111111-1111-4111-8111-111111111111"
 MEDIA_KEY = "images/0123456789abcdef0123456789abcdef.png"
@@ -310,8 +310,8 @@ def create_owned_baseline() -> StagingResetIdentity:
 @pytest.fixture
 def inspector() -> ModuleType:
     """Import the repository-owned read-only inspector once it exists."""
-    assert SCRIPT.is_file(), "scripts/api_staging_operator_inspect.py must exist"
-    return importlib.import_module("scripts.api_staging_operator_inspect")
+    assert SCRIPT.is_file(), "rehearsal/operator_inspect.py must exist"
+    return importlib.import_module("rehearsal.operator_inspect")
 
 
 @pytest.fixture
