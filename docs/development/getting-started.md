@@ -191,8 +191,7 @@ A few checks differ visibly on Windows:
 
 #### Staging operator and simulator Staging tasks
 
-These tasks also run natively on Windows: `api-replacement-auth-smoke`,
-the `sim-pool-*` tasks, `sim-fixture-smoke`, `sim-journeys`,
+These tasks also run natively on Windows: the `sim-pool-*` tasks, `sim-fixture-smoke`, `sim-journeys`,
 `sim-convention`, `sim-cleanup`, `sim-retained`, and `sim-image`. Windows CI
 exercises their file-access checks and process-tree cleanup with local files
 and fake commands. It does not run a live Staging simulation, so those runs are

@@ -341,17 +341,10 @@ def test_exception_records_write_the_class_name_but_no_message_or_traceback() ->
             },
         ),
         (UNKNOWN_IDENTITY, {}, {}),
-        (
-            None,
-            {
-                "RAILWAY_ENVIRONMENT_NAME": "development",
-                "RAILWAY_DEPLOYMENT_ID": DEPLOYMENT_ID,
-            },
-            {"environment": "development", "deployment_id": DEPLOYMENT_ID},
-        ),
-        (None, {"RAILWAY_ENVIRONMENT_NAME": "Not A Valid Name!"}, {}),
+        (None, {"RAILWAY_ENVIRONMENT_NAME": "development"}, {}),
+        (None, {"RAILWAY_PROJECT_ID": "retired"}, {}),
     ],
-    ids=["explicit", "explicit-unknown", "runtime-valid", "runtime-invalid"],
+    ids=["explicit", "explicit-unknown", "retired-marker", "retired-project-marker"],
 )
 def test_build_identity_fields_come_from_identity_and_fail_soft(
     monkeypatch: pytest.MonkeyPatch,

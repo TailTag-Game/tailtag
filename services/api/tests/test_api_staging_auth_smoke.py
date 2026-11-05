@@ -42,10 +42,12 @@ SYNTHETIC_USER_ID = "user_staging_smoke_synthetic"
 SYNTHETIC_SESSION_ID = "sess_staging_smoke_synthetic"
 PROMPTED_SECRET = "sk_live_staging_smoke_synthetic"
 PROMPTED_TOKEN = "eyJ.synthetic.staging-session-token"
+RENDER_STAGING_SERVICE = "srv-d0staging000000000000"
+RENDER_DEVELOPMENT_SERVICE = "srv-d0development00000000"
 STAGING_ENVIRONMENT = {
-    "RAILWAY_ENVIRONMENT_NAME": "staging",
-    "RAILWAY_SERVICE_NAME": "api",
-    "TAILTAG_STAGING_AUTH_SMOKE_CONFIRM": "run-clerk-staging-auth-smoke",
+    "RENDER": "true",
+    "RENDER_SERVICE_ID": RENDER_STAGING_SERVICE,
+    "TAILTAG_STAGING_AUTH_SMOKE_CONFIRM": "run-clerk-render-staging-auth-smoke",
     "API_BASE_URL": STAGING_URL,
     "TAILTAG_STAGING_API_BASE_URL": STAGING_URL,
     "CLERK_STAGING_SMOKE_USER_ID": SYNTHETIC_USER_ID,
@@ -435,9 +437,9 @@ def test_authoritative_staging_flow_orders_selection_before_cleanup_and_token_us
     "environment",
     (
         {},
-        {**STAGING_ENVIRONMENT, "RAILWAY_ENVIRONMENT_NAME": "Development"},
-        {**STAGING_ENVIRONMENT, "RAILWAY_ENVIRONMENT_NAME": "production"},
-        {**STAGING_ENVIRONMENT, "RAILWAY_SERVICE_NAME": "API"},
+        {**STAGING_ENVIRONMENT, "RENDER_SERVICE_ID": "srv-d0unpinned00000000000"},
+        {**STAGING_ENVIRONMENT, "RENDER": "false"},
+        {**STAGING_ENVIRONMENT, "RAILWAY_SERVICE_NAME": "api"},
         {
             **STAGING_ENVIRONMENT,
             "TAILTAG_STAGING_AUTH_SMOKE_CONFIRM": "wrong-confirmation",
@@ -484,8 +486,6 @@ def test_only_exact_staging_target_is_accepted_before_prompt_or_provider_access(
 # staging.tailtag.app serves Virginia Staging since the #452 cutover.
 RENDER_STAGING_URL = STAGING_URL
 RENDER_HOST_URL = "https://tailtag-api-stg.onrender.com"
-RENDER_STAGING_SERVICE = "srv-d0staging000000000000"
-RENDER_DEVELOPMENT_SERVICE = "srv-d0development00000000"
 RENDER_STAGING_ENVIRONMENT = {
     "RENDER": "true",
     "RENDER_SERVICE_ID": RENDER_STAGING_SERVICE,
@@ -496,7 +496,7 @@ RENDER_STAGING_ENVIRONMENT = {
 }
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def render_pins(monkeypatch: MonkeyPatch) -> None:
     from config import replacement_target_binding as binding
 
@@ -546,10 +546,10 @@ def test_render_staging_target_runs_against_the_pinned_origin(
         },
         {**RENDER_STAGING_ENVIRONMENT, "TAILTAG_STAGING_API_BASE_URL": RENDER_HOST_URL},
         {**RENDER_STAGING_ENVIRONMENT, "CLERK_STAGING_SMOKE_USER_ID": ""},
-        {**RENDER_STAGING_ENVIRONMENT, **STAGING_ENVIRONMENT},
+        {**RENDER_STAGING_ENVIRONMENT, "RAILWAY_ENVIRONMENT_NAME": "staging"},
     ),
     ids=(
-        "railway-confirmation",
+        "retired-confirmation",
         "development-service",
         "unpinned-service",
         "not-render",

@@ -496,9 +496,12 @@ def test_identity_guard_denies_non_s3_storage_even_with_a_registered_identity(
 @pytest.mark.django_db(transaction=True)
 def test_provision_binds_only_preexisting_identities_and_creates_no_baseline_roots(
     reset_modules: tuple[ModuleType, ModuleType, ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """AC-1/2/4: provisioning establishes the preserved registry, never fixture data."""
     _, reset, safety = reset_modules
+    # The Render owner rule has its own tests. This one covers the registry.
+    monkeypatch.setattr(safety, "_RENDER_EXECUTOR", "SELECT %s <> ''")
     owner = User.objects.create_user("user_rehearsal_owner")
     catcher = User.objects.create_user("user_rehearsal_catcher")
     configuration = current_database_configuration(safety, owner=owner, catcher=catcher)

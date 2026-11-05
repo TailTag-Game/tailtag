@@ -11,13 +11,27 @@ import pytest
 
 from simulation_pool import remote, services
 from simulation_pool.models import PoolSlot
+from tests.render_target_support import (
+    DEVELOPMENT_SERVICE,
+    INSTANCE,
+    RENDER_STAGING_ENVIRON,
+    UNPINNED_SERVICE,
+    pin_render_services,
+)
 
 IDENTITY = {
     "source_sha": "a" * 40,
-    "deployment_id": "11111111-1111-4111-8111-111111111111",
+    "deployment_id": None,
     "environment": "staging",
 }
-ENVIRON = {"RAILWAY_ENVIRONMENT_NAME": "staging", "RAILWAY_SERVICE_NAME": "api"}
+ENVIRON = RENDER_STAGING_ENVIRON
+
+
+@pytest.fixture(autouse=True)
+def render_pins(monkeypatch: pytest.MonkeyPatch) -> None:
+    pin_render_services(monkeypatch)
+
+
 RUN_A = "cccccccc-3333-4333-8333-333333333333"
 RUN_B = "44444444-4444-4444-8444-444444444444"
 POOL = "gamma"
@@ -42,7 +56,13 @@ def execute(
     runtime_identity: Mapping[str, object] = IDENTITY,
     environ: Mapping[str, str] = ENVIRON,
 ) -> dict[str, object]:
-    return remote.execute(payload, runtime_identity=runtime_identity, environ=environ)
+    response = remote.execute(
+        payload, runtime_identity=runtime_identity, environ=environ
+    )
+    # Render names the instance it served. The shapes below cover the rest.
+    if "instance" in response:
+        assert response.pop("instance") == INSTANCE
+    return response
 
 
 def snapshot() -> list[dict[str, Any]]:
@@ -79,11 +99,13 @@ def test_each_operation_returns_its_fixed_pass_shape() -> None:
 @pytest.mark.parametrize(
     ("runtime_identity", "environ"),
     (
-        (IDENTITY, {**ENVIRON, "RAILWAY_ENVIRONMENT_NAME": "development"}),
-        (IDENTITY, {**ENVIRON, "RAILWAY_ENVIRONMENT_NAME": "production"}),
-        (IDENTITY, {"RAILWAY_SERVICE_NAME": "api"}),
-        (IDENTITY, {**ENVIRON, "RAILWAY_SERVICE_NAME": "worker"}),
-        (IDENTITY, {"RAILWAY_ENVIRONMENT_NAME": "staging"}),
+        (IDENTITY, {**ENVIRON, "RENDER_SERVICE_ID": DEVELOPMENT_SERVICE}),
+        (IDENTITY, {**ENVIRON, "RENDER_SERVICE_ID": UNPINNED_SERVICE}),
+        (IDENTITY, {**ENVIRON, "RENDER": "false"}),
+        (
+            IDENTITY,
+            {"RENDER": "true", "RENDER_SERVICE_ID": ENVIRON["RENDER_SERVICE_ID"]},
+        ),
         (IDENTITY, {}),
         ({**IDENTITY, "source_sha": "b" * 40}, ENVIRON),
         (
@@ -94,12 +116,11 @@ def test_each_operation_returns_its_fixed_pass_shape() -> None:
         ({"source_sha": IDENTITY["source_sha"]}, ENVIRON),
     ),
     ids=(
-        "railway-development",
-        "railway-production",
-        "railway-environment-missing",
-        "railway-wrong-service",
-        "railway-service-missing",
-        "railway-empty",
+        "render-development",
+        "render-unpinned-service",
+        "render-marker-false",
+        "render-instance-missing",
+        "no-platform",
         "source-sha-mismatch",
         "deployment-mismatch",
         "runtime-not-staging",

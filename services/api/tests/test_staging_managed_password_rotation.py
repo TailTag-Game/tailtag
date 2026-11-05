@@ -22,21 +22,26 @@ from operator_audit.models import (
     OperatorAuditOutcome,
     OperatorTargetType,
 )
+from tests.render_target_support import (
+    DEVELOPMENT_SERVICE,
+    STAGING_SERVICE,
+    UNPINNED_SERVICE,
+    pin_render_services,
+    select_render_service,
+)
 from tests.test_staging_managed_operator_recovery import (
     EXPECTED_IDENTITY,
     LIMITED_PASSWORD,
     MANAGED_PERMISSIONS,
     OLD_IDENTIFIER,
     OLD_PASSWORD,
-    REPLACEMENT_SELECTORS,
     group_state,
-    pin_replacement_runtime,
     seed_roles,
     state,
 )
 
 COMMAND = "rotate_staging_managed_password"
-CONFIRMATION = "rotate Railway Staging managed operator password"
+CONFIRMATION = "rotate Render Staging managed operator password"
 NEW_PASSWORD = "final-managed-password-2026-local-only"
 
 
@@ -56,8 +61,7 @@ def invoke(
     password: str = NEW_PASSWORD,
     confirmation_password: str | None = None,
     confirmation: str = CONFIRMATION,
-    environment: str = "staging",
-    service: str = "api",
+    service_id: str | None = STAGING_SERVICE,
     terminal: StringIO | None = None,
     expected_identity: object = EXPECTED_IDENTITY,
     live_identity: object = EXPECTED_IDENTITY,
@@ -80,11 +84,8 @@ def invoke(
     monkeypatch.setattr(sys, "stdout", stdout)
     monkeypatch.setattr(getpass, "getpass", hidden)
     monkeypatch.setattr("builtins.input", lambda _prompt="": confirmation)
-    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", environment)
-    monkeypatch.setenv("RAILWAY_SERVICE_NAME", service)
-    pin_replacement_runtime(monkeypatch)
-    for key, value in REPLACEMENT_SELECTORS.items():
-        monkeypatch.setenv(key, value)
+    pin_render_services(monkeypatch)
+    select_render_service(monkeypatch, service_id)
     from config import build_identity
 
     monkeypatch.setattr(build_identity, "get_identity", lambda: live_identity)
@@ -184,9 +185,9 @@ def test_prewrite_guards_refuse_without_prompt_or_mutation(
     )
     kwargs: dict[str, Any] = {}
     if bad == "wrong_environment":
-        kwargs["environment"] = "production"
+        kwargs["service_id"] = DEVELOPMENT_SERVICE
     elif bad == "wrong_service":
-        kwargs["service"] = "worker"
+        kwargs["service_id"] = UNPINNED_SERVICE
     elif bad == "wrong_target":
         kwargs["live_identity"] = {**EXPECTED_IDENTITY, "source_sha": "f" * 40}
     elif bad == "non_tty":

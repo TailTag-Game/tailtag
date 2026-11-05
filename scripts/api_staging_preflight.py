@@ -31,8 +31,6 @@ _RENDER_STAGING_HOST: Final = "tailtag-api-stg.onrender.com"
 _RENDER_STAGING_FLAG: Final = "--render-staging"
 _DEVELOPMENT_FLAGS: Final = frozenset(
     {
-        "--development-current",
-        "--development-candidate",
         "--render-development-current",
         "--render-development-candidate",
     }
@@ -159,26 +157,6 @@ def validate_target(base_url: str) -> BackendIdentity:
     return first
 
 
-def validate_candidate_target() -> dict[str, object]:
-    """Return candidate-only evidence for the one code-pinned replacement origin."""
-    api_directory = Path(__file__).resolve().parents[1] / "services/api"
-    if str(api_directory) not in sys.path:
-        sys.path.insert(0, str(api_directory))
-    from config import replacement_target_binding
-
-    try:
-        origin = replacement_target_binding.load_candidate_origin()
-    except replacement_target_binding.TargetBindingError:
-        raise TargetSafetyError from None
-    first = _validate_identity(_fetch_json(f"{origin}/health/identity"))
-    if _fetch_json(f"{origin}/health/ready") != {"status": "ok"}:
-        raise TargetSafetyError
-    second = _validate_identity(_fetch_json(f"{origin}/health/identity"))
-    if second != first:
-        raise TargetSafetyError
-    return {"phase": "candidate", "identity": first}
-
-
 def render_staging_origin() -> str:
     """Return the public Render Staging origin for the current phase."""
     if _RENDER_STAGING_PHASE == "canonical":
@@ -228,12 +206,8 @@ def validate_development_candidate_target(
         raise TargetSafetyError
     hostname = configured_url.removeprefix("https://")
     try:
-        origin = (
-            replacement_target_binding.pinned_render_origin("development", hostname)
-            if render
-            else replacement_target_binding.pinned_development_candidate_origin(
-                hostname
-            )
+        origin = replacement_target_binding.pinned_render_origin(
+            "development", hostname
         )
     except replacement_target_binding.TargetBindingError:
         raise TargetSafetyError from None
@@ -298,8 +272,6 @@ def main() -> int:
                 if expected_sha is None:
                     raise TargetSafetyError
             result = validate_development_candidate_target(expected_sha, render=render)
-        elif sys.argv[1] == "--candidate":
-            result = validate_candidate_target()
         elif sys.argv[1] == _RENDER_STAGING_FLAG:
             result = validate_render_staging_target()
         else:

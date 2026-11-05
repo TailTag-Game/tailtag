@@ -769,8 +769,6 @@ def test_media_storage_smoke_failure_emits_only_sanitized_output(
         environment={
             "UV": str(launcher),
             "PYTHON_FOR_MEDIA_SMOKE": sys.executable,
-            "RAILWAY_ENVIRONMENT_NAME": "production",
-            "RAILWAY_SERVICE_NAME": "api",
             "TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM": (
                 "run-r2-development-media-storage-smoke"
             ),
@@ -1042,3 +1040,69 @@ def test_media_storage_smoke_is_never_an_ordinary_ci_workflow_step() -> None:
 
     assert "api-media-storage-smoke" not in workflow_text
     assert "scripts.api_media_storage_smoke" not in workflow_text
+
+
+# #412 AC14: Railway is retired, so no production-intent file may read its
+# variables or call its CLI or API. The one allowed line is the fail-closed
+# marker prefix itself (AC11), matched by exact path and exact text.
+RETIRED_HOST_PATHS = (
+    "services/api",
+    "scripts",
+    "tools/simulator/tailtag_simulator",
+    ".github",
+    "Taskfile.yml",
+    "render.yaml",
+)
+RETIRED_HOST_PATTERNS = (
+    "RAILWAY_",
+    r"railway\.app",
+    r"railway +(ssh|run|up|link|api|connect|status|variables|logs|redeploy)\b",
+    # The retired tools passed the CLI name as its own argv token.
+    r"['\"]railway['\"]",
+)
+ALLOWED_RETIRED_HOST_LINE = (
+    "services/api/config/replacement_target_binding.py",
+    '_RETIRED_HOST_MARKER_PREFIX: Final = "RAILWAY_"',
+)
+
+
+def retired_host_hits(git_grep_output: str) -> list[str]:
+    """Return every `path:line:text` hit except the single allowed marker line."""
+    hits: list[str] = []
+    for line in git_grep_output.splitlines():
+        path, _, rest = line.partition(":")
+        _, _, text = rest.partition(":")
+        if (path, text.strip()) != ALLOWED_RETIRED_HOST_LINE:
+            hits.append(line)
+    return hits
+
+
+def test_retired_host_matcher_allows_only_the_exact_marker_line() -> None:
+    """Negative control: a copy elsewhere or an edited line is still a hit."""
+    path, text = ALLOWED_RETIRED_HOST_LINE
+    other = f"services/api/health/configuration.py:9:{text}"
+    edited = f"{path}:9:{text} + 1"
+    assert retired_host_hits(f"{path}:23:{text}") == []
+    assert retired_host_hits(f"{other}\n{edited}") == [other, edited]
+    cli_call = '    ["railway", "ssh", "--service", "api"],'
+    assert any(
+        re.search(pattern, cli_call, re.IGNORECASE) for pattern in RETIRED_HOST_PATTERNS
+    )
+
+
+def test_production_intent_files_hold_no_railway_reference() -> None:
+    """#412 AC14: git grep finds no Railway variable, domain, or CLI call."""
+    command = ["git", "grep", "--no-color", "-n", "-I", "-i", "-E"]
+    for pattern in RETIRED_HOST_PATTERNS:
+        command += ["-e", pattern]
+    command += ["--", *RETIRED_HOST_PATHS, ":(exclude)services/api/tests"]
+    completed = subprocess.run(
+        command,
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    # Exit 1 means no match. Any other failure (no git, not a work tree) fails.
+    assert completed.returncode in {0, 1}, completed.stderr
+    assert retired_host_hits(completed.stdout) == []

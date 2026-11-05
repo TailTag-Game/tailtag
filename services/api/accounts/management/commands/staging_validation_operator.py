@@ -1,4 +1,4 @@
-"""Manage the dedicated #243 validation operator on Railway or Render Staging."""
+"""Manage the dedicated #243 validation operator on Render Staging."""
 
 from __future__ import annotations
 
@@ -31,11 +31,6 @@ PERMISSION_NAMES = frozenset(
     {"profiles.set_profile_enabled", "profiles.view_playerprofile"}
 )
 CONFIRMATIONS = {
-    "provision": "provision Railway Staging validation operator",
-    "decommission": "Y",
-    "rotate_password": "rotate Railway Staging validation operator password",
-}
-RENDER_CONFIRMATIONS = {
     "provision": "provision Render Staging validation operator",
     "decommission": "Y",
     "rotate_password": "rotate Render Staging validation operator password",
@@ -76,28 +71,18 @@ class Command(BaseCommand):
         action = options.get("action")
         if not isinstance(action, str) or action not in CONFIRMATIONS:
             raise CommandError("Invalid command arguments.")
-        platform = staging_platform(os.environ)
-        if platform is None or (
-            platform == "railway"
-            and (
-                os.environ.get("RAILWAY_ENVIRONMENT_NAME") != "staging"
-                or os.environ.get("RAILWAY_SERVICE_NAME") != "api"
-            )
-        ):
+        if staging_platform(os.environ) is None:
             raise CommandError("This command is unavailable for the current target.")
         if not sys.stdin.isatty() or not sys.stdout.isatty():
             raise CommandError("This command requires an interactive terminal.")
         if settings.DEBUG or connection.force_debug_cursor:
             raise CommandError("Query debugging must be disabled.")
-        host = "Render" if platform == "render" else "Railway"
         if action == "decommission":
             confirmed = (
-                input(f"Decommission {host} Staging validation operator? [Y/N]: ")
-                == "Y"
+                input("Decommission Render Staging validation operator? [Y/N]: ") == "Y"
             )
         else:
-            phrases = RENDER_CONFIRMATIONS if platform == "render" else CONFIRMATIONS
-            confirmed = input("Confirmation: ") == phrases[action]
+            confirmed = input("Confirmation: ") == CONFIRMATIONS[action]
         if not confirmed:
             raise CommandError("Confirmation failed.")
 

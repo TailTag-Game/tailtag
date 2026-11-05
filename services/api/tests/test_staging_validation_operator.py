@@ -48,13 +48,20 @@ from operator_audit.models import (
     OperatorTargetType,
 )
 from profiles.models import PlayerProfile
+from tests.render_target_support import (
+    DEVELOPMENT_SERVICE,
+    STAGING_SERVICE,
+    UNPINNED_SERVICE,
+    pin_render_services,
+    select_render_service,
+)
 
 COMMAND_MODULE = "accounts.management.commands.staging_validation_operator"
 COMMAND_NAME = "staging_validation_operator"
 GROUP_NAME = "TailTag #243 Validation Operator"
-PROVISION_CONFIRMATION = "provision Railway Staging validation operator"
+PROVISION_CONFIRMATION = "provision Render Staging validation operator"
 DECOMMISSION_CONFIRMATION = "Y"
-ROTATE_CONFIRMATION = "rotate Railway Staging validation operator password"
+ROTATE_CONFIRMATION = "rotate Render Staging validation operator password"
 OPERATOR_IDENTIFIER = "validation_operator_243"
 INITIAL_PASSWORD = "validation-operator-password-2026"
 ROTATED_PASSWORD = "validation-operator-rotated-password-2026"
@@ -295,8 +302,8 @@ def invoke_command(
     *,
     confirmation: str | None = None,
     hidden_inputs: Iterable[str] = (),
-    environment: str | None = "staging",
-    service: str | None = "api",
+    service_id: str | None = STAGING_SERVICE,
+    install_target: bool = True,
     stdin: StringIO | None = None,
     stdout: StringIO | None = None,
     stderr: StringIO | None = None,
@@ -327,14 +334,9 @@ def invoke_command(
         monkeypatch.setattr(sys, "stderr", stderr)
         monkeypatch.setattr(builtins, "input", confirmation_input(confirmation))
         monkeypatch.setattr(getpass, "getpass", hidden_input)
-        if environment is None:
-            monkeypatch.delenv("RAILWAY_ENVIRONMENT_NAME", raising=False)
-        else:
-            monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", environment)
-        if service is None:
-            monkeypatch.delenv("RAILWAY_SERVICE_NAME", raising=False)
-        else:
-            monkeypatch.setenv("RAILWAY_SERVICE_NAME", service)
+        if install_target:
+            pin_render_services(monkeypatch)
+            select_render_service(monkeypatch, service_id)
         call_command(COMMAND_NAME, action, stdout=stdout, stderr=stderr)
     finally:
         after = dict(os.environ)
@@ -351,6 +353,19 @@ def confirmation_input(value: str | None) -> Callable[[str], str]:
         return value or ""
 
     return read_confirmation
+
+
+# The child process cannot share this process's patches, so it pins the
+# synthetic Render service itself before it runs manage.py.
+PTY_BOOTSTRAP = (
+    "import runpy, sys;"
+    "from config import replacement_target_binding as b;"
+    "b._EXPECTED_RENDER_DIGESTS = {"
+    f"'staging': b.fingerprint_render_service('staging', '{STAGING_SERVICE}')"
+    "};"
+    "sys.argv = ['manage.py', *sys.argv[1:]];"
+    "runpy.run_path('manage.py', run_name='__main__')"
+)
 
 
 def run_provision_with_real_pty(
@@ -379,8 +394,8 @@ def run_provision_with_real_pty(
         "MEDIA_STORAGE_REGION": "test-region",
         "MEDIA_STORAGE_ACCESS_KEY_ID": "test-access-key",
         "MEDIA_STORAGE_SECRET_ACCESS_KEY": "test-secret-key",
-        "RAILWAY_ENVIRONMENT_NAME": "staging",
-        "RAILWAY_SERVICE_NAME": "api",
+        "RENDER": "true",
+        "RENDER_SERVICE_ID": STAGING_SERVICE,
         "PYTHONPATH": str(API_ROOT),
     }
     process_id, terminal = pty.fork()
@@ -388,7 +403,7 @@ def run_provision_with_real_pty(
         os.chdir(API_ROOT)
         os.execve(
             sys.executable,
-            [sys.executable, "manage.py", COMMAND_NAME, "provision"],
+            [sys.executable, "-c", PTY_BOOTSTRAP, COMMAND_NAME, "provision"],
             environment,
         )
 
@@ -618,8 +633,8 @@ def test_rotate_password_keeps_exact_limited_actor_authority_and_audit(
 @pytest.mark.parametrize(
     "failure",
     (
-        "environment",
-        "service",
+        "development_service",
+        "unpinned_service",
         "stdin",
         "stdout",
         "confirmation",
@@ -663,10 +678,10 @@ def test_rotate_password_refuses_inexact_target_role_or_secret_without_write(
     )
     managed_before = exact_limited_state(managed)
     kwargs: dict[str, Any] = {}
-    if failure == "environment":
-        kwargs["environment"] = "production"
-    elif failure == "service":
-        kwargs["service"] = "worker"
+    if failure == "development_service":
+        kwargs["service_id"] = DEVELOPMENT_SERVICE
+    elif failure == "unpinned_service":
+        kwargs["service_id"] = UNPINNED_SERVICE
     elif failure == "stdin":
         kwargs["stdin"] = NonTtyStream()
     elif failure == "stdout":
@@ -996,7 +1011,7 @@ def test_managed_bootstrap_refuses_to_reconcile_the_dedicated_limited_role(
     monkeypatch.setattr(sys, "stdin", TtyStream())
     monkeypatch.setattr(sys, "stdout", TtyStream())
     monkeypatch.setattr(
-        builtins, "input", confirmation_input("bootstrap Railway Staging operator")
+        builtins, "input", confirmation_input("bootstrap Render Staging operator")
     )
 
     def managed_hidden_input(prompt: str, stream: Any | None = None) -> str:
@@ -1008,8 +1023,8 @@ def test_managed_bootstrap_refuses_to_reconcile_the_dedicated_limited_role(
         )
 
     monkeypatch.setattr(getpass, "getpass", managed_hidden_input)
-    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "staging")
-    monkeypatch.setenv("RAILWAY_SERVICE_NAME", "api")
+    pin_render_services(monkeypatch)
+    select_render_service(monkeypatch)
 
     with pytest.raises(CommandError):
         call_command("bootstrap_staging_operator")
@@ -1146,13 +1161,14 @@ def test_role_reconciliation_refuses_if_group_disappears_before_locked_fetch(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("environment", "service"),
-    ((None, "api"), ("production", "api"), ("staging", None), ("staging", "worker")),
+    "service_id",
+    (None, DEVELOPMENT_SERVICE, UNPINNED_SERVICE),
+    ids=("no-render-markers", "development-service", "unpinned-service"),
 )
-def test_actions_refuse_noncanonical_railway_target_without_prompting_or_writing(
-    monkeypatch: pytest.MonkeyPatch, environment: str | None, service: str | None
+def test_actions_refuse_noncanonical_render_target_without_prompting_or_writing(
+    monkeypatch: pytest.MonkeyPatch, service_id: str | None
 ) -> None:
-    """AC-1: neither lifecycle action may reach hidden input outside staging/api."""
+    """AC-1: neither lifecycle action may reach hidden input outside Staging."""
     protected = create_user("unrelated_target_guard", is_staff=False, password=None)
     before = exact_limited_state(protected)
 
@@ -1161,8 +1177,7 @@ def test_actions_refuse_noncanonical_railway_target_without_prompting_or_writing
             monkeypatch,
             "provision",
             confirmation=PROVISION_CONFIRMATION,
-            environment=environment,
-            service=service,
+            service_id=service_id,
         )
 
     protected.refresh_from_db()

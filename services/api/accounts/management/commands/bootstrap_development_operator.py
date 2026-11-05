@@ -1,4 +1,4 @@
-"""Bootstrap the local Django operator for Railway or Render Development only."""
+"""Bootstrap the local Django operator for Render Development only."""
 
 from __future__ import annotations
 
@@ -16,8 +16,6 @@ from django.db import DatabaseError, IntegrityError, transaction
 from accounts.models import User
 
 REQUIRED_ENVIRONMENT = "development"
-REQUIRED_SERVICE = "api"
-RAILWAY_CONFIRMATION_PHRASE = "bootstrap Railway Development operator"
 RENDER_CONFIRMATION_PHRASE = "bootstrap Render Development operator"
 
 __all__ = ["Command"]
@@ -107,12 +105,7 @@ class Command(BaseCommand):
                 return RENDER_CONFIRMATION_PHRASE
         except replacement_target_binding.TargetBindingError:
             return None
-        if (
-            os.environ.get("RAILWAY_ENVIRONMENT_NAME") != REQUIRED_ENVIRONMENT
-            or os.environ.get("RAILWAY_SERVICE_NAME") != REQUIRED_SERVICE
-        ):
-            return None
-        return RAILWAY_CONFIRMATION_PHRASE
+        return None
 
     def _parser_error(self, message: str) -> NoReturn:
         """Reject invalid command-line arguments without reflecting their values."""

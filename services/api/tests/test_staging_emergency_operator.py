@@ -28,7 +28,6 @@ from pytest_django.fixtures import SettingsWrapper
 
 from accounts.models import User
 from catches.models import Catch
-from config import replacement_target_binding
 from conventions.models import (
     Convention,
     ConventionEnrollment,
@@ -47,10 +46,17 @@ from operator_audit.models import (
 from profiles.models import PlayerProfile
 from rehearsal.models import StagingResetIdentity
 from tests.process_support import minimal_environment
+from tests.render_target_support import (
+    DEVELOPMENT_SERVICE,
+    STAGING_SERVICE,
+    UNPINNED_SERVICE,
+    pin_render_services,
+    select_render_service,
+)
 
 COMMAND_MODULE = "accounts.management.commands.bootstrap_staging_emergency_operator"
 COMMAND_NAME = "bootstrap_staging_emergency_operator"
-CONFIRMATION_PHRASE = "bootstrap Railway Staging emergency operator"
+CONFIRMATION_PHRASE = "bootstrap Render Staging emergency operator"
 IDENTIFIER = "staging_emergency_243"
 PASSWORD = "a-unique-emergency-password-for-243"
 SUCCESS = "Staging emergency operator created.\n"
@@ -59,12 +65,6 @@ INVALID_ARGUMENTS = (
 )
 API_ROOT = Path(__file__).resolve().parents[1]
 
-# These are disposable test selectors. Their matching digest is installed only in
-# the test process; the real replacement selector values never enter this file.
-PROJECT = "11111111-1111-4111-8111-111111111111"
-ENVIRONMENT = "22222222-2222-4222-8222-222222222222"
-SERVICE = "33333333-3333-4333-8333-333333333333"
-OTHER = "44444444-4444-4444-8444-444444444444"
 MEDIA_KEY = "images/0123456789abcdef0123456789abcdef.png"
 
 
@@ -79,39 +79,13 @@ class NonTtyStream(StringIO):
 
 
 def _pin_test_target(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        replacement_target_binding,
-        "_EXPECTED_DIGESTS",
-        {
-            **replacement_target_binding._EXPECTED_DIGESTS,  # pyright: ignore[reportPrivateUsage]
-            "staging-api": replacement_target_binding.fingerprint_tuple(
-                "staging-api", PROJECT, ENVIRONMENT, SERVICE
-            ),
-        },
-    )
+    pin_render_services(monkeypatch)
 
 
 def _set_target(
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    name: str | None = "staging",
-    service_name: str | None = "api",
-    project_id: str | None = PROJECT,
-    environment_id: str | None = ENVIRONMENT,
-    service_id: str | None = SERVICE,
+    monkeypatch: pytest.MonkeyPatch, *, service_id: str | None = STAGING_SERVICE
 ) -> None:
-    values = {
-        "RAILWAY_ENVIRONMENT_NAME": name,
-        "RAILWAY_SERVICE_NAME": service_name,
-        "RAILWAY_PROJECT_ID": project_id,
-        "RAILWAY_ENVIRONMENT_ID": environment_id,
-        "RAILWAY_SERVICE_ID": service_id,
-    }
-    for key, value in values.items():
-        if value is None:
-            monkeypatch.delenv(key, raising=False)
-        else:
-            monkeypatch.setenv(key, value)
+    select_render_service(monkeypatch, service_id)
 
 
 def _invoke(
@@ -278,7 +252,7 @@ def test_creates_one_isolated_superuser_from_hidden_prompts(
 def test_refuses_creation_without_a_provisioned_204_registry(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A pinned Railway selector alone cannot authorize an unbound database."""
+    """A pinned Render service alone cannot authorize an unbound database."""
     _pin_test_target(monkeypatch)
     _set_target(monkeypatch)
     caplog.set_level(logging.DEBUG)
@@ -392,34 +366,17 @@ def test_refuses_creation_when_connected_database_facts_cannot_be_queried(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("name", "service_name", "project_id", "environment_id", "service_id"),
-    (
-        ("development", "api", PROJECT, ENVIRONMENT, SERVICE),
-        ("staging", "worker", PROJECT, ENVIRONMENT, SERVICE),
-        ("staging", "api", OTHER, ENVIRONMENT, SERVICE),
-        ("staging", "api", PROJECT, OTHER, SERVICE),
-        ("staging", "api", PROJECT, ENVIRONMENT, OTHER),
-        ("staging", "api", None, ENVIRONMENT, SERVICE),
-    ),
+    "service_id",
+    (DEVELOPMENT_SERVICE, UNPINNED_SERVICE, None),
+    ids=("development-service", "unpinned-service", "no-render-markers"),
 )
 def test_rejects_wrong_or_incomplete_code_pinned_target_before_prompt(
     monkeypatch: pytest.MonkeyPatch,
-    name: str,
-    service_name: str,
-    project_id: str | None,
-    environment_id: str,
-    service_id: str,
+    service_id: str | None,
 ) -> None:
-    """The real replacement target binding guards every Railway selector."""
+    """The real replacement target binding guards the Render service pin."""
     _pin_test_target(monkeypatch)
-    _set_target(
-        monkeypatch,
-        name=name,
-        service_name=service_name,
-        project_id=project_id,
-        environment_id=environment_id,
-        service_id=service_id,
-    )
+    _set_target(monkeypatch, service_id=service_id)
     before = User.objects.count()
     stdout, stderr = TtyStream(), TtyStream()
     with pytest.raises(CommandError) as error:
@@ -1173,7 +1130,7 @@ def test_emergency_decommission_revokes_access_and_preserves_actor_audit(
     assert stdout.getvalue() == DECOMMISSION_SUCCESS
     assert stderr.getvalue() == ""
     assert len(prompts) == 1
-    assert prompts[0] == "Decommission the Railway Staging emergency operator? [Y/N]: "
+    assert prompts[0] == "Decommission the Render Staging emergency operator? [Y/N]: "
     _assert_private(stdout, stderr, None, caplog, IDENTIFIER, PASSWORD)
 
 
@@ -1408,34 +1365,17 @@ def test_emergency_decommission_refuses_drift_or_ambiguous_authority(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("name", "service_name", "project_id", "environment_id", "service_id"),
-    (
-        ("development", "api", PROJECT, ENVIRONMENT, SERVICE),
-        ("staging", "worker", PROJECT, ENVIRONMENT, SERVICE),
-        ("staging", "api", OTHER, ENVIRONMENT, SERVICE),
-        ("staging", "api", PROJECT, OTHER, SERVICE),
-        ("staging", "api", PROJECT, ENVIRONMENT, OTHER),
-        ("staging", "api", None, ENVIRONMENT, SERVICE),
-    ),
+    "service_id",
+    (DEVELOPMENT_SERVICE, UNPINNED_SERVICE, None),
+    ids=("development-service", "unpinned-service", "no-render-markers"),
 )
 def test_emergency_decommission_refuses_wrong_replacement_target(
     monkeypatch: pytest.MonkeyPatch,
-    name: str,
-    service_name: str,
-    project_id: str | None,
-    environment_id: str,
-    service_id: str,
+    service_id: str | None,
 ) -> None:
     """The command must refuse every selector outside the pinned staging API."""
     _pin_test_target(monkeypatch)
-    _set_target(
-        monkeypatch,
-        name=name,
-        service_name=service_name,
-        project_id=project_id,
-        environment_id=environment_id,
-        service_id=service_id,
-    )
+    _set_target(monkeypatch, service_id=service_id)
     actor = _make_emergency()
     before = _state(actor)
     stdout = TtyStream()

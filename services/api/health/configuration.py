@@ -21,11 +21,8 @@ from observability.postgresql import ENGINE as DATABASE_ENGINE
 _CONFIGURATION_ERROR: Final = "Health configuration unavailable"
 _PRODUCTION_SETTINGS: Final = "config.settings.production"
 _STAGING_HOST: Final = "staging.tailtag.app"
-# Railway probes with its own Host header. Render probes with the service host.
-_HEALTHCHECK_HOSTS: Final = {
-    "railway": frozenset({"healthcheck.railway.app"}),
-    "render": frozenset[str](),
-}
+# Render probes with the service host.
+_HEALTHCHECK_HOSTS: Final = {"render": frozenset[str]()}
 _CANONICAL_STAGING_PARTIES: Final = (
     "https://accounts.staging.tailtag.app",
     "https://simulator.staging.tailtag.app",
@@ -104,10 +101,6 @@ def _validate_deployed_settings() -> None:
         target_environment
     ):
         raise ValueError
-    if host == "railway" and (
-        identity["deployment_id"] is None or _runtime_service_name() != "api"
-    ):
-        raise ValueError
     if host not in _HEALTHCHECK_HOSTS:
         raise ValueError
     if environment == "staging":
@@ -128,11 +121,7 @@ def _validate_development_candidate(source_sha: str | None, host: str) -> None:
         raise ValueError
     probe_hosts = _HEALTHCHECK_HOSTS[host]
     hostname = _single_candidate_host(probe_hosts)
-    origin = (
-        replacement_target_binding.pinned_development_candidate_origin(hostname)
-        if host == "railway"
-        else replacement_target_binding.pinned_render_origin("development", hostname)
-    )
+    origin = replacement_target_binding.pinned_render_origin("development", hostname)
     parties = settings.CLERK_AUTHENTICATION.authorized_parties
     if (
         len(settings.ALLOWED_HOSTS) != 1 + len(probe_hosts)
@@ -153,11 +142,7 @@ def _validate_staging_phase(source_sha: str | None, host: str) -> None:
     probe_hosts = _HEALTHCHECK_HOSTS[host]
     if phase == "candidate":
         hostname = _single_candidate_host(probe_hosts)
-        origin = (
-            replacement_target_binding.pinned_candidate_origin(hostname)
-            if host == "railway"
-            else replacement_target_binding.pinned_render_origin("staging", hostname)
-        )
+        origin = replacement_target_binding.pinned_render_origin("staging", hostname)
     else:
         origin = f"https://{_STAGING_HOST}"
         if host == "render":
@@ -170,18 +155,13 @@ def _validate_staging_phase(source_sha: str | None, host: str) -> None:
             replacement_target_binding.pinned_render_origin("staging", render_host)
             probe_hosts = frozenset({render_host})
     public_host = origin.removeprefix("https://")
-    # The Railway candidate used its own staging-next Clerk instance. A Render
-    # candidate signs in through the current Staging instance (#407 G14).
-    expected_parties = (
-        ("https://accounts.staging-next.tailtag.app",)
-        if phase == "candidate" and host == "railway"
-        else _CANONICAL_STAGING_PARTIES
-    )
+    # A Render candidate signs in through the current Staging instance (#407 G14).
     if (
         len(settings.ALLOWED_HOSTS) != 1 + len(probe_hosts)
         or set(settings.ALLOWED_HOSTS) != {public_host, *probe_hosts}
         or settings.CSRF_TRUSTED_ORIGINS != [origin]
-        or settings.CLERK_AUTHENTICATION.authorized_parties != expected_parties
+        or settings.CLERK_AUTHENTICATION.authorized_parties
+        != _CANONICAL_STAGING_PARTIES
     ):
         raise ValueError
 
@@ -306,12 +286,6 @@ def _validate_storage(
     allowed = set(required) | {"region", "region_name", "url_expiry_seconds"}
     if not set(option_mapping).issubset(allowed):
         raise ValueError
-
-
-def _runtime_service_name() -> str | None:
-    # The identity component deliberately owns Railway's environment mapping;
-    # service name is a separate routing constraint for deployed readiness.
-    return os.environ.get("RAILWAY_SERVICE_NAME")
 
 
 def _settings_module() -> str | None:

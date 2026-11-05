@@ -2,22 +2,7 @@
 
 from __future__ import annotations
 
-import argparse
-import os
-import re
-import sys
-import uuid
-from collections.abc import Mapping
-from pathlib import Path
-from typing import TYPE_CHECKING, Final, NoReturn, cast
-
-# ``__file__`` is deliberately a stable in-image name when this source is
-# executed by the SSH bootstrap.  A direct ``python -`` invocation has no
-# repository parent, however, so derive a possible local root without indexed
-# ``parents`` access before deciding whether it is usable.
-_API_ROOT = Path(__file__).resolve().parent.parent / "services" / "api"
-if _API_ROOT.is_dir() and str(_API_ROOT) not in sys.path:
-    sys.path.insert(0, str(_API_ROOT))
+from typing import TYPE_CHECKING, Final, cast
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import Group
@@ -64,62 +49,12 @@ STATUS_CODES: Final = frozenset(
     }
 )
 
-_SOURCE_SHA: Final = re.compile(r"[0-9a-f]{40}")
 _LIMITED_PERMISSION_NAMES: Final = {
     "profiles.set_profile_enabled",
     "profiles.view_playerprofile",
 }
-_PRODUCTION_SETTINGS: Final = "config.settings.production"
 _OPERATOR_GROUP_NAME: Final = "TailTag Field Beta Operators"
 _LIMITED_OPERATOR_GROUP_NAME: Final = "TailTag #243 Validation Operator"
-
-
-class _SafeArgumentParser(argparse.ArgumentParser):
-    """Avoid reflecting command arguments into retained validation evidence."""
-
-    def error(self, message: str) -> NoReturn:
-        del message
-        raise ValueError
-
-
-def get_identity() -> Mapping[str, object]:
-    """Load build identity only inside the sanitized execution boundary."""
-    from config.build_identity import get_identity as read_identity
-
-    return read_identity()
-
-
-def _valid_expected_identity(source_sha: object, deployment_id: object) -> bool:
-    if not isinstance(source_sha, str) or _SOURCE_SHA.fullmatch(source_sha) is None:
-        return False
-    if not isinstance(deployment_id, str):
-        return False
-    try:
-        return str(uuid.UUID(deployment_id)) == deployment_id
-    except ValueError:
-        return False
-
-
-def _target_identity_matches(source_sha: str, deployment_id: str) -> bool:
-    identity = get_identity()
-    if (
-        identity.get("source_sha") != source_sha
-        or identity.get("deployment_id") != deployment_id
-        or identity.get("environment") != "staging"
-    ):
-        return False
-    from config.replacement_target_binding import (
-        TargetBindingError,
-        validate_runtime_target,
-    )
-
-    if os.environ.get("RAILWAY_ENVIRONMENT_NAME") != "staging":
-        return False
-    try:
-        validate_runtime_target(os.environ)
-    except TargetBindingError:
-        return False
-    return True
 
 
 def _permission_names(queryset: object) -> set[str]:
@@ -313,27 +248,7 @@ def _validate_decommissioned_operator() -> str | None:  # pyright: ignore[report
     return None
 
 
-def inspect_preconditions(expected_source_sha: str, expected_deployment_id: str) -> str:
-    """Return one sanitized status for the exact, read-only #243 preconditions."""
-    try:
-        if not _valid_expected_identity(expected_source_sha, expected_deployment_id):
-            return FAIL_INVALID_INPUT
-        if not _target_identity_matches(expected_source_sha, expected_deployment_id):
-            return FAIL_INVALID_INPUT
-        for check in (
-            _validate_fixture,
-            _validate_managed_operator,
-            _validate_limited_operator,
-        ):
-            result = check()
-            if result is not None:
-                return result
-    except Exception:  # noqa: BLE001
-        return FAIL_EXECUTION
-    return PASS
-
-
-def _inspect_orm_preconditions() -> str:
+def inspect_orm_preconditions() -> str:
     try:
         for check in (
             _validate_fixture,
@@ -346,54 +261,3 @@ def _inspect_orm_preconditions() -> str:
     except Exception:  # noqa: BLE001
         return FAIL_EXECUTION
     return PASS
-
-
-def _arguments() -> tuple[str, str] | None:
-    parser = _SafeArgumentParser(add_help=False)
-    parser.add_argument("--expected-source-sha")
-    parser.add_argument("--expected-deployment-id")
-    try:
-        arguments = parser.parse_args()
-    except (SystemExit, ValueError):
-        return None
-    if (
-        arguments.expected_source_sha is None
-        or arguments.expected_deployment_id is None
-    ):
-        return None
-    return arguments.expected_source_sha, arguments.expected_deployment_id
-
-
-def _bootstrap() -> None:
-    import django
-
-    django.setup()
-
-
-def main() -> int:
-    """Run the repository-owned inspector and emit only its fixed status code."""
-    arguments = _arguments()
-    if arguments is None:
-        result = FAIL_INVALID_INPUT
-    else:
-        try:
-            if (
-                not _valid_expected_identity(*arguments)
-                or not _target_identity_matches(*arguments)
-                or os.environ.get("DJANGO_SETTINGS_MODULE") != _PRODUCTION_SETTINGS
-            ):
-                result = FAIL_INVALID_INPUT
-            else:
-                _bootstrap()
-                result = _inspect_orm_preconditions()
-        except Exception:  # noqa: BLE001
-            result = FAIL_EXECUTION
-    if result == PASS:
-        print(result)
-        return 0
-    print(result, file=sys.stderr)
-    return 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

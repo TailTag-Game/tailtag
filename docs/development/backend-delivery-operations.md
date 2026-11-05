@@ -483,12 +483,10 @@ or forward-recovery decision.
 | `PORT` | The Blueprint sets `8000` for the container. Do not duplicate it as a TailTag-owned Django setting. |
 | Other Render platform variables | Render owns them. Do not duplicate them by hand unless an approved design explicitly requires it. |
 
-After the paired replacement Development deployment passes identity and readiness
-checks, run `task api-replacement-auth-smoke` from the repository root with fresh
-ordinary Clerk sessions for the replacement Development and Staging apps. The
-command uses the locked backend environment and hidden token prompts. Require
-both same-environment `/api/me/` checks and both cross-environment denials
-before calling the replacement Development API usable. Never record the tokens.
+After a Development deploy passes the identity and readiness checks, run
+`task api-auth-smoke` from the repository root with `API_BASE_URL` set to the
+Render Development API root. The command asks for the Clerk Development secret
+at a hidden prompt. Never record the secret or a session token.
 
 `CLERK_SMOKE_USER_ID` and `TAILTAG_DEVELOPMENT_API_BASE_URL` are local
 operator/tooling inputs, not Render runtime configuration. The Clerk
