@@ -20,9 +20,9 @@ Each outcome is recorded twice, with the same values:
 - one INFO log line with `event` set to the signal, `tailtag_outcome`, and
   `tailtag_reason`, plus the usual `request_id`, `environment`, and `release`.
 
-Use the Sentry metric for counts and rates. Use Railway service logs to follow
-one request: search `@event:tailtag.catches.confirmation @tailtag_reason:credential_revoked`,
-then take a line's `request_id` to the steps in
+Use the Sentry metric for counts and rates. Use Render logs to follow
+one request: search the text `credential_revoked`, or the regular expression
+`/tailtag.catches.confirmation.*credential_revoked/`, then take a line's `request_id` to the steps in
 [backend logging](backend-logging.md#following-one-request).
 
 Outcome lines and metrics carry no user, Clerk, fursuit, convention, catch, or
@@ -136,7 +136,7 @@ metric.
   it from a bad token.
 - Sentry counts can occasionally include a duplicate sample. During Development
   evidence, one outcome was stored twice with the same trace and timestamp while
-  Railway had one line for it. Treat Railway lines as exact and Sentry counts as
+  the host logs had one line for it. Treat log lines as exact and Sentry counts as
   close; a single extra count is not a double emission.
 
 ## Adding an outcome or reason
@@ -163,6 +163,9 @@ it.
    this guide.
 
 ## Development evidence
+
+This evidence was recorded on Railway, before the Render move. Its log search
+syntax is Railway syntax and does not work on Render.
 
 Recorded on 2026-09-30 against Development deployment `7d3edb34` of `main` at
 `f8eb380` (the #213 merge). Railway service logs were read through the CLI,

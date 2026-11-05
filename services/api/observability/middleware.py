@@ -14,12 +14,12 @@ from django.core.signals import request_finished
 from django.http import HttpRequest
 from django.http.response import HttpResponseBase
 
-from .context import railway_request_id_var, request_id_var
+from .context import edge_request_id_var, request_id_var
 from .privacy import UNMATCHED_ROUTE, normalize_method
 
 REQUEST_METRIC: Final = "tailtag.http.server.requests"
 
-_RAILWAY_REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}")
+_EDGE_REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _logger = logging.getLogger("tailtag.request")
 
 
@@ -31,7 +31,7 @@ def _clear_context(**_: object) -> None:
     the response, which sends this signal.
     """
     request_id_var.set(None)
-    railway_request_id_var.set(None)
+    edge_request_id_var.set(None)
 
 
 request_finished.connect(  # pyright: ignore[reportUnknownMemberType]
@@ -39,8 +39,8 @@ request_finished.connect(  # pyright: ignore[reportUnknownMemberType]
 )
 
 
-def _valid_railway_request_id(value: str | None) -> str | None:
-    if value is not None and _RAILWAY_REQUEST_ID_PATTERN.fullmatch(value):
+def _valid_edge_request_id(value: str | None) -> str | None:
+    if value is not None and _EDGE_REQUEST_ID_PATTERN.fullmatch(value):
         return value
     return None
 
@@ -48,8 +48,8 @@ def _valid_railway_request_id(value: str | None) -> str | None:
 class RequestCorrelationMiddleware:
     """Give every request its own ID and log one completion line for it.
 
-    Client-supplied correlation headers are ignored. Railway's edge ID is recorded
-    only when it is well formed.
+    Client-supplied correlation headers are ignored. Render's edge ID (the
+    `Rndr-Id` header) is recorded only when it is well formed.
     """
 
     def __init__(self, get_response: Callable[[HttpRequest], HttpResponseBase]) -> None:
@@ -57,17 +57,15 @@ class RequestCorrelationMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponseBase:
         request_id = uuid.uuid4().hex
-        railway_request_id = _valid_railway_request_id(
-            request.META.get("HTTP_X_RAILWAY_REQUEST_ID")
-        )
+        edge_request_id = _valid_edge_request_id(request.META.get("HTTP_RNDR_ID"))
         request_id_var.set(request_id)
-        railway_request_id_var.set(railway_request_id)
+        edge_request_id_var.set(edge_request_id)
         started = time.perf_counter()
         # A forked scope keeps the tags from outliving this request.
         with sentry_sdk.isolation_scope() as scope:
             scope.set_tag("request_id", request_id)
-            if railway_request_id is not None:
-                scope.set_tag("railway_request_id", railway_request_id)
+            if edge_request_id is not None:
+                scope.set_tag("edge_request_id", edge_request_id)
             response = self.get_response(request)
             self._log_completion(request, response, started)
             self._count_request(request, response)

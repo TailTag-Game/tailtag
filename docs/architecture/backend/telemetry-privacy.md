@@ -41,9 +41,9 @@ Only these keys pass from a logger call's `extra` to stdout or to Sentry breadcr
 | `tailtag_reason` | Domain outcome reason, from `Reason` in `observability/outcomes.py`, or dependency reason, from `DatabaseConnectionReason` or `StorageReason` in `observability/dependencies.py`. |
 | `rpc_method` | Object storage operation: `PutObject`, `GetObject`, `HeadObject`, or `DeleteObject`. |
 
-Log keys contain no dots, because Railway log search cannot filter on dotted keys ([#212](https://github.com/TailTag-Game/tailtag/issues/212)). Where an OpenTelemetry name exists, the log key is that name with dots replaced by underscores. Sentry span and metric attributes keep the dotted OpenTelemetry names.
+Log keys contain no dots. [#212](https://github.com/TailTag-Game/tailtag/issues/212) chose this because Railway log search did not filter dotted keys, and the rule stays so that key names do not change. Where an OpenTelemetry name exists, the log key is that name with dots replaced by underscores. Sentry span and metric attributes keep the dotted OpenTelemetry names.
 
-The formatter also adds these itself, from request and build context: `timestamp`, `level`, `message`, `logger`, `request_id`, `railway_request_id`, `trace_id`, `span_id`, `environment`, `release`, and `deployment_id`. Anything else passed through `extra`, including Django's attached `request`, is dropped silently.
+The formatter also adds these itself, from request and build context: `timestamp`, `level`, `message`, `logger`, `request_id`, `edge_request_id`, `trace_id`, `span_id`, `environment`, `release`, and `deployment_id`. Anything else passed through `extra`, including Django's attached `request`, is dropped silently.
 
 Values of allow-listed keys are not pattern-redacted. Pass only constants, enumerations, and bounded values in them.
 
@@ -72,7 +72,7 @@ Each layer covers what the others cannot. No single layer is the whole control.
    | A query string, `?name=value…`, in an absolute or path-relative URL | `?[redacted]` |
 
    It runs on the JSON `message`, breadcrumb messages, and Sentry event text: the message, log-entry message, formatted message and params, and exception values. It does not run on `extra` values or on other event fields such as tags.
-4. **Third-party logger caps.** `botocore`, `boto3`, `s3transfer`, `urllib3`, `django.db.backends`, and `gunicorn.access` are pinned at WARNING, so their INFO and DEBUG output, which carries URLs, SQL detail, and client addresses, never reaches stdout or Sentry breadcrumbs even though the root logger stays at INFO. Gunicorn's access log is on because `gunicorn.conf.py` sets `logconfig_dict`; Railway HTTP logs are the access log.
+4. **Third-party logger caps.** `botocore`, `boto3`, `s3transfer`, `urllib3`, `django.db.backends`, and `gunicorn.access` are pinned at WARNING, so their INFO and DEBUG output, which carries URLs, SQL detail, and client addresses, never reaches stdout or Sentry breadcrumbs even though the root logger stays at INFO. Gunicorn's access log is on because `gunicorn.conf.py` sets `logconfig_dict`. Render HTTP request logs serve as the access log.
 5. **Sentry hooks**, registered in `init_sentry`:
    - **Errors (`before_send`):** removes request `query_string`, `data`, `cookies`, and `headers`; strips the query string and fragment from `request.url`; allow-lists `extra`; applies the text backstop.
    - **Breadcrumbs (`before_breadcrumb`):** allow-lists logging breadcrumb data; applies the text backstop to messages; for any breadcrumb data, strips the query string and fragment from `url`, `http.url`, and `url.full`, and removes `http.query`, `http.fragment`, and SQL parameter data.
@@ -81,7 +81,7 @@ Each layer covers what the others cannot. No single layer is the whole control.
 
 ## 4. Entity IDs
 
-- Internal TailTag IDs (convention, user, fursuit, activation, session, and catch) may appear raw in **protected logs and span attributes**. Protected means the Railway and Sentry access boundaries in [observability §5](observability.md#5-access-and-authentication-boundaries).
+- Internal TailTag IDs (convention, user, fursuit, activation, session, and catch) may appear raw in **protected logs and span attributes**. Protected means the Render and Sentry access boundaries in [observability §5](observability.md#5-access-and-authentication-boundaries).
 - They are **never metric attributes**. Each is an unbounded, high-cardinality value.
 - They are **not hashed**. The ID spaces are small and enumerable, so a hash gives false assurance while stopping operators from looking up a specific entity.
 - The convention-ID policy from [#198](https://github.com/TailTag-Game/tailtag/issues/198) applies: keep convention IDs available in protected structured logs and traces where useful, but never use them as a general metric dimension.
@@ -125,13 +125,13 @@ Feature code does not call `sentry_sdk.metrics` directly. The `direct-sentry-met
 
 ## 7. Known limitations
 
-- **Railway edge HTTP logs are outside app control.** Railway produces these logs before a request reaches the API, so the API cannot redact them. Do not put secrets or personal data in request URLs.
+- **Render HTTP request logs are outside app control.** Render produces these logs at its edge, so the API cannot redact them. Do not put secrets or personal data in request URLs.
 - **A bare catch token in free text is not pattern-detectable.** Only the `tailtag:catch:v1:` prefixed payload is matched. A bare 43-character token in a message has no distinguishing shape, so the Semgrep rules, not the text backstop, are the control.
 - **The text backstop covers only its four shapes.** It is a backstop, not a scanner.
 - **The route set is cached per process.** `http.route` values are checked against the URLconf as loaded at first use. Routes added at runtime are not recognized.
 - **Paths remain in `request.url` on error events and matched-route transactions.** They keep the request path, without its query string. Matched routes carry only integer IDs, which section 4 allows in protected telemetry.
-- **Error events from unmatched requests keep the raw path.** The unmatched rename runs only on transactions, so an error event raised during a request that matched no route keeps the client's path in its `transaction` name (source `url`) and in `request.url`. One realistic trigger is an invalid `Host` header, which Django reports at ERROR on `django.security.DisallowedHost`; Railway's host-based routing makes that rare. This predates #212. Extending the rename to error events is a follow-up decision.
-- **Unmatched paths reach stdout.** Django's `Not Found: <path>` WARNING line writes an unmatched path to stdout, inside the Railway access boundary.
+- **Error events from unmatched requests keep the raw path.** The unmatched rename runs only on transactions, so an error event raised during a request that matched no route keeps the client's path in its `transaction` name (source `url`) and in `request.url`. One realistic trigger is an invalid `Host` header, which Django reports at ERROR on `django.security.DisallowedHost`; Render's host-based routing makes that rare. This predates #212. Extending the rename to error events is a follow-up decision.
+- **Unmatched paths reach stdout.** Django's `Not Found: <path>` WARNING line writes an unmatched path to stdout, inside the Render access boundary.
 
 ## 8. Extending the policy
 

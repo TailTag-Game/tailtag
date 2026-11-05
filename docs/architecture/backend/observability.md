@@ -18,7 +18,7 @@ Those issues amend this document rather than defining a parallel convention.
 
 | Component | Responsible for | Not responsible for |
 | --- | --- | --- |
-| Railway | Structured JSON stdout logs and search; edge HTTP logs; CPU, memory, network, and disk graphs; deployment events | Application metrics, error grouping, tracing, alerting on application behavior |
+| Render | Structured JSON stdout logs and text search; HTTP request logs (Pro); CPU, memory, bandwidth, and Postgres graphs; deploy and health notifications | Application metrics, error grouping, tracing, alerting on application behavior |
 | Sentry | Exceptions and grouping; request traces and spans; bounded application and domain metrics; the field-beta dashboard; monitors, uptime checks, and alert routing | Application log storage (Sentry Logs is not enabled in V0) |
 | TailTag API | Emitting correlated structured logs; initializing the Sentry SDK; enforcing redaction before data leaves the process; recording domain outcomes through one shared module | Hosting any collector, forwarder, or scrape endpoint |
 
@@ -30,23 +30,23 @@ This table maps the #198 operator questions to where each is answered.
 | --- | --- | --- |
 | Is TailTag healthy? | Uptime check of `/health/ready`; 5xx count from `tailtag.http.server.requests` | Sentry |
 | Are catches succeeding? | Catch outcome metric by bounded outcome | Sentry |
-| Are requests slow? | Transaction duration percentiles by route template | Sentry; per-request detail in Railway HTTP logs |
-| Is PostgreSQL degraded? | Readiness failures; connection-attempt outcomes, reasons, and duration ([#214](https://github.com/TailTag-Game/tailtag/issues/214)); database spans | Sentry; resource pressure in Railway |
+| Are requests slow? | Transaction duration percentiles by route template | Sentry; per-request detail in Render HTTP request logs |
+| Is PostgreSQL degraded? | Readiness failures; connection-attempt outcomes, reasons, and duration ([#214](https://github.com/TailTag-Game/tailtag/issues/214)); database spans | Sentry; resource pressure in the Render Postgres metrics |
 | Is media storage failing? | Storage operation outcomes and reasons ([#214](https://github.com/TailTag-Game/tailtag/issues/214)) | Sentry |
 | Is authentication degraded? | Authentication outcome metric by bounded failure class | Sentry |
 | Are credential, session, or eligibility failures rising? | Domain outcome metrics ([#213](https://github.com/TailTag-Game/tailtag/issues/213)) | Sentry |
-| Is traffic abnormal? | Request count by route template from `tailtag.http.server.requests` | Sentry; raw volume in Railway HTTP logs |
+| Is traffic abnormal? | Request count by route template from `tailtag.http.server.requests` | Sentry; raw volume in Render HTTP request logs |
 | Which build produced this? | `release` and `deployment_id` on every event and log line | Both |
-| What happened to one request? | `request_id` and `trace_id` | Sentry trace; Railway logs filtered by `@request_id` |
+| What happened to one request? | `request_id` and `trace_id` | Sentry trace; Render logs searched for the `request_id` value |
 
 ## 3. Data paths
 
 ```text
-Mobile client ──HTTPS──► Railway edge ──► Gunicorn worker (Django/DRF)
+Mobile client ──HTTPS──► Render edge ───► Gunicorn worker (Django/DRF)
                               │                     │
-                              │                     ├─ stdout JSON logs ──────► Railway logs
+                              │                     ├─ stdout JSON logs ──────► Render logs
                               ▼                     │
-                      Railway HTTP logs             └─ sentry-sdk (HTTPS push) ─► Sentry
+                   Render HTTP request logs         └─ sentry-sdk (HTTPS push) ─► Sentry
                                                          errors, spans, metrics
 
 Sentry uptime monitor ──HTTPS──► /health/ready   (per monitored environment)
@@ -58,18 +58,18 @@ Sentry uptime monitor ──HTTPS──► /health/ready   (per monitored enviro
 
 ## 4. Environments
 
-- Each Railway environment reports as itself. Sentry's `environment` comes from the build identity's `environment` field (`RAILWAY_ENVIRONMENT_NAME`), not from a separately maintained value.
+- Each Render environment reports as itself. Sentry's `environment` comes from the build identity's `environment` field, not from a separately maintained value. On Render, the code-pinned service binding sets that field, so a service display name cannot choose it.
 - Sentry `release` is the build identity's `source_sha` when present.
 - Development and Staging share one Sentry project, separated by `environment`, which follows Sentry's guidance to use projects for services and environments for stages.
-- A future Production environment uses its **own Sentry project** so its access can be restricted by project team. Production also needs its own Railway project or workspace if log access must be narrower than the current workspace-wide Railway access. That choice is made with Production.
+- A future Production environment uses its **own Sentry project** so its access can be restricted by project team. Production also needs its own Render workspace if log access must be narrower than the current workspace-wide Render access. That choice is made with Production.
 - Dashboards and monitors filter on `environment`. A Development spike must never page as a Staging or Production alert.
 - The redaction rules are identical in every environment.
 
 ## 5. Access and authentication boundaries
 
-- **Railway logs:** workspace Admin and Member roles can read logs. Deployer cannot. Per-environment access control needs Railway committed spend, so Production will be separated by project or workspace instead.
+- **Render logs:** workspace Admin and Developer roles can read service logs. Protected environments do not make log viewing Admin-only, so Production will be separated by workspace if it needs narrower log access.
 - **Sentry:** access is granted per project through project teams. Open Membership should be off, so that joining an access-granting team requires approval.
-- **Ingest credential:** the Sentry DSN is runtime configuration held in Railway variables per environment. It is never committed, echoed in logs, or recorded in issues or evidence.
+- **Ingest credential:** the Sentry DSN is runtime configuration held in Render environment variables per service. It is never committed, echoed in logs, or recorded in issues or evidence.
 - **Operator access:** operators use their own named accounts in both tools. Shared accounts are not used.
 - Retention, operator roles, and evidence preservation are in the [telemetry retention and access policy](telemetry-retention-access.md) ([#215](https://github.com/TailTag-Game/tailtag/issues/215)).
 
@@ -94,20 +94,20 @@ Every structured log line, Sentry event, and span carries these fields where app
 | Field | Meaning |
 | --- | --- |
 | `request_id` | Per-request correlation ID, generated by the API for every request. Client-supplied correlation headers are ignored. Decided in [#210](https://github.com/TailTag-Game/tailtag/issues/210). |
-| `railway_request_id` | Railway's edge ID from the inbound `X-Railway-Request-Id` header, recorded only when it is 1–64 characters of `[A-Za-z0-9_-]`. It links log lines to Railway HTTP logs. Railway returns the same ID to clients as the `x-railway-request-id` response header, so TailTag adds no response header of its own. |
+| `edge_request_id` | Render's edge ID from the inbound `Rndr-Id` header, recorded only when it is 1–64 characters of `[A-Za-z0-9_-]`. It is the `requestID` of the matching Render HTTP request log. Render returns the same ID to clients in the `Rndr-Id` response header, so TailTag adds no response header of its own. The API ignores `X-Railway-Request-Id` ([#412](https://github.com/TailTag-Game/tailtag/issues/412)). |
 | `trace_id`, `span_id` | Active Sentry trace context, always generated by the API. Client `sentry-trace` and `baggage` headers are ignored. Decided in [#260](https://github.com/TailTag-Game/tailtag/issues/260). |
 | `environment` | From build identity. |
 | `release` | From build identity (`source_sha`). |
-| `deployment_id` | From build identity. |
+| `deployment_id` | From build identity. Render sets no runtime deploy ID, so this is null on Render. |
 
-Railway's log query syntax supports custom JSON attribute filters, so operators should be able to filter logs by `@request_id` or `@trace_id`. Check D-1 of [#210](https://github.com/TailTag-Game/tailtag/issues/210) will confirm this in Development after merge, because Railway does not document whether every custom key is indexed. Correlation keys contain no dots, so they do not depend on how Railway treats dotted keys. The field contract and request lookup steps are in [backend logging and request correlation](../../operations/backend-logging.md).
+Render's log explorer has text, wildcard, and RE2 regex search, plus fixed filters such as `level`, `instance`, `method`, `status_code`, and `path` ([Render logging](https://render.com/docs/logging)). Render does not document filters on custom JSON keys. Operators therefore search for a correlation value, such as a `request_id` or `edge_request_id`, as text. Each value is unique per request, so a text match finds its lines. The field contract and request lookup steps are in [backend logging and request correlation](../../operations/backend-logging.md).
 
 ### 6.3 Structured log events
 
 - Emit one JSON object per line with `message`, `level`, `logger`, and the correlation fields.
 - Domain events use an `event` field named `tailtag.<module>.<event>`, for example `tailtag.catches.confirmation`.
 - Where an [OpenTelemetry semantic convention](https://opentelemetry.io/docs/specs/semconv/) name exists, use it for Sentry span and metric attributes: for example `http.request.method`, `http.route`, `http.response.status_code`, and `error.type`. TailTag-specific Sentry attributes use the `tailtag.` prefix.
-- Log keys never contain dots, because Railway log search cannot filter on keys that contain dots; values containing dots filter normally ([#210 D-1](../../operations/backend-logging.md#development-evidence)). [#212](https://github.com/TailTag-Game/tailtag/issues/212) chose flat underscore names over nested objects, because underscore keys are proven to filter and nested filtering is undocumented. A log key is the OpenTelemetry name with underscores for dots, for example `http_route` and `error_type`, or uses the `tailtag_` prefix.
+- Log keys never contain dots. [#210 D-1](../../operations/backend-logging.md#development-evidence) chose this because Railway log search did not filter keys with dots. The rule stays so that key names do not change. [#212](https://github.com/TailTag-Game/tailtag/issues/212) chose flat underscore names over nested objects, because underscore keys are proven to filter and nested filtering is undocumented. A log key is the OpenTelemetry name with underscores for dots, for example `http_route` and `error_type`, or uses the `tailtag_` prefix.
 - Gunicorn's `gunicorn.error` records use the same JSON formatter, through `services/api/gunicorn.conf.py`.
 - Logging breadcrumbs attached to Sentry errors follow the same redaction rules as stdout logs. The key allow-list, text redaction, and third-party logger caps are in the [telemetry privacy policy](telemetry-privacy.md).
 
