@@ -23,9 +23,9 @@ health is in [backend dependency health](backend-dependency-health.md).
 | Are server errors rising? | `tailtag.http.server.requests` count where `http.response.status_class` is `5xx` | Sentry metrics |
 | Which failures are they? | Error events, grouped by exception | Sentry issues |
 | Are requests slow? | p50, p95, and p99 of transaction duration by transaction name | Sentry traces (Explore) |
-| Why was one request slow? | That request's transaction and its spans, including SQL | Sentry trace; Railway logs by `@request_id` |
-| Did a worker hang, crash, or run out of memory? | `gunicorn.error` log lines | Railway service logs |
-| Did the container restart or run out of memory? | Deployment events, and CPU and memory graphs | Railway |
+| Why was one request slow? | That request's transaction and its spans, including SQL | Sentry trace; Render logs searched for the `request_id` value |
+| Did a worker hang, crash, or run out of memory? | `gunicorn.error` log lines | Render logs |
+| Did the container restart or run out of memory? | Deploy events, and CPU and memory graphs | Render |
 | Is the service ready? | `/health/ready` | Sentry uptime monitor ([#216](https://github.com/TailTag-Game/tailtag/issues/216)) |
 
 ## The request metric
@@ -112,13 +112,13 @@ Worker timeouts do not appear in the 5xx count at all; see Runtime failures.
 ## Runtime failures
 
 Gunicorn's master process writes these lines, from logger `gunicorn.error`, as
-JSON with the build identity fields. Search Railway service logs with
-`@logger:gunicorn.error`.
+JSON with the build identity fields. Search Render logs for the text
+`gunicorn.error`.
 
 | Message | Level | Meaning |
 | --- | --- | --- |
 | `Booting worker with pid: …` | `info` | A worker started. Repeated boots outside a deploy mean workers are dying. |
-| `WORKER TIMEOUT (pid:…)` | `error` | A request held a worker past Gunicorn's timeout. The worker is killed and the client gets an error from Railway's edge. |
+| `WORKER TIMEOUT (pid:…)` | `error` | A request held a worker past Gunicorn's timeout. The worker is killed and the client gets an error from Render's edge. |
 | `Worker (pid:…) was sent SIGKILL! Perhaps out of memory?` | `error` | A worker was killed outright, usually by the kernel's out-of-memory killer. |
 | `Worker (pid:…) was sent SIGTERM!` | `info` | Normal shutdown during a deploy or restart. |
 
@@ -126,7 +126,7 @@ These failures happen outside Django, so they have no Sentry event and no
 request metric. The request that was running never writes its completion line.
 
 If the whole container runs out of memory or restarts, no log line explains it.
-Check Railway's deployment events and the service's memory graph.
+Check the service's Render events and its memory graph.
 
 ## Correlating with health
 
@@ -143,11 +143,15 @@ Check Railway's deployment events and the service's memory graph.
 ## Build identity
 
 Error events, transactions, and log lines carry `environment` and `release`
-(the Git commit SHA). Log lines also carry `deployment_id`. To check whether a
-deploy caused a change, compare error events and transactions by release.
+(the Git commit SHA). Render sets no runtime deploy ID, so log lines on Render
+leave out `deployment_id`. To check whether a deploy caused a change, compare
+error events, transactions, and log lines by release.
 Metrics carry `sentry.release` but no deployment ID.
 
 ## Development evidence
+
+This evidence was recorded on Railway, before the Render move. Its log search
+syntax is Railway syntax and does not work on Render.
 
 Recorded on 2026-09-30 against Development deployment `2ffd2190` of `main` at
 `8593b60` (the #212 merge), with `SENTRY_TRACES_SAMPLE_RATE=1.0`. Traffic was

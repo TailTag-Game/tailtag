@@ -1,7 +1,7 @@
 # Backend dependency health
 
 This guide explains how to tell whether the API's dependencies are healthy:
-PostgreSQL, media storage, Clerk, and the Railway runtime. It covers what each
+PostgreSQL, media storage, Clerk, and the Render runtime. It covers what each
 signal means, where to read it, how it relates to `/health/ready`, and what it
 cannot tell you.
 
@@ -17,20 +17,20 @@ lookup are in [backend logging](backend-logging.md).
 
 | Question | Signal | Where |
 | --- | --- | --- |
-| Can the API reach PostgreSQL? | `tailtag.db.connection.attempts` by `tailtag.outcome` and `tailtag.reason` | Sentry metrics; failure lines in Railway logs |
+| Can the API reach PostgreSQL? | `tailtag.db.connection.attempts` by `tailtag.outcome` and `tailtag.reason` | Sentry metrics; failure lines in Render logs |
 | Is PostgreSQL slow to accept connections? | p50, p95, and p99 of `tailtag.db.connection.duration` where `tailtag.outcome` is `succeeded` | Sentry metrics |
 | Are queries slow? | Database spans in sampled transactions | Sentry traces and the Queries view |
-| Is the database host under resource pressure? | CPU, memory, disk, and network of the Postgres service | Railway |
-| Is media storage failing? | `tailtag.media.storage.operations` by `rpc.method`, `tailtag.outcome`, and `tailtag.reason` | Sentry metrics; failure lines in Railway logs |
+| Is the database host under resource pressure? | CPU, memory, disk, and connections of the Render Postgres database | Render |
+| Is media storage failing? | `tailtag.media.storage.operations` by `rpc.method`, `tailtag.outcome`, and `tailtag.reason` | Sentry metrics; failure lines in Render logs |
 | Is Clerk degraded? | Authentication reasons and traffic to authenticated routes; see [Clerk](#clerk) | Sentry metrics |
-| Is the API container under resource pressure? | CPU and memory graphs, deployment events, `gunicorn.error` lines | Railway |
+| Is the API container under resource pressure? | CPU and memory graphs, deploy events, `gunicorn.error` lines | Render |
 
 Every failed connection attempt or storage call also writes one WARNING log
 line with `event` set to the signal, `tailtag_outcome`, and `tailtag_reason`.
 Database lines add `duration_ms`; storage lines add `rpc_method`. Successes
-write no line. Search Railway service logs with
-`@event:tailtag.db.connection.attempts` or
-`@event:tailtag.media.storage.operations`, then follow the line's
+write no line. Search Render logs for the text
+`tailtag.db.connection.attempts` or
+`tailtag.media.storage.operations`, then follow the line's
 `request_id` as described in
 [backend logging](backend-logging.md#following-one-request).
 
@@ -72,7 +72,7 @@ take about 10 seconds to fail.
 | Outcome | Reason | Meaning | What to check |
 | --- | --- | --- | --- |
 | `succeeded` | | A connection was opened. | Nothing, unless its duration is rising. |
-| `failed` | `timeout` | PostgreSQL did not accept the connection within 5 seconds at any of its addresses. | Postgres service CPU, memory, and disk in Railway; whether the service is restarting. |
+| `failed` | `timeout` | PostgreSQL did not accept the connection within 5 seconds at any of its addresses. | Render Postgres CPU, memory, and disk; whether the service is restarting. |
 | `failed` | `too_many_connections` | PostgreSQL refused because every connection slot is in use. | Other clients holding connections; see [connection capacity](#connection-capacity). |
 | `failed` | `unreachable` | The host could not be resolved or reached, or refused the connection. | Whether the Postgres service is running, and the private network. |
 | `failed` | `rejected` | PostgreSQL answered but refused the login: password, role, database, or access rule. | `DATABASE_URL` and the Postgres service's credentials. Usually a configuration change, not load. |
@@ -196,18 +196,19 @@ own failure signal.
 
 ## Runtime resources
 
-Railway provides the runtime signals; the API does not record them itself.
+Render provides the runtime signals. The API does not record them itself.
 
 | Question | Where |
 | --- | --- |
 | Is the API container short of CPU or memory? | The API service's CPU and memory graphs |
 | Did a worker hang or get killed? | `WORKER TIMEOUT` or `SIGKILL` lines from `gunicorn.error`; see [runtime failures](backend-service-signals.md#runtime-failures) |
-| Did the container restart or redeploy? | Railway deployment events |
+| Did the container restart or redeploy? | The service's Render deploy history and events |
 | Is the database host short of resources? | The Postgres service's CPU, memory, and disk graphs |
 
 To tie a resource change to a build, match its time against deployment events,
-then compare `release` on Sentry events and `deployment_id` on log lines
-before and after. Railway graphs carry no build identity of their own.
+then compare `release` on Sentry events and log lines before and after.
+Render graphs carry no build identity of their own, and Render sets no
+`deployment_id`.
 
 A `WORKER TIMEOUT` is no longer the expected result of an unreachable database.
 A connection attempt fails within 5 seconds per resolved address, well inside
@@ -256,6 +257,9 @@ nothing.
   design; see the revisit notes above.
 
 ## Development evidence
+
+This evidence was recorded on Railway, before the Render move. Its log search
+syntax is Railway syntax and does not work on Render.
 
 Recorded on 2026-10-01 against Development deployment `344ca1f9` of `main` at
 `68f8aca` (the #214 merge). Railway service logs were read through the CLI,

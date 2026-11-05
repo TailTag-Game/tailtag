@@ -29,12 +29,13 @@ from tests.observability_test_support import (
 
 BOOM_URLCONF = "tests.observability_test_support"
 CLIENT_REQUEST_ID = "client-supplied-request-id"
+EDGE_ID = "ce8e4b48-511a-4e2f"
 RAILWAY_ID = "NnpHMrRbT-6rmzcsHn5Ytg"
 REQUEST_ID_PATTERN = re.compile(r"[0-9a-f]{32}")
 BASE_KEYS = {"timestamp", "level", "message", "logger"}
 CONTEXT_KEYS = {
     "request_id",
-    "railway_request_id",
+    "edge_request_id",
     "trace_id",
     "span_id",
     "environment",
@@ -132,25 +133,29 @@ def test_each_request_emits_one_completion_line_with_a_server_generated_id(
 
 
 def test_ids_are_unique_and_context_never_outlives_its_request() -> None:
-    """AC-1, AC-2: no ID sharing, no Railway ID carry-over, cleared afterwards."""
+    """AC-1, AC-2: no ID sharing, no edge ID carry-over, cleared afterwards.
+
+    The second request sends only the retired Railway header, which the API
+    ignores (#412 AC12).
+    """
     client = Client()
     with capture_json_stdout() as capture:
+        client.get("/health/live", HTTP_RNDR_ID=EDGE_ID)
         client.get("/health/live", HTTP_X_RAILWAY_REQUEST_ID=RAILWAY_ID)
-        client.get("/health/live")
         _log_outside_any_request()
 
     lines = capture.lines()
     first, second = [line for line in lines if line["logger"] == "tailtag.request"]
     assert first["request_id"] != second["request_id"]
-    assert first["railway_request_id"] == RAILWAY_ID
-    assert "railway_request_id" not in second
-    assert not {"request_id", "railway_request_id"} & _outside(lines).keys()
+    assert first["edge_request_id"] == EDGE_ID
+    assert "edge_request_id" not in second
+    assert not {"request_id", "edge_request_id"} & _outside(lines).keys()
 
 
 @pytest.mark.parametrize(
     "value",
     [
-        RAILWAY_ID,
+        EDGE_ID,
         "a" * 64,
         None,
         "",
@@ -161,11 +166,9 @@ def test_ids_are_unique_and_context_never_outlives_its_request() -> None:
         "line\nbreak",
     ],
 )
-def test_railway_request_id_is_recorded_only_when_valid(value: str | None) -> None:
+def test_edge_request_id_is_recorded_only_when_valid(value: str | None) -> None:
     """AC-2: valid values reach every line; anything else is omitted, never echoed."""
-    extra: dict[str, Any] = (
-        {} if value is None else {"HTTP_X_RAILWAY_REQUEST_ID": value}
-    )
+    extra: dict[str, Any] = {} if value is None else {"HTTP_RNDR_ID": value}
     valid = value is not None and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", value)
     with capture_json_stdout() as capture:
         Client().get("/no/such/route/", **extra)
@@ -174,9 +177,9 @@ def test_railway_request_id_is_recorded_only_when_valid(value: str | None) -> No
     assert len(lines) >= 2  # Django's own "Not Found" warning plus the completion line
     for line in lines:
         if valid:
-            assert line["railway_request_id"] == value
+            assert line["edge_request_id"] == value
         else:
-            assert "railway_request_id" not in line
+            assert "edge_request_id" not in line
 
 
 @pytest.mark.django_db
@@ -194,7 +197,7 @@ def test_application_logs_share_the_request_id_and_allow_listed_extras() -> None
             "/api/catches/confirm/",
             {"payload": "tailtag:catch:v1:" + "A" * 43},
             format="json",
-            HTTP_X_RAILWAY_REQUEST_ID=RAILWAY_ID,
+            HTTP_RNDR_ID=EDGE_ID,
         )
 
     assert response.status_code == 500
@@ -207,7 +210,7 @@ def test_application_logs_share_the_request_id_and_allow_listed_extras() -> None
     assert completion["http_response_status_code"] == 500
     for line in (application, completion):
         assert line["request_id"] == completion["request_id"]
-        assert line["railway_request_id"] == RAILWAY_ID
+        assert line["edge_request_id"] == EDGE_ID
 
 
 def test_unhandled_view_exception_still_completes_and_stays_out_of_stdout(

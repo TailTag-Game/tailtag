@@ -13,7 +13,7 @@ import sentry_sdk
 
 from config.build_identity import Identity, get_identity
 
-from .context import railway_request_id_var, request_id_var
+from .context import edge_request_id_var, request_id_var
 from .privacy import redact_text
 
 # The only `extra` attributes written to stdout or kept on Sentry breadcrumbs.
@@ -75,7 +75,7 @@ class ContextFilter(logging.Filter):
         record = copy.copy(record)
         fields: dict[str, str | None] = {
             "request_id": request_id_var.get(),
-            "railway_request_id": railway_request_id_var.get(),
+            "edge_request_id": edge_request_id_var.get(),
         }
         if sentry_sdk.get_client().is_active():
             trace_context = sentry_sdk.get_current_scope().get_trace_context()
