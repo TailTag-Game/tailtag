@@ -143,8 +143,9 @@ Check the service's Render events and its memory graph.
 ## Build identity
 
 Error events, transactions, and log lines carry `environment` and `release`
-(the Git commit SHA). Log lines also carry `deployment_id`. To check whether a
-deploy caused a change, compare error events and transactions by release.
+(the Git commit SHA). Render sets no runtime deploy ID, so log lines on Render
+leave out `deployment_id`. To check whether a deploy caused a change, compare
+error events, transactions, and log lines by release.
 Metrics carry `sentry.release` but no deployment ID.
 
 ## Development evidence
