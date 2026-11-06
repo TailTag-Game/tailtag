@@ -27,6 +27,8 @@ Use the official native Clerk SDKs through a TailTag-owned bridge:
 
 The iOS minimum version becomes 17.0. Android `minSdk` stays 26.
 
+Note (2026-11-05, issue #476): a headless SDK function can open an SDK-owned browser OAuth session. The SDK owns the browser session, the callback, and the session storage. TailTag handles no provider token. This is not Clerk prebuilt UI. iOS Google sign-in uses this path through `signInWithOAuth`. The [native account-access capability contract](../specs/2026-11-05-native-auth-capability-contract.md) records the details.
+
 ## Alternatives considered
 
 - `clerk_flutter` and `clerk_auth`. Rejected because a community group maintains them, Clerk does not support them, and the default storage is a plaintext file.

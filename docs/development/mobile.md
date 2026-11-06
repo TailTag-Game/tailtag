@@ -403,6 +403,15 @@ app instead of reporting a bad key. On each ClerkKit upgrade, make sure that
 The iOS deployment target is 17.0 in all Runner build configurations. Android
 `minSdk` stays 26, and the main manifest declares the `INTERNET` permission.
 
+### Account-access capability contract
+
+The [native account-access capability contract](../specs/2026-11-05-native-auth-capability-contract.md)
+records what the pinned SDKs support for email, Google, Apple, and passkeys on
+each platform. It freezes the auth operations, results, and failure categories
+that the account-access work implements. It also lists the Clerk Development
+configuration, callbacks, entitlements, and signing identities that the owner
+applies. Read it before you change `lib/core/auth/` or the bridge.
+
 ### Debug proof route and test user
 
 In debug builds only, the root placeholder has an "Auth proof (debug)" button.
