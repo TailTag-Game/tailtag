@@ -42,6 +42,16 @@ class StatusBanner extends StatelessWidget {
     final theme = Theme.of(context);
     final style = context.statusStyle(tone);
     final label = actionLabel;
+    final textStyle = theme.textTheme.bodyMedium?.copyWith(
+      color: style.onContainer,
+    );
+    // Center the icon on the first line of text at any text scale: pad
+    // whichever of the two is shorter by half the difference.
+    final fontSize = textStyle?.fontSize ?? 14;
+    final lineHeight =
+        MediaQuery.textScalerOf(context).scale(fontSize) *
+        (textStyle?.height ?? 1);
+    final offset = (lineHeight - TokenSize.iconMedium) / 2;
     return Semantics(
       liveRegion: true,
       container: true,
@@ -66,39 +76,50 @@ class StatusBanner extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  ExcludeSemantics(
-                    child: Icon(
-                      style.icon,
-                      color: style.onContainer,
-                      size: TokenSize.iconMedium,
+                  Padding(
+                    padding: EdgeInsets.only(top: offset > 0 ? offset : 0),
+                    child: ExcludeSemantics(
+                      child: Icon(
+                        style.icon,
+                        color: style.onContainer,
+                        size: TokenSize.iconMedium,
+                      ),
                     ),
                   ),
                   const SizedBox(width: TokenSpacing.md),
                   Expanded(
-                    child: Text(
-                      message,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: style.onContainer,
-                      ),
+                    child: Padding(
+                      padding: EdgeInsets.only(top: offset < 0 ? -offset : 0),
+                      child: Text(message, style: textStyle),
                     ),
                   ),
                 ],
               ),
               if (label != null)
-                Align(
-                  alignment: AlignmentDirectional.centerEnd,
-                  // The action label uses the banner text color.
-                  child: TextButtonTheme(
-                    data: TextButtonThemeData(
-                      style: TextButton.styleFrom(
-                        foregroundColor: style.onContainer,
-                      ).merge(TextButtonTheme.of(context).style),
-                    ),
-                    child: TailTagButton(
-                      label: label,
-                      variant: TailTagButtonVariant.secondaryText,
-                      onPressed: onAction,
-                      loading: actionLoading,
+                Padding(
+                  // The label text lines up with the start of the message:
+                  // the icon and its gap, less the button's own padding.
+                  padding: const EdgeInsetsDirectional.only(
+                    start:
+                        TokenSize.iconMedium +
+                        TokenSpacing.md -
+                        TokenSpacing.lg,
+                  ),
+                  child: Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    // The action label uses the banner text color.
+                    child: TextButtonTheme(
+                      data: TextButtonThemeData(
+                        style: TextButton.styleFrom(
+                          foregroundColor: style.onContainer,
+                        ).merge(TextButtonTheme.of(context).style),
+                      ),
+                      child: TailTagButton(
+                        label: label,
+                        variant: TailTagButtonVariant.secondaryText,
+                        onPressed: onAction,
+                        loading: actionLoading,
+                      ),
                     ),
                   ),
                 ),
