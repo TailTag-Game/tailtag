@@ -1,6 +1,9 @@
+import "dart:async";
+
 import "package:flutter/services.dart";
 import "package:flutter_test/flutter_test.dart";
 import "package:tailtag_clerk/tailtag_clerk.dart";
+import "package:tailtag_mobile/core/auth/auth_attempt_result.dart";
 import "package:tailtag_mobile/core/auth/auth_failure.dart";
 import "package:tailtag_mobile/core/auth/auth_state.dart";
 import "package:tailtag_mobile/core/auth/clerk_auth_session.dart";
@@ -50,6 +53,12 @@ final class _NativeBridge {
     _sink!.success(event);
     await pumpEventQueue();
   }
+
+  /// Sends a state error, as a native SDK that could not start does.
+  Future<void> emitError(String code) async {
+    _sink!.error(code: code, message: _leakedMessage, details: _leakedDetails);
+    await pumpEventQueue();
+  }
 }
 
 /// A started session over the mocked channels.
@@ -81,30 +90,87 @@ void main() {
   test("every call crosses the channel with its documented name and "
       "arguments", () async {
     final (session, native) = await _startSession(
-      onCall: (call) => call.method == "getToken" ? "placeholder-token" : null,
+      onCall: (call) => switch (call.method) {
+        "getToken" => "placeholder-token",
+        "verifyEmailCode" => "completed",
+        _ => null,
+      },
     );
-    await native.emit("signedIn");
 
-    await session.startEmailCode("player+clerk_test@example.invalid");
-    await session.verifyEmailCode("000000");
+    await session.startEmailSignUp("player+clerk_test@example.invalid");
+    await session.startEmailSignIn("player+clerk_test@example.invalid");
+    await session.resendEmailCode();
+    final result = await session.verifyEmailCode("000000");
+    await native.emit("signedIn");
     final token = await session.token();
     await session.signOut();
 
+    expect(result, isA<AuthAttemptCompleted>());
     expect(token, "placeholder-token");
     expect(native.calls.map((call) => call.method), [
       "configure",
-      "startEmailCode",
-      "verifyCode",
+      "startEmailSignUp",
+      "startEmailSignIn",
+      "resendEmailCode",
+      "verifyEmailCode",
       "getToken",
       "signOut",
     ]);
-    expect(native.calls.take(4).map((call) => call.arguments), [
+    expect(native.calls.take(6).map((call) => call.arguments), [
       {"publishableKey": "pk_test_placeholder"},
       {"emailAddress": "player+clerk_test@example.invalid"},
+      {"emailAddress": "player+clerk_test@example.invalid"},
+      anyOf(isNull, isEmpty),
       {"code": "000000"},
       {"skipCache": false},
     ]);
     expect(native.calls.last.arguments, anyOf(isNull, isEmpty));
+  });
+
+  group("verifyEmailCode()", () {
+    test("never sets signed in itself: only native state events do", () async {
+      final (session, native) = await _startSession(
+        onCall: (call) => "completed",
+      );
+      await native.emit("signedOut");
+
+      await session.verifyEmailCode("000000");
+      expect(session.state, isA<AuthSignedOut>());
+
+      await native.emit("signedIn");
+      expect(session.state, isA<AuthSignedIn>());
+    });
+
+    test("an unknown native result is an unexpected failure", () async {
+      final (session, _) = await _startSession(onCall: (call) => "partial");
+
+      expect(
+        () => session.verifyEmailCode("000000"),
+        throwsA(isA<AuthUnexpectedFailure>()),
+      );
+    });
+  });
+
+  test("a second access call while one is pending throws unexpected and "
+      "never reaches native", () async {
+    final pending = Completer<Object?>();
+    final (session, native) = await _startSession(
+      onCall: (call) => call.method == "configure" ? null : pending.future,
+    );
+
+    final first = session.startEmailSignIn("player@example.invalid");
+    await pumpEventQueue();
+    await expectLater(
+      session.verifyEmailCode("000000"),
+      throwsA(isA<AuthUnexpectedFailure>()),
+    );
+    pending.complete(null);
+    await first;
+
+    expect(native.callsTo("startEmailSignIn"), hasLength(1));
+    expect(native.callsTo("verifyEmailCode"), isEmpty);
+    await session.resendEmailCode();
+    expect(native.callsTo("resendEmailCode"), hasLength(1));
   });
 
   group("bridge errors become AuthFailure without native text", () {
@@ -132,6 +198,21 @@ void main() {
         failure: isA<AuthUnsupportedFailure>(),
       ),
       (
+        label: "rateLimited",
+        error: _nativeError("rateLimited"),
+        failure: isA<AuthRateLimitedFailure>(),
+      ),
+      (
+        label: "accountExists",
+        error: _nativeError("accountExists"),
+        failure: isA<AuthAccountExistsFailure>(),
+      ),
+      (
+        label: "accountNotFound",
+        error: _nativeError("accountNotFound"),
+        failure: isA<AuthAccountNotFoundFailure>(),
+      ),
+      (
         label: "unexpected",
         error: _nativeError("unexpected"),
         failure: isA<AuthUnexpectedFailure>(),
@@ -154,8 +235,10 @@ void main() {
         native.onCall = (call) => throw c.error;
 
         final failures = <Object>[];
-        for (final action in <Future<void> Function()>[
-          () => session.startEmailCode("player@example.invalid"),
+        for (final action in <Future<Object?> Function()>[
+          () => session.startEmailSignIn("player@example.invalid"),
+          () => session.startEmailSignUp("player@example.invalid"),
+          session.resendEmailCode,
           () => session.verifyEmailCode("000000"),
         ]) {
           try {
@@ -165,7 +248,7 @@ void main() {
           }
         }
 
-        expect(failures, hasLength(2), reason: "both calls must throw");
+        expect(failures, hasLength(4), reason: "every call must throw");
         expect(session.state, isNot(isA<AuthSignedIn>()));
         for (final failure in failures) {
           expect(failure, c.failure);
@@ -300,5 +383,84 @@ void main() {
         ]);
       });
     }
+  });
+
+  group("startup failure and reloadSession()", () {
+    test("a native state error is a failed state, and later events "
+        "recover", () async {
+      final (session, native) = await _startSession();
+
+      await native.emitError("connectivity");
+      expect(
+        session.state,
+        isA<AuthFailed>().having(
+          (s) => s.failure,
+          "failure",
+          isA<AuthConnectivityFailure>(),
+        ),
+      );
+      expect(session.state.toString(), isNot(contains("leak-")));
+
+      await native.emit("signedIn");
+      expect(session.state, isA<AuthSignedIn>());
+    });
+
+    test("reload asks native to reload and never reports signed out "
+        "itself", () async {
+      final (session, native) = await _startSession();
+      await native.emitError("unexpected");
+      final seen = <AuthState>[];
+      final subscription = session.states.listen(seen.add);
+      addTearDown(subscription.cancel);
+
+      await session.reloadSession();
+      await pumpEventQueue();
+
+      expect(native.callsTo("reload"), hasLength(1));
+      expect(native.callsTo("signOut"), isEmpty);
+      expect(seen, [isA<AuthRestoring>()]);
+
+      await native.emit("signedIn");
+      expect(session.state, isA<AuthSignedIn>());
+    });
+
+    test("a failed reload is a failed state again and does not "
+        "throw", () async {
+      final (session, native) = await _startSession();
+      await native.emitError("unexpected");
+      native.onCall = (call) => throw _nativeError("connectivity");
+
+      await session.reloadSession();
+
+      expect(
+        session.state,
+        isA<AuthFailed>().having(
+          (s) => s.failure,
+          "failure",
+          isA<AuthConnectivityFailure>(),
+        ),
+      );
+    });
+
+    test("after a failed configure, reload configures again", () async {
+      final native = _NativeBridge()
+        ..onCall = ((call) => throw _nativeError("connectivity"))
+        ..install();
+      final session = ClerkAuthSession(
+        bridge: TailTagClerk(),
+        publishableKey: "pk_test_placeholder",
+      );
+      addTearDown(session.dispose);
+      await session.start();
+      expect(session.state, isA<AuthFailed>());
+
+      native.onCall = (call) => null;
+      await session.reloadSession();
+      await native.emit("signedOut");
+
+      expect(native.callsTo("configure"), hasLength(2));
+      expect(native.callsTo("reload"), isEmpty);
+      expect(session.state, isA<AuthSignedOut>());
+    });
   });
 }

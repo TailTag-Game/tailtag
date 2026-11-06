@@ -353,13 +353,22 @@ It does not use `clerk_flutter`.
 
 `lib/core/auth/` is the only place in the Dart app that knows about Clerk.
 
-- `AuthSession` is the interface. It has `startEmailCode`, `verifyEmailCode`,
-  `signOut`, and `recheckSession`. It is also the `ApiTokenProvider`, so
+- `AuthSession` is the interface. It has `startEmailSignIn`,
+  `startEmailSignUp`, `resendEmailCode`, `verifyEmailCode`, `signOut`,
+  `recheckSession`, and `reloadSession`. It is also the `ApiTokenProvider`, so
   `token()` returns the bearer token only while the state is signed in.
+- The email operations run one attempt at a time. A second call while one is
+  pending throws `unexpected`. A code belongs to the attempt that the last
+  start call created.
+- `verifyEmailCode` returns `AuthAttemptResult`. It never sets the signed-in
+  state itself. Only the native state events do, from the SDK session status.
+- `reloadSession` loads the native session again after `AuthFailed`. It never
+  clears secure storage.
 - `AuthState` is sealed: `AuthRestoring`, `AuthSignedOut`, `AuthSignedIn`, or
   `AuthFailed`. `AuthFailure` is sealed: connectivity, invalid code, session
-  ended, unsupported, or unexpected. Neither type carries a token, an email
-  address, or a Clerk identifier.
+  ended, unsupported, rate limited, account exists, account not found, or
+  unexpected. Neither type carries a token, an email address, or a Clerk
+  identifier.
 - `ClerkAuthSession` implements `AuthSession` over the bridge. It is the only
   app file that imports `package:tailtag_clerk`.
 - `authSessionProvider` builds and starts the session from
@@ -370,23 +379,70 @@ It does not use `clerk_flutter`.
   session: the iOS Keychain (this device only) and Android preferences that a
   Keystore key encrypts. The SDKs also refresh tokens. TailTag adds no retry.
 - After `GET /api/me/` returns `unauthenticated` for a signed-in session, the
-  session checks once with `recheckSession`. If no session is active, the state
-  becomes signed out. The app does not retry the call.
+  entry coordinator checks once with `recheckSession`. If no session is active,
+  the state becomes signed out. Otherwise, the app shows an API-access error
+  with Retry and Sign out. The app does not retry the call on its own.
 
 `test/core/api/import_guard_test.dart` enforces the boundary. Only
 `lib/core/auth/` can import `package:tailtag_clerk`. A feature can import only
-`auth_session.dart`, `auth_state.dart`, `auth_failure.dart`, and
-`auth_providers.dart` from `core/auth/`.
+`auth_session.dart`, `auth_state.dart`, `auth_attempt_result.dart`,
+`auth_failure.dart`, and `auth_providers.dart` from `core/auth/`.
+
+### Entry coordinator and session scope
+
+The entry coordinator is `EntryController` in `lib/app/entry/`. It selects
+one entry stage from the auth state, the identity read, and sign-out. Each
+stage has its own route in `lib/app/router.dart`.
+
+| Stage | Screen | Actions |
+| --- | --- | --- |
+| Restoring | Loading | Wait |
+| Auth recovery | Recovery message | Try again (none on an unsupported platform) |
+| Signed out | Account access | Create account, sign in |
+| Identity loading | Loading | Wait |
+| Identity failed | Error message | Try again, sign out |
+| Signing out | Loading | Wait |
+| Sign-out failed | Error message | Try again, return to TailTag |
+| Ready | Neutral landing | Sign out |
+
+- The router `redirect` keeps every location inside the current stage's
+  screens. A deep link to protected content goes to the stage's screen.
+- A stage change replaces the whole navigation stack, so Back cannot reopen an
+  earlier stage.
+- The neutral landing is not the milestone home. Onboarding (#481) and
+  conventions (#482) add their stages after the identity read.
+
+A player scope is one value of the session epoch. `playerScopeProvider` in
+`lib/core/session/player_scope.dart` holds the current `PlayerScope`. The
+coordinator starts a new scope when a session starts, when a session ends,
+and when sign-out starts. The old scope closes at that moment.
+
+- A closed scope cancels the API calls that used its `cancellation` handle.
+- A player-scoped provider watches `playerScopeProvider`, so a new scope
+  disposes and rebuilds it. Its data, forms, and pending work clear.
+- Async work captures the scope before it waits. It checks `isActive` before
+  it writes state, so a late response cannot reach a later session.
+
+When sign-out starts, protected content hides at once. If sign-out fails and
+the SDK still reports an active session, the player can try again or return.
+Returning runs a fresh identity read under a new scope.
 
 ### Bridge package and SDK pins
 
 `apps/mobile/packages/tailtag_clerk/` is a local Flutter plugin and a member of
 the pub workspace. Its Swift and Kotlin code is the only code that imports
-Clerk. A MethodChannel (`app.tailtag/clerk`) carries five calls: `configure`,
-`startEmailCode`, `verifyCode`, `getToken`, and `signOut`. An EventChannel
-(`app.tailtag/clerk/state`) carries the state. No event or error carries a
-token, an email address, or a Clerk identifier. Clerk telemetry is off on both
+Clerk. A MethodChannel (`app.tailtag/clerk`) carries eight calls: `configure`,
+`startEmailSignIn`, `startEmailSignUp`, `resendEmailCode`, `verifyEmailCode`,
+`reload`, `getToken`, and `signOut`. An EventChannel
+(`app.tailtag/clerk/state`) carries the state. If the native SDK cannot start,
+the state channel sends an error event. No event or error carries a token, an
+email address, or a Clerk identifier. Clerk telemetry is off on both
 platforms.
+
+The native side keeps one bound attempt: the sign-in or sign-up that the last
+start call created. Resend and verify act only on that attempt. A new start or
+a sign-out ends it. Verify returns `completed` only when the SDK reports a
+complete attempt and an active session.
 
 | Platform | Native SDK | Pin |
 | --- | --- | --- |
@@ -414,22 +470,25 @@ applies. Read it before you change `lib/core/auth/` or the bridge.
 
 ### Debug proof route and test user
 
-In debug builds only, the root placeholder has an "Auth proof (debug)" button.
-It opens `/debug/auth`. Profile and release builds do not register the route.
-The screen has an email field, a code field, a sign-out button, and a
-"Call /api/me/" button. It shows the auth state, the result category and HTTP
-status, whether a TailTag id came back, and whether the session token has an
-`azp` claim. It never shows or logs a token, the id value, an email address, or
-a Clerk identifier.
+In debug builds only, the neutral landing has an "Auth proof (debug)" button.
+It opens `/debug/auth`. The router allows that route only while the player is
+signed in. Profile and release builds do not register the route. The screen
+has no sign-in form, so every sign-in runs through the account-access screens
+and the entry coordinator. It has a sign-out button and a "Call /api/me/"
+button. It shows the auth state, the result category and HTTP status, whether
+a TailTag id came back, and whether the session token has an `azp` claim. It
+never shows or logs a token, the id value, an email address, or a Clerk
+identifier.
 
 To prepare a test user, a maintainer does these steps in the Clerk Development
 instance. Do not use a real account or a real inbox.
 
-1. Make sure that email code sign-in is on.
-2. Create a user whose email address uses the `+clerk_test` subaddress, for
-   example `name+clerk_test@example.com`.
-3. Sign in with that address in the proof screen. Clerk Development accepts
-   its fixed test verification code for such addresses.
+1. Make sure that email code sign-in is on and that Test mode is on.
+2. Use an email address with the `+clerk_test` subaddress, for example
+   `name+clerk_test@example.com`.
+3. In the app, choose "Create account" for a new address or "Sign in" for an
+   existing one. Clerk Development accepts its fixed test verification code
+   for such addresses.
 
 Never write the address, the code, or any token in the repository, in a log, or
 in a pull request.
@@ -437,8 +496,11 @@ in a pull request.
 ### Fakes
 
 Tests need no Clerk and no device. `test/support/auth_test_support.dart` has
-`FakeAuthSession`, which implements `AuthSession`. A test sets its state and
-token, and the fake records each call. `fakeJwt` builds an unsigned placeholder
+`FakeAuthSession`, which implements `AuthSession`. A test sets its state,
+token, failures, and results, and the fake records each call. A `gate`
+holds access calls so a test can observe the pending state.
+`test/support/app_test_support.dart` pumps the whole app with only the native
+session and the network faked. `fakeJwt` builds an unsigned placeholder
 token. One channel-contract test
 (`test/core/auth/clerk_auth_session_test.dart`) runs the real `TailTagClerk`
 and `ClerkAuthSession` over mocked channels. There are no native unit tests for
