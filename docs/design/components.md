@@ -1114,6 +1114,8 @@ A TailTag widget. It is a rounded block at the top of the content area, below th
 - One status icon.
 - One or two sentences. The text says what happened and what to do next.
 - One optional action: a secondary [button](#button) without an outline, for example "Try again". Its label uses the text color of the banner variant.
+- The icon is centered on the first line of the text, at any text scale.
+- The action sits below the text. Its label starts at the same edge as the text.
 - One banner at a time. A new banner replaces the old one.
 - The banner has no close button. It goes away when the problem is fixed or the player acts.
 

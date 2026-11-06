@@ -1,4 +1,5 @@
-/// A thin bridge to the native Clerk SDKs (email code sign-in and tokens).
+/// A thin bridge to the native Clerk SDKs (email code access, session
+/// reload, and tokens).
 ///
 /// The native side only forwards calls and maps errors. No token, email
 /// address, or Clerk identifier crosses the bridge except the values the
@@ -41,6 +42,15 @@ enum ClerkBridgeErrorCategory {
   /// The native Clerk plugin is not available on this platform.
   unsupported,
 
+  /// Clerk refused the request because of its rate limits.
+  rateLimited,
+
+  /// Email account creation found an existing account.
+  accountExists,
+
+  /// Email sign-in found no account.
+  accountNotFound,
+
   /// Anything else.
   unexpected,
 }
@@ -72,13 +82,31 @@ final class TailTagClerk {
   Future<void> configure({required String publishableKey}) =>
       _invoke<void>("configure", {"publishableKey": publishableKey});
 
-  /// Starts an email code sign-in for [emailAddress].
-  Future<void> startEmailCode(String emailAddress) =>
-      _invoke<void>("startEmailCode", {"emailAddress": emailAddress});
+  /// Starts an email code sign-in for [emailAddress] and sends the code.
+  ///
+  /// The native side binds to this attempt. Any earlier binding ends.
+  Future<void> startEmailSignIn(String emailAddress) =>
+      _invoke<void>("startEmailSignIn", {"emailAddress": emailAddress});
 
-  /// Completes the email code sign-in with [code].
-  Future<void> verifyCode(String code) =>
-      _invoke<void>("verifyCode", {"code": code});
+  /// Starts an email account creation for [emailAddress] and sends the
+  /// code.
+  ///
+  /// The native side binds to this attempt. Any earlier binding ends.
+  Future<void> startEmailSignUp(String emailAddress) =>
+      _invoke<void>("startEmailSignUp", {"emailAddress": emailAddress});
+
+  /// Sends a new code for the bound attempt.
+  Future<void> resendEmailCode() => _invoke<void>("resendEmailCode");
+
+  /// Verifies [code] against the bound attempt.
+  ///
+  /// Returns the native result name, for example `completed`. The native
+  /// side returns `completed` only when the session is active.
+  Future<String?> verifyEmailCode(String code) =>
+      _invoke<String>("verifyEmailCode", {"code": code});
+
+  /// Loads the native session state again without clearing storage.
+  Future<void> reload() => _invoke<void>("reload");
 
   /// The current session token, or null when no session is active.
   ///
@@ -92,7 +120,8 @@ final class TailTagClerk {
   /// The state changes, one event per change.
   ///
   /// Values other than the three known states are ignored. A failure on the
-  /// channel arrives as a [ClerkBridgeException].
+  /// channel, such as a native SDK that could not start, arrives as a
+  /// [ClerkBridgeException].
   Stream<ClerkBridgeState> get states =>
       _stateEvents.receiveBroadcastStream().transform(
         StreamTransformer<Object?, ClerkBridgeState>.fromHandlers(
@@ -129,6 +158,9 @@ final class TailTagClerk {
         "invalidCode" => ClerkBridgeErrorCategory.invalidCode,
         "sessionEnded" => ClerkBridgeErrorCategory.sessionEnded,
         "unsupported" => ClerkBridgeErrorCategory.unsupported,
+        "rateLimited" => ClerkBridgeErrorCategory.rateLimited,
+        "accountExists" => ClerkBridgeErrorCategory.accountExists,
+        "accountNotFound" => ClerkBridgeErrorCategory.accountNotFound,
         _ => ClerkBridgeErrorCategory.unexpected,
       },
       _ => ClerkBridgeErrorCategory.unexpected,

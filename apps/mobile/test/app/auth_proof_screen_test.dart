@@ -1,9 +1,5 @@
 // Widget keys the proof screen must expose (the tests find widgets by them):
 //
-//   auth-proof-email      the email TextField
-//   auth-proof-send-code  the button that calls startEmailCode
-//   auth-proof-code       the code TextField
-//   auth-proof-verify     the button that calls verifyEmailCode
 //   auth-proof-call-me    the "Call /api/me/" button, in every auth state
 //   auth-proof-sign-out   the sign-out button, whenever the state is signed in
 //   auth-proof-state      Text of the auth state; contains "restoring",
@@ -16,7 +12,9 @@
 //                         call finishes, from the token the session hands out
 //
 // The Text widgets are plain `Text(data)`, not rich text.
-// The key widgets are the TextFields and buttons themselves, not wrappers.
+// The key widgets are the buttons themselves, not wrappers.
+// The screen has no sign-in form: players sign in through the
+// account-access screens, so every sign-in runs through the coordinator.
 // The call-me button always exists so that a signed-out call can be proved
 // to send no header and map to unauthenticated.
 
@@ -33,7 +31,6 @@ import "../support/api_test_support.dart";
 import "../support/auth_test_support.dart";
 
 const _userId = 987654;
-const _email = "player+clerk_test@example.invalid";
 
 Finder _key(String name) => find.byKey(Key("auth-proof-$name"));
 
@@ -75,23 +72,17 @@ Future<void> _callMe(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets("sign-in reaches the session and the screen follows its state", (
-    tester,
-  ) async {
-    final session = FakeAuthSession();
+  testWidgets("the screen has no sign-in form and follows the session "
+      "state", (tester) async {
+    final session = FakeAuthSession(initial: const AuthSignedIn());
     await _pump(tester, session, FakeHttpClient.respond(200));
-    expect(_text(tester, "state"), contains("signedout"));
-
-    await tester.enterText(_key("email"), _email);
-    await tester.tap(_key("send-code"));
-    await tester.pumpAndSettle();
-    await tester.enterText(_key("code"), "000000");
-    await tester.tap(_key("verify"));
-    await tester.pumpAndSettle();
-
-    expect(session.startEmailCodeCalls, [_email]);
-    expect(session.verifyCodeCalls, ["000000"]);
     expect(_text(tester, "state"), contains("signedin"));
+    expect(find.byType(TextField), findsNothing);
+
+    session.emit(const AuthSignedOut());
+    await tester.pumpAndSettle();
+
+    expect(_text(tester, "state"), contains("signedout"));
   });
 
   for (final hasAzp in [true, false]) {
@@ -164,7 +155,9 @@ void main() {
     expect(session.recheckCalls, 0);
   });
 
-  testWidgets("sign-out reaches the session", (tester) async {
+  testWidgets("sign-out reaches the session through the coordinator", (
+    tester,
+  ) async {
     final session = FakeAuthSession(initial: const AuthSignedIn());
     await _pump(tester, session, FakeHttpClient.respond(200));
 

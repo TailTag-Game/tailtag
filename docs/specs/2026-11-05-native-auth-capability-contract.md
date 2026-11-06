@@ -110,8 +110,26 @@ The contract extends `AuthSession`, `AuthState`, and `AuthFailure` in `lib/core/
 | `createPasskey()` | `AuthAttemptResult` | `passkeyUnavailable`, `reverificationRequired`, `sessionEnded`, `connectivity`, `unexpected` |
 | `listPasskeys()` | A list of `PasskeyInfo` | `sessionEnded`, `connectivity`, `unexpected` |
 | `removePasskey(passkeyId)` | Nothing. | `lastMethodRequired`, `reverificationRequired`, `sessionEnded`, `connectivity`, `unexpected` |
+| `reloadSession()` | Nothing. The state becomes `AuthRestoring` and then follows the SDK. | None. A failed reload sets `AuthFailed` again. |
 
 These members stay unchanged: `state`, `states`, `token`, `signOut`, and `recheckSession`. #477 replaces `startEmailCode` with the two explicit email start operations.
+
+### Session reload and startup failure
+
+The owner approved this change to the frozen contract in #477 (decision G1, 2026-11-05).
+
+Before #477, neither plugin reported a failed SDK start. ClerkKit `1.6.1` retries its startup refresh three times and then only logs the failure (`Core/ClerkRuntime.swift:32`, `:219`). An offline cold start therefore showed the loading state forever.
+
+| Platform | Startup failure report | `reloadSession()` |
+| --- | --- | --- |
+| Android | The plugin reports `Clerk.initializationError` on the state channel while the SDK is not initialized. It also reports a failure when the SDK stays uninitialized for 20 seconds with no error, because the SDK can keep retrying without one. | `Clerk.reinitialize()`, then a wait of up to 20 seconds for `isInitialized` or a new startup error |
+| iOS | The plugin reports a failure when `Clerk.shared.isLoaded` stays false for 20 seconds after `configure`. | `Clerk.shared.refreshEnvironment()`, then `Clerk.shared.refreshClient()` |
+
+- A startup failure arrives as an error event on the state channel. The Dart session then moves to `AuthFailed`.
+- Each reload starts the 20-second watch again on both platforms.
+- `reloadSession()` never clears secure session storage. It sets `AuthSignedOut` only when the SDK reports it.
+- If the SDK never started, `reloadSession()` calls `configure` again instead.
+- The recovery screen offers no retry for `AuthFailed(unsupported)`.
 
 Callers start one attempt at a time. If a caller starts a second attempt while one is pending, the session throws `unexpected` and leaves the first attempt alone.
 
@@ -182,7 +200,7 @@ The five current categories stay: `connectivity`, `invalidCode`, `sessionEnded`,
 
 | New category | When it applies | Clerk signal |
 | --- | --- | --- |
-| `rateLimited` | Clerk refuses a send or an attempt because of its limits. | HTTP 429 or a `too_many_requests` code (unproved) |
+| `rateLimited` | Clerk refuses a send or an attempt because of its limits. | HTTP 429 or a `too_many_requests` code (unproved). On iOS, only the code works: ClerkKit turns a 429 with no Clerk error body into `URLError(.unknown)` (`Networking/Middleware/ClerkErrorThrowingResponseMiddleware.swift`), which maps to `unexpected`. |
 | `accountExists` | Email sign-up finds an existing account. | `form_identifier_exists` (unproved) |
 | `accountNotFound` | Email sign-in finds no account, or passkey sign-in finds no saved TailTag passkey. | `form_identifier_not_found` (used in `ClerkKitUI/Components/Auth/AuthStartView.swift:575`), or a platform no-credential error recorded by #480 |
 | `providerUnavailable` | The provider service cannot run, for example no Google account provider on the device. | Platform error, recorded by #478 |

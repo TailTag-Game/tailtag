@@ -1,6 +1,7 @@
 import "dart:async";
 
 import "package:tailtag_clerk/tailtag_clerk.dart";
+import "package:tailtag_mobile/core/auth/auth_attempt_result.dart";
 import "package:tailtag_mobile/core/auth/auth_failure.dart";
 import "package:tailtag_mobile/core/auth/auth_session.dart";
 import "package:tailtag_mobile/core/auth/auth_state.dart";
@@ -25,6 +26,7 @@ final class ClerkAuthSession implements AuthSession {
   StreamSubscription<ClerkBridgeState>? _subscription;
   AuthState _state = const AuthRestoring();
   bool _disposed = false;
+  bool _attemptPending = false;
 
   @override
   AuthState get state => _state;
@@ -77,14 +79,28 @@ final class ClerkAuthSession implements AuthSession {
   }
 
   @override
-  Future<void> startEmailCode(String emailAddress) =>
-      _guard(() => _bridge.startEmailCode(emailAddress));
+  Future<void> startEmailSignIn(String emailAddress) =>
+      _attempt(() => _bridge.startEmailSignIn(emailAddress));
 
   @override
-  Future<void> verifyEmailCode(String code) async {
-    await _guard(() => _bridge.verifyCode(code));
-    _set(const AuthSignedIn());
-  }
+  Future<void> startEmailSignUp(String emailAddress) =>
+      _attempt(() => _bridge.startEmailSignUp(emailAddress));
+
+  @override
+  Future<void> resendEmailCode() => _attempt(_bridge.resendEmailCode);
+
+  /// The state is not set here: [AuthSignedIn] comes only from the native
+  /// state events, which report the SDK session status.
+  @override
+  Future<AuthAttemptResult> verifyEmailCode(String code) => _attempt(() async {
+    final result = await _bridge.verifyEmailCode(code);
+    return switch (result) {
+      "completed" => const AuthAttemptCompleted(),
+      "needsEmailCode" => const AuthAttemptNeedsEmailCode(),
+      "cancelled" => const AuthAttemptCancelled(),
+      _ => throw const AuthUnexpectedFailure(),
+    };
+  });
 
   @override
   Future<void> signOut() async {
@@ -105,6 +121,44 @@ final class ClerkAuthSession implements AuthSession {
       }
     } on Object {
       // Any other error leaves the state as it is.
+    }
+  }
+
+  @override
+  Future<void> reloadSession() async {
+    if (_disposed) {
+      return;
+    }
+    if (_subscription == null) {
+      // The SDK never started, so start it again.
+      _set(const AuthRestoring());
+      await start();
+      return;
+    }
+    _set(const AuthRestoring());
+    try {
+      await _bridge.reload();
+    } on Object catch (error) {
+      _set(AuthFailed(_failureFor(error)));
+    }
+  }
+
+  /// Runs one account-access [call] and turns a bridge error into an
+  /// [AuthFailure]. A second call while one is pending throws
+  /// [AuthUnexpectedFailure] and leaves the pending call alone.
+  Future<T> _attempt<T>(Future<T> Function() call) async {
+    if (_attemptPending) {
+      throw const AuthUnexpectedFailure();
+    }
+    _attemptPending = true;
+    try {
+      return await call();
+    } on AuthFailure {
+      rethrow;
+    } on Object catch (error) {
+      throw _failureFor(error);
+    } finally {
+      _attemptPending = false;
     }
   }
 
@@ -139,6 +193,11 @@ final class ClerkAuthSession implements AuthSession {
       ClerkBridgeErrorCategory.invalidCode => const AuthInvalidCodeFailure(),
       ClerkBridgeErrorCategory.sessionEnded => const AuthSessionEndedFailure(),
       ClerkBridgeErrorCategory.unsupported => const AuthUnsupportedFailure(),
+      ClerkBridgeErrorCategory.rateLimited => const AuthRateLimitedFailure(),
+      ClerkBridgeErrorCategory.accountExists =>
+        const AuthAccountExistsFailure(),
+      ClerkBridgeErrorCategory.accountNotFound =>
+        const AuthAccountNotFoundFailure(),
       ClerkBridgeErrorCategory.unexpected => const AuthUnexpectedFailure(),
     };
   }

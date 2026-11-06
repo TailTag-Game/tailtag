@@ -1,13 +1,18 @@
 import "package:flutter/material.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 import "package:tailtag_mobile/app/debug/azp_probe.dart";
+import "package:tailtag_mobile/app/entry/entry_controller.dart";
 import "package:tailtag_mobile/core/api/api_failure.dart";
-import "package:tailtag_mobile/core/auth/auth_failure.dart";
 import "package:tailtag_mobile/core/auth/auth_providers.dart";
 import "package:tailtag_mobile/core/auth/auth_state.dart";
 import "package:tailtag_mobile/core/session/current_user_providers.dart";
 
-/// The debug-only screen that proves Clerk sign-in against the TailTag API.
+/// The debug-only screen that proves the Clerk session against the TailTag
+/// API.
+///
+/// It opens only from the signed-in neutral landing. It has no sign-in form:
+/// players sign in through the account-access screens, so every sign-in runs
+/// through the entry coordinator.
 ///
 /// It shows the auth state, the category and HTTP status of `GET /api/me/`,
 /// whether a TailTag id came back, and whether the session token has an
@@ -22,27 +27,8 @@ class AuthProofScreen extends ConsumerStatefulWidget {
 }
 
 class _AuthProofScreenState extends ConsumerState<AuthProofScreen> {
-  final _email = TextEditingController();
-  final _code = TextEditingController();
   String _result = "No call yet";
   String _azp = "azp claim present: not checked yet";
-
-  @override
-  void dispose() {
-    _email.dispose();
-    _code.dispose();
-    super.dispose();
-  }
-
-  Future<void> _run(String action, Future<void> Function() call) async {
-    try {
-      await call();
-    } on AuthFailure catch (failure) {
-      if (mounted) {
-        setState(() => _result = "$action failed: ${failure.name}");
-      }
-    }
-  }
 
   Future<void> _callMe() async {
     final session = ref.read(authSessionProvider);
@@ -85,36 +71,6 @@ class _AuthProofScreenState extends ConsumerState<AuthProofScreen> {
             spacing: 12,
             children: [
               Text(_describe(state), key: const Key("auth-proof-state")),
-              TextField(
-                key: const Key("auth-proof-email"),
-                controller: _email,
-                keyboardType: TextInputType.emailAddress,
-                autocorrect: false,
-                decoration: const InputDecoration(labelText: "Email"),
-              ),
-              FilledButton(
-                key: const Key("auth-proof-send-code"),
-                onPressed: () => _run(
-                  "Send code",
-                  () => session.startEmailCode(_email.text.trim()),
-                ),
-                child: const Text("Send code"),
-              ),
-              TextField(
-                key: const Key("auth-proof-code"),
-                controller: _code,
-                keyboardType: TextInputType.number,
-                autocorrect: false,
-                decoration: const InputDecoration(labelText: "Code"),
-              ),
-              FilledButton(
-                key: const Key("auth-proof-verify"),
-                onPressed: () => _run(
-                  "Verify code",
-                  () => session.verifyEmailCode(_code.text.trim()),
-                ),
-                child: const Text("Verify code"),
-              ),
               FilledButton(
                 key: const Key("auth-proof-call-me"),
                 onPressed: _callMe,
@@ -125,7 +81,8 @@ class _AuthProofScreenState extends ConsumerState<AuthProofScreen> {
               if (state is AuthSignedIn)
                 OutlinedButton(
                   key: const Key("auth-proof-sign-out"),
-                  onPressed: () => _run("Sign out", session.signOut),
+                  onPressed: () =>
+                      ref.read(entryControllerProvider.notifier).signOut(),
                   child: const Text("Sign out"),
                 ),
             ],

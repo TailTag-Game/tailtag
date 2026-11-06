@@ -50,6 +50,33 @@ final class AuthUnsupportedFailure extends AuthFailure {
   String get name => "unsupported";
 }
 
+/// Clerk refused a send or an attempt because of its rate limits.
+final class AuthRateLimitedFailure extends AuthFailure {
+  /// Creates the failure.
+  const new() : super();
+
+  @override
+  String get name => "rateLimited";
+}
+
+/// Email account creation found an existing account.
+final class AuthAccountExistsFailure extends AuthFailure {
+  /// Creates the failure.
+  const new() : super();
+
+  @override
+  String get name => "accountExists";
+}
+
+/// Email sign-in found no account.
+final class AuthAccountNotFoundFailure extends AuthFailure {
+  /// Creates the failure.
+  const new() : super();
+
+  @override
+  String get name => "accountNotFound";
+}
+
 /// Anything else.
 final class AuthUnexpectedFailure extends AuthFailure {
   /// Creates the failure.
