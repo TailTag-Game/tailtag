@@ -12,7 +12,7 @@ import "package:tailtag_mobile/core/auth/auth_state.dart";
 /// The access operations run one attempt at a time. If a caller starts an
 /// attempt while another one is pending, the call throws
 /// [AuthUnexpectedFailure] and the pending attempt continues. An email code
-/// belongs to the attempt that the last start call or Google call created.
+/// belongs to the attempt that the last start call or provider call created.
 abstract interface class AuthSession implements ApiTokenProvider {
   /// The current state.
   AuthState get state;
@@ -52,6 +52,15 @@ abstract interface class AuthSession implements ApiTokenProvider {
   /// [verifyEmailCode] then checks. Throws [AuthProviderUnavailableFailure],
   /// [AuthConnectivityFailure], or [AuthUnexpectedFailure].
   Future<AuthAttemptResult> continueWithGoogle();
+
+  /// Signs in or creates an account through Apple. Only iOS offers it.
+  ///
+  /// The results mean the same as for [continueWithGoogle]. The app asks
+  /// Apple for the email address only, never the name. Throws
+  /// [AuthProviderUnavailableFailure] when the device has no usable Apple
+  /// Account, [AuthUnsupportedFailure] on Android, or
+  /// [AuthConnectivityFailure] or [AuthUnexpectedFailure].
+  Future<AuthAttemptResult> continueWithApple();
 
   /// Ends the session. On success, the state becomes [AuthSignedOut].
   ///

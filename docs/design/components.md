@@ -136,6 +136,7 @@ These parts are not shared components. The feature that uses them owns them, bec
 | QR scanner view | F8 | One consumer. It needs a camera package and camera permission screens. |
 | Photo picker field | F2, F4 | It needs a photo package. The feature builds it from an [avatar](#avatar), a [button](#button), and a [bottom sheet](#bottom-sheet). |
 | Google button | F1 | One consumer. Google's [branding guidelines](https://developers.google.com/identity/branding-guidelines) set its logo, text, colors, and padding, so it does not follow the [button](#button) colors. It keeps the pill shape and `size.minTarget`. |
+| Apple button | F1 | One consumer, on iOS only. The system `ASAuthorizationAppleIDButton` draws it in a platform view, so Apple's [guidelines](https://developer.apple.com/design/human-interface-guidelines/sign-in-with-apple) set its logo, text, and colors. It keeps the pill shape and `size.minTarget`, scaled by the text scale. |
 
 ### Not in V0
 

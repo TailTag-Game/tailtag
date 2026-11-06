@@ -1,1 +1,5 @@
 #include "Generated.xcconfig"
+
+// An optional, untracked file for device signing, such as DEVELOPMENT_TEAM.
+// See docs/development/mobile.md.
+#include? "Signing.local.xcconfig"

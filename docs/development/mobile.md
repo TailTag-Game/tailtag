@@ -355,12 +355,14 @@ It does not use `clerk_flutter`.
 
 - `AuthSession` is the interface. It has `startEmailSignIn`,
   `startEmailSignUp`, `resendEmailCode`, `verifyEmailCode`,
-  `continueWithGoogle`, `signOut`, `recheckSession`, and `reloadSession`. It is also the `ApiTokenProvider`, so
+  `continueWithGoogle`, `continueWithApple`, `signOut`, `recheckSession`, and
+  `reloadSession`. It is also the `ApiTokenProvider`, so
   `token()` returns the bearer token only while the state is signed in.
 - The access operations run one attempt at a time. A second call while one is
   pending throws `unexpected`. A code belongs to the attempt that the last
-  start call or Google call created.
-- `verifyEmailCode` and `continueWithGoogle` return `AuthAttemptResult`. They
+  start call or provider call created.
+- `verifyEmailCode`, `continueWithGoogle`, and `continueWithApple` return
+  `AuthAttemptResult`. They
   never set the signed-in state themselves. Only the native state events do,
   from the SDK session status.
 - `reloadSession` loads the native session again after `AuthFailed`. It never
@@ -399,7 +401,7 @@ stage has its own route in `lib/app/router.dart`.
 | --- | --- | --- |
 | Restoring | Loading | Wait |
 | Auth recovery | Recovery message | Try again (none on an unsupported platform) |
-| Signed out | Account access | Create account, sign in, continue with Google |
+| Signed out | Account access | Create account, sign in, continue with Apple (iOS only), continue with Google |
 | Identity loading | Loading | Wait |
 | Identity failed | Error message | Try again, sign out |
 | Signing out | Loading | Wait |
@@ -432,17 +434,21 @@ Returning runs a fresh identity read under a new scope.
 
 `apps/mobile/packages/tailtag_clerk/` is a local Flutter plugin and a member of
 the pub workspace. Its Swift and Kotlin code is the only code that imports
-Clerk. A MethodChannel (`app.tailtag/clerk`) carries nine calls: `configure`,
+Clerk. A MethodChannel (`app.tailtag/clerk`) carries ten calls: `configure`,
 `startEmailSignIn`, `startEmailSignUp`, `resendEmailCode`, `verifyEmailCode`,
-`continueWithGoogle`, `reload`, `getToken`, and `signOut`. An EventChannel
+`continueWithGoogle`, `continueWithApple`, `reload`, `getToken`, and `signOut`.
+Android has no `continueWithApple` method, so the call fails as `unsupported`
+there. The iOS plugin also registers the `app.tailtag/apple-button` platform
+view. An EventChannel
 (`app.tailtag/clerk/state`) carries the state. If the native SDK cannot start,
 the state channel sends an error event. No event or error carries a token, an
 email address, or a Clerk identifier. Clerk telemetry is off on both
 platforms.
 
 The native side keeps one bound attempt: the sign-in or sign-up that the last
-start call or Google call created. Resend and verify act only on that attempt.
-A new start, a Google call, or a sign-out ends it. Verify returns `completed` only when the SDK reports a
+start call or provider call created. Resend and verify act only on that
+attempt. A new start, a provider call, or a sign-out ends it. Verify returns
+`completed` only when the SDK reports a
 complete attempt and an active session.
 
 | Platform | Native SDK | Pin |
@@ -471,8 +477,9 @@ applies. Read it before you change `lib/core/auth/` or the bridge.
 
 ### Google access
 
-"Continue with Google" sits under the email choices, after an "or" divider.
-One action creates an account or signs in. Clerk decides which, and Clerk
+"Continue with Google" sits in the provider section, under the email choices
+and an "or" divider. On iOS, "Continue with Apple" comes first in that
+section. One action creates an account or signs in. Clerk decides which, and Clerk
 links accounts. TailTag never compares email addresses.
 
 | Platform | Flow | Sign-out |
@@ -508,6 +515,79 @@ a dismissed sheet, sign-out, and a device with no Google account. To prove
 a new account on the second platform, the owner deletes the Clerk Development
 user of the test Google account first. Never write the Google account, a token,
 or a Clerk identifier in the repository, in a log, or in a pull request.
+
+### Apple access
+
+"Continue with Apple" runs on iOS only. The owner removed Apple on Android
+from this milestone in #476. On Android, the account screen shows no Apple
+button.
+
+- The plugin calls `signInWithApple(requestedScopes: [.email], transferable: true)`.
+  The app never asks Apple for the name. The player enters a display name in
+  TailTag onboarding (#481).
+- ClerkKit shows the native Apple sheet, creates the nonce, and reads the
+  identity token. The plugin and the Dart code never see either value.
+- One action creates an account or signs in, as for Google. Clerk links
+  accounts. A private relay address gets no extra TailTag rule, and TailTag
+  never asks for another email address.
+- A dismissed Apple sheet returns to the account choices with no banner.
+- If the device has no usable Apple Account, the sheet reports `unknown`. The
+  banner then says to sign in to an Apple Account in Settings, or to use email.
+  Every other Apple error is unexpected.
+- The button is the system `ASAuthorizationAppleIDButton`, in a platform view.
+  It is black in the light theme and white in the dark theme. The system draws
+  the logo and the text, so the app ships no Apple artwork. A Flutter button
+  around it owns the tap, the focus, the disabled state, and the semantics.
+
+#### Signing for Apple
+
+The Runner target has the Sign in with Apple entitlement in
+`ios/Runner/Runner.entitlements`. The repository holds no Apple team ID.
+Simulator builds and `flutter build ios --no-codesign` need no team. A build for
+a physical iPhone needs a team that has the Sign in with Apple capability.
+
+To sign device builds, create `apps/mobile/ios/Flutter/Signing.local.xcconfig`
+with one line:
+
+```text
+DEVELOPMENT_TEAM = <your Apple team ID>
+```
+
+Git ignores this file. `Debug.xcconfig` and `Release.xcconfig` include it when
+it exists.
+
+#### Live Apple proof
+
+Before a live Apple proof, the owner confirms these items. The
+[capability contract](../specs/2026-11-05-native-auth-capability-contract.md#development-configuration-contract)
+lists each one.
+
+1. The owner has a paid Apple Developer Program membership and records the
+   team ID.
+2. The App ID `app.tailtag` has the Sign in with Apple capability.
+3. The Clerk Development instance lists the iOS native app with the App ID
+   Prefix and bundle ID `app.tailtag`.
+4. The Clerk Apple connection is on for sign-up and sign-in.
+5. A physical iPhone on iOS 17 or later is registered for development. It has
+   a test Apple Account with two-factor authentication.
+
+Clerk advises tests on a physical device, so the proof runs on the iPhone.
+
+1. Create an account through Apple with Hide My Email. The app reaches the
+   neutral landing, and nothing asks for a name or another email address.
+2. Sign out, then continue with Apple again. `/debug/auth` shows the same
+   TailTag identity.
+3. Dismiss the Apple sheet. The app returns to the account choices with no
+   banner and sends no TailTag request.
+4. Delete the Clerk Development user. On the iPhone, open Settings › your
+   name › Sign-In & Security › Sign in with Apple. Stop using the Apple Account
+   with TailTag. Apple then shows the first-time sheet again.
+5. Continue with Apple and share the real email address. Use an Apple Account
+   whose email matches an existing email account. `/debug/auth` shows the
+   TailTag identity of that email account.
+
+Never write the Apple Account, a relay address, a token, or a Clerk identifier
+in the repository, in a log, or in a pull request.
 
 ### Debug proof route and test user
 

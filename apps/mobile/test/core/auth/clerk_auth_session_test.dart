@@ -151,65 +151,128 @@ void main() {
     });
   });
 
-  group("continueWithGoogle()", () {
-    final results = <({String? native, Matcher result})>[
-      (native: "completed", result: isA<AuthAttemptCompleted>()),
-      (native: "cancelled", result: isA<AuthAttemptCancelled>()),
-      (native: "needsEmailCode", result: isA<AuthAttemptNeedsEmailCode>()),
-    ];
-    for (final r in results) {
-      test("maps ${r.native} and never sets signed in itself", () async {
-        final (session, native) = await _startSession(
-          onCall: (call) => r.native,
-        );
-        await native.emit("signedOut");
+  // Google and Apple share one provider contract. Apple also allows
+  // unsupported, because Android has no Apple flow.
+  final providers =
+      <
+        ({
+          String method,
+          Future<AuthAttemptResult> Function(ClerkAuthSession) call,
+          List<String> results,
+          List<({String label, Exception error, Matcher failure})> failures,
+        })
+      >[
+        (
+          method: "continueWithGoogle",
+          call: (session) => session.continueWithGoogle(),
+          results: ["completed", "cancelled", "needsEmailCode"],
+          failures: [
+            (
+              label: "providerUnavailable",
+              error: _nativeError("providerUnavailable"),
+              failure: isA<AuthProviderUnavailableFailure>(),
+            ),
+            (
+              label: "connectivity",
+              error: _nativeError("connectivity"),
+              failure: isA<AuthConnectivityFailure>(),
+            ),
+            (
+              label: "rateLimited",
+              error: _nativeError("rateLimited"),
+              failure: isA<AuthUnexpectedFailure>(),
+            ),
+            (
+              label: "unsupported",
+              error: _nativeError("unsupported"),
+              failure: isA<AuthUnexpectedFailure>(),
+            ),
+          ],
+        ),
+        (
+          method: "continueWithApple",
+          call: (session) => session.continueWithApple(),
+          // Both providers share the result mapping, so Apple checks its
+          // routing once and then only its own failure rules.
+          results: ["completed"],
+          failures: [
+            (
+              label: "providerUnavailable",
+              error: _nativeError("providerUnavailable"),
+              failure: isA<AuthProviderUnavailableFailure>(),
+            ),
+            (
+              label: "rateLimited",
+              error: _nativeError("rateLimited"),
+              failure: isA<AuthUnexpectedFailure>(),
+            ),
+            (
+              label: "unsupported",
+              error: _nativeError("unsupported"),
+              failure: isA<AuthUnsupportedFailure>(),
+            ),
+            // Android has no Apple method, so its plugin answers "not
+            // implemented".
+            (
+              label: "no Apple method on the platform",
+              error: MissingPluginException(_leakedMessage),
+              failure: isA<AuthUnsupportedFailure>(),
+            ),
+          ],
+        ),
+      ];
 
-        expect(await session.continueWithGoogle(), r.result);
-        expect(session.state, isA<AuthSignedOut>());
-        final call = native.callsTo("continueWithGoogle").single;
-        expect(call.arguments, anyOf(isNull, isEmpty));
-      });
-    }
+  for (final provider in providers) {
+    group("${provider.method}()", () {
+      const matchers = <String, Matcher>{
+        "completed": TypeMatcher<AuthAttemptCompleted>(),
+        "cancelled": TypeMatcher<AuthAttemptCancelled>(),
+        "needsEmailCode": TypeMatcher<AuthAttemptNeedsEmailCode>(),
+      };
+      for (final name in provider.results) {
+        test("maps $name and never sets signed in itself", () async {
+          final (session, native) = await _startSession(onCall: (call) => name);
+          await native.emit("signedOut");
 
-    test(
-      "an unknown or missing native result is an unexpected failure",
-      () async {
-        for (final unknown in ["partial", null]) {
-          final (session, _) = await _startSession(onCall: (call) => unknown);
-          await expectLater(
-            session.continueWithGoogle(),
-            throwsA(isA<AuthUnexpectedFailure>()),
+          expect(await provider.call(session), matchers[name]);
+          expect(session.state, isA<AuthSignedOut>());
+          final call = native.callsTo(provider.method).single;
+          expect(call.arguments, anyOf(isNull, isEmpty));
+        });
+      }
+
+      // Each provider keeps only the categories that its contract allows.
+      // Every other category becomes unexpected.
+      for (final f in provider.failures) {
+        test("${f.label} keeps only an allowed category", () async {
+          final (session, _) = await _startSession(
+            onCall: (call) => throw f.error,
           );
-        }
-      },
-    );
+          Object? thrown;
+          try {
+            await provider.call(session);
+          } on Object catch (error) {
+            thrown = error;
+          }
+          expect(thrown, f.failure);
+          expect(thrown.toString(), isNot(contains("leak-")));
+        });
+      }
+    });
+  }
 
-    // The contract allows provider unavailable, connectivity, and
-    // unexpected. Every other category becomes unexpected.
-    final failures = <({String code, Matcher failure})>[
-      (
-        code: "providerUnavailable",
-        failure: isA<AuthProviderUnavailableFailure>(),
-      ),
-      (code: "connectivity", failure: isA<AuthConnectivityFailure>()),
-      (code: "rateLimited", failure: isA<AuthUnexpectedFailure>()),
-    ];
-    for (final f in failures) {
-      test("a native ${f.code} error keeps only an allowed category", () async {
-        final (session, _) = await _startSession(
-          onCall: (call) => throw _nativeError(f.code),
+  test(
+    "an unknown or missing native provider result is an unexpected failure",
+    () async {
+      for (final unknown in ["partial", null]) {
+        final (session, _) = await _startSession(onCall: (call) => unknown);
+        await expectLater(
+          session.continueWithGoogle(),
+          throwsA(isA<AuthUnexpectedFailure>()),
         );
-        Object? thrown;
-        try {
-          await session.continueWithGoogle();
-        } on Object catch (error) {
-          thrown = error;
-        }
-        expect(thrown, f.failure);
-        expect(thrown.toString(), isNot(contains("leak-")));
-      });
-    }
-  });
+      }
+    },
+  );
 
   test("a second access call while one is pending throws unexpected and "
       "never reaches native", () async {

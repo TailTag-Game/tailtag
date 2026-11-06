@@ -3,6 +3,7 @@ import "package:flutter_riverpod/flutter_riverpod.dart";
 import "package:tailtag_mobile/core/auth/auth_attempt_result.dart";
 import "package:tailtag_mobile/core/auth/auth_failure.dart";
 import "package:tailtag_mobile/core/auth/auth_providers.dart";
+import "package:tailtag_mobile/core/auth/auth_session.dart";
 import "package:tailtag_mobile/core/session/player_scope.dart";
 import "package:tailtag_mobile/features/account_access/email_address.dart";
 
@@ -28,6 +29,12 @@ enum AccessAction {
 
   /// Signing in through Google.
   google,
+
+  /// Signing in through Apple, on iOS only.
+  apple;
+
+  /// Whether this is a provider action, which the account screen runs.
+  bool get isProvider => this == google || this == apple;
 }
 
 /// The account access flow. It lives in memory only.
@@ -54,7 +61,7 @@ final class AccessFlowState {
   /// Whether Clerk sent a code for the current attempt.
   final bool codeSent;
 
-  /// Whether the code belongs to a provider attempt, such as Google. The
+  /// Whether the code belongs to a provider attempt, such as Apple. The
   /// app then knows no email address, so [email] is empty.
   final bool viaProvider;
 
@@ -65,7 +72,7 @@ final class AccessFlowState {
   final AuthFailure? failure;
 
   /// The request that produced [failure], when the account screen shows it.
-  /// Only [AccessAction.google] sets it today.
+  /// Only provider actions set it.
   final AccessAction? failedAction;
 
   /// Whether the last request sent another code.
@@ -250,16 +257,31 @@ final class AccessFlowController extends Notifier<AccessFlowState> {
   /// A cancellation returns to the account choices with no failure. On
   /// success, the controls stay disabled until the new session clears this
   /// flow.
-  Future<bool> continueWithGoogle() async {
+  Future<bool> continueWithGoogle() => _continueWithProvider(
+    AccessAction.google,
+    (session) => session.continueWithGoogle(),
+  );
+
+  /// Signs in or creates an account through Apple, with the same rules as
+  /// [continueWithGoogle].
+  Future<bool> continueWithApple() => _continueWithProvider(
+    AccessAction.apple,
+    (session) => session.continueWithApple(),
+  );
+
+  Future<bool> _continueWithProvider(
+    AccessAction action,
+    Future<AuthAttemptResult> Function(AuthSession session) call,
+  ) async {
     if (state.isPending) {
       return false;
     }
     final scope = ref.read(playerScopeProvider);
     final mode = state.mode;
-    state = AccessFlowState(mode: mode, pending: AccessAction.google);
+    state = AccessFlowState(mode: mode, pending: action);
     AuthFailure? failure;
     try {
-      final result = await ref.read(authSessionProvider).continueWithGoogle();
+      final result = await call(ref.read(authSessionProvider));
       switch (result) {
         case AuthAttemptCompleted():
           // The native state events start the session and clear this flow.
@@ -284,7 +306,7 @@ final class AccessFlowController extends Notifier<AccessFlowState> {
       state = AccessFlowState(
         mode: mode,
         failure: failure,
-        failedAction: failure == null ? null : AccessAction.google,
+        failedAction: failure == null ? null : action,
       );
     }
     return false;

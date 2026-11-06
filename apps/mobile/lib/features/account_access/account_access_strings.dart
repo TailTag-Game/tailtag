@@ -1,5 +1,6 @@
 import "package:tailtag_mobile/core/auth/auth_failure.dart";
 import "package:tailtag_mobile/core/ui/ui_strings.dart";
+import "package:tailtag_mobile/features/account_access/access_flow_controller.dart";
 
 /// The English text of the account-access screens.
 abstract final class AccountAccessStrings {
@@ -20,6 +21,10 @@ abstract final class AccountAccessStrings {
 
   /// The Google action. Google's branding guidelines approve this text.
   static const continueWithGoogle = "Continue with Google";
+
+  /// The Apple action. The native Apple button draws this text itself, and
+  /// it is the semantic label of that button.
+  static const continueWithApple = "Continue with Apple";
 
   /// The email field label.
   static const emailLabel = "Email";
@@ -68,6 +73,18 @@ abstract final class AccountAccessStrings {
 
   /// The switch from sign-in to account creation.
   static const createInstead = "Create an account instead";
+
+  /// The account-screen banner text for [failure] after the provider
+  /// [action] failed. Only an unavailable provider has its own text.
+  static String providerFailureMessage(
+    AccessAction action,
+    AuthFailure failure,
+  ) => switch ((action, failure)) {
+    (AccessAction.apple, AuthProviderUnavailableFailure()) =>
+      "Sign in with Apple is not available on this device. Sign in to your "
+          "Apple Account in Settings, or use email.",
+    _ => failureMessage(failure),
+  };
 
   /// The banner text for [failure].
   static String failureMessage(AuthFailure failure) => switch (failure) {

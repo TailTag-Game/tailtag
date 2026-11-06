@@ -2,6 +2,7 @@ import "dart:async";
 import "dart:convert";
 
 import "package:flutter/material.dart";
+import "package:flutter/services.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 import "package:flutter_test/flutter_test.dart";
 import "package:http/http.dart" as http;
@@ -110,4 +111,20 @@ Future<AppHarness> pumpApp(
   final harness = AppHarness(tester, container, session, net);
   await harness.settle();
   return harness;
+}
+
+/// Answers the engine's platform-view calls, so a native view such as the
+/// Apple button can be created in a widget test. The engine is the real
+/// boundary here, so a fake is the only way to run it in a test.
+void fakePlatformViews() {
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        ..setMockMethodCallHandler(
+          SystemChannels.platform_views,
+          (call) async => null,
+        );
+  addTearDown(
+    () =>
+        messenger.setMockMethodCallHandler(SystemChannels.platform_views, null),
+  );
 }
