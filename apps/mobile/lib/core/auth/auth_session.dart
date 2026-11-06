@@ -9,10 +9,10 @@ import "package:tailtag_mobile/core/auth/auth_state.dart";
 /// appears here. The session is also the [ApiTokenProvider] of the API
 /// transport, and [token] is null unless the state is [AuthSignedIn].
 ///
-/// The email operations run one attempt at a time. If a caller starts an
+/// The access operations run one attempt at a time. If a caller starts an
 /// attempt while another one is pending, the call throws
 /// [AuthUnexpectedFailure] and the pending attempt continues. An email code
-/// belongs to the attempt that the last start call created.
+/// belongs to the attempt that the last start call or Google call created.
 abstract interface class AuthSession implements ApiTokenProvider {
   /// The current state.
   AuthState get state;
@@ -42,6 +42,16 @@ abstract interface class AuthSession implements ApiTokenProvider {
   /// state then becomes [AuthSignedIn] through the native state events.
   /// Throws an [AuthFailure], for example [AuthInvalidCodeFailure].
   Future<AuthAttemptResult> verifyEmailCode(String code);
+
+  /// Signs in or creates an account through Google.
+  ///
+  /// Clerk creates the account when none exists. [AuthAttemptCompleted]
+  /// means that Clerk reports an active session. [AuthAttemptCancelled]
+  /// means that the player dismissed the Google sheet or browser.
+  /// [AuthAttemptNeedsEmailCode] means that Clerk sent an email code, which
+  /// [verifyEmailCode] then checks. Throws [AuthProviderUnavailableFailure],
+  /// [AuthConnectivityFailure], or [AuthUnexpectedFailure].
+  Future<AuthAttemptResult> continueWithGoogle();
 
   /// Ends the session. On success, the state becomes [AuthSignedOut].
   ///

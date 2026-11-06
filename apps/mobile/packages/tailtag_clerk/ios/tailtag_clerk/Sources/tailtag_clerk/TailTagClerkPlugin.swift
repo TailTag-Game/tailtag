@@ -1,3 +1,4 @@
+import AuthenticationServices
 import ClerkKit
 import Flutter
 import Foundation
@@ -10,8 +11,13 @@ import Observation
 /// this file as one error code and nothing else.
 ///
 /// An email code belongs to one bound attempt: the sign-in or sign-up that the
-/// last start call created. Resend and verify act only on that attempt. A new
-/// start or a sign-out ends it.
+/// last start call or Google call created. Resend and verify act only on that
+/// attempt. A new start, a Google call, or a sign-out ends it.
+///
+/// Google uses the SDK-owned browser session (`ASWebAuthenticationSession`).
+/// The session is ephemeral, so it keeps no Safari cookies after sign-out.
+/// ClerkKit consumes the `app.tailtag://callback` redirect inside that
+/// session, so the Runner registers no URL scheme.
 public final class TailTagClerkPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     /// How long the SDK can stay unloaded after `configure` before the bridge
     /// reports a startup failure. ClerkKit 1.6.1 retries its startup refresh
@@ -123,6 +129,20 @@ public final class TailTagClerkPlugin: NSObject, FlutterPlugin, FlutterStreamHan
             }
             clearBinding()
             return "completed"
+        case "continueWithGoogle":
+            guard configured else { throw BridgeError.unexpected }
+            clearBinding()
+            let result: TransferFlowResult
+            do {
+                result = try await Clerk.shared.auth.signInWithOAuth(
+                    provider: .google,
+                    prefersEphemeralWebBrowserSession: true,
+                    transferable: true)
+            } catch {
+                if Self.isCancellation(error) { return "cancelled" }
+                throw error
+            }
+            return try await googleOutcome(result)
         case "reload":
             guard configured else { throw BridgeError.unexpected }
             try await reload()
@@ -140,6 +160,78 @@ public final class TailTagClerkPlugin: NSObject, FlutterPlugin, FlutterStreamHan
         default:
             throw BridgeError.notImplemented
         }
+    }
+
+    // MARK: Google outcome
+
+    /// Maps a Google result to a TailTag result name. `completed` needs a
+    /// complete attempt and an active session. An attempt that needs an email
+    /// code binds this plugin and has a sent code.
+    @MainActor
+    private func googleOutcome(_ result: TransferFlowResult) async throws -> String {
+        switch result {
+        case .signIn(let signIn):
+            switch signIn.status {
+            case .complete:
+                return try Self.completedIfActive()
+            case .needsFirstFactor:
+                boundSignIn = try await Self.preparedSignInCode(signIn)
+                return "needsEmailCode"
+            default:
+                throw BridgeError.unexpected
+            }
+        case .signUp(let signUp):
+            switch signUp.status {
+            case .complete:
+                return try Self.completedIfActive()
+            case .missingRequirements:
+                guard signUp.missingFields.isEmpty, signUp.unverifiedFields == [.emailAddress] else {
+                    throw BridgeError.unexpected
+                }
+                let verification = signUp.verifications["email_address"] ?? nil
+                boundSignUp =
+                    Self.isPreparedEmailCode(verification) ? signUp : try await signUp.sendEmailCode()
+                return "needsEmailCode"
+            default:
+                throw BridgeError.unexpected
+            }
+        }
+    }
+
+    /// The sign-in with a sent email code. It sends the code when Clerk has
+    /// not sent it yet.
+    @MainActor
+    private static func preparedSignInCode(_ signIn: SignIn) async throws -> SignIn {
+        if isPreparedEmailCode(signIn.firstFactorVerification) { return signIn }
+        guard
+            let factor = signIn.supportedFirstFactors?.first(where: {
+                $0.strategy == .emailCode && $0.emailAddressId != nil
+            })
+        else {
+            throw BridgeError.unexpected
+        }
+        return try await signIn.sendEmailCode(emailAddressId: factor.emailAddressId)
+    }
+
+    private static func isPreparedEmailCode(_ verification: Verification?) -> Bool {
+        verification?.strategy == .emailCode && verification?.status == .unverified
+    }
+
+    @MainActor
+    private static func completedIfActive() throws -> String {
+        guard Clerk.shared.session?.status == .active else { throw BridgeError.unexpected }
+        return "completed"
+    }
+
+    /// A dismissed browser session. ClerkKit throws `CancellationError`
+    /// (`Utils/WebAuthentication.swift`). The system can also report
+    /// `canceledLogin`.
+    private static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let webError = error as? ASWebAuthenticationSessionError {
+            return webError.code == .canceledLogin
+        }
+        return false
     }
 
     private func clearBinding() {

@@ -139,6 +139,26 @@ void main() {
         expect(redirectFor(c.stage, c.from, codeSent: c.sent), c.to);
       });
     }
+
+    // Each code screen opens only for a code from its own kind of attempt.
+    final codeCases = <({String from, bool viaProvider, String? to})>[
+      (from: AppPaths.providerCode, viaProvider: true, to: null),
+      (from: AppPaths.providerCode, viaProvider: false, to: AppPaths.access),
+      (from: AppPaths.code, viaProvider: true, to: AppPaths.email),
+    ];
+    for (final c in codeCases) {
+      test("signed out at ${c.from} (provider code: ${c.viaProvider})", () {
+        expect(
+          redirectFor(
+            signedOut,
+            c.from,
+            codeSent: true,
+            viaProvider: c.viaProvider,
+          ),
+          c.to,
+        );
+      });
+    }
   });
 
   testWidgets("recovery retry reloads the session through the auth "

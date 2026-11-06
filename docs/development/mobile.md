@@ -354,20 +354,21 @@ It does not use `clerk_flutter`.
 `lib/core/auth/` is the only place in the Dart app that knows about Clerk.
 
 - `AuthSession` is the interface. It has `startEmailSignIn`,
-  `startEmailSignUp`, `resendEmailCode`, `verifyEmailCode`, `signOut`,
-  `recheckSession`, and `reloadSession`. It is also the `ApiTokenProvider`, so
+  `startEmailSignUp`, `resendEmailCode`, `verifyEmailCode`,
+  `continueWithGoogle`, `signOut`, `recheckSession`, and `reloadSession`. It is also the `ApiTokenProvider`, so
   `token()` returns the bearer token only while the state is signed in.
-- The email operations run one attempt at a time. A second call while one is
+- The access operations run one attempt at a time. A second call while one is
   pending throws `unexpected`. A code belongs to the attempt that the last
-  start call created.
-- `verifyEmailCode` returns `AuthAttemptResult`. It never sets the signed-in
-  state itself. Only the native state events do, from the SDK session status.
+  start call or Google call created.
+- `verifyEmailCode` and `continueWithGoogle` return `AuthAttemptResult`. They
+  never set the signed-in state themselves. Only the native state events do,
+  from the SDK session status.
 - `reloadSession` loads the native session again after `AuthFailed`. It never
   clears secure storage.
 - `AuthState` is sealed: `AuthRestoring`, `AuthSignedOut`, `AuthSignedIn`, or
   `AuthFailed`. `AuthFailure` is sealed: connectivity, invalid code, session
-  ended, unsupported, rate limited, account exists, account not found, or
-  unexpected. Neither type carries a token, an email address, or a Clerk
+  ended, unsupported, rate limited, account exists, account not found,
+  provider unavailable, or unexpected. Neither type carries a token, an email address, or a Clerk
   identifier.
 - `ClerkAuthSession` implements `AuthSession` over the bridge. It is the only
   app file that imports `package:tailtag_clerk`.
@@ -398,7 +399,7 @@ stage has its own route in `lib/app/router.dart`.
 | --- | --- | --- |
 | Restoring | Loading | Wait |
 | Auth recovery | Recovery message | Try again (none on an unsupported platform) |
-| Signed out | Account access | Create account, sign in |
+| Signed out | Account access | Create account, sign in, continue with Google |
 | Identity loading | Loading | Wait |
 | Identity failed | Error message | Try again, sign out |
 | Signing out | Loading | Wait |
@@ -431,17 +432,17 @@ Returning runs a fresh identity read under a new scope.
 
 `apps/mobile/packages/tailtag_clerk/` is a local Flutter plugin and a member of
 the pub workspace. Its Swift and Kotlin code is the only code that imports
-Clerk. A MethodChannel (`app.tailtag/clerk`) carries eight calls: `configure`,
+Clerk. A MethodChannel (`app.tailtag/clerk`) carries nine calls: `configure`,
 `startEmailSignIn`, `startEmailSignUp`, `resendEmailCode`, `verifyEmailCode`,
-`reload`, `getToken`, and `signOut`. An EventChannel
+`continueWithGoogle`, `reload`, `getToken`, and `signOut`. An EventChannel
 (`app.tailtag/clerk/state`) carries the state. If the native SDK cannot start,
 the state channel sends an error event. No event or error carries a token, an
 email address, or a Clerk identifier. Clerk telemetry is off on both
 platforms.
 
 The native side keeps one bound attempt: the sign-in or sign-up that the last
-start call created. Resend and verify act only on that attempt. A new start or
-a sign-out ends it. Verify returns `completed` only when the SDK reports a
+start call or Google call created. Resend and verify act only on that attempt.
+A new start, a Google call, or a sign-out ends it. Verify returns `completed` only when the SDK reports a
 complete attempt and an active session.
 
 | Platform | Native SDK | Pin |
@@ -467,6 +468,46 @@ each platform. It freezes the auth operations, results, and failure categories
 that the account-access work implements. It also lists the Clerk Development
 configuration, callbacks, entitlements, and signing identities that the owner
 applies. Read it before you change `lib/core/auth/` or the bridge.
+
+### Google access
+
+"Continue with Google" sits under the email choices, after an "or" divider.
+One action creates an account or signs in. Clerk decides which, and Clerk
+links accounts. TailTag never compares email addresses.
+
+| Platform | Flow | Sign-out |
+| --- | --- | --- |
+| Android | Credential Manager, through `Clerk.auth.signInWithGoogleOneTap`. The plugin hands the current Activity to Clerk. | The plugin clears the Credential Manager state, so the next tap does not pick the last account on its own. |
+| iOS | The SDK-owned browser session, through `signInWithOAuth`. The session is ephemeral. | The browser kept no cookies, so the next tap asks for Google sign-in again. |
+
+- A dismissed Google sheet or browser returns to the account choices with no
+  banner.
+- If the device has no Google account, the banner says so and offers email.
+  Android never falls back to browser OAuth.
+- If Clerk needs an email code after Google, the app opens code entry at
+  `/access/code`. That screen shows no address, and Back ends the attempt.
+- The button follows Google's branding guidelines. The "G" images in
+  `apps/mobile/assets/images/google/` come from Google's sign-in asset bundle.
+  Do not recolor or redraw them.
+
+Before a live Google proof, the owner confirms these items in the Clerk
+Development instance and the Google Cloud project. The
+[capability contract](../specs/2026-11-05-native-auth-capability-contract.md#development-configuration-contract)
+lists each one.
+
+1. The Clerk Google connection is on, with custom credentials.
+2. The Google Cloud web client is stored in Clerk, and the Clerk redirect URI
+   is registered.
+3. An Android OAuth client exists for `app.tailtag` with the SHA-1 of each
+   registered debug key.
+4. The consent screen lists the proof Google accounts as test users.
+5. The Android emulator uses a Google Play image with a test Google account.
+
+A live proof covers a new account and a returning account on each platform,
+a dismissed sheet, sign-out, and a device with no Google account. To prove
+a new account on the second platform, the owner deletes the Clerk Development
+user of the test Google account first. Never write the Google account, a token,
+or a Clerk identifier in the repository, in a log, or in a pull request.
 
 ### Debug proof route and test user
 

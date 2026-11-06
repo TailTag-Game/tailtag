@@ -77,6 +77,16 @@ final class AuthAccountNotFoundFailure extends AuthFailure {
   String get name => "accountNotFound";
 }
 
+/// The provider sign-in cannot run on this device, for example because the
+/// device has no Google account.
+final class AuthProviderUnavailableFailure extends AuthFailure {
+  /// Creates the failure.
+  const new() : super();
+
+  @override
+  String get name => "providerUnavailable";
+}
+
 /// Anything else.
 final class AuthUnexpectedFailure extends AuthFailure {
   /// Creates the failure.

@@ -25,9 +25,12 @@ enum AccessAction {
 
   /// Verifying a code.
   verify,
+
+  /// Signing in through Google.
+  google,
 }
 
-/// The email access flow. It lives in memory only.
+/// The account access flow. It lives in memory only.
 @immutable
 final class AccessFlowState {
   /// Creates a state.
@@ -35,8 +38,10 @@ final class AccessFlowState {
     this.mode = AccessMode.signIn,
     this.email = "",
     this.codeSent = false,
+    this.viaProvider = false,
     this.pending,
     this.failure,
+    this.failedAction,
     this.codeResent = false,
   });
 
@@ -49,11 +54,19 @@ final class AccessFlowState {
   /// Whether Clerk sent a code for the current attempt.
   final bool codeSent;
 
+  /// Whether the code belongs to a provider attempt, such as Google. The
+  /// app then knows no email address, so [email] is empty.
+  final bool viaProvider;
+
   /// The running request, or null.
   final AccessAction? pending;
 
   /// The failure of the last request, or null.
   final AuthFailure? failure;
+
+  /// The request that produced [failure], when the account screen shows it.
+  /// Only [AccessAction.google] sets it today.
+  final AccessAction? failedAction;
 
   /// Whether the last request sent another code.
   final bool codeResent;
@@ -62,7 +75,7 @@ final class AccessFlowState {
   bool get isPending => pending != null;
 }
 
-/// Runs the email access flow over the auth session.
+/// Runs the account access flow over the auth session.
 ///
 /// It sends one request at a time, and only on an explicit call. It never
 /// retries. It watches [playerScopeProvider], so a new session or a
@@ -152,10 +165,12 @@ final class AccessFlowController extends Notifier<AccessFlowState> {
     final scope = ref.read(playerScopeProvider);
     final mode = state.mode;
     final email = state.email;
+    final viaProvider = state.viaProvider;
     state = AccessFlowState(
       mode: mode,
       email: email,
       codeSent: true,
+      viaProvider: viaProvider,
       pending: AccessAction.resend,
     );
     try {
@@ -166,6 +181,7 @@ final class AccessFlowController extends Notifier<AccessFlowState> {
           mode: mode,
           email: email,
           codeSent: true,
+          viaProvider: viaProvider,
           failure: failure,
         );
       }
@@ -176,6 +192,7 @@ final class AccessFlowController extends Notifier<AccessFlowState> {
         mode: mode,
         email: email,
         codeSent: true,
+        viaProvider: viaProvider,
         codeResent: true,
       );
     }
@@ -192,10 +209,12 @@ final class AccessFlowController extends Notifier<AccessFlowState> {
     final scope = ref.read(playerScopeProvider);
     final mode = state.mode;
     final email = state.email;
+    final viaProvider = state.viaProvider;
     final pending = AccessFlowState(
       mode: mode,
       email: email,
       codeSent: true,
+      viaProvider: viaProvider,
       pending: AccessAction.verify,
     );
     state = pending;
@@ -219,9 +238,56 @@ final class AccessFlowController extends Notifier<AccessFlowState> {
         mode: mode,
         email: email,
         codeSent: true,
+        viaProvider: viaProvider,
         failure: failure,
       );
     }
+  }
+
+  /// Signs in or creates an account through Google.
+  ///
+  /// Returns true when Clerk sent an email code that the player must enter.
+  /// A cancellation returns to the account choices with no failure. On
+  /// success, the controls stay disabled until the new session clears this
+  /// flow.
+  Future<bool> continueWithGoogle() async {
+    if (state.isPending) {
+      return false;
+    }
+    final scope = ref.read(playerScopeProvider);
+    final mode = state.mode;
+    state = AccessFlowState(mode: mode, pending: AccessAction.google);
+    AuthFailure? failure;
+    try {
+      final result = await ref.read(authSessionProvider).continueWithGoogle();
+      switch (result) {
+        case AuthAttemptCompleted():
+          // The native state events start the session and clear this flow.
+          return false;
+        case AuthAttemptCancelled():
+          failure = null;
+        case AuthAttemptNeedsEmailCode():
+          if (!_isCurrent(scope)) {
+            return false;
+          }
+          state = AccessFlowState(
+            mode: mode,
+            codeSent: true,
+            viaProvider: true,
+          );
+          return true;
+      }
+    } on AuthFailure catch (error) {
+      failure = error;
+    }
+    if (_isCurrent(scope)) {
+      state = AccessFlowState(
+        mode: mode,
+        failure: failure,
+        failedAction: failure == null ? null : AccessAction.google,
+      );
+    }
+    return false;
   }
 
   bool _isCurrent(PlayerScope scope) => ref.mounted && scope.isActive;

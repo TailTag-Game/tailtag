@@ -1,5 +1,5 @@
-/// A thin bridge to the native Clerk SDKs (email code access, session
-/// reload, and tokens).
+/// A thin bridge to the native Clerk SDKs (email code access, Google access,
+/// session reload, and tokens).
 ///
 /// The native side only forwards calls and maps errors. No token, email
 /// address, or Clerk identifier crosses the bridge except the values the
@@ -50,6 +50,9 @@ enum ClerkBridgeErrorCategory {
 
   /// Email sign-in found no account.
   accountNotFound,
+
+  /// The provider sign-in cannot run on this device.
+  providerUnavailable,
 
   /// Anything else.
   unexpected,
@@ -104,6 +107,14 @@ final class TailTagClerk {
   /// side returns `completed` only when the session is active.
   Future<String?> verifyEmailCode(String code) =>
       _invoke<String>("verifyEmailCode", {"code": code});
+
+  /// Signs in or creates an account through Google.
+  ///
+  /// Returns the native result name: `completed`, `cancelled`, or
+  /// `needsEmailCode`. The native side returns `completed` only when the
+  /// session is active. For `needsEmailCode`, the native side binds to the
+  /// attempt and has already sent the code. Any earlier binding ends.
+  Future<String?> continueWithGoogle() => _invoke<String>("continueWithGoogle");
 
   /// Loads the native session state again without clearing storage.
   Future<void> reload() => _invoke<void>("reload");
@@ -161,6 +172,7 @@ final class TailTagClerk {
         "rateLimited" => ClerkBridgeErrorCategory.rateLimited,
         "accountExists" => ClerkBridgeErrorCategory.accountExists,
         "accountNotFound" => ClerkBridgeErrorCategory.accountNotFound,
+        "providerUnavailable" => ClerkBridgeErrorCategory.providerUnavailable,
         _ => ClerkBridgeErrorCategory.unexpected,
       },
       _ => ClerkBridgeErrorCategory.unexpected,

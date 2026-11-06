@@ -7,4 +7,4 @@ navigation through callbacks, so a feature never imports `lib/app/`.
 
 | Feature | Owns |
 | --- | --- |
-| `account_access` | Email account creation and sign-in screens and the in-memory email flow (#477) |
+| `account_access` | Email and Google account access screens, the Google button, and the in-memory access flow (#477, #478) |

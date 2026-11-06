@@ -58,4 +58,8 @@ dependencies {
     // Clerk declares coroutines as an implementation dependency, so the plugin
     // needs its own compile-time copy. The version matches the one Clerk uses.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    // Clerk ships Credential Manager at runtime only. The plugin clears its state after
+    // sign-out (#478), so it compiles against the same version. compileOnly keeps the
+    // runtime graph unchanged.
+    compileOnly("androidx.credentials:credentials:1.6.0")
 }
