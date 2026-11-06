@@ -24,8 +24,12 @@ abstract final class AppPaths {
   /// Email entry, a child of [access].
   static const email = "/access/email";
 
-  /// Code entry, a child of [email].
+  /// Code entry after an email attempt, a child of [email].
   static const code = "/access/email/code";
+
+  /// Code entry after a provider attempt, such as Google, a child of
+  /// [access].
+  static const providerCode = "/access/code";
 
   /// Sign-out is running.
   static const signingOut = "/signing-out";
@@ -63,19 +67,22 @@ String pathForStage(EntryStage stage) => switch (stage) {
 ///
 /// Each stage allows only its own screens. Any other location, including a
 /// deep link to protected content, goes to the stage's screen. Code entry
-/// also needs a sent code.
+/// also needs a sent code, and each code screen needs a code from its own
+/// kind of attempt: email or provider ([viaProvider]).
 @visibleForTesting
 String? redirectFor(
   EntryStage stage,
   String location, {
   required bool codeSent,
+  bool viaProvider = false,
 }) {
   final home = pathForStage(stage);
   final allowed = switch (stage) {
     EntrySignedOut() =>
       location == AppPaths.access ||
           location == AppPaths.email ||
-          (location == AppPaths.code && codeSent),
+          (location == AppPaths.code && codeSent && !viaProvider) ||
+          (location == AppPaths.providerCode && codeSent && viaProvider),
     EntryReady() =>
       location == AppPaths.landing ||
           (kDebugMode && location == AppPaths.authProof),
@@ -104,11 +111,15 @@ final routerProvider = Provider<GoRouter>((ref) {
   final router = GoRouter(
     initialLocation: pathForStage(refresh.value),
     refreshListenable: refresh,
-    redirect: (context, state) => redirectFor(
-      refresh.value,
-      state.uri.path,
-      codeSent: ref.read(accessFlowProvider).codeSent,
-    ),
+    redirect: (context, state) {
+      final flow = ref.read(accessFlowProvider);
+      return redirectFor(
+        refresh.value,
+        state.uri.path,
+        codeSent: flow.codeSent,
+        viaProvider: flow.viaProvider,
+      );
+    },
     routes: [
       GoRoute(
         path: AppPaths.restoring,
@@ -121,9 +132,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: AppPaths.access,
-        builder: (context, state) =>
-            AccountAccessScreen(onChoose: () => context.go(AppPaths.email)),
+        builder: (context, state) => AccountAccessScreen(
+          onChoose: () => context.go(AppPaths.email),
+          onProviderCode: () => context.go(AppPaths.providerCode),
+        ),
         routes: [
+          GoRoute(
+            path: "code",
+            builder: (context, state) =>
+                CodeEntryScreen(onLeave: () => context.go(AppPaths.access)),
+          ),
           GoRoute(
             path: "email",
             builder: (context, state) =>
@@ -131,9 +149,8 @@ final routerProvider = Provider<GoRouter>((ref) {
             routes: [
               GoRoute(
                 path: "code",
-                builder: (context, state) => CodeEntryScreen(
-                  onChangeEmail: () => context.go(AppPaths.email),
-                ),
+                builder: (context, state) =>
+                    CodeEntryScreen(onLeave: () => context.go(AppPaths.email)),
               ),
             ],
           ),

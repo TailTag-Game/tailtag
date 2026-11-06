@@ -75,7 +75,7 @@ On Android, `User.emailAddresses` and `User.externalAccounts` are nullable lists
 | --- | --- | --- |
 | Whether `createPasskey` needs reverification | Clerk decides this on the server. Neither SDK shows it in source. Clerk's custom-flow guide shows only `user.createPasskey()`. | #480 |
 | Whether registering the native apps fills the Clerk-served association files | Today both files are empty, because no native app is registered (see [Association file check](#association-file-check)). | #480 |
-| Credential Manager cancellation types on Android | The SDK passes platform errors through `ClerkResult.Failure.throwable`. Source does not show the exact types. | #478, #480 |
+| Credential Manager cancellation types for passkeys on Android | #478 settled this for Google (see [Google access additions](#google-access-additions)). Passkeys use another Clerk path. | #480 |
 | Exact Clerk error codes other than `form_identifier_not_found` and `form_code_incorrect` | Only those two appear in pinned source (`ClerkKitUI`). | #477, #480 |
 
 ## Device and OS rules
@@ -135,6 +135,31 @@ Callers start one attempt at a time. If a caller starts a second attempt while o
 
 On Android, `continueWithApple()` throws `unsupported` and the account screen does not show Apple.
 
+### Google access additions
+
+The owner approved these additions for #478 on 2026-11-06. They change no operation, result, or failure category.
+
+- Android hands the current Activity to Clerk with the public `Clerk.attachActivity(activity)`. Clerk starts after `MainActivity` resumed, so it would otherwise have no Activity for Credential Manager and fail with its missing-Activity error.
+- After the SDK reports signed out on Android, the plugin calls `CredentialManager.clearCredentialState()`. Clerk sets `setAutoSelectEnabled(true)`, so without this the next tap can pick the last Google account. A failure there is ignored and never changes the sign-out result.
+- The plugin declares `compileOnly("androidx.credentials:credentials:1.6.0")`. Clerk already ships this version at runtime, so the runtime classpath does not change.
+- iOS calls `signInWithOAuth(provider: .google, prefersEphemeralWebBrowserSession: true, transferable: true)`. The ephemeral session keeps no Safari cookies after sign-out.
+- Android never falls back to browser OAuth when the device has no Google account. The result is `providerUnavailable`.
+- `continueWithGoogle()` throws only `providerUnavailable`, `connectivity`, or `unexpected`. The native side maps Clerk API errors with the shared email table, and the Dart session turns every other category into `unexpected`.
+
+Clerk Android `1.2.1` keeps its credential-flow exception types internal to Kotlin, so the plugin cannot name them. It reads public signals instead, in this order:
+
+| Signal | Credential Manager failures it covers | TailTag result |
+| --- | --- | --- |
+| `shouldSuppressCredentialFlowError` | A cancellation only | `cancelled` |
+| The failure is a raw `GetCredentialException` | A failure that Clerk did not classify, such as an interrupted or unknown failure | `unexpected` |
+| `shouldSuppressAutomaticCredentialFlowError` | Clerk's own types: no Google account, no saved credential, provider unavailable, or a missing Activity | `providerUnavailable` |
+
+A missing Activity therefore maps to `providerUnavailable`, not `unexpected`. The Activity hand-off above prevents it.
+
+- After a provider code screen, Back ends the attempt on the Dart side. The native binding stays until the next start call or Google call replaces it. Verify and resend open only from a code screen, so no stale code can complete another account.
+- iOS has no `providerUnavailable` source for Google. The browser session has no device account to miss.
+- The privacy rule covers TailTag-owned logs. Clerk Android itself writes generic Credential Manager messages to logcat, and TailTag cannot turn that off. Those messages hold no token or email address.
+
 ### Attempt result
 
 `AuthAttemptResult` is sealed. It has three values:
@@ -169,7 +194,7 @@ This stops a code for an abandoned attempt from completing a different account.
 | iOS | `ASAuthorizationError.canceled` (Apple sheet and passkey sheet) | Compile probe |
 | iOS | `ASWebAuthenticationSessionError.canceledLogin` | Compile probe |
 | Android | `SSOCancellationException` in `ClerkResult.Failure.throwable` (browser OAuth) | `com.clerk.api.sso.SSOCancellationException` |
-| Android | Credential Manager cancellation | Unproved. #478 and #480 record the exact type. |
+| Android | Credential Manager cancellation (Google) | Clerk turns `GetCredentialCancellationException` into its own cancellation type and marks it with `shouldSuppressCredentialFlowError` (#478). Passkeys stay with #480. |
 
 ### SDK status mapping
 
@@ -203,7 +228,7 @@ The five current categories stay: `connectivity`, `invalidCode`, `sessionEnded`,
 | `rateLimited` | Clerk refuses a send or an attempt because of its limits. | HTTP 429 or a `too_many_requests` code (unproved). On iOS, only the code works: ClerkKit turns a 429 with no Clerk error body into `URLError(.unknown)` (`Networking/Middleware/ClerkErrorThrowingResponseMiddleware.swift`), which maps to `unexpected`. |
 | `accountExists` | Email sign-up finds an existing account. | `form_identifier_exists` (unproved) |
 | `accountNotFound` | Email sign-in finds no account, or passkey sign-in finds no saved TailTag passkey. | `form_identifier_not_found` (used in `ClerkKitUI/Components/Auth/AuthStartView.swift:575`), or a platform no-credential error recorded by #480 |
-| `providerUnavailable` | The provider service cannot run, for example no Google account provider on the device. | Platform error, recorded by #478 |
+| `providerUnavailable` | The provider service cannot run, for example no Google account provider on the device. | Any Credential Manager failure other than a cancellation on Android (#478) |
 | `passkeyUnavailable` | The device or OS refuses passkeys, or Android is below API 28. | App gate or platform error, recorded by #480 |
 | `reverificationRequired` | Clerk requires a fresh verification before a passkey change. | `session_reverification_required` (unproved) |
 | `lastMethodRequired` | The player tries to remove the last passkey without another usable method. | TailTag rule (see [Passkey rules](#passkey-rules)) |
@@ -286,7 +311,7 @@ The rule reads these SDK values:
 
 The Android environment object is internal (`Clerk.getEnvironment$api`), so Android reads the public getters above. To keep both platforms equal, the Development configuration allows email codes as the only email first factor. With that configuration, the Android attribute check means the same as the iOS strategy check. If the owner enables another email first factor later, the Android rule must change before that configuration applies. Both platforms read instance settings that the SDK loaded at start. `refreshClient()` refreshes the user, not the instance settings.
 
-The provider string values come from SDK mock data (`Mocks/MockModels.swift:675` uses `oauth_google`). #478 confirms the live value.
+The provider string values come from SDK mock data (`Mocks/MockModels.swift:675` uses `oauth_google`). #480 confirms the live value on a device, because the Backend API and the SDK can spell it differently. The owner moved this check from #478 to #480 on 2026-11-06.
 
 Clerk does not enforce this rule on the server. The guard runs in the app only. Another Clerk client, such as the Account Portal, can still remove the last passkey. The rule protects players from locking themselves out in TailTag. It is not a server-side security control.
 
@@ -399,7 +424,7 @@ This spec needs one architecture note and no other change.
 - ADR 0009 gains a note that headless SDK functions can open an SDK-owned browser OAuth session. iOS Google uses this path. The approval of this spec approves the note.
 - SDK upgrades: none needed. Both pins expose every required operation.
 - Platform floors: none change. Android stays at API 26, and iOS stays at 17.
-- New dependencies: none. iOS Google does not use the Google Sign-In SDK.
+- New dependencies: none. iOS Google does not use the Google Sign-In SDK. The owner later approved one compile-time pin for #478 (see [Google access additions](#google-access-additions)).
 
 Any later SDK, platform-floor, or architecture change needs its own approval before dependent work starts.
 

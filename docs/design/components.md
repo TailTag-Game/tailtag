@@ -135,6 +135,7 @@ These parts are not shared components. The feature that uses them owns them, bec
 | QR code display | F7 | One consumer. It needs a QR drawing package. |
 | QR scanner view | F8 | One consumer. It needs a camera package and camera permission screens. |
 | Photo picker field | F2, F4 | It needs a photo package. The feature builds it from an [avatar](#avatar), a [button](#button), and a [bottom sheet](#bottom-sheet). |
+| Google button | F1 | One consumer. Google's [branding guidelines](https://developers.google.com/identity/branding-guidelines) set its logo, text, colors, and padding, so it does not follow the [button](#button) colors. It keeps the pill shape and `size.minTarget`. |
 
 ### Not in V0
 

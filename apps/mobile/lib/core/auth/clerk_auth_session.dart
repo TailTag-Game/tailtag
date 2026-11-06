@@ -92,15 +92,29 @@ final class ClerkAuthSession implements AuthSession {
   /// The state is not set here: [AuthSignedIn] comes only from the native
   /// state events, which report the SDK session status.
   @override
-  Future<AuthAttemptResult> verifyEmailCode(String code) => _attempt(() async {
-    final result = await _bridge.verifyEmailCode(code);
-    return switch (result) {
-      "completed" => const AuthAttemptCompleted(),
-      "needsEmailCode" => const AuthAttemptNeedsEmailCode(),
-      "cancelled" => const AuthAttemptCancelled(),
-      _ => throw const AuthUnexpectedFailure(),
-    };
-  });
+  Future<AuthAttemptResult> verifyEmailCode(String code) =>
+      _attempt(() async => _resultFor(await _bridge.verifyEmailCode(code)));
+
+  /// The state is not set here: [AuthSignedIn] comes only from the native
+  /// state events, which report the SDK session status.
+  ///
+  /// The contract allows only three failures here. The native side maps
+  /// Clerk errors with the shared email table, so any other category, such
+  /// as a rate limit, becomes [AuthUnexpectedFailure].
+  @override
+  Future<AuthAttemptResult> continueWithGoogle() async {
+    try {
+      return await _attempt(
+        () async => _resultFor(await _bridge.continueWithGoogle()),
+      );
+    } on AuthProviderUnavailableFailure {
+      rethrow;
+    } on AuthConnectivityFailure {
+      rethrow;
+    } on AuthFailure {
+      throw const AuthUnexpectedFailure();
+    }
+  }
 
   @override
   Future<void> signOut() async {
@@ -184,6 +198,15 @@ final class ClerkAuthSession implements AuthSession {
     _controller.add(next);
   }
 
+  /// Turns a native result name into an [AuthAttemptResult]. An unknown name
+  /// is a failure, never a success.
+  static AuthAttemptResult _resultFor(String? result) => switch (result) {
+    "completed" => const AuthAttemptCompleted(),
+    "needsEmailCode" => const AuthAttemptNeedsEmailCode(),
+    "cancelled" => const AuthAttemptCancelled(),
+    _ => throw const AuthUnexpectedFailure(),
+  };
+
   static AuthFailure _failureFor(Object error) {
     if (error is! ClerkBridgeException) {
       return const AuthUnexpectedFailure();
@@ -198,6 +221,8 @@ final class ClerkAuthSession implements AuthSession {
         const AuthAccountExistsFailure(),
       ClerkBridgeErrorCategory.accountNotFound =>
         const AuthAccountNotFoundFailure(),
+      ClerkBridgeErrorCategory.providerUnavailable =>
+        const AuthProviderUnavailableFailure(),
       ClerkBridgeErrorCategory.unexpected => const AuthUnexpectedFailure(),
     };
   }

@@ -15,6 +15,12 @@ abstract final class AccountAccessStrings {
   /// The sign-in choice and the title of its email screen.
   static const signIn = "Sign in";
 
+  /// The divider between the email choices and the provider choices.
+  static const or = "or";
+
+  /// The Google action. Google's branding guidelines approve this text.
+  static const continueWithGoogle = "Continue with Google";
+
   /// The email field label.
   static const emailLabel = "Email";
 
@@ -34,6 +40,13 @@ abstract final class AccountAccessStrings {
   /// The code screen text for [emailAddress].
   static String codeBody(String emailAddress) =>
       "We sent a 6-digit code to $emailAddress.";
+
+  /// The code screen text after a provider attempt. The app knows no email
+  /// address there.
+  static const codeBodyProvider = "We sent a 6-digit code to your email.";
+
+  /// The action that leaves code entry after a provider attempt.
+  static const back = "Back";
 
   /// The code field label.
   static const codeLabel = "Code";
@@ -65,6 +78,9 @@ abstract final class AccountAccessStrings {
       "Too many attempts. Wait a few minutes, then try again.",
     AuthAccountExistsFailure() => "An account already uses this email.",
     AuthAccountNotFoundFailure() => "No account uses this email.",
+    AuthProviderUnavailableFailure() =>
+      "Google sign-in is not available on this device. Add a Google account "
+          "in Settings, or use email.",
     AuthSessionEndedFailure() =>
       "This code request has ended. Change the email to start again.",
     AuthUnsupportedFailure() =>

@@ -14,16 +14,19 @@ import "package:tailtag_mobile/features/account_access/account_access_strings.da
 /// The length of a Clerk email code.
 const int emailCodeLength = 6;
 
-/// Code entry for the current email attempt.
+/// Code entry for the current attempt.
 ///
-/// The code stays in this screen's memory only and clears when the screen
-/// closes.
+/// An email attempt shows the address and a "Change email" action. A
+/// provider attempt, such as Google, shows no address, and its "Back" action
+/// ends the attempt and returns to the account choices. The code stays in
+/// this screen's memory only and clears when the screen closes.
 class CodeEntryScreen extends ConsumerStatefulWidget {
-  /// Creates the screen. [onChangeEmail] returns to email entry.
-  const new({required this.onChangeEmail, super.key});
+  /// Creates the screen. [onLeave] opens the previous screen.
+  const new({required this.onLeave, super.key});
 
-  /// Returns to email entry.
-  final VoidCallback onChangeEmail;
+  /// Opens email entry after an email attempt, or the account choices after
+  /// a provider attempt.
+  final VoidCallback onLeave;
 
   @override
   ConsumerState<CodeEntryScreen> createState() => _CodeEntryScreenState();
@@ -44,10 +47,20 @@ class _CodeEntryScreenState extends ConsumerState<CodeEntryScreen> {
     super.dispose();
   }
 
-  void _changeEmail() {
-    ref.read(accessFlowProvider.notifier).changeEmail();
-    widget.onChangeEmail();
+  void _leave() {
+    _endFor(
+      ref.read(accessFlowProvider),
+      ref.read(accessFlowProvider.notifier),
+    )();
+    widget.onLeave();
   }
+
+  /// The action that ends a provider attempt, or that keeps the email of an
+  /// email attempt.
+  static VoidCallback _endFor(
+    AccessFlowState flow,
+    AccessFlowController notifier,
+  ) => flow.viaProvider ? notifier.reset : notifier.changeEmail;
 
   @override
   Widget build(BuildContext context) {
@@ -55,13 +68,16 @@ class _CodeEntryScreenState extends ConsumerState<CodeEntryScreen> {
     final notifier = ref.read(accessFlowProvider.notifier);
     final failure = flow.failure;
     final complete = _code.text.length == emailCodeLength;
+    final leaveLabel = flow.viaProvider
+        ? AccountAccessStrings.back
+        : AccountAccessStrings.changeEmail;
     return PopScope(
       canPop: !flow.isPending,
       onPopInvokedWithResult: (didPop, _) {
         // A route change can pop this page while the tree builds, so the
         // flow changes after the frame.
         if (didPop) {
-          scheduleMicrotask(notifier.changeEmail);
+          scheduleMicrotask(_endFor(flow, notifier));
         }
       },
       child: Scaffold(
@@ -74,7 +90,9 @@ class _CodeEntryScreenState extends ConsumerState<CodeEntryScreen> {
               spacing: TokenSpacing.lg,
               children: [
                 Text(
-                  AccountAccessStrings.codeBody(flow.email),
+                  flow.viaProvider
+                      ? AccountAccessStrings.codeBodyProvider
+                      : AccountAccessStrings.codeBody(flow.email),
                   style: Theme.of(context).textTheme.bodyLarge,
                 ),
                 if (failure != null)
@@ -83,9 +101,9 @@ class _CodeEntryScreenState extends ConsumerState<CodeEntryScreen> {
                     tone: StatusTone.error,
                     message: AccountAccessStrings.failureMessage(failure),
                     actionLabel: failure is AuthSessionEndedFailure
-                        ? AccountAccessStrings.changeEmail
+                        ? leaveLabel
                         : null,
-                    onAction: _changeEmail,
+                    onAction: _leave,
                   )
                 else if (flow.codeResent)
                   const StatusBanner(
@@ -127,9 +145,9 @@ class _CodeEntryScreenState extends ConsumerState<CodeEntryScreen> {
                 ),
                 TailTagButton(
                   key: const Key("access-change-email"),
-                  label: AccountAccessStrings.changeEmail,
+                  label: leaveLabel,
                   variant: TailTagButtonVariant.secondary,
-                  onPressed: flow.isPending ? null : _changeEmail,
+                  onPressed: flow.isPending ? null : _leave,
                 ),
               ],
             ),

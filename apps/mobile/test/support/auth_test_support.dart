@@ -47,6 +47,13 @@ final class FakeAuthSession implements AuthSession {
   /// native state events do.
   bool verifySignsIn = true;
 
+  /// The failure of the next Google call, or null.
+  AuthFailure? googleFailure;
+
+  /// The result of a successful Google call. A completed result moves the
+  /// state to [AuthSignedIn]. A needs-code result binds an attempt.
+  AuthAttemptResult googleResult = const AuthAttemptCompleted();
+
   /// The failure of the next sign-out, or null.
   AuthFailure? signOutFailure;
 
@@ -63,6 +70,7 @@ final class FakeAuthSession implements AuthSession {
   final List<String> startEmailSignUpCalls = [];
   final List<String> verifyCodeCalls = [];
   int resendCalls = 0;
+  int googleCalls = 0;
 
   /// Every access call that reached this session, including refused ones.
   int accessCalls = 0;
@@ -126,6 +134,23 @@ final class FakeAuthSession implements AuthSession {
       emit(const AuthSignedIn());
     }
     return verifyResult;
+  });
+
+  @override
+  Future<AuthAttemptResult> continueWithGoogle() => _attempt(() async {
+    googleCalls++;
+    _bound = false;
+    _throwIfSet(googleFailure);
+    final result = googleResult;
+    switch (result) {
+      case AuthAttemptCompleted():
+        emit(const AuthSignedIn());
+      case AuthAttemptNeedsEmailCode():
+        _bound = true;
+      case AuthAttemptCancelled():
+        break;
+    }
+    return result;
   });
 
   @override

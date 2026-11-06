@@ -31,3 +31,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    # The standard Google "G" from Google's sign-in assets (#478).
+    - assets/images/google/

@@ -151,6 +151,66 @@ void main() {
     });
   });
 
+  group("continueWithGoogle()", () {
+    final results = <({String? native, Matcher result})>[
+      (native: "completed", result: isA<AuthAttemptCompleted>()),
+      (native: "cancelled", result: isA<AuthAttemptCancelled>()),
+      (native: "needsEmailCode", result: isA<AuthAttemptNeedsEmailCode>()),
+    ];
+    for (final r in results) {
+      test("maps ${r.native} and never sets signed in itself", () async {
+        final (session, native) = await _startSession(
+          onCall: (call) => r.native,
+        );
+        await native.emit("signedOut");
+
+        expect(await session.continueWithGoogle(), r.result);
+        expect(session.state, isA<AuthSignedOut>());
+        final call = native.callsTo("continueWithGoogle").single;
+        expect(call.arguments, anyOf(isNull, isEmpty));
+      });
+    }
+
+    test(
+      "an unknown or missing native result is an unexpected failure",
+      () async {
+        for (final unknown in ["partial", null]) {
+          final (session, _) = await _startSession(onCall: (call) => unknown);
+          await expectLater(
+            session.continueWithGoogle(),
+            throwsA(isA<AuthUnexpectedFailure>()),
+          );
+        }
+      },
+    );
+
+    // The contract allows provider unavailable, connectivity, and
+    // unexpected. Every other category becomes unexpected.
+    final failures = <({String code, Matcher failure})>[
+      (
+        code: "providerUnavailable",
+        failure: isA<AuthProviderUnavailableFailure>(),
+      ),
+      (code: "connectivity", failure: isA<AuthConnectivityFailure>()),
+      (code: "rateLimited", failure: isA<AuthUnexpectedFailure>()),
+    ];
+    for (final f in failures) {
+      test("a native ${f.code} error keeps only an allowed category", () async {
+        final (session, _) = await _startSession(
+          onCall: (call) => throw _nativeError(f.code),
+        );
+        Object? thrown;
+        try {
+          await session.continueWithGoogle();
+        } on Object catch (error) {
+          thrown = error;
+        }
+        expect(thrown, f.failure);
+        expect(thrown.toString(), isNot(contains("leak-")));
+      });
+    }
+  });
+
   test("a second access call while one is pending throws unexpected and "
       "never reaches native", () async {
     final pending = Completer<Object?>();

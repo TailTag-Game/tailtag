@@ -280,6 +280,15 @@ void main() {
           ),
           (label: "code entry", open: _codeEntry),
           (
+            label: "account access with a Google failure",
+            open: (tester) async {
+              final app = await pumpApp(tester, session: FakeAuthSession());
+              app.session.googleFailure =
+                  const AuthProviderUnavailableFailure();
+              await app.tap("access-google");
+            },
+          ),
+          (
             label: "auth recovery",
             open: (tester) => pumpApp(
               tester,
