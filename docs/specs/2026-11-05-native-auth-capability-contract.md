@@ -32,7 +32,6 @@ The compile probe is described in [Compile probe record](#compile-probe-record).
 Status values:
 
 - Supported: the pinned source and the compile probe prove the call.
-- Supported (source): the pinned signatures prove the call. No compile ran on this platform.
 - Unproved: a fact needs live proof. The last column names the issue.
 - Out of scope by owner decision: the owner removed it from this milestone.
 
@@ -55,25 +54,27 @@ Status values:
 
 | Operation | Status | Evidence | Live proof |
 | --- | --- | --- | --- |
-| Email sign-up | Supported (source) | `Auth.signUp(Function1<SignUpBuilder>)` with `SignUpBuilder.setEmail`, `SignUpKt.sendEmailCode(SignUp)`, `verifyCode(SignUp, String, VerificationType)` | #477 |
-| Email sign-in | Supported (source) | `Auth.signInWithOtp(Function1<SignInWithOtpBuilder>)`, `verifyCode(SignIn, String)`. The current bridge already uses both. | #477 |
-| Code resend | Supported (source) | `SignInKt.sendEmailCode(SignIn, String)`, `SignUpKt.sendEmailCode(SignUp)` | #477 |
-| Google | Supported (source) | `Auth.signInWithGoogleOneTap(boolean)` returns `ClerkResult<OAuthResult>`. It uses Credential Manager. The AAR depends on `androidx.credentials` and `com.google.android.libraries.identity.googleid`. | #478 |
+| Email sign-up | Supported | `Auth.signUp(Function1<SignUpBuilder>)` with `SignUpBuilder.setEmail`, `SignUpKt.sendEmailCode(SignUp)`, `verifyCode(SignUp, String, VerificationType)` | #477 |
+| Email sign-in | Supported | `Auth.signInWithOtp(Function1<SignInWithOtpBuilder>)`, `verifyCode(SignIn, String)`. The current bridge already uses both. | #477 |
+| Code resend | Supported | `SignInKt.sendEmailCode(SignIn, String)`, `SignUpKt.sendEmailCode(SignUp)` | #477 |
+| Google | Supported | `Auth.signInWithGoogleOneTap(boolean)` returns `ClerkResult<OAuthResult>`. It uses Credential Manager. The AAR depends on `androidx.credentials` and `com.google.android.libraries.identity.googleid`. | #478 |
 | Apple | Out of scope by owner decision | See [Parent-contract changes](#parent-contract-changes). | None |
-| Passkey capability check | Supported (source) | No passkey class in the AAR has an API-level guard. The app owns the guard (see [Device and OS rules](#device-and-os-rules)). | #480 |
-| Passkey sign-in | Supported (source) | `Auth.signInWithPasskey(boolean)`. Kotlin metadata names the parameter `preferImmediatelyAvailableCredentials`. It is a first-factor call. | #480 |
-| Passkey creation | Supported (source) | `UserKt.createPasskey(User)` | #480 |
-| Passkey listing | Supported (source) | `User.getPasskeys()`. Fields: `Passkey.getId`, `getName`, `getCreatedAt`, `getLastUsedAt` | #480 |
-| Passkey removal | Supported (source) | `PasskeyKt.delete(Passkey)` | #480 |
+| Passkey capability check | Supported | No passkey class in the AAR has an API-level guard. The app owns the guard (see [Device and OS rules](#device-and-os-rules)). | #480 |
+| Passkey sign-in | Supported | `Auth.signInWithPasskey(boolean)`. Kotlin metadata names the parameter `preferImmediatelyAvailableCredentials`. It is a first-factor call. | #480 |
+| Passkey creation | Supported | `UserKt.createPasskey(User)` | #480 |
+| Passkey listing | Supported | `User.getPasskeys()`. Fields: `Passkey.getId`, `getName`, `getCreatedAt`, `getLastUsedAt` | #480 |
+| Passkey removal | Supported | `PasskeyKt.delete(Passkey)` | #480 |
 
-Kotlin metadata for `Auth` names the `signInWithOAuth` parameters `provider`, `transferable`, and `redirectUrl`. `signInWithGoogleOneTap` takes one `boolean` that reuses the `transferable` name string.
+Kotlin metadata for `Auth` names the `signInWithOAuth` parameters `provider`, `transferable`, and `redirectUrl`. The Android compile probe called `signInWithGoogleOneTap(transferable = true)`, `signInWithOAuth(provider = ..., transferable = true)`, and `signInWithPasskey(preferImmediatelyAvailableCredentials = true)` with these names.
+
+On Android, `User.emailAddresses` and `User.externalAccounts` are nullable lists. The compile probe found this. Code treats a null list as empty.
 
 ### Facts that stay unproved
 
 | Fact | Why it is unproved | Issue that settles it |
 | --- | --- | --- |
 | Whether `createPasskey` needs reverification | Clerk decides this on the server. Neither SDK shows it in source. Clerk's custom-flow guide shows only `user.createPasskey()`. | #480 |
-| Who serves the association files for the Development Frontend API host | Clerk's docs do not say. The relying party ID comes from the server nonce (`Passkey.swift:65`). | #480 |
+| Whether registering the native apps fills the Clerk-served association files | Today both files are empty, because no native app is registered (see [Association file check](#association-file-check)). | #480 |
 | Credential Manager cancellation types on Android | The SDK passes platform errors through `ClerkResult.Failure.throwable`. Source does not show the exact types. | #478, #480 |
 | Exact Clerk error codes other than `form_identifier_not_found` and `form_code_incorrect` | Only those two appear in pinned source (`ClerkKitUI`). | #477, #480 |
 
@@ -260,9 +261,9 @@ The rule reads these SDK values:
 | Input | iOS | Android |
 | --- | --- | --- |
 | Current user | `Clerk.shared.user` (`Core/Clerk.swift:92`) | `Clerk.getUser()` |
-| Verified email address | `user.emailAddresses[].verification?.status` (`User.swift:42`, `EmailAddress.swift:27`, `Verification.swift:10`) | `User.getEmailAddresses()`, `EmailAddress.getVerification().getStatus()` |
+| Verified email address | `user.emailAddresses[].verification?.status` (`User.swift:42`, `EmailAddress.swift:27`, `Verification.swift:10`) | `User.emailAddresses` (nullable, null means none), `EmailAddress.verification?.status` |
 | Email codes enabled | `environment.userSettings.attributes["email_address"].firstFactors` contains `email_code` (`Clerk.swift:137`, `Domains/Environment/UserSettings.swift:10`, `:21`) | `Clerk.getEnabledFirstFactorAttributes()` contains `email_address`. Android exposes the attribute only, not the strategy. |
-| Verified external account | `user.externalAccounts[].provider` and `.verification?.status` (`User.swift:48`, `ExternalAccount.swift:18`, `:48`) | `User.getExternalAccounts()`, `ExternalAccount.getProvider()`, `getVerification().getStatus()` |
+| Verified external account | `user.externalAccounts[].provider` and `.verification?.status` (`User.swift:48`, `ExternalAccount.swift:18`, `:48`) | `User.externalAccounts` (nullable, null means none), `ExternalAccount.provider`, `verification?.status` |
 | Provider enabled | `environment.userSettings.social["oauth_google"]` or `["oauth_apple"]`, `enabled` and `authenticatable` (`UserSettings.swift:12`, `:36`, `:38`) | `Clerk.isGoogleOneTapEnabled()`. It is true when the instance has a Google One Tap client ID. |
 
 The Android environment object is internal (`Clerk.getEnvironment$api`), so Android reads the public getters above. To keep both platforms equal, the Development configuration allows email codes as the only email first factor. With that configuration, the Android attribute check means the same as the iOS strategy check. If the owner enables another email first factor later, the Android rule must change before that configuration applies. Both platforms read instance settings that the SDK loaded at start. `refreshClient()` refreshes the user, not the instance settings.
@@ -293,7 +294,7 @@ This table covers the Clerk Development instance only. The owner (FinnThePanther
 | Android OAuth callbacks | `clerk://app.tailtag.callback` and `clerk://app.tailtag.oauth`. The AAR manifest declares them on `SSOReceiverActivity`. | Merged manifest review in #478 | #478 |
 | iOS entitlement: Sign in with Apple | Capability on the Runner target | Runner `.entitlements` file in #479 | #479 |
 | iOS entitlement: Associated Domains | `webcredentials:<Development Frontend API host>` | Runner `.entitlements` file in #480 | #480 |
-| Association files | Served on the Development Frontend API host | Unproved. #480 records who serves them and checks both files. | #480 |
+| Association files | Clerk serves both files on the Development Frontend API host. TailTag hosts nothing. Today both files are empty. | Expected after the owner registers the native apps: `/.well-known/apple-app-site-association` lists `<App ID Prefix>.app.tailtag` for `webcredentials`, and `/.well-known/assetlinks.json` lists `app.tailtag` with each registered SHA-256 fingerprint. See [Association file check](#association-file-check). | #480 |
 
 The Android OAuth callbacks exist in every build today, because the AAR manifest merges `SSOReceiverActivity` into the app. TailTag uses Credential Manager for Google on Android, so no TailTag flow uses those callbacks in this milestone. #478 must make sure that TailTag adds no other OAuth callback on Android.
 
@@ -400,13 +401,27 @@ The owner applies these changes. This issue does not edit them.
 
 ## Compile probe record
 
-The probe ran on 2026-11-05 in a scratch copy of `apps/mobile` outside the repository. It added one never-called file per platform to the `tailtag_clerk` plugin. Each file called every operation in the matrix with the labels shown above.
+The iOS probe ran on 2026-11-05 and the Android probe on 2026-11-06, each in a scratch copy of `apps/mobile` outside the repository. It added one never-called file per platform to the `tailtag_clerk` plugin. Each file called every operation in the matrix with the labels shown above.
 
 | Platform | Command | Result |
 | --- | --- | --- |
 | iOS | `fvm flutter build ios --simulator --debug` (Flutter 3.47.2) | Passed. `ProbeCalls.o` built for arm64 and x86_64 against clerk-ios revision `173d938`. |
-| Android | `fvm flutter build apk --debug` | Not run to completion. The local Android SDK has no accepted NDK licence (`LicenceNotAcceptedException` for `ndk;28.2.13676358`). Android evidence is `javap` signatures and Kotlin metadata. |
+| Android | `fvm flutter build apk --debug` (Flutter 3.47.2, Android SDK platform 36, NDK `28.2.13676358`) | Passed on the second build. `ProbeCalls.class` compiled against `com.clerk:clerk-android-api:1.2.1`. The first build failed only because `User.emailAddresses` and `User.externalAccounts` are nullable. The probe then used `.orEmpty()`. |
 
 The iOS probe also compiled the cancellation checks for `ASAuthorizationError.canceled` and `ASWebAuthenticationSessionError.canceledLogin`. It also compiled the last-method inputs (`Clerk.shared.environment?.userSettings`, `attributes["email_address"]?.firstFactors`, `social`).
 
-After the probe, the maintainer removed the scratch directory, its Xcode DerivedData folder, and the Gradle daemon that the Android attempt started.
+After each probe, the maintainer removed the scratch directory, the Xcode DerivedData folder, and the Gradle and Kotlin daemons that the build started. The Android SDK packages stay in a separate local SDK directory outside the repository. The repository `local.properties` did not change.
+
+## Association file check
+
+On 2026-11-06, a read-only check fetched both files from the Development Frontend API host. The host comes from the Development publishable key.
+
+| Path | Result |
+| --- | --- |
+| `/.well-known/apple-app-site-association` | HTTP 200, `application/json`, body `{}` |
+| `/.well-known/assetlinks.json` | HTTP 200, `application/json`, body `[]` |
+| `/apple-app-site-association` | HTTP 404 |
+
+Clerk serves both files at the paths that Apple and Google read. TailTag does not need to host them. The files are empty, and no native app is registered yet. After the owner registers the iOS and Android apps, #480 fetches both files again and makes sure that they list the app.
+
+The passkey relying party ID still comes from the server nonce (`Passkey.swift:65`). #480 confirms that it matches this host.
