@@ -310,10 +310,10 @@ packages:
     dependency: "direct main"
     description:
       name: tonik_util
-      sha256: c4bcfe66b546dd0108055f49b05708a4d7357131a73822b40c6cb8815c7c174a
+      sha256: e72ba8270ceb4f9971b61564e14c6ed379f1b8083192209f1295f0668084d3ef
       url: "https://pub.dev"
     source: hosted
-    version: "0.10.0"
+    version: "0.11.1"
   typed_data:
     dependency: transitive
     description:
