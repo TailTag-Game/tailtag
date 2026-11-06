@@ -165,6 +165,9 @@ public final class TailTagClerkPlugin: NSObject, FlutterPlugin, FlutterStreamHan
     @MainActor
     private func reload() async throws {
         startupFailure = nil
+        // Forget the last sent state, so a failure during this reload is
+        // sent even when it repeats the failure that started the reload.
+        lastSentState = nil
         // Watch again, so a reload that returns without a loaded SDK still
         // ends in a reported failure.
         watchStartup()
