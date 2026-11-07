@@ -26,6 +26,13 @@ abstract final class AccountAccessStrings {
   /// it is the semantic label of that button.
   static const continueWithApple = "Continue with Apple";
 
+  /// The passkey action.
+  static const signInWithPasskey = "Sign in with a passkey";
+
+  /// The note when passkeys do not work on this device.
+  static const passkeysUnavailable =
+      "Passkeys are not available on this device.";
+
   /// The email field label.
   static const emailLabel = "Email";
 
@@ -83,6 +90,8 @@ abstract final class AccountAccessStrings {
     (AccessAction.apple, AuthProviderUnavailableFailure()) =>
       "Sign in with Apple is not available on this device. Sign in to your "
           "Apple Account in Settings, or use email.",
+    (AccessAction.passkey, AuthAccountNotFoundFailure()) =>
+      "No TailTag account uses that passkey. Sign in another way.",
     _ => failureMessage(failure),
   };
 
@@ -102,6 +111,10 @@ abstract final class AccountAccessStrings {
       "This code request has ended. Change the email to start again.",
     AuthUnsupportedFailure() =>
       "Account access is not available on this device.",
+    AuthPasskeyUnavailableFailure() =>
+      "This device cannot use a passkey right now. Sign in another way.",
+    AuthReverificationRequiredFailure() ||
+    AuthLastMethodRequiredFailure() ||
     AuthUnexpectedFailure() => UiStrings.unknownError,
   };
 }

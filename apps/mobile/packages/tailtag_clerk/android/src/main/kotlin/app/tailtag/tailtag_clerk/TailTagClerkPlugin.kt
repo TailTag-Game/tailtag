@@ -2,9 +2,13 @@ package app.tailtag.tailtag_clerk
 
 import android.app.Activity
 import android.content.Context
+import android.os.Build
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
+import androidx.credentials.exceptions.CreateCredentialException
+import androidx.credentials.exceptions.CreateCredentialUnsupportedException
 import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.GetCredentialUnsupportedException
 import com.clerk.api.Clerk
 import com.clerk.api.ClerkConfigurationOptions
 import com.clerk.api.auth.types.VerificationType
@@ -13,6 +17,8 @@ import com.clerk.api.credentials.shouldSuppressCredentialFlowError
 import com.clerk.api.network.model.verification.Verification
 import com.clerk.api.network.model.error.ClerkErrorResponse
 import com.clerk.api.network.serialization.ClerkResult
+import com.clerk.api.passkeys.Passkey
+import com.clerk.api.passkeys.delete
 import com.clerk.api.session.GetTokenOptions
 import com.clerk.api.session.Session
 import com.clerk.api.signin.SignIn
@@ -22,6 +28,8 @@ import com.clerk.api.signup.SignUp
 import com.clerk.api.signup.sendEmailCode
 import com.clerk.api.signup.verifyCode
 import com.clerk.api.sso.OAuthResult
+import com.clerk.api.user.User
+import com.clerk.api.user.createPasskey
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -58,6 +66,11 @@ import kotlinx.coroutines.withTimeoutOrNull
  * Google uses Clerk's Credential Manager flow, which needs the current Activity. The plugin hands
  * the Activity to Clerk, because Clerk starts after the Activity has resumed and so misses the
  * lifecycle callback that would tell it. Google never falls back to browser OAuth here.
+ *
+ * Passkeys use the same Credential Manager flow and need Android 9 (API 28). Passkey sign-in always
+ * allows the full system sheet, so it can offer a passkey from another device. The passkey list holds
+ * only verified passkeys: Clerk creates a passkey before the sheet opens and never removes it after
+ * a cancel. A passkey ID leaves this file only in the list and only to name a removal.
  */
 class TailTagClerkPlugin :
     FlutterPlugin,
@@ -217,6 +230,86 @@ class TailTagClerkPlugin :
                     }
                 return googleOutcome(oauth)
             }
+            "passkeyAvailability" -> {
+                if (!configured) return false
+                return passkeysSupported() && Clerk.passkeyFirstFactorIsEnabled
+            }
+            "signInWithPasskey" -> {
+                requireConfigured()
+                clearBinding()
+                if (!passkeysSupported()) throw Failure(PASSKEY_UNAVAILABLE)
+                val signIn =
+                    when (
+                        val result =
+                            Clerk.auth.signInWithPasskey(preferImmediatelyAvailableCredentials = false)
+                    ) {
+                        is ClerkResult.Success -> result.value
+                        is ClerkResult.Failure -> {
+                            if (result.shouldSuppressCredentialFlowError) return CANCELLED
+                            throw Failure(passkeyFailureCode(result))
+                        }
+                    }
+                if (signIn.status != SignIn.Status.COMPLETE) throw Failure(UNEXPECTED)
+                return completedIfActive()
+            }
+            "createPasskey" -> {
+                requireConfigured()
+                if (!passkeysSupported()) throw Failure(PASSKEY_UNAVAILABLE)
+                val passkey =
+                    when (val result = activeUser().createPasskey()) {
+                        is ClerkResult.Success -> result.value
+                        is ClerkResult.Failure -> {
+                            if (result.shouldSuppressCredentialFlowError) return CANCELLED
+                            throw Failure(passkeyFailureCode(result))
+                        }
+                    }
+                // Success needs Clerk's acknowledgement of a verified passkey.
+                if (!passkey.isVerified()) throw Failure(UNEXPECTED)
+                return COMPLETED
+            }
+            "listPasskeys" -> {
+                requireConfigured()
+                return verifiedPasskeys(refreshedUser()).map {
+                    mapOf(
+                        "id" to it.id,
+                        "name" to it.name,
+                        "createdAt" to it.createdAt,
+                        "lastUsedAt" to it.lastUsedAt,
+                    )
+                }
+            }
+            "passkeyRemovalFacts" -> {
+                val passkeyId = call.argument<String>("passkeyId") ?: throw Failure(UNEXPECTED)
+                requireConfigured()
+                val user = refreshedUser()
+                val passkeys = verifiedPasskeys(user)
+                if (passkeys.none { it.id == passkeyId }) throw Failure(UNEXPECTED)
+                // Facts only: the Dart session applies the last-method rule. Android has no Apple.
+                return mapOf(
+                    "otherVerifiedPasskey" to passkeys.any { it.id != passkeyId },
+                    "verifiedEmail" to
+                        user.emailAddresses.orEmpty().any { it.verification.isVerified() },
+                    // Android exposes the attribute, not the strategy. The Development instance
+                    // allows email codes as the only email first factor (#476).
+                    "emailCodeEnabled" to Clerk.enabledFirstFactorAttributes.contains(EMAIL_ADDRESS),
+                    "verifiedGoogle" to
+                        user.externalAccounts.orEmpty().any {
+                            it.provider in GOOGLE_PROVIDERS && it.verification.isVerified()
+                        },
+                    "googleEnabled" to Clerk.isGoogleOneTapEnabled,
+                    "verifiedApple" to false,
+                    "appleEnabled" to false,
+                )
+            }
+            "removePasskey" -> {
+                val passkeyId = call.argument<String>("passkeyId") ?: throw Failure(UNEXPECTED)
+                requireConfigured()
+                val passkey =
+                    verifiedPasskeys(activeUser()).firstOrNull { it.id == passkeyId }
+                        ?: throw Failure(UNEXPECTED)
+                unwrap(passkey.delete())
+                return null
+            }
             "reload" -> {
                 requireConfigured()
                 reload()
@@ -298,6 +391,28 @@ class TailTagClerkPlugin :
 
     private fun Verification?.isPreparedEmailCode(): Boolean =
         this != null && strategy == EMAIL_CODE && status == Verification.Status.UNVERIFIED
+
+    /** Clerk's Android passkey guide requires Android 9 (API 28). */
+    private fun passkeysSupported(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+
+    /** The signed-in user, or `sessionEnded` when no session is active. */
+    private fun activeUser(): User {
+        if (Clerk.session?.status != Session.SessionStatus.ACTIVE) throw Failure(SESSION_ENDED)
+        return Clerk.user ?: throw Failure(SESSION_ENDED)
+    }
+
+    /** The signed-in user after a fresh client read. */
+    private suspend fun refreshedUser(): User {
+        unwrap(Clerk.refreshClient())
+        return activeUser()
+    }
+
+    private fun verifiedPasskeys(user: User): List<Passkey> =
+        user.passkeys.orEmpty().filter { it.isVerified() }
+
+    private fun Passkey.isVerified(): Boolean = verification.isVerified()
+
+    private fun Verification?.isVerified(): Boolean = this?.status == Verification.Status.VERIFIED
 
     private fun completedIfActive(): String {
         if (Clerk.session?.status != Session.SessionStatus.ACTIVE) throw Failure(UNEXPECTED)
@@ -423,6 +538,7 @@ class TailTagClerkPlugin :
             "too_many_requests" -> RATE_LIMITED
             "form_identifier_exists" -> ACCOUNT_EXISTS
             "form_identifier_not_found" -> ACCOUNT_NOT_FOUND
+            "session_reverification_required" -> REVERIFICATION_REQUIRED
             "authentication_invalid",
             "signed_out",
             "resource_not_found",
@@ -448,6 +564,26 @@ class TailTagClerkPlugin :
             else -> failureCode(failure)
         }
 
+    /**
+     * Credential Manager outcomes for passkeys, then the shared Clerk table. The caller has already
+     * mapped a cancellation. An unsupported request is `passkeyUnavailable`. Another raw
+     * Credential Manager failure, such as an interrupted one, is `unexpected`. Clerk's own types (no
+     * saved credential, provider unavailable, or a missing Activity) are `passkeyUnavailable`.
+     */
+    private fun passkeyFailureCode(failure: ClerkResult.Failure<ClerkErrorResponse>): String =
+        when (failure.throwable) {
+            is GetCredentialUnsupportedException,
+            is CreateCredentialUnsupportedException -> PASSKEY_UNAVAILABLE
+            is GetCredentialException,
+            is CreateCredentialException -> UNEXPECTED
+            else ->
+                if (failure.shouldSuppressAutomaticCredentialFlowError) {
+                    PASSKEY_UNAVAILABLE
+                } else {
+                    failureCode(failure)
+                }
+        }
+
     private fun startupErrorCode(error: Throwable): String =
         if (error is IOException) CONNECTIVITY else UNEXPECTED
 
@@ -463,6 +599,8 @@ class TailTagClerkPlugin :
         const val CANCELLED = "cancelled"
         const val NEEDS_EMAIL_CODE = "needsEmailCode"
         const val PROVIDER_UNAVAILABLE = "providerUnavailable"
+        const val PASSKEY_UNAVAILABLE = "passkeyUnavailable"
+        const val REVERIFICATION_REQUIRED = "reverificationRequired"
         const val EMAIL_CODE = "email_code"
         const val EMAIL_ADDRESS = "email_address"
         const val CONNECTIVITY = "connectivity"
@@ -473,6 +611,9 @@ class TailTagClerkPlugin :
         const val ACCOUNT_NOT_FOUND = "accountNotFound"
         const val UNEXPECTED = "unexpected"
         const val FAILED_PREFIX = "failed:"
+        // The SDK documents `google`, and its sample data uses `oauth_google`. The #480 live proof
+        // records the value that a device reports.
+        val GOOGLE_PROVIDERS = setOf("google", "oauth_google")
         const val HTTP_TOO_MANY_REQUESTS = 429
         const val RELOAD_TIMEOUT_MS = 20_000L
         const val STARTUP_TIMEOUT_MS = 20_000L

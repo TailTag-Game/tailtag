@@ -5,6 +5,7 @@ import "package:tailtag_mobile/core/auth/auth_attempt_result.dart";
 import "package:tailtag_mobile/core/auth/auth_failure.dart";
 import "package:tailtag_mobile/core/auth/auth_session.dart";
 import "package:tailtag_mobile/core/auth/auth_state.dart";
+import "package:tailtag_mobile/core/auth/passkey.dart";
 
 /// The [AuthSession] backed by the native Clerk SDKs.
 ///
@@ -115,16 +116,112 @@ final class ClerkAuthSession implements AuthSession {
   Future<AuthAttemptResult> _provider(
     Future<String?> Function() call, {
     bool allowUnsupported = false,
-  }) async {
+  }) => _narrowed(
+    () => _attempt(() async => _resultFor(await call())),
+    (failure) => switch (failure) {
+      AuthProviderUnavailableFailure() || AuthConnectivityFailure() => true,
+      AuthUnsupportedFailure() => allowUnsupported,
+      _ => false,
+    },
+  );
+
+  @override
+  Future<PasskeyAvailability> passkeyAvailability() async {
     try {
-      return await _attempt(() async => _resultFor(await call()));
+      return await _bridge.passkeyAvailability()
+          ? PasskeyAvailability.available
+          : PasskeyAvailability.unavailable;
+    } on Object {
+      return PasskeyAvailability.unavailable;
+    }
+  }
+
+  /// Only `completed` and `cancelled` are passkey results. An email code
+  /// never follows a passkey, so `needsEmailCode` is unexpected.
+  @override
+  Future<AuthAttemptResult> signInWithPasskey() => _narrowed(
+    () => _attempt(
+      () async => _passkeyResultFor(await _bridge.signInWithPasskey()),
+    ),
+    (failure) => switch (failure) {
+      AuthPasskeyUnavailableFailure() ||
+      AuthAccountNotFoundFailure() ||
+      AuthConnectivityFailure() => true,
+      _ => false,
+    },
+  );
+
+  @override
+  Future<AuthAttemptResult> createPasskey() => _narrowed(
+    () =>
+        _attempt(() async => _passkeyResultFor(await _bridge.createPasskey())),
+    (failure) => switch (failure) {
+      AuthPasskeyUnavailableFailure() ||
+      AuthReverificationRequiredFailure() ||
+      AuthSessionEndedFailure() ||
+      AuthConnectivityFailure() => true,
+      _ => false,
+    },
+  );
+
+  @override
+  Future<List<PasskeyInfo>> listPasskeys() => _narrowed(
+    () => _attempt(() async {
+      final passkeys = await _bridge.listPasskeys();
+      return [
+        for (final passkey in passkeys)
+          PasskeyInfo(
+            id: passkey.id,
+            name: passkey.name,
+            createdAt: passkey.createdAt,
+            lastUsedAt: passkey.lastUsedAt,
+          ),
+      ];
+    }),
+    (failure) => switch (failure) {
+      AuthSessionEndedFailure() || AuthConnectivityFailure() => true,
+      _ => false,
+    },
+  );
+
+  /// Reads the removal facts, applies [_removalAllowed], and only then asks
+  /// native to delete. Both steps run inside one attempt.
+  @override
+  Future<void> removePasskey(String passkeyId) => _narrowed(
+    () => _attempt(() async {
+      final facts = await _bridge.passkeyRemovalFacts(passkeyId);
+      if (!_removalAllowed(facts)) {
+        throw const AuthLastMethodRequiredFailure();
+      }
+      await _bridge.removePasskey(passkeyId);
+    }),
+    (failure) => switch (failure) {
+      AuthLastMethodRequiredFailure() ||
+      AuthReverificationRequiredFailure() ||
+      AuthSessionEndedFailure() ||
+      AuthConnectivityFailure() => true,
+      _ => false,
+    },
+  );
+
+  /// The last-method rule of the #476 spec: a removal keeps another way to
+  /// sign in. Clerk does not enforce it on the server.
+  static bool _removalAllowed(ClerkRemovalFacts facts) =>
+      facts.otherVerifiedPasskey ||
+      (facts.verifiedEmail && facts.emailCodeEnabled) ||
+      (facts.verifiedGoogle && facts.googleEnabled) ||
+      (facts.verifiedApple && facts.appleEnabled);
+
+  /// Runs [call] and keeps only the failures that [allowed] accepts. Every
+  /// other failure becomes [AuthUnexpectedFailure].
+  static Future<T> _narrowed<T>(
+    Future<T> Function() call,
+    bool Function(AuthFailure failure) allowed,
+  ) async {
+    try {
+      return await call();
     } on AuthFailure catch (failure) {
-      throw switch (failure) {
-        AuthProviderUnavailableFailure() ||
-        AuthConnectivityFailure() => failure,
-        AuthUnsupportedFailure() when allowUnsupported => failure,
-        _ => const AuthUnexpectedFailure(),
-      };
+      throw allowed(failure) ? failure : const AuthUnexpectedFailure();
     }
   }
 
@@ -219,6 +316,14 @@ final class ClerkAuthSession implements AuthSession {
     _ => throw const AuthUnexpectedFailure(),
   };
 
+  /// Like [_resultFor], for the passkey operations.
+  static AuthAttemptResult _passkeyResultFor(String? result) =>
+      switch (result) {
+        "completed" => const AuthAttemptCompleted(),
+        "cancelled" => const AuthAttemptCancelled(),
+        _ => throw const AuthUnexpectedFailure(),
+      };
+
   static AuthFailure _failureFor(Object error) {
     if (error is! ClerkBridgeException) {
       return const AuthUnexpectedFailure();
@@ -235,6 +340,10 @@ final class ClerkAuthSession implements AuthSession {
         const AuthAccountNotFoundFailure(),
       ClerkBridgeErrorCategory.providerUnavailable =>
         const AuthProviderUnavailableFailure(),
+      ClerkBridgeErrorCategory.passkeyUnavailable =>
+        const AuthPasskeyUnavailableFailure(),
+      ClerkBridgeErrorCategory.reverificationRequired =>
+        const AuthReverificationRequiredFailure(),
       ClerkBridgeErrorCategory.unexpected => const AuthUnexpectedFailure(),
     };
   }

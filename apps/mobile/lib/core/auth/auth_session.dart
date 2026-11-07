@@ -2,6 +2,7 @@ import "package:tailtag_mobile/core/api/api_token_provider.dart";
 import "package:tailtag_mobile/core/auth/auth_attempt_result.dart";
 import "package:tailtag_mobile/core/auth/auth_failure.dart";
 import "package:tailtag_mobile/core/auth/auth_state.dart";
+import "package:tailtag_mobile/core/auth/passkey.dart";
 
 /// The player's authentication session.
 ///
@@ -9,8 +10,8 @@ import "package:tailtag_mobile/core/auth/auth_state.dart";
 /// appears here. The session is also the [ApiTokenProvider] of the API
 /// transport, and [token] is null unless the state is [AuthSignedIn].
 ///
-/// The access operations run one attempt at a time. If a caller starts an
-/// attempt while another one is pending, the call throws
+/// The access and passkey operations run one attempt at a time. If a caller
+/// starts an attempt while another one is pending, the call throws
 /// [AuthUnexpectedFailure] and the pending attempt continues. An email code
 /// belongs to the attempt that the last start call or provider call created.
 abstract interface class AuthSession implements ApiTokenProvider {
@@ -61,6 +62,50 @@ abstract interface class AuthSession implements ApiTokenProvider {
   /// Account, [AuthUnsupportedFailure] on Android, or
   /// [AuthConnectivityFailure] or [AuthUnexpectedFailure].
   Future<AuthAttemptResult> continueWithApple();
+
+  /// Whether this device and the Clerk instance allow passkeys now.
+  ///
+  /// Android needs API 28 or later. Clerk must have passkey sign-in on. It
+  /// never throws: any doubt is [PasskeyAvailability.unavailable].
+  Future<PasskeyAvailability> passkeyAvailability();
+
+  /// Signs in with a passkey that the system sheet offers.
+  ///
+  /// The sheet can also offer a passkey from another device.
+  /// [AuthAttemptCompleted] means that Clerk reports an active session.
+  /// [AuthAttemptCancelled] means that the player dismissed the sheet.
+  /// Throws [AuthPasskeyUnavailableFailure], [AuthAccountNotFoundFailure],
+  /// [AuthConnectivityFailure], or [AuthUnexpectedFailure].
+  Future<AuthAttemptResult> signInWithPasskey();
+
+  /// Adds a passkey to the signed-in player's account.
+  ///
+  /// [AuthAttemptCompleted] means that Clerk acknowledged the verified
+  /// passkey. The auth state does not change. [AuthAttemptCancelled] means
+  /// that the player dismissed the sheet. Throws
+  /// [AuthPasskeyUnavailableFailure], [AuthReverificationRequiredFailure],
+  /// [AuthSessionEndedFailure], [AuthConnectivityFailure], or
+  /// [AuthUnexpectedFailure]. After a connectivity or unexpected failure,
+  /// the outcome is not known: read the list before another change.
+  Future<AuthAttemptResult> createPasskey();
+
+  /// The signed-in player's verified passkeys, read fresh from Clerk.
+  ///
+  /// Throws [AuthSessionEndedFailure], [AuthConnectivityFailure], or
+  /// [AuthUnexpectedFailure].
+  Future<List<PasskeyInfo>> listPasskeys();
+
+  /// Removes the passkey [passkeyId] from the signed-in player's account.
+  ///
+  /// It first reads fresh Clerk state and keeps another way to sign in:
+  /// another verified passkey, or a verified email, Google, or Apple
+  /// method that the instance allows. Otherwise it throws
+  /// [AuthLastMethodRequiredFailure] and removes nothing. It can also throw
+  /// [AuthReverificationRequiredFailure], [AuthSessionEndedFailure],
+  /// [AuthConnectivityFailure], or [AuthUnexpectedFailure]. After a
+  /// connectivity or unexpected failure, the outcome is not known: read the
+  /// list before another change.
+  Future<void> removePasskey(String passkeyId);
 
   /// Ends the session. On success, the state becomes [AuthSignedOut].
   ///

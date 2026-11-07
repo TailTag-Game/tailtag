@@ -61,6 +61,31 @@ final class EntryController extends Notifier<EntryStage> {
     }
   }
 
+  /// Opens the passkey screen from a settled signed-in stage.
+  ///
+  /// Opening closes the current player scope, so a read that started
+  /// earlier cannot move the stage while the screen is open.
+  void openPasskeys() {
+    final current = state;
+    if (!_signedIn ||
+        _signingOut ||
+        (current is! EntryReady && current is! EntryIdentityFailed)) {
+      return;
+    }
+    _advanceScope();
+    state = const EntryPasskeys();
+  }
+
+  /// Closes the passkey screen with a fresh bootstrap of the session, so
+  /// the coordinator derives the stage again.
+  void closePasskeys() {
+    if (state is! EntryPasskeys) {
+      return;
+    }
+    _advanceScope();
+    unawaited(_bootstrap());
+  }
+
   /// Starts sign-out. Protected content hides at once.
   Future<void> signOut() async {
     if (_signingOut || !_signedIn) {
