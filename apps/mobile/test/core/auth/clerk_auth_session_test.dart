@@ -7,6 +7,7 @@ import "package:tailtag_mobile/core/auth/auth_attempt_result.dart";
 import "package:tailtag_mobile/core/auth/auth_failure.dart";
 import "package:tailtag_mobile/core/auth/auth_state.dart";
 import "package:tailtag_mobile/core/auth/clerk_auth_session.dart";
+import "package:tailtag_mobile/core/auth/passkey.dart";
 
 const _methodChannel = MethodChannel(clerkMethodChannelName);
 const _stateChannel = EventChannel(clerkStateChannelName);
@@ -584,6 +585,352 @@ void main() {
       expect(native.callsTo("configure"), hasLength(2));
       expect(native.callsTo("reload"), isEmpty);
       expect(session.state, isA<AuthSignedOut>());
+    });
+  });
+
+  group("passkeys", () {
+    // Wire maps as both plugins send them: epoch milliseconds, no extra
+    // fields.
+    final firstCreated = DateTime(2026, 11, 1, 9).millisecondsSinceEpoch;
+    final firstUsed = DateTime(2026, 11, 5, 18).millisecondsSinceEpoch;
+    final secondCreated = DateTime(2026, 11, 6, 7).millisecondsSinceEpoch;
+    const allowingFacts = {
+      "otherVerifiedPasskey": false,
+      "verifiedEmail": true,
+      "emailCodeEnabled": true,
+      "verifiedGoogle": false,
+      "googleEnabled": true,
+      "verifiedApple": false,
+      "appleEnabled": false,
+    };
+
+    test("every passkey call crosses the channel with its documented name "
+        "and arguments", () async {
+      final (session, native) = await _startSession(
+        onCall: (call) => switch (call.method) {
+          "passkeyAvailability" => true,
+          "signInWithPasskey" || "createPasskey" => "completed",
+          "listPasskeys" => [
+            {
+              "id": "pk_placeholder_1",
+              "name": "iCloud Keychain",
+              "createdAt": firstCreated,
+              "lastUsedAt": firstUsed,
+            },
+            {
+              "id": "pk_placeholder_2",
+              "name": "Google Password Manager",
+              "createdAt": secondCreated,
+            },
+          ],
+          "passkeyRemovalFacts" => allowingFacts,
+          _ => null,
+        },
+      );
+
+      expect(
+        await session.passkeyAvailability(),
+        PasskeyAvailability.available,
+      );
+      expect(await session.signInWithPasskey(), isA<AuthAttemptCompleted>());
+      expect(await session.createPasskey(), isA<AuthAttemptCompleted>());
+      expect(await session.listPasskeys(), [
+        PasskeyInfo(
+          id: "pk_placeholder_1",
+          name: "iCloud Keychain",
+          createdAt: DateTime.fromMillisecondsSinceEpoch(firstCreated),
+          lastUsedAt: DateTime.fromMillisecondsSinceEpoch(firstUsed),
+        ),
+        PasskeyInfo(
+          id: "pk_placeholder_2",
+          name: "Google Password Manager",
+          createdAt: DateTime.fromMillisecondsSinceEpoch(secondCreated),
+        ),
+      ]);
+      await session.removePasskey("pk_placeholder_1");
+
+      final passkeyCalls = native.calls.skip(1).toList();
+      expect(passkeyCalls.map((call) => call.method), [
+        "passkeyAvailability",
+        "signInWithPasskey",
+        "createPasskey",
+        "listPasskeys",
+        "passkeyRemovalFacts",
+        "removePasskey",
+      ]);
+      expect(passkeyCalls.take(4).map((call) => call.arguments), [
+        anyOf(isNull, isEmpty),
+        anyOf(isNull, isEmpty),
+        anyOf(isNull, isEmpty),
+        anyOf(isNull, isEmpty),
+      ]);
+      expect(passkeyCalls.skip(4).map((call) => call.arguments), [
+        {"passkeyId": "pk_placeholder_1"},
+        {"passkeyId": "pk_placeholder_1"},
+      ]);
+      // A passkey sign-in or creation never sets signed in itself.
+      expect(session.state, isNot(isA<AuthSignedIn>()));
+    });
+
+    test("availability is unavailable unless native says true, and never "
+        "throws", () async {
+      for (final answer in <Object? Function()>[
+        () => false,
+        () => null,
+        () => "true",
+        () => throw _nativeError("unexpected"),
+      ]) {
+        final (session, _) = await _startSession(
+          onCall: (call) => call.method == "configure" ? null : answer(),
+        );
+        expect(
+          await session.passkeyAvailability(),
+          PasskeyAvailability.unavailable,
+        );
+      }
+    });
+
+    test("sign-in and creation map only completed and cancelled", () async {
+      final operations = <Future<AuthAttemptResult> Function(ClerkAuthSession)>[
+        (session) => session.signInWithPasskey(),
+        (session) => session.createPasskey(),
+      ];
+      for (final operation in operations) {
+        final (cancelled, _) = await _startSession(
+          onCall: (call) => "cancelled",
+        );
+        expect(await operation(cancelled), isA<AuthAttemptCancelled>());
+        for (final unknown in ["needsEmailCode", "partial", null]) {
+          final (session, _) = await _startSession(
+            onCall: (call) => call.method == "configure" ? null : unknown,
+          );
+          await expectLater(
+            operation(session),
+            throwsA(isA<AuthUnexpectedFailure>()),
+          );
+        }
+      }
+    });
+
+    // Each operation keeps only the categories that the #476 contract
+    // allows. Every other wire code becomes unexpected.
+    const wireCodes = {
+      "connectivity": TypeMatcher<AuthConnectivityFailure>(),
+      "invalidCode": TypeMatcher<AuthInvalidCodeFailure>(),
+      "sessionEnded": TypeMatcher<AuthSessionEndedFailure>(),
+      "unsupported": TypeMatcher<AuthUnsupportedFailure>(),
+      "rateLimited": TypeMatcher<AuthRateLimitedFailure>(),
+      "accountExists": TypeMatcher<AuthAccountExistsFailure>(),
+      "accountNotFound": TypeMatcher<AuthAccountNotFoundFailure>(),
+      "providerUnavailable": TypeMatcher<AuthProviderUnavailableFailure>(),
+      "passkeyUnavailable": TypeMatcher<AuthPasskeyUnavailableFailure>(),
+      "reverificationRequired":
+          TypeMatcher<AuthReverificationRequiredFailure>(),
+      "unexpected": TypeMatcher<AuthUnexpectedFailure>(),
+    };
+    final operations =
+        <
+          ({
+            String label,
+            Future<Object?> Function(ClerkAuthSession) call,
+            Set<String> allowed,
+          })
+        >[
+          (
+            label: "signInWithPasskey",
+            call: (session) => session.signInWithPasskey(),
+            allowed: {"passkeyUnavailable", "accountNotFound", "connectivity"},
+          ),
+          (
+            label: "createPasskey",
+            call: (session) => session.createPasskey(),
+            allowed: {
+              "passkeyUnavailable",
+              "reverificationRequired",
+              "sessionEnded",
+              "connectivity",
+            },
+          ),
+          (
+            label: "listPasskeys",
+            call: (session) => session.listPasskeys(),
+            allowed: {"sessionEnded", "connectivity"},
+          ),
+          (
+            label: "removePasskey",
+            call: (session) => session.removePasskey("pk_placeholder_1"),
+            allowed: {"reverificationRequired", "sessionEnded", "connectivity"},
+          ),
+        ];
+    for (final operation in operations) {
+      test("${operation.label}() keeps only its allowed categories, without "
+          "native text", () async {
+        for (final MapEntry(key: code, value: matcher) in wireCodes.entries) {
+          final (session, _) = await _startSession(
+            onCall: (call) =>
+                call.method == "configure" ? null : throw _nativeError(code),
+          );
+          Object? thrown;
+          try {
+            await operation.call(session);
+          } on Object catch (error) {
+            thrown = error;
+          }
+          expect(
+            thrown,
+            operation.allowed.contains(code)
+                ? matcher
+                : isA<AuthUnexpectedFailure>(),
+            reason: code,
+          );
+          expect(thrown.toString(), isNot(contains("leak-")));
+        }
+      });
+    }
+
+    test(
+      "a malformed passkey item fails the whole list as unexpected",
+      () async {
+        final malformed = <Object?>[
+          "pk_placeholder_1",
+          {"name": "No id", "createdAt": firstCreated},
+          {"id": "", "name": "Empty id", "createdAt": firstCreated},
+          {"id": "pk_placeholder_1", "createdAt": firstCreated},
+          {"id": "pk_placeholder_1", "name": "Text date", "createdAt": "today"},
+          {
+            "id": "pk_placeholder_1",
+            "name": "Text last use",
+            "createdAt": firstCreated,
+            "lastUsedAt": "today",
+          },
+        ];
+        for (final item in malformed) {
+          final (session, _) = await _startSession(
+            onCall: (call) => call.method == "listPasskeys" ? [item] : null,
+          );
+          await expectLater(
+            session.listPasskeys(),
+            throwsA(isA<AuthUnexpectedFailure>()),
+            reason: "$item",
+          );
+        }
+        final (session, _) = await _startSession(onCall: (call) => null);
+        await expectLater(
+          session.listPasskeys(),
+          throwsA(isA<AuthUnexpectedFailure>()),
+        );
+      },
+    );
+
+    // The last-method rule. Each row names the one fact pair that keeps
+    // another way to sign in, or none.
+    final ruleCases = <({String label, Map<String, bool> facts, bool allowed})>[
+      (label: "nothing remains", facts: {}, allowed: false),
+      (
+        label: "another verified passkey",
+        facts: {"otherVerifiedPasskey": true},
+        allowed: true,
+      ),
+      (
+        label: "verified email with email codes on",
+        facts: {"verifiedEmail": true, "emailCodeEnabled": true},
+        allowed: true,
+      ),
+      (
+        label: "verified email with email codes off",
+        facts: {"verifiedEmail": true},
+        allowed: false,
+      ),
+      (
+        label: "email codes on without a verified email",
+        facts: {"emailCodeEnabled": true},
+        allowed: false,
+      ),
+      (
+        label: "verified Google with Google on",
+        facts: {"verifiedGoogle": true, "googleEnabled": true},
+        allowed: true,
+      ),
+      (
+        label: "verified Google with Google off",
+        facts: {"verifiedGoogle": true},
+        allowed: false,
+      ),
+      (
+        label: "verified Apple with Apple on",
+        facts: {"verifiedApple": true, "appleEnabled": true},
+        allowed: true,
+      ),
+      (
+        label: "verified Apple with Apple off",
+        facts: {"verifiedApple": true},
+        allowed: false,
+      ),
+    ];
+    for (final c in ruleCases) {
+      test(
+        "removal with ${c.label} is ${c.allowed ? "allowed" : "refused"}",
+        () async {
+          final facts = {
+            for (final key in allowingFacts.keys) key: c.facts[key] ?? false,
+          };
+          final (session, native) = await _startSession(
+            onCall: (call) =>
+                call.method == "passkeyRemovalFacts" ? facts : null,
+          );
+          if (c.allowed) {
+            await session.removePasskey("pk_placeholder_1");
+            expect(native.callsTo("removePasskey"), hasLength(1));
+          } else {
+            await expectLater(
+              session.removePasskey("pk_placeholder_1"),
+              throwsA(isA<AuthLastMethodRequiredFailure>()),
+            );
+            expect(native.callsTo("removePasskey"), isEmpty);
+          }
+        },
+      );
+    }
+
+    test("missing or malformed removal facts delete nothing", () async {
+      for (final facts in <Object?>[
+        null,
+        {...allowingFacts}..remove("verifiedGoogle"),
+        {...allowingFacts, "verifiedEmail": "true"},
+      ]) {
+        final (session, native) = await _startSession(
+          onCall: (call) => call.method == "passkeyRemovalFacts" ? facts : null,
+        );
+        await expectLater(
+          session.removePasskey("pk_placeholder_1"),
+          throwsA(isA<AuthUnexpectedFailure>()),
+        );
+        expect(native.callsTo("removePasskey"), isEmpty);
+      }
+    });
+
+    test("passkey calls share the one-attempt rule", () async {
+      final pending = Completer<Object?>();
+      final (session, native) = await _startSession(
+        onCall: (call) =>
+            call.method == "createPasskey" ? pending.future : null,
+      );
+
+      final creation = session.createPasskey();
+      await pumpEventQueue();
+      await expectLater(
+        session.listPasskeys(),
+        throwsA(isA<AuthUnexpectedFailure>()),
+      );
+      await expectLater(
+        session.removePasskey("pk_placeholder_1"),
+        throwsA(isA<AuthUnexpectedFailure>()),
+      );
+      pending.complete("cancelled");
+      expect(await creation, isA<AuthAttemptCancelled>());
+
+      expect(native.callsTo("listPasskeys"), isEmpty);
+      expect(native.callsTo("passkeyRemovalFacts"), isEmpty);
     });
   });
 }

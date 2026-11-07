@@ -31,10 +31,13 @@ enum AccessAction {
   google,
 
   /// Signing in through Apple, on iOS only.
-  apple;
+  apple,
+
+  /// Signing in with a passkey.
+  passkey;
 
   /// Whether this is a provider action, which the account screen runs.
-  bool get isProvider => this == google || this == apple;
+  bool get isProvider => this == google || this == apple || this == passkey;
 }
 
 /// The account access flow. It lives in memory only.
@@ -267,6 +270,13 @@ final class AccessFlowController extends Notifier<AccessFlowState> {
   Future<bool> continueWithApple() => _continueWithProvider(
     AccessAction.apple,
     (session) => session.continueWithApple(),
+  );
+
+  /// Signs in with a passkey, with the same rules as [continueWithGoogle].
+  /// A passkey never needs an email code.
+  Future<bool> continueWithPasskey() => _continueWithProvider(
+    AccessAction.passkey,
+    (session) => session.signInWithPasskey(),
   );
 
   Future<bool> _continueWithProvider(

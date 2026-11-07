@@ -6,6 +6,7 @@ import "package:tailtag_mobile/app/router.dart";
 import "package:tailtag_mobile/core/auth/auth_attempt_result.dart";
 import "package:tailtag_mobile/core/auth/auth_failure.dart";
 import "package:tailtag_mobile/core/auth/auth_state.dart";
+import "package:tailtag_mobile/core/auth/passkey.dart";
 import "package:tailtag_mobile/core/ui/tokens.dart";
 import "package:tailtag_mobile/features/account_access/access_flow_controller.dart";
 import "package:tailtag_mobile/features/account_access/account_access_strings.dart";
@@ -67,6 +68,7 @@ List<String> _accessKeys(TargetPlatform platform) => [
   "access-sign-in",
   if (platform == TargetPlatform.iOS) "access-apple",
   "access-google",
+  "access-passkey",
 ];
 
 void main() {
@@ -294,5 +296,87 @@ void main() {
         );
       });
     }
+  });
+
+  group("passkey sign-in", () {
+    final android = TargetPlatformVariant.only(TargetPlatform.android);
+
+    testWidgets("ends the provider section, and a completed sign-in reaches "
+        "the identity bootstrap", (tester) async {
+      final app = await pumpApp(
+        tester,
+        session: FakeAuthSession(),
+        network: ScriptedNetwork([200]),
+      );
+      expect(
+        tester.getRect(_key("access-google")).bottom,
+        lessThanOrEqualTo(tester.getRect(_key("access-passkey")).top),
+      );
+
+      await app.tap("access-passkey");
+
+      expect(app.session.passkeySignInCalls, 1);
+      expect(app.path, AppPaths.landing);
+    }, variant: android);
+
+    testWidgets("a cancelled sheet returns to the choices with no banner", (
+      tester,
+    ) async {
+      final app = await pumpApp(tester, session: FakeAuthSession());
+      app.session.passkeySignInResult = const AuthAttemptCancelled();
+
+      await app.tap("access-passkey");
+
+      expect(app.path, AppPaths.access);
+      expect(_key("access-provider-failure"), findsNothing);
+      expect(app.network.requests, 0);
+    }, variant: android);
+
+    final failures = <({AuthFailure failure, String text})>[
+      (
+        failure: const AuthPasskeyUnavailableFailure(),
+        text:
+            "This device cannot use a passkey right now. Sign in another "
+            "way.",
+      ),
+      (
+        failure: const AuthAccountNotFoundFailure(),
+        text: "No TailTag account uses that passkey. Sign in another way.",
+      ),
+    ];
+    for (final f in failures) {
+      testWidgets("${f.failure.name} explains it and keeps every choice", (
+        tester,
+      ) async {
+        final app = await pumpApp(tester, session: FakeAuthSession());
+        app.session.passkeySignInFailure = f.failure;
+
+        await app.tap("access-passkey");
+
+        expect(app.path, AppPaths.access);
+        expect(find.text(f.text), findsOneWidget);
+        for (final key in _accessKeys(TargetPlatform.android)) {
+          expect(_enabled(tester, key), isTrue, reason: key);
+        }
+        expect(app.session.passkeySignInCalls, 1, reason: "no retry");
+      }, variant: android);
+    }
+
+    testWidgets("when passkeys are unavailable, a note replaces the button "
+        "and the other choices stay", (tester) async {
+      await pumpApp(
+        tester,
+        session: FakeAuthSession()
+          ..availability = PasskeyAvailability.unavailable,
+      );
+
+      expect(_key("access-passkey"), findsNothing);
+      expect(
+        find.text(AccountAccessStrings.passkeysUnavailable),
+        findsOneWidget,
+      );
+      expect(_key("access-google"), findsOneWidget);
+      expect(_key("access-sign-in"), findsOneWidget);
+    }, variant: android);
   });
 }

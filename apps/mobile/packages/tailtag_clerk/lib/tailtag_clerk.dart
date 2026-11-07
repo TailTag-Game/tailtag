@@ -1,5 +1,5 @@
 /// A thin bridge to the native Clerk SDKs (email code access, Google access,
-/// Apple access on iOS, session reload, and tokens).
+/// Apple access on iOS, passkeys, session reload, and tokens).
 ///
 /// The native side only forwards calls and maps errors. No token, email
 /// address, or Clerk identifier crosses the bridge except the values the
@@ -54,8 +54,79 @@ enum ClerkBridgeErrorCategory {
   /// The provider sign-in cannot run on this device.
   providerUnavailable,
 
+  /// The device or OS cannot use a passkey now.
+  passkeyUnavailable,
+
+  /// Clerk needs a fresh sign-in before a passkey change.
+  reverificationRequired,
+
   /// Anything else.
   unexpected,
+}
+
+/// One verified passkey, as the native side reports it.
+///
+/// [id] exists only to remove the passkey. Never log it.
+final class ClerkPasskey {
+  /// Creates the item.
+  const new({
+    required this.id,
+    required this.name,
+    required this.createdAt,
+    this.lastUsedAt,
+  });
+
+  /// The opaque Clerk passkey identifier.
+  final String id;
+
+  /// The name that Clerk gave the passkey.
+  final String name;
+
+  /// When the passkey was added.
+  final DateTime createdAt;
+
+  /// When the passkey was last used, or null if never.
+  final DateTime? lastUsedAt;
+
+  @override
+  String toString() => "ClerkPasskey($name)";
+}
+
+/// What remains for signing in if one passkey goes away. The native side
+/// reads these values from fresh Clerk state. They carry no identifier.
+final class ClerkRemovalFacts {
+  /// Creates the facts.
+  const new({
+    required this.otherVerifiedPasskey,
+    required this.verifiedEmail,
+    required this.emailCodeEnabled,
+    required this.verifiedGoogle,
+    required this.googleEnabled,
+    required this.verifiedApple,
+    required this.appleEnabled,
+  });
+
+  /// Another verified passkey stays.
+  final bool otherVerifiedPasskey;
+
+  /// The account has a verified email address.
+  final bool verifiedEmail;
+
+  /// The instance allows email codes as a first factor.
+  final bool emailCodeEnabled;
+
+  /// The account has a verified Google external account.
+  final bool verifiedGoogle;
+
+  /// The instance allows Google sign-in.
+  final bool googleEnabled;
+
+  /// The account has a verified Apple external account. Always false on
+  /// Android.
+  final bool verifiedApple;
+
+  /// The instance allows Apple sign-in. Always false on Android.
+  final bool appleEnabled;
 }
 
 /// A failed bridge call.
@@ -123,6 +194,66 @@ final class TailTagClerk {
   /// [ClerkBridgeErrorCategory.unsupported] there.
   Future<String?> continueWithApple() => _invoke<String>("continueWithApple");
 
+  /// Whether the device and the Clerk instance allow passkeys now.
+  ///
+  /// Anything other than a native `true` is false.
+  Future<bool> passkeyAvailability() async =>
+      await _invoke<bool>("passkeyAvailability") ?? false;
+
+  /// Signs in with a passkey from the system sheet.
+  ///
+  /// Returns the native result name: `completed` or `cancelled`. The native
+  /// side returns `completed` only when the session is active.
+  Future<String?> signInWithPasskey() => _invoke<String>("signInWithPasskey");
+
+  /// Adds a passkey for the signed-in user.
+  ///
+  /// Returns `completed` only after Clerk verified the passkey, or
+  /// `cancelled` when the player dismissed the sheet.
+  Future<String?> createPasskey() => _invoke<String>("createPasskey");
+
+  /// The signed-in user's verified passkeys, after a fresh client read.
+  ///
+  /// A malformed item fails the whole call as
+  /// [ClerkBridgeErrorCategory.unexpected].
+  Future<List<ClerkPasskey>> listPasskeys() async {
+    final raw = await _invoke<List<Object?>>("listPasskeys");
+    if (raw == null) {
+      throw const ClerkBridgeException(ClerkBridgeErrorCategory.unexpected);
+    }
+    return [for (final item in raw) _passkeyFrom(item)];
+  }
+
+  /// What remains for signing in if [passkeyId] goes away, after a fresh
+  /// client read. An unknown [passkeyId] fails as
+  /// [ClerkBridgeErrorCategory.unexpected].
+  Future<ClerkRemovalFacts> passkeyRemovalFacts(String passkeyId) async {
+    final raw = await _invoke<Map<Object?, Object?>>("passkeyRemovalFacts", {
+      "passkeyId": passkeyId,
+    });
+    bool fact(String key) => switch (raw?[key]) {
+      final bool value => value,
+      _ => throw const ClerkBridgeException(
+        ClerkBridgeErrorCategory.unexpected,
+      ),
+    };
+    return ClerkRemovalFacts(
+      otherVerifiedPasskey: fact("otherVerifiedPasskey"),
+      verifiedEmail: fact("verifiedEmail"),
+      emailCodeEnabled: fact("emailCodeEnabled"),
+      verifiedGoogle: fact("verifiedGoogle"),
+      googleEnabled: fact("googleEnabled"),
+      verifiedApple: fact("verifiedApple"),
+      appleEnabled: fact("appleEnabled"),
+    );
+  }
+
+  /// Deletes the verified passkey [passkeyId] of the signed-in user. An
+  /// unknown [passkeyId] fails as [ClerkBridgeErrorCategory.unexpected]
+  /// and deletes nothing.
+  Future<void> removePasskey(String passkeyId) =>
+      _invoke<void>("removePasskey", {"passkeyId": passkeyId});
+
   /// Loads the native session state again without clearing storage.
   Future<void> reload() => _invoke<void>("reload");
 
@@ -168,6 +299,31 @@ final class TailTagClerk {
     }
   }
 
+  /// Reads one passkey map: `id` and `name` strings, `createdAt` and an
+  /// optional `lastUsedAt` in epoch milliseconds.
+  static ClerkPasskey _passkeyFrom(Object? item) {
+    if (item case final Map<Object?, Object?> map) {
+      final lastUsedAt = map["lastUsedAt"];
+      if (map
+          case {
+            "id": final String id,
+            "name": final String name,
+            "createdAt": final int createdAt,
+          }
+          when id.isNotEmpty && (lastUsedAt == null || lastUsedAt is int)) {
+        return ClerkPasskey(
+          id: id,
+          name: name,
+          createdAt: DateTime.fromMillisecondsSinceEpoch(createdAt),
+          lastUsedAt: lastUsedAt is int
+              ? DateTime.fromMillisecondsSinceEpoch(lastUsedAt)
+              : null,
+        );
+      }
+    }
+    throw const ClerkBridgeException(ClerkBridgeErrorCategory.unexpected);
+  }
+
   static ClerkBridgeException _exceptionFor(Object error) {
     final category = switch (error) {
       MissingPluginException() => ClerkBridgeErrorCategory.unsupported,
@@ -180,6 +336,9 @@ final class TailTagClerk {
         "accountExists" => ClerkBridgeErrorCategory.accountExists,
         "accountNotFound" => ClerkBridgeErrorCategory.accountNotFound,
         "providerUnavailable" => ClerkBridgeErrorCategory.providerUnavailable,
+        "passkeyUnavailable" => ClerkBridgeErrorCategory.passkeyUnavailable,
+        "reverificationRequired" =>
+          ClerkBridgeErrorCategory.reverificationRequired,
         _ => ClerkBridgeErrorCategory.unexpected,
       },
       _ => ClerkBridgeErrorCategory.unexpected,

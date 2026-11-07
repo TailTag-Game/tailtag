@@ -132,6 +132,13 @@ void main() {
       (stage: const EntryRestoring(), from: "/", sent: false, to: "/start"),
       (stage: ready, from: AppPaths.access, sent: false, to: "/"),
       (stage: ready, from: AppPaths.authProof, sent: false, to: null),
+      (stage: ready, from: AppPaths.passkeys, sent: false, to: "/"),
+      (
+        stage: const EntryPasskeys(),
+        from: AppPaths.landing,
+        sent: false,
+        to: AppPaths.passkeys,
+      ),
     ];
 
     for (final c in cases) {

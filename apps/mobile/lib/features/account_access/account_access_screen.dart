@@ -1,6 +1,8 @@
 import "package:flutter/foundation.dart";
 import "package:flutter/material.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
+import "package:tailtag_mobile/core/auth/auth_providers.dart";
+import "package:tailtag_mobile/core/auth/passkey.dart";
 import "package:tailtag_mobile/core/ui/tailtag_theme.dart";
 import "package:tailtag_mobile/core/ui/tokens.dart";
 import "package:tailtag_mobile/core/ui/widgets/status_banner.dart";
@@ -15,7 +17,8 @@ import "package:tailtag_mobile/features/account_access/google_button.dart";
 /// The two email choices come first. An "or" divider then leads to the
 /// provider section. On iOS, it holds "Continue with Apple" and then
 /// "Continue with Google". Android has no Apple flow, so it shows only
-/// Google. Passkeys (#480) join that section.
+/// Google. "Sign in with a passkey" ends the section when passkeys work on
+/// this device. Otherwise a note says that they do not.
 class AccountAccessScreen extends ConsumerWidget {
   /// Creates the screen. [onChoose] opens email entry after the choice.
   /// [onProviderCode] opens code entry when a provider attempt needs an
@@ -31,6 +34,9 @@ class AccountAccessScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final flow = ref.watch(accessFlowProvider);
+    // Unknown while it loads: the section then shows neither the button nor
+    // the note.
+    final passkeys = ref.watch(passkeyAvailabilityProvider).value;
     final notifier = ref.read(accessFlowProvider.notifier);
 
     void choose(AccessMode mode) {
@@ -113,6 +119,26 @@ class AccountAccessScreen extends ConsumerWidget {
                       ? null
                       : () => continueWith(notifier.continueWithGoogle),
                 ),
+                if (passkeys == PasskeyAvailability.available)
+                  TailTagButton(
+                    key: const Key("access-passkey"),
+                    label: AccountAccessStrings.signInWithPasskey,
+                    icon: Icons.key,
+                    variant: TailTagButtonVariant.secondary,
+                    loading: flow.pending == AccessAction.passkey,
+                    onPressed: flow.isPending
+                        ? null
+                        : () => continueWith(notifier.continueWithPasskey),
+                  )
+                else if (passkeys == PasskeyAvailability.unavailable)
+                  Text(
+                    AccountAccessStrings.passkeysUnavailable,
+                    key: const Key("access-passkeys-unavailable"),
+                    style: textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
               ],
             ),
           ),

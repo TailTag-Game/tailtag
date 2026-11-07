@@ -9,6 +9,7 @@ import "package:tailtag_mobile/features/account_access/access_flow_controller.da
 import "package:tailtag_mobile/features/account_access/account_access_screen.dart";
 import "package:tailtag_mobile/features/account_access/code_entry_screen.dart";
 import "package:tailtag_mobile/features/account_access/email_entry_screen.dart";
+import "package:tailtag_mobile/features/passkeys/passkey_screen.dart";
 
 /// The route paths of the entry stages and the account-access flow.
 abstract final class AppPaths {
@@ -44,6 +45,9 @@ abstract final class AppPaths {
   /// cannot show the loading screen.
   static const identityFailed = "/identity-error";
 
+  /// The passkey screen.
+  static const passkeys = "/passkeys";
+
   /// The neutral landing.
   static const landing = "/";
 
@@ -60,6 +64,7 @@ String pathForStage(EntryStage stage) => switch (stage) {
   EntrySignOutFailed() => AppPaths.signOutFailed,
   EntryIdentityLoading() => AppPaths.identity,
   EntryIdentityFailed() => AppPaths.identityFailed,
+  EntryPasskeys() => AppPaths.passkeys,
   EntryReady() => AppPaths.landing,
 };
 
@@ -173,6 +178,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppPaths.identityFailed,
         builder: (context, state) => const IdentityFailedScreen(),
+      ),
+      GoRoute(
+        path: AppPaths.passkeys,
+        builder: (context, state) {
+          final entry = ref.read(entryControllerProvider.notifier);
+          return PasskeyScreen(
+            onClose: entry.closePasskeys,
+            onSignOut: entry.signOut,
+          );
+        },
       ),
       GoRoute(
         path: AppPaths.landing,

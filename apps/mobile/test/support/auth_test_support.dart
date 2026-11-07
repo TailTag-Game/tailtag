@@ -5,6 +5,7 @@ import "package:tailtag_mobile/core/auth/auth_attempt_result.dart";
 import "package:tailtag_mobile/core/auth/auth_failure.dart";
 import "package:tailtag_mobile/core/auth/auth_session.dart";
 import "package:tailtag_mobile/core/auth/auth_state.dart";
+import "package:tailtag_mobile/core/auth/passkey.dart";
 
 /// An [AuthSession] for tests that need neither Clerk nor a device.
 ///
@@ -60,6 +61,49 @@ final class FakeAuthSession implements AuthSession {
   /// The result of a successful Apple call, with the same rules as
   /// [googleResult].
   AuthAttemptResult appleResult = const AuthAttemptCompleted();
+
+  /// What [passkeyAvailability] reports.
+  PasskeyAvailability availability = PasskeyAvailability.available;
+
+  /// The player's verified passkeys, as Clerk holds them.
+  final List<PasskeyInfo> passkeys = [];
+
+  /// The failure of the next passkey sign-in, or null.
+  AuthFailure? passkeySignInFailure;
+
+  /// The result of a successful passkey sign-in. A completed result moves
+  /// the state to [AuthSignedIn].
+  AuthAttemptResult passkeySignInResult = const AuthAttemptCompleted();
+
+  /// The failure of the next passkey creation, or null.
+  AuthFailure? createFailure;
+
+  /// Whether a failed creation still adds the passkey, as a lost response
+  /// after Clerk verified it does.
+  bool createAppliesDespiteFailure = false;
+
+  /// The result of a passkey creation that does not fail. A completed
+  /// result adds a passkey to [passkeys].
+  AuthAttemptResult createResult = const AuthAttemptCompleted();
+
+  /// The failures of the next list reads, in order. Each read takes one.
+  final List<AuthFailure> listFailures = [];
+
+  /// The failure of the next removal, or null.
+  AuthFailure? removeFailure;
+
+  /// Whether a failed removal still removes the passkey, as a lost response
+  /// does.
+  bool removeAppliesDespiteFailure = false;
+
+  /// When set, passkey creation and removal wait for it.
+  Completer<void>? passkeyWriteGate;
+
+  int passkeySignInCalls = 0;
+  int createCalls = 0;
+  int listCalls = 0;
+  final List<String> removeCalls = [];
+  int _created = 0;
 
   /// The failure of the next sign-out, or null.
   AuthFailure? signOutFailure;
@@ -155,6 +199,71 @@ final class FakeAuthSession implements AuthSession {
     appleCalls++;
     return _provider(appleFailure, appleResult);
   });
+
+  @override
+  Future<PasskeyAvailability> passkeyAvailability() async => availability;
+
+  @override
+  Future<AuthAttemptResult> signInWithPasskey() => _attempt(() async {
+    passkeySignInCalls++;
+    return _provider(passkeySignInFailure, passkeySignInResult);
+  });
+
+  @override
+  Future<AuthAttemptResult> createPasskey() => _attempt(() async {
+    createCalls++;
+    await passkeyWriteGate?.future;
+    final failure = createFailure;
+    if (failure != null) {
+      if (createAppliesDespiteFailure) {
+        _addPasskey();
+      }
+      throw failure;
+    }
+    if (createResult is AuthAttemptCompleted) {
+      _addPasskey();
+    }
+    return createResult;
+  });
+
+  @override
+  Future<List<PasskeyInfo>> listPasskeys() => _attempt(() async {
+    listCalls++;
+    if (listFailures.isNotEmpty) {
+      throw listFailures.removeAt(0);
+    }
+    return List.unmodifiable(passkeys);
+  });
+
+  @override
+  Future<void> removePasskey(String passkeyId) => _attempt(() async {
+    removeCalls.add(passkeyId);
+    await passkeyWriteGate?.future;
+    final failure = removeFailure;
+    if (failure != null) {
+      if (removeAppliesDespiteFailure) {
+        passkeys.removeWhere((passkey) => passkey.id == passkeyId);
+      }
+      throw failure;
+    }
+    passkeys.removeWhere((passkey) => passkey.id == passkeyId);
+  });
+
+  /// Adds a passkey with a predictable name to [passkeys].
+  void addPasskey({String? name, DateTime? lastUsedAt}) =>
+      _addPasskey(name: name, lastUsedAt: lastUsedAt);
+
+  void _addPasskey({String? name, DateTime? lastUsedAt}) {
+    _created++;
+    passkeys.add(
+      PasskeyInfo(
+        id: "pk_placeholder_$_created",
+        name: name ?? "Passkey $_created",
+        createdAt: DateTime(2026, 11, _created),
+        lastUsedAt: lastUsedAt,
+      ),
+    );
+  }
 
   /// Ends any bound attempt, then fails with [failure] or returns [result],
   /// as the native provider flows do.

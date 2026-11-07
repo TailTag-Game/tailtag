@@ -12,13 +12,15 @@ final _directive = RegExp(
 );
 
 /// The only `core/auth/` files a feature may import: the session interface,
-/// its state, result, and failure model, and the providers that expose them.
+/// its state, result, failure, and passkey models, and the providers that
+/// expose them.
 const _publicAuthFiles = {
   "auth_attempt_result.dart",
   "auth_session.dart",
   "auth_state.dart",
   "auth_failure.dart",
   "auth_providers.dart",
+  "passkey.dart",
 };
 
 /// [target] as a path inside `lib/`, or null when it points elsewhere.
