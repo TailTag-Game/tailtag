@@ -156,9 +156,40 @@ Clerk Android `1.2.1` keeps its credential-flow exception types internal to Kotl
 
 A missing Activity therefore maps to `providerUnavailable`, not `unexpected`. The Activity hand-off above prevents it.
 
-- After a provider code screen, Back ends the attempt on the Dart side. The native binding stays until the next start call or Google call replaces it. Verify and resend open only from a code screen, so no stale code can complete another account.
+- After a provider code screen, Back ends the attempt on the Dart side. The native binding stays until the next start call or provider call replaces it. Verify and resend open only from a code screen, so no stale code can complete another account.
 - iOS has no `providerUnavailable` source for Google. The browser session has no device account to miss.
 - The privacy rule covers TailTag-owned logs. Clerk Android itself writes generic Credential Manager messages to logcat, and TailTag cannot turn that off. Those messages hold no token or email address.
+
+### Apple access additions
+
+The owner approved these additions for #479 on 2026-11-06. They change no operation, result, or failure category.
+
+- iOS calls `signInWithApple(requestedScopes: [.email], transferable: true)`. The app never asks for the name, so Clerk stores no Apple name, and every Apple player enters a display name in TailTag onboarding. The Clerk Development instance has optional first and last names on, so the SDK default `[.email, .fullName]` stores the name there.
+- Google and Apple share one provider-outcome mapping in the iOS plugin, from the [SDK status mapping](#sdk-status-mapping).
+- On Android, the plugin has no `continueWithApple` method. Its "not implemented" answer reaches Dart as `MissingPluginException`, which maps to `unsupported`. The Android plugin needs no change.
+- `continueWithApple()` keeps only `providerUnavailable`, `unsupported`, `connectivity`, and `unexpected`. The Dart session turns every other category into `unexpected`.
+- The account button is the system `ASAuthorizationAppleIDButton` (type `continue`, black in the light theme, white in the dark theme) in an iOS platform view. It sits above Google. A Flutter button around it owns the tap, the focus, the disabled state, and the semantics.
+- The owner first approved a custom Flutter button with Apple's logo artwork. Apple's artwork license allows the artwork only for Apple Developer Program members and only inside apps on Apple platforms. It also forbids standalone redistribution. A public repository and an Android build that bundles every Flutter asset both conflict with those terms. The owner then chose the system button, which needs no artwork.
+- The Runner target holds the Sign in with Apple entitlement. The repository holds no team ID. Device builds read `DEVELOPMENT_TEAM` from an optional, untracked `ios/Flutter/Signing.local.xcconfig`. Simulator builds and `--no-codesign` builds pass without a team.
+- Live Apple proof runs on a physical iPhone, because Clerk advises it and simulators can fail with `ASAuthorizationError.unknown`.
+- The privacy rule covers TailTag-owned logs. ClerkKit `1.6.1` has no "off" log level, and `.error` is its lowest level. Its error logs can show a Clerk session ID inside an endpoint URL in the device log. They never show request bodies, so the Apple identity token does not appear there. TailTag cannot turn those SDK logs off.
+
+The iOS plugin maps Apple outcomes as follows:
+
+| Signal | TailTag result |
+| --- | --- |
+| `ASAuthorizationError.canceled` | `cancelled` |
+| `ASAuthorizationError.unknown`. ClerkKit reads it as a missing Apple Account (`Helpers/SignInWithAppleHelper.swift`). | `providerUnavailable` |
+| Any other `ASAuthorizationError` code | `unexpected` |
+| A `URLError` connectivity code | `connectivity` |
+| `ClerkAPIError` | The shared email table, then the Dart narrowing above |
+| `ClerkClientError`, such as an empty identity token, or anything else | `unexpected` |
+
+These items stay out of #479. They belong to App Store or Production readiness:
+
+- A launch-time Apple credential-state check (`getCredentialState`) and the revoked-credential notification.
+- In-app account deletion and Apple token revocation (App Review Guideline 5.1.1(v)).
+- Registration of Clerk's email source with Apple's Private Email Relay. Without it, Clerk email does not reach relay addresses. Apple-verified addresses need no email code, so the Development instance does not need it.
 
 ### Attempt result
 
@@ -191,7 +222,7 @@ This stops a code for an abandoned attempt from completing a different account.
 | Platform | Source | Evidence |
 | --- | --- | --- |
 | iOS | `CancellationError` from the SDK browser session | `Utils/WebAuthentication.swift:104` |
-| iOS | `ASAuthorizationError.canceled` (Apple sheet and passkey sheet) | Compile probe |
+| iOS | `ASAuthorizationError.canceled` (Apple sheet and passkey sheet) | Compile probe. The iOS plugin maps it for Apple (#479). |
 | iOS | `ASWebAuthenticationSessionError.canceledLogin` | Compile probe |
 | Android | `SSOCancellationException` in `ClerkResult.Failure.throwable` (browser OAuth) | `com.clerk.api.sso.SSOCancellationException` |
 | Android | Credential Manager cancellation (Google) | Clerk turns `GetCredentialCancellationException` into its own cancellation type and marks it with `shouldSuppressCredentialFlowError` (#478). Passkeys stay with #480. |
@@ -347,7 +378,7 @@ The AAR also merges `SharedSessionSyncProvider`, which is exported but disabled.
 
 ## Signing identities
 
-iOS Sign in with Apple, Associated Domains, and passkeys need a paid Apple Developer team. The Runner project has no `DEVELOPMENT_TEAM` today. These iOS methods stay blocked until the owner records the team ID in #479 and #480. Email and Google on iOS do not need it.
+iOS Sign in with Apple, Associated Domains, and passkeys need a paid Apple Developer team. The Runner project has no `DEVELOPMENT_TEAM` today. These iOS methods stay blocked until the owner records the team ID in #479 and #480. Email and Google on iOS do not need it. The team ID never enters the repository. Each contributor puts it in the untracked `ios/Flutter/Signing.local.xcconfig` (see [Apple access additions](#apple-access-additions)).
 
 On Android, every machine has its own debug keystore, so every contributor has a different fingerprint. The owner's debug keystore SHA-1 and SHA-256 fingerprints are the first registered identities.
 
@@ -406,7 +437,7 @@ stateDiagram-v2
 | Screen | Shows | Actions | Failure states |
 | --- | --- | --- | --- |
 | Account access (Android) | Email, Google, and passkey choices | Sign in with email, create an account with email, continue with Google, sign in with a passkey | Connectivity, rate limit, provider unavailable, passkey unavailable (explains and keeps the other choices) |
-| Account access (iOS) | Email, Google, Apple, and passkey choices | As Android, plus continue with Apple | As Android |
+| Account access (iOS) | Email, Apple, Google, and passkey choices. Apple comes before Google. | As Android, plus continue with Apple | As Android |
 | Email code | The entered email address and a code field | Submit, resend, change email | Invalid code, rate limit, connectivity |
 | Passkey controls | The player's passkeys by name and date | Add passkey, remove passkey, close | Passkey unavailable, reverification required, last method required, connectivity |
 | Onboarding | Handle and Display name | Continue, sign out, passkey controls | Field errors, read failure, unknown outcome (#475) |

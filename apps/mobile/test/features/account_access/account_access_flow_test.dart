@@ -264,13 +264,21 @@ void main() {
   group("access and entry screens meet the accessibility rules at 200% "
       "text", () {
     final screens =
-        <({String label, Future<void> Function(WidgetTester) open})>[
+        <
+          ({
+            String label,
+            Future<void> Function(WidgetTester) open,
+            TargetPlatform platform,
+          })
+        >[
           (
             label: "account access",
+            platform: TargetPlatform.android,
             open: (tester) => pumpApp(tester, session: FakeAuthSession()),
           ),
           (
             label: "email entry with an error",
+            platform: TargetPlatform.android,
             open: (tester) async {
               final app = await _emailEntry(tester);
               app.session.startFailure = const AuthAccountExistsFailure();
@@ -278,9 +286,14 @@ void main() {
               await app.tap("access-send-code");
             },
           ),
-          (label: "code entry", open: _codeEntry),
+          (
+            label: "code entry",
+            open: _codeEntry,
+            platform: TargetPlatform.android,
+          ),
           (
             label: "account access with a Google failure",
+            platform: TargetPlatform.android,
             open: (tester) async {
               final app = await pumpApp(tester, session: FakeAuthSession());
               app.session.googleFailure =
@@ -289,7 +302,18 @@ void main() {
             },
           ),
           (
+            label: "account access on iOS with an Apple failure",
+            platform: TargetPlatform.iOS,
+            open: (tester) async {
+              fakePlatformViews();
+              final app = await pumpApp(tester, session: FakeAuthSession());
+              app.session.appleFailure = const AuthProviderUnavailableFailure();
+              await app.tap("access-apple");
+            },
+          ),
+          (
             label: "auth recovery",
+            platform: TargetPlatform.android,
             open: (tester) => pumpApp(
               tester,
               session: FakeAuthSession(
@@ -318,7 +342,7 @@ void main() {
         }
         expect(find.text(UiStrings.unknownError), findsNothing);
         semantics.dispose();
-      });
+      }, variant: TargetPlatformVariant.only(s.platform));
     }
   });
 }

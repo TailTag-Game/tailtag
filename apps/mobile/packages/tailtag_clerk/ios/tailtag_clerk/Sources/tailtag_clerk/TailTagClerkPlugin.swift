@@ -11,13 +11,17 @@ import Observation
 /// this file as one error code and nothing else.
 ///
 /// An email code belongs to one bound attempt: the sign-in or sign-up that the
-/// last start call or Google call created. Resend and verify act only on that
-/// attempt. A new start, a Google call, or a sign-out ends it.
+/// last start call or provider call created. Resend and verify act only on
+/// that attempt. A new start, a provider call, or a sign-out ends it.
 ///
 /// Google uses the SDK-owned browser session (`ASWebAuthenticationSession`).
 /// The session is ephemeral, so it keeps no Safari cookies after sign-out.
 /// ClerkKit consumes the `app.tailtag://callback` redirect inside that
 /// session, so the Runner registers no URL scheme.
+///
+/// Apple uses the native Apple sheet inside ClerkKit. ClerkKit creates the
+/// nonce and reads the identity token. This file never sees either one, and
+/// it asks Apple for the email address only, never the name.
 public final class TailTagClerkPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     /// How long the SDK can stay unloaded after `configure` before the bridge
     /// reports a startup failure. ClerkKit 1.6.1 retries its startup refresh
@@ -40,6 +44,7 @@ public final class TailTagClerkPlugin: NSObject, FlutterPlugin, FlutterStreamHan
         let states = FlutterEventChannel(
             name: "app.tailtag/clerk/state", binaryMessenger: registrar.messenger())
         states.setStreamHandler(instance)
+        registrar.register(AppleButtonViewFactory(), withId: AppleButtonViewFactory.viewType)
     }
 
     // MARK: Method channel
@@ -142,7 +147,20 @@ public final class TailTagClerkPlugin: NSObject, FlutterPlugin, FlutterStreamHan
                 if Self.isCancellation(error) { return "cancelled" }
                 throw error
             }
-            return try await googleOutcome(result)
+            return try await providerOutcome(result)
+        case "continueWithApple":
+            guard configured else { throw BridgeError.unexpected }
+            clearBinding()
+            let result: TransferFlowResult
+            do {
+                result = try await Clerk.shared.auth.signInWithApple(
+                    requestedScopes: [.email],
+                    transferable: true)
+            } catch {
+                if Self.isCancellation(error) { return "cancelled" }
+                throw error
+            }
+            return try await providerOutcome(result)
         case "reload":
             guard configured else { throw BridgeError.unexpected }
             try await reload()
@@ -162,13 +180,13 @@ public final class TailTagClerkPlugin: NSObject, FlutterPlugin, FlutterStreamHan
         }
     }
 
-    // MARK: Google outcome
+    // MARK: Provider outcome
 
-    /// Maps a Google result to a TailTag result name. `completed` needs a
+    /// Maps a Google or Apple result to a TailTag result name. `completed` needs a
     /// complete attempt and an active session. An attempt that needs an email
     /// code binds this plugin and has a sent code.
     @MainActor
-    private func googleOutcome(_ result: TransferFlowResult) async throws -> String {
+    private func providerOutcome(_ result: TransferFlowResult) async throws -> String {
         switch result {
         case .signIn(let signIn):
             switch signIn.status {
@@ -223,13 +241,17 @@ public final class TailTagClerkPlugin: NSObject, FlutterPlugin, FlutterStreamHan
         return "completed"
     }
 
-    /// A dismissed browser session. ClerkKit throws `CancellationError`
-    /// (`Utils/WebAuthentication.swift`). The system can also report
-    /// `canceledLogin`.
+    /// A dismissed browser session or Apple sheet. ClerkKit throws
+    /// `CancellationError` for the browser (`Utils/WebAuthentication.swift`).
+    /// The system can also report `canceledLogin`. The Apple sheet reports
+    /// `ASAuthorizationError.canceled`.
     private static func isCancellation(_ error: Error) -> Bool {
         if error is CancellationError { return true }
         if let webError = error as? ASWebAuthenticationSessionError {
             return webError.code == .canceledLogin
+        }
+        if let appleError = error as? ASAuthorizationError {
+            return appleError.code == .canceled
         }
         return false
     }
@@ -367,6 +389,12 @@ public final class TailTagClerkPlugin: NSObject, FlutterPlugin, FlutterStreamHan
         }
         if let urlError = error as? URLError {
             return connectivityCodes.contains(urlError.code) ? "connectivity" : "unexpected"
+        }
+        // `unknown` is what the Apple sheet reports when the device has no
+        // usable Apple Account. ClerkKit reads it the same way
+        // (`SignInWithAppleHelper.swift`). Every other Apple code is unexpected.
+        if let appleError = error as? ASAuthorizationError {
+            return appleError.code == .unknown ? "providerUnavailable" : "unexpected"
         }
         if let apiError = error as? ClerkAPIError {
             switch apiError.code {

@@ -1,3 +1,4 @@
+import "package:flutter/foundation.dart";
 import "package:flutter/material.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 import "package:tailtag_mobile/core/ui/tailtag_theme.dart";
@@ -6,13 +7,15 @@ import "package:tailtag_mobile/core/ui/widgets/status_banner.dart";
 import "package:tailtag_mobile/core/ui/widgets/tailtag_button.dart";
 import "package:tailtag_mobile/features/account_access/access_flow_controller.dart";
 import "package:tailtag_mobile/features/account_access/account_access_strings.dart";
+import "package:tailtag_mobile/features/account_access/apple_button.dart";
 import "package:tailtag_mobile/features/account_access/google_button.dart";
 
 /// The signed-out entry screen: create an account or sign in.
 ///
 /// The two email choices come first. An "or" divider then leads to the
-/// provider section, which holds "Continue with Google". Apple (#479) and
-/// passkeys (#480) join that section.
+/// provider section. On iOS, it holds "Continue with Apple" and then
+/// "Continue with Google". Android has no Apple flow, so it shows only
+/// Google. Passkeys (#480) join that section.
 class AccountAccessScreen extends ConsumerWidget {
   /// Creates the screen. [onChoose] opens email entry after the choice.
   /// [onProviderCode] opens code entry when a provider attempt needs an
@@ -35,14 +38,17 @@ class AccountAccessScreen extends ConsumerWidget {
       onChoose();
     }
 
-    Future<void> continueWithGoogle() async {
-      if (await notifier.continueWithGoogle()) {
+    Future<void> continueWith(Future<bool> Function() call) async {
+      if (await call()) {
         onProviderCode();
       }
     }
 
-    final providerFailure = flow.failedAction == AccessAction.google
-        ? flow.failure
+    final failedAction = flow.failedAction;
+    final failure = flow.failure;
+    final providerFailure =
+        failedAction != null && failedAction.isProvider && failure != null
+        ? AccountAccessStrings.providerFailureMessage(failedAction, failure)
         : null;
 
     final textTheme = Theme.of(context).textTheme;
@@ -72,9 +78,7 @@ class AccountAccessScreen extends ConsumerWidget {
                   StatusBanner(
                     key: const Key("access-provider-failure"),
                     tone: StatusTone.error,
-                    message: AccountAccessStrings.failureMessage(
-                      providerFailure,
-                    ),
+                    message: providerFailure,
                   ),
                 const SizedBox(height: TokenSpacing.sm),
                 TailTagButton(
@@ -93,11 +97,21 @@ class AccountAccessScreen extends ConsumerWidget {
                       : () => choose(AccessMode.signIn),
                 ),
                 const _OrDivider(),
+                if (defaultTargetPlatform == TargetPlatform.iOS)
+                  AppleButton(
+                    key: const Key("access-apple"),
+                    loading: flow.pending == AccessAction.apple,
+                    onPressed: flow.isPending
+                        ? null
+                        : () => continueWith(notifier.continueWithApple),
+                  ),
                 GoogleButton(
                   key: const Key("access-google"),
                   label: AccountAccessStrings.continueWithGoogle,
                   loading: flow.pending == AccessAction.google,
-                  onPressed: flow.isPending ? null : continueWithGoogle,
+                  onPressed: flow.isPending
+                      ? null
+                      : () => continueWith(notifier.continueWithGoogle),
                 ),
               ],
             ),

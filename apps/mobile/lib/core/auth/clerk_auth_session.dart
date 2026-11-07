@@ -95,24 +95,36 @@ final class ClerkAuthSession implements AuthSession {
   Future<AuthAttemptResult> verifyEmailCode(String code) =>
       _attempt(() async => _resultFor(await _bridge.verifyEmailCode(code)));
 
-  /// The state is not set here: [AuthSignedIn] comes only from the native
-  /// state events, which report the SDK session status.
-  ///
   /// The contract allows only three failures here. The native side maps
   /// Clerk errors with the shared email table, so any other category, such
   /// as a rate limit, becomes [AuthUnexpectedFailure].
   @override
-  Future<AuthAttemptResult> continueWithGoogle() async {
+  Future<AuthAttemptResult> continueWithGoogle() =>
+      _provider(_bridge.continueWithGoogle);
+
+  /// Like [continueWithGoogle], and [AuthUnsupportedFailure] also stays,
+  /// because Android has no Apple flow. Its plugin has no Apple method.
+  @override
+  Future<AuthAttemptResult> continueWithApple() =>
+      _provider(_bridge.continueWithApple, allowUnsupported: true);
+
+  /// Runs one provider [call]. The state is not set here: [AuthSignedIn]
+  /// comes only from the native state events, which report the SDK session
+  /// status. Only the allowed failure categories stay. Every other one
+  /// becomes [AuthUnexpectedFailure].
+  Future<AuthAttemptResult> _provider(
+    Future<String?> Function() call, {
+    bool allowUnsupported = false,
+  }) async {
     try {
-      return await _attempt(
-        () async => _resultFor(await _bridge.continueWithGoogle()),
-      );
-    } on AuthProviderUnavailableFailure {
-      rethrow;
-    } on AuthConnectivityFailure {
-      rethrow;
-    } on AuthFailure {
-      throw const AuthUnexpectedFailure();
+      return await _attempt(() async => _resultFor(await call()));
+    } on AuthFailure catch (failure) {
+      throw switch (failure) {
+        AuthProviderUnavailableFailure() ||
+        AuthConnectivityFailure() => failure,
+        AuthUnsupportedFailure() when allowUnsupported => failure,
+        _ => const AuthUnexpectedFailure(),
+      };
     }
   }
 

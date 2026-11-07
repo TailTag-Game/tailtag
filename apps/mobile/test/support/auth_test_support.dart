@@ -54,6 +54,13 @@ final class FakeAuthSession implements AuthSession {
   /// state to [AuthSignedIn]. A needs-code result binds an attempt.
   AuthAttemptResult googleResult = const AuthAttemptCompleted();
 
+  /// The failure of the next Apple call, or null.
+  AuthFailure? appleFailure;
+
+  /// The result of a successful Apple call, with the same rules as
+  /// [googleResult].
+  AuthAttemptResult appleResult = const AuthAttemptCompleted();
+
   /// The failure of the next sign-out, or null.
   AuthFailure? signOutFailure;
 
@@ -71,6 +78,7 @@ final class FakeAuthSession implements AuthSession {
   final List<String> verifyCodeCalls = [];
   int resendCalls = 0;
   int googleCalls = 0;
+  int appleCalls = 0;
 
   /// Every access call that reached this session, including refused ones.
   int accessCalls = 0;
@@ -139,9 +147,20 @@ final class FakeAuthSession implements AuthSession {
   @override
   Future<AuthAttemptResult> continueWithGoogle() => _attempt(() async {
     googleCalls++;
+    return _provider(googleFailure, googleResult);
+  });
+
+  @override
+  Future<AuthAttemptResult> continueWithApple() => _attempt(() async {
+    appleCalls++;
+    return _provider(appleFailure, appleResult);
+  });
+
+  /// Ends any bound attempt, then fails with [failure] or returns [result],
+  /// as the native provider flows do.
+  AuthAttemptResult _provider(AuthFailure? failure, AuthAttemptResult result) {
     _bound = false;
-    _throwIfSet(googleFailure);
-    final result = googleResult;
+    _throwIfSet(failure);
     switch (result) {
       case AuthAttemptCompleted():
         emit(const AuthSignedIn());
@@ -151,7 +170,7 @@ final class FakeAuthSession implements AuthSession {
         break;
     }
     return result;
-  });
+  }
 
   @override
   Future<void> signOut() async {

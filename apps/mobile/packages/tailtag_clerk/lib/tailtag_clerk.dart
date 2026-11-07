@@ -1,5 +1,5 @@
 /// A thin bridge to the native Clerk SDKs (email code access, Google access,
-/// session reload, and tokens).
+/// Apple access on iOS, session reload, and tokens).
 ///
 /// The native side only forwards calls and maps errors. No token, email
 /// address, or Clerk identifier crosses the bridge except the values the
@@ -115,6 +115,13 @@ final class TailTagClerk {
   /// session is active. For `needsEmailCode`, the native side binds to the
   /// attempt and has already sent the code. Any earlier binding ends.
   Future<String?> continueWithGoogle() => _invoke<String>("continueWithGoogle");
+
+  /// Signs in or creates an account through Apple, on iOS only.
+  ///
+  /// The results are the same as for [continueWithGoogle]. Android has no
+  /// Apple method, so the call fails with
+  /// [ClerkBridgeErrorCategory.unsupported] there.
+  Future<String?> continueWithApple() => _invoke<String>("continueWithApple");
 
   /// Loads the native session state again without clearing storage.
   Future<void> reload() => _invoke<void>("reload");
