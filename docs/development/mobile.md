@@ -657,9 +657,11 @@ confirms these items:
 
 After the note, fetch `/.well-known/apple-app-site-association` and
 `/.well-known/assetlinks.json` from the Frontend API host. Make sure that they
-list the iOS and Android apps. Google's Digital Asset Links `statements:list`
-API must accept the Android file for
-`delegate_permission/common.get_login_creds`.
+list the iOS and Android apps. Then call Google's Digital Asset Links
+`statements:list` API for the Frontend API host and the relation
+`delegate_permission/common.get_login_creds`. The response must return a
+statement for `app.tailtag` with the registered SHA-256 fingerprint. A
+successful response with no such statement fails this check.
 
 The proof runs on a physical Android phone and a physical iPhone. On each
 device, run these steps:
@@ -667,9 +669,10 @@ device, run these steps:
 1. Sign in with email or Google. Add a passkey, and make sure that it shows in
    the list.
 2. Sign out. Sign in with the passkey. Make sure that the session has the same
-   TailTag identity. `/debug/auth` shows only that an ID came back, so compare
-   the values with a temporary local print of `CurrentUser.id`. Never commit
-   the print.
+   TailTag identity. `/debug/auth` shows only that an ID came back. To compare
+   the values, add a temporary local check that keeps `CurrentUser.id` in
+   memory and reports only whether the values match. Never log the value, and
+   never commit the check.
 3. Start to add a passkey and dismiss the sheet. The list shows no new row.
 4. Remove the passkey while another sign-in method remains.
 5. Sign in with the removed passkey that the password manager still holds. The

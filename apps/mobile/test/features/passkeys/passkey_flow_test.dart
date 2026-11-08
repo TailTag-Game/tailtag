@@ -359,25 +359,32 @@ void main() {
       AuthConnectivityFailure(),
       AuthUnexpectedFailure(),
     ]) {
-      testWidgets("a removal that ends in ${failure.name} reads the list and "
-          "reports the unknown outcome", (tester) async {
-        final app = await _onPasskeys(
-          tester,
-          setUp: (session) => session
-            ..addPasskey(name: "iCloud Keychain")
-            ..removeFailure = failure
-            ..removeAppliesDespiteFailure = true,
-        );
+      for (final applied in const [true, false]) {
+        testWidgets("a removal that ends in ${failure.name} and "
+            "${applied ? "applied" : "did not apply"} reads the list and "
+            "reports the unknown outcome", (tester) async {
+          final app = await _onPasskeys(
+            tester,
+            setUp: (session) => session
+              ..addPasskey(name: "iCloud Keychain")
+              ..removeFailure = failure
+              ..removeAppliesDespiteFailure = applied,
+          );
 
-        await _tapRemove(app, "iCloud Keychain");
-        await app.tap("passkeys-remove-confirm");
+          await _tapRemove(app, "iCloud Keychain");
+          await app.tap("passkeys-remove-confirm");
 
-        expect(app.session.listCalls, 2);
-        expect(find.text(PasskeyStrings.unconfirmed), findsOneWidget);
-        expect(find.text(PasskeyStrings.removed), findsNothing);
-        expect(find.text("iCloud Keychain"), findsNothing);
-        expect(app.session.removeCalls, hasLength(1), reason: "no retry");
-      });
+          expect(app.session.listCalls, 2);
+          expect(find.text(PasskeyStrings.unconfirmed), findsOneWidget);
+          expect(find.text(PasskeyStrings.removed), findsNothing);
+          expect(
+            find.text("iCloud Keychain"),
+            applied ? findsNothing : findsOneWidget,
+          );
+          expect(_enabled(tester, "passkeys-add"), isTrue);
+          expect(app.session.removeCalls, hasLength(1), reason: "no retry");
+        });
+      }
     }
 
     testWidgets("a removal that a fresh read still lists is unconfirmed", (
