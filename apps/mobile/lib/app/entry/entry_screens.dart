@@ -47,6 +47,10 @@ abstract final class EntryStrings {
   /// The sign-out action.
   static const signOut = "Sign out";
 
+  /// The action that opens the passkey screen. Every signed-in entry screen
+  /// that #481 and #482 add uses it too.
+  static const managePasskeys = "Manage passkeys";
+
   /// The neutral landing text. It is not a finished home.
   static const landing = "You are signed in.";
 
@@ -201,6 +205,12 @@ class IdentityFailedScreen extends ConsumerWidget {
           onPressed: controller.retryIdentity,
         ),
         TailTagButton(
+          key: const Key("entry-manage-passkeys"),
+          label: EntryStrings.managePasskeys,
+          variant: TailTagButtonVariant.secondary,
+          onPressed: controller.openPasskeys,
+        ),
+        TailTagButton(
           key: const Key("entry-sign-out"),
           label: EntryStrings.signOut,
           variant: TailTagButtonVariant.secondary,
@@ -235,6 +245,14 @@ class NeutralLandingScreen extends ConsumerWidget {
             spacing: TokenSpacing.lg,
             children: [
               const Text(EntryStrings.landing, textAlign: TextAlign.center),
+              TailTagButton(
+                key: const Key("entry-manage-passkeys"),
+                label: EntryStrings.managePasskeys,
+                variant: TailTagButtonVariant.secondary,
+                onPressed: ref
+                    .read(entryControllerProvider.notifier)
+                    .openPasskeys,
+              ),
               TailTagButton(
                 key: const Key("entry-sign-out"),
                 label: EntryStrings.signOut,

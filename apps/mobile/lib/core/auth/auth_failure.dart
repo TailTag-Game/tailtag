@@ -68,7 +68,7 @@ final class AuthAccountExistsFailure extends AuthFailure {
   String get name => "accountExists";
 }
 
-/// Email sign-in found no account.
+/// Email sign-in found no account, or no account uses the chosen passkey.
 final class AuthAccountNotFoundFailure extends AuthFailure {
   /// Creates the failure.
   const new() : super();
@@ -85,6 +85,33 @@ final class AuthProviderUnavailableFailure extends AuthFailure {
 
   @override
   String get name => "providerUnavailable";
+}
+
+/// The device or OS cannot use a passkey now, or Android is below API 28.
+final class AuthPasskeyUnavailableFailure extends AuthFailure {
+  /// Creates the failure.
+  const new() : super();
+
+  @override
+  String get name => "passkeyUnavailable";
+}
+
+/// Clerk needs a fresh sign-in before it changes the player's passkeys.
+final class AuthReverificationRequiredFailure extends AuthFailure {
+  /// Creates the failure.
+  const new() : super();
+
+  @override
+  String get name => "reverificationRequired";
+}
+
+/// Removing this passkey would leave the player no other way to sign in.
+final class AuthLastMethodRequiredFailure extends AuthFailure {
+  /// Creates the failure.
+  const new() : super();
+
+  @override
+  String get name => "lastMethodRequired";
 }
 
 /// Anything else.

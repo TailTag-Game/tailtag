@@ -589,6 +589,106 @@ Clerk advises tests on a physical device, so the proof runs on the iPhone.
 Never write the Apple Account, a relay address, a token, or a Clerk identifier
 in the repository, in a log, or in a pull request.
 
+### Passkeys
+
+A passkey is an account credential that the device password manager stores.
+Players add a passkey after they sign in another way. They can then sign in
+with it later. Adding one is optional.
+
+- "Sign in with a passkey" ends the provider section of the account screen.
+  The system sheet can also offer a passkey from another device.
+- "Manage passkeys" opens the passkey screen from the neutral landing and the
+  identity-failed screen. The screen is its own entry stage. It needs no
+  profile and no convention. Close runs a fresh identity bootstrap.
+- The passkey screen lists verified passkeys only. Clerk creates a passkey
+  before the sheet opens and keeps it unverified after a cancel, so an
+  unverified passkey never shows or counts.
+- Removal asks for confirmation. The device password manager keeps its own
+  copy after a removal.
+- The app removes a passkey only when another way to sign in remains: another
+  verified passkey, or a verified email, Google, or Apple method that the
+  instance allows. The Dart session applies this rule to facts that the
+  plugin reads from fresh Clerk state.
+- If a change ends in a connectivity or unexpected failure, the outcome is not
+  known. The screen reads the list again and allows no other change until a
+  read succeeds.
+- If Clerk needs a fresh sign-in for a change, the screen explains it and
+  offers "Sign out and sign in again". The app has no reverification screen.
+
+| Platform | Passkeys are available when |
+| --- | --- |
+| Android | The device runs Android 9 (API 28) or later, and Clerk has passkey sign-in on. Passkeys do not work on Android emulators. |
+| iOS | Clerk has passkey sign-in on. Every supported iOS version can use passkeys. |
+
+When passkeys are unavailable, the account screen shows a note instead of the
+button. The passkey screen hides Add but still lists and removes passkeys.
+
+#### Signing for passkeys
+
+Passkeys need the Associated Domains entitlement. `Runner.entitlements` holds
+`webcredentials:$(TAILTAG_WEBCREDENTIALS_HOST)`. The repository holds no host
+value. To build passkeys into a device build, add a second line to
+`apps/mobile/ios/Flutter/Signing.local.xcconfig`:
+
+```text
+TAILTAG_WEBCREDENTIALS_HOST = <Clerk Development Frontend API host>
+```
+
+The Frontend API host comes from the Development publishable key. Simulator
+builds and `flutter build ios --no-codesign` pass without it.
+
+Android needs no file in the repository. Clerk serves `assetlinks.json` on the
+Frontend API host after the owner registers the Android app and the SHA-256 of
+each debug key. See
+[Signing identities](../specs/2026-11-05-native-auth-capability-contract.md#signing-identities).
+
+#### Live passkey proof
+
+Before a live passkey proof, the owner posts a readiness note on #480. It
+confirms these items:
+
+1. The Passkeys strategy is on as a first factor in the Clerk Development
+   instance.
+2. Clerk lists the Android native app with namespace `android_app`, package
+   `app.tailtag`, and the owner's debug SHA-256. Any other namespace makes
+   Google reject the association file.
+3. The App ID `app.tailtag` has the Associated Domains capability.
+4. The current reverification window.
+
+After the note, fetch `/.well-known/apple-app-site-association` and
+`/.well-known/assetlinks.json` from the Frontend API host. Make sure that they
+list the iOS and Android apps. Then call Google's Digital Asset Links
+`statements:list` API for the Frontend API host and the relation
+`delegate_permission/common.get_login_creds`. The response must return a
+statement for `app.tailtag` with the registered SHA-256 fingerprint. A
+successful response with no such statement fails this check.
+
+The proof runs on a physical Android phone and a physical iPhone. On each
+device, run these steps:
+
+1. Sign in with email or Google. Add a passkey, and make sure that it shows in
+   the list.
+2. Sign out. Sign in with the passkey. Make sure that the session has the same
+   TailTag identity. `/debug/auth` shows only that an ID came back. To compare
+   the values, add a temporary local check that keeps `CurrentUser.id` in
+   memory and reports only whether the values match. Never log the value, and
+   never commit the check.
+3. Start to add a passkey and dismiss the sheet. The list shows no new row.
+4. Remove the passkey while another sign-in method remains.
+5. Sign in with the removed passkey that the password manager still holds. The
+   banner says that no TailTag account uses that passkey.
+
+In the #480 proof, Clerk returned no reverification error on a native add or
+remove, even with a 1-minute window. If a later Clerk change starts to enforce
+it, the screen asks for a fresh sign-in, and the addition works after sign-out
+and sign-in. An API 27 Android emulator shows the unavailable note.
+
+To delete a test passkey from a device, use the password manager. On iOS, open
+Settings › Passwords, or the Passwords app. On Android, open Google Password
+Manager. Record each Clerk error code and provider value that the proof shows
+in the capability contract. Never write a passkey ID, a credential, an email
+address, or a token in the repository, in a log, or in a pull request.
+
 ### Debug proof route and test user
 
 In debug builds only, the neutral landing has an "Auth proof (debug)" button.

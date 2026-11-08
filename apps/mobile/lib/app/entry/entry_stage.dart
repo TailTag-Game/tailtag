@@ -88,6 +88,19 @@ final class EntryIdentityFailed extends EntryStage {
       "EntryIdentityFailed(${failure?.category.name ?? "apiAccess"})";
 }
 
+/// The signed-in player is on the passkey screen.
+///
+/// It needs an active session but no profile and no convention. It shows no
+/// protected product content, and no bootstrap result changes it. Only
+/// closing it, sign-out, or a session end leaves it.
+final class EntryPasskeys extends EntryStage {
+  /// Creates the stage.
+  const new() : super();
+
+  @override
+  String toString() => "EntryPasskeys";
+}
+
 /// The TailTag identity is loaded. The neutral landing shows until
 /// onboarding (#481) and conventions (#482) add their stages.
 final class EntryReady extends EntryStage {

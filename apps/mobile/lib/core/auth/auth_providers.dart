@@ -6,6 +6,7 @@ import "package:tailtag_mobile/core/api/api_providers.dart";
 import "package:tailtag_mobile/core/auth/auth_session.dart";
 import "package:tailtag_mobile/core/auth/auth_state.dart";
 import "package:tailtag_mobile/core/auth/clerk_auth_session.dart";
+import "package:tailtag_mobile/core/auth/passkey.dart";
 import "package:tailtag_mobile/core/config/app_config_provider.dart";
 
 /// The player's session. In production it is a [ClerkAuthSession] built from
@@ -32,6 +33,13 @@ final authStateProvider = StreamProvider<AuthState>((ref) {
   });
   return controller.stream;
 });
+
+/// Whether this device and the Clerk instance allow passkeys now. A screen
+/// that shows passkey actions reads it each time it opens.
+final FutureProvider<PasskeyAvailability> passkeyAvailabilityProvider =
+    FutureProvider.autoDispose<PasskeyAvailability>(
+      (ref) => ref.watch(authSessionProvider).passkeyAvailability(),
+    );
 
 /// Makes the [authSessionProvider] session the token provider of the API
 /// transport. The application root adds it to its overrides.

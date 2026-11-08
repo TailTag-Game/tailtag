@@ -73,10 +73,10 @@ On Android, `User.emailAddresses` and `User.externalAccounts` are nullable lists
 
 | Fact | Why it is unproved | Issue that settles it |
 | --- | --- | --- |
-| Whether `createPasskey` needs reverification | Clerk decides this on the server. Neither SDK shows it in source. Clerk's custom-flow guide shows only `user.createPasskey()`. | #480 |
-| Whether registering the native apps fills the Clerk-served association files | Today both files are empty, because no native app is registered (see [Association file check](#association-file-check)). | #480 |
-| Credential Manager cancellation types for passkeys on Android | #478 settled this for Google (see [Google access additions](#google-access-additions)). Passkeys use another Clerk path. | #480 |
-| Exact Clerk error codes other than `form_identifier_not_found` and `form_code_incorrect` | Only those two appear in pinned source (`ClerkKitUI`). | #477, #480 |
+| Whether `createPasskey` needs reverification | Clerk lists adding and removing a passkey as sensitive actions, and the Development instance has reverification on. The #480 live proof shows that Clerk does not enforce it on native passkey calls (see [Passkey additions](#passkey-additions)). The error code stays unproved. | Settled for the Development instance. Production readiness checks it again. |
+| Whether registering the native apps fills the Clerk-served association files | Settled by #480: Clerk fills both files (see [Association file check](#association-file-check)). | Settled |
+| Credential Manager cancellation types for passkeys on Android | Settled by #480: Clerk marks a passkey cancellation with `shouldSuppressCredentialFlowError`, as for Google (see [Passkey additions](#passkey-additions)). | Settled |
+| Exact Clerk error codes other than `form_identifier_not_found` and `form_code_incorrect` | Only those two appear in pinned source (`ClerkKitUI`). The #480 live proof saw `passkey_not_registered`. | #477 |
 
 ## Device and OS rules
 
@@ -85,11 +85,12 @@ TailTag keeps Android API 26+ and iOS 17+. One build serves every supported devi
 | Platform | Rule |
 | --- | --- |
 | Android | The app offers passkeys only when `Build.VERSION.SDK_INT >= 28`. Clerk's Android passkey guide requires Android 9+. API 26 and 27 devices see the unavailable state. |
+| Both | The app also offers passkeys only while Clerk has passkey sign-in on as a first factor. Otherwise the device sees the unavailable state. |
 | Android | Clerk states that passkeys do not work on Android emulators. Passkey proof needs a physical device. |
 | iOS | Every supported iOS version (17+) can use passkeys. The app always offers them. |
 | Both | Any platform refusal maps to `passkeyUnavailable`. The app then shows the limitation and offers email and Google, plus Apple on iOS. |
 
-#480 must prove both states on physical devices: a capable device that completes sign-in, and a device that shows the unavailable state.
+#480 proves the capable state on a physical Android phone and a physical iPhone. The owner approved a change on 2026-11-06 (#480 G9). An API 27 Android emulator proves the native device check. Widget tests prove the unavailable screens. No physical API 26 or 27 phone is available.
 
 ## Frozen TailTag auth contract
 
@@ -191,6 +192,37 @@ These items stay out of #479. They belong to App Store or Production readiness:
 - In-app account deletion and Apple token revocation (App Review Guideline 5.1.1(v)).
 - Registration of Clerk's email source with Apple's Private Email Relay. Without it, Clerk email does not reach relay addresses. Apple-verified addresses need no email code, so the Development instance does not need it.
 
+### Passkey additions
+
+The owner approved these additions for #480 on 2026-11-06. They change no operation, result, or failure category.
+
+- Passkey sign-in never limits the sheet to saved local passkeys. Android calls `signInWithPasskey(preferImmediatelyAvailableCredentials = false)`. iOS calls `createPasskeySignIn()` and then `authenticateWithPasskey(preferImmediatelyAvailableCredentials: false)`. The ClerkKit default `true` makes iOS report a missing passkey as `ASAuthorizationError.canceled`, which looks the same as a player cancel.
+- `passkeyAvailability()` checks the device and the instance. Android reads `Clerk.passkeyFirstFactorIsEnabled`. iOS reads the `passkey` attribute in the loaded user settings.
+- `listPasskeys()` refreshes the client first and returns verified passkeys only. Both SDKs create the Clerk passkey before the platform sheet opens and never remove it after a cancel or a failed verification. An unverified passkey never shows and never counts for the last-method rule.
+- `createPasskey()` returns `completed` only when Clerk returns a verified passkey.
+- Both SDKs can fail after the device saved a credential and before Clerk verified it. After a `connectivity` or `unexpected` failure of `createPasskey()` or `removePasskey()`, the passkey screen reads the list again. It allows no other change until a read succeeds, and it never reports success for that change.
+- If Clerk requires reverification, the passkey screen explains it and offers "Sign out and sign in again". A fresh sign-in starts a new freshness window. The app never calls `Session.startVerification`. An email-code step fails for Apple players with a relay address. Clerk email does not reach relay addresses on the Development instance.
+- The plugin maps Clerk's `session_reverification_required` code to `reverificationRequired`. The code is still unproved. In the #480 live proof, Clerk returned no reverification error on `createPasskey()` or `removePasskey()`, with a 1-minute window and a sign-in older than the window. The handling stays in place, and widget tests cover it.
+- Each plugin reads the last-method inputs into seven booleans and sends them to Dart. The Dart session applies the rule. The values carry no identifier. The #480 live proof saw the external-account provider values `oauth_google` on Android and `oauth_apple` on iOS. Both plugins also accept `google` and `apple`, the spelling in the SDK documentation.
+- The iOS Runner holds the Associated Domains entitlement `webcredentials:$(TAILTAG_WEBCREDENTIALS_HOST)`. Device builds read the host from the untracked `ios/Flutter/Signing.local.xcconfig`. The repository holds no host value, and the value has no `?mode=developer` suffix.
+- The privacy rule covers TailTag-owned logs. ClerkKit `PasskeyHelper` writes whole credential objects to the device log through `os.Logger` (`Helpers/PasskeyHelper.swift`). Clerk Android writes passkey registration data only in debug mode, which the plugin keeps off. Its error logs are always on, and they print the whole Clerk error response, including client and sign-in attempt identifiers, to logcat. TailTag cannot turn these SDK logs off.
+
+The plugins map passkey outcomes as follows:
+
+| Platform | Signal | TailTag result |
+| --- | --- | --- |
+| Android | `shouldSuppressCredentialFlowError` is true | `cancelled` |
+| Android | Raw `GetCredentialUnsupportedException` or `CreateCredentialUnsupportedException` | `passkeyUnavailable` |
+| Android | Any other raw `GetCredentialException` or `CreateCredentialException` | `unexpected` |
+| Android | `shouldSuppressAutomaticCredentialFlowError` is true for a Clerk credential-flow type, such as no saved credential, provider unavailable, or a missing Activity | `passkeyUnavailable` |
+| iOS | `ASAuthorizationError.canceled` or `CancellationError` | `cancelled` |
+| iOS | `ASAuthorizationError.failed` or `.notHandled` | `passkeyUnavailable` |
+| iOS | Any other `ASAuthorizationError` | `unexpected` |
+| Both | Clerk code `passkey_not_registered`, which the #480 live proof saw for a removed passkey, or `form_identifier_not_found` | `accountNotFound` |
+| Both | A connectivity error | `connectivity` |
+| Both | `ClerkAPIError` or a Clerk error response | The shared email table, then the Dart narrowing for each operation |
+| Both | Anything else | `unexpected` |
+
 ### Attempt result
 
 `AuthAttemptResult` is sealed. It has three values:
@@ -225,7 +257,7 @@ This stops a code for an abandoned attempt from completing a different account.
 | iOS | `ASAuthorizationError.canceled` (Apple sheet and passkey sheet) | Compile probe. The iOS plugin maps it for Apple (#479). |
 | iOS | `ASWebAuthenticationSessionError.canceledLogin` | Compile probe |
 | Android | `SSOCancellationException` in `ClerkResult.Failure.throwable` (browser OAuth) | `com.clerk.api.sso.SSOCancellationException` |
-| Android | Credential Manager cancellation (Google) | Clerk turns `GetCredentialCancellationException` into its own cancellation type and marks it with `shouldSuppressCredentialFlowError` (#478). Passkeys stay with #480. |
+| Android | Credential Manager cancellation (Google and passkeys) | Clerk turns `GetCredentialCancellationException` and `CreateCredentialCancellationException` into its own cancellation type and marks it with `shouldSuppressCredentialFlowError` (#478, #480). |
 
 ### SDK status mapping
 
@@ -328,6 +360,8 @@ The app removes a passkey only when one of these remains:
 
 Otherwise, removing the last passkey fails with `lastMethodRequired`. Removing a passkey when another passkey remains needs no other check.
 
+An unverified passkey is not another passkey for this rule (see [Passkey additions](#passkey-additions)).
+
 Before it evaluates the rule, the app refreshes Clerk client state. iOS uses `Clerk.refreshClient()` (`Core/Clerk.swift:447`). Android uses `Clerk.refreshClient()`.
 
 The rule reads these SDK values:
@@ -358,7 +392,7 @@ This table covers the Clerk Development instance only. The owner (FinnThePanther
 | Sign-up requirements | Email address only. No username, phone, name, or legal acceptance is required. | Owner note in the issue | #477 |
 | Multi-factor sign-in | Off | Owner note in the issue | #477 |
 | iOS native app | App ID Prefix (usually the Apple Team ID) and bundle ID `app.tailtag` | Native applications page lists the iOS app | #479, #480 |
-| Android native app | Package `app.tailtag` and the SHA-256 fingerprints of each registered signing key | Native applications page lists the Android app and fingerprints | #480 |
+| Android native app | Namespace `android_app`, package `app.tailtag`, and the SHA-256 fingerprints of each registered signing key. Any other namespace makes Google reject the association file. | Native applications page lists the Android app and fingerprints | #480 |
 | Passkeys | Passkey strategy on, as a first factor | Dashboard setting | #480 |
 | Google connection | On for sign-up and sign-in, with custom credentials | Dashboard SSO connections page | #478 |
 | Google Cloud web client | Client ID and secret stored in Clerk. The Clerk redirect URI is registered. | Owner note that names the Google Cloud project, without the secret | #478 |
@@ -367,8 +401,8 @@ This table covers the Clerk Development instance only. The owner (FinnThePanther
 | iOS OAuth callback | `app.tailtag://callback`. ClerkKit derives it from the bundle ID (`Configuration/ClerkOptions.swift:56`). | Build setting review in #478 | #478 |
 | Android OAuth callbacks | `clerk://app.tailtag.callback` and `clerk://app.tailtag.oauth`. The AAR manifest declares them on `SSOReceiverActivity`. | Merged manifest review in #478 | #478 |
 | iOS entitlement: Sign in with Apple | Capability on the Runner target | Runner `.entitlements` file in #479 | #479 |
-| iOS entitlement: Associated Domains | `webcredentials:<Development Frontend API host>` | Runner `.entitlements` file in #480 | #480 |
-| Association files | Clerk serves both files on the Development Frontend API host. TailTag hosts nothing. Today both files are empty. | Expected after the owner registers the native apps: `/.well-known/apple-app-site-association` lists `<App ID Prefix>.app.tailtag` for `webcredentials`, and `/.well-known/assetlinks.json` lists `app.tailtag` with each registered SHA-256 fingerprint. See [Association file check](#association-file-check). | #480 |
+| iOS entitlement: Associated Domains | `webcredentials:$(TAILTAG_WEBCREDENTIALS_HOST)`. The untracked `Signing.local.xcconfig` sets the Development Frontend API host. | Runner `.entitlements` file in #480 | #480 |
+| Association files | Clerk serves both files on the Development Frontend API host. TailTag hosts nothing. Both files were empty at the first check on 2026-11-06. [Association file check](#association-file-check) records later checks. | Expected after the owner registers the native apps: `/.well-known/apple-app-site-association` lists `<App ID Prefix>.app.tailtag` for `webcredentials`, and `/.well-known/assetlinks.json` lists `app.tailtag` with each registered SHA-256 fingerprint. See [Association file check](#association-file-check). | #480 |
 
 The Android OAuth callbacks exist in every build today, because the AAR manifest merges `SSOReceiverActivity` into the app. TailTag uses Credential Manager for Google on Android, so no TailTag flow uses those callbacks in this milestone. #478 must make sure that TailTag adds no other OAuth callback on Android.
 
@@ -446,7 +480,7 @@ stateDiagram-v2
 | Unavailable | Account-unavailable message | Refresh, sign out, passkey controls | Read failure |
 | Auth recovery | Auth-recovery message | Retry | Unsupported platform (no endless retry) |
 
-Passkey controls appear only when `passkeyAvailability()` returns `available`. Otherwise the controls explain the limitation. Screens use the existing shared component set.
+The owner changed this rule for #480 on 2026-11-06 (G6). The passkey screen is reachable on every device. When `passkeyAvailability()` returns `unavailable`, the screen explains the limitation and hides Add, but it still lists and removes passkeys. The account screen hides the passkey button and shows a note instead. Screens use the existing shared component set.
 
 ## Approvals
 
@@ -496,6 +530,10 @@ On 2026-11-06, a read-only check fetched both files from the Development Fronten
 | `/.well-known/assetlinks.json` | HTTP 200, `application/json`, body `[]` |
 | `/apple-app-site-association` | HTTP 404 |
 
-Clerk serves both files at the paths that Apple and Google read. TailTag does not need to host them. The files are empty, and no native app is registered yet. After the owner registers the iOS and Android apps, #480 fetches both files again and makes sure that they list the app.
+Clerk serves both files at the paths that Apple and Google read. TailTag does not need to host them. At that check, the files were empty, and no native app was registered. After the owner registers the iOS and Android apps, #480 fetches both files again and makes sure that they list the app.
 
 The passkey relying party ID still comes from the server nonce (`Passkey.swift:65`). #480 confirms that it matches this host.
+
+On 2026-11-06, #480 fetched both files again. The Apple file listed `<App ID Prefix>.app.tailtag` for `webcredentials`. The Android file was still `[]`, because the Android app was not registered yet.
+
+On 2026-11-08, after the owner registered the Android app, the Android file listed `app.tailtag` with the registered fingerprint. Google's Digital Asset Links `statements:list` API accepted it for `delegate_permission/common.get_login_creds`. Passkey creation and sign-in then worked on a physical Android phone and a physical iPhone.

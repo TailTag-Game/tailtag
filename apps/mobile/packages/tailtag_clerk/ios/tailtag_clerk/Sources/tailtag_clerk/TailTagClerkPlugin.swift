@@ -22,6 +22,12 @@ import Observation
 /// Apple uses the native Apple sheet inside ClerkKit. ClerkKit creates the
 /// nonce and reads the identity token. This file never sees either one, and
 /// it asks Apple for the email address only, never the name.
+///
+/// Passkeys use ClerkKit's platform passkey requests. Passkey sign-in always
+/// allows the full system sheet, so it can offer a passkey from another
+/// device. The passkey list holds only verified passkeys: Clerk creates a
+/// passkey before the sheet opens and never removes it after a cancel. A
+/// passkey ID leaves this file only in the list and only to name a removal.
 public final class TailTagClerkPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     /// How long the SDK can stay unloaded after `configure` before the bridge
     /// reports a startup failure. ClerkKit 1.6.1 retries its startup refresh
@@ -161,6 +167,91 @@ public final class TailTagClerkPlugin: NSObject, FlutterPlugin, FlutterStreamHan
                 throw error
             }
             return try await providerOutcome(result)
+        case "passkeyAvailability":
+            guard configured else { return false }
+            // Every supported iOS version (17+) can use passkeys, so only the
+            // instance setting decides.
+            let passkey = Clerk.shared.environment?.userSettings.attributes["passkey"]
+            return passkey?.enabled == true && passkey?.usedForFirstFactor == true
+        case "signInWithPasskey":
+            guard configured else { throw BridgeError.unexpected }
+            clearBinding()
+            let signIn: SignIn
+            do {
+                let created = try await Clerk.shared.auth.createPasskeySignIn()
+                signIn = try await created.authenticateWithPasskey(
+                    preferImmediatelyAvailableCredentials: false)
+            } catch {
+                if Self.isCancellation(error) { return "cancelled" }
+                throw Self.passkeyError(error)
+            }
+            guard signIn.status == .complete else { throw BridgeError.unexpected }
+            return try Self.completedIfActive()
+        case "createPasskey":
+            guard configured else { throw BridgeError.unexpected }
+            let user = try Self.activeUser()
+            let passkey: Passkey
+            do {
+                passkey = try await user.createPasskey()
+            } catch {
+                if Self.isCancellation(error) { return "cancelled" }
+                throw Self.passkeyError(error)
+            }
+            // Success needs Clerk's acknowledgement of a verified passkey.
+            guard passkey.verification?.status == .verified else { throw BridgeError.unexpected }
+            return "completed"
+        case "listPasskeys":
+            guard configured else { throw BridgeError.unexpected }
+            let user = try await Self.refreshedUser()
+            return Self.verifiedPasskeys(user).map { passkey -> [String: Any] in
+                var item: [String: Any] = [
+                    "id": passkey.id,
+                    "name": passkey.name,
+                    "createdAt": Self.milliseconds(passkey.createdAt),
+                ]
+                if let lastUsedAt = passkey.lastUsedAt {
+                    item["lastUsedAt"] = Self.milliseconds(lastUsedAt)
+                }
+                return item
+            }
+        case "passkeyRemovalFacts":
+            guard let passkeyId = arguments?["passkeyId"] as? String, configured else {
+                throw BridgeError.unexpected
+            }
+            let user = try await Self.refreshedUser()
+            let passkeys = Self.verifiedPasskeys(user)
+            guard passkeys.contains(where: { $0.id == passkeyId }) else {
+                throw BridgeError.unexpected
+            }
+            // Facts only: the Dart session applies the last-method rule. The
+            // instance settings come from the environment that loaded at start.
+            let settings = Clerk.shared.environment?.userSettings
+            return [
+                "otherVerifiedPasskey": passkeys.contains(where: { $0.id != passkeyId }),
+                "verifiedEmail": user.emailAddresses.contains {
+                    $0.verification?.status == .verified
+                },
+                "emailCodeEnabled":
+                    settings?.attributes["email_address"]?.firstFactors?.contains("email_code")
+                    == true,
+                "verifiedGoogle": Self.hasVerifiedAccount(user, providers: Self.googleProviders),
+                "googleEnabled": Self.socialEnabled(settings, "oauth_google"),
+                "verifiedApple": Self.hasVerifiedAccount(user, providers: Self.appleProviders),
+                "appleEnabled": Self.socialEnabled(settings, "oauth_apple"),
+            ]
+        case "removePasskey":
+            guard let passkeyId = arguments?["passkeyId"] as? String, configured else {
+                throw BridgeError.unexpected
+            }
+            guard
+                let passkey = Self.verifiedPasskeys(try Self.activeUser()).first(where: {
+                    $0.id == passkeyId
+                })
+            else {
+                throw BridgeError.unexpected
+            }
+            try await passkey.delete()
+            return nil
         case "reload":
             guard configured else { throw BridgeError.unexpected }
             try await reload()
@@ -241,10 +332,68 @@ public final class TailTagClerkPlugin: NSObject, FlutterPlugin, FlutterStreamHan
         return "completed"
     }
 
+    // MARK: Passkeys
+
+    /// The #480 live proof saw `oauth_google` and `oauth_apple`. The SDK
+    /// documents `google`, so both spellings stay.
+    private static let googleProviders: Set<String> = ["google", "oauth_google"]
+    private static let appleProviders: Set<String> = ["apple", "oauth_apple"]
+
+    /// The signed-in user, or `sessionEnded` when no session is active.
+    @MainActor
+    private static func activeUser() throws -> User {
+        guard Clerk.shared.session?.status == .active, let user = Clerk.shared.user else {
+            throw BridgeError.sessionEnded
+        }
+        return user
+    }
+
+    /// The signed-in user after a fresh client read.
+    @MainActor
+    private static func refreshedUser() async throws -> User {
+        try await Clerk.shared.refreshClient()
+        return try activeUser()
+    }
+
+    private static func verifiedPasskeys(_ user: User) -> [Passkey] {
+        user.passkeys.filter { $0.verification?.status == .verified }
+    }
+
+    private static func hasVerifiedAccount(_ user: User, providers: Set<String>) -> Bool {
+        user.externalAccounts.contains {
+            providers.contains($0.provider) && $0.verification?.status == .verified
+        }
+    }
+
+    private static func socialEnabled(_ settings: Clerk.Environment.UserSettings?, _ key: String)
+        -> Bool
+    {
+        guard let social = settings?.social[key] else { return false }
+        return social.enabled && social.authenticatable
+    }
+
+    private static func milliseconds(_ date: Date) -> Int64 {
+        Int64((date.timeIntervalSince1970 * 1000).rounded())
+    }
+
+    /// Maps a platform passkey failure. The caller has already mapped a
+    /// cancellation. `failed` and `notHandled` mean that the device cannot use
+    /// a passkey now. Every other `ASAuthorizationError` is unexpected. Other
+    /// errors keep the shared mapping, such as connectivity or a Clerk code.
+    private static func passkeyError(_ error: Error) -> Error {
+        guard let authorizationError = error as? ASAuthorizationError else { return error }
+        switch authorizationError.code {
+        case .failed, .notHandled:
+            return BridgeError.passkeyUnavailable
+        default:
+            return BridgeError.unexpected
+        }
+    }
+
     /// A dismissed browser session or Apple sheet. ClerkKit throws
     /// `CancellationError` for the browser (`Utils/WebAuthentication.swift`).
     /// The system can also report `canceledLogin`. The Apple sheet reports
-    /// `ASAuthorizationError.canceled`.
+    /// `ASAuthorizationError.canceled`, and so does the passkey sheet.
     private static func isCancellation(_ error: Error) -> Bool {
         if error is CancellationError { return true }
         if let webError = error as? ASWebAuthenticationSessionError {
@@ -375,6 +524,7 @@ public final class TailTagClerkPlugin: NSObject, FlutterPlugin, FlutterStreamHan
     private enum BridgeError: Error {
         case unexpected
         case sessionEnded
+        case passkeyUnavailable
         case notImplemented
     }
 
@@ -386,6 +536,9 @@ public final class TailTagClerkPlugin: NSObject, FlutterPlugin, FlutterStreamHan
     private static func errorCode(for error: Error) -> String {
         if case BridgeError.sessionEnded = error {
             return "sessionEnded"
+        }
+        if case BridgeError.passkeyUnavailable = error {
+            return "passkeyUnavailable"
         }
         if let urlError = error as? URLError {
             return connectivityCodes.contains(urlError.code) ? "connectivity" : "unexpected"
@@ -404,8 +557,10 @@ public final class TailTagClerkPlugin: NSObject, FlutterPlugin, FlutterStreamHan
                 return "rateLimited"
             case "form_identifier_exists":
                 return "accountExists"
-            case "form_identifier_not_found":
+            case "form_identifier_not_found", "passkey_not_registered":
                 return "accountNotFound"
+            case "session_reverification_required":
+                return "reverificationRequired"
             case "authentication_invalid", "signed_out", "resource_not_found":
                 return "sessionEnded"
             default:
