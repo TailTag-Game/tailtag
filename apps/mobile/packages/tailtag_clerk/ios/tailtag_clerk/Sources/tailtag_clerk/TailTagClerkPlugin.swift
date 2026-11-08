@@ -334,8 +334,8 @@ public final class TailTagClerkPlugin: NSObject, FlutterPlugin, FlutterStreamHan
 
     // MARK: Passkeys
 
-    /// The SDK documents `google`, and its sample data uses `oauth_google`.
-    /// The #480 live proof records the value that a device reports.
+    /// The #480 live proof saw `oauth_google` and `oauth_apple`. The SDK
+    /// documents `google`, so both spellings stay.
     private static let googleProviders: Set<String> = ["google", "oauth_google"]
     private static let appleProviders: Set<String> = ["apple", "oauth_apple"]
 
@@ -557,7 +557,7 @@ public final class TailTagClerkPlugin: NSObject, FlutterPlugin, FlutterStreamHan
                 return "rateLimited"
             case "form_identifier_exists":
                 return "accountExists"
-            case "form_identifier_not_found":
+            case "form_identifier_not_found", "passkey_not_registered":
                 return "accountNotFound"
             case "session_reverification_required":
                 return "reverificationRequired"

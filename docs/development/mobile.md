@@ -649,30 +649,36 @@ confirms these items:
 
 1. The Passkeys strategy is on as a first factor in the Clerk Development
    instance.
-2. Clerk lists the Android native app with package `app.tailtag` and the
-   owner's debug SHA-256.
+2. Clerk lists the Android native app with namespace `android_app`, package
+   `app.tailtag`, and the owner's debug SHA-256. Any other namespace makes
+   Google reject the association file.
 3. The App ID `app.tailtag` has the Associated Domains capability.
 4. The current reverification window.
 
 After the note, fetch `/.well-known/apple-app-site-association` and
 `/.well-known/assetlinks.json` from the Frontend API host. Make sure that they
-list the iOS and Android apps.
+list the iOS and Android apps. Google's Digital Asset Links `statements:list`
+API must accept the Android file for
+`delegate_permission/common.get_login_creds`.
 
 The proof runs on a physical Android phone and a physical iPhone. On each
 device, run these steps:
 
 1. Sign in with email or Google. Add a passkey, and make sure that it shows in
    the list.
-2. Sign out. Sign in with the passkey. `/debug/auth` shows the same TailTag
-   identity.
+2. Sign out. Sign in with the passkey. Make sure that the session has the same
+   TailTag identity. `/debug/auth` shows only that an ID came back, so compare
+   the values with a temporary local print of `CurrentUser.id`. Never commit
+   the print.
 3. Start to add a passkey and dismiss the sheet. The list shows no new row.
 4. Remove the passkey while another sign-in method remains.
 5. Sign in with the removed passkey that the password manager still holds. The
    banner says that no TailTag account uses that passkey.
 
-On one device, wait past the reverification window, then add a passkey. The
-screen asks for a fresh sign-in. After sign-out and sign-in, the addition
-works. An API 27 Android emulator shows the unavailable note.
+In the #480 proof, Clerk returned no reverification error on a native add or
+remove, even with a 1-minute window. If a later Clerk change starts to enforce
+it, the screen asks for a fresh sign-in, and the addition works after sign-out
+and sign-in. An API 27 Android emulator shows the unavailable note.
 
 To delete a test passkey from a device, use the password manager. On iOS, open
 Settings › Passwords, or the Passwords app. On Android, open Google Password

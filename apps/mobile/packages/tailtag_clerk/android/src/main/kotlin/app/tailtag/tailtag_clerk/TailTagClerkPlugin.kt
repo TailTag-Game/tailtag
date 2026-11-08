@@ -537,7 +537,8 @@ class TailTagClerkPlugin :
             "verification_failed" -> INVALID_CODE
             "too_many_requests" -> RATE_LIMITED
             "form_identifier_exists" -> ACCOUNT_EXISTS
-            "form_identifier_not_found" -> ACCOUNT_NOT_FOUND
+            "form_identifier_not_found",
+            "passkey_not_registered" -> ACCOUNT_NOT_FOUND
             "session_reverification_required" -> REVERIFICATION_REQUIRED
             "authentication_invalid",
             "signed_out",
@@ -611,8 +612,7 @@ class TailTagClerkPlugin :
         const val ACCOUNT_NOT_FOUND = "accountNotFound"
         const val UNEXPECTED = "unexpected"
         const val FAILED_PREFIX = "failed:"
-        // The SDK documents `google`, and its sample data uses `oauth_google`. The #480 live proof
-        // records the value that a device reports.
+        // The #480 live proof saw `oauth_google`. The SDK documents `google`, so both stay.
         val GOOGLE_PROVIDERS = setOf("google", "oauth_google")
         const val HTTP_TOO_MANY_REQUESTS = 429
         const val RELOAD_TIMEOUT_MS = 20_000L
