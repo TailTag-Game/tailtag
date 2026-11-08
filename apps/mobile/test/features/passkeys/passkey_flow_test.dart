@@ -355,6 +355,66 @@ void main() {
       expect(find.text(PasskeyStrings.empty), findsOneWidget);
     });
 
+    for (final failure in const <AuthFailure>[
+      AuthConnectivityFailure(),
+      AuthUnexpectedFailure(),
+    ]) {
+      testWidgets("a removal that ends in ${failure.name} reads the list and "
+          "reports the unknown outcome", (tester) async {
+        final app = await _onPasskeys(
+          tester,
+          setUp: (session) => session
+            ..addPasskey(name: "iCloud Keychain")
+            ..removeFailure = failure
+            ..removeAppliesDespiteFailure = true,
+        );
+
+        await _tapRemove(app, "iCloud Keychain");
+        await app.tap("passkeys-remove-confirm");
+
+        expect(app.session.listCalls, 2);
+        expect(find.text(PasskeyStrings.unconfirmed), findsOneWidget);
+        expect(find.text(PasskeyStrings.removed), findsNothing);
+        expect(find.text("iCloud Keychain"), findsNothing);
+        expect(app.session.removeCalls, hasLength(1), reason: "no retry");
+      });
+    }
+
+    testWidgets("a removal that a fresh read still lists is unconfirmed", (
+      tester,
+    ) async {
+      final app = await _onPasskeys(
+        tester,
+        setUp: (session) => session
+          ..addPasskey(name: "iCloud Keychain")
+          ..removeTakesEffect = false,
+      );
+
+      await _tapRemove(app, "iCloud Keychain");
+      await app.tap("passkeys-remove-confirm");
+
+      expect(find.text(PasskeyStrings.unconfirmed), findsOneWidget);
+      expect(find.text(PasskeyStrings.removed), findsNothing);
+      expect(find.text("iCloud Keychain"), findsOneWidget);
+    });
+
+    testWidgets("reverification on a removal keeps the passkey and offers "
+        "the fresh sign-in", (tester) async {
+      final app = await _onPasskeys(
+        tester,
+        setUp: (session) => session
+          ..addPasskey(name: "iCloud Keychain")
+          ..removeFailure = const AuthReverificationRequiredFailure(),
+      );
+
+      await _tapRemove(app, "iCloud Keychain");
+      await app.tap("passkeys-remove-confirm");
+
+      expect(find.text(PasskeyStrings.reverification), findsOneWidget);
+      expect(_key("passkeys-sign-out"), findsOneWidget);
+      expect(find.text("iCloud Keychain"), findsOneWidget);
+    });
+
     testWidgets("the last-method rule keeps the passkey and explains why", (
       tester,
     ) async {

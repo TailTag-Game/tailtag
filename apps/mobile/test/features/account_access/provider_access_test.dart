@@ -191,6 +191,10 @@ void main() {
       expect(apple.bottom, lessThanOrEqualTo(google.top));
       expect(apple.width, google.width);
       expect(apple.height, greaterThanOrEqualTo(google.height));
+      expect(
+        google.bottom,
+        lessThanOrEqualTo(tester.getRect(_key("access-passkey")).top),
+      );
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
     testWidgets("on a 375 x 667 screen, the Apple button shows without "
@@ -204,6 +208,10 @@ void main() {
 
       expect(
         tester.getRect(_key("access-apple")).bottom,
+        lessThanOrEqualTo(667),
+      );
+      expect(
+        tester.getRect(_key("access-passkey")).bottom,
         lessThanOrEqualTo(667),
       );
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));

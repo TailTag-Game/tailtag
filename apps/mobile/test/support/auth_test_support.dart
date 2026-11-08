@@ -96,6 +96,10 @@ final class FakeAuthSession implements AuthSession {
   /// does.
   bool removeAppliesDespiteFailure = false;
 
+  /// Whether a removal that does not fail takes effect. False models a
+  /// fresh read that still lists the passkey.
+  bool removeTakesEffect = true;
+
   /// When set, passkey creation and removal wait for it.
   Completer<void>? passkeyWriteGate;
 
@@ -246,7 +250,9 @@ final class FakeAuthSession implements AuthSession {
       }
       throw failure;
     }
-    passkeys.removeWhere((passkey) => passkey.id == passkeyId);
+    if (removeTakesEffect) {
+      passkeys.removeWhere((passkey) => passkey.id == passkeyId);
+    }
   });
 
   /// Adds a passkey with a predictable name to [passkeys].

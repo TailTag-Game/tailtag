@@ -402,7 +402,7 @@ This table covers the Clerk Development instance only. The owner (FinnThePanther
 | Android OAuth callbacks | `clerk://app.tailtag.callback` and `clerk://app.tailtag.oauth`. The AAR manifest declares them on `SSOReceiverActivity`. | Merged manifest review in #478 | #478 |
 | iOS entitlement: Sign in with Apple | Capability on the Runner target | Runner `.entitlements` file in #479 | #479 |
 | iOS entitlement: Associated Domains | `webcredentials:$(TAILTAG_WEBCREDENTIALS_HOST)`. The untracked `Signing.local.xcconfig` sets the Development Frontend API host. | Runner `.entitlements` file in #480 | #480 |
-| Association files | Clerk serves both files on the Development Frontend API host. TailTag hosts nothing. Today both files are empty. | Expected after the owner registers the native apps: `/.well-known/apple-app-site-association` lists `<App ID Prefix>.app.tailtag` for `webcredentials`, and `/.well-known/assetlinks.json` lists `app.tailtag` with each registered SHA-256 fingerprint. See [Association file check](#association-file-check). | #480 |
+| Association files | Clerk serves both files on the Development Frontend API host. TailTag hosts nothing. Both files were empty at the first check on 2026-11-06. [Association file check](#association-file-check) records later checks. | Expected after the owner registers the native apps: `/.well-known/apple-app-site-association` lists `<App ID Prefix>.app.tailtag` for `webcredentials`, and `/.well-known/assetlinks.json` lists `app.tailtag` with each registered SHA-256 fingerprint. See [Association file check](#association-file-check). | #480 |
 
 The Android OAuth callbacks exist in every build today, because the AAR manifest merges `SSOReceiverActivity` into the app. TailTag uses Credential Manager for Google on Android, so no TailTag flow uses those callbacks in this milestone. #478 must make sure that TailTag adds no other OAuth callback on Android.
 
@@ -530,7 +530,7 @@ On 2026-11-06, a read-only check fetched both files from the Development Fronten
 | `/.well-known/assetlinks.json` | HTTP 200, `application/json`, body `[]` |
 | `/apple-app-site-association` | HTTP 404 |
 
-Clerk serves both files at the paths that Apple and Google read. TailTag does not need to host them. The files are empty, and no native app is registered yet. After the owner registers the iOS and Android apps, #480 fetches both files again and makes sure that they list the app.
+Clerk serves both files at the paths that Apple and Google read. TailTag does not need to host them. At that check, the files were empty, and no native app was registered. After the owner registers the iOS and Android apps, #480 fetches both files again and makes sure that they list the app.
 
 The passkey relying party ID still comes from the server nonce (`Passkey.swift:65`). #480 confirms that it matches this host.
 
