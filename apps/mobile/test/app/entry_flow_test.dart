@@ -2,11 +2,13 @@ import "dart:async";
 
 import "package:flutter/material.dart";
 import "package:flutter_test/flutter_test.dart";
+import "package:tailtag_mobile/app/entry/entry_controller.dart";
 import "package:tailtag_mobile/app/entry/entry_screens.dart";
 import "package:tailtag_mobile/app/entry/entry_stage.dart";
 import "package:tailtag_mobile/app/router.dart";
 import "package:tailtag_mobile/core/auth/auth_failure.dart";
 import "package:tailtag_mobile/core/auth/auth_state.dart";
+import "package:tailtag_mobile/core/session/player_profile.dart";
 import "package:tailtag_mobile/core/session/player_scope.dart";
 import "package:tailtag_mobile/core/ui/ui_strings.dart";
 
@@ -116,8 +118,301 @@ void main() {
           expect(_tryAgain, findsNothing);
         }
         expect(app.session.recheckCalls, c.statuses.contains(401) ? 1 : 0);
+        if (!c.statuses.contains(200)) {
+          expect(app.network.profileGets, 0);
+        }
       });
     }
+  });
+
+  group("the profile read selects the stage after the identity read", () {
+    final cases =
+        <
+          ({
+            String label,
+            ProfileReply profile,
+            bool sessionEndsOnRecheck,
+            String path,
+            int rechecks,
+          })
+        >[
+          (
+            label: "enabled and complete",
+            profile: ProfileReply.complete,
+            sessionEndsOnRecheck: true,
+            path: AppPaths.landing,
+            rechecks: 0,
+          ),
+          (
+            label: "enabled and incomplete",
+            profile: ProfileReply.incomplete,
+            sessionEndsOnRecheck: true,
+            path: AppPaths.onboarding,
+            rechecks: 0,
+          ),
+          (
+            label: "disabled and complete",
+            profile: ProfileReply.disabled,
+            sessionEndsOnRecheck: true,
+            path: AppPaths.accountUnavailable,
+            rechecks: 0,
+          ),
+          (
+            label: "disabled and incomplete",
+            profile: ProfileReply.disabledIncomplete,
+            sessionEndsOnRecheck: true,
+            path: AppPaths.accountUnavailable,
+            rechecks: 0,
+          ),
+          (
+            label: "failed read",
+            profile: const ProfileReply(status: 500, body: "{}"),
+            sessionEndsOnRecheck: true,
+            path: AppPaths.identityFailed,
+            rechecks: 0,
+          ),
+          (
+            label: "401 with an active session",
+            profile: const ProfileReply(status: 401, body: "{}"),
+            sessionEndsOnRecheck: false,
+            path: AppPaths.identityFailed,
+            rechecks: 1,
+          ),
+          (
+            label: "401 with an ended session",
+            profile: const ProfileReply(status: 401, body: "{}"),
+            sessionEndsOnRecheck: true,
+            path: AppPaths.access,
+            rechecks: 1,
+          ),
+        ];
+
+    for (final c in cases) {
+      testWidgets(c.label, (tester) async {
+        final app = await pumpApp(
+          tester,
+          session: FakeAuthSession(
+            initial: const AuthSignedIn(),
+            sessionEndsOnRecheck: c.sessionEndsOnRecheck,
+          ),
+          network: ScriptedNetwork([200], [c.profile]),
+        );
+
+        expect(app.path, c.path);
+        expect(app.network.log, ["GET /api/me/", "GET /api/profile/"]);
+        expect(app.network.profilePuts, isEmpty);
+        expect(app.session.recheckCalls, c.rechecks);
+      });
+    }
+  });
+
+  group("the account-loading screen", () {
+    testWidgets("offers Sign out, which ends the wait", (tester) async {
+      final app = await pumpApp(
+        tester,
+        session: FakeAuthSession(initial: const AuthSignedIn()),
+      );
+      expect(app.path, AppPaths.identity);
+
+      await app.tap("entry-sign-out");
+
+      expect(app.session.signOutCalls, 1);
+      expect(app.path, AppPaths.access);
+      app.network.release(0, 200);
+      await app.settle();
+      expect(app.path, AppPaths.access);
+    });
+
+    testWidgets("is the only loading screen with Sign out", (tester) async {
+      await pumpApp(
+        tester,
+        session: FakeAuthSession(initial: const AuthRestoring()),
+      );
+
+      expect(find.byKey(const Key("entry-sign-out")), findsNothing);
+    });
+  });
+
+  group("the account-unavailable screen", () {
+    Future<AppHarness> disabled(WidgetTester tester) async {
+      final app = await pumpApp(
+        tester,
+        session: FakeAuthSession(initial: const AuthSignedIn()),
+        network: ScriptedNetwork([200], [ProfileReply.disabledIncomplete]),
+      );
+      expect(app.path, AppPaths.accountUnavailable);
+      return app;
+    }
+
+    testWidgets("offers no write", (tester) async {
+      final app = await disabled(tester);
+
+      expect(find.text(EntryStrings.accountUnavailable), findsOneWidget);
+      expect(find.text(EntryStrings.refresh), findsOneWidget);
+      expect(find.byKey(const Key("entry-manage-passkeys")), findsOneWidget);
+      expect(find.byKey(const Key("entry-sign-out")), findsOneWidget);
+      expect(find.byType(TextField), findsNothing);
+      expect(app.network.profilePuts, isEmpty);
+    });
+
+    final refreshes = <({String label, ProfileReply read, String path})>[
+      (
+        label: "an enabled incomplete profile opens the form",
+        read: ProfileReply.incomplete,
+        path: AppPaths.onboarding,
+      ),
+      (
+        label: "an enabled complete profile opens the landing",
+        read: ProfileReply.complete,
+        path: AppPaths.landing,
+      ),
+      (
+        label: "a failed read shows the read failure",
+        read: const ProfileReply(status: 500, body: "{}"),
+        path: AppPaths.identityFailed,
+      ),
+    ];
+    for (final c in refreshes) {
+      testWidgets("Refresh: ${c.label}", (tester) async {
+        final app = await disabled(tester);
+        app.network
+          ..enqueue(200)
+          ..enqueueProfile(c.read);
+
+        await app.tap("entry-refresh");
+
+        expect(app.network.requests, 2);
+        expect(app.network.profileGets, 2);
+        expect(app.path, c.path);
+      });
+    }
+
+    testWidgets("keeps auth-only passkey controls, and closing derives the "
+        "stage again", (tester) async {
+      final app = await disabled(tester);
+
+      await app.tap("entry-manage-passkeys");
+      expect(app.path, AppPaths.passkeys);
+
+      app.network
+        ..enqueue(200)
+        ..enqueueProfile(ProfileReply.disabledIncomplete);
+      await app.tap("passkeys-close");
+
+      expect(app.path, AppPaths.accountUnavailable);
+      expect(app.network.profilePuts, isEmpty);
+    });
+  });
+
+  testWidgets("Back cannot reopen a completed form", (tester) async {
+    final app = await pumpApp(
+      tester,
+      session: FakeAuthSession(initial: const AuthSignedIn()),
+      network: ScriptedNetwork([200], [ProfileReply.incomplete]),
+    );
+    await tester.enterText(find.byKey(const Key("onboarding-handle")), "finn");
+    await tester.enterText(
+      find.byKey(const Key("onboarding-display-name")),
+      "Finn",
+    );
+    await app.tap("onboarding-continue");
+    expect(app.path, AppPaths.landing);
+
+    await tester.binding.handlePopRoute();
+    await app.settle();
+
+    expect(app.path, AppPaths.landing);
+    expect(find.byType(TextField), findsNothing);
+  });
+
+  group("the new screens stay usable", () {
+    final cases = <({String label, ProfileReply profile})>[
+      (label: "onboarding form", profile: ProfileReply.incomplete),
+      (label: "account unavailable", profile: ProfileReply.disabled),
+    ];
+    for (final c in cases) {
+      testWidgets("${c.label} at 200% text scale", (tester) async {
+        final semantics = tester.ensureSemantics();
+        tester.platformDispatcher.textScaleFactorTestValue = 2;
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+
+        await pumpApp(
+          tester,
+          session: FakeAuthSession(initial: const AuthSignedIn()),
+          network: ScriptedNetwork([200], [c.profile]),
+        );
+
+        expect(tester.takeException(), isNull);
+        await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+        await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+        semantics.dispose();
+      });
+    }
+  });
+
+  group("the coordinator takes a resolved profile only in its own scope and "
+      "stage", () {
+    const complete = PlayerProfile(onboardingComplete: true, isEnabled: true);
+    const disabled = PlayerProfile(onboardingComplete: true, isEnabled: false);
+
+    testWidgets("a closed scope changes nothing", (tester) async {
+      final app = await pumpApp(
+        tester,
+        session: FakeAuthSession(initial: const AuthSignedIn()),
+        network: ScriptedNetwork([200], [ProfileReply.incomplete]),
+      );
+      final closed = app.container.read(playerScopeProvider);
+      app.container.read(playerScopeProvider.notifier).advance();
+
+      app.container
+          .read(entryControllerProvider.notifier)
+          .acceptProfile(closed, complete);
+      await app.settle();
+
+      expect(app.path, AppPaths.onboarding);
+    });
+
+    testWidgets("another stage changes nothing", (tester) async {
+      final app = await pumpApp(
+        tester,
+        session: FakeAuthSession(initial: const AuthSignedIn()),
+        network: ScriptedNetwork([200], [ProfileReply.complete]),
+      );
+
+      app.container
+          .read(entryControllerProvider.notifier)
+          .acceptProfile(app.container.read(playerScopeProvider), disabled);
+      await app.settle();
+
+      expect(app.path, AppPaths.landing);
+    });
+  });
+
+  testWidgets("a late profile response from an ended session never reaches "
+      "the next session", (tester) async {
+    final app = await pumpApp(
+      tester,
+      session: FakeAuthSession(initial: const AuthSignedIn()),
+      network: ScriptedNetwork([200], [ProfileReply.stalled]),
+    );
+    expect(app.path, AppPaths.identity);
+
+    app.session.emit(const AuthSignedOut());
+    await app.settle();
+    expect(app.network.profileAborts, 1);
+    app.network
+      ..enqueue(200)
+      ..enqueueProfile(ProfileReply.stalled);
+    app.session.emit(const AuthSignedIn());
+    await app.settle();
+
+    app.network.releaseProfile(0, ProfileReply.complete);
+    await app.settle();
+    expect(app.path, AppPaths.identity, reason: "the first answer is stale");
+
+    app.network.releaseProfile(1, ProfileReply.incomplete);
+    await app.settle();
+    expect(app.path, AppPaths.onboarding);
   });
 
   group("redirect keeps every location inside the stage's screens", () {
@@ -139,6 +434,19 @@ void main() {
         sent: false,
         to: AppPaths.passkeys,
       ),
+      (
+        stage: const EntryOnboarding(),
+        from: AppPaths.landing,
+        sent: false,
+        to: AppPaths.onboarding,
+      ),
+      (
+        stage: const EntryAccountUnavailable(),
+        from: AppPaths.onboarding,
+        sent: false,
+        to: AppPaths.accountUnavailable,
+      ),
+      (stage: ready, from: AppPaths.onboarding, sent: false, to: "/"),
     ];
 
     for (final c in cases) {

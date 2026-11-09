@@ -9,6 +9,7 @@ import "package:tailtag_mobile/features/account_access/access_flow_controller.da
 import "package:tailtag_mobile/features/account_access/account_access_screen.dart";
 import "package:tailtag_mobile/features/account_access/code_entry_screen.dart";
 import "package:tailtag_mobile/features/account_access/email_entry_screen.dart";
+import "package:tailtag_mobile/features/onboarding/onboarding_screen.dart";
 import "package:tailtag_mobile/features/passkeys/passkey_screen.dart";
 
 /// The route paths of the entry stages and the account-access flow.
@@ -48,6 +49,12 @@ abstract final class AppPaths {
   /// The passkey screen.
   static const passkeys = "/passkeys";
 
+  /// The onboarding form.
+  static const onboarding = "/onboarding";
+
+  /// The disabled-profile screen.
+  static const accountUnavailable = "/account-unavailable";
+
   /// The neutral landing.
   static const landing = "/";
 
@@ -65,6 +72,8 @@ String pathForStage(EntryStage stage) => switch (stage) {
   EntryIdentityLoading() => AppPaths.identity,
   EntryIdentityFailed() => AppPaths.identityFailed,
   EntryPasskeys() => AppPaths.passkeys,
+  EntryOnboarding() => AppPaths.onboarding,
+  EntryAccountUnavailable() => AppPaths.accountUnavailable,
   EntryReady() => AppPaths.landing,
 };
 
@@ -172,8 +181,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: AppPaths.identity,
-        builder: (context, state) =>
-            const EntryLoadingScreen(label: EntryStrings.loadingAccount),
+        builder: (context, state) => EntryLoadingScreen(
+          label: EntryStrings.loadingAccount,
+          onSignOut: ref.read(entryControllerProvider.notifier).signOut,
+        ),
       ),
       GoRoute(
         path: AppPaths.identityFailed,
@@ -188,6 +199,21 @@ final routerProvider = Provider<GoRouter>((ref) {
             onSignOut: entry.signOut,
           );
         },
+      ),
+      GoRoute(
+        path: AppPaths.onboarding,
+        builder: (context, state) {
+          final entry = ref.read(entryControllerProvider.notifier);
+          return OnboardingScreen(
+            onResolved: entry.acceptProfile,
+            onManagePasskeys: entry.openPasskeys,
+            onSignOut: entry.signOut,
+          );
+        },
+      ),
+      GoRoute(
+        path: AppPaths.accountUnavailable,
+        builder: (context, state) => const AccountUnavailableScreen(),
       ),
       GoRoute(
         path: AppPaths.landing,

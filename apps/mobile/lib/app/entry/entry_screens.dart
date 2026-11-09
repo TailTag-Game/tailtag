@@ -48,8 +48,15 @@ abstract final class EntryStrings {
   static const signOut = "Sign out";
 
   /// The action that opens the passkey screen. Every signed-in entry screen
-  /// that #481 and #482 add uses it too.
+  /// that #482 adds uses it too.
   static const managePasskeys = "Manage passkeys";
+
+  /// The disabled-profile text.
+  static const accountUnavailable =
+      "Your TailTag account is not available right now.";
+
+  /// The action that reads the account status again.
+  static const refresh = "Refresh";
 
   /// The neutral landing text. It is not a finished home.
   static const landing = "You are signed in.";
@@ -61,10 +68,13 @@ abstract final class EntryStrings {
 /// A full-screen wait with a visible label.
 class EntryLoadingScreen extends StatelessWidget {
   /// Creates the screen with [label].
-  const new({required this.label, super.key});
+  const new({required this.label, this.onSignOut, super.key});
 
   /// What the app is waiting for.
   final String label;
+
+  /// Signs out during the wait, or null when the wait has no exit.
+  final VoidCallback? onSignOut;
 
   @override
   Widget build(BuildContext context) {
@@ -80,6 +90,13 @@ class EntryLoadingScreen extends StatelessWidget {
                 children: [
                   const ExcludeSemantics(child: CircularProgressIndicator()),
                   Text(label, textAlign: TextAlign.center),
+                  if (onSignOut != null)
+                    TailTagButton(
+                      key: const Key("entry-sign-out"),
+                      label: EntryStrings.signOut,
+                      variant: TailTagButtonVariant.secondary,
+                      onPressed: onSignOut,
+                    ),
                 ],
               ),
             ),
@@ -221,10 +238,43 @@ class IdentityFailedScreen extends ConsumerWidget {
   }
 }
 
-/// The neutral landing after the identity loads.
+/// The server reports that the profile is disabled.
+class AccountUnavailableScreen extends ConsumerWidget {
+  /// Creates the screen.
+  const new({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.read(entryControllerProvider.notifier);
+    return _EntryMessageScreen(
+      message: EntryStrings.accountUnavailable,
+      tone: StatusTone.warning,
+      actions: [
+        TailTagButton(
+          key: const Key("entry-refresh"),
+          label: EntryStrings.refresh,
+          onPressed: controller.refreshProfile,
+        ),
+        TailTagButton(
+          key: const Key("entry-manage-passkeys"),
+          label: EntryStrings.managePasskeys,
+          variant: TailTagButtonVariant.secondary,
+          onPressed: controller.openPasskeys,
+        ),
+        TailTagButton(
+          key: const Key("entry-sign-out"),
+          label: EntryStrings.signOut,
+          variant: TailTagButtonVariant.secondary,
+          onPressed: controller.signOut,
+        ),
+      ],
+    );
+  }
+}
+
+/// The neutral landing after a completed profile loads.
 ///
-/// It is not the milestone home. Onboarding (#481) and conventions (#482)
-/// replace it.
+/// It is not the milestone home. Conventions (#482) replace it.
 class NeutralLandingScreen extends ConsumerWidget {
   /// Creates the screen. [onOpenAuthProof] opens the debug proof screen in
   /// debug builds.

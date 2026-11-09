@@ -62,7 +62,8 @@ final class EntrySignOutFailed extends EntryStage {
   String toString() => "EntrySignOutFailed";
 }
 
-/// A session is active, and the app is reading the TailTag identity.
+/// A session is active, and the app is reading the TailTag identity and
+/// profile.
 final class EntryIdentityLoading extends EntryStage {
   /// Creates the stage.
   const new() : super();
@@ -71,7 +72,7 @@ final class EntryIdentityLoading extends EntryStage {
   String toString() => "EntryIdentityLoading";
 }
 
-/// The identity read failed.
+/// The identity read or the profile read failed.
 final class EntryIdentityFailed extends EntryStage {
   /// Creates the stage. A null [failure] means that the API refused the
   /// token while the native session stayed active.
@@ -101,8 +102,27 @@ final class EntryPasskeys extends EntryStage {
   String toString() => "EntryPasskeys";
 }
 
-/// The TailTag identity is loaded. The neutral landing shows until
-/// onboarding (#481) and conventions (#482) add their stages.
+/// The profile of an enabled player is incomplete.
+final class EntryOnboarding extends EntryStage {
+  /// Creates the stage.
+  const new() : super();
+
+  @override
+  String toString() => "EntryOnboarding";
+}
+
+/// The server reports that the profile is disabled. It offers no onboarding
+/// or participation write.
+final class EntryAccountUnavailable extends EntryStage {
+  /// Creates the stage.
+  const new() : super();
+
+  @override
+  String toString() => "EntryAccountUnavailable";
+}
+
+/// The profile of an enabled player is complete. The neutral landing shows
+/// until conventions (#482) add their stages.
 final class EntryReady extends EntryStage {
   /// Creates the stage.
   const new() : super();
