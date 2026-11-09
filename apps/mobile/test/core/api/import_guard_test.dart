@@ -158,6 +158,30 @@ List<String> findUiBoundaryImports(Directory uiRoot) {
   return violations;
 }
 
+/// Every `file: directive` under [root] that imports Flutter. Only
+/// `*_providers.dart` files may. [root] is a parameter so the guard can be
+/// shown to fail.
+List<String> findFlutterImportsInDataCode(Directory root) {
+  final violations = <String>[];
+  if (!root.existsSync()) {
+    return violations;
+  }
+  for (final entity in root.listSync(recursive: true)) {
+    if (entity is! File ||
+        !entity.path.endsWith(".dart") ||
+        entity.path.endsWith("_providers.dart")) {
+      continue;
+    }
+    for (final match in _directive.allMatches(entity.readAsStringSync())) {
+      final target = match.group(2)!;
+      if (target.startsWith("package:flutter/")) {
+        violations.add("${entity.path}: $target");
+      }
+    }
+  }
+  return violations;
+}
+
 /// Every file under [libRoot], outside `showcase/`, that imports a showcase
 /// file. The showcase is a separate entry point, so app code must not reach
 /// it. [libRoot] is a parameter so the guard can be shown to fail.
@@ -243,6 +267,42 @@ void main() {
           "Features go through core repositories; only api_failure.dart and "
           "api_cancellation.dart of core/api are public.",
     );
+  });
+
+  test("lib/core/conventions stays free of Flutter", () {
+    expect(
+      findFlutterImportsInDataCode(Directory("lib/core/conventions").absolute),
+      isEmpty,
+    );
+  });
+
+  group("the Flutter-free rule itself", () {
+    const cases = <({String file, String directive, bool flagged})>[
+      (
+        file: "repository.dart",
+        directive: 'import "package:flutter/foundation.dart";',
+        flagged: true,
+      ),
+      (
+        file: "repository_providers.dart",
+        directive: 'import "package:flutter/foundation.dart";',
+        flagged: false,
+      ),
+      (
+        file: "repository.dart",
+        directive: 'import "package:http/http.dart";',
+        flagged: false,
+      ),
+    ];
+    for (final c in cases) {
+      test("${c.flagged ? "flags" : "allows"} ${c.file}: ${c.directive}", () {
+        final dir = Directory.systemTemp.createTempSync("flutter_free_guard");
+        addTearDown(() => dir.deleteSync(recursive: true));
+        File("${dir.path}/${c.file}").writeAsStringSync("${c.directive}\n");
+
+        expect(findFlutterImportsInDataCode(dir), hasLength(c.flagged ? 1 : 0));
+      });
+    }
   });
 
   test("only lib/core/auth imports the Clerk bridge package", () {

@@ -1,11 +1,13 @@
 import "package:tailtag_mobile/core/api/api_failure.dart";
 import "package:tailtag_mobile/core/auth/auth_failure.dart";
+import "package:tailtag_mobile/core/conventions/convention.dart";
 
 /// Where the player stands on the way into TailTag.
 ///
-/// The entry coordinator derives the stage from the auth state, the identity
-/// bootstrap, and sign-out. Each stage has its own route. Only [EntryReady]
-/// shows protected content.
+/// The entry coordinator derives the stage from the auth state, the
+/// bootstrap, and sign-out. Each stage has its own route. Only
+/// [EntryConventionPicker] and [EntryConventionHome] show participation
+/// content.
 sealed class EntryStage {
   /// Creates a stage.
   const new();
@@ -115,18 +117,52 @@ final class EntryOnboarding extends EntryStage {
 /// or participation write.
 final class EntryAccountUnavailable extends EntryStage {
   /// Creates the stage.
-  const new() : super();
+  const new({this.apiAccess = false}) : super();
+
+  /// Whether the API refused the token during a foreground reload while the
+  /// native session stayed active.
+  final bool apiAccess;
 
   @override
   String toString() => "EntryAccountUnavailable";
 }
 
-/// The profile of an enabled player is complete. The neutral landing shows
-/// until conventions (#482) add their stages.
-final class EntryReady extends EntryStage {
-  /// Creates the stage.
-  const new() : super();
+/// An eligible player chooses a convention.
+final class EntryConventionPicker extends EntryStage {
+  /// Creates the stage. [current] is the confirmed selection that the home
+  /// showed, or null when the player has no selection.
+  const new({this.current}) : super();
+
+  /// The confirmed selection, which stays until the server accepts another.
+  final ConventionEnrollment? current;
 
   @override
-  String toString() => "EntryReady";
+  String toString() => "EntryConventionPicker";
+}
+
+/// The home of the selected convention.
+final class EntryConventionHome extends EntryStage {
+  /// Creates the stage for [enrollment].
+  const new(
+    this.enrollment, {
+    this.refreshing = false,
+    this.refreshFailure,
+    this.apiAccess = false,
+  }) : super();
+
+  /// The selected enrollment, as the server last confirmed it.
+  final ConventionEnrollment enrollment;
+
+  /// Whether a silent reload is running.
+  final bool refreshing;
+
+  /// The failure of the last silent reload, or null.
+  final ApiFailure? refreshFailure;
+
+  /// Whether the API refused the token during the last silent reload while
+  /// the native session stayed active.
+  final bool apiAccess;
+
+  @override
+  String toString() => "EntryConventionHome";
 }

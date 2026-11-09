@@ -2,7 +2,6 @@ import "dart:async";
 
 import "package:flutter/material.dart";
 import "package:flutter_test/flutter_test.dart";
-import "package:tailtag_mobile/app/entry/entry_screens.dart";
 import "package:tailtag_mobile/app/router.dart";
 import "package:tailtag_mobile/core/auth/auth_attempt_result.dart";
 import "package:tailtag_mobile/core/auth/auth_failure.dart";
@@ -41,7 +40,7 @@ Future<AppHarness> _signedIn(
     session: session,
     network: ScriptedNetwork(statuses),
   );
-  expect(app.path, AppPaths.landing);
+  expect(app.path, AppPaths.home);
   return app;
 }
 
@@ -72,13 +71,13 @@ void main() {
       await app.tap("entry-manage-passkeys");
       expect(app.path, AppPaths.passkeys);
       expect(app.container.read(playerScopeProvider).epoch, epoch + 1);
-      expect(find.text(EntryStrings.landing), findsNothing);
+      expect(find.byKey(const Key("convention-home")), findsNothing);
 
       app.network.enqueue(200);
       await app.tap("passkeys-close");
 
       expect(app.network.requests, 2);
-      expect(app.path, AppPaths.landing);
+      expect(app.path, AppPaths.home);
     });
 
     testWidgets("system Back closes it like Close", (tester) async {
@@ -89,7 +88,7 @@ void main() {
       await app.settle();
 
       expect(app.network.requests, 2);
-      expect(app.path, AppPaths.landing);
+      expect(app.path, AppPaths.home);
     });
 
     testWidgets("opens from a failed identity read without a profile", (

@@ -37,7 +37,7 @@ void main() {
     // The native SDK has not reported a state yet, so the coordinator shows
     // the restoring stage and no protected content.
     expect(find.text(EntryStrings.restoring), findsOneWidget);
-    expect(find.text(EntryStrings.landing), findsNothing);
+    expect(find.byKey(const Key("convention-home")), findsNothing);
   });
 
   testWidgets("the app uses the TailTag theme and stays light in dark mode", (

@@ -9,6 +9,8 @@ import "package:http/http.dart" as http;
 import "package:tailtag_mobile/app/app.dart";
 import "package:tailtag_mobile/app/router.dart";
 import "package:tailtag_mobile/core/auth/auth_providers.dart";
+import "package:tailtag_mobile/core/conventions/convention_providers.dart";
+import "package:tailtag_mobile/core/conventions/convention_repository.dart";
 import "package:tailtag_mobile/core/session/current_user_providers.dart";
 import "package:tailtag_mobile/core/session/current_user_repository.dart";
 import "package:tailtag_mobile/core/session/player_profile_providers.dart";
@@ -68,14 +70,62 @@ final class ProfileReply {
   final bool held;
 }
 
+/// A `Convention` in the server's response shape.
+String conventionJson({
+  int id = 10,
+  String name = "Test Con",
+  String status = "active",
+  String start = "2026-11-08",
+  String end = "2026-11-10",
+}) =>
+    '{"id": $id, "name": "$name", "status": "$status", '
+    '"start_date": "$start", "end_date": "$end"}';
+
+/// A `ConventionEnrollment` in the server's response shape.
+String enrollmentJson({int id = 7, String? convention, bool selected = true}) =>
+    '{"id": $id, "convention": ${convention ?? conventionJson()}, '
+    '"is_active": $selected, "created_at": "2026-10-01T12:00:00Z"}';
+
+/// One answer to a `/api/conventions/` request.
+final class ConventionReply {
+  /// Creates an answer with [status] and [body].
+  const new({
+    this.status = 200,
+    this.body = "{}",
+    this.fails = false,
+    this.held = false,
+  });
+
+  /// An array answer of [items].
+  factory list(List<String> items) =>
+      ConventionReply(body: "[${items.join(", ")}]");
+
+  /// The `{enrollment: ...}` answer of `/api/conventions/active/`. A null
+  /// [enrollment] means no selection.
+  factory selection(String? enrollment) =>
+      ConventionReply(body: '{"enrollment": ${enrollment ?? "null"}}');
+
+  /// The connection breaks before an answer arrives.
+  static const brokenConnection = ConventionReply(fails: true);
+
+  /// The answer waits until the test calls `releaseConvention`.
+  static const stalled = ConventionReply(held: true);
+
+  final int status;
+  final String body;
+  final bool fails;
+  final bool held;
+}
+
 /// A network for the entry reads, whose answers the test controls.
 ///
 /// Each `GET /api/me/` gets the next queued status at once. When that queue
 /// is empty, the request waits until the test calls [release].
 ///
 /// Each `/api/profile/` request gets the next [ProfileReply]. When that queue
-/// is empty, the answer is a completed profile, so a test about identity or
-/// sign-out reaches the landing.
+/// is empty, the answer is a completed profile. When the selection queue is
+/// empty, the answer is a selected convention, so a test about identity or
+/// sign-out reaches the home.
 final class ScriptedNetwork extends http.BaseClient {
   /// Creates a network that answers `GET /api/me/` with [statuses] and
   /// `/api/profile/` with [profiles], in order.
@@ -83,8 +133,28 @@ final class ScriptedNetwork extends http.BaseClient {
     : _queue = [...statuses],
       _profiles = [...profiles];
 
+  /// Creates a network with answers for the convention requests too, in
+  /// order.
+  factory withConventions(
+    List<int> statuses,
+    List<ProfileReply> profiles, {
+    List<ConventionReply> selections = const [],
+    List<ConventionReply> conventions = const [],
+    List<ConventionReply> enrollments = const [],
+    List<ConventionReply> writes = const [],
+  }) => ScriptedNetwork(statuses, profiles)
+    .._selections.addAll(selections)
+    .._conventions.addAll(conventions)
+    .._enrollments.addAll(enrollments)
+    .._writes.addAll(writes);
+
   final List<int> _queue;
   final List<ProfileReply> _profiles;
+  final List<ConventionReply> _selections = [];
+  final List<ConventionReply> _conventions = [];
+  final List<ConventionReply> _enrollments = [];
+  final List<ConventionReply> _writes = [];
+  final List<Completer<http.StreamedResponse>> _heldConventions = [];
   final List<Completer<http.StreamedResponse>> _held = [];
   final List<Completer<http.StreamedResponse>> _heldProfiles = [];
 
@@ -102,6 +172,33 @@ final class ScriptedNetwork extends http.BaseClient {
 
   /// The number of held profile requests whose abort trigger fired.
   int profileAborts = 0;
+
+  /// Each convention write as `METHOD path` and its JSON body, in order.
+  final List<({String request, Map<String, Object?> body})> conventionWrites =
+      [];
+
+  /// The number of held convention requests whose abort trigger fired.
+  int conventionAborts = 0;
+
+  /// The number of requests sent to [request], such as
+  /// `GET /api/profile/`.
+  int count(String request) => log.where((item) => item == request).length;
+
+  /// Queues [reply] for the next selection read.
+  void enqueueSelection(ConventionReply reply) => _selections.add(reply);
+
+  /// Queues [reply] for the next conventions read.
+  void enqueueConventions(ConventionReply reply) => _conventions.add(reply);
+
+  /// Queues [reply] for the next enrollments read.
+  void enqueueEnrollments(ConventionReply reply) => _enrollments.add(reply);
+
+  /// Queues [reply] for the next convention write.
+  void enqueueWrite(ConventionReply reply) => _writes.add(reply);
+
+  /// Answers held convention request [index] with [reply].
+  void releaseConvention(int index, ConventionReply reply) =>
+      _heldConventions[index].complete(_replyWith(reply.status, reply.body));
 
   /// Queues [status] for the next `GET /api/me/`.
   void enqueue(int status) => _queue.add(status);
@@ -121,6 +218,9 @@ final class ScriptedNetwork extends http.BaseClient {
     log.add("${request.method} ${request.url.path}");
     if (request.url.path == "/api/profile/") {
       return await _sendProfile(request);
+    }
+    if (request.url.path.startsWith("/api/conventions/")) {
+      return await _sendConvention(request);
     }
     requests++;
     if (_queue.isNotEmpty) {
@@ -151,6 +251,45 @@ final class ScriptedNetwork extends http.BaseClient {
     _heldProfiles.add(held);
     if (request case http.Abortable(:final abortTrigger?)) {
       unawaited(abortTrigger.then((_) => profileAborts++));
+    }
+    return await held.future;
+  }
+
+  Future<http.StreamedResponse> _sendConvention(
+    http.BaseRequest request,
+  ) async {
+    final bytes = await request.finalize().toBytes();
+    final path = request.url.path;
+    final ConventionReply reply;
+    if (request.method == "GET") {
+      final (queue, fallback) = switch (path) {
+        "/api/conventions/" => (_conventions, ConventionReply.list(const [])),
+        "/api/conventions/enrollments/" => (
+          _enrollments,
+          ConventionReply.list(const []),
+        ),
+        _ => (_selections, ConventionReply.selection(enrollmentJson())),
+      };
+      reply = queue.isNotEmpty ? queue.removeAt(0) : fallback;
+    } else {
+      conventionWrites.add((
+        request: "${request.method} $path",
+        body: jsonDecode(utf8.decode(bytes)) as Map<String, Object?>,
+      ));
+      reply = _writes.isNotEmpty
+          ? _writes.removeAt(0)
+          : ConventionReply(status: 201, body: enrollmentJson());
+    }
+    if (reply.fails) {
+      throw http.ClientException("connection broke", request.url);
+    }
+    if (!reply.held) {
+      return _replyWith(reply.status, reply.body);
+    }
+    final held = Completer<http.StreamedResponse>();
+    _heldConventions.add(held);
+    if (request case http.Abortable(:final abortTrigger?)) {
+      unawaited(abortTrigger.then((_) => conventionAborts++));
     }
     return await held.future;
   }
@@ -217,6 +356,9 @@ Future<AppHarness> pumpApp(
       ),
       playerProfileRepositoryProvider.overrideWithValue(
         PlayerProfileRepository(transport),
+      ),
+      conventionRepositoryProvider.overrideWithValue(
+        ConventionRepository(transport),
       ),
     ],
   );
