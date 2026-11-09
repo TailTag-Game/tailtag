@@ -362,8 +362,14 @@ void main() {
         );
 
         expect(tester.takeException(), isNull);
-        await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
-        await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+        for (final guideline in [
+          androidTapTargetGuideline,
+          iOSTapTargetGuideline,
+          textContrastGuideline,
+          labeledTapTargetGuideline,
+        ]) {
+          await expectLater(tester, meetsGuideline(guideline));
+        }
         semantics.dispose();
       });
     }
