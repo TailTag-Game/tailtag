@@ -5,7 +5,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # go-task runs the root Taskfile.yml. The archive is verified against the
-# SHA-256 published in go-task v3.54.0's task_checksums.txt.
+# SHA-256 published in go-task v3.54.0's task_checksums.txt. The download
+# retries transient release-host errors, the same as the CI install actions.
 ARG TARGETARCH
 ARG TASK_VERSION=3.54.0
 ARG TASK_SHA256_AMD64=680859dbb4d881a9c72d4d9a8f510825450849af8567deacd7302c01124416fb
@@ -18,9 +19,17 @@ RUN set -eu; \
     esac; \
     archive="task_linux_${TARGETARCH}.tar.gz"; \
     workdir="$(mktemp -d)"; \
-    python -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' \
+    attempts=0; \
+    until python -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' \
         "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/${archive}" \
-        "${workdir}/${archive}"; \
+        "${workdir}/${archive}"; do \
+        attempts=$((attempts + 1)); \
+        if [ "$attempts" -ge 9 ]; then \
+            echo "go-task download failed after $attempts attempts" >&2; \
+            exit 1; \
+        fi; \
+        sleep 30; \
+    done; \
     echo "${task_sha256}  ${workdir}/${archive}" | sha256sum -c -; \
     tar -xzf "${workdir}/${archive}" -C "${workdir}" task; \
     install -m 0755 "${workdir}/task" /usr/local/bin/task; \
