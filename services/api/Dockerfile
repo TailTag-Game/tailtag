@@ -5,11 +5,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # go-task runs the root Taskfile.yml. The archive is verified against the
-# SHA-256 published in go-task v3.53.1's task_checksums.txt.
+# SHA-256 published in go-task v3.54.0's task_checksums.txt.
 ARG TARGETARCH
-ARG TASK_VERSION=3.53.1
-ARG TASK_SHA256_AMD64=a54a408f6861ff921f6e87774180db31bacd8c1e7c944ca696db9fea49a82fc7
-ARG TASK_SHA256_ARM64=e3ad19101493a0112e1f22ae8ccc54bf03e533b1076a0ca1e6c782a09ad2e588
+ARG TASK_VERSION=3.54.0
+ARG TASK_SHA256_AMD64=680859dbb4d881a9c72d4d9a8f510825450849af8567deacd7302c01124416fb
+ARG TASK_SHA256_ARM64=d7189d439d4a6058e39e1b2acd7c8b27acd4856691b408f23b242e4294e1df5b
 RUN set -eu; \
     case "$TARGETARCH" in \
         amd64) task_sha256="$TASK_SHA256_AMD64" ;; \
