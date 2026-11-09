@@ -750,6 +750,10 @@ instance. Do not use a real account or a real inbox.
 Never write the address, the code, or any token in the repository, in a log, or
 in a pull request.
 
+### Account-to-convention journey proof
+
+The [journey checklist](mobile-journey-checklist.md) proves the full player journey on physical Android and iOS devices against Render Development. Each pass records its results in a dated evidence file beside the checklist.
+
 ### Fakes
 
 Tests need no Clerk and no device. `test/support/auth_test_support.dart` has
