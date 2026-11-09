@@ -59,6 +59,8 @@ final class ConventionRepository {
     final response = await _transport.execute(
       operationId: "conventionsActiveRetrieve",
       cancellation: cancellation,
+      // A null enrollment means no selection, so the key must be present.
+      requiredKeys: const ["enrollment"],
       call: (token) =>
           _transport.conventions.conventionsActiveRetrieve(cancellation: token),
     );

@@ -163,7 +163,7 @@ Staging runs on Render since 2026-10-30 (#409). The relays need one Render crede
 Do these steps once, and again after each new release.
 
 1. Make sure that 2FA is on for the maintainer's Render account.
-2. On the host, install go-task 3.53.1 into `/srv/tailtag-simulator/tools/bin`. Check it against the pinned SHA-256 in `.github/actions/install-go-task/action.yml`.
+2. On the host, install go-task 3.54.0 into `/srv/tailtag-simulator/tools/bin`. Check it against the pinned SHA-256 in `.github/actions/install-go-task/action.yml`.
 3. Append the output of `task --version` and the SHA-256 of the `task` binary to `/srv/tailtag-simulator/tools/versions.txt`. Bootstrap rewrites that file, so append them again after any bootstrap.
 4. On the host, install the selector manifest at `~/.config/tailtag/staging-clean-rebuild-targets.json` with mode 0600. It holds six keys: the five `rebuild_*` identifiers that `validate_selectors` reads, and `render_staging_api_service_id`. Copy those keys from the maintainer's own manifest, and no others. The Render relays refuse to run without the Render key.
 5. Use a release and a workspace from #459 or later. Earlier releases do not work with Virginia Staging. On the Mac, create the workspace archive from a clean checkout of the installed release SHA:

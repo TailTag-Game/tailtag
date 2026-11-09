@@ -146,7 +146,7 @@ configuration and lifecycle details.
 ### Native Windows
 
 The same native path works from PowerShell on Windows, with no Git Bash or
-other POSIX shell. Install `uv`, go-task 3.53.1, and Docker Desktop, then run
+other POSIX shell. Install `uv`, go-task 3.54.0, and Docker Desktop, then run
 the same commands from the repository root:
 
 ```powershell

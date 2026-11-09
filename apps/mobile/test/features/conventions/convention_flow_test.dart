@@ -1,4 +1,5 @@
 import "package:flutter/material.dart";
+import "package:flutter/services.dart";
 import "package:flutter_test/flutter_test.dart";
 import "package:tailtag_mobile/app/debug/auth_proof_screen.dart";
 import "package:tailtag_mobile/app/entry/entry_screens.dart";
@@ -153,6 +154,37 @@ Future<void> _foreground(AppHarness app) async {
   await app.settle();
 }
 
+/// The key of the control that holds keyboard focus.
+String? _focusedKey() {
+  String? found;
+  FocusManager.instance.primaryFocus?.context?.visitAncestorElements((element) {
+    final key = element.widget.key;
+    if (key is ValueKey<String>) {
+      found = key.value;
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
+/// The controls that Tab visits in one full cycle, in order.
+Future<List<String>> _tabOrder(WidgetTester tester) async {
+  final order = <String>[];
+  for (var i = 0; i < 30; i++) {
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    final key = _focusedKey();
+    if (order.contains(key)) {
+      break;
+    }
+    if (key != null) {
+      order.add(key);
+    }
+  }
+  return order;
+}
+
 /// Lets a stalled request reach its deadline, so no timer outlives the test.
 Future<void> _drain(AppHarness app) async {
   await app.tester.pump(const Duration(seconds: 16));
@@ -209,6 +241,73 @@ void main() {
 
         expect(app.path, c.path);
         expect(app.session.recheckCalls, 1);
+      });
+    }
+  });
+
+  group("focus and reading follow the screen from top to bottom", () {
+    final cases =
+        <
+          ({
+            String label,
+            Future<AppHarness> Function(WidgetTester) open,
+            List<String> tab,
+            List<Object> spoken,
+          })
+        >[
+          (
+            label: "the home",
+            open: _onHome,
+            tab: [
+              _change,
+              "convention-refresh",
+              _passkeys,
+              _signOut,
+              "entry-auth-proof",
+            ],
+            spoken: [
+              contains("Current Con"),
+              "Change convention",
+              "Refresh",
+              "Manage passkeys",
+              "Sign out",
+            ],
+          ),
+          (
+            label: "the picker",
+            open: _onPickerFromHome,
+            tab: [
+              _closeKey,
+              _action(1),
+              _action(2),
+              _passkeys,
+              _signOut,
+              "entry-auth-proof",
+            ],
+            spoken: [
+              contains("Fresh Con"),
+              "Join and enter",
+              contains("Joined Con"),
+              "Enter convention",
+              contains("Current Con"),
+              "Manage passkeys",
+              "Sign out",
+            ],
+          ),
+        ];
+    for (final c in cases) {
+      testWidgets(c.label, (tester) async {
+        final semantics = tester.ensureSemantics();
+        await c.open(tester);
+
+        expect(await _tabOrder(tester), c.tab);
+        expect(
+          tester.semantics.simulatedAccessibilityTraversal().map(
+            (node) => node.getSemanticsData().label,
+          ),
+          containsAllInOrder(c.spoken),
+        );
+        semantics.dispose();
       });
     }
   });

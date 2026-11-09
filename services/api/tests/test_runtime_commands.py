@@ -131,9 +131,9 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
     assert "RUN uv sync --locked --no-install-project" in development
     # The development image carries the pinned, checksum-verified go-task.
     assert "make" not in development.replace("makemigrations", "")
-    assert "3.53.1" in development
+    assert "3.54.0" in development
     assert "sha256" in development.lower()
-    assert "3.53.1" not in production
+    assert "3.54.0" not in production
     assert "RUN uv sync --locked --no-dev --no-install-project" in production
     # Render SSH requires an owner-only ~/.ssh for the container user.
     assert "install -d -m 0700 -o tailtag -g tailtag /home/tailtag/.ssh" in production

@@ -1,5 +1,5 @@
 name: Install pinned go-task
-description: Install go-task 3.53.1 from its release archive, verified against a pinned SHA-256. Linux x86_64 and macOS arm64 runners only.
+description: Install go-task 3.54.0 from its release archive, verified against a pinned SHA-256. Linux x86_64 and macOS arm64 runners only.
 
 runs:
   using: composite
@@ -11,15 +11,15 @@ runs:
         RUNNER_ARCH_NAME: ${{ runner.arch }}
       run: |
         set -euo pipefail
-        version="3.53.1"
+        version="3.54.0"
         case "${RUNNER_OS_NAME}-${RUNNER_ARCH_NAME}" in
           Linux-X64)
             archive="task_linux_amd64.tar.gz"
-            sha256="a54a408f6861ff921f6e87774180db31bacd8c1e7c944ca696db9fea49a82fc7"
+            sha256="680859dbb4d881a9c72d4d9a8f510825450849af8567deacd7302c01124416fb"
             ;;
           macOS-ARM64)
             archive="task_darwin_arm64.tar.gz"
-            sha256="85d2d96c2380b33d7855b07b3f7a20dc7ca0eda999a26efa0fb5f6f32b366cd7"
+            sha256="12a69fcf37bb8d5bc9150c44f9a936775b73e59ff044c2c245232f198c135637"
             ;;
           *)
             echo "::error::install-go-task supports Linux X64 and macOS ARM64 runners only, not ${RUNNER_OS_NAME} ${RUNNER_ARCH_NAME}."
@@ -28,6 +28,7 @@ runs:
         esac
         work="$(mktemp -d)"
         curl --fail --silent --show-error --location \
+          --retry 8 --retry-delay 30 --retry-all-errors \
           --output "$work/$archive" \
           "https://github.com/go-task/task/releases/download/v${version}/${archive}"
         if [ "${RUNNER_OS_NAME}" = "macOS" ]; then

@@ -57,6 +57,10 @@ void main() {
         label: "a selection write with a null enrollment",
         read: () => _answering(200, '{"enrollment": null}').select(10),
       ),
+      (
+        label: "a selection read with no enrollment key",
+        read: () => _answering(200, "{}").readSelection(),
+      ),
     ];
     for (final c in cases) {
       test(c.label, () async {

@@ -66,6 +66,10 @@ final class ApiTransport {
   /// the generated client reports undocumented statuses as decoding errors
   /// and documented non-2xx statuses as successes, but both are failures
   /// here.
+  ///
+  /// A 2xx body must hold every key in [requiredKeys]. The generated decoder
+  /// reads a missing key and a JSON null as the same null, so an operation
+  /// that gives null a meaning names that key here.
   Future<R> execute<R extends Object>({
     required String operationId,
     required Future<TonikResult<R, http.Response>> Function(
@@ -74,6 +78,7 @@ final class ApiTransport {
     call,
     ApiCancellation? cancellation,
     bool multipart = false,
+    List<String> requiredKeys = const [],
   }) async {
     final stopwatch = Stopwatch()..start();
     final record = _CallRecord();
@@ -122,7 +127,7 @@ final class ApiTransport {
     // method ever reports a diagnostic.
     unawaited(
       runZoned(
-        () => _settle(call, token),
+        () => _settle(call, token, requiredKeys),
         zoneValues: {_recordKey: record},
       ).then((settled) {
         if (!outcome.isCompleted) {
@@ -163,6 +168,7 @@ final class ApiTransport {
     Future<TonikResult<R, http.Response>> Function(TonikCancellation token)
     call,
     TonikCancellation token,
+    List<String> requiredKeys,
   ) async {
     final TonikResult<R, http.Response> result;
     try {
@@ -174,6 +180,12 @@ final class ApiTransport {
     switch (result) {
       case TonikSuccess<R, http.Response>(:final value, :final response):
         if (_isSuccess(response.statusCode)) {
+          if (!_hasKeys(response, requiredKeys)) {
+            return _Failed<R>(
+              const ApiUnexpectedFailure(),
+              response.statusCode,
+            );
+          }
           return _Succeeded<R>(value, response.statusCode);
         }
         return _Failed<R>(_failureForResponse(response), response.statusCode);
@@ -195,6 +207,19 @@ final class ApiTransport {
 }
 
 bool _isSuccess(int status) => status >= 200 && status < 300;
+
+bool _hasKeys(http.Response response, List<String> keys) {
+  if (keys.isEmpty) {
+    return true;
+  }
+  final Object? body;
+  try {
+    body = jsonDecode(utf8.decode(response.bodyBytes));
+  } on FormatException {
+    return false;
+  }
+  return body is Map<String, Object?> && keys.every(body.containsKey);
+}
 
 /// A failure with no usable response: the transport, or the request itself.
 ApiFailure _failureForError(Object error, TonikCancellation token) {
