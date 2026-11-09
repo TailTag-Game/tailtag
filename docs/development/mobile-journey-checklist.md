@@ -29,6 +29,8 @@ C1, C2, and C3 are active synthetic conventions on Render Development. E2 and G 
 
 Never write an address, a handle, a code, a token, a credential ID, a Clerk identifier, or the Frontend API host in the evidence.
 
+The fixed test code and the `+clerk_test` rule are in [Debug proof route and test user](mobile.md#debug-proof-route-and-test-user). Keep each handle privately until D-01 is done.
+
 ## Prepare the pass
 
 The owner does steps 1 to 4.
@@ -41,7 +43,7 @@ The owner does steps 1 to 4.
    - Django admin access for the [Development operator](backend-delivery-operations.md#django-admin-and-development-operator).
    - A Bluetooth or USB keyboard for each phone.
 2. In Django admin, make sure that C1, C2, and C3 exist and have the status Active. Create a missing convention with a synthetic name.
-3. Choose the frozen commit. It must be a commit on `main`. Record its full hash.
+3. Choose the frozen commit. It must be a commit on `main`. Record its full hash. Record the commit of the live deploy from `render deploys list "$SERVICE_ID" -o json`.
 4. On the build host, check out the frozen commit with no local application changes.
 
 Do not add a temporary patch to the frozen commit. A patched build is a different commit.
@@ -60,9 +62,9 @@ The `--no-resident` flag ends the command after the app opens. An iPhone build n
 
 ## Count requests
 
-Render Development logs show each HTTP request but no user. One tester must use Development during a log window, or the counts mean nothing.
+Install the Render CLI and run `render login` before the pass. Render Development logs show each HTTP request but no user. One tester must use Development during a log window, or the counts mean nothing.
 
-Before the first step of a row that names a window, record the UTC time. After the last step, wait 10 seconds and record the UTC time again. Request logs became readable about 3 seconds after each request in the 2026-11-09 test. Then run this command on the Mac. Get `$SERVICE_ID` from the `srv-` part of the `tailtag-api-dev` dashboard URL.
+Before the first step of a row that names a window, record the UTC time. After the last step, wait 10 seconds and record the UTC time again. Request logs became readable about 3 seconds after each request in the 2026-11-09 test. Then run this command on the Mac. Get `$SERVICE_ID` from the `srv-` part of the `tailtag-api-dev` dashboard URL. `$START` and `$END` are UTC times in RFC 3339 format, such as `2026-11-09T18:10:46Z`.
 
 ```bash
 render logs -r "$SERVICE_ID" --start "$START" --end "$END" --type request --limit 1000 -o json | python3 -c '
@@ -95,7 +97,7 @@ Run every row on Android first, then run every row on iOS. Google needs this ord
 
 ## Rows
 
-The Issue column names the acceptance criterion in the [refinement comment](https://github.com/TailTag-Game/tailtag/issues/483#issuecomment-6746970794).
+Every row in this section is live evidence. [Reused and automated evidence](#reused-and-automated-evidence) lists the other types. The Issue column names the acceptance criterion in the [refinement comment](https://github.com/TailTag-Game/tailtag/issues/483#issuecomment-6746970794).
 
 ### Start
 
@@ -132,7 +134,7 @@ The Issue column names the acceptance criterion in the [refinement comment](http
 
 | Row | Platform | Account | Steps | Expected result | Issue |
 | --- | --- | --- | --- | --- | --- |
-| I-01 | Both | E1 | Sign out. Use the system Back action. | The account screen stays. No E1 content shows. | AC23 |
+| I-01 | Both | E1 | Sign out. Use the system Back action. On iOS, swipe in from the left edge. | The account screen stays. No E1 content shows. | AC23 |
 | I-02 | Both | E2 | Create E2 with a new address. Type a handle on the form and do not submit it. Sign out. | The form opened empty. | AC23 |
 | I-03 | Both | E1 | Sign in with E1. Sign out. | The C1 home showed. No E2 text showed. | AC23 |
 | I-04 | Both | E2 | Sign in with E2. | The form opens empty. | AC23 |
@@ -155,7 +157,7 @@ The owner changes each status in Django admin and restores it in the same row. B
 | Row | Platform | Account | Steps | Expected result | Issue |
 | --- | --- | --- | --- | --- | --- |
 | F-01 | Both | E2 | Return to the home of the selected convention. The owner pauses that convention. Tap Refresh. | The home shows the status Paused and Change convention. The owner restores Active. | AC26 |
-| F-02 | Both | D | Sign in with D and stop on the picker. The owner disables D. Leave the app for 5 seconds and return to it. A pull on the picker reloads only the lists. | The account-unavailable screen opens. Refresh and Sign out work. No participation action shows. | AC25 |
+| F-02 | Both | D | Sign out. Sign in with D and stop on the picker. The owner disables D. Leave the app for 5 seconds and return to it. A pull on the picker reloads only the lists. | The account-unavailable screen opens. Refresh and Sign out work. No participation action shows. | AC25 |
 | F-03 | Both | D | The owner enables D. Tap Refresh. Sign out. | The app returns to the correct stage for D. | AC25 |
 
 ### Google
@@ -168,7 +170,7 @@ Before G-01 on each platform, the owner deletes the Clerk Development user for G
 | G-02 | Both | G | Complete the form with a new handle. | The picker opens with no selected convention. | AC9 |
 | G-03 | Android | G | From the picker, add a passkey. Sign out. Sign in with the passkey. | The picker opens with no selected convention. | #475 AC3 |
 | G-04 | Android | G | Open Manage passkeys. Remove the last passkey and confirm. | The removal succeeds. | AC14 |
-| G-05 | Both | G | Tap "Join and enter" on C2. | The C2 home opens. | AC11 |
+| G-05 | Both | G | Close any open passkey screen. Tap "Join and enter" on C2. | The C2 home opens. | AC11 |
 | G-06 | Both | G | Sign out. Open window W8. Tap "Continue with Google". Choose G. Close W8. | The C2 home opens with no onboarding. W8 shows no write. | AC11 |
 | G-07 | Both | G | Sign out. Open window W9. Tap "Continue with Google". Dismiss the sheet. Tap "Continue with Google" again and choose G. Close W9. | After the dismissal, the account screen stayed usable with no failure banner. The C2 home opens. W9 shows reads and no write. | AC15 |
 
@@ -178,8 +180,8 @@ Before A-02, the owner deletes the Clerk Development user for A, if one exists. 
 
 | Row | Platform | Account | Steps | Expected result | Issue |
 | --- | --- | --- | --- | --- | --- |
-| A-01 | Android | None | Open the account screen. | No Apple control shows. | AC10 |
-| A-02 | iOS | A | Tap the Apple button. Choose Hide My Email. | The onboarding form opens. Apple asks for no name. TailTag asks for no other email address. | AC10 |
+| A-01 | Android | None | Sign out. Open the account screen. | No Apple control shows. | AC10 |
+| A-02 | iOS | A | Sign out. Tap the Apple button. Choose Hide My Email. | The onboarding form opens. Apple asks for no name. TailTag asks for no other email address. | AC10 |
 | A-03 | iOS | A | Complete the form with a new handle. From the picker, add a passkey. Sign out. Sign in with the passkey. | The picker opens with no selected convention. | #475 AC3 |
 | A-04 | iOS | A | Open Manage passkeys. Remove the last passkey and confirm. | The removal succeeds. | AC14 |
 | A-05 | iOS | A | Tap "Join and enter" on C3. | The C3 home opens. | AC11 |
@@ -194,7 +196,7 @@ Before A-02, the owner deletes the Clerk Development user for A, if one exists. 
 
 ### Accessibility
 
-Run these rows on each of these screens: account access, email entry, code entry, onboarding, account unavailable, picker, home, and passkeys. Use E2 or a new `+clerk_test` address to reach onboarding, and use D for account unavailable.
+Run these rows on each of these screens: account access, email entry, code entry, onboarding, account unavailable, picker, home, and passkeys. Use a new `+clerk_test` address to reach onboarding. Use D for account unavailable. The owner disables D in Django admin for that screen and enables D after it.
 
 | Row | Platform | Steps | Expected result | Issue |
 | --- | --- | --- | --- | --- |

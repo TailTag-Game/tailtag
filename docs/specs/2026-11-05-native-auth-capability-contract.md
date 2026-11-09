@@ -1,6 +1,6 @@
 # Native account-access capability contract
 
-Status: draft for issue #476. An independent security review found no blocking issue on 2026-11-05, and this version includes its fixes. It becomes accepted after the owner approves it. The parent Feature is #475.
+Status: accepted. #476 closed on 2026-11-06, and #477 to #483 built on this contract. An independent security review found no blocking issue on 2026-11-05. The parent Feature is #475.
 
 This spec records what the pinned native Clerk SDKs can do for each account-access method on Android and iOS. It also freezes the TailTag auth operations, results, and failure categories that #477 to #480 implement. It records the Clerk Development configuration that those issues need, and who applies each change.
 
@@ -87,8 +87,8 @@ TailTag keeps Android API 26+ and iOS 17+. One build serves every supported devi
 | Android | The app offers passkeys only when `Build.VERSION.SDK_INT >= 28`. Clerk's Android passkey guide requires Android 9+. API 26 and 27 devices see the unavailable state. |
 | Both | The app also offers passkeys only while Clerk has passkey sign-in on as a first factor. Otherwise the device sees the unavailable state. |
 | Android | Clerk states that passkeys do not work on Android emulators. Passkey proof needs a physical device. |
-| iOS | Every supported iOS version (17+) can use passkeys. The app always offers them. |
-| Both | Any platform refusal maps to `passkeyUnavailable`. The app then shows the limitation and offers email and Google, plus Apple on iOS. |
+| iOS | Every supported iOS version (17+) can use passkeys. The app offers them while Clerk has passkey sign-in on. |
+| Both | A platform refusal that the outcome tables list as unavailable maps to `passkeyUnavailable`. The app then shows the limitation and offers email and Google, plus Apple on iOS. |
 
 #480 proves the capable state on a physical Android phone and a physical iPhone. The owner approved a change on 2026-11-06 (#480 G9). An API 27 Android emulator proves the native device check. Widget tests prove the unavailable screens. No physical API 26 or 27 phone is available.
 
@@ -103,7 +103,7 @@ The contract extends `AuthSession`, `AuthState`, and `AuthFailure` in `lib/core/
 | `startEmailSignIn(emailAddress)` | Nothing. A code is sent. | `accountNotFound`, `rateLimited`, `connectivity`, `unexpected` |
 | `startEmailSignUp(emailAddress)` | Nothing. A code is sent. | `accountExists`, `rateLimited`, `connectivity`, `unexpected` |
 | `resendEmailCode()` | Nothing. | `rateLimited`, `sessionEnded`, `connectivity`, `unexpected` |
-| `verifyEmailCode(code)` | `AuthAttemptResult` | `invalidCode`, `sessionEnded`, `connectivity`, `unexpected` |
+| `verifyEmailCode(code)` | `AuthAttemptResult` | `invalidCode`, `sessionEnded`, `rateLimited`, `connectivity`, `unexpected` |
 | `continueWithGoogle()` | `AuthAttemptResult` | `providerUnavailable`, `connectivity`, `unexpected` |
 | `continueWithApple()` (iOS only) | `AuthAttemptResult` | `providerUnavailable`, `unsupported`, `connectivity`, `unexpected` |
 | `passkeyAvailability()` | `PasskeyAvailability`: `available` or `unavailable` | None |
@@ -291,7 +291,7 @@ The five current categories stay: `connectivity`, `invalidCode`, `sessionEnded`,
 | `rateLimited` | Clerk refuses a send or an attempt because of its limits. | HTTP 429 or a `too_many_requests` code (unproved). On iOS, only the code works: ClerkKit turns a 429 with no Clerk error body into `URLError(.unknown)` (`Networking/Middleware/ClerkErrorThrowingResponseMiddleware.swift`), which maps to `unexpected`. |
 | `accountExists` | Email sign-up finds an existing account. | `form_identifier_exists` (unproved) |
 | `accountNotFound` | Email sign-in finds no account, or passkey sign-in finds no saved TailTag passkey. | `form_identifier_not_found` (used in `ClerkKitUI/Components/Auth/AuthStartView.swift:575`), or a platform no-credential error recorded by #480 |
-| `providerUnavailable` | The provider service cannot run, for example no Google account provider on the device. | Any Credential Manager failure other than a cancellation on Android (#478) |
+| `providerUnavailable` | The provider service cannot run, for example no Google account provider on the device. | The Credential Manager failures that the Google outcome table maps to `providerUnavailable` on Android (#478) |
 | `passkeyUnavailable` | The device or OS refuses passkeys, or Android is below API 28. | App gate or platform error, recorded by #480 |
 | `reverificationRequired` | Clerk requires a fresh verification before a passkey change. | `session_reverification_required` (unproved) |
 | `lastMethodRequired` | The player tries to remove the last passkey without another usable method. | TailTag rule (see [Passkey rules](#passkey-rules)) |
