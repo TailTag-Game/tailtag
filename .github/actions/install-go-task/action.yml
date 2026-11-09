@@ -28,6 +28,7 @@ runs:
         esac
         work="$(mktemp -d)"
         curl --fail --silent --show-error --location \
+          --retry 5 --retry-delay 10 --retry-all-errors \
           --output "$work/$archive" \
           "https://github.com/go-task/task/releases/download/v${version}/${archive}"
         if [ "${RUNNER_OS_NAME}" = "macOS" ]; then
