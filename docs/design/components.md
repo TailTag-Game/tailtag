@@ -168,11 +168,12 @@ No V0 flow needs these parts. A later change can add one with the [change proces
 
 ### Server errors
 
-The app keeps the server error `code` but never the server `detail` text. So the app writes all text that a player reads.
+The app keeps the server error `code` but never the server `detail` text. So the app writes all text that a player reads, except profile field errors.
 
 - Given a server error with a known `code`, the feature shows its own text on the field or in a [status banner](#status-banner).
 - Given an unknown `code`, or a field error with no `code`, a status banner shows the unknown error text from [Generic error text](#generic-error-text).
-- Profile and fursuit field errors from the server have no `code`. The client checks prevent most of them.
+- Fursuit field errors from the server have no `code`. The client checks prevent most of them.
+- Profile `handle` and `display_name` errors from the server also have no `code`. The first server message shows under the matching field. When the player edits that field, its server message clears. Other profile `400` errors show the unknown error text in a status banner.
 
 ### Generic error text
 

@@ -7,10 +7,12 @@ import "package:tailtag_mobile/core/auth/auth_providers.dart";
 import "package:tailtag_mobile/core/auth/auth_session.dart";
 import "package:tailtag_mobile/core/auth/auth_state.dart";
 import "package:tailtag_mobile/core/session/current_user_providers.dart";
+import "package:tailtag_mobile/core/session/player_profile.dart";
+import "package:tailtag_mobile/core/session/player_profile_providers.dart";
 import "package:tailtag_mobile/core/session/player_scope.dart";
 
 /// The entry coordinator. It selects the [EntryStage] from the auth state,
-/// the identity bootstrap, and sign-out.
+/// the identity and profile bootstrap, and sign-out.
 ///
 /// It owns the session epoch: it advances [playerScopeProvider] when a
 /// session starts, when a session ends, and when sign-out starts. Every read
@@ -54,10 +56,27 @@ final class EntryController extends Notifier<EntryStage> {
     }
   }
 
-  /// Reads the identity again from the identity-failed stage.
+  /// Reads the identity and the profile again from the identity-failed
+  /// stage.
   void retryIdentity() {
     if (state is EntryIdentityFailed) {
       unawaited(_bootstrap());
+    }
+  }
+
+  /// Reads the identity and the profile again from the account-unavailable
+  /// stage.
+  void refreshProfile() {
+    if (state is EntryAccountUnavailable) {
+      unawaited(_bootstrap());
+    }
+  }
+
+  /// Selects the stage from a server [profile] that the onboarding form
+  /// resolved. A result from a closed [scope] or another stage is dropped.
+  void acceptProfile(PlayerScope scope, PlayerProfile profile) {
+    if (_isCurrent(scope) && state is EntryOnboarding) {
+      state = _stageForProfile(profile);
     }
   }
 
@@ -69,7 +88,10 @@ final class EntryController extends Notifier<EntryStage> {
     final current = state;
     if (!_signedIn ||
         _signingOut ||
-        (current is! EntryReady && current is! EntryIdentityFailed)) {
+        (current is! EntryReady &&
+            current is! EntryIdentityFailed &&
+            current is! EntryOnboarding &&
+            current is! EntryAccountUnavailable)) {
       return;
     }
     _advanceScope();
@@ -162,8 +184,14 @@ final class EntryController extends Notifier<EntryStage> {
       await ref
           .read(currentUserRepositoryProvider)
           .fetch(cancellation: scope.cancellation);
+      if (!_isCurrent(scope)) {
+        return;
+      }
+      final profile = await ref
+          .read(playerProfileRepositoryProvider)
+          .fetch(cancellation: scope.cancellation);
       if (_isCurrent(scope)) {
-        state = const EntryReady();
+        state = _stageForProfile(profile);
       }
     } on ApiCancelledFailure {
       return;
@@ -187,6 +215,16 @@ final class EntryController extends Notifier<EntryStage> {
       ref.mounted && scope.isActive && _signedIn && !_signingOut;
 
   void _advanceScope() => ref.read(playerScopeProvider.notifier).advance();
+
+  /// A disabled profile comes first, even when it is incomplete.
+  static EntryStage _stageForProfile(PlayerProfile profile) {
+    if (!profile.isEnabled) {
+      return const EntryAccountUnavailable();
+    }
+    return profile.onboardingComplete
+        ? const EntryReady()
+        : const EntryOnboarding();
+  }
 
   static EntryStage _stageWithoutSession(AuthState state) => switch (state) {
     AuthRestoring() => const EntryRestoring(),

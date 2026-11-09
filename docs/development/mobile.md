@@ -161,9 +161,10 @@ mobile), with the base URL from
   and throw `ApiFailure`; their public API exposes no generated type. Features
   consume those TailTag types plus `ApiFailure` and `ApiCancellation`.
   Riverpod providers (no code generation) own the repository lifetime and
-  cancellation. ADR 0006 and `lib/features/README.md` say features own their
-  repositories; where that boundary sits is an open question for the first
-  feature-repository issue.
+  cancellation. ADR 0006 says that features own their repositories. For the
+  #475 milestone, shared data stays in core. Profile data lives in
+  `lib/core/session/`, beside the identity repository. The import guard does
+  not change.
 - **Fakes and fixtures.** Tests use `test/support/api_test_support.dart`: a
   `FakeHttpClient` at the network boundary, a `FakeApiTokenProvider`, and
   `createTestTransport`, so no test needs a hosted API or Clerk.
@@ -394,16 +395,18 @@ It does not use `clerk_flutter`.
 ### Entry coordinator and session scope
 
 The entry coordinator is `EntryController` in `lib/app/entry/`. It selects
-one entry stage from the auth state, the identity read, and sign-out. Each
-stage has its own route in `lib/app/router.dart`.
+one entry stage from the auth state, the identity and profile reads, and
+sign-out. Each stage has its own route in `lib/app/router.dart`.
 
 | Stage | Screen | Actions |
 | --- | --- | --- |
 | Restoring | Loading | Wait |
 | Auth recovery | Recovery message | Try again (none on an unsupported platform) |
 | Signed out | Account access | Create account, sign in, continue with Apple (iOS only), continue with Google |
-| Identity loading | Loading | Wait |
-| Identity failed | Error message | Try again, sign out |
+| Identity and profile loading | Loading | Sign out |
+| Identity or profile read failed | Error message | Try again, manage passkeys, sign out |
+| Onboarding | Handle and Display name form | Continue, manage passkeys, sign out |
+| Account unavailable | Warning message | Refresh, manage passkeys, sign out |
 | Signing out | Loading | Wait |
 | Sign-out failed | Error message | Try again, return to TailTag |
 | Ready | Neutral landing | Sign out |
@@ -412,8 +415,13 @@ stage has its own route in `lib/app/router.dart`.
   screens. A deep link to protected content goes to the stage's screen.
 - A stage change replaces the whole navigation stack, so Back cannot reopen an
   earlier stage.
-- The neutral landing is not the milestone home. Onboarding (#481) and
-  conventions (#482) add their stages after the identity read.
+- The neutral landing is not the milestone home. Conventions (#482) add their
+  stages after the profile read.
+- A disabled profile selects the account-unavailable stage, even when the
+  profile is incomplete.
+- After a save with no definite answer, the form locks Continue. Try again
+  reads the profile and sends no save. If the profile is still incomplete, the
+  player presses Continue again.
 
 A player scope is one value of the session epoch. `playerScopeProvider` in
 `lib/core/session/player_scope.dart` holds the current `PlayerScope`. The
@@ -574,7 +582,8 @@ lists each one.
 Clerk advises tests on a physical device, so the proof runs on the iPhone.
 
 1. Create an account through Apple with Hide My Email. The app reaches the
-   neutral landing, and nothing asks for a name or another email address.
+   onboarding form, and Apple asks for no name. Nothing asks for another email
+   address. Complete the form to reach the neutral landing.
 2. Sign out, then continue with Apple again. `/debug/auth` shows the same
    TailTag identity.
 3. Dismiss the Apple sheet. The app returns to the account choices with no
@@ -597,9 +606,10 @@ with it later. Adding one is optional.
 
 - "Sign in with a passkey" ends the provider section of the account screen.
   The system sheet can also offer a passkey from another device.
-- "Manage passkeys" opens the passkey screen from the neutral landing and the
-  identity-failed screen. The screen is its own entry stage. It needs no
-  profile and no convention. Close runs a fresh identity bootstrap.
+- "Manage passkeys" opens the passkey screen from the neutral landing, the
+  identity-failed screen, the onboarding form, and the account-unavailable
+  screen. The screen is its own entry stage. It needs no profile and no
+  convention. Close runs a fresh identity and profile bootstrap.
 - The passkey screen lists verified passkeys only. Clerk creates a passkey
   before the sheet opens and keeps it unverified after a cancel, so an
   unverified passkey never shows or counts.
@@ -692,7 +702,7 @@ address, or a token in the repository, in a log, or in a pull request.
 ### Debug proof route and test user
 
 In debug builds only, the neutral landing has an "Auth proof (debug)" button.
-It opens `/debug/auth`. The router allows that route only while the player is
+A new account must complete onboarding to reach it. It opens `/debug/auth`. The router allows that route only while the player is
 signed in. Profile and release builds do not register the route. The screen
 has no sign-in form, so every sign-in runs through the account-access screens
 and the entry coordinator. It has a sign-out button and a "Call /api/me/"
