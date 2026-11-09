@@ -1046,6 +1046,31 @@ void main() {
       expect(app.path, AppPaths.home);
     });
 
+    testWidgets(
+      "account unavailable stays during a selection read that fails",
+      (tester) async {
+        final app = await _pump(
+          tester,
+          ScriptedNetwork.withConventions(
+            [200],
+            [ProfileReply.disabled, ProfileReply.complete],
+            selections: [ConventionReply.stalled],
+          ),
+        );
+
+        await _foreground(app);
+
+        // The reload shows no loading stage while the selection read runs.
+        expect(app.path, AppPaths.accountUnavailable);
+
+        await _drain(app);
+
+        expect(app.path, AppPaths.accountUnavailable);
+        expect(_text(EntryStrings.accountUnavailable), findsOneWidget);
+        expect(_text(EntryStrings.refresh), findsOneWidget);
+      },
+    );
+
     testWidgets("routes the picker for a disabled profile", (tester) async {
       final app = await _onFirstPicker(
         tester,
@@ -1161,6 +1186,8 @@ void main() {
       expect(app.path, AppPaths.accountUnavailable);
       expect(_text(EntryStrings.apiAccess), findsOneWidget);
       expect(_key("entry-refresh"), findsOneWidget);
+      expect(_text(UiStrings.tryAgain), findsOneWidget);
+      expect(_text(EntryStrings.refresh), findsNothing);
       expect(app.session.recheckCalls, 1);
     });
 

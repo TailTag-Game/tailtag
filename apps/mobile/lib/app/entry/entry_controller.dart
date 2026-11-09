@@ -346,11 +346,6 @@ final class EntryController extends Notifier<EntryStage> {
         state = ineligible;
         return;
       }
-      if (state is EntryAccountUnavailable) {
-        _dropReload();
-        await _guardRead(scope, () => _routeFromProfile(scope, profile));
-        return;
-      }
       final selection = await ref
           .read(conventionRepositoryProvider)
           .readSelection(cancellation: scope.cancellation);

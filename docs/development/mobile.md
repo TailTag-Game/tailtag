@@ -431,9 +431,12 @@ reads, and sign-out. Each stage has its own route in `lib/app/router.dart`.
 
 - A write is the enrollment `POST` or the selection `PUT`. The picker runs one
   write at a time and never repeats a write on its own.
-- A response of `400`, `401`, `403`, or `404` is a definite refusal. Every other
-  result, except a cancellation, is an unknown outcome. The picker then locks
-  writes until a read resolves the outcome.
+- A response of `400`, `403`, or `404` is a definite refusal.
+- A `401` runs one session recheck and repeats no write. If the session ended,
+  the app moves to account access. If the session stays active, the picker locks
+  writes, and Try again runs a recovery read.
+- Every other result, except a cancellation, is an unknown outcome. The picker
+  then locks writes until a read resolves the outcome.
 - The picker takes rows only from `GET /api/conventions/`. Enrollments only mark
   those rows as joined or selected.
 - The foreground reload runs when the app returns from a hidden state, through

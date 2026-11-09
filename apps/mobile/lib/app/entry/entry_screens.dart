@@ -248,7 +248,7 @@ class AccountUnavailableScreen extends ConsumerWidget {
       actions: [
         TailTagButton(
           key: const Key("entry-refresh"),
-          label: EntryStrings.refresh,
+          label: apiAccess ? UiStrings.tryAgain : EntryStrings.refresh,
           onPressed: controller.refreshProfile,
         ),
         TailTagButton(
