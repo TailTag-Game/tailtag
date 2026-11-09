@@ -163,8 +163,9 @@ mobile), with the base URL from
   Riverpod providers (no code generation) own the repository lifetime and
   cancellation. ADR 0006 says that features own their repositories. For the
   #475 milestone, shared data stays in core. Profile data lives in
-  `lib/core/session/`, beside the identity repository. The import guard does
-  not change.
+  `lib/core/session/`, beside the identity repository. Convention data lives in
+  `lib/core/conventions/`, because entry routing and the convention screens both
+  use it.
 - **Fakes and fixtures.** Tests use `test/support/api_test_support.dart`: a
   `FakeHttpClient` at the network boundary, a `FakeApiTokenProvider`, and
   `createTestTransport`, so no test needs a hosted API or Clerk.
@@ -172,7 +173,8 @@ mobile), with the base URL from
   `lib/features/**` file imports `package:http`, `package:tailtag_api`, or
   `core/api/` other than `api_failure.dart` and `api_cancellation.dart`.
   Code under `lib/core/api/` and `lib/core/session/` stays free of
-  `package:flutter` except the `*_providers.dart` files.
+  `package:flutter` except the `*_providers.dart` files. The guard also applies
+  the Flutter rule to `lib/core/conventions/`.
 
 ## Prerequisites
 
@@ -395,33 +397,54 @@ It does not use `clerk_flutter`.
 ### Entry coordinator and session scope
 
 The entry coordinator is `EntryController` in `lib/app/entry/`. It selects
-one entry stage from the auth state, the identity and profile reads, and
-sign-out. Each stage has its own route in `lib/app/router.dart`.
+one entry stage from the auth state, the identity, profile, and selection
+reads, and sign-out. Each stage has its own route in `lib/app/router.dart`.
 
 | Stage | Screen | Actions |
 | --- | --- | --- |
 | Restoring | Loading | Wait |
 | Auth recovery | Recovery message | Try again (none on an unsupported platform) |
 | Signed out | Account access | Create account, sign in, continue with Apple (iOS only), continue with Google |
-| Identity and profile loading | Loading | Sign out |
-| Identity or profile read failed | Error message | Try again, manage passkeys, sign out |
+| Identity, profile, and selection loading | Loading | Sign out |
+| Identity, profile, or selection read failed | Error message | Try again, manage passkeys, sign out |
 | Onboarding | Handle and Display name form | Continue, manage passkeys, sign out |
 | Account unavailable | Warning message | Refresh, manage passkeys, sign out |
 | Signing out | Loading | Wait |
 | Sign-out failed | Error message | Try again, return to TailTag |
-| Ready | Neutral landing | Sign out |
+| Convention picker | Picker, with loading, empty, and failed states | Join and enter, enter convention, refresh, close (only with a selection), manage passkeys, sign out |
+| Convention home | Name, dates, and status of the selected convention | Change convention, refresh, manage passkeys, sign out |
 
 - The router `redirect` keeps every location inside the current stage's
   screens. A deep link to protected content goes to the stage's screen.
 - A stage change replaces the whole navigation stack, so Back cannot reopen an
   earlier stage.
-- The neutral landing is not the milestone home. Conventions (#482) add their
-  stages after the profile read.
+- After a complete, enabled profile, the bootstrap reads the selection. A null
+  selection shows the picker, and an enrollment shows the home. The app never
+  selects a convention for the player.
 - A disabled profile selects the account-unavailable stage, even when the
   profile is incomplete.
 - After a save with no definite answer, the form locks Continue. Try again
   reads the profile and sends no save. If the profile is still incomplete, the
   player presses Continue again.
+
+#### Convention writes and the foreground reload
+
+- A write is the enrollment `POST` or the selection `PUT`. The picker runs one
+  write at a time and never repeats a write on its own.
+- A response of `400`, `401`, `403`, or `404` is a definite refusal. Every other
+  result, except a cancellation, is an unknown outcome. The picker then locks
+  writes until a read resolves the outcome.
+- The picker takes rows only from `GET /api/conventions/`. Enrollments only mark
+  those rows as joined or selected.
+- The foreground reload runs when the app returns from a hidden state, through
+  `AppLifecycleListener.onShow`. `foregroundSignalProvider` carries the event.
+- The reload shows no loading stage, sends no write, and adds no timer.
+- The coordinator reloads the home and the account-unavailable stage. The picker
+  and the onboarding form reload themselves, because they know when a write runs.
+- A failed reload keeps the content. On the picker, writes lock until a read
+  succeeds.
+- The app drops a reload result if the stage changed or a write was accepted
+  after the reload started.
 
 A player scope is one value of the session epoch. `playerScopeProvider` in
 `lib/core/session/player_scope.dart` holds the current `PlayerScope`. The
@@ -583,7 +606,7 @@ Clerk advises tests on a physical device, so the proof runs on the iPhone.
 
 1. Create an account through Apple with Hide My Email. The app reaches the
    onboarding form, and Apple asks for no name. Nothing asks for another email
-   address. Complete the form to reach the neutral landing.
+   address. Complete the form to reach the convention picker.
 2. Sign out, then continue with Apple again. `/debug/auth` shows the same
    TailTag identity.
 3. Dismiss the Apple sheet. The app returns to the account choices with no
@@ -606,10 +629,10 @@ with it later. Adding one is optional.
 
 - "Sign in with a passkey" ends the provider section of the account screen.
   The system sheet can also offer a passkey from another device.
-- "Manage passkeys" opens the passkey screen from the neutral landing, the
-  identity-failed screen, the onboarding form, and the account-unavailable
-  screen. The screen is its own entry stage. It needs no profile and no
-  convention. Close runs a fresh identity and profile bootstrap.
+- "Manage passkeys" opens the passkey screen from the convention picker and
+  home, the identity-failed screen, the onboarding form, and the
+  account-unavailable screen. The screen is its own entry stage. It needs no
+  profile and no convention. Close runs a fresh bootstrap.
 - The passkey screen lists verified passkeys only. Clerk creates a passkey
   before the sheet opens and keeps it unverified after a cancel, so an
   unverified passkey never shows or counts.
@@ -701,7 +724,7 @@ address, or a token in the repository, in a log, or in a pull request.
 
 ### Debug proof route and test user
 
-In debug builds only, the neutral landing has an "Auth proof (debug)" button.
+In debug builds only, the convention picker and home have an "Auth proof (debug)" button.
 A new account must complete onboarding to reach it. It opens `/debug/auth`. The router allows that route only while the player is
 signed in. Profile and release builds do not register the route. The screen
 has no sign-in form, so every sign-in runs through the account-access screens

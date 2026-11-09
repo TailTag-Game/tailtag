@@ -1,4 +1,5 @@
 import "package:flutter/foundation.dart";
+import "package:flutter/material.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 import "package:go_router/go_router.dart";
 import "package:tailtag_mobile/app/debug/auth_proof_screen.dart";
@@ -9,6 +10,8 @@ import "package:tailtag_mobile/features/account_access/access_flow_controller.da
 import "package:tailtag_mobile/features/account_access/account_access_screen.dart";
 import "package:tailtag_mobile/features/account_access/code_entry_screen.dart";
 import "package:tailtag_mobile/features/account_access/email_entry_screen.dart";
+import "package:tailtag_mobile/features/conventions/convention_home_screen.dart";
+import "package:tailtag_mobile/features/conventions/convention_picker_screen.dart";
 import "package:tailtag_mobile/features/onboarding/onboarding_screen.dart";
 import "package:tailtag_mobile/features/passkeys/passkey_screen.dart";
 
@@ -55,10 +58,13 @@ abstract final class AppPaths {
   /// The disabled-profile screen.
   static const accountUnavailable = "/account-unavailable";
 
-  /// The neutral landing.
-  static const landing = "/";
+  /// The convention picker.
+  static const conventionPicker = "/conventions";
 
-  /// The debug-only Clerk proof screen, a child of [landing].
+  /// The home of the selected convention.
+  static const home = "/";
+
+  /// The debug-only Clerk proof screen, above the picker or the home.
   static const authProof = "/debug/auth";
 }
 
@@ -74,7 +80,8 @@ String pathForStage(EntryStage stage) => switch (stage) {
   EntryPasskeys() => AppPaths.passkeys,
   EntryOnboarding() => AppPaths.onboarding,
   EntryAccountUnavailable() => AppPaths.accountUnavailable,
-  EntryReady() => AppPaths.landing,
+  EntryConventionPicker() => AppPaths.conventionPicker,
+  EntryConventionHome() => AppPaths.home,
 };
 
 /// Where [location] must go for [stage], or null when it can stay.
@@ -97,9 +104,8 @@ String? redirectFor(
           location == AppPaths.email ||
           (location == AppPaths.code && codeSent && !viaProvider) ||
           (location == AppPaths.providerCode && codeSent && viaProvider),
-    EntryReady() =>
-      location == AppPaths.landing ||
-          (kDebugMode && location == AppPaths.authProof),
+    EntryConventionPicker() || EntryConventionHome() =>
+      location == home || (kDebugMode && location == AppPaths.authProof),
     _ => location == home,
   };
   if (allowed) {
@@ -216,9 +222,30 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const AccountUnavailableScreen(),
       ),
       GoRoute(
-        path: AppPaths.landing,
-        builder: (context, state) => NeutralLandingScreen(
-          onOpenAuthProof: () => context.push(AppPaths.authProof),
+        path: AppPaths.conventionPicker,
+        builder: (context, state) {
+          final entry = ref.read(entryControllerProvider.notifier);
+          final stage = ref.read(entryControllerProvider);
+          return ConventionPickerScreen(
+            onEntered: entry.acceptSelection,
+            onIneligible: entry.acceptIneligibleProfile,
+            onClose: stage is EntryConventionPicker && stage.current != null
+                ? entry.closeConventionPicker
+                : null,
+            onManagePasskeys: entry.openPasskeys,
+            onSignOut: entry.signOut,
+            onOpenAuthProof: kDebugMode
+                ? () => context.push(AppPaths.authProof)
+                : null,
+          );
+        },
+      ),
+      GoRoute(
+        path: AppPaths.home,
+        builder: (context, state) => _ConventionHomeRoute(
+          onOpenAuthProof: kDebugMode
+              ? () => context.push(AppPaths.authProof)
+              : null,
         ),
       ),
       if (kDebugMode)
@@ -231,3 +258,30 @@ final routerProvider = Provider<GoRouter>((ref) {
   ref.onDispose(router.dispose);
   return router;
 });
+
+/// Gives the home screen the state of its stage.
+class _ConventionHomeRoute extends ConsumerWidget {
+  const new({required this.onOpenAuthProof});
+
+  final VoidCallback? onOpenAuthProof;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final stage = ref.watch(entryControllerProvider);
+    if (stage is! EntryConventionHome) {
+      return const EntryLoadingScreen(label: EntryStrings.loadingAccount);
+    }
+    final entry = ref.read(entryControllerProvider.notifier);
+    return ConventionHomeScreen(
+      enrollment: stage.enrollment,
+      refreshing: stage.refreshing,
+      refreshFailure: stage.refreshFailure,
+      apiAccess: stage.apiAccess,
+      onChangeConvention: entry.openConventionPicker,
+      onRefresh: entry.refreshHome,
+      onManagePasskeys: entry.openPasskeys,
+      onSignOut: entry.signOut,
+      onOpenAuthProof: onOpenAuthProof,
+    );
+  }
+}

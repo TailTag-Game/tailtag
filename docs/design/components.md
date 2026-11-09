@@ -174,6 +174,7 @@ The app keeps the server error `code` but never the server `detail` text. So the
 - Given an unknown `code`, or a field error with no `code`, a status banner shows the unknown error text from [Generic error text](#generic-error-text).
 - Fursuit field errors from the server have no `code`. The client checks prevent most of them.
 - Profile `handle` and `display_name` errors from the server also have no `code`. The first server message shows under the matching field. When the player edits that field, its server message clears. Other profile `400` errors show the unknown error text in a status banner.
+- Convention entry `400` and `404` responses have a field error with no `code`. They have no field to sit under. The picker shows its own entry-failed text in a status banner, not the server message.
 
 ### Generic error text
 

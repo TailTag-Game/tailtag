@@ -90,7 +90,7 @@ void main() {
 
         expect(p.calls(app.session), 1);
         expect(app.network.requests, 1, reason: "only GET /api/me/");
-        expect(app.path, AppPaths.landing);
+        expect(app.path, AppPaths.home);
       }, variant: variant);
 
       testWidgets("a cancelled attempt returns to the choices with no "
@@ -126,7 +126,7 @@ void main() {
         app.network.enqueue(200);
         await app.tap(p.key);
         expect(p.calls(app.session), 2);
-        expect(app.path, AppPaths.landing);
+        expect(app.path, AppPaths.home);
       }, variant: variant);
 
       testWidgets("an attempt that needs an email code shows the provider "
@@ -154,7 +154,7 @@ void main() {
         app.network.enqueue(200);
         await app.tap("access-verify");
         expect(app.session.verifyCodeCalls, ["123456"]);
-        expect(app.path, AppPaths.landing);
+        expect(app.path, AppPaths.home);
       }, variant: variant);
 
       testWidgets("a pending attempt disables every access control and "
@@ -324,7 +324,7 @@ void main() {
       await app.tap("access-passkey");
 
       expect(app.session.passkeySignInCalls, 1);
-      expect(app.path, AppPaths.landing);
+      expect(app.path, AppPaths.home);
     }, variant: android);
 
     testWidgets("a cancelled sheet returns to the choices with no banner", (

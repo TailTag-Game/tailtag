@@ -10,7 +10,7 @@ import "package:tailtag_mobile/core/session/current_user_providers.dart";
 /// The debug-only screen that proves the Clerk session against the TailTag
 /// API.
 ///
-/// It opens only from the signed-in neutral landing. It has no sign-in form:
+/// It opens only from the convention picker and home. It has no sign-in form:
 /// players sign in through the account-access screens, so every sign-in runs
 /// through the entry coordinator.
 ///

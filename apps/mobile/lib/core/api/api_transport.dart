@@ -43,6 +43,7 @@ final class ApiTransport {
     );
     me = MeApi(server);
     profile = ProfileApi(server);
+    conventions = ConventionsApi(server);
   }
 
   final Duration _jsonTimeout;
@@ -54,6 +55,9 @@ final class ApiTransport {
 
   /// The generated `/api/profile/` operations.
   late final ProfileApi profile;
+
+  /// The generated `/api/conventions/` operations.
+  late final ConventionsApi conventions;
 
   /// Runs [call] with an abort handle and returns the generated response
   /// wrapper of a 2xx response, or throws an [ApiFailure].

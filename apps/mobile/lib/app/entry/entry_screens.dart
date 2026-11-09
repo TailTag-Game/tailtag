@@ -1,4 +1,3 @@
-import "package:flutter/foundation.dart";
 import "package:flutter/material.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 import "package:tailtag_mobile/app/entry/entry_controller.dart";
@@ -47,8 +46,7 @@ abstract final class EntryStrings {
   /// The sign-out action.
   static const signOut = "Sign out";
 
-  /// The action that opens the passkey screen. Every signed-in entry screen
-  /// that #482 adds uses it too.
+  /// The action that opens the passkey screen.
   static const managePasskeys = "Manage passkeys";
 
   /// The disabled-profile text.
@@ -57,12 +55,6 @@ abstract final class EntryStrings {
 
   /// The action that reads the account status again.
   static const refresh = "Refresh";
-
-  /// The neutral landing text. It is not a finished home.
-  static const landing = "You are signed in.";
-
-  /// The debug proof action.
-  static const authProof = "Auth proof (debug)";
 }
 
 /// A full-screen wait with a visible label.
@@ -245,10 +237,14 @@ class AccountUnavailableScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final stage = ref.watch(entryControllerProvider);
     final controller = ref.read(entryControllerProvider.notifier);
+    final apiAccess = stage is EntryAccountUnavailable && stage.apiAccess;
     return _EntryMessageScreen(
-      message: EntryStrings.accountUnavailable,
-      tone: StatusTone.warning,
+      message: apiAccess
+          ? EntryStrings.apiAccess
+          : EntryStrings.accountUnavailable,
+      tone: apiAccess ? StatusTone.error : StatusTone.warning,
       actions: [
         TailTagButton(
           key: const Key("entry-refresh"),
@@ -268,58 +264,6 @@ class AccountUnavailableScreen extends ConsumerWidget {
           onPressed: controller.signOut,
         ),
       ],
-    );
-  }
-}
-
-/// The neutral landing after a completed profile loads.
-///
-/// It is not the milestone home. Conventions (#482) replace it.
-class NeutralLandingScreen extends ConsumerWidget {
-  /// Creates the screen. [onOpenAuthProof] opens the debug proof screen in
-  /// debug builds.
-  const new({required this.onOpenAuthProof, super.key});
-
-  /// Opens the debug proof screen.
-  final VoidCallback onOpenAuthProof;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Scaffold(
-      appBar: AppBar(title: const Text(EntryStrings.appName)),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(TokenSpacing.xl),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            spacing: TokenSpacing.lg,
-            children: [
-              const Text(EntryStrings.landing, textAlign: TextAlign.center),
-              TailTagButton(
-                key: const Key("entry-manage-passkeys"),
-                label: EntryStrings.managePasskeys,
-                variant: TailTagButtonVariant.secondary,
-                onPressed: ref
-                    .read(entryControllerProvider.notifier)
-                    .openPasskeys,
-              ),
-              TailTagButton(
-                key: const Key("entry-sign-out"),
-                label: EntryStrings.signOut,
-                variant: TailTagButtonVariant.secondary,
-                onPressed: ref.read(entryControllerProvider.notifier).signOut,
-              ),
-              if (kDebugMode)
-                TailTagButton(
-                  key: const Key("entry-auth-proof"),
-                  label: EntryStrings.authProof,
-                  variant: TailTagButtonVariant.secondary,
-                  onPressed: onOpenAuthProof,
-                ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

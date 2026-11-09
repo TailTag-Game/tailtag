@@ -1,8 +1,11 @@
+import "dart:async";
+
 import "package:flutter/foundation.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 import "package:tailtag_mobile/core/api/api_failure.dart";
 import "package:tailtag_mobile/core/auth/auth_providers.dart";
 import "package:tailtag_mobile/core/auth/auth_state.dart";
+import "package:tailtag_mobile/core/session/foreground_signal.dart";
 import "package:tailtag_mobile/core/session/player_profile.dart";
 import "package:tailtag_mobile/core/session/player_profile_providers.dart";
 import "package:tailtag_mobile/core/session/player_scope.dart";
@@ -96,10 +99,20 @@ final class OnboardingState {
 /// until a read succeeds. Every async step captures its [PlayerScope], so a
 /// late result from a closed scope changes nothing.
 final class OnboardingController extends Notifier<OnboardingState> {
+  /// The ID of the latest foreground read. A save or a recovery read makes
+  /// an earlier ID stale.
+  int _foregroundRead = 0;
+  bool _foregroundRunning = false;
+
   @override
   OnboardingState build() {
     // A new player scope rebuilds this provider and clears the form state.
-    ref.watch(playerScopeProvider);
+    ref
+      ..watch(playerScopeProvider)
+      ..listen(
+        foregroundSignalProvider,
+        (_, _) => unawaited(_readOnForeground()),
+      );
     return const OnboardingState();
   }
 
@@ -112,6 +125,7 @@ final class OnboardingController extends Notifier<OnboardingState> {
       return;
     }
     final scope = ref.read(playerScopeProvider);
+    _foregroundRead++;
     state = const OnboardingState(pending: OnboardingPending.save);
     final PlayerProfile profile;
     try {
@@ -144,6 +158,7 @@ final class OnboardingController extends Notifier<OnboardingState> {
       return;
     }
     final scope = ref.read(playerScopeProvider);
+    _foregroundRead++;
     state = OnboardingState(
       pending: OnboardingPending.read,
       banner: state.banner,
@@ -171,6 +186,36 @@ final class OnboardingController extends Notifier<OnboardingState> {
           ? null
           : current.displayNameError,
     );
+  }
+
+  /// Reads the profile after the app returns to the foreground.
+  ///
+  /// It sends no save and leaves the form state alone. The route changes
+  /// only if the profile is no longer enabled and incomplete.
+  Future<void> _readOnForeground() async {
+    if (_foregroundRunning || state.pending != null) {
+      return;
+    }
+    final id = ++_foregroundRead;
+    final scope = ref.read(playerScopeProvider);
+    bool live() => ref.mounted && scope.isActive && id == _foregroundRead;
+    _foregroundRunning = true;
+    try {
+      final profile = await ref
+          .read(playerProfileRepositoryProvider)
+          .fetch(cancellation: scope.cancellation);
+      if (live() && (profile.onboardingComplete || !profile.isEnabled)) {
+        _resolve(scope, profile);
+      }
+    } on ApiUnauthenticatedFailure {
+      if (live()) {
+        await _sessionStaysActive(scope);
+      }
+    } on ApiFailure {
+      return;
+    } finally {
+      _foregroundRunning = false;
+    }
   }
 
   Future<void> _afterFailedSave(PlayerScope scope, ApiFailure failure) async {

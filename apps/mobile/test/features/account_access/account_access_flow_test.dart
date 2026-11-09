@@ -98,7 +98,7 @@ void main() {
     await app.tap("access-verify");
 
     expect(app.session.verifyCodeCalls, ["123456"]);
-    expect(app.path, AppPaths.landing);
+    expect(app.path, AppPaths.home);
     expect(app.container.read(accessFlowProvider).email, isEmpty);
   });
 
@@ -253,7 +253,7 @@ void main() {
     app.session.emit(const AuthSignedIn());
     app.network.enqueue(200);
     await app.settle();
-    expect(app.path, AppPaths.landing);
+    expect(app.path, AppPaths.home);
 
     await app.tap("entry-sign-out");
     expect(app.path, AppPaths.access);

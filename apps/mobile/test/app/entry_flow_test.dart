@@ -8,6 +8,7 @@ import "package:tailtag_mobile/app/entry/entry_stage.dart";
 import "package:tailtag_mobile/app/router.dart";
 import "package:tailtag_mobile/core/auth/auth_failure.dart";
 import "package:tailtag_mobile/core/auth/auth_state.dart";
+import "package:tailtag_mobile/core/conventions/convention.dart";
 import "package:tailtag_mobile/core/session/player_profile.dart";
 import "package:tailtag_mobile/core/session/player_scope.dart";
 import "package:tailtag_mobile/core/ui/ui_strings.dart";
@@ -15,7 +16,7 @@ import "package:tailtag_mobile/core/ui/ui_strings.dart";
 import "../support/app_test_support.dart";
 import "../support/auth_test_support.dart";
 
-final Finder _landing = find.text(EntryStrings.landing);
+final Finder _landing = find.byKey(const Key("convention-home"));
 final Finder _tryAgain = find.text(UiStrings.tryAgain);
 
 void main() {
@@ -68,7 +69,7 @@ void main() {
             state: const AuthSignedIn(),
             statuses: [200],
             sessionEndsOnRecheck: true,
-            path: AppPaths.landing,
+            path: AppPaths.home,
             shows: _landing,
           ),
           (
@@ -110,7 +111,7 @@ void main() {
 
         expect(app.path, c.path);
         expect(c.shows, findsOneWidget);
-        if (c.path != AppPaths.landing) {
+        if (c.path != AppPaths.home) {
           expect(_landing, findsNothing);
         }
         final state = c.state;
@@ -140,7 +141,7 @@ void main() {
             label: "enabled and complete",
             profile: ProfileReply.complete,
             sessionEndsOnRecheck: true,
-            path: AppPaths.landing,
+            path: AppPaths.home,
             rechecks: 0,
           ),
           (
@@ -199,7 +200,11 @@ void main() {
         );
 
         expect(app.path, c.path);
-        expect(app.network.log, ["GET /api/me/", "GET /api/profile/"]);
+        expect(app.network.log, [
+          "GET /api/me/",
+          "GET /api/profile/",
+          if (c.path == AppPaths.home) "GET /api/conventions/active/",
+        ]);
         expect(app.network.profilePuts, isEmpty);
         expect(app.session.recheckCalls, c.rechecks);
       });
@@ -264,7 +269,7 @@ void main() {
       (
         label: "an enabled complete profile opens the landing",
         read: ProfileReply.complete,
-        path: AppPaths.landing,
+        path: AppPaths.home,
       ),
       (
         label: "a failed read shows the read failure",
@@ -316,12 +321,12 @@ void main() {
       "Finn",
     );
     await app.tap("onboarding-continue");
-    expect(app.path, AppPaths.landing);
+    expect(app.path, AppPaths.home);
 
     await tester.binding.handlePopRoute();
     await app.settle();
 
-    expect(app.path, AppPaths.landing);
+    expect(app.path, AppPaths.home);
     expect(find.byType(TextField), findsNothing);
   });
 
@@ -329,6 +334,8 @@ void main() {
     final cases = <({String label, ProfileReply profile})>[
       (label: "onboarding form", profile: ProfileReply.incomplete),
       (label: "account unavailable", profile: ProfileReply.disabled),
+      (label: "convention home", profile: ProfileReply.complete),
+      (label: "convention picker", profile: ProfileReply.complete),
     ];
     for (final c in cases) {
       testWidgets("${c.label} at 200% text scale", (tester) async {
@@ -339,7 +346,19 @@ void main() {
         await pumpApp(
           tester,
           session: FakeAuthSession(initial: const AuthSignedIn()),
-          network: ScriptedNetwork([200], [c.profile]),
+          network: ScriptedNetwork.withConventions(
+            [200],
+            [c.profile],
+            selections: [
+              if (c.label == "convention picker")
+                ConventionReply.selection(null),
+            ],
+            conventions: [
+              ConventionReply.list([
+                conventionJson(id: 1, name: "A long convention name " * 6),
+              ]),
+            ],
+          ),
         );
 
         expect(tester.takeException(), isNull);
@@ -384,7 +403,7 @@ void main() {
           .acceptProfile(app.container.read(playerScopeProvider), disabled);
       await app.settle();
 
-      expect(app.path, AppPaths.landing);
+      expect(app.path, AppPaths.home);
     });
   });
 
@@ -416,10 +435,23 @@ void main() {
   });
 
   group("redirect keeps every location inside the stage's screens", () {
-    const ready = EntryReady();
+    final ready = EntryConventionHome(
+      ConventionEnrollment(
+        id: 7,
+        convention: Convention(
+          id: 10,
+          name: "Test Con",
+          status: ConventionStatus.active,
+          startDate: DateTime(2026, 11, 8),
+          endDate: DateTime(2026, 11, 10),
+        ),
+        isSelected: true,
+      ),
+    );
+    const picker = EntryConventionPicker();
     const signedOut = EntrySignedOut();
     final cases = <({EntryStage stage, String from, bool sent, String? to})>[
-      (stage: signedOut, from: AppPaths.landing, sent: false, to: "/access"),
+      (stage: signedOut, from: AppPaths.home, sent: false, to: "/access"),
       (stage: signedOut, from: AppPaths.authProof, sent: false, to: "/access"),
       (stage: signedOut, from: AppPaths.email, sent: false, to: null),
       (stage: signedOut, from: AppPaths.code, sent: false, to: AppPaths.email),
@@ -430,13 +462,13 @@ void main() {
       (stage: ready, from: AppPaths.passkeys, sent: false, to: "/"),
       (
         stage: const EntryPasskeys(),
-        from: AppPaths.landing,
+        from: AppPaths.home,
         sent: false,
         to: AppPaths.passkeys,
       ),
       (
         stage: const EntryOnboarding(),
-        from: AppPaths.landing,
+        from: AppPaths.home,
         sent: false,
         to: AppPaths.onboarding,
       ),
@@ -447,6 +479,9 @@ void main() {
         to: AppPaths.accountUnavailable,
       ),
       (stage: ready, from: AppPaths.onboarding, sent: false, to: "/"),
+      (stage: ready, from: AppPaths.conventionPicker, sent: false, to: "/"),
+      (stage: picker, from: AppPaths.home, sent: false, to: "/conventions"),
+      (stage: picker, from: AppPaths.authProof, sent: false, to: null),
     ];
 
     for (final c in cases) {
@@ -492,7 +527,7 @@ void main() {
 
     expect(session.reloadCalls, 1);
     expect(session.signOutCalls, 0);
-    expect(app.path, AppPaths.landing);
+    expect(app.path, AppPaths.home);
   });
 
   group("sign-out", () {
@@ -502,7 +537,7 @@ void main() {
         session: FakeAuthSession(initial: const AuthSignedIn()),
         network: ScriptedNetwork([200]),
       );
-      expect(app.path, AppPaths.landing);
+      expect(app.path, AppPaths.home);
       return app;
     }
 
@@ -557,7 +592,7 @@ void main() {
 
       expect(app.network.requests, 2);
       expect(app.container.read(playerScopeProvider).epoch, epoch + 1);
-      expect(app.path, AppPaths.landing);
+      expect(app.path, AppPaths.home);
     });
 
     testWidgets("a failure after the SDK ended the session shows account "

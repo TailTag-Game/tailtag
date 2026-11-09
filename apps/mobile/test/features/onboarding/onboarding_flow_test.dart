@@ -151,10 +151,11 @@ void main() {
 
     await _submit(app);
 
-    expect(app.path, AppPaths.landing);
+    expect(app.path, AppPaths.home);
     expect(app.network.profilePuts, hasLength(1));
     expect(app.network.profileGets, 1);
     expect(app.network.requests, 1);
+    expect(app.network.count("GET /api/conventions/active/"), 1);
   });
 
   testWidgets("a second tap during a save sends no second write", (
@@ -175,7 +176,7 @@ void main() {
     app.network.releaseProfile(0, ProfileReply.complete);
     await app.settle();
     expect(app.network.profilePuts, hasLength(1));
-    expect(app.path, AppPaths.landing);
+    expect(app.path, AppPaths.home);
   });
 
   group("a 400", () {
@@ -236,7 +237,7 @@ void main() {
       await app.tap(_continue);
 
       expect(app.network.profilePuts, hasLength(2));
-      expect(app.path, AppPaths.landing);
+      expect(app.path, AppPaths.home);
     });
 
     for (final body in [
@@ -267,7 +268,7 @@ void main() {
         read: ProfileReply.disabledIncomplete,
         path: AppPaths.accountUnavailable,
       ),
-      (label: "complete", read: ProfileReply.complete, path: AppPaths.landing),
+      (label: "complete", read: ProfileReply.complete, path: AppPaths.home),
     ];
     for (final c in cases) {
       testWidgets("and routes when ${c.label}", (tester) async {
@@ -403,7 +404,7 @@ void main() {
     const lost = ProfileReply(status: 500, body: "{}");
 
     final routes = <({String label, ProfileReply read, String path})>[
-      (label: "complete", read: ProfileReply.complete, path: AppPaths.landing),
+      (label: "complete", read: ProfileReply.complete, path: AppPaths.home),
       (
         label: "disabled",
         read: ProfileReply.disabled,
@@ -443,7 +444,7 @@ void main() {
       await app.tap(_continue);
 
       expect(app.network.profilePuts, hasLength(2));
-      expect(app.path, AppPaths.landing);
+      expect(app.path, AppPaths.home);
     });
 
     final stays = <({String label, ProfileReply read, int rechecks})>[
