@@ -3,7 +3,7 @@
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 
 import 'dart:convert' as _i7;
-import 'dart:core' as _i3;
+import 'dart:core' as _i1;
 
 import 'package:http/http.dart' as _i5;
 import 'package:tailtag_api/src/model/api_catches_confirm_post400_body_model.dart'
@@ -22,21 +22,22 @@ import 'package:tailtag_api/src/model/catch_confirmation_request_schema.dart'
     as _i6;
 import 'package:tailtag_api/src/model/catch_confirmation_response_schema.dart'
     as _i8;
-import 'package:tailtag_api/src/operation/http_operation.dart' as _i1;
+import 'package:tailtag_api/src/operation/http_operation.dart' as _i2;
 import 'package:tailtag_api/src/response_wrapper/catch_confirm_response.dart'
-    as _i2;
+    as _i3;
 import 'package:tonik_util/tonik_util.dart' as _i4;
 
-final class CatchConfirm extends _i1.HttpOperation<_i2.CatchConfirmResponse> {
+@_i1.Deprecated('This operation is deprecated.')
+final class CatchConfirm extends _i2.HttpOperation<_i3.CatchConfirmResponse> {
   CatchConfirm(super.baseUrl, super.clientAccessor);
 
-  _i3.Future<_i4.TonikResult<_i2.CatchConfirmResponse, _i5.Response>> call({
+  _i1.Future<_i4.TonikResult<_i3.CatchConfirmResponse, _i5.Response>> call({
     required _i6.CatchConfirmationRequestSchema body,
     _i4.TonikCancellation? cancellation,
   }) {
     return this.execute(
       cancellation: cancellation,
-      prepare: () => _i1.HttpOperationRequest(
+      prepare: () => _i2.HttpOperationRequest(
         method: 'POST',
         path: _path(),
         query: null,
@@ -47,56 +48,56 @@ final class CatchConfirm extends _i1.HttpOperation<_i2.CatchConfirmResponse> {
     );
   }
 
-  _i3.List<_i3.String> _path() {
+  _i1.List<_i1.String> _path() {
     return [r'api', r'catches', r'confirm', r''];
   }
 
-  _i3.Object? _data({required _i6.CatchConfirmationRequestSchema body}) {
+  _i1.Object? _data({required _i6.CatchConfirmationRequestSchema body}) {
     return _i7.utf8.encode(_i7.jsonEncode(body.toJson()));
   }
 
-  _i3.Map<_i3.String, _i3.String> _options() {
-    final _$headers = <_i3.String, _i3.String>{};
+  _i1.Map<_i1.String, _i1.String> _options() {
+    final _$headers = <_i1.String, _i1.String>{};
     _$headers['Accept'] = r'application/json';
     _$headers[r'Content-Type'] = r'application/json';
     return _$headers;
   }
 
-  _i2.CatchConfirmResponse _parseResponse(_i5.Response response) {
+  _i3.CatchConfirmResponse _parseResponse(_i5.Response response) {
     final _$mediaType = _i4.extractMediaType(response.headers['content-type']);
     switch ((response.statusCode, _$mediaType)) {
       case (200, r'application/json'):
-        final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
+        final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);
         final _$body = _i8.CatchConfirmationResponseSchema.fromJson(_$json);
-        return _i2.CatchConfirmResponse200(body: _$body);
+        return _i3.CatchConfirmResponse200(body: _$body);
       case (201, r'application/json'):
-        final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
+        final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);
         final _$body = _i8.CatchConfirmationResponseSchema.fromJson(_$json);
-        return _i2.CatchConfirmResponse201(body: _$body);
+        return _i3.CatchConfirmResponse201(body: _$body);
       case (400, r'application/json'):
-        final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
+        final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);
         final _$body = _i9.ApiCatchesConfirmPost400BodyModel.fromJson(_$json);
-        return _i2.CatchConfirmResponse400(body: _$body);
+        return _i3.CatchConfirmResponse400(body: _$body);
       case (401, r'application/json'):
-        final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
+        final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);
         final _$body = _i10.ApiCatchesConfirmPost401BodyModel.fromJson(_$json);
-        return _i2.CatchConfirmResponse401(body: _$body);
+        return _i3.CatchConfirmResponse401(body: _$body);
       case (403, r'application/json'):
-        final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
+        final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);
         final _$body = _i11.ApiCatchesConfirmPost403BodyModel.fromJson(_$json);
-        return _i2.CatchConfirmResponse403(body: _$body);
+        return _i3.CatchConfirmResponse403(body: _$body);
       case (404, r'application/json'):
-        final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
+        final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);
         final _$body = _i12.ApiCatchesConfirmPost404BodyModel.fromJson(_$json);
-        return _i2.CatchConfirmResponse404(body: _$body);
+        return _i3.CatchConfirmResponse404(body: _$body);
       case (409, r'application/json'):
-        final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
+        final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);
         final _$body = _i13.ApiCatchesConfirmPost409BodyModel.fromJson(_$json);
-        return _i2.CatchConfirmResponse409(body: _$body);
+        return _i3.CatchConfirmResponse409(body: _$body);
       case (500, r'application/json'):
-        final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
+        final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);
         final _$body = _i14.ApiCatchesConfirmPost500BodyModel.fromJson(_$json);
-        return _i2.CatchConfirmResponse500(body: _$body);
+        return _i3.CatchConfirmResponse500(body: _$body);
       default:
         final _$content = response.headers['content-type'] ?? 'not specified';
         final _$matched = _$mediaType ?? 'none';

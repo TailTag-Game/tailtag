@@ -24,6 +24,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import User
+from config.catch_requests_gate import catch_requests_enabled
 from fursuits.models import Fursuit
 from observability.outcomes import Outcome, Reason, Signal, record_outcome
 
@@ -259,8 +260,18 @@ class FursuitCatchCredentialResolutionView(APIView):
             "application/json": FURSUIT_CATCH_CREDENTIAL_RESOLUTION_REQUEST_SCHEMA
         },
         responses=_FURSUIT_CATCH_CREDENTIAL_RESOLUTION_OPENAPI_RESPONSES,
+        deprecated=True,
     )
     def post(self, request: Request, convention_id: int) -> Response:
+        if catch_requests_enabled():
+            # The catch request gate retires v1 player codes with no compatibility period.
+            return Response(
+                {
+                    "code": "catch_target_unavailable",
+                    "detail": "The catch target is unavailable.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
         serializer = FursuitCatchCredentialResolutionRequestSerializer(
             data=request.data
         )
@@ -361,8 +372,11 @@ class FursuitCatchCredentialFetchView(_FursuitActivationAPIView):
             "when absent. This does not start a catch session and is not catch authorization."
         ),
         responses=_FURSUIT_CATCH_CREDENTIAL_OPENAPI_RESPONSES,
+        deprecated=True,
     )
     def get(self, request: Request, convention_id: int, fursuit_id: int) -> Response:
+        if catch_requests_enabled():
+            raise NotFound()
         _resolve_owner_credential_resources(
             _user(request), convention_id=convention_id, fursuit_id=fursuit_id
         )
@@ -397,8 +411,11 @@ class FursuitCatchCredentialRotationView(_FursuitActivationAPIView):
         ),
         request=None,
         responses=_FURSUIT_CATCH_CREDENTIAL_OPENAPI_RESPONSES,
+        deprecated=True,
     )
     def post(self, request: Request, convention_id: int, fursuit_id: int) -> Response:
+        if catch_requests_enabled():
+            raise NotFound()
         _resolve_owner_credential_resources(
             _user(request), convention_id=convention_id, fursuit_id=fursuit_id
         )

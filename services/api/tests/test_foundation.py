@@ -30,6 +30,7 @@ def test_foundation_exposes_profile_current_user_and_infrastructure_routes(
     assert set(schema["paths"]) == {
         "/api/catches/",
         "/api/catches/confirm/",
+        "/api/catches/preview/",
         "/api/me/",
         "/api/profile/",
         "/api/profile/avatar/",
@@ -46,5 +47,7 @@ def test_foundation_exposes_profile_current_user_and_infrastructure_routes(
         "/api/fursuits/",
         "/api/fursuits/{id}/",
         "/api/fursuits/{id}/photo/",
+        "/api/fursuits/{id}/tag/",
+        "/api/fursuits/{id}/tag/replace/",
         "/api/schema/",
     }

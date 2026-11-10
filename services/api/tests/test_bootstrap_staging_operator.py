@@ -61,7 +61,11 @@ EXPECTED_OPERATOR_PERMISSIONS = {
     "profiles.view_playerprofile",
     "fursuits.set_fursuit_enabled",
     "fursuits.view_fursuit",
+    "fursuits.revoke_fursuit_tag",
+    "fursuits.view_fursuittag",
 }
+TAG_PERMISSIONS = {"fursuits.revoke_fursuit_tag", "fursuits.view_fursuittag"}
+UPGRADED_OUTPUT = "Staging operator reconciled and upgraded.\n"
 API_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -466,6 +470,53 @@ def test_bootstrap_reconciles_only_an_existing_exact_managed_operator(
         stored_password_hash(operator),
         caplog=caplog,
     )
+
+
+@pytest.mark.django_db
+def test_bootstrap_upgrades_an_operator_that_holds_exactly_the_previous_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#504: an operator from before tag revocation gains the two tag permissions."""
+    operator = create_exact_managed_operator()
+    group = operator.groups.get()  # pyright: ignore[reportUnknownMemberType]
+    group.permissions.remove(  # pyright: ignore[reportUnknownMemberType]
+        *[required_permissions()[name] for name in TAG_PERMISSIONS]
+    )
+
+    stdout, stderr = invoke_command(
+        monkeypatch,
+        private_inputs=(OPERATOR_IDENTIFIER, ROTATED_PASSWORD, ROTATED_PASSWORD),
+    )
+
+    assert stdout.getvalue() == UPGRADED_OUTPUT
+    assert stderr.getvalue() == ""
+    assert_exact_managed_operator(operator, ROTATED_PASSWORD)
+
+
+@pytest.mark.django_db
+def test_bootstrap_refuses_an_operator_that_holds_only_part_of_the_previous_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#504: only the exact previous set upgrades. Any other set is refused."""
+    operator = create_exact_managed_operator()
+    group = operator.groups.get()  # pyright: ignore[reportUnknownMemberType]
+    group.permissions.remove(  # pyright: ignore[reportUnknownMemberType]
+        *[
+            required_permissions()[name]
+            for name in (*TAG_PERMISSIONS, "fursuits.view_fursuit")
+        ]
+    )
+    before = stored_account_state(operator)
+    group_permissions = set(group.permissions.values_list("pk", flat=True))  # pyright: ignore[reportUnknownMemberType]
+
+    with pytest.raises(CommandError, match="Existing account cannot be used"):
+        invoke_command(
+            monkeypatch,
+            private_inputs=(OPERATOR_IDENTIFIER, ROTATED_PASSWORD, ROTATED_PASSWORD),
+        )
+
+    assert stored_account_state(operator) == before
+    assert set(group.permissions.values_list("pk", flat=True)) == group_permissions  # pyright: ignore[reportUnknownMemberType]
 
 
 @pytest.mark.django_db

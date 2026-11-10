@@ -144,6 +144,8 @@ The owner sends the version they last saw. The server replaces the tag only if t
 | `expected_version` matches | The old tag stops working. The server returns the new tag. |
 | `expected_version` is stale | 409 `tag_version_conflict` with the current state and version, and no payload. The server makes no change. |
 | The current state is `revoked` and the version matches | The server creates a new tag. |
+| The suit never had a tag and `expected_version` is 0 | The server creates the first tag with version 1, the same result as a first read. |
+| The suit never had a tag and `expected_version` is not 0 | 409 `tag_version_conflict` with state `none` and version 0. The server makes no change. |
 
 Replacement does not change the fursuit identity, existing catches, pending requests, activations, or the active session.
 
@@ -518,7 +520,7 @@ Source: #502 G1. All paths sit under `/api/`. All bodies are JSON. Errors use `{
 | `GET fursuits/{fursuit_id}/tag/` | none | 200 `Tag` | 404 `fursuit_not_found`, 409 `fursuit_disabled` |
 | `POST fursuits/{fursuit_id}/tag/replace/` | `{"expected_version": integer}` | 200 `Tag` | 404 `fursuit_not_found`, 409 `fursuit_disabled`, 409 `tag_version_conflict` |
 
-A 409 `tag_version_conflict` body is `{"code","detail","current": {"fursuit_id", "state", "tag_version"}}`. The error body never carries a payload. The client reads the tag again to get the payload. A caller who does not own the suit gets 404 `fursuit_not_found`.
+A 409 `tag_version_conflict` body is `{"code","detail","current": {"fursuit_id", "state", "tag_version"}}`. In this body, `state` can also be `none`, which means the suit never had a tag. The error body never carries a payload. The client reads the tag again to get the payload. A caller who does not own the suit gets 404 `fursuit_not_found`. An owner without an enabled, completed profile gets the existing generic 403, as for other fursuit writes.
 
 ### Approval preference
 
@@ -593,7 +595,7 @@ Source: #501, #507, #508, #502 G8.
 | Duty | Owner | Rule |
 | --- | --- | --- |
 | Request deletion | #507 scheduled job | Deletes every request row and every block for a convention within 24 hours after its deadline. Retries daily. Failures are visible. Deletion never touches catches. |
-| Operator audit | Operator audit contract, extended by #507 | Adds `revoke_fursuit_tag` and `invalidate_catch_request`. Rows keep the existing no-expiry rule. |
+| Operator audit | Operator audit contract, extended by #504 and #507 | #504 adds `revoke_fursuit_tag`. #507 adds `invalidate_catch_request`. Rows keep the existing no-expiry rule. |
 | Backups | #507 recovery procedure | Documents PITR exposure and the cleanup rerun after a restore. |
 | Aggregate metrics | #508 | Counts only, under [telemetry privacy](../architecture/backend/telemetry-privacy.md). No player, suit, request, or token identifiers. |
 
@@ -722,5 +724,6 @@ Source: #502 G13. This table names the owning task and proof type for each claus
 | 2026-11-09 | Player self-leave withdraws pending and declined requests. Owner self-leave keeps requests reviewable. | #502 review R2 |
 | 2026-11-09 | Owners see `unavailable` instead of `invalidated`. | #502 review R3 |
 | 2026-11-09 | A set convention time zone can change but cannot return to null. | #503 G1 |
+| 2026-11-09 | #504 adds the `revoke_fursuit_tag` audit action. A replacement with version 0 on a never-tagged suit creates the first tag. | #504 G3, G8 |
 
 The owner approved every #502 recommendation on 2026-11-09. The owner made the three review decisions on the same day, after independent review of this contract.

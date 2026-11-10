@@ -37,7 +37,9 @@ from rest_framework.utils.urls import replace_query_param
 from rest_framework.views import APIView
 
 from accounts.models import User
+from config.catch_requests_gate import catch_requests_enabled
 from conventions.models import Convention
+from media import service as media_service
 from observability.outcomes import Outcome, Reason, Signal, record_outcome
 
 from .models import Catch
@@ -70,6 +72,14 @@ from .services import (
     CatchSelfCatchError,
     CatchTargetInvalidError,
     confirm_catch,
+)
+from .tag_preview import (
+    TagPreview,
+    TagPreviewCatcherIneligibleError,
+    TagPreviewSelfCatchError,
+    TagPreviewTargetUnavailableError,
+    TagPreviewUnavailableError,
+    preview_tag,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -200,8 +210,12 @@ class CatchConfirmationView(APIView):
         tags=["catches"],
         request={"application/json": CatchConfirmationRequestSchemaSerializer},
         responses=_OPENAPI_RESPONSES,
+        deprecated=True,
     )
     def post(self, request: Request) -> Response:
+        if catch_requests_enabled():
+            # The catch request gate retires v1 player codes with no compatibility period.
+            return _catch_target_unavailable()
         serializer = FursuitCatchCredentialResolutionRequestSerializer(
             data=request.data
         )
@@ -235,11 +249,7 @@ class CatchConfirmationView(APIView):
             )
         except CatchTargetInvalidError as error:
             _record_confirmation_rejected(error.reason)
-            return _domain_error(
-                "catch_target_unavailable",
-                "The catch target is unavailable.",
-                status.HTTP_404_NOT_FOUND,
-            )
+            return _catch_target_unavailable()
         except Exception:  # noqa: BLE001 - all untyped service failures are sanitized.
             return _unexpected_error(stage="service")
 
@@ -257,6 +267,177 @@ class CatchConfirmationView(APIView):
             Outcome.CREATED if created else Outcome.ALREADY_CAUGHT,
         )
         return response
+
+
+_PREVIEW_ERROR_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {"code": {"type": "string"}, "detail": {"type": "string"}},
+    "required": ["code", "detail"],
+}
+_PREVIEW_RESPONSE_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "fursuit": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "id": {"type": "integer"},
+                "tailtag_id": {"type": "string", "format": "uuid"},
+                "name": {"type": "string"},
+                "photo_url": {"type": "string", "format": "uri"},
+            },
+            "required": ["id", "tailtag_id", "name", "photo_url"],
+        },
+        "convention_id": {"type": "integer"},
+    },
+    "required": ["fursuit", "convention_id"],
+}
+_PREVIEW_REQUEST_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "payload": {
+            "type": "string",
+            "description": "The full scanned tag payload, https://tailtag.app/t#<token>.",
+        }
+    },
+    "required": ["payload"],
+}
+_INVALID_PREVIEW_BODY = {
+    "payload": [ErrorDetail("Provide the scanned tag payload.", code="invalid")]
+}
+
+
+class CatchPreviewView(APIView):
+    """Preview a scanned reusable tag at the catcher's selected convention."""
+
+    permission_classes = (IsAuthenticated,)
+    parser_classes = (JSONParser,)
+
+    def initial(self, request: Request, *args: object, **kwargs: object) -> None:
+        if not catch_requests_enabled():
+            raise NotFound()
+        super().initial(request, *args, **kwargs)
+
+    def handle_exception(self, exc: Exception) -> Response:
+        if isinstance(exc, (RecursionError, ParseError, UnsupportedMediaType)):
+            _record_preview_rejected(Reason.PAYLOAD_INVALID)
+            return Response(_INVALID_PREVIEW_BODY, status=status.HTTP_400_BAD_REQUEST)
+        if isinstance(exc, APIException):
+            return super().handle_exception(exc)
+        _LOGGER.error("Unexpected tag preview failure.")
+        return _domain_error(
+            "server_error",
+            "An unexpected error occurred.",
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    @extend_schema(
+        operation_id="catch_preview",
+        tags=["catches"],
+        description=(
+            "Resolve a scanned tag against the caller's selected convention. Preview "
+            "creates nothing. Unknown, revoked, and unavailable targets share one "
+            "neutral 404."
+        ),
+        request={"application/json": _PREVIEW_REQUEST_SCHEMA},
+        responses={
+            200: OpenApiResponse(response=_PREVIEW_RESPONSE_SCHEMA),
+            400: OpenApiResponse(
+                response=CATCH_CONFIRMATION_VALIDATION_ERROR_SCHEMA,
+                description="The body is not a JSON object with one string payload.",
+            ),
+            401: _AUTHENTICATION_401,
+            403: OpenApiResponse(
+                response=_PREVIEW_ERROR_SCHEMA, description="catcher_ineligible"
+            ),
+            404: OpenApiResponse(
+                response=_PREVIEW_ERROR_SCHEMA,
+                description=(
+                    "catch_target_unavailable. While the catch request gate is off, "
+                    "every call returns the generic not-found shape."
+                ),
+            ),
+            409: OpenApiResponse(
+                response=_PREVIEW_ERROR_SCHEMA,
+                description="catch_requests_unavailable or self_catch_not_allowed",
+            ),
+            500: OpenApiResponse(
+                response=CATCH_CONFIRMATION_SERVER_ERROR_SCHEMA,
+                description="An unexpected error occurred.",
+            ),
+        },
+    )
+    def post(self, request: Request) -> Response:
+        data = request.data
+        if (
+            not isinstance(data, dict)
+            or set(cast(dict[str, object], data)) != {"payload"}
+            or not isinstance(cast(dict[str, object], data)["payload"], str)
+        ):
+            _record_preview_rejected(Reason.PAYLOAD_INVALID)
+            return Response(_INVALID_PREVIEW_BODY, status=status.HTTP_400_BAD_REQUEST)
+        payload = cast(str, cast(dict[str, object], data)["payload"])
+        try:
+            preview = preview_tag(_user(request), payload=payload)
+        except TagPreviewCatcherIneligibleError as error:
+            _record_preview_rejected(error.reason)
+            return _domain_error(
+                "catcher_ineligible",
+                "You are not eligible to catch this target.",
+                status.HTTP_403_FORBIDDEN,
+            )
+        except TagPreviewUnavailableError as error:
+            _record_preview_rejected(error.reason)
+            return _domain_error(
+                "catch_requests_unavailable",
+                "Catch requests are unavailable for this convention.",
+                status.HTTP_409_CONFLICT,
+            )
+        except TagPreviewTargetUnavailableError as error:
+            _record_preview_rejected(error.reason)
+            return _catch_target_unavailable()
+        except TagPreviewSelfCatchError as error:
+            _record_preview_rejected(error.reason)
+            return _domain_error(
+                "self_catch_not_allowed",
+                "You cannot catch your own fursuit.",
+                status.HTTP_409_CONFLICT,
+            )
+        response = Response(_preview_response_data(preview, request=request))
+        record_outcome(Signal.CREDENTIAL_RESOLUTION, Outcome.RESOLVED)
+        return response
+
+
+def _preview_response_data(
+    preview: TagPreview, *, request: Request
+) -> dict[str, object]:
+    fursuit = preview.fursuit
+    return {
+        "fursuit": {
+            "id": fursuit.pk,
+            "tailtag_id": str(fursuit.tailtag_id),
+            "name": fursuit.name,
+            "photo_url": request.build_absolute_uri(
+                media_service.read_image_url(fursuit.photo_key)
+            ),
+        },
+        "convention_id": preview.convention.pk,
+    }
+
+
+def _record_preview_rejected(reason: Reason) -> None:
+    record_outcome(Signal.CREDENTIAL_RESOLUTION, Outcome.REJECTED, reason)
+
+
+def _catch_target_unavailable() -> Response:
+    return _domain_error(
+        "catch_target_unavailable",
+        "The catch target is unavailable.",
+        status.HTTP_404_NOT_FOUND,
+    )
 
 
 class CatchHistoryView(APIView):

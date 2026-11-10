@@ -9,6 +9,12 @@ domains](https://github.com/TailTag-Game/tailtag/issues/111)
 **Status:** Approved design, Acceptance Contract, and Test Surface Contract;
 frozen on 2026-09-01 before production implementation
 
+**Gate note (#504):** This spec is authoritative only while the
+`CATCH_REQUESTS_ENABLED` gate is off. When the gate is on, the gate retires the
+player operations in this spec. The reusable tag replaces the
+Convention-scoped credential. See the
+[reusable TailTag and catch request contract](2026-11-09-reusable-tailtag-catch-request-contract.md).
+
 ## Goal and domain distinctions
 
 Give each fursuit one persistent public TailTag identity and one independently
