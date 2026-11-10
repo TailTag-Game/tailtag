@@ -30,7 +30,6 @@ from observability.outcomes import Outcome, Reason, Signal, record_outcome
 from . import catch_credentials, catch_sessions, services
 from .models import (
     Convention,
-    ConventionEnrollment,
     ConventionStatus,
     FursuitActivation,
 )
@@ -266,23 +265,18 @@ class FursuitCatchCredentialResolutionView(APIView):
             data=request.data
         )
         serializer.is_valid(raise_exception=True)
-        convention = Convention.objects.filter(pk=convention_id).first()
-        if convention is None:
+        caller = services.get_convention_caller_participation(
+            _user(request), convention_id=convention_id
+        )
+        if caller is None:
             _record_resolution_rejected(Reason.CONVENTION_UNKNOWN)
             raise NotFound() from None
-        try:
-            services.require_convention_participation_eligible(_user(request))
-        except services.ConventionParticipationIneligibleError:
-            _record_resolution_rejected(Reason.CALLER_INELIGIBLE)
-            raise PermissionDenied from None
-        if not ConventionEnrollment.objects.filter(
-            user=_user(request), convention=convention
-        ).exists():
+        if not caller.profile_eligible or not caller.enrolled:
             _record_resolution_rejected(Reason.CALLER_INELIGIBLE)
             raise PermissionDenied from None
         try:
             credential = catch_credentials.resolve_catch_credential(
-                convention_id=convention.pk,
+                convention_id=convention_id,
                 payload=serializer.validated_data["payload"],
             )
         except catch_credentials.CatchCredentialNotFoundError as error:

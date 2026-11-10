@@ -216,6 +216,8 @@ def confirm_catch(user: User, *, payload: str) -> CatchConfirmationResult:
                 winner, CatchConfirmationStatus.ALREADY_CAUGHT
             )
 
+        # The response projects the fursuit; reuse the row already locked above.
+        catch.fursuit = fursuit
         return CatchConfirmationResult(catch, CatchConfirmationStatus.CREATED)
 
 
@@ -290,11 +292,15 @@ def _profile_is_eligible(profile: PlayerProfile | None) -> bool:
 def _find_existing_catch(
     *, catcher_user_id: int, fursuit_id: int, convention_id: int
 ) -> Catch | None:
-    return Catch.objects.filter(
-        catcher_user_id=catcher_user_id,
-        fursuit_id=fursuit_id,
-        convention_id=convention_id,
-    ).first()
+    return (
+        Catch.objects.filter(
+            catcher_user_id=catcher_user_id,
+            fursuit_id=fursuit_id,
+            convention_id=convention_id,
+        )
+        .select_related("fursuit")
+        .first()
+    )
 
 
 def _insert_catch(
