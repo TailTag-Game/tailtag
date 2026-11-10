@@ -29,6 +29,7 @@ from conventions.models import (
     ConventionEnrollment,
     ConventionStatus,
     FursuitActivation,
+    FursuitCatchCredential,
 )
 from fursuits.models import Fursuit
 from profiles.models import PlayerProfile
@@ -195,17 +196,17 @@ def _gate_resolution_eligibility(
 
     entered = Event()
     continue_resolution = Event()
-    original = catch_credentials.is_fursuit_activation_eligible
+    original = catch_credentials._is_resolved_target_eligible  # pyright: ignore[reportPrivateUsage]
 
-    def gated(activation: FursuitActivation) -> bool:
-        result = original(activation)
+    def gated(credential: FursuitCatchCredential) -> bool:
+        result = original(credential)
         entered.set()
         assert continue_resolution.wait(_WAIT_SECONDS), (
             "resolution gate was not released"
         )
         return result
 
-    monkeypatch.setattr(catch_credentials, "is_fursuit_activation_eligible", gated)
+    monkeypatch.setattr(catch_credentials, "_is_resolved_target_eligible", gated)
     return entered, continue_resolution
 
 

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import datetime
+from dataclasses import dataclass
 
 from django.db import IntegrityError, transaction
-from django.db.models import QuerySet
+from django.db.models import Exists, OuterRef, QuerySet
 from django.utils import timezone
 
 from accounts.models import User
@@ -17,7 +18,7 @@ from conventions.models import (
 )
 from fursuits.models import Fursuit
 from operator_audit.services import OperatorTransition
-from profiles.eligibility import is_participation_eligible
+from profiles.eligibility import eligible_player_profiles, is_participation_eligible
 from profiles.models import PlayerProfile
 
 
@@ -45,10 +46,45 @@ class ConventionPlayabilityBoundaryError(Exception):
     """The locked Convention no longer matches the approved admin boundary."""
 
 
+@dataclass(frozen=True, slots=True)
+class ConventionCallerParticipation:
+    """The caller facts that authorize a Convention-scoped read."""
+
+    profile_eligible: bool
+    enrolled: bool
+
+
 def require_convention_participation_eligible(user: User) -> None:
     """Verify the user has completed onboarding and has an enabled profile."""
     if not is_participation_eligible(user):
         raise ConventionParticipationIneligibleError()
+
+
+def get_convention_caller_participation(
+    user: User, *, convention_id: int
+) -> ConventionCallerParticipation | None:
+    """Read the caller facts in one statement; None means the Convention is missing."""
+    row = (
+        Convention.objects.filter(pk=convention_id)
+        .annotate(
+            caller_profile_eligible=Exists(
+                eligible_player_profiles().filter(user_id=user.pk)
+            ),
+            caller_enrolled=Exists(
+                ConventionEnrollment.objects.filter(
+                    user_id=user.pk, convention_id=OuterRef("pk")
+                )
+            ),
+        )
+        .values_list("caller_profile_eligible", "caller_enrolled")
+        .first()
+    )
+    if row is None:
+        return None
+    profile_eligible, enrolled = row
+    return ConventionCallerParticipation(
+        profile_eligible=bool(profile_eligible), enrolled=bool(enrolled)
+    )
 
 
 def list_user_enrollments(user: User) -> QuerySet[ConventionEnrollment]:
