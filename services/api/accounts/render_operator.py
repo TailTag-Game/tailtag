@@ -30,6 +30,13 @@ _OPERATIONS: Final[dict[str, tuple[str, dict[str, str], str | None]]] = {
         {},
         "FAIL_MANAGED_OPERATOR_MISSING",
     ),
+    # An operator made before #504 holds the previous permission set. The
+    # bootstrap reconcile upgrades its group and sets a new password.
+    "managed-upgrade": (
+        "bootstrap_staging_operator",
+        {},
+        "FAIL_MANAGED_OPERATOR_UPGRADABLE",
+    ),
     "lifecycle-provision": (
         "staging_validation_operator",
         {"action": "provision"},

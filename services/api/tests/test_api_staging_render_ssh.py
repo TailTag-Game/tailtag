@@ -38,6 +38,10 @@ PLANS: dict[str, tuple[tuple[tuple[str, str], ...], tuple[tuple[str, str], ...]]
         (("reconcile", "PASS"), ("inspect", "FAIL_MANAGED_OPERATOR_MISSING")),
         (("inspect", "FAIL_LIMITED_OPERATOR_MISSING"),),
     ),
+    "managed-upgrade": (
+        (("reconcile", "PASS"), ("inspect", "FAIL_MANAGED_OPERATOR_UPGRADABLE")),
+        (("inspect", "PASS"),),
+    ),
     "lifecycle-provision": (
         (("reconcile", "PASS"), ("inspect", "FAIL_LIMITED_OPERATOR_MISSING")),
         (("inspect", "PASS"),),

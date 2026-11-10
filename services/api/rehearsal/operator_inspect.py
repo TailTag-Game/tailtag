@@ -17,6 +17,9 @@ FAIL_MANAGED_OPERATOR_MISSING: Final = "FAIL_MANAGED_OPERATOR_MISSING"
 FAIL_MANAGED_OPERATOR_AMBIGUOUS: Final = "FAIL_MANAGED_OPERATOR_AMBIGUOUS"
 FAIL_MANAGED_OPERATOR_STATE: Final = "FAIL_MANAGED_OPERATOR_STATE"
 FAIL_MANAGED_OPERATOR_PERMISSION: Final = "FAIL_MANAGED_OPERATOR_PERMISSION"
+# The group holds exactly the permission set from before #504. The
+# managed-upgrade operation moves it to the current set.
+FAIL_MANAGED_OPERATOR_UPGRADABLE: Final = "FAIL_MANAGED_OPERATOR_UPGRADABLE"
 FAIL_MANAGED_OPERATOR_PASSWORD_UNUSABLE: Final = (
     "FAIL_MANAGED_OPERATOR_PASSWORD_UNUSABLE"
 )
@@ -38,6 +41,7 @@ STATUS_CODES: Final = frozenset(
         FAIL_MANAGED_OPERATOR_AMBIGUOUS,
         FAIL_MANAGED_OPERATOR_STATE,
         FAIL_MANAGED_OPERATOR_PERMISSION,
+        FAIL_MANAGED_OPERATOR_UPGRADABLE,
         FAIL_MANAGED_OPERATOR_PASSWORD_UNUSABLE,
         FAIL_LIMITED_OPERATOR_MISSING,
         FAIL_LIMITED_OPERATOR_AMBIGUOUS,
@@ -102,6 +106,7 @@ def _validate_managed_operator() -> str | None:
     from accounts.management.commands.bootstrap_staging_operator import (
         EXPECTED_PERMISSION_NAMES,
         OPERATOR_GROUP_NAME,
+        PREVIOUS_PERMISSION_NAMES,
     )
     from accounts.models import User
 
@@ -125,10 +130,12 @@ def _validate_managed_operator() -> str | None:
         or list(operator.groups.values_list("pk", flat=True)) != [group.pk]  # pyright: ignore[reportUnknownMemberType]
     ):
         return FAIL_MANAGED_OPERATOR_STATE
-    if (
-        operator.user_permissions.exists()  # pyright: ignore[reportUnknownMemberType]
-        or _permission_names(group.permissions) != EXPECTED_PERMISSION_NAMES  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
-    ):
+    if operator.user_permissions.exists():  # pyright: ignore[reportUnknownMemberType]
+        return FAIL_MANAGED_OPERATOR_PERMISSION
+    group_permissions = _permission_names(group.permissions)  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+    if group_permissions == PREVIOUS_PERMISSION_NAMES:
+        return FAIL_MANAGED_OPERATOR_UPGRADABLE
+    if group_permissions != EXPECTED_PERMISSION_NAMES:
         return FAIL_MANAGED_OPERATOR_PERMISSION
     if not operator.has_usable_password():
         return FAIL_MANAGED_OPERATOR_PASSWORD_UNUSABLE

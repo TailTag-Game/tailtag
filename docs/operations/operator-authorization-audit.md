@@ -80,11 +80,22 @@ database failure, without manually elevating an account. Do not run it
 automatically during build, pre-deploy, startup, health check, or Gunicorn.
 
 #504 added `fursuits.revoke_fursuit_tag` and `fursuits.view_fursuittag` to the
-exact permission set. An operator made before #504 holds the previous set. If
-the group holds exactly the previous set, the command upgrades the group to the
-current set and prints `Staging operator reconciled and upgraded.` Any other
-set fails closed. The replace command accepts only the current set, so run this
-command once before a replacement.
+exact permission set. An operator made before #504 holds the previous set. The
+operator inspector then reports `FAIL_MANAGED_OPERATOR_UPGRADABLE`. In that
+state, the other managed and emergency commands stop at their precondition.
+
+To upgrade, run the same launcher with `managed-upgrade` instead of
+`managed-create`, after the promotion that carries #504:
+
+```bash
+uv --directory services/api run --locked --no-sync python ../../scripts/api_staging_render_ssh.py managed-upgrade
+```
+
+Enter the same confirmation phrase as for `managed-create`, the existing
+operator identifier, and a new password twice. The command adds the two permissions,
+sets the new password, and prints `Staging operator reconciled and upgraded.`
+The launcher then requires the inspector result `PASS`. Any other permission
+set fails closed with `FAIL_MANAGED_OPERATOR_PERMISSION`.
 
 ## Emergency superuser
 
