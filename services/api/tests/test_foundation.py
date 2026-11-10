@@ -31,6 +31,7 @@ def test_foundation_exposes_profile_current_user_and_infrastructure_routes(
         "/api/catches/",
         "/api/catches/confirm/",
         "/api/catches/preview/",
+        "/api/catches/requests/",
         "/api/me/",
         "/api/profile/",
         "/api/profile/avatar/",

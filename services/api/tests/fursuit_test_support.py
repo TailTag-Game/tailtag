@@ -26,7 +26,15 @@ class _BytesGenericClient(Protocol):
 
 
 def assert_fursuit_data(data: dict[str, object]) -> dict[str, object]:
-    assert set(data) == {"id", "tailtag_id", "name", "photo_url", "is_enabled"}
+    assert set(data) == {
+        "id",
+        "tailtag_id",
+        "name",
+        "photo_url",
+        "is_enabled",
+        "catch_approval_mode",
+    }
+    assert data["catch_approval_mode"] in {"manual", "automatic"}
     assert isinstance(data["id"], int)
     assert isinstance(data["tailtag_id"], str)
     assert isinstance(UUID(data["tailtag_id"]), UUID)

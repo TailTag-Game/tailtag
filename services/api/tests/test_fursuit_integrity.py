@@ -23,6 +23,7 @@ def test_fursuit_model_has_the_exact_durable_shape() -> None:
     assert {constraint.name for constraint in Fursuit._meta.constraints} == {
         "fursuits_fursuit_name_not_empty",
         "fursuits_fursuit_photo_key_not_empty",
+        "fursuits_fursuit_catch_approval_mode_valid",
     }
     owner = Fursuit._meta.get_field("owner")
     name = Fursuit._meta.get_field("name")
@@ -72,12 +73,12 @@ def test_defaults_timestamps_ordering_and_non_unique_names() -> None:
 
 @pytest.mark.django_db
 def test_player_domain_services_cannot_mutate_an_existing_fursuit_owner() -> None:
-    from fursuits.services import update_fursuit_name
+    from fursuits.services import update_fursuit
 
     owner = create_eligible_user()
     different_user = create_eligible_user()
     record = create_fursuit_record(owner=owner)
-    update_fursuit_name(owner, fursuit_id=record.id, name="Changed")
+    update_fursuit(owner, fursuit_id=record.id, name="Changed")
     record.refresh_from_db()
     assert record.owner_id == owner.id
     assert record.owner_id != different_user.id

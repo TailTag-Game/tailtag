@@ -681,6 +681,8 @@ These rules are technical choices, not owner policy:
 - New columns on existing tables use a database default or allow null, to keep old images compatible.
 - The database time comes from `clock_timestamp()` after the locks.
 - A decline with `block: true` on an already declined request adds the block.
+- Submission runs the existing-result check after checks 1, 2, and 4 and a lookup of any known tag row, current or revoked. It runs before target checks 5 to 8. A retry gets its own pending request or catch back after its target changed (#505 G2).
+- The PlayerProfile tier comes first in the lock order. Submission locks the catcher and the suit owner profiles in pk order, so two players who catch each other's suits cannot deadlock (#505 G4).
 
 ## Test surfaces
 

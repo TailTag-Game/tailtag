@@ -12,7 +12,7 @@ from drf_spectacular.utils import (  # pyright: ignore[reportUnknownVariableType
 from rest_framework import serializers
 from rest_framework.exceptions import ErrorDetail
 
-from fursuits.models import Fursuit
+from fursuits.models import CatchApprovalMode, Fursuit
 from media import service as media_service
 from media.images import ImageRejectionCode
 
@@ -33,8 +33,20 @@ FURSUIT_RESPONSE_SCHEMA: dict[str, object] = {
         "name": {"type": "string"},
         "photo_url": {"type": "string", "format": "uri", "readOnly": True},
         "is_enabled": {"type": "boolean", "readOnly": True},
+        "catch_approval_mode": {
+            "type": "string",
+            "enum": list(CatchApprovalMode.values),
+            "description": "manual by default. A change applies only to new requests.",
+        },
     },
-    "required": ["id", "tailtag_id", "name", "photo_url", "is_enabled"],
+    "required": [
+        "id",
+        "tailtag_id",
+        "name",
+        "photo_url",
+        "is_enabled",
+        "catch_approval_mode",
+    ],
 }
 
 FURSUIT_CREATE_REQUEST_SCHEMA: dict[str, object] = {
@@ -47,11 +59,18 @@ FURSUIT_CREATE_REQUEST_SCHEMA: dict[str, object] = {
     "required": ["name", "photo"],
 }
 
-FURSUIT_NAME_PATCH_REQUEST_SCHEMA: dict[str, object] = {
+FURSUIT_PATCH_REQUEST_SCHEMA: dict[str, object] = {
     "type": "object",
     "additionalProperties": False,
-    "properties": {"name": {"type": "string"}},
-    "required": ["name"],
+    "description": "Send name, catch_approval_mode, or both.",
+    "properties": {
+        "name": {"type": "string"},
+        "catch_approval_mode": {
+            "type": "string",
+            "enum": list(CatchApprovalMode.values),
+        },
+    },
+    "minProperties": 1,
 }
 
 FURSUIT_PHOTO_REQUEST_SCHEMA: dict[str, object] = {
@@ -74,19 +93,31 @@ class FursuitCreateSerializer(serializers.Serializer[dict[str, object]]):
     photo = PhotoUploadField(allow_empty_file=False)
 
 
-class FursuitNamePatchSerializer(serializers.Serializer[dict[str, str]]):
+_PATCH_FIELDS = frozenset({"name", "catch_approval_mode"})
+
+
+class FursuitPatchSerializer(serializers.Serializer[dict[str, str]]):
     name = serializers.CharField(
-        allow_blank=False, allow_null=False, trim_whitespace=False
+        allow_blank=False, allow_null=False, trim_whitespace=False, required=False
+    )
+    catch_approval_mode = serializers.ChoiceField(
+        choices=CatchApprovalMode.choices, required=False
     )
 
     def to_internal_value(self, data: Any) -> dict[str, str]:
-        if not isinstance(data, Mapping) or set(cast(Mapping[str, object], data)) != {
-            "name"
-        }:
+        keys: set[str] = (
+            set(cast(Mapping[str, object], data))
+            if isinstance(data, Mapping)
+            else set()
+        )
+        if not keys or not keys <= _PATCH_FIELDS:
             raise serializers.ValidationError(
                 {
-                    "name": [
-                        ErrorDetail("Provide exactly the name field.", code="invalid")
+                    "non_field_errors": [
+                        ErrorDetail(
+                            "Provide name, catch_approval_mode, or both.",
+                            code="invalid",
+                        )
                     ]
                 }
             )
@@ -103,6 +134,7 @@ class FursuitResponseData(TypedDict):
     name: str
     photo_url: str
     is_enabled: bool
+    catch_approval_mode: str
 
 
 def fursuit_response_data(fursuit: Fursuit) -> FursuitResponseData:
@@ -113,6 +145,7 @@ def fursuit_response_data(fursuit: Fursuit) -> FursuitResponseData:
         "name": fursuit.name,
         "photo_url": media_service.read_image_url(fursuit.photo_key),
         "is_enabled": fursuit.is_enabled,
+        "catch_approval_mode": fursuit.catch_approval_mode,
     }
 
 

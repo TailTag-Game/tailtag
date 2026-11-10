@@ -10,7 +10,7 @@ from django.db.models import F, Q
 from django.utils import timezone
 
 from accounts.models import User
-from catches.models import Catch
+from catches.models import Catch, CatchRequest
 from conventions.models import (
     Convention,
     ConventionEnrollment,
@@ -185,6 +185,21 @@ def _assert_closure(
         catch_session__activation_id=F("activation_id"),
     ).exists():
         raise ResetSafetyError
+    # Catch requests follow the same closure as catches (#505).
+    requests = CatchRequest.objects.filter(
+        Q(fursuit_id__in=ids)
+        | Q(convention=convention)
+        | Q(activation_id__in=activation_ids)
+        | Q(catch_session_id__in=session_ids)
+    )
+    if requests.exclude(
+        player__in=(identity.owner, identity.catcher),
+        fursuit_id__in=ids,
+        convention=convention,
+        activation_id__in=activation_ids,
+        catch_session_id__in=session_ids,
+    ).exists():
+        raise ResetSafetyError
 
 
 def _profiles(identity: StagingResetIdentity) -> None:
@@ -312,6 +327,9 @@ def validate_baseline(identity: StagingResetIdentity) -> dict[str, int]:
         Catch.objects.filter(
             fursuit_id__in=(identity.first_fursuit_id, identity.second_fursuit_id)
         ).exists()
+        or CatchRequest.objects.filter(
+            fursuit_id__in=(identity.first_fursuit_id, identity.second_fursuit_id)
+        ).exists()
         or FursuitCatchSession.objects.filter(
             activation__fursuit_id__in=(
                 identity.first_fursuit_id,
@@ -368,6 +386,7 @@ def reset_baseline(configuration: ResetConfiguration) -> dict[str, int]:
                 activation_id__in=activation_ids
             ).values_list("pk", flat=True)
         )
+        CatchRequest.objects.filter(catch_session_id__in=session_ids).delete()
         Catch.objects.filter(catch_session_id__in=session_ids).delete()
         FursuitCatchCredential.objects.filter(activation_id__in=activation_ids).delete()
         FursuitCatchSession.objects.filter(pk__in=session_ids).delete()

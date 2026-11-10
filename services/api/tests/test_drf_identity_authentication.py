@@ -339,6 +339,7 @@ def test_identity_authentication_adds_only_current_user_identity_route_alongside
         "/api/catches/",
         "/api/catches/confirm/",
         "/api/catches/preview/",
+        "/api/catches/requests/",
         "/api/me/",
         "/api/profile/",
         "/api/profile/avatar/",

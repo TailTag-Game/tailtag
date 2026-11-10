@@ -161,6 +161,7 @@ def test_product_routes_remain_unversioned_and_do_not_add_public_user_surfaces(
         "/api/catches/",
         "/api/catches/confirm/",
         "/api/catches/preview/",
+        "/api/catches/requests/",
         "/api/me/",
         "/api/profile/",
         "/api/profile/avatar/",

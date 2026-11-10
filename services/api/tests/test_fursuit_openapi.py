@@ -70,6 +70,7 @@ def test_fursuit_openapi_is_exact_closed_authenticated_and_has_safe_media_shapes
         "name",
         "photo_url",
         "is_enabled",
+        "catch_approval_mode",
     }
     assert successful["required"] == [
         "id",
@@ -77,6 +78,7 @@ def test_fursuit_openapi_is_exact_closed_authenticated_and_has_safe_media_shapes
         "name",
         "photo_url",
         "is_enabled",
+        "catch_approval_mode",
     ]
     assert successful.get("additionalProperties") is False
     assert all(
@@ -101,8 +103,13 @@ def test_fursuit_openapi_is_exact_closed_authenticated_and_has_safe_media_shapes
         schema, patch["requestBody"]["content"]["application/json"]["schema"]
     )
     assert patch_body.get("additionalProperties") is False
-    assert set(patch_body["properties"]) == {"name"}
-    assert patch_body["required"] == ["name"]
+    assert set(patch_body["properties"]) == {"name", "catch_approval_mode"}
+    assert "required" not in patch_body
+    assert patch_body["minProperties"] == 1
+    assert patch_body["properties"]["catch_approval_mode"]["enum"] == [
+        "manual",
+        "automatic",
+    ]
     for body, expected in (
         (create_body, {"name", "photo"}),
         (photo_body, {"photo"}),
@@ -153,6 +160,7 @@ def test_fursuit_openapi_is_exact_closed_authenticated_and_has_safe_media_shapes
             "name",
             "photo_url",
             "is_enabled",
+            "catch_approval_mode",
         }
         assert response_schema["required"] == [
             "id",
@@ -160,6 +168,7 @@ def test_fursuit_openapi_is_exact_closed_authenticated_and_has_safe_media_shapes
             "name",
             "photo_url",
             "is_enabled",
+            "catch_approval_mode",
         ]
         assert response_schema["properties"]["tailtag_id"] == {
             "type": "string",
@@ -179,6 +188,8 @@ def test_fursuit_openapi_is_exact_closed_authenticated_and_has_safe_media_shapes
             patch_body,
         )
     ).lower()
+    # catch_approval_mode is the one owner-facing catch field (#505 AC3).
+    fursuit_schema_surface = fursuit_schema_surface.replace("catch_approval_mode", "")
     assert not any(
         term in fursuit_schema_surface
         for term in ("photo_key", "owner", "activation", "catch", " qr")

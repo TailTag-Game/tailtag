@@ -389,6 +389,481 @@ paths:
                 - code
                 - detail
           description: An unexpected error occurred.
+  /api/catches/requests/:
+    get:
+      operationId: catch_requests_list
+      description: List the caller's catch requests, newest first, for conventions
+        whose review window is open. A closed window hides its requests.
+      parameters:
+      - in: query
+        name: convention_id
+        schema:
+          type: integer
+        description: Limit the list to one convention.
+      tags:
+      - catches
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      properties:
+                        id:
+                          type: integer
+                        fursuit:
+                          type: object
+                          additionalProperties: false
+                          properties:
+                            id:
+                              type: integer
+                            tailtag_id:
+                              type: string
+                              format: uuid
+                            name:
+                              type: string
+                            photo_url:
+                              type: string
+                              format: uri
+                          required:
+                          - id
+                          - tailtag_id
+                          - name
+                          - photo_url
+                        convention_id:
+                          type: integer
+                        state:
+                          type: string
+                          enum:
+                          - pending
+                          - approved
+                          - declined
+                          - withdrawn
+                          - unavailable
+                        requested_at:
+                          type: string
+                          format: date-time
+                        review_deadline_at:
+                          type: string
+                          format: date-time
+                      required:
+                      - id
+                      - fursuit
+                      - convention_id
+                      - state
+                      - requested_at
+                      - review_deadline_at
+                required:
+                - results
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - invalid_query
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: convention_id is not a positive integer.
+        '401':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Authentication credentials were not provided.
+        '403':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: catcher_ineligible
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - convention_not_found
+                    - invalid_page
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: The catch request gate is off.
+        '500':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - server_error
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: An unexpected error occurred.
+    post:
+      operationId: catch_requests_create
+      description: Submit a scanned tag at the caller's selected convention. Approval
+        is manual by default. A retry returns the existing pending request or catch.
+      tags:
+      - catches
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                payload:
+                  type: string
+                  description: The full scanned tag payload, https://tailtag.app/t#<token>.
+              required:
+              - payload
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  outcome:
+                    type: string
+                    enum:
+                    - pending
+                    - approved
+                    - already_pending
+                    - already_caught
+                  request:
+                    type: object
+                    additionalProperties: false
+                    properties:
+                      id:
+                        type: integer
+                      fursuit:
+                        type: object
+                        additionalProperties: false
+                        properties:
+                          id:
+                            type: integer
+                          tailtag_id:
+                            type: string
+                            format: uuid
+                          name:
+                            type: string
+                          photo_url:
+                            type: string
+                            format: uri
+                        required:
+                        - id
+                        - tailtag_id
+                        - name
+                        - photo_url
+                      convention_id:
+                        type: integer
+                      state:
+                        type: string
+                        enum:
+                        - pending
+                        - approved
+                        - declined
+                        - withdrawn
+                        - unavailable
+                      requested_at:
+                        type: string
+                        format: date-time
+                      review_deadline_at:
+                        type: string
+                        format: date-time
+                    required:
+                    - id
+                    - fursuit
+                    - convention_id
+                    - state
+                    - requested_at
+                    - review_deadline_at
+                    nullable: true
+                  catch:
+                    type: object
+                    additionalProperties: false
+                    properties:
+                      id:
+                        type: integer
+                      caught_at:
+                        type: string
+                        format: date-time
+                      approved_at:
+                        type: string
+                        format: date-time
+                      convention_id:
+                        type: integer
+                      fursuit:
+                        type: object
+                        additionalProperties: false
+                        properties:
+                          tailtag_id:
+                            type: string
+                            format: uuid
+                          name:
+                            type: string
+                          photo_url:
+                            type: string
+                            format: uri
+                        required:
+                        - tailtag_id
+                        - name
+                        - photo_url
+                    required:
+                    - id
+                    - caught_at
+                    - approved_at
+                    - convention_id
+                    - fursuit
+                    nullable: true
+                required:
+                - outcome
+                - request
+                - catch
+          description: already_pending or already_caught
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  outcome:
+                    type: string
+                    enum:
+                    - pending
+                    - approved
+                    - already_pending
+                    - already_caught
+                  request:
+                    type: object
+                    additionalProperties: false
+                    properties:
+                      id:
+                        type: integer
+                      fursuit:
+                        type: object
+                        additionalProperties: false
+                        properties:
+                          id:
+                            type: integer
+                          tailtag_id:
+                            type: string
+                            format: uuid
+                          name:
+                            type: string
+                          photo_url:
+                            type: string
+                            format: uri
+                        required:
+                        - id
+                        - tailtag_id
+                        - name
+                        - photo_url
+                      convention_id:
+                        type: integer
+                      state:
+                        type: string
+                        enum:
+                        - pending
+                        - approved
+                        - declined
+                        - withdrawn
+                        - unavailable
+                      requested_at:
+                        type: string
+                        format: date-time
+                      review_deadline_at:
+                        type: string
+                        format: date-time
+                    required:
+                    - id
+                    - fursuit
+                    - convention_id
+                    - state
+                    - requested_at
+                    - review_deadline_at
+                    nullable: true
+                  catch:
+                    type: object
+                    additionalProperties: false
+                    properties:
+                      id:
+                        type: integer
+                      caught_at:
+                        type: string
+                        format: date-time
+                      approved_at:
+                        type: string
+                        format: date-time
+                      convention_id:
+                        type: integer
+                      fursuit:
+                        type: object
+                        additionalProperties: false
+                        properties:
+                          tailtag_id:
+                            type: string
+                            format: uuid
+                          name:
+                            type: string
+                          photo_url:
+                            type: string
+                            format: uri
+                        required:
+                        - tailtag_id
+                        - name
+                        - photo_url
+                    required:
+                    - id
+                    - caught_at
+                    - approved_at
+                    - convention_id
+                    - fursuit
+                    nullable: true
+                required:
+                - outcome
+                - request
+                - catch
+          description: pending or approved
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  payload:
+                    type: array
+                    items:
+                      type: string
+                required:
+                - payload
+          description: The body is not a JSON object with one string payload.
+        '401':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Authentication credentials were not provided.
+        '403':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: catcher_ineligible
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: catch_target_unavailable. While the catch request gate is off,
+            every call returns the generic not-found shape.
+        '409':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: catch_requests_unavailable or self_catch_not_allowed
+        '500':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - server_error
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: An unexpected error occurred.
   /api/conventions/:
     get:
       operationId: conventions_list
@@ -1373,12 +1848,20 @@ paths:
                     is_enabled:
                       type: boolean
                       readOnly: true
+                    catch_approval_mode:
+                      type: string
+                      enum:
+                      - manual
+                      - automatic
+                      description: manual by default. A change applies only to new
+                        requests.
                   required:
                   - id
                   - tailtag_id
                   - name
                   - photo_url
                   - is_enabled
+                  - catch_approval_mode
           description: ''
         '401':
           description: Authentication credentials were not provided.
@@ -1432,12 +1915,19 @@ paths:
                   is_enabled:
                     type: boolean
                     readOnly: true
+                  catch_approval_mode:
+                    type: string
+                    enum:
+                    - manual
+                    - automatic
+                    description: manual by default. A change applies only to new requests.
                 required:
                 - id
                 - tailtag_id
                 - name
                 - photo_url
                 - is_enabled
+                - catch_approval_mode
           description: ''
         '400':
           description: The supplied fursuit data is invalid.
@@ -1452,7 +1942,8 @@ paths:
   /api/fursuits/{id}/:
     get:
       operationId: fursuits_retrieve
-      description: Retrieve or rename a private player record.
+      description: Retrieve a private player record, or change its name or approval
+        mode.
       parameters:
       - in: path
         name: id
@@ -1487,12 +1978,19 @@ paths:
                   is_enabled:
                     type: boolean
                     readOnly: true
+                  catch_approval_mode:
+                    type: string
+                    enum:
+                    - manual
+                    - automatic
+                    description: manual by default. A change applies only to new requests.
                 required:
                 - id
                 - tailtag_id
                 - name
                 - photo_url
                 - is_enabled
+                - catch_approval_mode
           description: ''
         '401':
           description: Authentication credentials were not provided.
@@ -1503,8 +2001,9 @@ paths:
         '500':
           description: An unexpected server error occurred.
     patch:
-      operationId: fursuits_update_name
-      description: Retrieve or rename a private player record.
+      operationId: fursuits_update
+      description: Retrieve a private player record, or change its name or approval
+        mode.
       parameters:
       - in: path
         name: id
@@ -1519,11 +2018,16 @@ paths:
             schema:
               type: object
               additionalProperties: false
+              description: Send name, catch_approval_mode, or both.
               properties:
                 name:
                   type: string
-              required:
-              - name
+                catch_approval_mode:
+                  type: string
+                  enum:
+                  - manual
+                  - automatic
+              minProperties: 1
       security:
       - BearerAuth: []
       responses:
@@ -1550,12 +2054,19 @@ paths:
                   is_enabled:
                     type: boolean
                     readOnly: true
+                  catch_approval_mode:
+                    type: string
+                    enum:
+                    - manual
+                    - automatic
+                    description: manual by default. A change applies only to new requests.
                 required:
                 - id
                 - tailtag_id
                 - name
                 - photo_url
                 - is_enabled
+                - catch_approval_mode
           description: ''
         '400':
           description: The supplied fursuit data is invalid.
@@ -1619,12 +2130,19 @@ paths:
                   is_enabled:
                     type: boolean
                     readOnly: true
+                  catch_approval_mode:
+                    type: string
+                    enum:
+                    - manual
+                    - automatic
+                    description: manual by default. A change applies only to new requests.
                 required:
                 - id
                 - tailtag_id
                 - name
                 - photo_url
                 - is_enabled
+                - catch_approval_mode
           description: ''
         '400':
           description: The supplied fursuit data is invalid.

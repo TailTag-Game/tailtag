@@ -38,7 +38,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from accounts.models import User
-from catches.models import Catch
+from catches.models import Catch, CatchRequest
 from conventions.models import (
     Convention,
     ConventionEnrollment,
@@ -164,6 +164,16 @@ def start_run() -> Journey:
         convention=activation.convention,
         activation=activation,
         catch_session=session,
+    )
+    # A catch request on the run session must not block the PROTECT delete (#505).
+    CatchRequest.objects.create(
+        player=users[2],
+        fursuit=activation.fursuit,
+        convention=activation.convention,
+        activation=activation,
+        catch_session=session,
+        state="pending",
+        requested_at=timezone.now(),
     )
     journey_photo_key = media_service.store_image(image_upload())
     Fursuit.objects.create(

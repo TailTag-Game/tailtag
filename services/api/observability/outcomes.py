@@ -26,6 +26,8 @@ class Signal(StrEnum):
 class Outcome(StrEnum):
     CREATED = "created"
     ALREADY_CAUGHT = "already_caught"
+    PENDING = "pending"
+    ALREADY_PENDING = "already_pending"
     REJECTED = "rejected"
     RESOLVED = "resolved"
     STARTED = "started"

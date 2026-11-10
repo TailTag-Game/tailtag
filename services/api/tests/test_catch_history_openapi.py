@@ -14,6 +14,7 @@ from django.test import Client
 _HISTORY_PATH = "/api/catches/"
 _CONFIRMATION_PATH = "/api/catches/confirm/"
 _PREVIEW_PATH = "/api/catches/preview/"
+_REQUESTS_PATH = "/api/catches/requests/"
 
 
 def _load_schema() -> dict[str, Any]:
@@ -150,7 +151,12 @@ def test_catch_history_openapi_has_one_closed_bearer_get_contract() -> None:
             or "collection" in path.lower()
         )
     }
-    assert set(catch_paths) == {_HISTORY_PATH, _CONFIRMATION_PATH, _PREVIEW_PATH}
+    assert set(catch_paths) == {
+        _HISTORY_PATH,
+        _CONFIRMATION_PATH,
+        _PREVIEW_PATH,
+        _REQUESTS_PATH,
+    }
     assert set(catch_paths[_HISTORY_PATH]) == {"get"}
     assert set(catch_paths[_CONFIRMATION_PATH]) == {"post"}
 
