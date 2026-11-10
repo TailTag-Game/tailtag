@@ -12,6 +12,7 @@ from drf_spectacular.utils import (  # pyright: ignore[reportUnknownVariableType
 from rest_framework import serializers
 from rest_framework.exceptions import ErrorDetail
 
+from config.openapi_components import component_ref
 from fursuits.models import CatchApprovalMode, Fursuit
 from media import service as media_service
 from media.images import ImageRejectionCode
@@ -33,11 +34,7 @@ FURSUIT_RESPONSE_SCHEMA: dict[str, object] = {
         "name": {"type": "string"},
         "photo_url": {"type": "string", "format": "uri", "readOnly": True},
         "is_enabled": {"type": "boolean", "readOnly": True},
-        "catch_approval_mode": {
-            "type": "string",
-            "enum": list(CatchApprovalMode.values),
-            "description": "manual by default. A change applies only to new requests.",
-        },
+        "catch_approval_mode": component_ref("CatchApprovalMode"),
     },
     "required": [
         "id",
@@ -65,10 +62,7 @@ FURSUIT_PATCH_REQUEST_SCHEMA: dict[str, object] = {
     "description": "Send name, catch_approval_mode, or both.",
     "properties": {
         "name": {"type": "string"},
-        "catch_approval_mode": {
-            "type": "string",
-            "enum": list(CatchApprovalMode.values),
-        },
+        "catch_approval_mode": component_ref("CatchApprovalMode"),
     },
     "minProperties": 1,
 }

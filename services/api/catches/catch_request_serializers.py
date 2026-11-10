@@ -13,100 +13,18 @@ from rest_framework.request import Request
 
 from catches.catch_requests import SubmissionResult
 from catches.models import Catch, CatchRequest, CatchRequestState
+from config.openapi_components import component_ref
 from fursuits.models import Fursuit
 from media import service as media_service
 
-_TIME: dict[str, object] = {"type": "string", "format": "date-time"}
-_ERROR_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {"code": {"type": "string"}, "detail": {"type": "string"}},
-    "required": ["code", "detail"],
-}
-_FURSUIT_SUMMARY_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "id": {"type": "integer"},
-        "tailtag_id": {"type": "string", "format": "uuid"},
-        "name": {"type": "string"},
-        "photo_url": {"type": "string", "format": "uri"},
-    },
-    "required": ["id", "tailtag_id", "name", "photo_url"],
-}
-PLAYER_REQUEST_STATES = ("pending", "approved", "declined", "withdrawn", "unavailable")
-PLAYER_REQUEST_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "id": {"type": "integer"},
-        "fursuit": _FURSUIT_SUMMARY_SCHEMA,
-        "convention_id": {"type": "integer"},
-        "state": {"type": "string", "enum": list(PLAYER_REQUEST_STATES)},
-        "requested_at": _TIME,
-        "review_deadline_at": _TIME,
-    },
-    "required": [
-        "id",
-        "fursuit",
-        "convention_id",
-        "state",
-        "requested_at",
-        "review_deadline_at",
-    ],
-}
-REQUEST_CATCH_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "id": {"type": "integer"},
-        "caught_at": _TIME,
-        "approved_at": _TIME,
-        "convention_id": {"type": "integer"},
-        "fursuit": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                "tailtag_id": {"type": "string", "format": "uuid"},
-                "name": {"type": "string"},
-                "photo_url": {"type": "string", "format": "uri"},
-            },
-            "required": ["tailtag_id", "name", "photo_url"],
-        },
-    },
-    "required": ["id", "caught_at", "approved_at", "convention_id", "fursuit"],
-}
-SUBMISSION_RESPONSE_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "outcome": {
-            "type": "string",
-            "enum": ["pending", "approved", "already_pending", "already_caught"],
-        },
-        "request": {**PLAYER_REQUEST_SCHEMA, "nullable": True},
-        "catch": {**REQUEST_CATCH_SCHEMA, "nullable": True},
-    },
-    "required": ["outcome", "request", "catch"],
-}
-PLAYER_REQUEST_LIST_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {"results": {"type": "array", "items": PLAYER_REQUEST_SCHEMA}},
-    "required": ["results"],
-}
-SUBMISSION_REQUEST_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "payload": {
-            "type": "string",
-            "description": "The full scanned tag payload, https://tailtag.app/t#<token>.",
-        }
-    },
-    "required": ["payload"],
-}
-CATCH_REQUEST_ERROR_SCHEMA = _ERROR_SCHEMA
+# The operations reference named components, so the generated client has one
+# class per shape. The shapes live in config.openapi_components.
+SUBMISSION_REQUEST_SCHEMA = component_ref("CatchRequestPayload")
+SUBMISSION_RESPONSE_SCHEMA = component_ref("CatchRequestSubmission")
+PLAYER_REQUEST_LIST_SCHEMA = component_ref("PlayerRequestList")
+CATCH_REQUEST_ERROR_SCHEMA = component_ref("CatchRequestError")
+CATCH_REQUEST_NOT_FOUND_SCHEMA = component_ref("CatchRequestNotFound")
+DETAIL_ERROR_SCHEMA = component_ref("DetailError")
 
 
 class FursuitSummaryData(TypedDict):

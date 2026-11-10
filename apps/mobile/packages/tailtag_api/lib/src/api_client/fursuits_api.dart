@@ -107,8 +107,8 @@ class FursuitsApi {
   /// - HTTP Bearer
   _i9.Future<_i10.TonikResult<_i16.FursuitsUpdateResponse, _i12.Response>>
   fursuitsUpdate({
+    required _i17.ApiFursuitsIdPatchBodyBodyModel body,
     required _i9.int id,
-    _i17.ApiFursuitsIdPatchBodyBodyModel? body,
     _i10.TonikCancellation? cancellation,
   }) async => _fursuitsUpdate(body: body, id: id, cancellation: cancellation);
 

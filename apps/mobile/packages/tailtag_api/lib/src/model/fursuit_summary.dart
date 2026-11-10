@@ -9,17 +9,16 @@ import 'package:meta/meta.dart' as _i2;
 import 'package:tonik_util/tonik_util.dart' as _i1;
 
 @_i2.immutable
-class ApiCatchesRequestsGet200BodyResultsArrayFursuitModel
-    extends _i1.ObjectParameterEncodable
+class FursuitSummary extends _i1.ObjectParameterEncodable
     implements _i1.UriEncodable {
-  const ApiCatchesRequestsGet200BodyResultsArrayFursuitModel({
+  const FursuitSummary({
     required this.id,
     required this.tailtagId,
     required this.name,
     required this.photoUrl,
   });
 
-  factory ApiCatchesRequestsGet200BodyResultsArrayFursuitModel.fromSimple(
+  factory FursuitSummary.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
   }) {
@@ -28,51 +27,37 @@ class ApiCatchesRequestsGet200BodyResultsArrayFursuitModel
       explodeSeparator: ',',
       expectedKeys: {r'id', r'tailtag_id', r'name', r'photo_url'},
       listKeys: {},
-      context: r'ApiCatchesRequestsGet200BodyResultsArrayFursuitModel',
+      context: r'FursuitSummary',
     );
-    return ApiCatchesRequestsGet200BodyResultsArrayFursuitModel(
-      id: _$values[r'id'].decodeSimpleInt(
-        context: r'ApiCatchesRequestsGet200BodyResultsArrayFursuitModel.id',
-      ),
+    return FursuitSummary(
+      id: _$values[r'id'].decodeSimpleInt(context: r'FursuitSummary.id'),
       tailtagId: _$values[r'tailtag_id'].decodeSimpleString(
-        context:
-            r'ApiCatchesRequestsGet200BodyResultsArrayFursuitModel.tailtag_id',
+        context: r'FursuitSummary.tailtag_id',
       ),
       name: _$values[r'name'].decodeSimpleString(
-        context: r'ApiCatchesRequestsGet200BodyResultsArrayFursuitModel.name',
+        context: r'FursuitSummary.name',
       ),
       photoUrl: _$values[r'photo_url'].decodeSimpleUri(
-        context:
-            r'ApiCatchesRequestsGet200BodyResultsArrayFursuitModel.photo_url',
+        context: r'FursuitSummary.photo_url',
       ),
     );
   }
 
-  factory ApiCatchesRequestsGet200BodyResultsArrayFursuitModel.fromJson(
-    _i3.Object? json,
-  ) {
-    final _$map = json.decodeMap(
-      context: r'ApiCatchesRequestsGet200BodyResultsArrayFursuitModel',
-    );
-    return ApiCatchesRequestsGet200BodyResultsArrayFursuitModel(
-      id: _$map[r'id'].decodeJsonInt(
-        context: r'ApiCatchesRequestsGet200BodyResultsArrayFursuitModel.id',
-      ),
+  factory FursuitSummary.fromJson(_i3.Object? json) {
+    final _$map = json.decodeMap(context: r'FursuitSummary');
+    return FursuitSummary(
+      id: _$map[r'id'].decodeJsonInt(context: r'FursuitSummary.id'),
       tailtagId: _$map[r'tailtag_id'].decodeJsonString(
-        context:
-            r'ApiCatchesRequestsGet200BodyResultsArrayFursuitModel.tailtag_id',
+        context: r'FursuitSummary.tailtag_id',
       ),
-      name: _$map[r'name'].decodeJsonString(
-        context: r'ApiCatchesRequestsGet200BodyResultsArrayFursuitModel.name',
-      ),
+      name: _$map[r'name'].decodeJsonString(context: r'FursuitSummary.name'),
       photoUrl: _$map[r'photo_url'].decodeJsonUri(
-        context:
-            r'ApiCatchesRequestsGet200BodyResultsArrayFursuitModel.photo_url',
+        context: r'FursuitSummary.photo_url',
       ),
     );
   }
 
-  factory ApiCatchesRequestsGet200BodyResultsArrayFursuitModel.fromForm(
+  factory FursuitSummary.fromForm(
     _i3.String? value, {
     required _i3.bool explode,
   }) {
@@ -81,22 +66,16 @@ class ApiCatchesRequestsGet200BodyResultsArrayFursuitModel
       explodeSeparator: '&',
       expectedKeys: {r'id', r'tailtag_id', r'name', r'photo_url'},
       listKeys: {},
-      context: r'ApiCatchesRequestsGet200BodyResultsArrayFursuitModel',
+      context: r'FursuitSummary',
     );
-    return ApiCatchesRequestsGet200BodyResultsArrayFursuitModel(
-      id: _$values[r'id'].decodeFormInt(
-        context: r'ApiCatchesRequestsGet200BodyResultsArrayFursuitModel.id',
-      ),
+    return FursuitSummary(
+      id: _$values[r'id'].decodeFormInt(context: r'FursuitSummary.id'),
       tailtagId: _$values[r'tailtag_id'].decodeFormString(
-        context:
-            r'ApiCatchesRequestsGet200BodyResultsArrayFursuitModel.tailtag_id',
+        context: r'FursuitSummary.tailtag_id',
       ),
-      name: _$values[r'name'].decodeFormString(
-        context: r'ApiCatchesRequestsGet200BodyResultsArrayFursuitModel.name',
-      ),
+      name: _$values[r'name'].decodeFormString(context: r'FursuitSummary.name'),
       photoUrl: _$values[r'photo_url'].decodeFormUri(
-        context:
-            r'ApiCatchesRequestsGet200BodyResultsArrayFursuitModel.photo_url',
+        context: r'FursuitSummary.photo_url',
       ),
     );
   }
@@ -117,16 +96,13 @@ class ApiCatchesRequestsGet200BodyResultsArrayFursuitModel
     r'photo_url': photoUrl.toString(),
   };
 
-  $$ApiCatchesRequestsGet200BodyResultsArrayFursuitModelCopyWith<
-    ApiCatchesRequestsGet200BodyResultsArrayFursuitModel
-  >
-  get copyWith =>
-      _ApiCatchesRequestsGet200BodyResultsArrayFursuitModelCopyWith(this);
+  $$FursuitSummaryCopyWith<FursuitSummary> get copyWith =>
+      _FursuitSummaryCopyWith(this);
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
     if (_i3.identical(this, other)) return true;
-    return other is ApiCatchesRequestsGet200BodyResultsArrayFursuitModel &&
+    return other is FursuitSummary &&
         other.id == this.id &&
         other.tailtagId == this.tailtagId &&
         other.name == this.name &&
@@ -160,17 +136,14 @@ class ApiCatchesRequestsGet200BodyResultsArrayFursuitModel
     _i3.bool allowReserved = false,
   }) {
     throw _i1.EncodingException(
-      r'Cannot uriEncode ApiCatchesRequestsGet200BodyResultsArrayFursuitModel: complex types cannot be URI-encoded',
+      r'Cannot uriEncode FursuitSummary: complex types cannot be URI-encoded',
     );
   }
 }
 
-abstract class $$ApiCatchesRequestsGet200BodyResultsArrayFursuitModelCopyWith<
-  $Res
-> {
-  factory $$ApiCatchesRequestsGet200BodyResultsArrayFursuitModelCopyWith(
-    ApiCatchesRequestsGet200BodyResultsArrayFursuitModel value,
-  ) = _ApiCatchesRequestsGet200BodyResultsArrayFursuitModelCopyWith<$Res>;
+abstract class $$FursuitSummaryCopyWith<$Res> {
+  factory $$FursuitSummaryCopyWith(FursuitSummary value) =
+      _FursuitSummaryCopyWith<$Res>;
 
   $Res call({
     _i3.int? id,
@@ -184,14 +157,12 @@ abstract class $$ApiCatchesRequestsGet200BodyResultsArrayFursuitModelCopyWith<
   _i3.Uri get photoUrl;
 }
 
-class _ApiCatchesRequestsGet200BodyResultsArrayFursuitModelCopyWith<$Res>
-    implements
-        $$ApiCatchesRequestsGet200BodyResultsArrayFursuitModelCopyWith<$Res> {
-  _ApiCatchesRequestsGet200BodyResultsArrayFursuitModelCopyWith(this._value);
+class _FursuitSummaryCopyWith<$Res> implements $$FursuitSummaryCopyWith<$Res> {
+  _FursuitSummaryCopyWith(this._value);
 
   static const _sentinel = _i3.Object();
 
-  final ApiCatchesRequestsGet200BodyResultsArrayFursuitModel _value;
+  final FursuitSummary _value;
 
   @_i3.override
   _i3.int get id => _value.id;
@@ -212,7 +183,7 @@ class _ApiCatchesRequestsGet200BodyResultsArrayFursuitModelCopyWith<$Res>
     _i3.Object? name = _sentinel,
     _i3.Object? photoUrl = _sentinel,
   }) {
-    return (ApiCatchesRequestsGet200BodyResultsArrayFursuitModel(
+    return (FursuitSummary(
       id: _i3.identical(id, _sentinel) ? this.id : (id as _i3.int),
       tailtagId: _i3.identical(tailtagId, _sentinel)
           ? this.tailtagId

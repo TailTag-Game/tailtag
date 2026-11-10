@@ -9,11 +9,11 @@ import 'package:meta/meta.dart' as _i2;
 import 'package:tonik_util/tonik_util.dart' as _i1;
 
 @_i2.immutable
-class ApiCatchesRequestsPost401BodyModel extends _i1.ObjectParameterEncodable
+class DetailError extends _i1.ObjectParameterEncodable
     implements _i1.UriEncodable {
-  const ApiCatchesRequestsPost401BodyModel({required this.detail});
+  const DetailError({required this.detail});
 
-  factory ApiCatchesRequestsPost401BodyModel.fromSimple(
+  factory DetailError.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
   }) {
@@ -22,40 +22,33 @@ class ApiCatchesRequestsPost401BodyModel extends _i1.ObjectParameterEncodable
       explodeSeparator: ',',
       expectedKeys: {r'detail'},
       listKeys: {},
-      context: r'ApiCatchesRequestsPost401BodyModel',
+      context: r'DetailError',
     );
-    return ApiCatchesRequestsPost401BodyModel(
+    return DetailError(
       detail: _$values[r'detail'].decodeSimpleString(
-        context: r'ApiCatchesRequestsPost401BodyModel.detail',
+        context: r'DetailError.detail',
       ),
     );
   }
 
-  factory ApiCatchesRequestsPost401BodyModel.fromJson(_i3.Object? json) {
-    final _$map = json.decodeMap(
-      context: r'ApiCatchesRequestsPost401BodyModel',
-    );
-    return ApiCatchesRequestsPost401BodyModel(
-      detail: _$map[r'detail'].decodeJsonString(
-        context: r'ApiCatchesRequestsPost401BodyModel.detail',
-      ),
+  factory DetailError.fromJson(_i3.Object? json) {
+    final _$map = json.decodeMap(context: r'DetailError');
+    return DetailError(
+      detail: _$map[r'detail'].decodeJsonString(context: r'DetailError.detail'),
     );
   }
 
-  factory ApiCatchesRequestsPost401BodyModel.fromForm(
-    _i3.String? value, {
-    required _i3.bool explode,
-  }) {
+  factory DetailError.fromForm(_i3.String? value, {required _i3.bool explode}) {
     final _$values = value.decodeObject(
       explode: explode,
       explodeSeparator: '&',
       expectedKeys: {r'detail'},
       listKeys: {},
-      context: r'ApiCatchesRequestsPost401BodyModel',
+      context: r'DetailError',
     );
-    return ApiCatchesRequestsPost401BodyModel(
+    return DetailError(
       detail: _$values[r'detail'].decodeFormString(
-        context: r'ApiCatchesRequestsPost401BodyModel.detail',
+        context: r'DetailError.detail',
       ),
     );
   }
@@ -65,16 +58,12 @@ class ApiCatchesRequestsPost401BodyModel extends _i1.ObjectParameterEncodable
   @_i3.override
   _i3.Object? toJson() => {r'detail': detail};
 
-  $$ApiCatchesRequestsPost401BodyModelCopyWith<
-    ApiCatchesRequestsPost401BodyModel
-  >
-  get copyWith => _ApiCatchesRequestsPost401BodyModelCopyWith(this);
+  $$DetailErrorCopyWith<DetailError> get copyWith => _DetailErrorCopyWith(this);
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
     if (_i3.identical(this, other)) return true;
-    return other is ApiCatchesRequestsPost401BodyModel &&
-        other.detail == this.detail;
+    return other is DetailError && other.detail == this.detail;
   }
 
   @_i3.override
@@ -99,34 +88,31 @@ class ApiCatchesRequestsPost401BodyModel extends _i1.ObjectParameterEncodable
     _i3.bool allowReserved = false,
   }) {
     throw _i1.EncodingException(
-      r'Cannot uriEncode ApiCatchesRequestsPost401BodyModel: complex types cannot be URI-encoded',
+      r'Cannot uriEncode DetailError: complex types cannot be URI-encoded',
     );
   }
 }
 
-abstract class $$ApiCatchesRequestsPost401BodyModelCopyWith<$Res> {
-  factory $$ApiCatchesRequestsPost401BodyModelCopyWith(
-    ApiCatchesRequestsPost401BodyModel value,
-  ) = _ApiCatchesRequestsPost401BodyModelCopyWith<$Res>;
+abstract class $$DetailErrorCopyWith<$Res> {
+  factory $$DetailErrorCopyWith(DetailError value) = _DetailErrorCopyWith<$Res>;
 
   $Res call({_i3.String? detail});
   _i3.String get detail;
 }
 
-class _ApiCatchesRequestsPost401BodyModelCopyWith<$Res>
-    implements $$ApiCatchesRequestsPost401BodyModelCopyWith<$Res> {
-  _ApiCatchesRequestsPost401BodyModelCopyWith(this._value);
+class _DetailErrorCopyWith<$Res> implements $$DetailErrorCopyWith<$Res> {
+  _DetailErrorCopyWith(this._value);
 
   static const _sentinel = _i3.Object();
 
-  final ApiCatchesRequestsPost401BodyModel _value;
+  final DetailError _value;
 
   @_i3.override
   _i3.String get detail => _value.detail;
 
   @_i3.override
   $Res call({_i3.Object? detail = _sentinel}) {
-    return (ApiCatchesRequestsPost401BodyModel(
+    return (DetailError(
       detail: _i3.identical(detail, _sentinel)
           ? this.detail
           : (detail as _i3.String),

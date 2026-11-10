@@ -7,7 +7,7 @@ import 'dart:core' as _i2;
 
 import 'package:tonik_util/tonik_util.dart' as _i1;
 
-enum ApiCatchesRequestsGet404BodyCodeModel
+enum CatchRequestState
     implements
         _i1.MatrixEncodable,
         _i1.LabelEncodable,
@@ -15,43 +15,44 @@ enum ApiCatchesRequestsGet404BodyCodeModel
         _i1.FormEncodable,
         _i1.JsonEncodable,
         _i1.UriEncodable {
-  conventionNotFound(r'convention_not_found'),
-  invalidPage(r'invalid_page');
+  pending(r'pending'),
+  approved(r'approved'),
+  declined(r'declined'),
+  withdrawn(r'withdrawn'),
+  unavailable(r'unavailable');
 
-  const ApiCatchesRequestsGet404BodyCodeModel(this._$rawValue);
+  const CatchRequestState(this._$rawValue);
 
-  factory ApiCatchesRequestsGet404BodyCodeModel.fromJson(_i2.dynamic value) {
+  factory CatchRequestState.fromJson(_i2.dynamic value) {
     if (value is! _i2.String) {
       throw _i1.JsonDecodingException(
-        r'Expected String for ApiCatchesRequestsGet404BodyCodeModel, got ${value.runtimeType}',
+        r'Expected String for CatchRequestState, got ${value.runtimeType}',
       );
     }
     return values.firstWhere(
       (e) => e._$rawValue == value,
       orElse: () => throw _i1.JsonDecodingException(
-        r'No matching ApiCatchesRequestsGet404BodyCodeModel for value: $value',
+        r'No matching CatchRequestState for value: $value',
       ),
     );
   }
 
-  factory ApiCatchesRequestsGet404BodyCodeModel.fromSimple(
+  factory CatchRequestState.fromSimple(
     _i2.String? value, {
     required _i2.bool explode,
     _i2.String? context,
   }) {
-    return ApiCatchesRequestsGet404BodyCodeModel.fromJson(
+    return CatchRequestState.fromJson(
       value.decodeSimpleString(context: context),
     );
   }
 
-  factory ApiCatchesRequestsGet404BodyCodeModel.fromForm(
+  factory CatchRequestState.fromForm(
     _i2.String? value, {
     required _i2.bool explode,
     _i2.String? context,
   }) {
-    return ApiCatchesRequestsGet404BodyCodeModel.fromJson(
-      value.decodeFormString(context: context),
-    );
+    return CatchRequestState.fromJson(value.decodeFormString(context: context));
   }
 
   final _i2.String _$rawValue;

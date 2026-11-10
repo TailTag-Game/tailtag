@@ -106,7 +106,9 @@ def test_fursuit_openapi_is_exact_closed_authenticated_and_has_safe_media_shapes
     assert set(patch_body["properties"]) == {"name", "catch_approval_mode"}
     assert "required" not in patch_body
     assert patch_body["minProperties"] == 1
-    assert patch_body["properties"]["catch_approval_mode"]["enum"] == [
+    assert _dereference(schema, patch_body["properties"]["catch_approval_mode"])[
+        "enum"
+    ] == [
         "manual",
         "automatic",
     ]
@@ -189,7 +191,8 @@ def test_fursuit_openapi_is_exact_closed_authenticated_and_has_safe_media_shapes
         )
     ).lower()
     # catch_approval_mode is the one owner-facing catch field (#505 AC3).
-    fursuit_schema_surface = fursuit_schema_surface.replace("catch_approval_mode", "")
+    for allowed in ("catch_approval_mode", "catchapprovalmode"):
+        fursuit_schema_surface = fursuit_schema_surface.replace(allowed, "")
     assert not any(
         term in fursuit_schema_surface
         for term in ("photo_key", "owner", "activation", "catch", " qr")

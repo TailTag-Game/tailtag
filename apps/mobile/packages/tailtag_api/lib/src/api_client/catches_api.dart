@@ -7,10 +7,9 @@ import 'dart:core' as _i7;
 import 'package:http/http.dart' as _i10;
 import 'package:tailtag_api/src/model/api_catches_preview_post_body_body_model.dart'
     as _i14;
-import 'package:tailtag_api/src/model/api_catches_requests_post_body_body_model.dart'
-    as _i17;
 import 'package:tailtag_api/src/model/catch_confirmation_request_schema.dart'
     as _i12;
+import 'package:tailtag_api/src/model/catch_request_payload.dart' as _i17;
 import 'package:tailtag_api/src/operation/catch_confirm.dart' as _i3;
 import 'package:tailtag_api/src/operation/catch_history_list.dart' as _i2;
 import 'package:tailtag_api/src/operation/catch_preview.dart' as _i4;
@@ -113,7 +112,7 @@ class CatchesApi {
   /// - HTTP Bearer
   _i7.Future<_i8.TonikResult<_i16.CatchRequestsCreateResponse, _i10.Response>>
   catchRequestsCreate({
-    _i17.ApiCatchesRequestsPostBodyBodyModel? body,
+    required _i17.CatchRequestPayload body,
     _i8.TonikCancellation? cancellation,
   }) async => _catchRequestsCreate(body: body, cancellation: cancellation);
 }

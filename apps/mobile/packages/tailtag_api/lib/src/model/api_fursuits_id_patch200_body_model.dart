@@ -6,8 +6,7 @@ import 'dart:convert' as _i5;
 import 'dart:core' as _i3;
 
 import 'package:meta/meta.dart' as _i2;
-import 'package:tailtag_api/src/model/api_fursuits_id_patch200_body_catch_approval_mode_model.dart'
-    as _i4;
+import 'package:tailtag_api/src/model/catch_approval_mode.dart' as _i4;
 import 'package:tonik_util/tonik_util.dart' as _i1;
 
 @_i2.immutable
@@ -56,11 +55,10 @@ class ApiFursuitsIdPatch200BodyModel extends _i1.ObjectParameterEncodable
       isEnabled: _$values[r'is_enabled'].decodeSimpleBool(
         context: r'ApiFursuitsIdPatch200BodyModel.is_enabled',
       ),
-      catchApprovalMode:
-          _i4.ApiFursuitsIdPatch200BodyCatchApprovalModeModel.fromSimple(
-            _$values[r'catch_approval_mode'],
-            explode: explode,
-          ),
+      catchApprovalMode: _i4.CatchApprovalMode.fromSimple(
+        _$values[r'catch_approval_mode'],
+        explode: explode,
+      ),
     );
   }
 
@@ -82,10 +80,9 @@ class ApiFursuitsIdPatch200BodyModel extends _i1.ObjectParameterEncodable
       isEnabled: _$map[r'is_enabled'].decodeJsonBool(
         context: r'ApiFursuitsIdPatch200BodyModel.is_enabled',
       ),
-      catchApprovalMode:
-          _i4.ApiFursuitsIdPatch200BodyCatchApprovalModeModel.fromJson(
-            _$map[r'catch_approval_mode'],
-          ),
+      catchApprovalMode: _i4.CatchApprovalMode.fromJson(
+        _$map[r'catch_approval_mode'],
+      ),
     );
   }
 
@@ -123,11 +120,10 @@ class ApiFursuitsIdPatch200BodyModel extends _i1.ObjectParameterEncodable
       isEnabled: _$values[r'is_enabled'].decodeFormBool(
         context: r'ApiFursuitsIdPatch200BodyModel.is_enabled',
       ),
-      catchApprovalMode:
-          _i4.ApiFursuitsIdPatch200BodyCatchApprovalModeModel.fromForm(
-            _$values[r'catch_approval_mode'],
-            explode: explode,
-          ),
+      catchApprovalMode: _i4.CatchApprovalMode.fromForm(
+        _$values[r'catch_approval_mode'],
+        explode: explode,
+      ),
     );
   }
 
@@ -141,8 +137,7 @@ class ApiFursuitsIdPatch200BodyModel extends _i1.ObjectParameterEncodable
 
   final _i3.bool? isEnabled;
 
-  /// manual by default. A change applies only to new requests.
-  final _i4.ApiFursuitsIdPatch200BodyCatchApprovalModeModel catchApprovalMode;
+  final _i4.CatchApprovalMode catchApprovalMode;
 
   @_i3.override
   _i3.Object? toJson() => {
@@ -215,14 +210,14 @@ abstract class $$ApiFursuitsIdPatch200BodyModelCopyWith<$Res> {
     _i3.String? name,
     _i3.Uri? photoUrl,
     _i3.bool? isEnabled,
-    _i4.ApiFursuitsIdPatch200BodyCatchApprovalModeModel? catchApprovalMode,
+    _i4.CatchApprovalMode? catchApprovalMode,
   });
   _i3.int? get id;
   _i3.String? get tailtagId;
   _i3.String get name;
   _i3.Uri? get photoUrl;
   _i3.bool? get isEnabled;
-  _i4.ApiFursuitsIdPatch200BodyCatchApprovalModeModel get catchApprovalMode;
+  _i4.CatchApprovalMode get catchApprovalMode;
 }
 
 class _ApiFursuitsIdPatch200BodyModelCopyWith<$Res>
@@ -249,8 +244,7 @@ class _ApiFursuitsIdPatch200BodyModelCopyWith<$Res>
   _i3.bool? get isEnabled => _value.isEnabled;
 
   @_i3.override
-  _i4.ApiFursuitsIdPatch200BodyCatchApprovalModeModel get catchApprovalMode =>
-      _value.catchApprovalMode;
+  _i4.CatchApprovalMode get catchApprovalMode => _value.catchApprovalMode;
 
   @_i3.override
   $Res call({
@@ -275,8 +269,7 @@ class _ApiFursuitsIdPatch200BodyModelCopyWith<$Res>
           : (isEnabled as _i3.bool?),
       catchApprovalMode: _i3.identical(catchApprovalMode, _sentinel)
           ? this.catchApprovalMode
-          : (catchApprovalMode
-                as _i4.ApiFursuitsIdPatch200BodyCatchApprovalModeModel),
+          : (catchApprovalMode as _i4.CatchApprovalMode),
     ) as $Res);
   }
 }

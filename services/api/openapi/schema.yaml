@@ -409,141 +409,38 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: false
-                properties:
-                  results:
-                    type: array
-                    items:
-                      type: object
-                      additionalProperties: false
-                      properties:
-                        id:
-                          type: integer
-                        fursuit:
-                          type: object
-                          additionalProperties: false
-                          properties:
-                            id:
-                              type: integer
-                            tailtag_id:
-                              type: string
-                              format: uuid
-                            name:
-                              type: string
-                            photo_url:
-                              type: string
-                              format: uri
-                          required:
-                          - id
-                          - tailtag_id
-                          - name
-                          - photo_url
-                        convention_id:
-                          type: integer
-                        state:
-                          type: string
-                          enum:
-                          - pending
-                          - approved
-                          - declined
-                          - withdrawn
-                          - unavailable
-                        requested_at:
-                          type: string
-                          format: date-time
-                        review_deadline_at:
-                          type: string
-                          format: date-time
-                      required:
-                      - id
-                      - fursuit
-                      - convention_id
-                      - state
-                      - requested_at
-                      - review_deadline_at
-                required:
-                - results
+                $ref: '#/components/schemas/PlayerRequestList'
           description: ''
         '400':
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: false
-                properties:
-                  code:
-                    type: string
-                    enum:
-                    - invalid_query
-                  detail:
-                    type: string
-                required:
-                - code
-                - detail
-          description: convention_id is not a positive integer.
+                $ref: '#/components/schemas/CatchRequestError'
+          description: 'invalid_query: convention_id is not a positive integer.'
         '401':
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: false
-                properties:
-                  detail:
-                    type: string
-                required:
-                - detail
+                $ref: '#/components/schemas/DetailError'
           description: Authentication credentials were not provided.
         '403':
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: false
-                properties:
-                  code:
-                    type: string
-                  detail:
-                    type: string
-                required:
-                - code
-                - detail
+                $ref: '#/components/schemas/CatchRequestError'
           description: catcher_ineligible
         '404':
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: false
-                properties:
-                  code:
-                    type: string
-                    enum:
-                    - convention_not_found
-                    - invalid_page
-                  detail:
-                    type: string
-                required:
-                - code
-                - detail
+                $ref: '#/components/schemas/DetailError'
           description: The catch request gate is off.
         '500':
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: false
-                properties:
-                  code:
-                    type: string
-                    enum:
-                    - server_error
-                  detail:
-                    type: string
-                required:
-                - code
-                - detail
-          description: An unexpected error occurred.
+                $ref: '#/components/schemas/CatchRequestError'
+          description: server_error
     post:
       operationId: catch_requests_create
       description: Submit a scanned tag at the caller's selected convention. Approval
@@ -554,14 +451,8 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: false
-              properties:
-                payload:
-                  type: string
-                  description: The full scanned tag payload, https://tailtag.app/t#<token>.
-              required:
-              - payload
+              $ref: '#/components/schemas/CatchRequestPayload'
+        required: true
       security:
       - BearerAuth: []
       responses:
@@ -569,211 +460,13 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: false
-                properties:
-                  outcome:
-                    type: string
-                    enum:
-                    - pending
-                    - approved
-                    - already_pending
-                    - already_caught
-                  request:
-                    type: object
-                    additionalProperties: false
-                    properties:
-                      id:
-                        type: integer
-                      fursuit:
-                        type: object
-                        additionalProperties: false
-                        properties:
-                          id:
-                            type: integer
-                          tailtag_id:
-                            type: string
-                            format: uuid
-                          name:
-                            type: string
-                          photo_url:
-                            type: string
-                            format: uri
-                        required:
-                        - id
-                        - tailtag_id
-                        - name
-                        - photo_url
-                      convention_id:
-                        type: integer
-                      state:
-                        type: string
-                        enum:
-                        - pending
-                        - approved
-                        - declined
-                        - withdrawn
-                        - unavailable
-                      requested_at:
-                        type: string
-                        format: date-time
-                      review_deadline_at:
-                        type: string
-                        format: date-time
-                    required:
-                    - id
-                    - fursuit
-                    - convention_id
-                    - state
-                    - requested_at
-                    - review_deadline_at
-                    nullable: true
-                  catch:
-                    type: object
-                    additionalProperties: false
-                    properties:
-                      id:
-                        type: integer
-                      caught_at:
-                        type: string
-                        format: date-time
-                      approved_at:
-                        type: string
-                        format: date-time
-                      convention_id:
-                        type: integer
-                      fursuit:
-                        type: object
-                        additionalProperties: false
-                        properties:
-                          tailtag_id:
-                            type: string
-                            format: uuid
-                          name:
-                            type: string
-                          photo_url:
-                            type: string
-                            format: uri
-                        required:
-                        - tailtag_id
-                        - name
-                        - photo_url
-                    required:
-                    - id
-                    - caught_at
-                    - approved_at
-                    - convention_id
-                    - fursuit
-                    nullable: true
-                required:
-                - outcome
-                - request
-                - catch
+                $ref: '#/components/schemas/CatchRequestSubmission'
           description: already_pending or already_caught
         '201':
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: false
-                properties:
-                  outcome:
-                    type: string
-                    enum:
-                    - pending
-                    - approved
-                    - already_pending
-                    - already_caught
-                  request:
-                    type: object
-                    additionalProperties: false
-                    properties:
-                      id:
-                        type: integer
-                      fursuit:
-                        type: object
-                        additionalProperties: false
-                        properties:
-                          id:
-                            type: integer
-                          tailtag_id:
-                            type: string
-                            format: uuid
-                          name:
-                            type: string
-                          photo_url:
-                            type: string
-                            format: uri
-                        required:
-                        - id
-                        - tailtag_id
-                        - name
-                        - photo_url
-                      convention_id:
-                        type: integer
-                      state:
-                        type: string
-                        enum:
-                        - pending
-                        - approved
-                        - declined
-                        - withdrawn
-                        - unavailable
-                      requested_at:
-                        type: string
-                        format: date-time
-                      review_deadline_at:
-                        type: string
-                        format: date-time
-                    required:
-                    - id
-                    - fursuit
-                    - convention_id
-                    - state
-                    - requested_at
-                    - review_deadline_at
-                    nullable: true
-                  catch:
-                    type: object
-                    additionalProperties: false
-                    properties:
-                      id:
-                        type: integer
-                      caught_at:
-                        type: string
-                        format: date-time
-                      approved_at:
-                        type: string
-                        format: date-time
-                      convention_id:
-                        type: integer
-                      fursuit:
-                        type: object
-                        additionalProperties: false
-                        properties:
-                          tailtag_id:
-                            type: string
-                            format: uuid
-                          name:
-                            type: string
-                          photo_url:
-                            type: string
-                            format: uri
-                        required:
-                        - tailtag_id
-                        - name
-                        - photo_url
-                    required:
-                    - id
-                    - caught_at
-                    - approved_at
-                    - convention_id
-                    - fursuit
-                    nullable: true
-                required:
-                - outcome
-                - request
-                - catch
+                $ref: '#/components/schemas/CatchRequestSubmission'
           description: pending or approved
         '400':
           content:
@@ -793,77 +486,33 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: false
-                properties:
-                  detail:
-                    type: string
-                required:
-                - detail
+                $ref: '#/components/schemas/DetailError'
           description: Authentication credentials were not provided.
         '403':
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: false
-                properties:
-                  code:
-                    type: string
-                  detail:
-                    type: string
-                required:
-                - code
-                - detail
+                $ref: '#/components/schemas/CatchRequestError'
           description: catcher_ineligible
         '404':
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: false
-                properties:
-                  code:
-                    type: string
-                  detail:
-                    type: string
-                required:
-                - code
-                - detail
+                $ref: '#/components/schemas/CatchRequestNotFound'
           description: catch_target_unavailable. While the catch request gate is off,
             every call returns the generic not-found shape.
         '409':
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: false
-                properties:
-                  code:
-                    type: string
-                  detail:
-                    type: string
-                required:
-                - code
-                - detail
+                $ref: '#/components/schemas/CatchRequestError'
           description: catch_requests_unavailable or self_catch_not_allowed
         '500':
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: false
-                properties:
-                  code:
-                    type: string
-                    enum:
-                    - server_error
-                  detail:
-                    type: string
-                required:
-                - code
-                - detail
-          description: An unexpected error occurred.
+                $ref: '#/components/schemas/CatchRequestError'
+          description: server_error
   /api/conventions/:
     get:
       operationId: conventions_list
@@ -1849,12 +1498,7 @@ paths:
                       type: boolean
                       readOnly: true
                     catch_approval_mode:
-                      type: string
-                      enum:
-                      - manual
-                      - automatic
-                      description: manual by default. A change applies only to new
-                        requests.
+                      $ref: '#/components/schemas/CatchApprovalMode'
                   required:
                   - id
                   - tailtag_id
@@ -1916,11 +1560,7 @@ paths:
                     type: boolean
                     readOnly: true
                   catch_approval_mode:
-                    type: string
-                    enum:
-                    - manual
-                    - automatic
-                    description: manual by default. A change applies only to new requests.
+                    $ref: '#/components/schemas/CatchApprovalMode'
                 required:
                 - id
                 - tailtag_id
@@ -1979,11 +1619,7 @@ paths:
                     type: boolean
                     readOnly: true
                   catch_approval_mode:
-                    type: string
-                    enum:
-                    - manual
-                    - automatic
-                    description: manual by default. A change applies only to new requests.
+                    $ref: '#/components/schemas/CatchApprovalMode'
                 required:
                 - id
                 - tailtag_id
@@ -2023,11 +1659,9 @@ paths:
                 name:
                   type: string
                 catch_approval_mode:
-                  type: string
-                  enum:
-                  - manual
-                  - automatic
+                  $ref: '#/components/schemas/CatchApprovalMode'
               minProperties: 1
+        required: true
       security:
       - BearerAuth: []
       responses:
@@ -2055,11 +1689,7 @@ paths:
                     type: boolean
                     readOnly: true
                   catch_approval_mode:
-                    type: string
-                    enum:
-                    - manual
-                    - automatic
-                    description: manual by default. A change applies only to new requests.
+                    $ref: '#/components/schemas/CatchApprovalMode'
                 required:
                 - id
                 - tailtag_id
@@ -2131,11 +1761,7 @@ paths:
                     type: boolean
                     readOnly: true
                   catch_approval_mode:
-                    type: string
-                    enum:
-                    - manual
-                    - automatic
-                    description: manual by default. A change applies only to new requests.
+                    $ref: '#/components/schemas/CatchApprovalMode'
                 required:
                 - id
                 - tailtag_id
@@ -3113,6 +2739,173 @@ components:
         * `paused` - Paused
         * `completed` - Completed
         * `cancelled` - Cancelled
+    CatchApprovalMode:
+      type: string
+      enum:
+      - manual
+      - automatic
+      description: manual by default. A change applies only to new requests.
+    CatchRequestState:
+      type: string
+      enum:
+      - pending
+      - approved
+      - declined
+      - withdrawn
+      - unavailable
+    CatchRequestOutcome:
+      type: string
+      enum:
+      - pending
+      - approved
+      - already_pending
+      - already_caught
+    FursuitSummary:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+        tailtag_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        photo_url:
+          type: string
+          format: uri
+      required:
+      - id
+      - tailtag_id
+      - name
+      - photo_url
+    PlayerRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+        fursuit:
+          $ref: '#/components/schemas/FursuitSummary'
+        convention_id:
+          type: integer
+        state:
+          $ref: '#/components/schemas/CatchRequestState'
+        requested_at:
+          type: string
+          format: date-time
+        review_deadline_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - fursuit
+      - convention_id
+      - state
+      - requested_at
+      - review_deadline_at
+    PlayerRequestList:
+      type: object
+      additionalProperties: false
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlayerRequest'
+      required:
+      - results
+    RequestCatch:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+        caught_at:
+          type: string
+          format: date-time
+        approved_at:
+          type: string
+          format: date-time
+        convention_id:
+          type: integer
+        fursuit:
+          type: object
+          additionalProperties: false
+          properties:
+            tailtag_id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            photo_url:
+              type: string
+              format: uri
+          required:
+          - tailtag_id
+          - name
+          - photo_url
+      required:
+      - id
+      - caught_at
+      - approved_at
+      - convention_id
+      - fursuit
+    CatchRequestSubmission:
+      type: object
+      additionalProperties: false
+      properties:
+        outcome:
+          $ref: '#/components/schemas/CatchRequestOutcome'
+        request:
+          $ref: '#/components/schemas/PlayerRequest'
+          nullable: true
+        catch:
+          $ref: '#/components/schemas/RequestCatch'
+          nullable: true
+      required:
+      - outcome
+      - request
+      - catch
+    CatchRequestPayload:
+      type: object
+      additionalProperties: false
+      properties:
+        payload:
+          type: string
+          description: The full scanned tag payload, https://tailtag.app/t#<token>.
+      required:
+      - payload
+    CatchRequestError:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+        detail:
+          type: string
+      required:
+      - code
+      - detail
+    CatchRequestNotFound:
+      type: object
+      additionalProperties: false
+      description: catch_target_unavailable carries code and detail. While the gate
+        is off, the generic not-found body carries detail only.
+      properties:
+        code:
+          type: string
+        detail:
+          type: string
+      required:
+      - detail
+    DetailError:
+      type: object
+      additionalProperties: false
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
   securitySchemes:
     BearerAuth:
       type: http

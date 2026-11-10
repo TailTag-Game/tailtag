@@ -9,11 +9,11 @@ import 'package:meta/meta.dart' as _i2;
 import 'package:tonik_util/tonik_util.dart' as _i1;
 
 @_i2.immutable
-class ApiCatchesRequestsPostBodyBodyModel extends _i1.ObjectParameterEncodable
+class CatchRequestPayload extends _i1.ObjectParameterEncodable
     implements _i1.UriEncodable {
-  const ApiCatchesRequestsPostBodyBodyModel({required this.payload});
+  const CatchRequestPayload({required this.payload});
 
-  factory ApiCatchesRequestsPostBodyBodyModel.fromSimple(
+  factory CatchRequestPayload.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
   }) {
@@ -22,27 +22,25 @@ class ApiCatchesRequestsPostBodyBodyModel extends _i1.ObjectParameterEncodable
       explodeSeparator: ',',
       expectedKeys: {r'payload'},
       listKeys: {},
-      context: r'ApiCatchesRequestsPostBodyBodyModel',
+      context: r'CatchRequestPayload',
     );
-    return ApiCatchesRequestsPostBodyBodyModel(
+    return CatchRequestPayload(
       payload: _$values[r'payload'].decodeSimpleString(
-        context: r'ApiCatchesRequestsPostBodyBodyModel.payload',
+        context: r'CatchRequestPayload.payload',
       ),
     );
   }
 
-  factory ApiCatchesRequestsPostBodyBodyModel.fromJson(_i3.Object? json) {
-    final _$map = json.decodeMap(
-      context: r'ApiCatchesRequestsPostBodyBodyModel',
-    );
-    return ApiCatchesRequestsPostBodyBodyModel(
+  factory CatchRequestPayload.fromJson(_i3.Object? json) {
+    final _$map = json.decodeMap(context: r'CatchRequestPayload');
+    return CatchRequestPayload(
       payload: _$map[r'payload'].decodeJsonString(
-        context: r'ApiCatchesRequestsPostBodyBodyModel.payload',
+        context: r'CatchRequestPayload.payload',
       ),
     );
   }
 
-  factory ApiCatchesRequestsPostBodyBodyModel.fromForm(
+  factory CatchRequestPayload.fromForm(
     _i3.String? value, {
     required _i3.bool explode,
   }) {
@@ -51,11 +49,11 @@ class ApiCatchesRequestsPostBodyBodyModel extends _i1.ObjectParameterEncodable
       explodeSeparator: '&',
       expectedKeys: {r'payload'},
       listKeys: {},
-      context: r'ApiCatchesRequestsPostBodyBodyModel',
+      context: r'CatchRequestPayload',
     );
-    return ApiCatchesRequestsPostBodyBodyModel(
+    return CatchRequestPayload(
       payload: _$values[r'payload'].decodeFormString(
-        context: r'ApiCatchesRequestsPostBodyBodyModel.payload',
+        context: r'CatchRequestPayload.payload',
       ),
     );
   }
@@ -66,16 +64,13 @@ class ApiCatchesRequestsPostBodyBodyModel extends _i1.ObjectParameterEncodable
   @_i3.override
   _i3.Object? toJson() => {r'payload': payload};
 
-  $$ApiCatchesRequestsPostBodyBodyModelCopyWith<
-    ApiCatchesRequestsPostBodyBodyModel
-  >
-  get copyWith => _ApiCatchesRequestsPostBodyBodyModelCopyWith(this);
+  $$CatchRequestPayloadCopyWith<CatchRequestPayload> get copyWith =>
+      _CatchRequestPayloadCopyWith(this);
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
     if (_i3.identical(this, other)) return true;
-    return other is ApiCatchesRequestsPostBodyBodyModel &&
-        other.payload == this.payload;
+    return other is CatchRequestPayload && other.payload == this.payload;
   }
 
   @_i3.override
@@ -100,34 +95,33 @@ class ApiCatchesRequestsPostBodyBodyModel extends _i1.ObjectParameterEncodable
     _i3.bool allowReserved = false,
   }) {
     throw _i1.EncodingException(
-      r'Cannot uriEncode ApiCatchesRequestsPostBodyBodyModel: complex types cannot be URI-encoded',
+      r'Cannot uriEncode CatchRequestPayload: complex types cannot be URI-encoded',
     );
   }
 }
 
-abstract class $$ApiCatchesRequestsPostBodyBodyModelCopyWith<$Res> {
-  factory $$ApiCatchesRequestsPostBodyBodyModelCopyWith(
-    ApiCatchesRequestsPostBodyBodyModel value,
-  ) = _ApiCatchesRequestsPostBodyBodyModelCopyWith<$Res>;
+abstract class $$CatchRequestPayloadCopyWith<$Res> {
+  factory $$CatchRequestPayloadCopyWith(CatchRequestPayload value) =
+      _CatchRequestPayloadCopyWith<$Res>;
 
   $Res call({_i3.String? payload});
   _i3.String get payload;
 }
 
-class _ApiCatchesRequestsPostBodyBodyModelCopyWith<$Res>
-    implements $$ApiCatchesRequestsPostBodyBodyModelCopyWith<$Res> {
-  _ApiCatchesRequestsPostBodyBodyModelCopyWith(this._value);
+class _CatchRequestPayloadCopyWith<$Res>
+    implements $$CatchRequestPayloadCopyWith<$Res> {
+  _CatchRequestPayloadCopyWith(this._value);
 
   static const _sentinel = _i3.Object();
 
-  final ApiCatchesRequestsPostBodyBodyModel _value;
+  final CatchRequestPayload _value;
 
   @_i3.override
   _i3.String get payload => _value.payload;
 
   @_i3.override
   $Res call({_i3.Object? payload = _sentinel}) {
-    return (ApiCatchesRequestsPostBodyBodyModel(
+    return (CatchRequestPayload(
       payload: _i3.identical(payload, _sentinel)
           ? this.payload
           : (payload as _i3.String),

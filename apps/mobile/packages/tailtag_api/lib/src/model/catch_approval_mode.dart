@@ -7,7 +7,8 @@ import 'dart:core' as _i2;
 
 import 'package:tonik_util/tonik_util.dart' as _i1;
 
-enum ApiCatchesRequestsPost200BodyOutcomeModel
+/// manual by default. A change applies only to new requests.
+enum CatchApprovalMode
     implements
         _i1.MatrixEncodable,
         _i1.LabelEncodable,
@@ -15,47 +16,41 @@ enum ApiCatchesRequestsPost200BodyOutcomeModel
         _i1.FormEncodable,
         _i1.JsonEncodable,
         _i1.UriEncodable {
-  pending(r'pending'),
-  approved(r'approved'),
-  alreadyPending(r'already_pending'),
-  alreadyCaught(r'already_caught');
+  manual(r'manual'),
+  automatic(r'automatic');
 
-  const ApiCatchesRequestsPost200BodyOutcomeModel(this._$rawValue);
+  const CatchApprovalMode(this._$rawValue);
 
-  factory ApiCatchesRequestsPost200BodyOutcomeModel.fromJson(
-    _i2.dynamic value,
-  ) {
+  factory CatchApprovalMode.fromJson(_i2.dynamic value) {
     if (value is! _i2.String) {
       throw _i1.JsonDecodingException(
-        r'Expected String for ApiCatchesRequestsPost200BodyOutcomeModel, got ${value.runtimeType}',
+        r'Expected String for CatchApprovalMode, got ${value.runtimeType}',
       );
     }
     return values.firstWhere(
       (e) => e._$rawValue == value,
       orElse: () => throw _i1.JsonDecodingException(
-        r'No matching ApiCatchesRequestsPost200BodyOutcomeModel for value: $value',
+        r'No matching CatchApprovalMode for value: $value',
       ),
     );
   }
 
-  factory ApiCatchesRequestsPost200BodyOutcomeModel.fromSimple(
+  factory CatchApprovalMode.fromSimple(
     _i2.String? value, {
     required _i2.bool explode,
     _i2.String? context,
   }) {
-    return ApiCatchesRequestsPost200BodyOutcomeModel.fromJson(
+    return CatchApprovalMode.fromJson(
       value.decodeSimpleString(context: context),
     );
   }
 
-  factory ApiCatchesRequestsPost200BodyOutcomeModel.fromForm(
+  factory CatchApprovalMode.fromForm(
     _i2.String? value, {
     required _i2.bool explode,
     _i2.String? context,
   }) {
-    return ApiCatchesRequestsPost200BodyOutcomeModel.fromJson(
-      value.decodeFormString(context: context),
-    );
+    return CatchApprovalMode.fromJson(value.decodeFormString(context: context));
   }
 
   final _i2.String _$rawValue;

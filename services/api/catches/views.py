@@ -46,6 +46,8 @@ from profiles.eligibility import is_participation_eligible
 
 from .catch_request_serializers import (
     CATCH_REQUEST_ERROR_SCHEMA,
+    CATCH_REQUEST_NOT_FOUND_SCHEMA,
+    DETAIL_ERROR_SCHEMA,
     PLAYER_REQUEST_LIST_SCHEMA,
     SUBMISSION_REQUEST_SCHEMA,
     SUBMISSION_RESPONSE_SCHEMA,
@@ -610,10 +612,14 @@ _SUBMISSION_OUTCOMES: dict[SubmissionOutcome, Outcome] = {
     SubmissionOutcome.ALREADY_PENDING: Outcome.ALREADY_PENDING,
     SubmissionOutcome.ALREADY_CAUGHT: Outcome.ALREADY_CAUGHT,
 }
-_INVALID_CONVENTION_FILTER = {
-    "convention_id": [ErrorDetail("Provide a positive integer.", code="invalid")]
-}
 _NO_STORE = "no-store"
+_REQUESTS_401 = OpenApiResponse(
+    response=DETAIL_ERROR_SCHEMA,
+    description="Authentication credentials were not provided.",
+)
+_REQUESTS_500 = OpenApiResponse(
+    response=CATCH_REQUEST_ERROR_SCHEMA, description="server_error"
+)
 
 
 class CatchRequestView(APIView):
@@ -667,21 +673,18 @@ class CatchRequestView(APIView):
         responses={
             200: OpenApiResponse(response=PLAYER_REQUEST_LIST_SCHEMA),
             400: OpenApiResponse(
-                response=CATCH_HISTORY_INVALID_QUERY_ERROR_SCHEMA,
-                description="convention_id is not a positive integer.",
+                response=CATCH_REQUEST_ERROR_SCHEMA,
+                description="invalid_query: convention_id is not a positive integer.",
             ),
-            401: _AUTHENTICATION_401,
+            401: _REQUESTS_401,
             403: OpenApiResponse(
                 response=CATCH_REQUEST_ERROR_SCHEMA, description="catcher_ineligible"
             ),
             404: OpenApiResponse(
-                response=CATCH_HISTORY_NOT_FOUND_ERROR_SCHEMA,
+                response=DETAIL_ERROR_SCHEMA,
                 description="The catch request gate is off.",
             ),
-            500: OpenApiResponse(
-                response=CATCH_CONFIRMATION_SERVER_ERROR_SCHEMA,
-                description="An unexpected error occurred.",
-            ),
+            500: _REQUESTS_500,
         },
     )
     def get(self, request: Request) -> Response:
@@ -693,9 +696,12 @@ class CatchRequestView(APIView):
             player=user, convention__review_deadline_at__gt=database_now()
         )
         if raw is not None:
-            if not raw.isdigit() or int(raw) < 1:
-                return Response(
-                    _INVALID_CONVENTION_FILTER, status=status.HTTP_400_BAD_REQUEST
+            # isascii() rejects digits such as "²" that int() cannot parse.
+            if not (raw.isascii() and raw.isdigit()) or int(raw) < 1:
+                return _domain_error(
+                    "invalid_query",
+                    "The convention filter is invalid.",
+                    status.HTTP_400_BAD_REQUEST,
                 )
             rows = rows.filter(convention_id=int(raw))
         rows = rows.select_related("fursuit", "convention").order_by(
@@ -725,12 +731,12 @@ class CatchRequestView(APIView):
                 response=CATCH_CONFIRMATION_VALIDATION_ERROR_SCHEMA,
                 description="The body is not a JSON object with one string payload.",
             ),
-            401: _AUTHENTICATION_401,
+            401: _REQUESTS_401,
             403: OpenApiResponse(
                 response=CATCH_REQUEST_ERROR_SCHEMA, description="catcher_ineligible"
             ),
             404: OpenApiResponse(
-                response=CATCH_REQUEST_ERROR_SCHEMA,
+                response=CATCH_REQUEST_NOT_FOUND_SCHEMA,
                 description=(
                     "catch_target_unavailable. While the catch request gate is off, "
                     "every call returns the generic not-found shape."
@@ -740,10 +746,7 @@ class CatchRequestView(APIView):
                 response=CATCH_REQUEST_ERROR_SCHEMA,
                 description="catch_requests_unavailable or self_catch_not_allowed",
             ),
-            500: OpenApiResponse(
-                response=CATCH_CONFIRMATION_SERVER_ERROR_SCHEMA,
-                description="An unexpected error occurred.",
-            ),
+            500: _REQUESTS_500,
         },
     )
     def post(self, request: Request) -> Response:

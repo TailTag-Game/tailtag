@@ -7,8 +7,7 @@ import 'dart:core' as _i2;
 
 import 'package:tonik_util/tonik_util.dart' as _i1;
 
-/// manual by default. A change applies only to new requests.
-enum ApiFursuitsPost201BodyCatchApprovalModeModel
+enum CatchRequestOutcome
     implements
         _i1.MatrixEncodable,
         _i1.LabelEncodable,
@@ -16,43 +15,43 @@ enum ApiFursuitsPost201BodyCatchApprovalModeModel
         _i1.FormEncodable,
         _i1.JsonEncodable,
         _i1.UriEncodable {
-  manual(r'manual'),
-  automatic(r'automatic');
+  pending(r'pending'),
+  approved(r'approved'),
+  alreadyPending(r'already_pending'),
+  alreadyCaught(r'already_caught');
 
-  const ApiFursuitsPost201BodyCatchApprovalModeModel(this._$rawValue);
+  const CatchRequestOutcome(this._$rawValue);
 
-  factory ApiFursuitsPost201BodyCatchApprovalModeModel.fromJson(
-    _i2.dynamic value,
-  ) {
+  factory CatchRequestOutcome.fromJson(_i2.dynamic value) {
     if (value is! _i2.String) {
       throw _i1.JsonDecodingException(
-        r'Expected String for ApiFursuitsPost201BodyCatchApprovalModeModel, got ${value.runtimeType}',
+        r'Expected String for CatchRequestOutcome, got ${value.runtimeType}',
       );
     }
     return values.firstWhere(
       (e) => e._$rawValue == value,
       orElse: () => throw _i1.JsonDecodingException(
-        r'No matching ApiFursuitsPost201BodyCatchApprovalModeModel for value: $value',
+        r'No matching CatchRequestOutcome for value: $value',
       ),
     );
   }
 
-  factory ApiFursuitsPost201BodyCatchApprovalModeModel.fromSimple(
+  factory CatchRequestOutcome.fromSimple(
     _i2.String? value, {
     required _i2.bool explode,
     _i2.String? context,
   }) {
-    return ApiFursuitsPost201BodyCatchApprovalModeModel.fromJson(
+    return CatchRequestOutcome.fromJson(
       value.decodeSimpleString(context: context),
     );
   }
 
-  factory ApiFursuitsPost201BodyCatchApprovalModeModel.fromForm(
+  factory CatchRequestOutcome.fromForm(
     _i2.String? value, {
     required _i2.bool explode,
     _i2.String? context,
   }) {
-    return ApiFursuitsPost201BodyCatchApprovalModeModel.fromJson(
+    return CatchRequestOutcome.fromJson(
       value.decodeFormString(context: context),
     );
   }

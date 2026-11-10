@@ -5,18 +5,9 @@
 import 'dart:core' as _i3;
 
 import 'package:meta/meta.dart' as _i1;
-import 'package:tailtag_api/src/model/api_catches_requests_get200_body_model.dart'
-    as _i2;
-import 'package:tailtag_api/src/model/api_catches_requests_get400_body_model.dart'
-    as _i4;
-import 'package:tailtag_api/src/model/api_catches_requests_get401_body_model.dart'
-    as _i5;
-import 'package:tailtag_api/src/model/api_catches_requests_get403_body_model.dart'
-    as _i6;
-import 'package:tailtag_api/src/model/api_catches_requests_get404_body_model.dart'
-    as _i7;
-import 'package:tailtag_api/src/model/api_catches_requests_get500_body_model.dart'
-    as _i8;
+import 'package:tailtag_api/src/model/catch_request_error.dart' as _i4;
+import 'package:tailtag_api/src/model/detail_error.dart' as _i5;
+import 'package:tailtag_api/src/model/player_request_list.dart' as _i2;
 
 sealed class CatchRequestsListResponse {
   const CatchRequestsListResponse();
@@ -26,7 +17,7 @@ sealed class CatchRequestsListResponse {
 class CatchRequestsListResponse200 extends CatchRequestsListResponse {
   const CatchRequestsListResponse200({required this.body});
 
-  final _i2.ApiCatchesRequestsGet200BodyModel body;
+  final _i2.PlayerRequestList body;
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -42,7 +33,7 @@ class CatchRequestsListResponse200 extends CatchRequestsListResponse {
 class CatchRequestsListResponse400 extends CatchRequestsListResponse {
   const CatchRequestsListResponse400({required this.body});
 
-  final _i4.ApiCatchesRequestsGet400BodyModel body;
+  final _i4.CatchRequestError body;
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -58,7 +49,7 @@ class CatchRequestsListResponse400 extends CatchRequestsListResponse {
 class CatchRequestsListResponse401 extends CatchRequestsListResponse {
   const CatchRequestsListResponse401({required this.body});
 
-  final _i5.ApiCatchesRequestsGet401BodyModel body;
+  final _i5.DetailError body;
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -74,7 +65,7 @@ class CatchRequestsListResponse401 extends CatchRequestsListResponse {
 class CatchRequestsListResponse403 extends CatchRequestsListResponse {
   const CatchRequestsListResponse403({required this.body});
 
-  final _i6.ApiCatchesRequestsGet403BodyModel body;
+  final _i4.CatchRequestError body;
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -90,7 +81,7 @@ class CatchRequestsListResponse403 extends CatchRequestsListResponse {
 class CatchRequestsListResponse404 extends CatchRequestsListResponse {
   const CatchRequestsListResponse404({required this.body});
 
-  final _i7.ApiCatchesRequestsGet404BodyModel body;
+  final _i5.DetailError body;
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -106,7 +97,7 @@ class CatchRequestsListResponse404 extends CatchRequestsListResponse {
 class CatchRequestsListResponse500 extends CatchRequestsListResponse {
   const CatchRequestsListResponse500({required this.body});
 
-  final _i8.ApiCatchesRequestsGet500BodyModel body;
+  final _i4.CatchRequestError body;
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {

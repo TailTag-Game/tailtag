@@ -11,6 +11,8 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
+import yaml
+from django.test import Client
 from django.utils import timezone
 
 from catches.catch_requests import approve_request_in_transaction
@@ -462,14 +464,18 @@ def test_the_player_list_shows_only_the_callers_open_window_requests() -> None:
     assert filtered.json() == {"results": []}
 
 
-@pytest.mark.parametrize("value", ["abc", "0"])
+@pytest.mark.parametrize("value", ["abc", "0", "\u00b2"])
 def test_the_player_list_rejects_an_invalid_convention_filter(value: str) -> None:
-    scenario = create_preview_scenario(f"list_filter_{value}")
+    """A non-ASCII digit such as superscript two must not reach int()."""
+    scenario = create_preview_scenario(f"list_filter_{value.encode().hex()}")
 
     response = scenario.catcher_client().get(REQUESTS_PATH, {"convention_id": value})
 
     assert response.status_code == 400
-    assert set(response.json()) == {"convention_id"}
+    assert response.json() == {
+        "code": "invalid_query",
+        "detail": "The convention filter is invalid.",
+    }
 
 
 def test_an_ineligible_player_cannot_read_the_list() -> None:
@@ -584,3 +590,32 @@ def test_a_later_convention_activation_creates_a_separate_trio() -> None:
 
     assert response.status_code == 201
     assert CatchRequest.objects.filter(state="pending").count() == 2
+
+
+def test_the_schema_documents_the_bodies_that_the_operations_return() -> None:
+    """The documented shapes match the runtime bodies, so the client can decode them."""
+    schema = yaml.safe_load(Client().get("/api/schema/").content)
+    components = schema["components"]["schemas"]
+    operations = schema["paths"][REQUESTS_PATH]
+
+    def body(operation: str, status: str) -> dict[str, Any]:
+        content = operations[operation]["responses"][status]["content"]
+        return content["application/json"]["schema"]
+
+    def component(name: str) -> dict[str, Any]:
+        return components[name]
+
+    assert operations["post"]["requestBody"]["required"] is True
+    assert body("get", "400") == {"$ref": "#/components/schemas/CatchRequestError"}
+    assert body("get", "404") == {"$ref": "#/components/schemas/DetailError"}
+    assert component("DetailError")["required"] == ["detail"]
+    assert body("post", "404") == {"$ref": "#/components/schemas/CatchRequestNotFound"}
+    assert component("CatchRequestNotFound")["required"] == ["detail"]
+    assert body("post", "200") == body("post", "201")
+    assert set(component("CatchRequestState")["enum"]) == {
+        "pending",
+        "approved",
+        "declined",
+        "withdrawn",
+        "unavailable",
+    }

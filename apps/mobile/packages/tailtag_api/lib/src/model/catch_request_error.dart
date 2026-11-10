@@ -9,14 +9,11 @@ import 'package:meta/meta.dart' as _i2;
 import 'package:tonik_util/tonik_util.dart' as _i1;
 
 @_i2.immutable
-class ApiCatchesRequestsPost404BodyModel extends _i1.ObjectParameterEncodable
+class CatchRequestError extends _i1.ObjectParameterEncodable
     implements _i1.UriEncodable {
-  const ApiCatchesRequestsPost404BodyModel({
-    required this.code,
-    required this.detail,
-  });
+  const CatchRequestError({required this.code, required this.detail});
 
-  factory ApiCatchesRequestsPost404BodyModel.fromSimple(
+  factory CatchRequestError.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
   }) {
@@ -25,33 +22,29 @@ class ApiCatchesRequestsPost404BodyModel extends _i1.ObjectParameterEncodable
       explodeSeparator: ',',
       expectedKeys: {r'code', r'detail'},
       listKeys: {},
-      context: r'ApiCatchesRequestsPost404BodyModel',
+      context: r'CatchRequestError',
     );
-    return ApiCatchesRequestsPost404BodyModel(
+    return CatchRequestError(
       code: _$values[r'code'].decodeSimpleString(
-        context: r'ApiCatchesRequestsPost404BodyModel.code',
+        context: r'CatchRequestError.code',
       ),
       detail: _$values[r'detail'].decodeSimpleString(
-        context: r'ApiCatchesRequestsPost404BodyModel.detail',
+        context: r'CatchRequestError.detail',
       ),
     );
   }
 
-  factory ApiCatchesRequestsPost404BodyModel.fromJson(_i3.Object? json) {
-    final _$map = json.decodeMap(
-      context: r'ApiCatchesRequestsPost404BodyModel',
-    );
-    return ApiCatchesRequestsPost404BodyModel(
-      code: _$map[r'code'].decodeJsonString(
-        context: r'ApiCatchesRequestsPost404BodyModel.code',
-      ),
+  factory CatchRequestError.fromJson(_i3.Object? json) {
+    final _$map = json.decodeMap(context: r'CatchRequestError');
+    return CatchRequestError(
+      code: _$map[r'code'].decodeJsonString(context: r'CatchRequestError.code'),
       detail: _$map[r'detail'].decodeJsonString(
-        context: r'ApiCatchesRequestsPost404BodyModel.detail',
+        context: r'CatchRequestError.detail',
       ),
     );
   }
 
-  factory ApiCatchesRequestsPost404BodyModel.fromForm(
+  factory CatchRequestError.fromForm(
     _i3.String? value, {
     required _i3.bool explode,
   }) {
@@ -60,14 +53,14 @@ class ApiCatchesRequestsPost404BodyModel extends _i1.ObjectParameterEncodable
       explodeSeparator: '&',
       expectedKeys: {r'code', r'detail'},
       listKeys: {},
-      context: r'ApiCatchesRequestsPost404BodyModel',
+      context: r'CatchRequestError',
     );
-    return ApiCatchesRequestsPost404BodyModel(
+    return CatchRequestError(
       code: _$values[r'code'].decodeFormString(
-        context: r'ApiCatchesRequestsPost404BodyModel.code',
+        context: r'CatchRequestError.code',
       ),
       detail: _$values[r'detail'].decodeFormString(
-        context: r'ApiCatchesRequestsPost404BodyModel.detail',
+        context: r'CatchRequestError.detail',
       ),
     );
   }
@@ -79,15 +72,13 @@ class ApiCatchesRequestsPost404BodyModel extends _i1.ObjectParameterEncodable
   @_i3.override
   _i3.Object? toJson() => {r'code': code, r'detail': detail};
 
-  $$ApiCatchesRequestsPost404BodyModelCopyWith<
-    ApiCatchesRequestsPost404BodyModel
-  >
-  get copyWith => _ApiCatchesRequestsPost404BodyModelCopyWith(this);
+  $$CatchRequestErrorCopyWith<CatchRequestError> get copyWith =>
+      _CatchRequestErrorCopyWith(this);
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
     if (_i3.identical(this, other)) return true;
-    return other is ApiCatchesRequestsPost404BodyModel &&
+    return other is CatchRequestError &&
         other.code == this.code &&
         other.detail == this.detail;
   }
@@ -117,28 +108,27 @@ class ApiCatchesRequestsPost404BodyModel extends _i1.ObjectParameterEncodable
     _i3.bool allowReserved = false,
   }) {
     throw _i1.EncodingException(
-      r'Cannot uriEncode ApiCatchesRequestsPost404BodyModel: complex types cannot be URI-encoded',
+      r'Cannot uriEncode CatchRequestError: complex types cannot be URI-encoded',
     );
   }
 }
 
-abstract class $$ApiCatchesRequestsPost404BodyModelCopyWith<$Res> {
-  factory $$ApiCatchesRequestsPost404BodyModelCopyWith(
-    ApiCatchesRequestsPost404BodyModel value,
-  ) = _ApiCatchesRequestsPost404BodyModelCopyWith<$Res>;
+abstract class $$CatchRequestErrorCopyWith<$Res> {
+  factory $$CatchRequestErrorCopyWith(CatchRequestError value) =
+      _CatchRequestErrorCopyWith<$Res>;
 
   $Res call({_i3.String? code, _i3.String? detail});
   _i3.String get code;
   _i3.String get detail;
 }
 
-class _ApiCatchesRequestsPost404BodyModelCopyWith<$Res>
-    implements $$ApiCatchesRequestsPost404BodyModelCopyWith<$Res> {
-  _ApiCatchesRequestsPost404BodyModelCopyWith(this._value);
+class _CatchRequestErrorCopyWith<$Res>
+    implements $$CatchRequestErrorCopyWith<$Res> {
+  _CatchRequestErrorCopyWith(this._value);
 
   static const _sentinel = _i3.Object();
 
-  final ApiCatchesRequestsPost404BodyModel _value;
+  final CatchRequestError _value;
 
   @_i3.override
   _i3.String get code => _value.code;
@@ -148,7 +138,7 @@ class _ApiCatchesRequestsPost404BodyModelCopyWith<$Res>
 
   @_i3.override
   $Res call({_i3.Object? code = _sentinel, _i3.Object? detail = _sentinel}) {
-    return (ApiCatchesRequestsPost404BodyModel(
+    return (CatchRequestError(
       code: _i3.identical(code, _sentinel) ? this.code : (code as _i3.String),
       detail: _i3.identical(detail, _sentinel)
           ? this.detail

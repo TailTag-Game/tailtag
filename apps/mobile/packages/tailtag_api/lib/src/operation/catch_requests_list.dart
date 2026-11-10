@@ -6,18 +6,9 @@ import 'dart:convert' as _i6;
 import 'dart:core' as _i3;
 
 import 'package:http/http.dart' as _i5;
-import 'package:tailtag_api/src/model/api_catches_requests_get200_body_model.dart'
-    as _i7;
-import 'package:tailtag_api/src/model/api_catches_requests_get400_body_model.dart'
-    as _i8;
-import 'package:tailtag_api/src/model/api_catches_requests_get401_body_model.dart'
-    as _i9;
-import 'package:tailtag_api/src/model/api_catches_requests_get403_body_model.dart'
-    as _i10;
-import 'package:tailtag_api/src/model/api_catches_requests_get404_body_model.dart'
-    as _i11;
-import 'package:tailtag_api/src/model/api_catches_requests_get500_body_model.dart'
-    as _i12;
+import 'package:tailtag_api/src/model/catch_request_error.dart' as _i8;
+import 'package:tailtag_api/src/model/detail_error.dart' as _i9;
+import 'package:tailtag_api/src/model/player_request_list.dart' as _i7;
 import 'package:tailtag_api/src/operation/http_operation.dart' as _i1;
 import 'package:tailtag_api/src/response_wrapper/catch_requests_list_response.dart'
     as _i2;
@@ -81,27 +72,27 @@ final class CatchRequestsList
     switch ((response.statusCode, _$mediaType)) {
       case (200, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
-        final _$body = _i7.ApiCatchesRequestsGet200BodyModel.fromJson(_$json);
+        final _$body = _i7.PlayerRequestList.fromJson(_$json);
         return _i2.CatchRequestsListResponse200(body: _$body);
       case (400, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
-        final _$body = _i8.ApiCatchesRequestsGet400BodyModel.fromJson(_$json);
+        final _$body = _i8.CatchRequestError.fromJson(_$json);
         return _i2.CatchRequestsListResponse400(body: _$body);
       case (401, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
-        final _$body = _i9.ApiCatchesRequestsGet401BodyModel.fromJson(_$json);
+        final _$body = _i9.DetailError.fromJson(_$json);
         return _i2.CatchRequestsListResponse401(body: _$body);
       case (403, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
-        final _$body = _i10.ApiCatchesRequestsGet403BodyModel.fromJson(_$json);
+        final _$body = _i8.CatchRequestError.fromJson(_$json);
         return _i2.CatchRequestsListResponse403(body: _$body);
       case (404, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
-        final _$body = _i11.ApiCatchesRequestsGet404BodyModel.fromJson(_$json);
+        final _$body = _i9.DetailError.fromJson(_$json);
         return _i2.CatchRequestsListResponse404(body: _$body);
       case (500, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
-        final _$body = _i12.ApiCatchesRequestsGet500BodyModel.fromJson(_$json);
+        final _$body = _i8.CatchRequestError.fromJson(_$json);
         return _i2.CatchRequestsListResponse500(body: _$body);
       default:
         final _$content = response.headers['content-type'] ?? 'not specified';

@@ -5,22 +5,12 @@
 import 'dart:core' as _i3;
 
 import 'package:meta/meta.dart' as _i1;
-import 'package:tailtag_api/src/model/api_catches_requests_post200_body_model.dart'
-    as _i2;
-import 'package:tailtag_api/src/model/api_catches_requests_post201_body_model.dart'
-    as _i4;
 import 'package:tailtag_api/src/model/api_catches_requests_post400_body_model.dart'
-    as _i5;
-import 'package:tailtag_api/src/model/api_catches_requests_post401_body_model.dart'
-    as _i6;
-import 'package:tailtag_api/src/model/api_catches_requests_post403_body_model.dart'
-    as _i7;
-import 'package:tailtag_api/src/model/api_catches_requests_post404_body_model.dart'
-    as _i8;
-import 'package:tailtag_api/src/model/api_catches_requests_post409_body_model.dart'
-    as _i9;
-import 'package:tailtag_api/src/model/api_catches_requests_post500_body_model.dart'
-    as _i10;
+    as _i4;
+import 'package:tailtag_api/src/model/catch_request_error.dart' as _i6;
+import 'package:tailtag_api/src/model/catch_request_not_found.dart' as _i7;
+import 'package:tailtag_api/src/model/catch_request_submission.dart' as _i2;
+import 'package:tailtag_api/src/model/detail_error.dart' as _i5;
 
 sealed class CatchRequestsCreateResponse {
   const CatchRequestsCreateResponse();
@@ -30,7 +20,7 @@ sealed class CatchRequestsCreateResponse {
 class CatchRequestsCreateResponse200 extends CatchRequestsCreateResponse {
   const CatchRequestsCreateResponse200({required this.body});
 
-  final _i2.ApiCatchesRequestsPost200BodyModel body;
+  final _i2.CatchRequestSubmission body;
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -46,7 +36,7 @@ class CatchRequestsCreateResponse200 extends CatchRequestsCreateResponse {
 class CatchRequestsCreateResponse201 extends CatchRequestsCreateResponse {
   const CatchRequestsCreateResponse201({required this.body});
 
-  final _i4.ApiCatchesRequestsPost201BodyModel body;
+  final _i2.CatchRequestSubmission body;
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -62,7 +52,7 @@ class CatchRequestsCreateResponse201 extends CatchRequestsCreateResponse {
 class CatchRequestsCreateResponse400 extends CatchRequestsCreateResponse {
   const CatchRequestsCreateResponse400({required this.body});
 
-  final _i5.ApiCatchesRequestsPost400BodyModel body;
+  final _i4.ApiCatchesRequestsPost400BodyModel body;
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -78,7 +68,7 @@ class CatchRequestsCreateResponse400 extends CatchRequestsCreateResponse {
 class CatchRequestsCreateResponse401 extends CatchRequestsCreateResponse {
   const CatchRequestsCreateResponse401({required this.body});
 
-  final _i6.ApiCatchesRequestsPost401BodyModel body;
+  final _i5.DetailError body;
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -94,7 +84,7 @@ class CatchRequestsCreateResponse401 extends CatchRequestsCreateResponse {
 class CatchRequestsCreateResponse403 extends CatchRequestsCreateResponse {
   const CatchRequestsCreateResponse403({required this.body});
 
-  final _i7.ApiCatchesRequestsPost403BodyModel body;
+  final _i6.CatchRequestError body;
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -110,7 +100,7 @@ class CatchRequestsCreateResponse403 extends CatchRequestsCreateResponse {
 class CatchRequestsCreateResponse404 extends CatchRequestsCreateResponse {
   const CatchRequestsCreateResponse404({required this.body});
 
-  final _i8.ApiCatchesRequestsPost404BodyModel body;
+  final _i7.CatchRequestNotFound body;
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -126,7 +116,7 @@ class CatchRequestsCreateResponse404 extends CatchRequestsCreateResponse {
 class CatchRequestsCreateResponse409 extends CatchRequestsCreateResponse {
   const CatchRequestsCreateResponse409({required this.body});
 
-  final _i9.ApiCatchesRequestsPost409BodyModel body;
+  final _i6.CatchRequestError body;
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -142,7 +132,7 @@ class CatchRequestsCreateResponse409 extends CatchRequestsCreateResponse {
 class CatchRequestsCreateResponse500 extends CatchRequestsCreateResponse {
   const CatchRequestsCreateResponse500({required this.body});
 
-  final _i10.ApiCatchesRequestsPost500BodyModel body;
+  final _i6.CatchRequestError body;
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
