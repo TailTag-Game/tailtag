@@ -6,6 +6,7 @@ Small, reversible changes with clear acceptance criteria do not need a spec. Spe
 
 ## Current V0 specifications
 
+- [Reusable TailTag and catch request contract](2026-11-09-reusable-tailtag-catch-request-contract.md) — #502 frozen review deadline, tag format and versioning, request states, competing actions, cooldowns, privacy owners, release gate, and operations for #503 to #513
 - [Native account-access capability contract](2026-11-05-native-auth-capability-contract.md) — #476 pinned SDK capability matrix, frozen auth operations and failure categories, and Clerk Development configuration contract
 - [Windows owner-only files and process trees](2026-10-15-windows-owner-only-files-and-process-trees.md) — #315 slice 3 Windows access-list rule, private creation, Job Object process trees, and simulation-host fail-fast
   ([implementation plan](2026-10-15-windows-owner-only-files-and-process-trees-implementation-plan.md))
