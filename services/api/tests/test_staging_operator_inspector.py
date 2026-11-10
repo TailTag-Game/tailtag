@@ -57,6 +57,7 @@ FAIL_MANAGED_OPERATOR_AMBIGUOUS = "FAIL_MANAGED_OPERATOR_AMBIGUOUS"
 FAIL_MANAGED_OPERATOR_STATE = "FAIL_MANAGED_OPERATOR_STATE"
 FAIL_MANAGED_OPERATOR_PASSWORD_UNUSABLE = "FAIL_MANAGED_OPERATOR_PASSWORD_UNUSABLE"
 FAIL_MANAGED_OPERATOR_PERMISSION = "FAIL_MANAGED_OPERATOR_PERMISSION"
+FAIL_MANAGED_OPERATOR_UPGRADABLE = "FAIL_MANAGED_OPERATOR_UPGRADABLE"
 FAIL_LIMITED_OPERATOR_MISSING = "FAIL_LIMITED_OPERATOR_MISSING"
 FAIL_LIMITED_OPERATOR_AMBIGUOUS = "FAIL_LIMITED_OPERATOR_AMBIGUOUS"
 FAIL_LIMITED_OPERATOR_STATE = "FAIL_LIMITED_OPERATOR_STATE"
@@ -75,6 +76,7 @@ ALL_CODES = frozenset(
         FAIL_MANAGED_OPERATOR_STATE,
         FAIL_MANAGED_OPERATOR_PASSWORD_UNUSABLE,
         FAIL_MANAGED_OPERATOR_PERMISSION,
+        FAIL_MANAGED_OPERATOR_UPGRADABLE,
         FAIL_LIMITED_OPERATOR_MISSING,
         FAIL_LIMITED_OPERATOR_AMBIGUOUS,
         FAIL_LIMITED_OPERATOR_STATE,
@@ -471,6 +473,40 @@ def test_managed_operator_permission_drift_has_distinct_failure(
     )
 
     assert inspect(configured_inspector) == FAIL_MANAGED_OPERATOR_PERMISSION
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("removed", "expected"),
+    [
+        (
+            ("fursuits.revoke_fursuit_tag", "fursuits.view_fursuittag"),
+            FAIL_MANAGED_OPERATOR_UPGRADABLE,
+        ),
+        (("fursuits.revoke_fursuit_tag",), FAIL_MANAGED_OPERATOR_PERMISSION),
+        (
+            (
+                "fursuits.revoke_fursuit_tag",
+                "fursuits.view_fursuittag",
+                "fursuits.view_fursuit",
+            ),
+            FAIL_MANAGED_OPERATOR_PERMISSION,
+        ),
+    ],
+)
+def test_only_the_exact_previous_set_is_upgradable(
+    configured_inspector: ModuleType, removed: tuple[str, ...], expected: str
+) -> None:
+    """#504: the group from before tag revocation is upgradable, and no other."""
+    create_owned_baseline()
+    managed = create_managed_operator()
+    create_limited_operator()
+    group = cast(UserWithRoles, managed).groups.get()
+    cast(GroupWithPermissions, group).permissions.remove(
+        *[permission_map()[name] for name in removed]
+    )
+
+    assert inspect(configured_inspector) == expected
 
 
 @pytest.mark.django_db

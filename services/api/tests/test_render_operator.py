@@ -374,6 +374,54 @@ def test_every_fixed_command_message_is_in_the_allowlist() -> None:
 
 
 @pytest.mark.django_db
+def test_managed_upgrade_runs_the_bootstrap_reconcile_for_the_previous_set(
+    operator: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#504: the upgrade adds the two tag permissions and sets a new password."""
+    from accounts.management.commands.bootstrap_staging_operator import (
+        EXPECTED_PERMISSION_NAMES,
+    )
+
+    _, _, managed_group, _ = recovery.seed_roles()
+    managed_group.permissions.remove(  # pyright: ignore[reportUnknownMemberType]
+        *recovery.permissions(
+            frozenset({"fursuits.revoke_fursuit_tag", "fursuits.view_fursuittag"})
+        )
+    )
+    inspector(monkeypatch, "FAIL_MANAGED_OPERATOR_UPGRADABLE")
+    answers(
+        monkeypatch,
+        "bootstrap Render Staging operator",
+        recovery.OLD_IDENTIFIER,
+        recovery.NEW_PASSWORD,
+        recovery.NEW_PASSWORD,
+    )
+
+    status, output, result = run(operator, monkeypatch, "managed-upgrade")
+
+    assert (status, result) == (0, PREFIX + "PASS managed-upgrade")
+    assert "Staging operator reconciled and upgraded." in output
+    managed = User.objects.get(clerk_user_id=recovery.OLD_IDENTIFIER)
+    assert managed.check_password(recovery.NEW_PASSWORD)
+    assert set(managed.get_all_permissions()) == EXPECTED_PERMISSION_NAMES
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("status", ["PASS", "FAIL_MANAGED_OPERATOR_PERMISSION"])
+def test_managed_upgrade_requires_the_exact_previous_permission_set(
+    operator: ModuleType, monkeypatch: pytest.MonkeyPatch, status: str
+) -> None:
+    """Managed upgrade runs only for a group that holds the pre-#504 set."""
+    inspector(monkeypatch, status)
+    forbid_prompts(monkeypatch)
+
+    assert run(operator, monkeypatch, "managed-upgrade")[::2] == (
+        1,
+        PREFIX + "FAIL managed-upgrade precondition",
+    )
+
+
+@pytest.mark.django_db
 def test_managed_create_requires_the_managed_operator_to_be_missing(
     operator: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:

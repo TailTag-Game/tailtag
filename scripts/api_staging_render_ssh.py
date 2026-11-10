@@ -12,7 +12,7 @@ The `restore-count` operation runs the AC13 PITR restore counter instead. It
 reads no Staging state, so no job runs, but every target check still does. The
 counter itself compares the new database with the digest that the owner passes.
 
-For the create, provision, decommission, and emergency operations, the jobs
+For the create, upgrade, provision, decommission, and emergency operations, the jobs
 after the session show the new state. No read-only job can see a new password
 or a replaced login. So for the two password rotations and the managed
 replace, the jobs show only that the roles stay valid, and PASS rests on the
@@ -48,6 +48,10 @@ _PLANS: Final[dict[str, tuple[_Checks, _Checks]]] = {
     "managed-create": (
         (("reconcile", "PASS"), ("inspect", "FAIL_MANAGED_OPERATOR_MISSING")),
         (("inspect", "FAIL_LIMITED_OPERATOR_MISSING"),),
+    ),
+    "managed-upgrade": (
+        (("reconcile", "PASS"), ("inspect", "FAIL_MANAGED_OPERATOR_UPGRADABLE")),
+        (("inspect", "PASS"),),
     ),
     "lifecycle-provision": (
         (("reconcile", "PASS"), ("inspect", "FAIL_LIMITED_OPERATOR_MISSING")),

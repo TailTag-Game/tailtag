@@ -362,6 +362,7 @@ live image. A command that prompts needs a terminal, so it runs over
 | Emergency operator state | Read-only job | `api_staging_render_job.py emergency-state` |
 | Row counts for a PITR drill | Read-only job | `api_staging_render_job.py row-counts` |
 | Managed operator create | `render ssh` | `api_staging_render_ssh.py managed-create` |
+| Managed operator upgrade | `render ssh` | `api_staging_render_ssh.py managed-upgrade` |
 | Limited operator provision | `render ssh` | `api_staging_render_ssh.py lifecycle-provision` |
 | Limited operator password rotation | `render ssh` | `api_staging_render_ssh.py lifecycle-rotate-password` |
 | Limited operator decommission | `render ssh` | `api_staging_render_ssh.py lifecycle-decommission` |
@@ -525,6 +526,7 @@ then runs the command. Each command asks for its own Render phrase:
 | Operation | Phrase |
 | --- | --- |
 | `managed-create` | `bootstrap Render Staging operator` |
+| `managed-upgrade` | `bootstrap Render Staging operator` |
 | `lifecycle-provision` | `provision Render Staging validation operator` |
 | `lifecycle-rotate-password` | `rotate Render Staging validation operator password` |
 | `lifecycle-decommission` | `Y` |
