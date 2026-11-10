@@ -312,6 +312,7 @@ def test_audit_enums_are_the_closed_sensitive_action_and_target_vocabulary() -> 
         "set_profile_enabled",
         "set_fursuit_enabled",
         "set_convention_playability",
+        "revoke_fursuit_tag",
     )
     assert tuple(OperatorTargetType.values) == (
         "catches.catch",
@@ -322,6 +323,7 @@ def test_audit_enums_are_the_closed_sensitive_action_and_target_vocabulary() -> 
         "profiles.playerprofile",
         "fursuits.fursuit",
         "conventions.convention",
+        "fursuits.fursuittag",
     )
     assert tuple(OperatorActorClass.values) == (
         "operator",

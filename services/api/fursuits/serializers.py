@@ -114,3 +114,72 @@ def fursuit_response_data(fursuit: Fursuit) -> FursuitResponseData:
         "photo_url": media_service.read_image_url(fursuit.photo_key),
         "is_enabled": fursuit.is_enabled,
     }
+
+
+_ERROR_CODE_SCHEMA: dict[str, object] = {"type": "string"}
+
+FURSUIT_TAG_RESPONSE_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "fursuit_id": {"type": "integer"},
+        "state": {"type": "string", "enum": ["current", "revoked"]},
+        "tag_version": {"type": "integer", "minimum": 0},
+        "payload": {
+            "type": "string",
+            "nullable": True,
+            "description": "The printed tag payload. Null when state is revoked.",
+        },
+    },
+    "required": ["fursuit_id", "state", "tag_version", "payload"],
+}
+
+FURSUIT_TAG_REPLACE_REQUEST_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {"expected_version": {"type": "integer", "minimum": 0}},
+    "required": ["expected_version"],
+}
+
+FURSUIT_TAG_REPLACE_VALIDATION_ERROR_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "expected_version": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["expected_version"],
+}
+
+FURSUIT_TAG_ERROR_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {"code": _ERROR_CODE_SCHEMA, "detail": {"type": "string"}},
+    "required": ["code", "detail"],
+}
+
+FURSUIT_TAG_CONFLICT_ERROR_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "code": {
+            "type": "string",
+            "enum": ["fursuit_disabled", "tag_version_conflict"],
+        },
+        "detail": {"type": "string"},
+        "current": {
+            "type": "object",
+            "additionalProperties": False,
+            "description": (
+                "Present only for tag_version_conflict. It never carries a payload. "
+                "State none means the suit never had a tag."
+            ),
+            "properties": {
+                "fursuit_id": {"type": "integer"},
+                "state": {"type": "string", "enum": ["current", "revoked", "none"]},
+                "tag_version": {"type": "integer", "minimum": 0},
+            },
+            "required": ["fursuit_id", "state", "tag_version"],
+        },
+    },
+    "required": ["code", "detail"],
+}

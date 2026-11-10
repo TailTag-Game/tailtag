@@ -172,6 +172,7 @@ class ConventionsApi {
   ///
   /// Security:
   /// - HTTP Bearer
+  @_i15.Deprecated('This operation is deprecated.')
   _i15.Future<
     _i16.TonikResult<
       _i19.ConventionFursuitCatchCredentialResolveResponse,
@@ -234,6 +235,7 @@ class ConventionsApi {
   ///
   /// Security:
   /// - HTTP Bearer
+  @_i15.Deprecated('This operation is deprecated.')
   _i15.Future<
     _i16.TonikResult<
       _i24.ConventionFursuitCatchCredentialGetResponse,
@@ -254,6 +256,7 @@ class ConventionsApi {
   ///
   /// Security:
   /// - HTTP Bearer
+  @_i15.Deprecated('This operation is deprecated.')
   _i15.Future<
     _i16.TonikResult<
       _i25.ConventionFursuitCatchCredentialRotateResponse,

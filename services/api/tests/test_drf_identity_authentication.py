@@ -338,6 +338,7 @@ def test_identity_authentication_adds_only_current_user_identity_route_alongside
     assert set(yaml.safe_load(schema_response.content)["paths"]) == {
         "/api/catches/",
         "/api/catches/confirm/",
+        "/api/catches/preview/",
         "/api/me/",
         "/api/profile/",
         "/api/profile/avatar/",
@@ -354,5 +355,7 @@ def test_identity_authentication_adds_only_current_user_identity_route_alongside
         "/api/fursuits/",
         "/api/fursuits/{id}/",
         "/api/fursuits/{id}/photo/",
+        "/api/fursuits/{id}/tag/",
+        "/api/fursuits/{id}/tag/replace/",
         "/api/schema/",
     }

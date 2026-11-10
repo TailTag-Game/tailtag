@@ -31,7 +31,7 @@ from conventions.models import (
     FursuitCatchCredential,
     FursuitCatchSession,
 )
-from fursuits.models import Fursuit
+from fursuits.models import Fursuit, FursuitTag
 from profiles.models import PlayerProfile
 from rehearsal.models import StagingResetIdentity
 from simulation_fixtures.models import (
@@ -157,6 +157,11 @@ def _delete(queryset: QuerySet[Model]) -> int:
     return deleted
 
 
+def _delete_with_tags(fursuits: QuerySet[Fursuit]) -> int:
+    FursuitTag.objects.filter(fursuit__in=fursuits).delete()
+    return _delete(fursuits)
+
+
 def _delete_run_state(run: FixtureRun, indexes: list[int]) -> None:
     """Delete the run's deletion set in PROTECT order and record the pending images."""
     users = _users_by_index(run.pool, indexes)
@@ -244,7 +249,9 @@ def _delete_run_state(run: FixtureRun, indexes: list[int]) -> None:
                     Q(user_id__in=provisioned_ids) | Q(convention_id=convention_id)
                 )
             ),
-            "fursuit": _delete(fursuits),
+            # Reusable tags are deleted with their fursuits. The closed cleanup
+            # report has no tag key, so the simulator wire shape stays unchanged.
+            "fursuit": _delete_with_tags(fursuits),
             "convention": _delete(Convention.objects.filter(pk=convention_id)),
         }
     except ProtectedError:

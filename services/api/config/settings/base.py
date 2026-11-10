@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import zoneinfo
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from config.catch_requests_gate import parse_catch_requests_enabled
 from observability.logging import build_logging_config
 from observability.postgresql import ENGINE as DATABASE_ENGINE
 
@@ -92,6 +94,9 @@ STORAGES = {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
 
+# Reusable tags and catch requests (#502). Off unless the environment says true.
+CATCH_REQUESTS_ENABLED = parse_catch_requests_enabled(os.environ)
+
 AUTH_PASSWORD_VALIDATORS: list[dict[str, object]] = [
     {
         "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
@@ -123,6 +128,7 @@ SPECTACULAR_SETTINGS = {
     "POSTPROCESSING_HOOKS": [
         "drf_spectacular.hooks.postprocess_schema_enums",
         "config.openapi.close_issue_120_component_schemas",
+        "config.openapi.require_reusable_tag_request_bodies",
     ],
 }
 

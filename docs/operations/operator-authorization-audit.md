@@ -1,6 +1,6 @@
 # Field-beta operator authorization and audit
 
-This runbook covers the eight existing sensitive Django-admin actions for
+This runbook covers the nine existing sensitive Django-admin actions for
 field-beta operations. It is not an operator-management UI, an audit viewer, or
 a product API. Do not run the Staging procedure or mutate Staging without
 separate explicit authorization.
@@ -33,6 +33,7 @@ for other sensitive actions.
 | `set_profile_enabled` | `profiles.playerprofile` | `profiles.set_profile_enabled` is independently sufficient for this action; normal explicit `profiles.view_playerprofile` is required for inspection, but generic permission is not required before executing the action. `profiles.change_playerprofile` and `profiles.delete_playerprofile` are not required. |
 | `set_fursuit_enabled` | `fursuits.fursuit` | `fursuits.set_fursuit_enabled` is independently sufficient for this action; normal explicit `fursuits.view_fursuit` is required for inspection, but generic permission is not required before executing the action. `fursuits.change_fursuit` and `fursuits.delete_fursuit` are not required. |
 | `set_convention_playability` | `conventions.convention` | `conventions.set_convention_playability` is independently sufficient for this action; normal explicit `conventions.view_convention` is required for inspection, but generic permission is not required before executing the action. `conventions.change_convention` and `conventions.delete_convention` are not required. |
+| `revoke_fursuit_tag` | `fursuits.fursuittag` | `fursuits.revoke_fursuit_tag` is independently sufficient for this action. `fursuits.view_fursuittag` or `fursuits.revoke_fursuit_tag` permits inspection. `fursuits.change_fursuittag` and `fursuits.delete_fursuittag` are not required. The admin never shows a tag token or payload, and revocation creates no replacement. |
 
 Normal `change_convention` still governs ordinary metadata corrections and
 non-playable lifecycle changes; it does not cross the playability boundary.
@@ -77,6 +78,13 @@ group and exact permission set. It fails closed for an ordinary player,
 superuser, ambiguous account, group collision, unavailable permissions, or
 database failure, without manually elevating an account. Do not run it
 automatically during build, pre-deploy, startup, health check, or Gunicorn.
+
+#504 added `fursuits.revoke_fursuit_tag` and `fursuits.view_fursuittag` to the
+exact permission set. An operator made before #504 holds the previous set. If
+the group holds exactly the previous set, the command upgrades the group to the
+current set and prints `Staging operator reconciled and upgraded.` Any other
+set fails closed. The replace command accepts only the current set, so run this
+command once before a replacement.
 
 ## Emergency superuser
 

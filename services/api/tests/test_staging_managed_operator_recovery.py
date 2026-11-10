@@ -69,6 +69,8 @@ MANAGED_PERMISSIONS = frozenset(
         "profiles.view_playerprofile",
         "fursuits.set_fursuit_enabled",
         "fursuits.view_fursuit",
+        "fursuits.revoke_fursuit_tag",
+        "fursuits.view_fursuittag",
     }
 )
 LIMITED_PERMISSIONS = frozenset(

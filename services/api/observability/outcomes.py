@@ -49,6 +49,8 @@ class Reason(StrEnum):
     ACTIVATION_INACTIVE = "activation_inactive"
     SESSION_INACTIVE = "session_inactive"
     SESSION_EXPIRED = "session_expired"
+    # Reusable tag preview: the convention has no time zone or a closed window.
+    REQUESTS_UNAVAILABLE = "requests_unavailable"
     # Catch session start rejections.
     OWNER_INELIGIBLE = "owner_ineligible"
     NOT_ENROLLED = "not_enrolled"

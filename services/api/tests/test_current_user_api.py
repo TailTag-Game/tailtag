@@ -160,6 +160,7 @@ def test_product_routes_remain_unversioned_and_do_not_add_public_user_surfaces(
     assert set(schema["paths"]) == {
         "/api/catches/",
         "/api/catches/confirm/",
+        "/api/catches/preview/",
         "/api/me/",
         "/api/profile/",
         "/api/profile/avatar/",
@@ -176,6 +177,8 @@ def test_product_routes_remain_unversioned_and_do_not_add_public_user_surfaces(
         "/api/fursuits/",
         "/api/fursuits/{id}/",
         "/api/fursuits/{id}/photo/",
+        "/api/fursuits/{id}/tag/",
+        "/api/fursuits/{id}/tag/replace/",
         "/api/schema/",
     }
     assert client.get("/api/v0/me/").status_code == 404

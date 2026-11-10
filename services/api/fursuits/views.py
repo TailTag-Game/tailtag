@@ -12,7 +12,12 @@ from drf_spectacular.utils import (  # pyright: ignore[reportUnknownVariableType
     extend_schema,  # pyright: ignore[reportUnknownVariableType]
 )
 from rest_framework import serializers, status
-from rest_framework.exceptions import ErrorDetail, UnsupportedMediaType
+from rest_framework.exceptions import (
+    ErrorDetail,
+    NotFound,
+    ParseError,
+    UnsupportedMediaType,
+)
 from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -20,7 +25,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import User
-from fursuits import services
+from config.catch_requests_gate import catch_requests_enabled
+from fursuits import services, tags
 from fursuits.models import Fursuit
 from fursuits.normalization import FursuitNameError
 from fursuits.parsers import ClosedMultiPartParser, MultipartContract
@@ -29,6 +35,11 @@ from fursuits.serializers import (
     FURSUIT_NAME_PATCH_REQUEST_SCHEMA,
     FURSUIT_PHOTO_REQUEST_SCHEMA,
     FURSUIT_RESPONSE_SCHEMA,
+    FURSUIT_TAG_CONFLICT_ERROR_SCHEMA,
+    FURSUIT_TAG_ERROR_SCHEMA,
+    FURSUIT_TAG_REPLACE_REQUEST_SCHEMA,
+    FURSUIT_TAG_REPLACE_VALIDATION_ERROR_SCHEMA,
+    FURSUIT_TAG_RESPONSE_SCHEMA,
     MEDIA_ERROR_MESSAGES,
     FursuitCreateSerializer,
     FursuitNamePatchSerializer,
@@ -207,6 +218,171 @@ class FursuitPhotoView(_FursuitAPIView):
         except services.FursuitWriteIneligibleError:
             raise PermissionDenied from None
         return _fursuit_response(fursuit)
+
+
+_TAG_RESPONSES: dict[int, OpenApiResponse] = {
+    200: OpenApiResponse(response=FURSUIT_TAG_RESPONSE_SCHEMA),
+    401: _AUTH_401,
+    403: _FORBIDDEN_403,
+    404: OpenApiResponse(
+        response=FURSUIT_TAG_ERROR_SCHEMA,
+        description=(
+            "fursuit_not_found when the caller does not own the suit. While the "
+            "catch request gate is off, every call returns the generic not-found shape."
+        ),
+    ),
+    405: _METHOD_405,
+    409: OpenApiResponse(
+        response=FURSUIT_TAG_CONFLICT_ERROR_SCHEMA,
+        description="fursuit_disabled, or tag_version_conflict for a replacement.",
+    ),
+    500: _SERVER_500,
+}
+_INVALID_EXPECTED_VERSION = {
+    "expected_version": [
+        ErrorDetail("A non-negative integer is required.", code="invalid")
+    ]
+}
+
+
+class _FursuitTagAPIView(APIView):
+    """Owner tag routes. The catch request gate hides them while it is off."""
+
+    permission_classes = (IsAuthenticated,)
+    parser_classes = (JSONParser,)
+
+    def initial(self, request: Request, *args: object, **kwargs: object) -> None:
+        if not catch_requests_enabled():
+            raise NotFound()
+        super().initial(request, *args, **kwargs)
+
+    def handle_exception(self, exc: Exception) -> Response:
+        if isinstance(exc, (ParseError, UnsupportedMediaType)):
+            return Response(_INVALID_EXPECTED_VERSION, status=400)
+        return super().handle_exception(exc)
+
+
+class FursuitTagView(_FursuitTagAPIView):
+    """Return the owner's reusable tag. The first read creates the first tag."""
+
+    @extend_schema(
+        operation_id="fursuit_tag_retrieve",
+        tags=["fursuits"],
+        description=(
+            "Return the current reusable tag for an owned suit. The first read "
+            "creates the first tag. After an operator revocation, the read returns "
+            "state revoked and no payload, and never creates a replacement."
+        ),
+        responses=_TAG_RESPONSES,
+    )
+    def get(self, request: Request, id: int) -> Response:
+        try:
+            view = tags.get_or_create_owner_tag(_user(request), fursuit_id=id)
+        except Fursuit.DoesNotExist:
+            return _fursuit_not_found()
+        except tags.TagOwnerIneligibleError:
+            raise PermissionDenied from None
+        except tags.TagFursuitDisabledError:
+            return _fursuit_disabled()
+        return _tag_response(view)
+
+
+class FursuitTagReplaceView(_FursuitTagAPIView):
+    """Replace the owner's reusable tag when the sent version is current."""
+
+    @extend_schema(
+        operation_id="fursuit_tag_replace",
+        tags=["fursuits"],
+        description=(
+            "Replace the tag when expected_version matches the current tag_version. "
+            "Old copies stop working. A stale version returns tag_version_conflict "
+            "and changes nothing. After a lost response, read the tag again and "
+            "never replace again automatically."
+        ),
+        request={"application/json": FURSUIT_TAG_REPLACE_REQUEST_SCHEMA},
+        responses={
+            **_TAG_RESPONSES,
+            400: OpenApiResponse(
+                response=FURSUIT_TAG_REPLACE_VALIDATION_ERROR_SCHEMA,
+                description="expected_version is missing or not a non-negative integer.",
+            ),
+        },
+    )
+    def post(self, request: Request, id: int) -> Response:
+        if not Fursuit.objects.filter(pk=id, owner=_user(request)).exists():
+            return _fursuit_not_found()
+        expected_version = _expected_version(request.data)
+        if expected_version is None:
+            return Response(_INVALID_EXPECTED_VERSION, status=400)
+        try:
+            view = tags.replace_owner_tag(
+                _user(request), fursuit_id=id, expected_version=expected_version
+            )
+        except Fursuit.DoesNotExist:
+            return _fursuit_not_found()
+        except tags.TagOwnerIneligibleError:
+            raise PermissionDenied from None
+        except tags.TagFursuitDisabledError:
+            return _fursuit_disabled()
+        except tags.TagVersionConflictError as error:
+            return _tag_conflict(error.current)
+        return _tag_response(view)
+
+
+def _expected_version(data: object) -> int | None:
+    if not isinstance(data, dict) or set(cast(dict[str, object], data)) != {
+        "expected_version"
+    }:
+        return None
+    value = cast(dict[str, object], data)["expected_version"]
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def _tag_response(view: tags.TagView) -> Response:
+    """Return an owner-only tag without permitting intermediary storage."""
+    response = Response(
+        {
+            "fursuit_id": view.fursuit_id,
+            "state": str(view.state),
+            "tag_version": view.tag_version,
+            "payload": view.payload,
+        }
+    )
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+def _tag_conflict(current: tags.TagView) -> Response:
+    response = Response(
+        {
+            "code": "tag_version_conflict",
+            "detail": "The tag changed. Read the current tag.",
+            "current": {
+                "fursuit_id": current.fursuit_id,
+                "state": str(current.state),
+                "tag_version": current.tag_version,
+            },
+        },
+        status=status.HTTP_409_CONFLICT,
+    )
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+def _fursuit_not_found() -> Response:
+    return Response(
+        {"code": "fursuit_not_found", "detail": "The fursuit was not found."},
+        status=status.HTTP_404_NOT_FOUND,
+    )
+
+
+def _fursuit_disabled() -> Response:
+    return Response(
+        {"code": "fursuit_disabled", "detail": "The fursuit is disabled."},
+        status=status.HTTP_409_CONFLICT,
+    )
 
 
 def _user(request: Request) -> User:

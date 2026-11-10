@@ -135,6 +135,7 @@ paths:
         required: true
       security:
       - BearerAuth: []
+      deprecated: true
       responses:
         '200':
           content:
@@ -243,6 +244,151 @@ paths:
                 - code
                 - detail
           description: An unexpected error occurred.
+  /api/catches/preview/:
+    post:
+      operationId: catch_preview
+      description: Resolve a scanned tag against the caller's selected convention.
+        Preview creates nothing. Unknown, revoked, and unavailable targets share one
+        neutral 404.
+      tags:
+      - catches
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                payload:
+                  type: string
+                  description: The full scanned tag payload, https://tailtag.app/t#<token>.
+              required:
+              - payload
+        required: true
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  fursuit:
+                    type: object
+                    additionalProperties: false
+                    properties:
+                      id:
+                        type: integer
+                      tailtag_id:
+                        type: string
+                        format: uuid
+                      name:
+                        type: string
+                      photo_url:
+                        type: string
+                        format: uri
+                    required:
+                    - id
+                    - tailtag_id
+                    - name
+                    - photo_url
+                  convention_id:
+                    type: integer
+                required:
+                - fursuit
+                - convention_id
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  payload:
+                    type: array
+                    items:
+                      type: string
+                required:
+                - payload
+          description: The body is not a JSON object with one string payload.
+        '401':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  detail:
+                    type: string
+                required:
+                - detail
+          description: Authentication credentials were not provided.
+        '403':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: catcher_ineligible
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: catch_target_unavailable. While the catch request gate is off,
+            every call returns the generic not-found shape.
+        '409':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: catch_requests_unavailable or self_catch_not_allowed
+        '500':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - server_error
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: An unexpected error occurred.
   /api/conventions/:
     get:
       operationId: conventions_list
@@ -301,6 +447,7 @@ paths:
               - payload
       security:
       - BearerAuth: []
+      deprecated: true
       responses:
         '200':
           content:
@@ -640,6 +787,7 @@ paths:
       - conventions
       security:
       - BearerAuth: []
+      deprecated: true
       responses:
         '200':
           content:
@@ -734,6 +882,7 @@ paths:
       - conventions
       security:
       - BearerAuth: []
+      deprecated: true
       responses:
         '200':
           content:
@@ -1489,6 +1638,250 @@ paths:
           description: Method not allowed.
         '500':
           description: An unexpected server error occurred.
+  /api/fursuits/{id}/tag/:
+    get:
+      operationId: fursuit_tag_retrieve
+      description: Return the current reusable tag for an owned suit. The first read
+        creates the first tag. After an operator revocation, the read returns state
+        revoked and no payload, and never creates a replacement.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - fursuits
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  fursuit_id:
+                    type: integer
+                  state:
+                    type: string
+                    enum:
+                    - current
+                    - revoked
+                  tag_version:
+                    type: integer
+                    minimum: 0
+                  payload:
+                    type: string
+                    nullable: true
+                    description: The printed tag payload. Null when state is revoked.
+                required:
+                - fursuit_id
+                - state
+                - tag_version
+                - payload
+          description: ''
+        '401':
+          description: Authentication credentials were not provided.
+        '403':
+          description: The player profile is not eligible.
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: fursuit_not_found when the caller does not own the suit. While
+            the catch request gate is off, every call returns the generic not-found
+            shape.
+        '405':
+          description: Method not allowed.
+        '409':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - fursuit_disabled
+                    - tag_version_conflict
+                  detail:
+                    type: string
+                  current:
+                    type: object
+                    additionalProperties: false
+                    description: Present only for tag_version_conflict. It never carries
+                      a payload. State none means the suit never had a tag.
+                    properties:
+                      fursuit_id:
+                        type: integer
+                      state:
+                        type: string
+                        enum:
+                        - current
+                        - revoked
+                        - none
+                      tag_version:
+                        type: integer
+                        minimum: 0
+                    required:
+                    - fursuit_id
+                    - state
+                    - tag_version
+                required:
+                - code
+                - detail
+          description: fursuit_disabled, or tag_version_conflict for a replacement.
+        '500':
+          description: An unexpected server error occurred.
+  /api/fursuits/{id}/tag/replace/:
+    post:
+      operationId: fursuit_tag_replace
+      description: Replace the tag when expected_version matches the current tag_version.
+        Old copies stop working. A stale version returns tag_version_conflict and
+        changes nothing. After a lost response, read the tag again and never replace
+        again automatically.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - fursuits
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                expected_version:
+                  type: integer
+                  minimum: 0
+              required:
+              - expected_version
+        required: true
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  fursuit_id:
+                    type: integer
+                  state:
+                    type: string
+                    enum:
+                    - current
+                    - revoked
+                  tag_version:
+                    type: integer
+                    minimum: 0
+                  payload:
+                    type: string
+                    nullable: true
+                    description: The printed tag payload. Null when state is revoked.
+                required:
+                - fursuit_id
+                - state
+                - tag_version
+                - payload
+          description: ''
+        '401':
+          description: Authentication credentials were not provided.
+        '403':
+          description: The player profile is not eligible.
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                  detail:
+                    type: string
+                required:
+                - code
+                - detail
+          description: fursuit_not_found when the caller does not own the suit. While
+            the catch request gate is off, every call returns the generic not-found
+            shape.
+        '405':
+          description: Method not allowed.
+        '409':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                    enum:
+                    - fursuit_disabled
+                    - tag_version_conflict
+                  detail:
+                    type: string
+                  current:
+                    type: object
+                    additionalProperties: false
+                    description: Present only for tag_version_conflict. It never carries
+                      a payload. State none means the suit never had a tag.
+                    properties:
+                      fursuit_id:
+                        type: integer
+                      state:
+                        type: string
+                        enum:
+                        - current
+                        - revoked
+                        - none
+                      tag_version:
+                        type: integer
+                        minimum: 0
+                    required:
+                    - fursuit_id
+                    - state
+                    - tag_version
+                required:
+                - code
+                - detail
+          description: fursuit_disabled, or tag_version_conflict for a replacement.
+        '500':
+          description: An unexpected server error occurred.
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  expected_version:
+                    type: array
+                    items:
+                      type: string
+                required:
+                - expected_version
+          description: expected_version is missing or not a non-negative integer.
   /api/me/:
     get:
       operationId: me_retrieve
