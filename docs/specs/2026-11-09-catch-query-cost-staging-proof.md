@@ -1,8 +1,8 @@
 # Catch endpoint query count and authentication cost: proof
 
-Issue: [#451](https://github.com/TailTag-Game/tailtag/issues/451). Spec: [refinement comment](https://github.com/TailTag-Game/tailtag/issues/451#issuecomment-6752734451). Before state: Render Staging run `2e17d592` and its Sentry spans.
+Issue: [#451](https://github.com/TailTag-Game/tailtag/issues/451). Spec: [refinement comment](https://github.com/TailTag-Game/tailtag/issues/451#issuecomment-6752734451) and the [AC4 amendment](https://github.com/TailTag-Game/tailtag/issues/451#issuecomment-6755623056). Code: [PR #498](https://github.com/TailTag-Game/tailtag/pull/498) (`9b3e550`). Before state: Render Staging run `2e17d592` and its Sentry spans.
 
-Checkpoint: 2026-11-09 UTC. This record has two parts. The first pull request adds the statement lists, the code change, the `view.authenticate` record, and a local profile. After the maintainer promotes Staging and runs one `normal-profile` run, a second pull request adds the run evidence.
+Checkpoint: 2026-11-10 UTC. The first pull request added the statement lists, the code change, the `view.authenticate` record, and a local profile. The maintainer then promoted `9b3e550` to Render Staging and ran one `normal-profile` run. The [Staging run](#staging-run-ac20-to-ac24) section records it. The run returned `acceptable`. `resolve` server time fell by 38%, and the request rate rose by 31%.
 
 ## Before: Sentry spans of run `2e17d592` (AC1, AC18)
 
@@ -158,4 +158,92 @@ The local database is fast, about 0.4 ms to 0.7 ms per statement. On Staging a s
 
 ## Staging run (AC20 to AC24)
 
-Pending. After the maintainer promotes Staging, one `normal-profile` run is evaluated against the baseline from run `2e17d592`. The second pull request adds the verdict, the Sentry statements per request, and the server time split per endpoint next to the values above. This issue promotes no baseline.
+### Release and target
+
+| Binding | Value |
+| --- | --- |
+| Backend source | `9b3e550e46fac4e1a6c348f404d30e2eb929a228` ([PR #498](https://github.com/TailTag-Game/tailtag/pull/498)) |
+| Staging promotion | `dep-dbp6kis9v7es73aovi30`, deployed `2026-11-10T00:50:19Z`, every outcome `SUCCEEDED` ([receipt](../development/staging-deployments/dep-dbp6kis9v7es73aovi30.json)) |
+| Staging plans | API `0.5c-512mb`, PostgreSQL `0.1c-256mb`, both in Virginia |
+| API runtime | 1 instance, 3 sync workers, `CONN_MAX_AGE` 60 with health checks, Sentry trace rate 1.0 |
+| Simulator release | `f275b7bb6e298c242164a475832a907e6e9e5764`, image `sha256:bde88f9aac935c21c944c2419476f681dba3d8491866e8f09cd4669b2af881bf`, the same as run `2e17d592` |
+| Profile | `tools/simulator/host/normal-profile.json`, unchanged |
+| Comparable key | `convention-baseline` v2, plan `dac260032cf2…`, `staging`, `external_host:linux/amd64` |
+
+### Session
+
+The maintainer ran a host operator session on 2026-11-10. The session key was registered on Render only for the session and removed at the end. The maintainer confirmed the session end. The results of the two negative controls at session start were not kept.
+
+| Run | Window (UTC) | Result |
+| --- | --- | --- |
+| `309b4e46-0f7a-4e3f-b6da-3b0597739f8a`, smoke | `01:02:22Z` to `01:04:57Z` | `passed`. All 13 journeys passed, among them `stale_credential`, `stopped_session`, `self_catch`, `convention_mismatch`, and `ineligible_catcher`. |
+| `027338ba-776c-4373-9af9-a88b9b70a225`, normal | `01:05:09Z` to `01:14:42Z` | `passed`. Target `9b3e550` confirmed. Reconciliation passed 14 checks. Cleanup removed every fixture. |
+
+`task sim-host-collect` copied both runs into the owner-private archive with size and SHA-256 checks, and evaluated the normal run.
+
+### Verdict (AC20)
+
+The verdict is `acceptable` against the baseline from run `2e17d592`. All 27 checks passed: 16 absolute, 8 regression, and 3 saturation.
+
+| | Run `2e17d592` (baseline) | Run `027338ba` |
+| --- | --- | --- |
+| Backend | `2706490` | `9b3e550` |
+| Outcome / correctness | `passed` / `passed` | `passed` / `passed` |
+| Rate, total | 19.62 per second | 25.67 per second (+31%) |
+| p95, total | 596.3 ms | 384.5 ms (−36%) |
+| p99, total | 827.1 ms | 493.5 ms (−40%) |
+| p95, `resolve` | 623.7 ms | 393.4 ms |
+| p95, `confirm` | 585.4 ms | 373.9 ms |
+| p95, read | 561.6 ms | 324.1 ms |
+| Errors and timeouts | 0 | 0 |
+| Generator peak CPU | | 58.9% |
+
+The rate is now above the retired Railway baseline of 24.39 per second. This issue promotes no baseline (AC24). A promotion is a separate owner decision.
+
+### Sentry statements per request (AC21)
+
+| Endpoint | Transactions | Before | After |
+| --- | --- | --- | --- |
+| `resolve` | 3,071 | 9.0 | 4.0 |
+| `confirm` | 3,070 | 5.17 | 4.13 |
+| `GET /api/catches/` | 1,562 | 4.0 | 4.0 |
+
+`confirm` fell by about one statement, as expected for a run of mostly existing catches.
+
+### Server time (AC22)
+
+| Endpoint | Server average | Server p95 |
+| --- | --- | --- |
+| `resolve` | 138.1 to 86.0 ms (−38%) | 286.0 to 193.1 ms (−32%) |
+| `confirm` | 86.5 to 59.4 ms (−31%) | 192.7 to 113.8 ms (−41%) |
+| `GET /api/catches/` | 72.9 to 54.3 ms (−26%) | 171.1 to 102.3 ms (−40%) |
+
+The split uses the same three parts as the before section.
+
+| Endpoint | Database | `view.authenticate` | Rest |
+| --- | --- | --- | --- |
+| `resolve` | 49.8 to 18.5 ms (22%) | 14.1 to 12.2 ms (14%) | 74.2 to 55.3 ms (64%) |
+| `confirm` | 24.0 to 17.3 ms (29%) | 14.7 to 11.3 ms (19%) | 47.8 to 30.8 ms (52%) |
+| `GET /api/catches/` | 16.8 to 13.5 ms (25%) | 13.1 to 12.9 ms (24%) | 43.0 to 27.9 ms (51%) |
+
+What this shows:
+
+- The statement cut worked. The database part of `resolve` fell from 49.8 ms to 18.5 ms.
+- `GET /api/catches/` has no code change, but it is 26% faster. The database and the API CPU are less busy, so every request waits less.
+- A statement still takes about 4 ms to 5.5 ms. In `view.authenticate`, the user query span is about 3 ms, and the part with no child span is about 9 ms.
+- The rest is now 64% of the `resolve` server time.
+
+### Resource use
+
+From the Render Dashboard, read by the maintainer for the run window. Times are UTC.
+
+| Service | CPU | Memory |
+| --- | --- | --- |
+| `tailtag-api-stg` (limit 0.5 CPU, 512 MB) | 85% to 100% from about 01:08Z to 01:14Z, at 100% twice. The smoke run reached about 30%. | About 66% steady (about 340 MB). One short spike to about 80% (about 410 MB) near 01:12Z. |
+| `tailtag-postgres-stg` (limit 0.1 CPU, 0.25 GB) | 45% to 65% in the same window, peak about 75% near 01:13Z. Under 20% before the run. | About 38%, flat. |
+
+The API reached its CPU limit, and the database did not. Before #448, the database was the resource at 100%. After this change, the API CPU limits the request rate. A larger database plan does not address that.
+
+### Follow-up (AC23)
+
+The rest is more than half of the `resolve` server time, so AC23 applies. [#499](https://github.com/TailTag-Game/tailtag/issues/499) covers the API CPU outside the database. The local profile points first at the Sentry SDK at trace rate 1.0.
