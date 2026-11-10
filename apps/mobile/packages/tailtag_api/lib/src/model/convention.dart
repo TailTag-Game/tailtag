@@ -20,6 +20,10 @@ class Convention extends _i1.ObjectParameterEncodable
     this.status,
     this.startDate,
     this.endDate,
+    this.timeZone,
+    this.reviewDeadlineAt,
+    this.reviewDeadlineLocalDate,
+    this.reviewOpen,
   });
 
   factory Convention.fromSimple(
@@ -29,7 +33,17 @@ class Convention extends _i1.ObjectParameterEncodable
     final _$values = value.decodeObject(
       explode: explode,
       explodeSeparator: ',',
-      expectedKeys: {r'id', r'name', r'status', r'start_date', r'end_date'},
+      expectedKeys: {
+        r'id',
+        r'name',
+        r'status',
+        r'start_date',
+        r'end_date',
+        r'time_zone',
+        r'review_deadline_at',
+        r'review_deadline_local_date',
+        r'review_open',
+      },
       listKeys: {},
       context: r'Convention',
     );
@@ -46,6 +60,20 @@ class Convention extends _i1.ObjectParameterEncodable
       endDate: _$values[r'end_date'].decodeSimpleDate(
         context: r'Convention.end_date',
       ),
+      timeZone: _$values[r'time_zone'].decodeSimpleNullableString(
+        context: r'Convention.time_zone',
+      ),
+      reviewDeadlineAt: _$values[r'review_deadline_at']
+          .decodeSimpleNullableDateTime(
+            context: r'Convention.review_deadline_at',
+          ),
+      reviewDeadlineLocalDate: _$values[r'review_deadline_local_date']
+          .decodeSimpleNullableDate(
+            context: r'Convention.review_deadline_local_date',
+          ),
+      reviewOpen: _$values[r'review_open'].decodeSimpleBool(
+        context: r'Convention.review_open',
+      ),
     );
   }
 
@@ -61,6 +89,19 @@ class Convention extends _i1.ObjectParameterEncodable
       endDate: _$map[r'end_date'].decodeJsonDate(
         context: r'Convention.end_date',
       ),
+      timeZone: _$map[r'time_zone'].decodeJsonNullableString(
+        context: r'Convention.time_zone',
+      ),
+      reviewDeadlineAt: _$map[r'review_deadline_at'].decodeJsonNullableDateTime(
+        context: r'Convention.review_deadline_at',
+      ),
+      reviewDeadlineLocalDate: _$map[r'review_deadline_local_date']
+          .decodeJsonNullableDate(
+            context: r'Convention.review_deadline_local_date',
+          ),
+      reviewOpen: _$map[r'review_open'].decodeJsonBool(
+        context: r'Convention.review_open',
+      ),
     );
   }
 
@@ -68,7 +109,17 @@ class Convention extends _i1.ObjectParameterEncodable
     final _$values = value.decodeObject(
       explode: explode,
       explodeSeparator: '&',
-      expectedKeys: {r'id', r'name', r'status', r'start_date', r'end_date'},
+      expectedKeys: {
+        r'id',
+        r'name',
+        r'status',
+        r'start_date',
+        r'end_date',
+        r'time_zone',
+        r'review_deadline_at',
+        r'review_deadline_local_date',
+        r'review_open',
+      },
       listKeys: {},
       context: r'Convention',
     );
@@ -84,6 +135,20 @@ class Convention extends _i1.ObjectParameterEncodable
       ),
       endDate: _$values[r'end_date'].decodeFormDate(
         context: r'Convention.end_date',
+      ),
+      timeZone: _$values[r'time_zone'].decodeFormNullableString(
+        context: r'Convention.time_zone',
+      ),
+      reviewDeadlineAt: _$values[r'review_deadline_at']
+          .decodeFormNullableDateTime(
+            context: r'Convention.review_deadline_at',
+          ),
+      reviewDeadlineLocalDate: _$values[r'review_deadline_local_date']
+          .decodeFormNullableDate(
+            context: r'Convention.review_deadline_local_date',
+          ),
+      reviewOpen: _$values[r'review_open'].decodeFormBool(
+        context: r'Convention.review_open',
       ),
     );
   }
@@ -108,6 +173,16 @@ class Convention extends _i1.ObjectParameterEncodable
   /// End date of the convention.
   final _i1.Date? endDate;
 
+  /// IANA time zone of the convention. Catch requests stay unavailable until an operator sets it. A set zone cannot be removed.
+  final _i3.String? timeZone;
+
+  /// When the catch request review window closes. The server computes it from the end date and time zone.
+  final _i3.DateTime? reviewDeadlineAt;
+
+  final _i1.Date? reviewDeadlineLocalDate;
+
+  final _i3.bool? reviewOpen;
+
   @_i3.override
   _i3.Object? toJson() => <_i3.String, _i3.Object?>{};
 
@@ -121,12 +196,26 @@ class Convention extends _i1.ObjectParameterEncodable
         other.name == this.name &&
         other.status == this.status &&
         other.startDate == this.startDate &&
-        other.endDate == this.endDate;
+        other.endDate == this.endDate &&
+        other.timeZone == this.timeZone &&
+        other.reviewDeadlineAt == this.reviewDeadlineAt &&
+        other.reviewDeadlineLocalDate == this.reviewDeadlineLocalDate &&
+        other.reviewOpen == this.reviewOpen;
   }
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([id, name, status, startDate, endDate]);
+    return _i3.Object.hashAll([
+      id,
+      name,
+      status,
+      startDate,
+      endDate,
+      timeZone,
+      reviewDeadlineAt,
+      reviewDeadlineLocalDate,
+      reviewOpen,
+    ]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -160,12 +249,20 @@ abstract class $$ConventionCopyWith<$Res> {
     _i4.ConventionStatusAllOfModel? status,
     _i1.Date? startDate,
     _i1.Date? endDate,
+    _i3.String? timeZone,
+    _i3.DateTime? reviewDeadlineAt,
+    _i1.Date? reviewDeadlineLocalDate,
+    _i3.bool? reviewOpen,
   });
   _i3.int? get id;
   _i3.String? get name;
   _i4.ConventionStatusAllOfModel? get status;
   _i1.Date? get startDate;
   _i1.Date? get endDate;
+  _i3.String? get timeZone;
+  _i3.DateTime? get reviewDeadlineAt;
+  _i1.Date? get reviewDeadlineLocalDate;
+  _i3.bool? get reviewOpen;
 }
 
 class _ConventionCopyWith<$Res> implements $$ConventionCopyWith<$Res> {
@@ -191,12 +288,28 @@ class _ConventionCopyWith<$Res> implements $$ConventionCopyWith<$Res> {
   _i1.Date? get endDate => _value.endDate;
 
   @_i3.override
+  _i3.String? get timeZone => _value.timeZone;
+
+  @_i3.override
+  _i3.DateTime? get reviewDeadlineAt => _value.reviewDeadlineAt;
+
+  @_i3.override
+  _i1.Date? get reviewDeadlineLocalDate => _value.reviewDeadlineLocalDate;
+
+  @_i3.override
+  _i3.bool? get reviewOpen => _value.reviewOpen;
+
+  @_i3.override
   $Res call({
     _i3.Object? id = _sentinel,
     _i3.Object? name = _sentinel,
     _i3.Object? status = _sentinel,
     _i3.Object? startDate = _sentinel,
     _i3.Object? endDate = _sentinel,
+    _i3.Object? timeZone = _sentinel,
+    _i3.Object? reviewDeadlineAt = _sentinel,
+    _i3.Object? reviewDeadlineLocalDate = _sentinel,
+    _i3.Object? reviewOpen = _sentinel,
   }) {
     return (Convention(
       id: _i3.identical(id, _sentinel) ? this.id : (id as _i3.int?),
@@ -210,6 +323,18 @@ class _ConventionCopyWith<$Res> implements $$ConventionCopyWith<$Res> {
       endDate: _i3.identical(endDate, _sentinel)
           ? this.endDate
           : (endDate as _i1.Date?),
+      timeZone: _i3.identical(timeZone, _sentinel)
+          ? this.timeZone
+          : (timeZone as _i3.String?),
+      reviewDeadlineAt: _i3.identical(reviewDeadlineAt, _sentinel)
+          ? this.reviewDeadlineAt
+          : (reviewDeadlineAt as _i3.DateTime?),
+      reviewDeadlineLocalDate: _i3.identical(reviewDeadlineLocalDate, _sentinel)
+          ? this.reviewDeadlineLocalDate
+          : (reviewDeadlineLocalDate as _i1.Date?),
+      reviewOpen: _i3.identical(reviewOpen, _sentinel)
+          ? this.reviewOpen
+          : (reviewOpen as _i3.bool?),
     ) as $Res);
   }
 }

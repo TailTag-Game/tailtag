@@ -323,6 +323,7 @@ def _pause_convention(s: Any) -> Any:
         status=ConventionStatus.PAUSED,
         start_date=s.convention.start_date,
         end_date=s.convention.end_date,
+        time_zone=s.convention.time_zone,
     )
 
 

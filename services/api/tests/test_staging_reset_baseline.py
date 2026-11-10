@@ -609,6 +609,9 @@ def test_first_reset_binds_all_null_registry_roots_atomically(
     identity.refresh_from_db()
     assert identity.convention_id is not None
     assert identity.first_fursuit_id is not None
+    assert Convention.objects.values_list("time_zone", "review_deadline_at").get(
+        pk=identity.convention_id
+    ) == ("America/New_York", datetime.datetime(2036, 9, 4, 4, tzinfo=datetime.UTC))
     assert identity.second_fursuit_id is not None
     assert {
         Fursuit.objects.get(pk=identity.first_fursuit_id).tailtag_id,

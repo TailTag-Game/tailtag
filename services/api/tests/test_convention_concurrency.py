@@ -739,6 +739,116 @@ def test_generic_convention_admin_edit_cannot_downgrade_concurrent_active_winner
 
 
 @pytest.mark.django_db(transaction=True)
+def test_extension_blocked_behind_a_closing_edit_cannot_reopen_the_window() -> None:
+    """#503 AC15: the blocked edit reads closure from the locked row, not its form."""
+    from conventions.review_deadline import compute_review_deadline
+
+    open_end = datetime.date(2030, 6, 2)
+    closed_end = datetime.date(2020, 6, 2)
+    convention = Convention.objects.create(
+        name="Deadline race target",
+        status=ConventionStatus.DRAFT,
+        start_date=open_end - datetime.timedelta(days=1),
+        end_date=open_end,
+        time_zone="America/New_York",
+        review_deadline_at=compute_review_deadline(open_end, "America/New_York"),
+    )
+    editor = create_test_user(clerk_user_id="convention_deadline_race_editor")
+    editor.is_staff = True
+    editor.save(update_fields=["is_staff"])
+    editor.user_permissions.add(  # pyright: ignore[reportUnknownMemberType]
+        Permission.objects.get(
+            content_type__app_label="conventions", codename="change_convention"
+        )
+    )
+
+    holder_updated = Event()
+    release_holder = Event()
+    holder_pids: Queue[int] = Queue()
+    admin_pids: Queue[int] = Queue()
+    url = reverse("admin:conventions_convention_change", args=(convention.pk,))
+    extension = {
+        "name": convention.name,
+        "status": ConventionStatus.DRAFT,
+        "start_date": "2030-06-01",
+        "end_date": "2030-06-09",
+        "time_zone": "America/New_York",
+    }
+
+    def close_the_window() -> None:
+        close_old_connections()
+        try:
+            with transaction.atomic():
+                holder_pids.put(_configure_worker_session_and_get_pid())
+                services.set_convention_admin_state(
+                    convention_id=convention.pk,
+                    name=convention.name,
+                    status=ConventionStatus.DRAFT,
+                    start_date=closed_end - datetime.timedelta(days=1),
+                    end_date=closed_end,
+                    time_zone="America/New_York",
+                )
+                holder_updated.set()
+                if not release_holder.wait(_HOLDER_GATE_TIMEOUT_SECONDS):
+                    raise TimeoutError("closing edit was never released")
+        finally:
+            connection.close()
+
+    def submit_extension() -> Any:
+        return _admin_request_in_bounded_worker(
+            user_id=editor.pk,
+            backend_pids=admin_pids,
+            request=lambda client: client.post(url, extension),
+        )
+
+    holder: Future[Any] | None = None
+    admin_request: Future[Any] | None = None
+    holder_pid: int | None = None
+    admin_pid: int | None = None
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        try:
+            holder = executor.submit(close_the_window)
+            holder_pid = _wait_for_pid_or_worker_finish(
+                backend_pids=holder_pids,
+                future=holder,
+                expected="the closing edit transaction setup",
+            )
+            _wait_for_event_or_worker_finish(
+                event=holder_updated,
+                future=holder,
+                expected="the uncommitted closing edit",
+            )
+            admin_request = executor.submit(submit_extension)
+            admin_pid = _wait_for_pid_or_worker_finish(
+                backend_pids=admin_pids,
+                future=admin_request,
+                expected="the extension admin request setup",
+            )
+            _assert_backend_blocked_by(
+                waiter_pid=admin_pid,
+                holder_pid=holder_pid,
+                worker=admin_request,
+                expected="the Convention row lock before the extension",
+            )
+            release_holder.set()
+            assert holder.result(timeout=_FUTURE_RESULT_TIMEOUT_SECONDS) is None
+            assert (
+                admin_request.result(timeout=_FUTURE_RESULT_TIMEOUT_SECONDS).status_code
+                == 302
+            )
+        finally:
+            release_holder.set()
+            _cancel_if_unfinished(future=holder, backend_pid=holder_pid)
+            _cancel_if_unfinished(future=admin_request, backend_pid=admin_pid)
+
+    convention.refresh_from_db()
+    assert convention.end_date == datetime.date(2030, 6, 9)
+    assert convention.review_deadline_at == compute_review_deadline(
+        closed_end, "America/New_York"
+    )
+
+
+@pytest.mark.django_db(transaction=True)
 def test_convention_admin_delete_revalidates_the_locked_active_state() -> None:
     """A draft delete request must not remove a Convention made ACTIVE while blocked."""
     convention = _create_convention(

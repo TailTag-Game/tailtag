@@ -24,6 +24,7 @@ from accounts.models import User
 from catches.models import Catch
 from conventions import services as convention_services
 from conventions.models import Convention, ConventionEnrollment, ConventionStatus
+from conventions.review_deadline import apply_review_schedule
 from fursuits import services as fursuit_services
 from fursuits.models import Fursuit
 from profiles.models import PlayerProfile
@@ -44,6 +45,8 @@ from simulation_pool import services as pool_services
 from simulation_pool.models import AVAILABLE, PoolSlot
 
 _LOGGER = logging.getLogger(__name__)
+# Seed data sets an explicit zone for every convention it creates (#503).
+FIXTURE_CONVENTION_TIME_ZONE: Final = "America/New_York"
 _CLEANUP_WARNING = "Fixture image cleanup failed after a rolled-back provision."
 
 _POOL = re.compile(r"[a-z0-9]{1,12}")
@@ -318,7 +321,9 @@ def _create(
         name=name,
         status=ConventionStatus.DRAFT,
         start_date=start_date,
-        end_date=end_date,
+    )
+    apply_review_schedule(
+        convention, end_date=end_date, time_zone=FIXTURE_CONVENTION_TIME_ZONE
     )
     convention.full_clean()
     convention.save()
@@ -328,6 +333,7 @@ def _create(
         status=ConventionStatus.ACTIVE.value,
         start_date=start_date,
         end_date=end_date,
+        time_zone=FIXTURE_CONVENTION_TIME_ZONE,
     )
     enrollment_ids = [
         convention_services.enroll_in_convention(

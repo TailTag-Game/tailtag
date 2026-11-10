@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import zoneinfo
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -67,6 +68,9 @@ TEMPLATES: list[dict[str, object]] = [
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
+# Convention review deadlines load zone rules only from the pinned tzdata
+# package, so every platform and image uses one zone data version (#503).
+zoneinfo.reset_tzpath(to=())
 USE_I18N = True
 USE_TZ = True
 

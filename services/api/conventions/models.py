@@ -13,6 +13,7 @@ from accounts.models import User
 from fursuits.models import Fursuit
 
 from .catch_credential_protocol import CATCH_CREDENTIAL_TOKEN_LENGTH
+from .review_deadline import time_zone_names
 
 
 class ConventionStatus(models.TextChoices):
@@ -47,6 +48,26 @@ class Convention(models.Model):
     end_date: models.DateField[datetime.date, datetime.date] = models.DateField(
         help_text="End date of the convention.",
     )
+    time_zone: models.CharField[str | None, str | None] = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text=(
+            "IANA time zone of the convention. Catch requests stay unavailable "
+            "until an operator sets it. A set zone cannot be removed."
+        ),
+    )
+    review_deadline_at: models.DateTimeField[
+        datetime.datetime | None, datetime.datetime | None
+    ] = models.DateTimeField(
+        null=True,
+        blank=True,
+        editable=False,
+        help_text=(
+            "When the catch request review window closes. The server computes it "
+            "from the end date and time zone."
+        ),
+    )
     created_at: models.DateTimeField[datetime.datetime, datetime.datetime] = (
         models.DateTimeField(
             auto_now_add=True,
@@ -76,6 +97,17 @@ class Convention(models.Model):
                 condition=models.Q(end_date__gte=models.F("start_date")),
                 name="conventions_convention_end_date_gte_start_date",
             ),
+            models.CheckConstraint(
+                condition=~models.Q(time_zone=""),
+                name="conventions_convention_time_zone_not_empty",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    time_zone__isnull=True, review_deadline_at__isnull=True
+                )
+                | models.Q(time_zone__isnull=False, review_deadline_at__isnull=False),
+                name="conventions_convention_time_zone_deadline_paired",
+            ),
         ]
         indexes: ClassVar[list[models.Index]] = [
             models.Index(
@@ -93,6 +125,9 @@ class Convention(models.Model):
             raise ValidationError(
                 {"end_date": "End date must be on or after start date."}
             )
+        time_zone: str | None = getattr(self, "time_zone", None)
+        if time_zone is not None and time_zone not in time_zone_names():
+            raise ValidationError({"time_zone": "Enter a known IANA time zone."})
 
     @property
     def is_playable(self) -> bool:

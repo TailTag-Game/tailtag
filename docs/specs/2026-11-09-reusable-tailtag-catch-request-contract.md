@@ -51,7 +51,7 @@ The convention gains these fields.
 
 | Field | Type | Rule |
 | --- | --- | --- |
-| `time_zone` | IANA zone name or null | An authorized operator sets it. The server rejects a name that the IANA database does not know. |
+| `time_zone` | IANA zone name or null | An authorized operator sets it. The server rejects a name that the IANA database does not know. Once set, it can change to another zone but never return to null. |
 | `review_deadline_at` | UTC timestamp or null | The server computes and stores it. Null when `time_zone` is null. |
 
 ### Deadline rule
@@ -721,5 +721,6 @@ Source: #502 G13. This table names the owning task and proof type for each claus
 | 2026-11-09 | Operator actions invalidate declined requests as well as pending ones. This amends refinement AC9. | #502 review R1 |
 | 2026-11-09 | Player self-leave withdraws pending and declined requests. Owner self-leave keeps requests reviewable. | #502 review R2 |
 | 2026-11-09 | Owners see `unavailable` instead of `invalidated`. | #502 review R3 |
+| 2026-11-09 | A set convention time zone can change but cannot return to null. | #503 G1 |
 
 The owner approved every #502 recommendation on 2026-11-09. The owner made the three review decisions on the same day, after independent review of this contract.

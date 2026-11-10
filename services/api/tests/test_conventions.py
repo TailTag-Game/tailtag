@@ -768,7 +768,17 @@ def test_convention_list_authenticated_returns_active_conventions() -> None:
     assert len(data) == 1
 
     first_item = data[0]
-    expected_fields = {"id", "name", "status", "start_date", "end_date"}
+    expected_fields = {
+        "id",
+        "name",
+        "status",
+        "start_date",
+        "end_date",
+        "time_zone",
+        "review_deadline_at",
+        "review_deadline_local_date",
+        "review_open",
+    }
     assert set(first_item.keys()) == expected_fields
     assert first_item["id"] == con_active.pk
     assert first_item["name"] == "Alpha Con 2026"
@@ -798,6 +808,10 @@ def test_convention_detail_authenticated_returns_convention() -> None:
         "status": "active",
         "start_date": "2026-12-03",
         "end_date": "2026-12-06",
+        "time_zone": None,
+        "review_deadline_at": None,
+        "review_deadline_local_date": None,
+        "review_open": False,
     }
 
 
@@ -835,6 +849,10 @@ def test_conventions_openapi_schema_contract(client: Client) -> None:
         "status",
         "start_date",
         "end_date",
+        "time_zone",
+        "review_deadline_at",
+        "review_deadline_local_date",
+        "review_open",
     }
 
     # Verify Detail endpoint schema
@@ -850,6 +868,10 @@ def test_conventions_openapi_schema_contract(client: Client) -> None:
         "status",
         "start_date",
         "end_date",
+        "time_zone",
+        "review_deadline_at",
+        "review_deadline_local_date",
+        "review_open",
     }
     assert "404" in detail_op["responses"]
 

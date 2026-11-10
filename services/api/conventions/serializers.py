@@ -6,6 +6,10 @@ import datetime
 from collections.abc import Mapping
 from typing import Any, TypedDict, cast
 
+from django.utils import timezone
+from drf_spectacular.utils import (
+    extend_schema_field,  # pyright: ignore[reportUnknownVariableType]
+)
 from rest_framework import serializers
 from rest_framework.exceptions import ErrorDetail
 
@@ -14,6 +18,7 @@ from media import service as media_service
 from .catch_credential_protocol import CATCH_CREDENTIAL_PAYLOAD_PATTERN
 from .catch_sessions import FursuitCatchSessionState
 from .models import Convention, ConventionEnrollment, FursuitActivation
+from .review_deadline import review_deadline_local_date, review_window_open
 
 FURSUIT_CATCH_SESSION_RESPONSE_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -156,6 +161,11 @@ FURSUIT_CATCH_CREDENTIAL_RESOLUTION_VALIDATION_ERROR_SCHEMA: dict[str, object] =
 class ConventionSerializer(serializers.ModelSerializer[Convention]):
     """Serializer exposing safe, read-only convention representation."""
 
+    # The review deadline fields follow the #502 contract. The client shows the
+    # deadline from them and needs no time-zone database.
+    review_deadline_local_date = serializers.SerializerMethodField()
+    review_open = serializers.SerializerMethodField()
+
     class Meta:  # pyright: ignore[reportIncompatibleVariableOverride]
         model = Convention
         fields = (
@@ -164,6 +174,10 @@ class ConventionSerializer(serializers.ModelSerializer[Convention]):
             "status",
             "start_date",
             "end_date",
+            "time_zone",
+            "review_deadline_at",
+            "review_deadline_local_date",
+            "review_open",
         )
         read_only_fields = (
             "id",
@@ -171,7 +185,25 @@ class ConventionSerializer(serializers.ModelSerializer[Convention]):
             "status",
             "start_date",
             "end_date",
+            "time_zone",
+            "review_deadline_at",
+            "review_deadline_local_date",
+            "review_open",
         )
+
+    @extend_schema_field(serializers.DateField(allow_null=True, read_only=True))
+    def get_review_deadline_local_date(self, obj: Convention) -> datetime.date | None:
+        """Return the local calendar day that starts at the deadline."""
+        return review_deadline_local_date(obj)
+
+    @extend_schema_field(serializers.BooleanField(read_only=True))
+    def get_review_open(self, obj: Convention) -> bool:
+        """Return whether the window is open, by the application clock.
+
+        Reads are display only. Writes and request actions use the database
+        clock after their locks.
+        """
+        return review_window_open(obj, timezone.now())
 
 
 class ConventionEnrollmentSerializer(serializers.ModelSerializer[ConventionEnrollment]):
@@ -276,6 +308,10 @@ class ConventionResponseData(TypedDict):
     status: str
     start_date: str
     end_date: str
+    time_zone: str | None
+    review_deadline_at: str | None
+    review_deadline_local_date: str | None
+    review_open: bool
 
 
 class ConventionEnrollmentResponseData(TypedDict):
@@ -324,13 +360,28 @@ class FursuitCatchCredentialResolutionResponseData(TypedDict):
 
 
 def convention_response_data(convention: Convention) -> ConventionResponseData:
-    """Project durable convention state to player-facing representation."""
+    """Project durable convention state to player-facing representation.
+
+    Keep these fields equal to ``ConventionSerializer``.
+    """
+    deadline = convention.review_deadline_at
+    local_date = review_deadline_local_date(convention)
     return {
         "id": convention.pk,
         "name": convention.name,
         "status": convention.status,
         "start_date": convention.start_date.isoformat(),
         "end_date": convention.end_date.isoformat(),
+        "time_zone": convention.time_zone,
+        "review_deadline_at": (
+            None
+            if deadline is None
+            else deadline.astimezone(datetime.UTC).isoformat().replace("+00:00", "Z")
+        ),
+        "review_deadline_local_date": (
+            None if local_date is None else local_date.isoformat()
+        ),
+        "review_open": review_window_open(convention, timezone.now()),
     }
 
 

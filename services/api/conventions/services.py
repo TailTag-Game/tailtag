@@ -16,6 +16,10 @@ from conventions.models import (
     ConventionStatus,
     FursuitActivation,
 )
+from conventions.review_deadline import (
+    apply_review_schedule,
+    compute_review_deadline,
+)
 from fursuits.models import Fursuit
 from operator_audit.services import OperatorTransition
 from profiles.eligibility import eligible_player_profiles, is_participation_eligible
@@ -44,6 +48,10 @@ class FursuitActivationNotEligibleError(Exception):
 
 class ConventionPlayabilityBoundaryError(Exception):
     """The locked Convention no longer matches the approved admin boundary."""
+
+
+class ConventionTimeZoneRequiredError(Exception):
+    """An edit tried to remove a Convention time zone that is already set."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,6 +321,19 @@ def remove_convention_enrollment(*, enrollment_id: int) -> OperatorTransition[No
         return OperatorTransition(value=None, changed=True)
 
 
+def _review_deadline_is_stale(convention: Convention) -> bool:
+    """Return whether the stored deadline no longer matches its end date and zone.
+
+    An older application image can change ``end_date`` without the deadline.
+    A plain re-save then repairs an open window. A closed deadline still never
+    moves.
+    """
+    if convention.time_zone is None or convention.review_deadline_at is None:
+        return False
+    expected = compute_review_deadline(convention.end_date, convention.time_zone)
+    return convention.review_deadline_at != expected
+
+
 def set_convention_admin_state(
     *,
     convention_id: int,
@@ -320,12 +341,19 @@ def set_convention_admin_state(
     status: str,
     start_date: datetime.date,
     end_date: datetime.date,
+    time_zone: str | None,
     expected_is_playable: bool | None = None,
     allow_playability_transition: bool = True,
 ) -> OperatorTransition[Convention]:
-    """Persist an admin Convention edit and end sessions on loss of playability."""
+    """Persist an admin Convention edit and end sessions on loss of playability.
+
+    The review deadline follows the #503 change rules, decided on the locked
+    row with the database clock.
+    """
     with transaction.atomic():
         convention = Convention.objects.select_for_update().get(pk=convention_id)
+        if convention.time_zone is not None and time_zone is None:
+            raise ConventionTimeZoneRequiredError()
         submitted_is_playable = status == ConventionStatus.ACTIVE.value
         if (
             expected_is_playable is not None
@@ -340,6 +368,8 @@ def set_convention_admin_state(
             or convention.status != status
             or convention.start_date != start_date
             or convention.end_date != end_date
+            or convention.time_zone != time_zone
+            or _review_deadline_is_stale(convention)
         )
         if not changed:
             return OperatorTransition(value=convention, changed=False)
@@ -354,9 +384,17 @@ def set_convention_admin_state(
         convention.name = name
         convention.status = status
         convention.start_date = start_date
-        convention.end_date = end_date
+        apply_review_schedule(convention, end_date=end_date, time_zone=time_zone)
         convention.save(
-            update_fields=["name", "status", "start_date", "end_date", "updated_at"]
+            update_fields=[
+                "name",
+                "status",
+                "start_date",
+                "end_date",
+                "time_zone",
+                "review_deadline_at",
+                "updated_at",
+            ]
         )
         return OperatorTransition(value=convention, changed=True)
 
