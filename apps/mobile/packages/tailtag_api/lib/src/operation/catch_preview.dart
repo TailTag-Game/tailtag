@@ -31,7 +31,7 @@ final class CatchPreview extends _i1.HttpOperation<_i2.CatchPreviewResponse> {
   CatchPreview(super.baseUrl, super.clientAccessor);
 
   _i3.Future<_i4.TonikResult<_i2.CatchPreviewResponse, _i5.Response>> call({
-    _i6.ApiCatchesPreviewPostBodyBodyModel? body,
+    required _i6.ApiCatchesPreviewPostBodyBodyModel body,
     _i4.TonikCancellation? cancellation,
   }) {
     return this.execute(
@@ -41,7 +41,7 @@ final class CatchPreview extends _i1.HttpOperation<_i2.CatchPreviewResponse> {
         path: _path(),
         query: null,
         data: _data(body: body),
-        options: _options(body: body),
+        options: _options(),
       ),
       decode: _parseResponse,
     );
@@ -51,20 +51,14 @@ final class CatchPreview extends _i1.HttpOperation<_i2.CatchPreviewResponse> {
     return [r'api', r'catches', r'preview', r''];
   }
 
-  _i3.Object? _data({_i6.ApiCatchesPreviewPostBodyBodyModel? body}) {
-    if (body == null) return null;
+  _i3.Object? _data({required _i6.ApiCatchesPreviewPostBodyBodyModel body}) {
     return _i7.utf8.encode(_i7.jsonEncode(body.toJson()));
   }
 
-  _i3.Map<_i3.String, _i3.String> _options({
-    _i6.ApiCatchesPreviewPostBodyBodyModel? body,
-  }) {
-    final _$contentType = body == null ? null : r'application/json';
+  _i3.Map<_i3.String, _i3.String> _options() {
     final _$headers = <_i3.String, _i3.String>{};
     _$headers['Accept'] = r'application/json';
-    if (_$contentType != null) {
-      _$headers[r'Content-Type'] = _$contentType;
-    }
+    _$headers[r'Content-Type'] = r'application/json';
     return _$headers;
   }
 

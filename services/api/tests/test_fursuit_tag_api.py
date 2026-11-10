@@ -6,7 +6,9 @@ import re
 from typing import Any
 
 import pytest
+import yaml
 from django.db import connection
+from django.test import Client
 
 from catches.models import Catch
 from conventions.models import FursuitActivation, FursuitCatchSession
@@ -255,3 +257,13 @@ def test_an_older_image_can_insert_a_fursuit_without_the_tag_version_column() ->
         row = cursor.fetchone()
     assert row is not None
     assert Fursuit.objects.get(pk=row[0]).tag_version == 0
+
+
+@pytest.mark.parametrize(
+    "path", ["/api/catches/preview/", "/api/fursuits/{id}/tag/replace/"]
+)
+def test_openapi_marks_the_tag_request_bodies_required(path: str) -> None:
+    response = Client().get("/api/schema/")
+    schema = yaml.safe_load(response.content)
+
+    assert schema["paths"][path]["post"]["requestBody"]["required"] is True

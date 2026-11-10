@@ -169,7 +169,10 @@ class Command(BaseCommand):
                 raise CommandError("Existing account cannot be used as an operator.")
             upgrade = True
 
-        if upgrade and group is not None:
+        if upgrade:
+            if group is None:
+                # The exact check above guarantees the named group exists.
+                raise CommandError("Existing account cannot be used as an operator.")
             group.permissions.set(permissions)  # pyright: ignore[reportUnknownMemberType]
         operator.set_password(password)
         operator.save(update_fields={"password"})

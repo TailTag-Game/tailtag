@@ -27,7 +27,7 @@ final class FursuitTagReplace
 
   _i3.Future<_i4.TonikResult<_i2.FursuitTagReplaceResponse, _i5.Response>>
   call({
-    _i6.ApiFursuitsIdTagReplacePostBodyBodyModel? body,
+    required _i6.ApiFursuitsIdTagReplacePostBodyBodyModel body,
     required _i3.int id,
     _i4.TonikCancellation? cancellation,
   }) {
@@ -38,7 +38,7 @@ final class FursuitTagReplace
         path: _path(id: id),
         query: null,
         data: _data(body: body),
-        options: _options(body: body),
+        options: _options(),
       ),
       decode: _parseResponse,
     );
@@ -55,20 +55,16 @@ final class FursuitTagReplace
     ];
   }
 
-  _i3.Object? _data({_i6.ApiFursuitsIdTagReplacePostBodyBodyModel? body}) {
-    if (body == null) return null;
+  _i3.Object? _data({
+    required _i6.ApiFursuitsIdTagReplacePostBodyBodyModel body,
+  }) {
     return _i7.utf8.encode(_i7.jsonEncode(body.toJson()));
   }
 
-  _i3.Map<_i3.String, _i3.String> _options({
-    _i6.ApiFursuitsIdTagReplacePostBodyBodyModel? body,
-  }) {
-    final _$contentType = body == null ? null : r'application/json';
+  _i3.Map<_i3.String, _i3.String> _options() {
     final _$headers = <_i3.String, _i3.String>{};
     _$headers['Accept'] = r'application/json';
-    if (_$contentType != null) {
-      _$headers[r'Content-Type'] = _$contentType;
-    }
+    _$headers[r'Content-Type'] = r'application/json';
     return _$headers;
   }
 

@@ -70,7 +70,7 @@ class CatchesApi {
   /// - HTTP Bearer
   _i5.Future<_i6.TonikResult<_i11.CatchPreviewResponse, _i8.Response>>
   catchPreview({
-    _i12.ApiCatchesPreviewPostBodyBodyModel? body,
+    required _i12.ApiCatchesPreviewPostBodyBodyModel body,
     _i6.TonikCancellation? cancellation,
   }) async => _catchPreview(body: body, cancellation: cancellation);
 }

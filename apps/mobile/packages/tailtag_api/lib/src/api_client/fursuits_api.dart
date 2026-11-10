@@ -144,8 +144,8 @@ class FursuitsApi {
   /// - HTTP Bearer
   _i9.Future<_i10.TonikResult<_i21.FursuitTagReplaceResponse, _i12.Response>>
   fursuitTagReplace({
+    required _i22.ApiFursuitsIdTagReplacePostBodyBodyModel body,
     required _i9.int id,
-    _i22.ApiFursuitsIdTagReplacePostBodyBodyModel? body,
     _i10.TonikCancellation? cancellation,
   }) async =>
       _fursuitTagReplace(body: body, id: id, cancellation: cancellation);

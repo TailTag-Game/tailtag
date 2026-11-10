@@ -128,6 +128,7 @@ SPECTACULAR_SETTINGS = {
     "POSTPROCESSING_HOOKS": [
         "drf_spectacular.hooks.postprocess_schema_enums",
         "config.openapi.close_issue_120_component_schemas",
+        "config.openapi.require_reusable_tag_request_bodies",
     ],
 }
 

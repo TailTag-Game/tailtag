@@ -264,6 +264,7 @@ paths:
                   description: The full scanned tag payload, https://tailtag.app/t#<token>.
               required:
               - payload
+        required: true
       security:
       - BearerAuth: []
       responses:
@@ -1772,6 +1773,7 @@ paths:
                   minimum: 0
               required:
               - expected_version
+        required: true
       security:
       - BearerAuth: []
       responses:
