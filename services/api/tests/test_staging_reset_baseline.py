@@ -29,6 +29,7 @@ from conventions.models import (
     FursuitCatchCredential,
     FursuitCatchSession,
 )
+from conventions.review_deadline import compute_review_deadline
 from fursuits.models import Fursuit
 from operator_audit.models import (
     OperatorAction,
@@ -289,7 +290,14 @@ def semantic_snapshot(identity: StagingResetIdentity) -> dict[str, object]:
             )
         ),
         "convention": Convention.objects.filter(pk=identity.convention_id)
-        .values_list("name", "status", "start_date", "end_date")
+        .values_list(
+            "name",
+            "status",
+            "start_date",
+            "end_date",
+            "time_zone",
+            "review_deadline_at",
+        )
         .get(),
         "fursuits": list(
             Fursuit.objects.filter(
@@ -830,6 +838,18 @@ def test_reset_rebuilds_only_registered_closure_and_preserves_identity_admin_and
         "sessions": 0,
         "credentials": 0,
     }
+    # A registered convention from before #503 has no zone. The rebuild sets the
+    # baseline zone, so catch requests can run there once the gate is on.
+    assert semantic_snapshot(identity)["convention"] == (
+        baseline.CONVENTION_NAME,
+        ConventionStatus.ACTIVE,
+        datetime.date(2026, 9, 1),
+        datetime.date(2036, 9, 1),
+        baseline.CONVENTION_TIME_ZONE,
+        compute_review_deadline(
+            datetime.date(2036, 9, 1), baseline.CONVENTION_TIME_ZONE
+        ),
+    )
     assert list(
         PlayerProfile.objects.filter(user__in=(owner, catcher))
         .order_by("user__clerk_user_id")
