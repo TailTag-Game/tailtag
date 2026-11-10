@@ -19,7 +19,7 @@ import 'package:tailtag_api/src/operation/fursuits_create.dart' as _i3;
 import 'package:tailtag_api/src/operation/fursuits_list.dart' as _i2;
 import 'package:tailtag_api/src/operation/fursuits_replace_photo.dart' as _i6;
 import 'package:tailtag_api/src/operation/fursuits_retrieve.dart' as _i4;
-import 'package:tailtag_api/src/operation/fursuits_update_name.dart' as _i5;
+import 'package:tailtag_api/src/operation/fursuits_update.dart' as _i5;
 import 'package:tailtag_api/src/response_wrapper/fursuit_tag_replace_response.dart'
     as _i21;
 import 'package:tailtag_api/src/response_wrapper/fursuit_tag_retrieve_response.dart'
@@ -32,7 +32,7 @@ import 'package:tailtag_api/src/response_wrapper/fursuits_replace_photo_response
     as _i18;
 import 'package:tailtag_api/src/response_wrapper/fursuits_retrieve_response.dart'
     as _i15;
-import 'package:tailtag_api/src/response_wrapper/fursuits_update_name_response.dart'
+import 'package:tailtag_api/src/response_wrapper/fursuits_update_response.dart'
     as _i16;
 import 'package:tailtag_api/src/server/server.dart' as _i1;
 import 'package:tonik_util/tonik_util.dart' as _i10;
@@ -45,10 +45,7 @@ class FursuitsApi {
         server.baseUrl,
         () => server.client,
       ),
-      _fursuitsUpdateName = _i5.FursuitsUpdateName(
-        server.baseUrl,
-        () => server.client,
-      ),
+      _fursuitsUpdate = _i5.FursuitsUpdate(server.baseUrl, () => server.client),
       _fursuitsReplacePhoto = _i6.FursuitsReplacePhoto(
         server.baseUrl,
         () => server.client,
@@ -68,7 +65,7 @@ class FursuitsApi {
 
   final _i4.FursuitsRetrieve _fursuitsRetrieve;
 
-  final _i5.FursuitsUpdateName _fursuitsUpdateName;
+  final _i5.FursuitsUpdate _fursuitsUpdate;
 
   final _i6.FursuitsReplacePhoto _fursuitsReplacePhoto;
 
@@ -94,7 +91,7 @@ class FursuitsApi {
     _i10.TonikCancellation? cancellation,
   }) async => _fursuitsCreate(body: body, cancellation: cancellation);
 
-  /// Retrieve or rename a private player record.
+  /// Retrieve a private player record, or change its name or approval mode.
   ///
   /// Security:
   /// - HTTP Bearer
@@ -104,17 +101,16 @@ class FursuitsApi {
     _i10.TonikCancellation? cancellation,
   }) async => _fursuitsRetrieve(id: id, cancellation: cancellation);
 
-  /// Retrieve or rename a private player record.
+  /// Retrieve a private player record, or change its name or approval mode.
   ///
   /// Security:
   /// - HTTP Bearer
-  _i9.Future<_i10.TonikResult<_i16.FursuitsUpdateNameResponse, _i12.Response>>
-  fursuitsUpdateName({
+  _i9.Future<_i10.TonikResult<_i16.FursuitsUpdateResponse, _i12.Response>>
+  fursuitsUpdate({
+    required _i17.ApiFursuitsIdPatchBodyBodyModel body,
     required _i9.int id,
-    _i17.ApiFursuitsIdPatchBodyBodyModel? body,
     _i10.TonikCancellation? cancellation,
-  }) async =>
-      _fursuitsUpdateName(body: body, id: id, cancellation: cancellation);
+  }) async => _fursuitsUpdate(body: body, id: id, cancellation: cancellation);
 
   /// Replace the required photo of a private player record.
   ///

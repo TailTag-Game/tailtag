@@ -49,6 +49,18 @@ session ID, and never a credential or token.
 | `rejected` | `self_catch` | The player scanned their own fursuit. |
 | `rejected` | a target reason | The fursuit cannot be caught right now. See [target reasons](#target-reasons). |
 
+With the catch request gate on, `POST /api/catches/requests/` records this signal instead of the retired v1 confirmation (#505).
+
+| Outcome | Reason | Meaning |
+| --- | --- | --- |
+| `pending` | | A new request waits for the owner (HTTP 201). |
+| `already_pending` | | The player already has a pending request for this suit at this convention (HTTP 200). This is a normal retry result. |
+| `created` | | Automatic approval recorded a new catch (HTTP 201). |
+| `already_caught` | | The player already caught this suit at this convention (HTTP 200). |
+| `rejected` | `requests_unavailable` | The convention has no time zone, or its review window is closed. |
+
+Request rejections also use `payload_invalid`, `catcher_ineligible`, `self_catch`, and the target reasons.
+
 ### Credential resolution
 
 | Outcome | Reason | Meaning |

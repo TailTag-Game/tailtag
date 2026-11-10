@@ -32,7 +32,7 @@ from fursuits.normalization import FursuitNameError
 from fursuits.parsers import ClosedMultiPartParser, MultipartContract
 from fursuits.serializers import (
     FURSUIT_CREATE_REQUEST_SCHEMA,
-    FURSUIT_NAME_PATCH_REQUEST_SCHEMA,
+    FURSUIT_PATCH_REQUEST_SCHEMA,
     FURSUIT_PHOTO_REQUEST_SCHEMA,
     FURSUIT_RESPONSE_SCHEMA,
     FURSUIT_TAG_CONFLICT_ERROR_SCHEMA,
@@ -42,7 +42,7 @@ from fursuits.serializers import (
     FURSUIT_TAG_RESPONSE_SCHEMA,
     MEDIA_ERROR_MESSAGES,
     FursuitCreateSerializer,
-    FursuitNamePatchSerializer,
+    FursuitPatchSerializer,
     FursuitPhotoSerializer,
     fursuit_response_data,
 )
@@ -130,7 +130,7 @@ class FursuitListCreateView(_FursuitAPIView):
 
 
 class FursuitDetailView(_FursuitAPIView):
-    """Retrieve or rename a private player record."""
+    """Retrieve a private player record, or change its name or approval mode."""
 
     parser_classes = (JSONParser,)
     unsupported_media_error_field = "name"
@@ -149,8 +149,8 @@ class FursuitDetailView(_FursuitAPIView):
         return _fursuit_response(_owned_or_404(_user(request), id))
 
     @extend_schema(
-        operation_id="fursuits_update_name",
-        request={"application/json": FURSUIT_NAME_PATCH_REQUEST_SCHEMA},
+        operation_id="fursuits_update",
+        request={"application/json": FURSUIT_PATCH_REQUEST_SCHEMA},
         responses={
             200: OpenApiResponse(response=FURSUIT_RESPONSE_SCHEMA),
             400: _INVALID_400,
@@ -164,11 +164,16 @@ class FursuitDetailView(_FursuitAPIView):
     def patch(self, request: Request, id: int) -> Response:
         _owned_or_404(_user(request), id)
         _require_eligible(_user(request))
-        serializer = FursuitNamePatchSerializer(data=request.data)
+        serializer = FursuitPatchSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            fursuit = services.update_fursuit_name(
-                _user(request), fursuit_id=id, name=serializer.validated_data["name"]
+            fursuit = services.update_fursuit(
+                _user(request),
+                fursuit_id=id,
+                name=serializer.validated_data.get("name"),
+                catch_approval_mode=serializer.validated_data.get(
+                    "catch_approval_mode"
+                ),
             )
         except FursuitNameError as error:
             _raise_name_error(error)

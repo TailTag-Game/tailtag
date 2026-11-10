@@ -8,20 +8,20 @@ import 'package:meta/meta.dart' as _i1;
 import 'package:tailtag_api/src/model/api_fursuits_id_patch200_body_model.dart'
     as _i2;
 
-sealed class FursuitsUpdateNameResponse {
-  const FursuitsUpdateNameResponse();
+sealed class FursuitsUpdateResponse {
+  const FursuitsUpdateResponse();
 }
 
 @_i1.immutable
-class FursuitsUpdateNameResponse200 extends FursuitsUpdateNameResponse {
-  const FursuitsUpdateNameResponse200({required this.body});
+class FursuitsUpdateResponse200 extends FursuitsUpdateResponse {
+  const FursuitsUpdateResponse200({required this.body});
 
   final _i2.ApiFursuitsIdPatch200BodyModel body;
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
     if (_i3.identical(this, other)) return true;
-    return other is FursuitsUpdateNameResponse200 && other.body == this.body;
+    return other is FursuitsUpdateResponse200 && other.body == this.body;
   }
 
   @_i3.override
@@ -29,13 +29,13 @@ class FursuitsUpdateNameResponse200 extends FursuitsUpdateNameResponse {
 }
 
 @_i1.immutable
-class FursuitsUpdateNameResponse400 extends FursuitsUpdateNameResponse {
-  const FursuitsUpdateNameResponse400();
+class FursuitsUpdateResponse400 extends FursuitsUpdateResponse {
+  const FursuitsUpdateResponse400();
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
     if (_i3.identical(this, other)) return true;
-    return other is FursuitsUpdateNameResponse400;
+    return other is FursuitsUpdateResponse400;
   }
 
   @_i3.override
@@ -43,13 +43,13 @@ class FursuitsUpdateNameResponse400 extends FursuitsUpdateNameResponse {
 }
 
 @_i1.immutable
-class FursuitsUpdateNameResponse401 extends FursuitsUpdateNameResponse {
-  const FursuitsUpdateNameResponse401();
+class FursuitsUpdateResponse401 extends FursuitsUpdateResponse {
+  const FursuitsUpdateResponse401();
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
     if (_i3.identical(this, other)) return true;
-    return other is FursuitsUpdateNameResponse401;
+    return other is FursuitsUpdateResponse401;
   }
 
   @_i3.override
@@ -57,13 +57,13 @@ class FursuitsUpdateNameResponse401 extends FursuitsUpdateNameResponse {
 }
 
 @_i1.immutable
-class FursuitsUpdateNameResponse403 extends FursuitsUpdateNameResponse {
-  const FursuitsUpdateNameResponse403();
+class FursuitsUpdateResponse403 extends FursuitsUpdateResponse {
+  const FursuitsUpdateResponse403();
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
     if (_i3.identical(this, other)) return true;
-    return other is FursuitsUpdateNameResponse403;
+    return other is FursuitsUpdateResponse403;
   }
 
   @_i3.override
@@ -71,13 +71,13 @@ class FursuitsUpdateNameResponse403 extends FursuitsUpdateNameResponse {
 }
 
 @_i1.immutable
-class FursuitsUpdateNameResponse404 extends FursuitsUpdateNameResponse {
-  const FursuitsUpdateNameResponse404();
+class FursuitsUpdateResponse404 extends FursuitsUpdateResponse {
+  const FursuitsUpdateResponse404();
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
     if (_i3.identical(this, other)) return true;
-    return other is FursuitsUpdateNameResponse404;
+    return other is FursuitsUpdateResponse404;
   }
 
   @_i3.override
@@ -85,13 +85,13 @@ class FursuitsUpdateNameResponse404 extends FursuitsUpdateNameResponse {
 }
 
 @_i1.immutable
-class FursuitsUpdateNameResponse405 extends FursuitsUpdateNameResponse {
-  const FursuitsUpdateNameResponse405();
+class FursuitsUpdateResponse405 extends FursuitsUpdateResponse {
+  const FursuitsUpdateResponse405();
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
     if (_i3.identical(this, other)) return true;
-    return other is FursuitsUpdateNameResponse405;
+    return other is FursuitsUpdateResponse405;
   }
 
   @_i3.override
@@ -99,13 +99,13 @@ class FursuitsUpdateNameResponse405 extends FursuitsUpdateNameResponse {
 }
 
 @_i1.immutable
-class FursuitsUpdateNameResponse500 extends FursuitsUpdateNameResponse {
-  const FursuitsUpdateNameResponse500();
+class FursuitsUpdateResponse500 extends FursuitsUpdateResponse {
+  const FursuitsUpdateResponse500();
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
     if (_i3.identical(this, other)) return true;
-    return other is FursuitsUpdateNameResponse500;
+    return other is FursuitsUpdateResponse500;
   }
 
   @_i3.override

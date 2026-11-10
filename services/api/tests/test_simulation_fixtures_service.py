@@ -14,10 +14,12 @@ from django.apps import apps
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 from PIL import Image, UnidentifiedImageError
 from pytest_django.fixtures import SettingsWrapper
 
 from accounts.models import User
+from catches.models import CatchRequest
 from conventions import services as convention_services
 from conventions.models import (
     Convention,
@@ -337,6 +339,23 @@ def _catch_then_lose_enrollment(user: User) -> None:
     create_catch(scenario=dataclasses.replace(scenario, catcher_user=user))
 
 
+def _request_then_lose_enrollment(user: User) -> None:
+    # A catch request outlives the player's enrollment, like a catch (#505).
+    scenario = create_catch_scenario(
+        catcher_clerk_user_id=f"requester_{user.pk}",
+        target_owner_clerk_user_id=f"request_target_{user.pk}",
+    )
+    CatchRequest.objects.create(
+        player=user,
+        fursuit=scenario.fursuit,
+        convention=scenario.convention,
+        activation=scenario.activation,
+        catch_session=scenario.catch_session,
+        state="pending",
+        requested_at=timezone.now(),
+    )
+
+
 @pytest.mark.parametrize(
     "dirtying",
     (
@@ -344,6 +363,7 @@ def _catch_then_lose_enrollment(user: User) -> None:
         ((2, _hold_an_enrollment),),
         ((0, _set_an_avatar),),
         ((3, _catch_then_lose_enrollment),),
+        ((3, _request_then_lose_enrollment),),
         ((0, _own_a_fursuit), (3, _set_an_avatar)),
     ),
     ids=(
@@ -351,6 +371,7 @@ def _catch_then_lose_enrollment(user: User) -> None:
         "catcher-has-an-enrollment",
         "owner-has-an-avatar",
         "catcher-has-a-catch",
+        "catcher-has-a-request",
         "two-dirty-identities",
     ),
 )

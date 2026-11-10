@@ -24,7 +24,8 @@ def test_catch_is_the_exact_minimal_dedicated_domain_model() -> None:
     assert apps.is_installed("catches")
     model = catch_model()
     assert {item.__name__ for item in apps.get_app_config("catches").get_models()} == {
-        "Catch"
+        "Catch",
+        "CatchRequest",
     }
     fields = {field.name: field for field in model._meta.fields}
     assert set(fields) == {
@@ -35,11 +36,17 @@ def test_catch_is_the_exact_minimal_dedicated_domain_model() -> None:
         "activation",
         "catch_session",
         "caught_at",
+        "approved_at",
     }
     assert isinstance(fields["id"], models.BigAutoField)
     assert fields["id"].primary_key is True
     assert isinstance(fields["caught_at"], models.DateTimeField)
-    assert fields["caught_at"].auto_now_add is True
+    # #505 AC23: services pass the server request time, so no auto_now_add.
+    assert fields["caught_at"].auto_now_add is False
+    assert fields["caught_at"].default is timezone.now
+    assert fields["caught_at"].editable is False
+    assert isinstance(fields["approved_at"], models.DateTimeField)
+    assert fields["approved_at"].has_db_default()
     assert model._meta.ordering == ["-caught_at", "-id"]
     assert model.save is models.Model.save
     assert model.delete is models.Model.delete
@@ -91,16 +98,14 @@ def test_catch_has_exact_protected_relationships_and_named_canonical_constraint(
 
 
 @pytest.mark.django_db
-def test_catch_timestamp_is_server_owned_timezone_aware_and_stable_after_save() -> None:
-    """AC-04: rejects caller-controlled or save-mutated catch timestamps."""
+def test_catch_timestamp_is_the_passed_server_time_and_stable_after_save() -> None:
+    """AC-04, #505 AC23: the service-passed request time is stored exactly."""
     scenario = create_catch_scenario()
-    caller_value = timezone.now() - datetime.timedelta(days=365)
-    before = timezone.now()
-    catch = create_catch(scenario=scenario, caught_at=caller_value)
-    after = timezone.now()
-    assert before <= catch.caught_at <= after
+    request_time = timezone.now() - datetime.timedelta(minutes=5)
+    catch = create_catch(scenario=scenario, caught_at=request_time)
+    catch.refresh_from_db()
     assert timezone.is_aware(catch.caught_at)
-    assert catch.caught_at != caller_value
+    assert catch.caught_at == request_time
 
     original = catch.caught_at
     catch.save()

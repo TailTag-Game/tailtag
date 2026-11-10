@@ -32,6 +32,7 @@ def test_profile_openapi_documents_exact_paths_methods_representation_and_media_
         "/api/catches/",
         "/api/catches/confirm/",
         "/api/catches/preview/",
+        "/api/catches/requests/",
         "/api/conventions/",
         "/api/conventions/{id}/",
         "/api/conventions/active/",

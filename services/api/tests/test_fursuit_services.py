@@ -17,7 +17,7 @@ from fursuits.services import (
     get_owned_fursuit,
     replace_fursuit_photo,
     require_fursuit_write_eligible,
-    update_fursuit_name,
+    update_fursuit,
 )
 from profiles.models import PlayerProfile
 from tests.fursuit_test_support import create_eligible_user, create_fursuit_record
@@ -75,7 +75,7 @@ def test_create_and_update_only_persist_server_controlled_fields_and_noop_does_n
         return original(record, *args, **kwargs)
 
     monkeypatch.setattr(type(created), "save", record_save)
-    no_op = update_fursuit_name(owner, fursuit_id=created.id, name=" Fiñ   Wolf ")
+    no_op = update_fursuit(owner, fursuit_id=created.id, name=" Fiñ   Wolf ")
     created.refresh_from_db()
     assert saves == 0 and created.updated_at == timestamp
     assert (no_op.pk, no_op.owner_id, no_op.name, no_op.updated_at) == (
@@ -84,7 +84,7 @@ def test_create_and_update_only_persist_server_controlled_fields_and_noop_does_n
         created.name,
         timestamp,
     )
-    changed = update_fursuit_name(owner, fursuit_id=created.id, name="Renamed")
+    changed = update_fursuit(owner, fursuit_id=created.id, name="Renamed")
     created.refresh_from_db()
     assert created.name == "Renamed" and created.updated_at > timestamp
     assert (changed.pk, changed.name, changed.updated_at) == (

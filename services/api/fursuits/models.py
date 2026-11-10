@@ -13,6 +13,13 @@ from accounts.models import User
 from fursuits.tag_protocol import TAG_TOKEN_LENGTH
 
 
+class CatchApprovalMode(models.TextChoices):
+    """Whether a new catch request waits for the owner or becomes a catch at once."""
+
+    MANUAL = "manual", "Manual"
+    AUTOMATIC = "automatic", "Automatic"
+
+
 class Fursuit(models.Model):
     """A player-owned, operator-moderated participating character."""
 
@@ -38,6 +45,13 @@ class Fursuit(models.Model):
         editable=False,
         help_text="Raised by one on each tag creation, replacement, and revocation.",
     )
+    catch_approval_mode: models.CharField[str, str] = models.CharField(
+        max_length=16,
+        choices=CatchApprovalMode.choices,
+        default=CatchApprovalMode.MANUAL,
+        db_default=CatchApprovalMode.MANUAL,
+        help_text="Applies only to new catch requests.",
+    )
     created_at: models.DateTimeField[datetime.datetime, datetime.datetime] = (
         models.DateTimeField(auto_now_add=True)
     )
@@ -58,6 +72,10 @@ class Fursuit(models.Model):
             models.CheckConstraint(
                 condition=~models.Q(photo_key=""),
                 name="fursuits_fursuit_photo_key_not_empty",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(catch_approval_mode__in=CatchApprovalMode.values),
+                name="fursuits_fursuit_catch_approval_mode_valid",
             ),
         ]
 

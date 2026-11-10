@@ -23,7 +23,7 @@ from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 
 from accounts.models import User
-from catches.models import Catch
+from catches.models import Catch, CatchRequest
 from conventions.models import (
     Convention,
     ConventionEnrollment,
@@ -193,6 +193,12 @@ def _delete_run_state(run: FixtureRun, indexes: list[int]) -> None:
         or Catch.objects.filter(fursuit__owner_id__in=all_ids)
         .exclude(convention_id=convention_id)
         .exists()
+        or CatchRequest.objects.filter(player_id__in=all_ids)
+        .exclude(convention_id=convention_id)
+        .exists()
+        or CatchRequest.objects.filter(fursuit__owner_id__in=all_ids)
+        .exclude(convention_id=convention_id)
+        .exists()
     )
     if in_other_convention:
         raise _refuse()
@@ -229,6 +235,15 @@ def _delete_run_state(run: FixtureRun, indexes: list[int]) -> None:
     try:
         # Every foreign key into these tables is PROTECT, so a row outside the set
         # that still references one of them blocks the delete and refuses the run.
+        # Catch requests go first, with the catch filter. The closed cleanup
+        # report has no request key, so the simulator wire shape stays unchanged.
+        _delete(
+            CatchRequest.objects.filter(
+                Q(player_id__in=provisioned_ids)
+                | Q(fursuit__in=fursuits)
+                | Q(convention_id=convention_id)
+            )
+        )
         counts = {
             "catch": _delete(
                 Catch.objects.filter(

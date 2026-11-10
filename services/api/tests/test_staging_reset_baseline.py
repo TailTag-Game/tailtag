@@ -20,7 +20,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from accounts.models import User
-from catches.models import Catch
+from catches.models import Catch, CatchRequest
 from conventions.models import (
     Convention,
     ConventionEnrollment,
@@ -261,6 +261,16 @@ def active_graph(
         activation=activation,
         catch_session=session,
     )
+    # A pending request on the same session must not block the reset (#505).
+    CatchRequest.objects.create(
+        player=catcher,
+        fursuit=fursuit,
+        convention=convention,
+        activation=activation,
+        catch_session=session,
+        state="pending",
+        requested_at=timezone.now(),
+    )
     return activation, session, credential, catch
 
 
@@ -300,6 +310,9 @@ def semantic_snapshot(identity: StagingResetIdentity) -> dict[str, object]:
         ),
         "counts": {
             "catches": Catch.objects.filter(
+                fursuit_id__in=(identity.first_fursuit_id, identity.second_fursuit_id)
+            ).count(),
+            "requests": CatchRequest.objects.filter(
                 fursuit_id__in=(identity.first_fursuit_id, identity.second_fursuit_id)
             ).count(),
             "sessions": FursuitCatchSession.objects.filter(
@@ -813,6 +826,7 @@ def test_reset_rebuilds_only_registered_closure_and_preserves_identity_admin_and
     identity.refresh_from_db()
     assert semantic_snapshot(identity)["counts"] == {
         "catches": 0,
+        "requests": 0,
         "sessions": 0,
         "credentials": 0,
     }
@@ -851,6 +865,7 @@ def test_reset_rebuilds_only_registered_closure_and_preserves_identity_admin_and
     assert Convention.objects.filter(pk=unowned_convention.pk).exists()
     assert Fursuit.objects.filter(pk=unowned_fursuit.pk).exists()
     assert Catch.objects.filter(pk=unowned_catch.pk).exists()
+    assert CatchRequest.objects.filter(catch_session=unowned_session).exists()
     assert FursuitCatchSession.objects.filter(pk=unowned_session.pk).exists()
     assert FursuitCatchCredential.objects.filter(pk=unowned_credential.pk).exists()
     retained_audit = OperatorAuditEvent.objects.get(pk=audit.pk)

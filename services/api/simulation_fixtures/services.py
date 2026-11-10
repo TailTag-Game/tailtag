@@ -21,7 +21,7 @@ from django.db import transaction
 from django.db.models import Count
 
 from accounts.models import User
-from catches.models import Catch
+from catches.models import Catch, CatchRequest
 from conventions import services as convention_services
 from conventions.models import Convention, ConventionEnrollment, ConventionStatus
 from conventions.review_deadline import apply_review_schedule
@@ -298,6 +298,11 @@ def dirty_indexes(users: Mapping[int, User]) -> list[int]:
         | set(
             Catch.objects.filter(catcher_user_id__in=user_ids).values_list(
                 "catcher_user_id", flat=True
+            )
+        )
+        | set(
+            CatchRequest.objects.filter(player_id__in=user_ids).values_list(
+                "player_id", flat=True
             )
         )
     )

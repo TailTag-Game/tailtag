@@ -108,6 +108,8 @@ EXPECTED_SIGNALS = {CATCH_SIGNAL, RESOLUTION_SIGNAL, SESSION_SIGNAL, AUTH_SIGNAL
 EXPECTED_OUTCOMES = {
     "created",
     "already_caught",
+    "pending",
+    "already_pending",
     "rejected",
     "resolved",
     "started",
@@ -857,3 +859,56 @@ def test_a_request_without_an_authorization_header_is_not_an_authentication_outc
 
     assert response.status_code == 401
     assert telemetry.outcomes() == []
+
+
+# --- #505 AC28: catch request submission ---
+
+
+@pytest.mark.django_db
+def test_catch_request_submission_records_one_confirmation_outcome_per_call(
+    telemetry: Telemetry, settings: Any
+) -> None:
+    """#505 AC28: the confirmation signal carries the request outcomes."""
+    from fursuits.models import Fursuit
+    from tests.fursuit_tag_test_support import (
+        assert_no_token_leak,
+        create_player,
+        create_preview_scenario,
+    )
+
+    settings.CATCH_REQUESTS_ENABLED = True
+    scenario = create_preview_scenario("telemetry")
+    client = scenario.catcher_client()
+    path = "/api/catches/requests/"
+
+    def submit(payload: str) -> int:
+        return client.post(
+            path, {"payload": payload}, content_type="application/json"
+        ).status_code
+
+    statuses = [
+        submit(scenario.payload),
+        submit(scenario.payload),
+        submit("https://tailtag.app/t#" + "Z" * 43),
+    ]
+    Fursuit.objects.filter(pk=scenario.fursuit.pk).update(
+        catch_approval_mode="automatic"
+    )
+    other, _ = create_player("telemetry_automatic")
+    scenario.catcher_enrollment.__class__.objects.create(
+        user=other, convention=scenario.convention, is_active=True
+    )
+    automatic = force_authenticated_client(user=other).post(
+        path, {"payload": scenario.payload}, content_type="application/json"
+    )
+
+    assert [*statuses, automatic.status_code] == [201, 200, 404, 201]
+    assert [
+        outcome for outcome in telemetry.outcomes() if outcome[0] == CATCH_SIGNAL
+    ] == [
+        (CATCH_SIGNAL, "pending", None),
+        (CATCH_SIGNAL, "already_pending", None),
+        (CATCH_SIGNAL, "rejected", "credential_unknown"),
+        (CATCH_SIGNAL, "created", None),
+    ]
+    assert_no_token_leak(telemetry.emitted_text())
