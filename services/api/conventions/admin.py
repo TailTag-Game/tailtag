@@ -51,6 +51,7 @@ _SENSITIVE_CREDENTIAL_SEARCH_PATTERN = re.compile(
     CATCH_CREDENTIAL_TOKEN_PATTERN, re.ASCII
 )
 _REDACTED_CREDENTIAL_SEARCH_QUERY = "__tailtag_admin_credential_query_redacted__"
+_CREDENTIAL_FILTER_LOOKUPS = ("revocation_reason", "activation__convention")
 
 if TYPE_CHECKING:
     ConventionAdminBase = admin.ModelAdmin[Convention]
@@ -679,6 +680,17 @@ class FursuitCatchCredentialAdmin(FursuitCatchCredentialAdminBase):
     def is_current(self, credential: FursuitCatchCredential) -> bool:
         """Derive current state solely from the terminal timestamp."""
         return credential.revoked_at is None
+
+    def lookup_allowed(self, lookup: str, value: str, request: HttpRequest) -> bool:
+        """Allow URL filters only behind the list filters.
+
+        Django otherwise accepts a lookup on any local field, so a URL such as
+        ``?token__startswith=`` would let an operator recover a token.
+        """
+        return any(
+            lookup == prefix or lookup.startswith(f"{prefix}__")
+            for prefix in _CREDENTIAL_FILTER_LOOKUPS
+        )
 
     def has_add_permission(self, request: HttpRequest) -> bool:
         """Credentials originate only from the owner lifecycle."""
