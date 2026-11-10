@@ -10,7 +10,9 @@ String _convention({
   String status = "active",
 }) =>
     '{"id": $id, "name": "$name", "status": "$status", '
-    '"start_date": "2026-11-08", "end_date": "2026-11-10"}';
+    '"start_date": "2026-11-08", "end_date": "2026-11-10", '
+    '"time_zone": null, "review_deadline_at": null, '
+    '"review_deadline_local_date": null, "review_open": false}';
 
 ConventionRepository _repository(FakeHttpClient client) =>
     ConventionRepository(createTestTransport(client));

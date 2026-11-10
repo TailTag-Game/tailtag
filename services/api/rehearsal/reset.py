@@ -19,6 +19,7 @@ from conventions.models import (
     FursuitCatchCredential,
     FursuitCatchSession,
 )
+from conventions.review_deadline import apply_review_schedule
 from fursuits.models import Fursuit
 from profiles.models import PlayerProfile
 
@@ -96,12 +97,17 @@ def _roots(identity: StagingResetIdentity) -> tuple[Convention, Fursuit, Fursuit
             ).exists()
         ):
             raise ResetSafetyError
-        convention = Convention.objects.create(
+        convention = Convention(
             name=baseline.CONVENTION_NAME,
             status=ConventionStatus.ACTIVE,
             start_date=datetime.date(2026, 9, 1),
-            end_date=datetime.date(2036, 9, 1),
         )
+        apply_review_schedule(
+            convention,
+            end_date=datetime.date(2036, 9, 1),
+            time_zone=baseline.CONVENTION_TIME_ZONE,
+        )
+        convention.save()
         first = Fursuit.objects.create(
             owner=identity.owner,
             name="Rehearsal Panther",

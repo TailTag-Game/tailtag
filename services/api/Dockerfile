@@ -37,7 +37,9 @@ RUN set -eu; \
 
 COPY --from=ghcr.io/astral-sh/uv:0.9.17 /uv /uvx /bin/
 
+# zoneinfo reads only the pinned tzdata package, never the image zone files (#503).
 ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONTZPATH="" \
     PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
@@ -74,7 +76,9 @@ RUN apt-get update \
 
 COPY --from=ghcr.io/astral-sh/uv:0.9.17 /uv /uvx /bin/
 
+# zoneinfo reads only the pinned tzdata package, never the image zone files (#503).
 ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONTZPATH="" \
     PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy

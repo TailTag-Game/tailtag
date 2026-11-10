@@ -337,6 +337,7 @@ def _mutation_for(
                 status=ConventionStatus.PAUSED,
                 start_date=scenario.convention.start_date,
                 end_date=scenario.convention.end_date,
+                time_zone=scenario.convention.time_zone,
             ),
             lambda: Convention.objects.select_for_update().get(
                 pk=scenario.convention.pk

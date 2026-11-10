@@ -79,7 +79,9 @@ String conventionJson({
   String end = "2026-11-10",
 }) =>
     '{"id": $id, "name": "$name", "status": "$status", '
-    '"start_date": "$start", "end_date": "$end"}';
+    '"start_date": "$start", "end_date": "$end", '
+    '"time_zone": null, "review_deadline_at": null, '
+    '"review_deadline_local_date": null, "review_open": false}';
 
 /// A `ConventionEnrollment` in the server's response shape.
 String enrollmentJson({int id = 7, String? convention, bool selected = true}) =>

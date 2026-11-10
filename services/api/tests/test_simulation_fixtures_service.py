@@ -92,6 +92,8 @@ def test_valid_request_creates_the_complete_run_state_and_ledger() -> None:
     assert convention.name == f"Sim {RUN_A[:8]}"
     assert convention.start_date in {before_dates, after_dates}
     assert convention.end_date == convention.start_date + dt.timedelta(days=1)
+    assert convention.time_zone == "America/New_York"
+    assert convention.review_deadline_at is not None
 
     pool_users = [users[index] for index in (*OWNERS, *CATCHERS)]
     enrollments = ConventionEnrollment.objects.all()

@@ -2083,12 +2083,37 @@ components:
           format: date
           readOnly: true
           description: End date of the convention.
+        time_zone:
+          type: string
+          readOnly: true
+          nullable: true
+          description: IANA time zone of the convention. Catch requests stay unavailable
+            until an operator sets it. A set zone cannot be removed.
+        review_deadline_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: When the catch request review window closes. The server computes
+            it from the end date and time zone.
+        review_deadline_local_date:
+          type: string
+          format: date
+          readOnly: true
+          nullable: true
+        review_open:
+          type: boolean
+          readOnly: true
       required:
       - end_date
       - id
       - name
+      - review_deadline_at
+      - review_deadline_local_date
+      - review_open
       - start_date
       - status
+      - time_zone
       additionalProperties: false
     ConventionEnrollRequest:
       type: object
