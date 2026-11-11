@@ -39,12 +39,17 @@ EXPECTED_PERMISSION_NAMES = {
     "fursuits.view_fursuit",
     "fursuits.revoke_fursuit_tag",
     "fursuits.view_fursuittag",
+    "catches.invalidate_catch_request",
+    "catches.view_catchrequest",
+    "catches.view_catchblock",
 }
-# The exact set before #504 added tag revocation. Reconciling an operator whose
-# group holds exactly this set upgrades the group to EXPECTED_PERMISSION_NAMES.
+# The exact set before #507 added catch request administration. Reconciling an
+# operator whose group holds exactly this set upgrades the group to
+# EXPECTED_PERMISSION_NAMES.
 PREVIOUS_PERMISSION_NAMES = EXPECTED_PERMISSION_NAMES - {
-    "fursuits.revoke_fursuit_tag",
-    "fursuits.view_fursuittag",
+    "catches.invalidate_catch_request",
+    "catches.view_catchrequest",
+    "catches.view_catchblock",
 }
 
 __all__ = ["Command"]

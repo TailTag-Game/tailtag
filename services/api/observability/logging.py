@@ -22,6 +22,7 @@ ALLOWED_EXTRA_FIELDS: Final = (
     "event",
     "tailtag_outcome",
     "tailtag_reason",
+    "tailtag_count",
     "stage",
     "http_request_method",
     "http_route",

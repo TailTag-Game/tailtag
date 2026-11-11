@@ -50,10 +50,9 @@ def _load_identity(metadata_path: Path, environment: Mapping[str, str]) -> Ident
     # A retired-host marker raises here, whether or not Render variables exist.
     if replacement_target_binding.runtime_host(environment) == "render":
         # Render sets no runtime deploy ID. Only the matched pin names the
-        # environment, so a service display name cannot select one.
-        render_environment = replacement_target_binding.validate_runtime_target(
-            environment
-        )
+        # environment, so a service display name cannot select one. A pinned
+        # cleanup cron service also names its environment (#507 G15).
+        render_environment = replacement_target_binding.runtime_environment(environment)
         if render_environment == "staging" and source_sha is None:
             raise ValueError("staging identity incomplete")
         return {

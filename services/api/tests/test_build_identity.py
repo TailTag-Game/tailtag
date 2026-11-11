@@ -239,6 +239,47 @@ def test_render_identity_uses_baked_sha_pinned_environment_and_no_deployment(
     }
 
 
+RENDER_DEVELOPMENT_CLEANUP = "srv-d0developmentcleanup0"
+RENDER_STAGING_CLEANUP = "srv-d0stagingcleanup00000"
+
+
+@pytest.mark.usefixtures("render_pins")
+def test_a_pinned_cleanup_cron_names_its_environment_but_passes_no_guard(
+    build_identity: ModuleType, tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    """#507 AC41, AC42: cron pins widen build identity only, and start empty."""
+    binding = importlib.import_module("config.replacement_target_binding")
+    staging_target = importlib.import_module("accounts.staging_target")
+    metadata = tmp_path / "build-identity.json"
+    write_metadata(metadata, SOURCE_SHA)
+    actual = render_environment(RENDER_STAGING_CLEANUP)
+    with pytest.raises(ValueError):
+        build_identity._load_identity(metadata, actual)
+    monkeypatch.setattr(
+        binding,
+        "_EXPECTED_RENDER_CLEANUP_DIGESTS",
+        {
+            "development": binding.fingerprint_render_service(
+                "development", RENDER_DEVELOPMENT_CLEANUP
+            ),
+            "staging": binding.fingerprint_render_service(
+                "staging", RENDER_STAGING_CLEANUP
+            ),
+        },
+    )
+
+    identity = build_identity._load_identity(metadata, actual)
+
+    assert identity == {
+        "source_sha": SOURCE_SHA,
+        "deployment_id": None,
+        "environment": "staging",
+    }
+    with pytest.raises(binding.TargetBindingError):
+        binding.validate_runtime_target(actual)
+    assert staging_target.staging_platform(actual) is None
+
+
 @pytest.mark.usefixtures("render_pins")
 def test_render_staging_identity_requires_a_baked_source_sha(
     build_identity: ModuleType, tmp_path: Path

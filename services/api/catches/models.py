@@ -189,6 +189,9 @@ class CatchRequest(models.Model):
 
     class Meta:
         ordering: ClassVar[list[str]] = ["-requested_at", "-id"]
+        permissions: ClassVar[list[tuple[str, str]]] = [
+            ("invalidate_catch_request", "Can invalidate a catch request"),
+        ]
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
                 fields=["player", "fursuit", "convention"],

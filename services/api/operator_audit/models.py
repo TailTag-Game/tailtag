@@ -33,6 +33,7 @@ class OperatorAction(models.TextChoices):
         "Set convention playability",
     )
     REVOKE_FURSUIT_TAG = "revoke_fursuit_tag", "Revoke fursuit tag"
+    INVALIDATE_CATCH_REQUEST = "invalidate_catch_request", "Invalidate catch request"
 
 
 class OperatorActorClass(models.TextChoices):
@@ -70,6 +71,7 @@ class OperatorTargetType(models.TextChoices):
     FURSUIT = "fursuits.fursuit", "Fursuit"
     CONVENTION = "conventions.convention", "Convention"
     FURSUIT_TAG = "fursuits.fursuittag", "Fursuit tag"
+    CATCH_REQUEST = "catches.catchrequest", "Catch request"
 
 
 class OperatorAuditEvent(models.Model):

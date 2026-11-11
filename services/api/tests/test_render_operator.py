@@ -377,7 +377,7 @@ def test_every_fixed_command_message_is_in_the_allowlist() -> None:
 def test_managed_upgrade_runs_the_bootstrap_reconcile_for_the_previous_set(
     operator: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """#504: the upgrade adds the two tag permissions and sets a new password."""
+    """#507: the upgrade adds the three request permissions and sets a new password."""
     from accounts.management.commands.bootstrap_staging_operator import (
         EXPECTED_PERMISSION_NAMES,
     )
@@ -385,7 +385,13 @@ def test_managed_upgrade_runs_the_bootstrap_reconcile_for_the_previous_set(
     _, _, managed_group, _ = recovery.seed_roles()
     managed_group.permissions.remove(  # pyright: ignore[reportUnknownMemberType]
         *recovery.permissions(
-            frozenset({"fursuits.revoke_fursuit_tag", "fursuits.view_fursuittag"})
+            frozenset(
+                {
+                    "catches.invalidate_catch_request",
+                    "catches.view_catchrequest",
+                    "catches.view_catchblock",
+                }
+            )
         )
     )
     inspector(monkeypatch, "FAIL_MANAGED_OPERATOR_UPGRADABLE")
@@ -411,7 +417,7 @@ def test_managed_upgrade_runs_the_bootstrap_reconcile_for_the_previous_set(
 def test_managed_upgrade_requires_the_exact_previous_permission_set(
     operator: ModuleType, monkeypatch: pytest.MonkeyPatch, status: str
 ) -> None:
-    """Managed upgrade runs only for a group that holds the pre-#504 set."""
+    """Managed upgrade runs only for a group that holds the pre-#507 set."""
     inspector(monkeypatch, status)
     forbid_prompts(monkeypatch)
 

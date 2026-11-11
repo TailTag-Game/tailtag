@@ -21,6 +21,7 @@ class Signal(StrEnum):
     CREDENTIAL_RESOLUTION = "tailtag.conventions.credential_resolution"
     CATCH_SESSION = "tailtag.conventions.catch_session"
     AUTHENTICATION_VERIFICATION = "tailtag.authentication.verification"
+    REQUEST_CLEANUP = "tailtag.catches.request_cleanup"
 
 
 class Outcome(StrEnum):
@@ -33,6 +34,10 @@ class Outcome(StrEnum):
     STARTED = "started"
     START_REJECTED = "start_rejected"
     ENDED = "ended"
+    # Catch request cleanup runs (#507).
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    DELETED = "deleted"
 
 
 class Reason(StrEnum):
@@ -75,16 +80,30 @@ class Reason(StrEnum):
     VERIFIER_MISCONFIGURED = "verifier_misconfigured"
     USER_RESOLUTION_UNAVAILABLE = "user_resolution_unavailable"
     OTHER = "other"
+    # Catch request cleanup: the state of each deleted row (#507). A pending row
+    # counts as `expired`, the session end reason above.
+    APPROVED = "approved"
+    DECLINED = "declined"
+    WITHDRAWN = "withdrawn"
+    INVALIDATED = "invalidated"
 
 
 def record_outcome(
-    signal: Signal, outcome: Outcome, reason: Reason | None = None
+    signal: Signal, outcome: Outcome, reason: Reason | None = None, *, count: int = 1
 ) -> None:
-    """Write one outcome log line and count it once; the only domain outcome emitter."""
+    """Write one outcome log line and count it; the only domain outcome emitter.
+
+    ``count`` is 1 for one result. Cleanup records how many rows it deleted in
+    one call. Log lines carry ``tailtag_count`` only when it is not 1.
+    """
+    if count < 1:
+        raise ValueError("An outcome count must be positive.")
     extra: dict[str, object] = {"event": str(signal), "tailtag_outcome": str(outcome)}
     attributes = {"tailtag.outcome": str(outcome)}
     if reason is not None:
         extra["tailtag_reason"] = str(reason)
         attributes["tailtag.reason"] = str(reason)
+    if count != 1:
+        extra["tailtag_count"] = count
     _logger.info("Domain outcome recorded", extra=extra)
-    sentry_sdk.metrics.count(str(signal), 1, attributes=attributes)
+    sentry_sdk.metrics.count(str(signal), count, attributes=attributes)

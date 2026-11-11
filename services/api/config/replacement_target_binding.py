@@ -31,6 +31,14 @@ _EXPECTED_RENDER_DIGESTS: Final[dict[str, str]] = {
     # Virginia Staging (ADR 0012, #452).
     "staging": "38c9d94cbcb405005988ca158bc4c81e23a066b13b538e8d8aa7148963a94470",
 }
+# The catch request cleanup cron jobs (#507 G15). A cron job is its own Render
+# service, so it has its own service ID. Only build identity reads these pins.
+# Guarded operator paths keep `validate_runtime_target`, which accepts only the
+# web services above. Empty admits no cron service until the pin PR lands.
+_EXPECTED_RENDER_CLEANUP_DIGESTS: Final[dict[str, str]] = {
+    "development": "",
+    "staging": "",
+}
 _EXPECTED_RENDER_HOST_DIGESTS: Final[dict[str, str]] = {
     "development": "55770374ef59dccf72a2aa1c98a9a1eaccbd140c2924a1a60376ff0161ae72c0",
     "staging": "ba833a5e9735b26c26c656e7a62d3b484ffc6de047366439bc903907599a78f4",
@@ -91,6 +99,28 @@ def validate_runtime_target(actual: Mapping[str, str]) -> str:
         environment
         for environment in _RENDER_ENVIRONMENTS
         if _EXPECTED_RENDER_DIGESTS.get(environment)
+        == fingerprint_render_service(environment, service_id)
+    ]
+    if len(matches) != 1:
+        raise TargetBindingError
+    return matches[0]
+
+
+def runtime_environment(actual: Mapping[str, str]) -> str:
+    """Name the environment of a pinned web or cleanup cron service.
+
+    This widens only build identity, for logs and Sentry. Every guarded operator
+    path calls `validate_runtime_target`, which a cron service cannot pass.
+    """
+    try:
+        return validate_runtime_target(actual)
+    except TargetBindingError:
+        pass
+    service_id = actual.get("RENDER_SERVICE_ID")
+    matches = [
+        environment
+        for environment in _RENDER_ENVIRONMENTS
+        if _EXPECTED_RENDER_CLEANUP_DIGESTS.get(environment)
         == fingerprint_render_service(environment, service_id)
     ]
     if len(matches) != 1:
