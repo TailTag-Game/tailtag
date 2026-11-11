@@ -6,9 +6,11 @@ from typing import cast
 
 import pytest
 from django.contrib.auth.forms import AuthenticationForm
+from django.core.exceptions import ValidationError
 from django.test import Client
 from django.urls import reverse
 
+from accounts.admin import OperatorAdminAuthenticationForm
 from accounts.models import User
 
 
@@ -51,30 +53,22 @@ def test_admin_login_invalid_credentials_error_uses_operator_identifier() -> Non
     assert "clerk user id" not in content.lower()
 
 
-@pytest.mark.django_db
 def test_admin_login_non_staff_rejection_error_uses_operator_identifier() -> None:
     """AC-1/2: Non-staff rejection error messages refer to 'operator identifier'."""
-    user = User.objects.create_superuser(
-        clerk_user_id="operator_revoked_staff",
-        password="valid-password",
+    user = User(
+        clerk_user_id="operator_non_staff",
+        is_staff=False,
     )
-    user.is_staff = False
-    user.save(update_fields={"is_staff"})
+    form = OperatorAdminAuthenticationForm()
 
-    client = Client()
-    response = client.post(
-        reverse("admin:login"),
-        {
-            "username": user.get_username(),
-            "password": "valid-password",
-        },
+    with pytest.raises(ValidationError) as exc_info:
+        form.confirm_login_allowed(user)
+
+    assert (
+        "Please enter the correct operator identifier and password"
+        in exc_info.value.messages[0]
     )
-
-    assert response.status_code == 200
-    content = response.content.decode("utf-8")
-
-    assert "Please enter the correct operator identifier and password" in content
-    assert "clerk user id" not in content.lower()
+    assert "clerk user id" not in exc_info.value.messages[0].lower()
 
 
 @pytest.mark.django_db

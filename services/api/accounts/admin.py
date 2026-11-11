@@ -34,11 +34,7 @@ class OperatorAdminAuthenticationForm(AdminAuthenticationForm):
     def confirm_login_allowed(self, user: Any) -> None:
         super(AdminAuthenticationForm, self).confirm_login_allowed(user)
         if not user.is_staff:
-            raise ValidationError(
-                self.error_messages["invalid_login"],
-                code="invalid_login",
-                params={"username": "operator identifier"},
-            )
+            raise self.get_invalid_login_error()
 
 
 admin.site.login_form = OperatorAdminAuthenticationForm
