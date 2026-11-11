@@ -19,6 +19,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from catches.models import Catch, CatchBlock, CatchRequest, CatchRequestState
+from catches.request_invalidation import invalidate_request_as_operator
 from conventions.models import (
     ConventionEnrollment,
     ConventionStatus,
@@ -96,10 +97,8 @@ def _run(scenario: PreviewScenario, request_id: int, action: str) -> Any:
     if action == "withdraw":
         return _withdraw(scenario, request_id)
     if action == "invalidate":
-        row = CatchRequest.objects.get(pk=request_id)
-        row.state = CatchRequestState.INVALIDATED
-        row.invalidated_at = timezone.now()
-        row.save(update_fields=["state", "invalidated_at"])
+        # The operator service from #507 (AC38).
+        assert invalidate_request_as_operator(request_id=request_id).changed
         return None
     return _act(scenario, request_id, action)
 

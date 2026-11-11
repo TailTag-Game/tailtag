@@ -1,6 +1,6 @@
 # Field-beta operator authorization and audit
 
-This runbook covers the nine existing sensitive Django-admin actions for
+This runbook covers the ten existing sensitive Django-admin actions for
 field-beta operations. It is not an operator-management UI, an audit viewer, or
 a product API. Do not run the Staging procedure or mutate Staging without
 separate explicit authorization.
@@ -34,9 +34,29 @@ for other sensitive actions.
 | `set_fursuit_enabled` | `fursuits.fursuit` | `fursuits.set_fursuit_enabled` is independently sufficient for this action; normal explicit `fursuits.view_fursuit` is required for inspection, but generic permission is not required before executing the action. `fursuits.change_fursuit` and `fursuits.delete_fursuit` are not required. |
 | `set_convention_playability` | `conventions.convention` | `conventions.set_convention_playability` is independently sufficient for this action; normal explicit `conventions.view_convention` is required for inspection, but generic permission is not required before executing the action. `conventions.change_convention` and `conventions.delete_convention` are not required. |
 | `revoke_fursuit_tag` | `fursuits.fursuittag` | `fursuits.revoke_fursuit_tag` is independently sufficient for this action. `fursuits.view_fursuittag` or `fursuits.revoke_fursuit_tag` permits inspection. `fursuits.change_fursuittag` and `fursuits.delete_fursuittag` are not required. The admin never shows a tag token or payload, and revocation creates no replacement. |
+| `invalidate_catch_request` | `catches.catchrequest` | `catches.invalidate_catch_request` is independently sufficient for this action. `catches.view_catchrequest` or `catches.invalidate_catch_request` permits inspection. Only a pending or declined request in an open review window can be invalidated. Any other target records `rejected`. No admin path approves, declines, restores, edits, or deletes a request (#507). |
 
 Normal `change_convention` still governs ordinary metadata corrections and
 non-playable lifecycle changes; it does not cross the playability boundary.
+Since #507, a move into `cancelled` from any status also crosses that
+boundary. It requires `conventions.set_convention_playability` and records the
+`set_convention_playability` action, because cancellation invalidates the
+convention's open catch requests.
+
+`catches.view_catchblock` permits read-only inspection of owner blocks. No
+operator action changes or removes a block.
+
+Some actions also invalidate open catch requests (#507). Each records only its
+one top-level audit row:
+
+- `remove_convention_enrollment` invalidates the user's pending and declined
+  requests at that convention, both as player and as suit owner.
+- `deactivate_fursuit_activation` invalidates pending and declined requests on
+  that suit at that convention.
+- A move into `cancelled` invalidates every pending and declined request at
+  that convention.
+
+Invalidation acts only while the convention's review window is open.
 Catch add/edit/bulk correction, credential replacement, session history edits,
 activation/reactivation, enrollment creation/selection changes, playable
 Convention creation/deletion, and other alternate gameplay-authority paths
@@ -80,19 +100,22 @@ database failure, without manually elevating an account. Do not run it
 automatically during build, pre-deploy, startup, health check, or Gunicorn.
 
 #504 added `fursuits.revoke_fursuit_tag` and `fursuits.view_fursuittag` to the
-exact permission set. An operator made before #504 holds the previous set. The
-operator inspector then reports `FAIL_MANAGED_OPERATOR_UPGRADABLE`. In that
-state, the other managed and emergency commands stop at their precondition.
+exact permission set. #507 added `catches.invalidate_catch_request`,
+`catches.view_catchrequest`, and `catches.view_catchblock`. An operator made
+before #507 holds the previous set. The operator inspector then reports
+`FAIL_MANAGED_OPERATOR_UPGRADABLE`. In that state, the other managed and
+emergency commands stop at their precondition. The upgrade path accepts only
+the set from just before #507. Staging upgraded to the #504 set on 2026-11-10.
 
 To upgrade, run the same launcher with `managed-upgrade` instead of
-`managed-create`, after the promotion that carries #504:
+`managed-create`, after the promotion that carries #507:
 
 ```bash
 uv --directory services/api run --locked --no-sync python ../../scripts/api_staging_render_ssh.py managed-upgrade
 ```
 
 Enter the same confirmation phrase as for `managed-create`, the existing
-operator identifier, and a new password twice. The command adds the two permissions,
+operator identifier, and a new password twice. The command adds the three permissions,
 sets the new password, and prints `Staging operator reconciled and upgraded.`
 The launcher then requires the inspector result `PASS`. Any other permission
 set fails closed with `FAIL_MANAGED_OPERATOR_PERMISSION`.

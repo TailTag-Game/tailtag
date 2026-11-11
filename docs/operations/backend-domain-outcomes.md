@@ -34,6 +34,7 @@ session ID, and never a credential or token.
 | `tailtag.conventions.credential_resolution` | Did a scanned credential resolve to a catchable fursuit, and if not, why? |
 | `tailtag.conventions.catch_session` | Are fursuiters starting catch sessions, and how are sessions ending? |
 | `tailtag.authentication.verification` | Why are presented tokens being rejected? |
+| `tailtag.catches.request_cleanup` | Did the daily cleanup delete closed request history, and how many rows in each state? |
 
 ## Outcomes and reasons
 
@@ -63,6 +64,17 @@ With the catch request gate on, `POST /api/catches/requests/` records this signa
 | `rejected` | `rate_limited` | The per-player limit refused the attempt with HTTP 429 (#506). |
 
 Request rejections also use `payload_invalid`, `catcher_ineligible`, `self_catch`, and the target reasons. Owner decisions and withdrawals record no outcome yet. #508 adds those metrics.
+
+### Catch request cleanup
+
+The daily cleanup job records this signal once per state that it deleted, and once for the run (#507). A cleanup line carries `tailtag_count`, and its Sentry count uses that value instead of 1. See the [cleanup runbook](catch-request-cleanup.md#outcome-signal).
+
+| Outcome | Reason | Meaning |
+| --- | --- | --- |
+| `deleted` | `expired` | Pending requests that expired at the deadline. |
+| `deleted` | `approved`, `declined`, `withdrawn`, or `invalidated` | Requests deleted in that state. |
+| `succeeded` | | Every closed convention was cleaned. |
+| `failed` | | At least one convention failed, or the run stopped. The next run retries. |
 
 ### Credential resolution
 

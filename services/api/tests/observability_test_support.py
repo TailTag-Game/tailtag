@@ -156,6 +156,15 @@ class CapturingTransport(Transport):
                     sent.extend(payload["items"])
         return sent
 
+    def check_ins(self) -> list[dict[str, Any]]:
+        """Sentry Crons check-ins as sent."""
+        return [
+            cast(dict[str, Any], item.payload.json)
+            for envelope in self.envelopes
+            for item in envelope.items
+            if item.type == "check_in"
+        ]
+
     def serialized(self) -> str:
         return "".join(
             envelope.serialize().decode("utf-8", "replace")
@@ -247,6 +256,7 @@ OUTCOME_METRIC_ATTRIBUTE = "tailtag.outcome"
 REASON_METRIC_ATTRIBUTE = "tailtag.reason"
 
 RecordedOutcome = tuple[str, str, str | None]
+RecordedCount = tuple[str, str, str | None, int]
 
 # Dependency signals share the outcome attribute keys but are not domain outcomes;
 # a test that opens a real connection would otherwise see them here.
@@ -262,13 +272,28 @@ def recorded_outcomes(
     sent, after the privacy filter) and asserts they describe the same events, so
     a dropped attribute, a missing signal, or a log/metric mismatch fails here.
     """
+    return [
+        (signal, outcome, reason)
+        for signal, outcome, reason, _ in recorded_outcome_counts(logs, transport)
+    ]
+
+
+def recorded_outcome_counts(
+    logs: JsonLogCapture, transport: CapturingTransport
+) -> list[RecordedCount]:
+    """Like `recorded_outcomes`, with each outcome's count from both channels."""
     sentry_sdk.flush()
-    from_logs: list[RecordedOutcome] = [
-        (line["event"], line["tailtag_outcome"], line.get("tailtag_reason"))
+    from_logs: list[RecordedCount] = [
+        (
+            line["event"],
+            line["tailtag_outcome"],
+            line.get("tailtag_reason"),
+            int(line.get("tailtag_count", 1)),
+        )
         for line in logs.lines()
         if "tailtag_outcome" in line and line["event"] not in _DEPENDENCY_SIGNALS
     ]
-    from_metrics: list[RecordedOutcome] = []
+    from_metrics: list[RecordedCount] = []
     for metric in transport.metrics():
         attributes = {
             key: entry["value"] for key, entry in metric["attributes"].items()
@@ -278,12 +303,14 @@ def recorded_outcomes(
             or metric["name"] in _DEPENDENCY_SIGNALS
         ):
             continue
-        assert (metric["type"], metric["value"]) == ("counter", 1.0)
+        assert metric["type"] == "counter"
+        assert float(metric["value"]).is_integer() and metric["value"] >= 1
         from_metrics.append(
             (
                 metric["name"],
                 attributes[OUTCOME_METRIC_ATTRIBUTE],
                 attributes.get(REASON_METRIC_ATTRIBUTE),
+                int(metric["value"]),
             )
         )
     assert sorted(from_logs, key=repr) == sorted(from_metrics, key=repr)

@@ -101,8 +101,9 @@ contributor cannot cause a Render Development deploy while bypassing required
 pull-request CI and review.
 
 This environment contains no production environment, preview environment
-(`previews.generation` is `off`), Redis, workers, cron service, or other
-application infrastructure.
+(`previews.generation` is `off`), Redis, workers, or other application
+infrastructure. Its one cron job, `tailtag-cleanup-dev`, deletes catch request
+history after each review deadline ([ADR 0013](adrs/0013-run-catch-request-cleanup-as-render-cron-jobs.md)).
 
 Delivery failures have distinct primary surfaces:
 

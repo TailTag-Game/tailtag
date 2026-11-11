@@ -251,8 +251,13 @@ class ConventionAdmin(ConventionAdminBase):
             return super().changeform_view(request, object_id, form_url, extra_context)
         if submitted_status not in ConventionStatus.values:
             return super().changeform_view(request, object_id, form_url, extra_context)
+        # A move into cancellation ends catch requests, so it needs the
+        # playability authority and its audit, like a playability change (#507 G4).
         crosses = convention.is_playable != (
             submitted_status == ConventionStatus.ACTIVE.value
+        ) or (
+            submitted_status == ConventionStatus.CANCELLED.value
+            and convention.status != ConventionStatus.CANCELLED.value
         )
         generic = _has_permission(request, "conventions.change_convention")
         control = _has_permission(request, "conventions.set_convention_playability")

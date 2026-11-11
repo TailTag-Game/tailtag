@@ -105,7 +105,14 @@ UNKNOWN_PAYLOAD = f"{CATCH_CREDENTIAL_PAYLOAD_PREFIX}{TOKEN_B}"
 INVALID_PAYLOAD = "tailtag:catch:v0:" + "Z" * 43
 
 # The frozen taxonomy. Values are add-only, so the code must contain at least these.
-EXPECTED_SIGNALS = {CATCH_SIGNAL, RESOLUTION_SIGNAL, SESSION_SIGNAL, AUTH_SIGNAL}
+CLEANUP_SIGNAL = "tailtag.catches.request_cleanup"
+EXPECTED_SIGNALS = {
+    CATCH_SIGNAL,
+    RESOLUTION_SIGNAL,
+    SESSION_SIGNAL,
+    AUTH_SIGNAL,
+    CLEANUP_SIGNAL,
+}
 EXPECTED_OUTCOMES = {
     "created",
     "already_caught",
@@ -116,6 +123,9 @@ EXPECTED_OUTCOMES = {
     "started",
     "start_rejected",
     "ended",
+    "succeeded",
+    "failed",
+    "deleted",
 }
 EXPECTED_REASONS = {
     "blocked",
@@ -149,6 +159,10 @@ EXPECTED_REASONS = {
     "verifier_misconfigured",
     "user_resolution_unavailable",
     "other",
+    "approved",
+    "declined",
+    "withdrawn",
+    "invalidated",
 }
 
 

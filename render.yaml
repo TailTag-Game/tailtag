@@ -2,7 +2,8 @@
 #
 # Auto Sync stays off. The owner runs each sync after review, because a sync
 # creates or changes paid resources. Secret values use `sync: false` and never
-# live in this file. Each service builds `main`. Render auto-deploy stays off.
+# live in this file. Each service builds `main`. Render auto-deploy stays off,
+# except for the Development cleanup cron job below.
 # The "Render Development deploy" workflow deploys a backend commit through
 # the deploy hook after every CI workflow on it passes. The guarded migration
 # runs before the new version takes traffic (#408). Staging deploys only
@@ -11,6 +12,12 @@
 #
 # Staging moves from Oregon to Virginia (ADR 0012, #452). Both run until the
 # rollback window ends. Development stays in Oregon.
+#
+# Each environment also has one cron job that deletes catch request history
+# after the review deadline (ADR 0013, #507). The Development cron job deploys
+# after the GitHub checks pass on `main`. The Staging cron job deploys only by
+# the promotion checklist step, at the promoted commit. A cron job is its own
+# Render service, so its identity needs its own pin (#507 G15).
 
 previews:
   generation: "off"
@@ -72,6 +79,50 @@ projects:
                 sync: false
               - key: SENTRY_TRACES_SAMPLE_RATE
                 value: "1.0"
+          # Catch request cleanup (ADR 0013, #507). It needs only the database,
+          # Sentry, and the variables that production settings require. Clerk
+          # stays off. The hosts values are placeholders, because the job serves
+          # no HTTP traffic.
+          - type: cron
+            name: tailtag-cleanup-dev
+            runtime: docker
+            region: oregon
+            plan: 0.5c-512mb
+            schedule: "0 10 * * *"
+            repo: https://github.com/TailTag-Game/tailtag
+            branch: main
+            dockerfilePath: ./services/api/Dockerfile
+            dockerContext: ./services/api
+            autoDeployTrigger: "checksPass"
+            dockerCommand: python manage.py cleanup_catch_requests
+            envVars:
+              - key: DJANGO_SETTINGS_MODULE
+                value: config.settings.production
+              - key: PGSSLMODE
+                value: require
+              - key: DATABASE_URL
+                fromDatabase:
+                  name: tailtag-postgres-dev
+                  property: connectionString
+              - key: DJANGO_SECRET_KEY
+                generateValue: true
+              - key: DJANGO_ALLOWED_HOSTS
+                value: localhost
+              - key: DJANGO_CSRF_TRUSTED_ORIGINS
+                value: https://localhost
+              # Production settings require the media values at startup.
+              - key: MEDIA_STORAGE_ENDPOINT_URL
+                sync: false
+              - key: MEDIA_STORAGE_BUCKET_NAME
+                sync: false
+              - key: MEDIA_STORAGE_REGION
+                value: auto
+              - key: MEDIA_STORAGE_ACCESS_KEY_ID
+                sync: false
+              - key: MEDIA_STORAGE_SECRET_ACCESS_KEY
+                sync: false
+              - key: SENTRY_DSN
+                sync: false
         databases:
           - name: tailtag-postgres-dev
             region: oregon
@@ -139,6 +190,50 @@ projects:
                 sync: false
               - key: SENTRY_TRACES_SAMPLE_RATE
                 value: "1.0"
+          # Catch request cleanup (ADR 0013, #507). It needs only the database,
+          # Sentry, and the variables that production settings require. Clerk
+          # stays off. The hosts values are placeholders, because the job serves
+          # no HTTP traffic.
+          - type: cron
+            name: tailtag-cleanup-stg
+            runtime: docker
+            region: virginia
+            plan: 0.5c-512mb
+            schedule: "0 10 * * *"
+            repo: https://github.com/TailTag-Game/tailtag
+            branch: main
+            dockerfilePath: ./services/api/Dockerfile
+            dockerContext: ./services/api
+            autoDeployTrigger: "off"
+            dockerCommand: python manage.py cleanup_catch_requests
+            envVars:
+              - key: DJANGO_SETTINGS_MODULE
+                value: config.settings.production
+              - key: PGSSLMODE
+                value: require
+              - key: DATABASE_URL
+                fromDatabase:
+                  name: tailtag-postgres-stg
+                  property: connectionString
+              - key: DJANGO_SECRET_KEY
+                generateValue: true
+              - key: DJANGO_ALLOWED_HOSTS
+                value: localhost
+              - key: DJANGO_CSRF_TRUSTED_ORIGINS
+                value: https://localhost
+              # Production settings require the media values at startup.
+              - key: MEDIA_STORAGE_ENDPOINT_URL
+                sync: false
+              - key: MEDIA_STORAGE_BUCKET_NAME
+                sync: false
+              - key: MEDIA_STORAGE_REGION
+                value: auto
+              - key: MEDIA_STORAGE_ACCESS_KEY_ID
+                sync: false
+              - key: MEDIA_STORAGE_SECRET_ACCESS_KEY
+                sync: false
+              - key: SENTRY_DSN
+                sync: false
         databases:
           - name: tailtag-postgres-stg
             region: virginia
