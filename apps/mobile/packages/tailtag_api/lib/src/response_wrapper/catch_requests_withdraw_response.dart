@@ -5,7 +5,9 @@
 import 'dart:core' as _i3;
 
 import 'package:meta/meta.dart' as _i1;
-import 'package:tailtag_api/src/model/catch_request_action_error.dart' as _i6;
+import 'package:tailtag_api/src/model/catch_request_action_error.dart' as _i7;
+import 'package:tailtag_api/src/model/catch_request_action_not_found.dart'
+    as _i6;
 import 'package:tailtag_api/src/model/catch_request_error.dart' as _i5;
 import 'package:tailtag_api/src/model/detail_error.dart' as _i4;
 import 'package:tailtag_api/src/model/player_request.dart' as _i2;
@@ -66,7 +68,7 @@ class CatchRequestsWithdrawResponse403 extends CatchRequestsWithdrawResponse {
 class CatchRequestsWithdrawResponse404 extends CatchRequestsWithdrawResponse {
   const CatchRequestsWithdrawResponse404({required this.body});
 
-  final _i6.CatchRequestActionError body;
+  final _i6.CatchRequestActionNotFound body;
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -82,7 +84,7 @@ class CatchRequestsWithdrawResponse404 extends CatchRequestsWithdrawResponse {
 class CatchRequestsWithdrawResponse409 extends CatchRequestsWithdrawResponse {
   const CatchRequestsWithdrawResponse409({required this.body});
 
-  final _i6.CatchRequestActionError body;
+  final _i7.CatchRequestActionError body;
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {

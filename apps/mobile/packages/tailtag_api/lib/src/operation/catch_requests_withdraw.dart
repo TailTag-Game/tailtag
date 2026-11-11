@@ -5,7 +5,9 @@
 import 'dart:core' as _i3;
 
 import 'package:http/http.dart' as _i5;
-import 'package:tailtag_api/src/model/catch_request_action_error.dart' as _i9;
+import 'package:tailtag_api/src/model/catch_request_action_error.dart' as _i10;
+import 'package:tailtag_api/src/model/catch_request_action_not_found.dart'
+    as _i9;
 import 'package:tailtag_api/src/model/catch_request_error.dart' as _i8;
 import 'package:tailtag_api/src/model/detail_error.dart' as _i7;
 import 'package:tailtag_api/src/model/player_request.dart' as _i6;
@@ -71,11 +73,11 @@ final class CatchRequestsWithdraw
         return _i2.CatchRequestsWithdrawResponse403(body: _$body);
       case (404, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
-        final _$body = _i9.CatchRequestActionError.fromJson(_$json);
+        final _$body = _i9.CatchRequestActionNotFound.fromJson(_$json);
         return _i2.CatchRequestsWithdrawResponse404(body: _$body);
       case (409, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
-        final _$body = _i9.CatchRequestActionError.fromJson(_$json);
+        final _$body = _i10.CatchRequestActionError.fromJson(_$json);
         return _i2.CatchRequestsWithdrawResponse409(body: _$body);
       case (500, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);

@@ -6,7 +6,9 @@ import 'dart:convert' as _i7;
 import 'dart:core' as _i3;
 
 import 'package:http/http.dart' as _i5;
-import 'package:tailtag_api/src/model/catch_request_action_error.dart' as _i11;
+import 'package:tailtag_api/src/model/catch_request_action_error.dart' as _i12;
+import 'package:tailtag_api/src/model/catch_request_action_not_found.dart'
+    as _i11;
 import 'package:tailtag_api/src/model/catch_request_decline.dart' as _i6;
 import 'package:tailtag_api/src/model/catch_request_error.dart' as _i9;
 import 'package:tailtag_api/src/model/detail_error.dart' as _i10;
@@ -86,11 +88,11 @@ final class CatchIncomingRequestsDecline
         return _i2.CatchIncomingRequestsDeclineResponse403(body: _$body);
       case (404, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
-        final _$body = _i11.CatchRequestActionError.fromJson(_$json);
+        final _$body = _i11.CatchRequestActionNotFound.fromJson(_$json);
         return _i2.CatchIncomingRequestsDeclineResponse404(body: _$body);
       case (409, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
-        final _$body = _i11.CatchRequestActionError.fromJson(_$json);
+        final _$body = _i12.CatchRequestActionError.fromJson(_$json);
         return _i2.CatchIncomingRequestsDeclineResponse409(body: _$body);
       case (500, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);

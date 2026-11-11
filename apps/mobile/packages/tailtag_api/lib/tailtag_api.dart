@@ -145,6 +145,7 @@ export 'src/model/catch_history_response_schema_results_array_convention_model.d
 export 'src/model/catch_history_response_schema_results_array_fursuit_model.dart';
 export 'src/model/catch_history_response_schema_results_array_model.dart';
 export 'src/model/catch_request_action_error.dart';
+export 'src/model/catch_request_action_not_found.dart';
 export 'src/model/catch_request_decline.dart';
 export 'src/model/catch_request_error.dart';
 export 'src/model/catch_request_not_found.dart';

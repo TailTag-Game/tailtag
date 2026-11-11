@@ -38,6 +38,7 @@ from profiles.models import PlayerProfile
 from . import request_actions
 from .catch_request_serializers import (
     ACTION_ERROR_SCHEMA,
+    ACTION_NOT_FOUND_SCHEMA,
     CATCH_REQUEST_ERROR_SCHEMA,
     DECLINE_REQUEST_SCHEMA,
     DETAIL_ERROR_SCHEMA,
@@ -77,7 +78,7 @@ _403_OWNER = OpenApiResponse(
     description="The caller has no enabled, completed profile.",
 )
 _404 = OpenApiResponse(
-    response=ACTION_ERROR_SCHEMA,
+    response=ACTION_NOT_FOUND_SCHEMA,
     description=(
         "request_not_found. While the catch request gate is off, every call "
         "returns the generic not-found shape."

@@ -191,6 +191,16 @@ CATCH_REQUEST_COMPONENTS: Final[dict[str, dict[str, object]]] = {
         },
         "required": ["code", "detail"],
     },
+    "CatchRequestActionNotFound": {
+        "type": "object",
+        "additionalProperties": False,
+        "description": (
+            "request_not_found carries code and detail. While the gate is off, "
+            "the generic not-found body carries detail only."
+        ),
+        "properties": {"code": {"type": "string"}, "detail": {"type": "string"}},
+        "required": ["detail"],
+    },
     "CatchRequestDecline": {
         "type": "object",
         "additionalProperties": False,

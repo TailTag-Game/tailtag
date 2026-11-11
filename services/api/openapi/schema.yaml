@@ -339,7 +339,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CatchRequestActionError'
+                $ref: '#/components/schemas/CatchRequestActionNotFound'
           description: request_not_found. While the catch request gate is off, every
             call returns the generic not-found shape.
         '409':
@@ -389,7 +389,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CatchRequestActionError'
+                $ref: '#/components/schemas/CatchRequestActionNotFound'
           description: request_not_found. While the catch request gate is off, every
             call returns the generic not-found shape.
         '409':
@@ -454,7 +454,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CatchRequestActionError'
+                $ref: '#/components/schemas/CatchRequestActionNotFound'
           description: request_not_found. While the catch request gate is off, every
             call returns the generic not-found shape.
         '409':
@@ -507,7 +507,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CatchRequestActionError'
+                $ref: '#/components/schemas/CatchRequestActionNotFound'
           description: request_not_found. While the catch request gate is off, every
             call returns the generic not-found shape.
         '409':
@@ -560,7 +560,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CatchRequestActionError'
+                $ref: '#/components/schemas/CatchRequestActionNotFound'
           description: request_not_found. While the catch request gate is off, every
             call returns the generic not-found shape.
         '409':
@@ -945,7 +945,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CatchRequestActionError'
+                $ref: '#/components/schemas/CatchRequestActionNotFound'
           description: request_not_found. While the catch request gate is off, every
             call returns the generic not-found shape.
         '409':
@@ -3387,6 +3387,18 @@ components:
           $ref: '#/components/schemas/CatchRequestState'
       required:
       - code
+      - detail
+    CatchRequestActionNotFound:
+      type: object
+      additionalProperties: false
+      description: request_not_found carries code and detail. While the gate is off,
+        the generic not-found body carries detail only.
+      properties:
+        code:
+          type: string
+        detail:
+          type: string
+      required:
       - detail
     CatchRequestDecline:
       type: object

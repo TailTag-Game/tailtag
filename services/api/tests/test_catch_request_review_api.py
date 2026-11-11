@@ -995,6 +995,11 @@ def test_the_schema_documents_the_review_operations() -> None:
         assert body(f"{action}{name}", "post", "409") == {
             "$ref": "#/components/schemas/CatchRequestActionError"
         }
+    # The gate-off 404 carries detail only, so the shape must allow it (#523).
+    not_found = {"$ref": "#/components/schemas/CatchRequestActionNotFound"}
+    for name, method in (("approve/", "post"), ("block/", "delete")):
+        assert body(f"{action}{name}", method, "404") == not_found
+    assert components["CatchRequestActionNotFound"]["required"] == ["detail"]
     assert "204" in paths[f"{action}block/"]["delete"]["responses"]
     withdraw = "/api/catches/requests/{id}/withdraw/"
     assert body(withdraw, "post", "200") == {

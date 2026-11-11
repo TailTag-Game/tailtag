@@ -5,8 +5,10 @@
 import 'dart:core' as _i2;
 
 import 'package:meta/meta.dart' as _i1;
-import 'package:tailtag_api/src/model/catch_request_action_error.dart' as _i4;
-import 'package:tailtag_api/src/model/catch_request_error.dart' as _i5;
+import 'package:tailtag_api/src/model/catch_request_action_error.dart' as _i5;
+import 'package:tailtag_api/src/model/catch_request_action_not_found.dart'
+    as _i4;
+import 'package:tailtag_api/src/model/catch_request_error.dart' as _i6;
 import 'package:tailtag_api/src/model/detail_error.dart' as _i3;
 
 sealed class CatchIncomingRequestsUnblockResponse {
@@ -69,7 +71,7 @@ class CatchIncomingRequestsUnblockResponse404
     extends CatchIncomingRequestsUnblockResponse {
   const CatchIncomingRequestsUnblockResponse404({required this.body});
 
-  final _i4.CatchRequestActionError body;
+  final _i4.CatchRequestActionNotFound body;
 
   @_i2.override
   _i2.bool operator ==(_i2.Object other) {
@@ -87,7 +89,7 @@ class CatchIncomingRequestsUnblockResponse409
     extends CatchIncomingRequestsUnblockResponse {
   const CatchIncomingRequestsUnblockResponse409({required this.body});
 
-  final _i4.CatchRequestActionError body;
+  final _i5.CatchRequestActionError body;
 
   @_i2.override
   _i2.bool operator ==(_i2.Object other) {
@@ -105,7 +107,7 @@ class CatchIncomingRequestsUnblockResponse500
     extends CatchIncomingRequestsUnblockResponse {
   const CatchIncomingRequestsUnblockResponse500({required this.body});
 
-  final _i5.CatchRequestError body;
+  final _i6.CatchRequestError body;
 
   @_i2.override
   _i2.bool operator ==(_i2.Object other) {
