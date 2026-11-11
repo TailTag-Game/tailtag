@@ -49,12 +49,14 @@ from .catch_request_serializers import (
     CATCH_REQUEST_NOT_FOUND_SCHEMA,
     DETAIL_ERROR_SCHEMA,
     PLAYER_REQUEST_LIST_SCHEMA,
+    REFUSAL_SCHEMA,
     SUBMISSION_REQUEST_SCHEMA,
     SUBMISSION_RESPONSE_SCHEMA,
     player_request_data,
     submission_response_data,
 )
 from .catch_requests import (
+    CatchRequestRefusedError,
     SubmissionOutcome,
     SubmissionResult,
     submit_catch_request,
@@ -620,6 +622,13 @@ _REQUESTS_401 = OpenApiResponse(
 _REQUESTS_500 = OpenApiResponse(
     response=CATCH_REQUEST_ERROR_SCHEMA, description="server_error"
 )
+_RETRY_AFTER_HEADER = OpenApiParameter(
+    name="Retry-After",
+    type=int,
+    location=OpenApiParameter.HEADER,
+    description="Seconds until the next submission can succeed.",
+    response=[429],
+)
 
 
 class CatchRequestView(APIView):
@@ -714,6 +723,7 @@ class CatchRequestView(APIView):
     @extend_schema(
         operation_id="catch_requests_create",
         tags=["catches"],
+        parameters=[_RETRY_AFTER_HEADER],
         description=(
             "Submit a scanned tag at the caller's selected convention. Approval is "
             "manual by default. A retry returns the existing pending request or catch."
@@ -745,6 +755,10 @@ class CatchRequestView(APIView):
             409: OpenApiResponse(
                 response=CATCH_REQUEST_ERROR_SCHEMA,
                 description="catch_requests_unavailable or self_catch_not_allowed",
+            ),
+            429: OpenApiResponse(
+                response=REFUSAL_SCHEMA,
+                description="cooldown_active or rate_limited",
             ),
             500: _REQUESTS_500,
         },
@@ -781,7 +795,25 @@ class CatchRequestView(APIView):
                 "You cannot catch your own fursuit.",
                 status.HTTP_409_CONFLICT,
             )
+        except CatchRequestRefusedError as error:
+            _record_confirmation_rejected(error.reason)
+            return _refusal(error)
         return _submission_response(result, request=request)
+
+
+def _refusal(error: CatchRequestRefusedError) -> Response:
+    """HTTP 429 with the retry time in the body and the Retry-After header."""
+    seconds = error.retry_after_seconds
+    response = Response(
+        {
+            "code": error.code,
+            "detail": "Try again later.",
+            "retry_after_seconds": seconds,
+        },
+        status=status.HTTP_429_TOO_MANY_REQUESTS,
+    )
+    response["Retry-After"] = str(seconds)
+    return response
 
 
 def _submission_response(result: SubmissionResult, *, request: Request) -> Response:

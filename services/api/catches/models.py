@@ -234,3 +234,49 @@ class CatchRequest(models.Model):
             f"CatchRequest {self.pk}: player {self.player_id}, "
             f"fursuit {self.fursuit_id}, convention {self.convention_id}, {self.state}"
         )
+
+
+class CatchBlock(models.Model):
+    """An owner's block of one player for one suit at one convention (#506).
+
+    A block refuses new attempts only. It never changes a request. Cleanup
+    deletes blocks with request history after the review deadline.
+    """
+
+    id: int
+    pk: int
+    player_id: int
+    player: models.ForeignKey[User, User] = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="catch_blocks",
+    )
+    fursuit_id: int
+    fursuit: models.ForeignKey[Fursuit, Fursuit] = models.ForeignKey(
+        "fursuits.Fursuit",
+        on_delete=models.PROTECT,
+        related_name="catch_blocks",
+    )
+    convention_id: int
+    convention: models.ForeignKey[Convention, Convention] = models.ForeignKey(
+        "conventions.Convention",
+        on_delete=models.PROTECT,
+        related_name="catch_blocks",
+    )
+    created_at: models.DateTimeField[datetime.datetime, datetime.datetime] = (
+        models.DateTimeField()
+    )
+
+    class Meta:
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["player", "fursuit", "convention"],
+                name="catches_block_one_per_trio",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"CatchBlock {self.pk}: player {self.player_id}, "
+            f"fursuit {self.fursuit_id}, convention {self.convention_id}"
+        )

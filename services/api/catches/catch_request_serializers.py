@@ -1,4 +1,4 @@
-"""Closed response shapes for catch request submission and the player list (#505).
+"""Closed response shapes for catch requests (#505, #506).
 
 The shapes follow the reusable TailTag contract, section "Shared objects".
 """
@@ -7,15 +7,17 @@ from __future__ import annotations
 
 import datetime
 from datetime import UTC
-from typing import TypedDict
+from typing import TypedDict, cast
 
 from rest_framework.request import Request
 
 from catches.catch_requests import SubmissionResult
 from catches.models import Catch, CatchRequest, CatchRequestState
+from catches.request_actions import UNDO_WINDOW, is_approval_paused, public_state
 from config.openapi_components import component_ref
 from fursuits.models import Fursuit
 from media import service as media_service
+from profiles.models import PlayerProfile
 
 # The operations reference named components, so the generated client has one
 # class per shape. The shapes live in config.openapi_components.
@@ -25,6 +27,15 @@ PLAYER_REQUEST_LIST_SCHEMA = component_ref("PlayerRequestList")
 CATCH_REQUEST_ERROR_SCHEMA = component_ref("CatchRequestError")
 CATCH_REQUEST_NOT_FOUND_SCHEMA = component_ref("CatchRequestNotFound")
 DETAIL_ERROR_SCHEMA = component_ref("DetailError")
+REFUSAL_SCHEMA = component_ref("CatchRequestRefusal")
+ACTION_ERROR_SCHEMA = component_ref("CatchRequestActionError")
+ACTION_NOT_FOUND_SCHEMA = component_ref("CatchRequestActionNotFound")
+OWNER_REQUEST_SCHEMA = component_ref("OwnerRequest")
+OWNER_REQUEST_LIST_SCHEMA = component_ref("OwnerRequestList")
+OWNER_REQUEST_SUMMARY_SCHEMA = component_ref("OwnerRequestSummary")
+OWNER_APPROVAL_SCHEMA = component_ref("OwnerApproval")
+DECLINE_REQUEST_SCHEMA = component_ref("CatchRequestDecline")
+PLAYER_REQUEST_SCHEMA = component_ref("PlayerRequest")
 
 
 class FursuitSummaryData(TypedDict):
@@ -63,6 +74,30 @@ class SubmissionResponseData(TypedDict):
     catch: RequestCatchData | None
 
 
+class OwnerRequestPlayerData(TypedDict):
+    display_name: str
+    handle: str
+
+
+class OwnerRequestData(TypedDict):
+    id: int
+    fursuit: FursuitSummaryData
+    convention_id: int
+    player: OwnerRequestPlayerData
+    state: str
+    requested_at: str
+    undo_available_until: str | None
+    prior_decline_count: int
+    player_blocked: bool
+    approval_paused: bool
+    review_deadline_at: str
+
+
+class OwnerApprovalData(TypedDict):
+    request: OwnerRequestData
+    catch: RequestCatchData
+
+
 def player_request_data(
     request_row: CatchRequest, *, request: Request
 ) -> PlayerRequestData:
@@ -71,17 +106,85 @@ def player_request_data(
     if deadline is None:  # pragma: no cover - rows exist only for zoned conventions.
         message = "A catch request convention has no review deadline."
         raise ValueError(message)
-    state = request_row.state
-    if state == CatchRequestState.INVALIDATED.value:
-        state = "unavailable"
     return {
         "id": request_row.pk,
         "fursuit": _fursuit_summary(request_row.fursuit, request=request),
         "convention_id": request_row.convention_id,
-        "state": str(state),
+        "state": public_state(request_row.state),
         "requested_at": _utc(request_row.requested_at),
         "review_deadline_at": _utc(deadline),
     }
+
+
+def owner_request_data(
+    row: CatchRequest,
+    *,
+    request: Request,
+    now: datetime.datetime,
+    owner_profile: PlayerProfile | None,
+) -> OwnerRequestData:
+    """Project one annotated row from ``owner_request_rows`` for its owner."""
+    deadline = row.convention.review_deadline_at
+    if deadline is None:  # pragma: no cover - rows exist only for zoned conventions.
+        message = "A catch request convention has no review deadline."
+        raise ValueError(message)
+    # A missing reverse one-to-one raises an AttributeError subclass.
+    player_profile = cast(
+        "PlayerProfile | None", getattr(row.player, "player_profile", None)
+    )
+    return {
+        "id": row.pk,
+        "fursuit": _fursuit_summary(row.fursuit, request=request),
+        "convention_id": row.convention_id,
+        "player": {
+            "display_name": ""
+            if player_profile is None
+            else str(player_profile.display_name or ""),
+            "handle": ""
+            if player_profile is None
+            else str(player_profile.handle or ""),
+        },
+        "state": public_state(row.state),
+        "requested_at": _utc(row.requested_at),
+        "undo_available_until": _undo_available_until(row, now),
+        "prior_decline_count": int(getattr(row, "prior_decline_count", 0)),
+        "player_blocked": bool(getattr(row, "player_blocked", False)),
+        "approval_paused": is_approval_paused(
+            player_profile=player_profile,
+            owner_profile=owner_profile,
+            fursuit=row.fursuit,
+            convention=row.convention,
+        ),
+        "review_deadline_at": _utc(deadline),
+    }
+
+
+def owner_approval_data(
+    row: CatchRequest,
+    catch: Catch,
+    *,
+    request: Request,
+    now: datetime.datetime,
+    owner_profile: PlayerProfile | None,
+) -> OwnerApprovalData:
+    return {
+        "request": owner_request_data(
+            row, request=request, now=now, owner_profile=owner_profile
+        ),
+        "catch": _request_catch_data(catch, request=request),
+    }
+
+
+def _undo_available_until(row: CatchRequest, now: datetime.datetime) -> str | None:
+    """Only an ordinary decline whose undo window is still open (#506 G11b)."""
+    if (
+        row.state != CatchRequestState.DECLINED.value
+        or row.decline_blocked
+        or row.declined_at is None
+    ):
+        return None
+    until = row.declined_at + UNDO_WINDOW
+    return _utc(until) if now < until else None
 
 
 def submission_response_data(

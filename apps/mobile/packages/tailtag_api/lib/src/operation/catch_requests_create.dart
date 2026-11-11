@@ -11,9 +11,12 @@ import 'package:tailtag_api/src/model/api_catches_requests_post400_body_model.da
 import 'package:tailtag_api/src/model/catch_request_error.dart' as _i11;
 import 'package:tailtag_api/src/model/catch_request_not_found.dart' as _i12;
 import 'package:tailtag_api/src/model/catch_request_payload.dart' as _i6;
+import 'package:tailtag_api/src/model/catch_request_refusal.dart' as _i13;
 import 'package:tailtag_api/src/model/catch_request_submission.dart' as _i8;
 import 'package:tailtag_api/src/model/detail_error.dart' as _i10;
 import 'package:tailtag_api/src/operation/http_operation.dart' as _i1;
+import 'package:tailtag_api/src/response/api_catches_requests_post429_response.dart'
+    as _i14;
 import 'package:tailtag_api/src/response_wrapper/catch_requests_create_response.dart'
     as _i2;
 import 'package:tonik_util/tonik_util.dart' as _i4;
@@ -86,6 +89,16 @@ final class CatchRequestsCreate
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
         final _$body = _i11.CatchRequestError.fromJson(_$json);
         return _i2.CatchRequestsCreateResponse409(body: _$body);
+      case (429, r'application/json'):
+        final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
+        final _$body = _i13.CatchRequestRefusal.fromJson(_$json);
+        return _i2.CatchRequestsCreateResponse429(
+          body: _i14.ApiCatchesRequestsPost429Response(
+            body: _$body,
+            retryAfter: (response.headersSplitValues[r'retry-after']?.join(','))
+                .decodeSimpleNullableInt(context: r'Retry-After'),
+          ),
+        );
       case (500, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
         final _$body = _i11.CatchRequestError.fromJson(_$json);

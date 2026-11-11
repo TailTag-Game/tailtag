@@ -15,6 +15,19 @@ _HISTORY_PATH = "/api/catches/"
 _CONFIRMATION_PATH = "/api/catches/confirm/"
 _PREVIEW_PATH = "/api/catches/preview/"
 _REQUESTS_PATH = "/api/catches/requests/"
+# Owner review, withdrawal, and unblock (#506).
+_REVIEW_PATHS = frozenset(
+    {
+        "/api/catches/requests/{id}/withdraw/",
+        "/api/catches/incoming-requests/",
+        "/api/catches/incoming-requests/summary/",
+        "/api/catches/incoming-requests/{id}/approve/",
+        "/api/catches/incoming-requests/{id}/decline/",
+        "/api/catches/incoming-requests/{id}/undo-decline/",
+        "/api/catches/incoming-requests/{id}/restore/",
+        "/api/catches/incoming-requests/{id}/block/",
+    }
+)
 
 
 def _load_schema() -> dict[str, Any]:
@@ -156,6 +169,7 @@ def test_catch_history_openapi_has_one_closed_bearer_get_contract() -> None:
         _CONFIRMATION_PATH,
         _PREVIEW_PATH,
         _REQUESTS_PATH,
+        *_REVIEW_PATHS,
     }
     assert set(catch_paths[_HISTORY_PATH]) == {"get"}
     assert set(catch_paths[_CONFIRMATION_PATH]) == {"post"}

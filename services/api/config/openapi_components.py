@@ -162,4 +162,132 @@ CATCH_REQUEST_COMPONENTS: Final[dict[str, dict[str, object]]] = {
         "properties": {"detail": {"type": "string"}},
         "required": ["detail"],
     },
+    # #506: refusals, owner reads, and owner decisions.
+    "CatchRequestRefusal": {
+        "type": "object",
+        "additionalProperties": False,
+        "description": (
+            "cooldown_active or rate_limited. The Retry-After header carries "
+            "the same number of seconds."
+        ),
+        "properties": {
+            "code": {"type": "string", "enum": ["cooldown_active", "rate_limited"]},
+            "detail": {"type": "string"},
+            "retry_after_seconds": {"type": "integer", "minimum": 1},
+        },
+        "required": ["code", "detail", "retry_after_seconds"],
+    },
+    "CatchRequestActionError": {
+        "type": "object",
+        "additionalProperties": False,
+        "description": (
+            "request_state_changed carries the current state. Other codes carry "
+            "code and detail only."
+        ),
+        "properties": {
+            "code": {"type": "string"},
+            "detail": {"type": "string"},
+            "state": {"$ref": "#/components/schemas/CatchRequestState"},
+        },
+        "required": ["code", "detail"],
+    },
+    "CatchRequestActionNotFound": {
+        "type": "object",
+        "additionalProperties": False,
+        "description": (
+            "request_not_found carries code and detail. While the gate is off, "
+            "the generic not-found body carries detail only."
+        ),
+        "properties": {"code": {"type": "string"}, "detail": {"type": "string"}},
+        "required": ["detail"],
+    },
+    "CatchRequestDecline": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "block": {
+                "type": "boolean",
+                "description": "True also blocks the player for this suit here.",
+            }
+        },
+        "required": ["block"],
+    },
+    "OwnerRequest": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "id": {"type": "integer"},
+            "fursuit": {"$ref": "#/components/schemas/FursuitSummary"},
+            "convention_id": {"type": "integer"},
+            "player": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "display_name": {"type": "string"},
+                    "handle": {"type": "string"},
+                },
+                "required": ["display_name", "handle"],
+            },
+            "state": {"$ref": "#/components/schemas/CatchRequestState"},
+            "requested_at": _TIME,
+            "undo_available_until": {**_TIME, "nullable": True},
+            "prior_decline_count": {"type": "integer"},
+            "player_blocked": {"type": "boolean"},
+            "approval_paused": {"type": "boolean"},
+            "review_deadline_at": _TIME,
+        },
+        "required": [
+            "id",
+            "fursuit",
+            "convention_id",
+            "player",
+            "state",
+            "requested_at",
+            "undo_available_until",
+            "prior_decline_count",
+            "player_blocked",
+            "approval_paused",
+            "review_deadline_at",
+        ],
+    },
+    "OwnerRequestList": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "results": {
+                "type": "array",
+                "items": {"$ref": "#/components/schemas/OwnerRequest"},
+            }
+        },
+        "required": ["results"],
+    },
+    "OwnerRequestSummary": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "pending_count": {"type": "integer"},
+            "fursuits": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "fursuit_id": {"type": "integer"},
+                        "pending_count": {"type": "integer"},
+                    },
+                    "required": ["fursuit_id", "pending_count"],
+                },
+            },
+        },
+        "required": ["pending_count", "fursuits"],
+    },
+    "OwnerApproval": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "request": {"$ref": "#/components/schemas/OwnerRequest"},
+            "catch": {"$ref": "#/components/schemas/RequestCatch"},
+        },
+        "required": ["request", "catch"],
+    },
 }

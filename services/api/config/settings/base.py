@@ -96,6 +96,10 @@ AUTH_USER_MODEL = "accounts.User"
 
 # Reusable tags and catch requests (#502). Off unless the environment says true.
 CATCH_REQUESTS_ENABLED = parse_catch_requests_enabled(os.environ)
+# The per-player request limit (#506). #508 validates it against representative
+# play. A change goes through review, so the limit has no environment override.
+CATCH_REQUEST_LIMIT_COUNT = 30
+CATCH_REQUEST_LIMIT_WINDOW_SECONDS = 600
 
 AUTH_PASSWORD_VALIDATORS: list[dict[str, object]] = [
     {

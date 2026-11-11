@@ -25,6 +25,7 @@ def test_catch_is_the_exact_minimal_dedicated_domain_model() -> None:
     model = catch_model()
     assert {item.__name__ for item in apps.get_app_config("catches").get_models()} == {
         "Catch",
+        "CatchBlock",
         "CatchRequest",
     }
     fields = {field.name: field for field in model._meta.fields}

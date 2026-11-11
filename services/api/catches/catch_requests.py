@@ -1,8 +1,8 @@
 """Catch request submission and the shared catch-from-request write (#505).
 
 The reusable TailTag contract is the source of truth: sections "Submission
-checks", "Transaction rule", and "Approval preference". #505 runs checks 1 to 9.
-#506 adds the block check, cooldowns, and the per-player limit.
+checks", "Transaction rule", and "Approval preference". #505 added checks 1 to 9.
+#506 added check 10 (blocks) and check 11 (cooldowns and the per-player limit).
 
 Two implementation choices from the #505 refinement apply here:
 
@@ -23,6 +23,11 @@ from django.db import IntegrityError, transaction
 
 from accounts.models import User
 from catches.models import Catch, CatchRequest, CatchRequestState
+from catches.request_protections import (
+    SubmissionRefusedError,
+    check_submission_allowed,
+    is_blocked,
+)
 from catches.tag_preview import (
     TagPreviewCatcherIneligibleError,
     TagPreviewSelfCatchError,
@@ -55,6 +60,7 @@ CatchRequestCatcherIneligibleError = TagPreviewCatcherIneligibleError
 CatchRequestsUnavailableError = TagPreviewUnavailableError
 CatchRequestTargetUnavailableError = TagPreviewTargetUnavailableError
 CatchRequestSelfCatchError = TagPreviewSelfCatchError
+CatchRequestRefusedError = SubmissionRefusedError
 
 
 class SubmissionOutcome(StrEnum):
@@ -253,6 +259,16 @@ def _submit(user: User, found: _Discovery) -> SubmissionResult:
             raise CatchRequestTargetUnavailableError(Reason.SESSION_EXPIRED)
         if found.owner_id == player_id:
             raise CatchRequestSelfCatchError(Reason.SELF_CATCH)
+        # Check 10: a block shares the neutral target response.
+        trio = {
+            "player_id": player_id,
+            "fursuit_id": found.fursuit_id,
+            "convention_id": found.convention_id,
+        }
+        if is_blocked(**trio):
+            raise CatchRequestTargetUnavailableError(Reason.BLOCKED)
+        # Check 11: the trio cooldown and the per-player limit (#506).
+        check_submission_allowed(**trio, now=now)
 
         request = CatchRequest.objects.create(
             player_id=player_id,

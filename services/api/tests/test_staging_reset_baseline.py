@@ -20,7 +20,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from accounts.models import User
-from catches.models import Catch, CatchRequest
+from catches.models import Catch, CatchBlock, CatchRequest
 from conventions.models import (
     Convention,
     ConventionEnrollment,
@@ -272,6 +272,13 @@ def active_graph(
         state="pending",
         requested_at=timezone.now(),
     )
+    # Nor must a block for the same trio (#506).
+    CatchBlock.objects.create(
+        player=catcher,
+        fursuit=fursuit,
+        convention=convention,
+        created_at=timezone.now(),
+    )
     return activation, session, credential, catch
 
 
@@ -321,6 +328,9 @@ def semantic_snapshot(identity: StagingResetIdentity) -> dict[str, object]:
                 fursuit_id__in=(identity.first_fursuit_id, identity.second_fursuit_id)
             ).count(),
             "requests": CatchRequest.objects.filter(
+                fursuit_id__in=(identity.first_fursuit_id, identity.second_fursuit_id)
+            ).count(),
+            "blocks": CatchBlock.objects.filter(
                 fursuit_id__in=(identity.first_fursuit_id, identity.second_fursuit_id)
             ).count(),
             "sessions": FursuitCatchSession.objects.filter(
@@ -835,6 +845,7 @@ def test_reset_rebuilds_only_registered_closure_and_preserves_identity_admin_and
     assert semantic_snapshot(identity)["counts"] == {
         "catches": 0,
         "requests": 0,
+        "blocks": 0,
         "sessions": 0,
         "credentials": 0,
     }
