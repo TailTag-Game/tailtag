@@ -49,7 +49,7 @@ Render runs one run at a time. If a run is still active at the next scheduled ti
 
 The command reports to the monitor `catch-request-cleanup`. It sends `in_progress` at the start, then `ok` or `error`. The command sets the monitor schedule from code: daily at 10:00 UTC, a 60-minute check-in margin, and a 30-minute maximum run time. One failed or missed check-in opens a Sentry issue.
 
-Sentry gives each environment its own monitor environment. Until the [cron pins](#pin-the-cron-services) land, both jobs report as environment `unknown`. In that time, an `ok` check-in from one environment can hide a missed run in the other. Land the pin pull request soon after the Blueprint sync.
+Sentry gives each environment its own monitor environment. A cron job without a [pin](#pin-the-cron-services) reports as environment `unknown`. Then an `ok` check-in from one environment can hide a missed run in the other, so pin a new cron job soon after it is created.
 
 ### Outcome signal
 
@@ -74,7 +74,7 @@ These steps are separate authorized owner actions. The #507 pull request does no
 3. A Blueprint sync deploys the latest `main` commit to every service, even with auto-deploy off. Promote the intended Staging commit again with `scripts/api_staging_render_promote.py`. See [deploys outside the promotion](../development/staging.md#deploys-outside-the-promotion).
 4. [Deploy the Staging cron job](#deploy-the-staging-cron-job) at the same commit.
 5. In Sentry, after the first check-in creates the monitor, create one alert for the `catch-request-cleanup` monitor. Send it to the owner.
-6. Send the two cron service IDs (`srv-…`) for the [pin pull request](#pin-the-cron-services).
+6. Send the two cron job IDs (`crn-…`) for the [pin pull request](#pin-the-cron-services).
 7. Make sure that the first scheduled run in each environment shows an `ok` check-in and a `succeeded` outcome.
 
 The cron job gets only the variables that production settings need. Clerk stays off. The hosts values are placeholders, because the job serves no HTTP traffic. Production settings require the media storage values at startup, so the job holds them but never uses them.
@@ -91,17 +91,20 @@ If you skip this step, the cron job keeps its older image. The command touches o
 
 ## Pin the cron services
 
-A cron job is its own Render service. Build identity names the environment only for a pinned service. The web pins do not match the cron jobs.
+A cron job is its own Render service, with a `crn-` ID. Web services have `srv-` IDs. Build identity names the environment only for a pinned service, and the web pins do not match the cron jobs.
 
-1. Compute each digest from the repository root:
+The pins were added on 2026-11-11 for `tailtag-cleanup-dev` (`crn-dbqbhkbl550s73emiqn0`) and `tailtag-cleanup-stg` (`crn-dbqbhkbl550s73emiqug`). If a cron job is created again, it gets a new ID. Pin it again:
+
+1. Compute the digest from the repository root:
 
    ```bash
-   uv --directory services/api run --locked --no-sync python -c "from config.replacement_target_binding import fingerprint_render_service as f; print(f('staging', input('Service ID: ')))"
+   uv --directory services/api run --locked --no-sync python -c "from config.replacement_target_binding import fingerprint_render_cron_job as f; print(f('staging', input('Cron job ID: ')))"
    ```
 
    Use `development` instead of `staging` for the Development cron job.
-2. Put the two values in `_EXPECTED_RENDER_CLEANUP_DIGESTS` in `services/api/config/replacement_target_binding.py`, in a pull request.
-3. After the merge, deploy both cron jobs at that commit.
+2. Put the value in `_EXPECTED_RENDER_CLEANUP_DIGESTS` in `services/api/config/replacement_target_binding.py`, and change the cron job IDs in `services/api/tests/test_build_identity.py`, in a pull request.
+3. After the merge, make sure that the Development cron job redeployed. Promote Staging, and deploy the Staging cron job at that commit.
+4. Trigger one run of each cron job. Make sure that its outcome log line shows its environment and release.
 
 The cron pins widen build identity only. `validate_runtime_target`, the Staging reset, migrations, and the operator commands accept only the web pins.
 
