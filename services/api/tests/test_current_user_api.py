@@ -160,6 +160,16 @@ def test_product_routes_remain_unversioned_and_do_not_add_public_user_surfaces(
     assert set(schema["paths"]) == {
         "/api/catches/",
         "/api/catches/confirm/",
+        "/api/catches/preview/",
+        "/api/catches/requests/",
+        "/api/catches/requests/{id}/withdraw/",
+        "/api/catches/incoming-requests/",
+        "/api/catches/incoming-requests/summary/",
+        "/api/catches/incoming-requests/{id}/approve/",
+        "/api/catches/incoming-requests/{id}/decline/",
+        "/api/catches/incoming-requests/{id}/undo-decline/",
+        "/api/catches/incoming-requests/{id}/restore/",
+        "/api/catches/incoming-requests/{id}/block/",
         "/api/me/",
         "/api/profile/",
         "/api/profile/avatar/",
@@ -176,6 +186,8 @@ def test_product_routes_remain_unversioned_and_do_not_add_public_user_surfaces(
         "/api/fursuits/",
         "/api/fursuits/{id}/",
         "/api/fursuits/{id}/photo/",
+        "/api/fursuits/{id}/tag/",
+        "/api/fursuits/{id}/tag/replace/",
         "/api/schema/",
     }
     assert client.get("/api/v0/me/").status_code == 404

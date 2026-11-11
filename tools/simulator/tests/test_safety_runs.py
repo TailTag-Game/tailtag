@@ -15,6 +15,7 @@ import pytest
 from convention_support import CONFIG, BlockedHttp, PopulationFixtures, Rig, rig
 from fixture_support import FakeFixtureChannel, FixtureState
 from journey_support import VALID_A, VALID_B
+from platform_support import skip_on_windows
 from pool_support import POOL, RUN_ID, SECRET, FakeChannel, World
 from report_support import read_report
 from traffic_support import ManualClock
@@ -338,7 +339,8 @@ def test_aborted_convention_cancels_work_and_applies_target_safe_finalization(
             guarded_convention(value, runtime, httpx.MockTransport(respond))
         )
         try:
-            await asyncio.wait_for(blocked.entered.wait(), 3)
+            # Generous startup allowance; slower runners (Windows CI) exceeded 3 s.
+            await asyncio.wait_for(blocked.entered.wait(), 30)
             await time.settle()
             changed = True
             if cause == "resource_saturation":
@@ -525,6 +527,9 @@ def test_unattended_convention_is_denied_before_external_work(
     )
 
 
+@skip_on_windows(
+    "SIGUSR1 comes from the Linux host runner; Windows has no such signal."
+)
 def test_cli_operator_signal_stops_owned_http_and_restores_signal_handler(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -564,3 +564,34 @@ def test_credential_revoke_failure_rolls_back_and_records_only_failed(
     assert not OperatorAuditEvent.objects.filter(
         affected_record_id=credential.pk, outcome=OperatorAuditOutcome.SUCCEEDED
     ).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("lookup", ["token", "token__startswith", "created_at__gte"])
+def test_credential_url_lookups_cannot_filter_outside_the_list_filters(
+    lookup: str,
+) -> None:
+    """A URL lookup must not filter by token, so no operator can recover one."""
+    scenario = create_credential_scenario()
+    activation = create_activation_row(
+        fursuit=scenario.fursuit, convention=scenario.convention, active=True
+    )
+    credential = create_credential(activation=activation, token=TOKEN_A)
+    client = Client()
+    client.force_login(_credential_staff(("conventions", "revoke_catch_credential")))
+    changelist, _, _, _ = _admin_urls(credential)
+    value = {
+        "token": TOKEN_A,
+        "token__startswith": TOKEN_A[:5],
+        "created_at__gte": "2000-01-01",
+    }[lookup]
+
+    refused = client.get(changelist, {lookup: value})
+    by_reason = client.get(changelist, {"revocation_reason__exact": "operator"})
+    by_convention = client.get(
+        changelist, {"activation__convention__id__exact": str(scenario.convention.pk)}
+    )
+
+    assert refused.status_code == 400
+    _assert_token_absent(TOKEN_A, refused)
+    assert by_reason.status_code == by_convention.status_code == 200

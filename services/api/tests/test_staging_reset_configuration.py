@@ -6,7 +6,7 @@ import importlib
 import os
 import sys
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
@@ -28,34 +28,15 @@ if str(API_ROOT) not in sys.path:
 
 
 @pytest.fixture
-def safety(monkeypatch: pytest.MonkeyPatch) -> Any:
+def safety() -> Any:
     """Load the approved guard only once the production module exists."""
     assert (API_ROOT / "rehearsal" / "safety.py").is_file()
-    binding = importlib.import_module("config.replacement_target_binding")
-    monkeypatch.setattr(
-        binding,
-        "_EXPECTED_DIGESTS",
-        {
-            **binding._EXPECTED_DIGESTS,
-            "staging-api": binding.fingerprint_tuple(
-                "staging-api",
-                "a1111111-1111-4111-8111-111111111111",
-                "c3333333-3333-4333-8333-333333333333",
-                "d4444444-4444-4444-8444-444444444444",
-            ),
-        },
-    )
     return cast(Any, importlib.import_module("rehearsal.safety"))
 
 
 def reset_environment(**overrides: str) -> dict[str, str]:
     """Return one complete, separately supplied Staging reset configuration."""
     return {
-        "RAILWAY_ENVIRONMENT_NAME": "staging",
-        "RAILWAY_SERVICE_NAME": "api",
-        "RAILWAY_PROJECT_ID": "a1111111-1111-4111-8111-111111111111",
-        "RAILWAY_ENVIRONMENT_ID": "c3333333-3333-4333-8333-333333333333",
-        "RAILWAY_SERVICE_ID": "d4444444-4444-4444-8444-444444444444",
         "TAILTAG_STAGING_RESET_ENABLED": "true",
         "TAILTAG_STAGING_RESET_ID": str(RESET_ID),
         "TAILTAG_STAGING_DATABASE_SYSTEM_ID": "742391",
@@ -72,15 +53,6 @@ def reset_environment(**overrides: str) -> dict[str, str]:
 def record_call(calls: list[object]) -> None:
     """Record an unsafe-configuration guard invocation if one occurs."""
     calls.append(1)
-
-
-def record_callback(calls: list[object]) -> Callable[[object], None]:
-    """Return a named typed guard callback for fail-before-work assertions."""
-
-    def callback(_: object) -> None:
-        record_call(calls)
-
-    return callback
 
 
 def require_row(value: tuple[object, ...] | None) -> tuple[object, ...]:
@@ -107,109 +79,13 @@ def test_baseline_constants_freeze_the_small_versioned_fixture(
     assert safety.ResetConfiguration.__dataclass_params__.frozen is True
 
 
-def test_load_configuration_returns_only_canonical_typed_reset_facts(
-    safety: ModuleType,
-) -> None:
-    """AC-5: configuration must be explicit and cannot leak unrelated values."""
-    environment = reset_environment(EXTRA_SECRET="must-not-be-retained")
-
-    configuration = safety.load_configuration(environment)
-
-    assert configuration == safety.ResetConfiguration(
-        environment_id=RESET_ID,
-        cluster_identifier="742391",
-        database_host="staging-postgres.internal",
-        database_port="5432",
-        database_name="tailtag_staging",
-        owner_clerk_id="user_rehearsal_owner",
-        catcher_clerk_id="user_rehearsal_catcher",
-        media_key=MEDIA_KEY,
-    )
-    assert "must-not-be-retained" not in repr(configuration)
-
-
-@pytest.mark.parametrize(
-    "overrides",
-    (
-        {"RAILWAY_ENVIRONMENT_NAME": "development"},
-        {"RAILWAY_ENVIRONMENT_NAME": "Staging"},
-        {"RAILWAY_ENVIRONMENT_NAME": "production"},
-        {"RAILWAY_ENVIRONMENT_NAME": "preview"},
-        {"RAILWAY_PROJECT_ID": "00000000-0000-0000-0000-000000000000"},
-        {"RAILWAY_ENVIRONMENT_ID": "00000000-0000-0000-0000-000000000000"},
-        {"RAILWAY_SERVICE_ID": "00000000-0000-0000-0000-000000000000"},
-        {"TAILTAG_STAGING_RESET_ENABLED": "false"},
-        {"TAILTAG_STAGING_RESET_ENABLED": "True"},
-        {"TAILTAG_STAGING_RESET_ID": str(RESET_ID).upper()},
-        {"TAILTAG_STAGING_RESET_ID": "00000000-0000-0000-0000-000000000000"},
-        {"TAILTAG_STAGING_RESET_ID": "2b859e84-1d92-1a8a-a72b-d3567219288d"},
-        {"TAILTAG_STAGING_RESET_ID": "not-a-uuid"},
-        {"TAILTAG_STAGING_DATABASE_SYSTEM_ID": "742391.0"},
-        {"TAILTAG_STAGING_DATABASE_SYSTEM_ID": "-742391"},
-        {"TAILTAG_STAGING_DATABASE_HOST": "Staging-Postgres.Internal"},
-        {"TAILTAG_STAGING_DATABASE_PORT": "05432"},
-        {"TAILTAG_STAGING_DATABASE_PORT": "0"},
-        {"TAILTAG_STAGING_DATABASE_NAME": "postgres"},
-        {"TAILTAG_STAGING_DATABASE_NAME": "tailtag staging"},
-        {"TAILTAG_STAGING_RESET_OWNER_CLERK_ID": ""},
-        {"TAILTAG_STAGING_RESET_OWNER_CLERK_ID": " owner"},
-        {"TAILTAG_STAGING_RESET_CATCHER_CLERK_ID": "user_rehearsal_owner"},
-        {"TAILTAG_STAGING_RESET_CATCHER_CLERK_ID": ""},
-        {"TAILTAG_STAGING_RESET_CATCHER_CLERK_ID": "catcher "},
-        {"TAILTAG_STAGING_RESET_MEDIA_KEY": "avatars/rehearsal-owner.png"},
-        {"TAILTAG_STAGING_RESET_MEDIA_KEY": "images/not-an-opaque-key.png"},
-    ),
-)
-def test_unsafe_reset_configuration_is_denied_before_database_or_asset_work(
-    safety: ModuleType, monkeypatch: pytest.MonkeyPatch, overrides: Mapping[str, str]
-) -> None:
-    """AC-5/SECURITY: malformed, copied, or non-Staging inputs fail closed."""
-    database_calls: list[object] = []
-    asset_calls: list[object] = []
-    monkeypatch.setattr(safety, "validate_database", record_callback(database_calls))
-    monkeypatch.setattr(safety, "validate_identity", record_callback(asset_calls))
-
-    with pytest.raises(safety.ResetSafetyError):
-        safety.load_configuration(reset_environment(**overrides))
-
-    assert database_calls == []
-    assert asset_calls == []
-
-
-@pytest.mark.parametrize(
-    "missing_name",
-    (
-        "RAILWAY_ENVIRONMENT_NAME",
-        "RAILWAY_PROJECT_ID",
-        "RAILWAY_ENVIRONMENT_ID",
-        "RAILWAY_SERVICE_ID",
-        "TAILTAG_STAGING_RESET_ENABLED",
-        "TAILTAG_STAGING_RESET_ID",
-        "TAILTAG_STAGING_DATABASE_SYSTEM_ID",
-        "TAILTAG_STAGING_DATABASE_HOST",
-        "TAILTAG_STAGING_DATABASE_PORT",
-        "TAILTAG_STAGING_DATABASE_NAME",
-        "TAILTAG_STAGING_RESET_OWNER_CLERK_ID",
-        "TAILTAG_STAGING_RESET_CATCHER_CLERK_ID",
-        "TAILTAG_STAGING_RESET_MEDIA_KEY",
-    ),
-)
-def test_each_required_reset_configuration_value_is_mandatory(
-    safety: ModuleType, missing_name: str
-) -> None:
-    """AC-5: no omitted target binding may acquire an implicit default."""
-    environment = reset_environment()
-    del environment[missing_name]
-
-    with pytest.raises(safety.ResetSafetyError):
-        safety.load_configuration(environment)
-
-
 @pytest.mark.django_db(transaction=True)
 def test_validate_database_requires_the_effective_django_target_and_cluster(
-    safety: ModuleType,
+    safety: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """AC-5: a valid-looking sentinel configuration cannot target another database."""
+    # This test covers the target facts. The Render owner rule has its own tests.
+    monkeypatch.setattr(safety, "_RENDER_EXECUTOR", "SELECT %s <> ''")
     database = settings.DATABASES["default"]
     with connection.cursor() as cursor:
         cursor.execute(
@@ -349,3 +225,153 @@ def test_validate_database_denies_a_real_non_superuser_role(
                 )
             )
             control.execute(drop_role)
+
+
+RENDER_STAGING_SERVICE = "srv-stagingtest0"
+RENDER_DEVELOPMENT_SERVICE = "srv-developtest0"
+RENDER_PRIVATE_NAMES = (
+    "TAILTAG_STAGING_RESET_ENABLED",
+    "TAILTAG_STAGING_RESET_ID",
+    "TAILTAG_STAGING_DATABASE_SYSTEM_ID",
+    "TAILTAG_STAGING_DATABASE_HOST",
+    "TAILTAG_STAGING_DATABASE_PORT",
+    "TAILTAG_STAGING_DATABASE_NAME",
+    "TAILTAG_STAGING_RESET_OWNER_CLERK_ID",
+    "TAILTAG_STAGING_RESET_CATCHER_CLERK_ID",
+    "TAILTAG_STAGING_RESET_MEDIA_KEY",
+)
+
+
+def render_private(**overrides: str) -> dict[str, str]:
+    """Return the nine private reset values as the owner's Render file holds them."""
+    values = {name: reset_environment()[name] for name in RENDER_PRIVATE_NAMES}
+    return {**values, "TAILTAG_STAGING_DATABASE_HOST": "dpg-stagingtest-a", **overrides}
+
+
+def render_environment(**overrides: str) -> dict[str, str]:
+    """Return a Render Staging runtime with the nine values as service variables."""
+    return {
+        "RENDER": "true",
+        "RENDER_SERVICE_ID": RENDER_STAGING_SERVICE,
+        **render_private(),
+        **overrides,
+    }
+
+
+@pytest.fixture
+def render_safety(safety: ModuleType, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Pin fictitious Render services and the owner's file digest for this test."""
+    binding = importlib.import_module("config.replacement_target_binding")
+    monkeypatch.setattr(
+        binding,
+        "_EXPECTED_RENDER_DIGESTS",
+        {
+            "development": binding.fingerprint_render_service(
+                "development", RENDER_DEVELOPMENT_SERVICE
+            ),
+            "staging": binding.fingerprint_render_service(
+                "staging", RENDER_STAGING_SERVICE
+            ),
+        },
+    )
+    monkeypatch.setattr(
+        binding,
+        "_EXPECTED_RENDER_RESET_DIGEST",
+        binding.fingerprint_render_reset_configuration(render_private()),
+    )
+    return safety
+
+
+def test_load_configuration_admits_render_staging_values_that_match_the_pin(
+    render_safety: ModuleType,
+) -> None:
+    """#410 AC5: Render service variables equal to the owner's pinned file pass."""
+    configuration = render_safety.load_configuration(render_environment())
+
+    assert configuration == render_safety.ResetConfiguration(
+        environment_id=RESET_ID,
+        cluster_identifier="742391",
+        database_host="dpg-stagingtest-a",
+        database_port="5432",
+        database_name="tailtag_staging",
+        owner_clerk_id="user_rehearsal_owner",
+        catcher_clerk_id="user_rehearsal_catcher",
+        media_key=MEDIA_KEY,
+    )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    (
+        pytest.param(
+            {
+                "TAILTAG_STAGING_RESET_MEDIA_KEY": "images/fedcba9876543210fedcba9876543210.png"
+            },
+            id="value-differs-from-pinned-file",
+        ),
+        pytest.param(
+            {"RENDER_SERVICE_ID": RENDER_DEVELOPMENT_SERVICE}, id="render-development"
+        ),
+        pytest.param({"RENDER_SERVICE_ID": "srv-unpinned0"}, id="unpinned-service"),
+        pytest.param({"RENDER": "false"}, id="not-render-runtime"),
+        pytest.param({"RAILWAY_ENVIRONMENT_NAME": "staging"}, id="retired-marker"),
+        pytest.param({"RAILWAY_PROJECT_ID": "retired"}, id="retired-project-marker"),
+    ),
+)
+def test_render_reset_configuration_is_denied(
+    render_safety: ModuleType, overrides: Mapping[str, str]
+) -> None:
+    """#410 AC5/AC11: a changed value or a non-Staging Render target fails closed."""
+    with pytest.raises(render_safety.ResetSafetyError):
+        render_safety.load_configuration(render_environment(**overrides))
+
+
+@pytest.mark.parametrize(
+    "missing_name",
+    ("TAILTAG_STAGING_RESET_ENABLED", "TAILTAG_STAGING_RESET_MEDIA_KEY"),
+)
+def test_a_missing_render_reset_value_fails_closed(
+    render_safety: ModuleType, missing_name: str
+) -> None:
+    """#410 AC5: a missing service variable never takes a default."""
+    environment = render_environment()
+    del environment[missing_name]
+
+    with pytest.raises(render_safety.ResetSafetyError):
+        render_safety.load_configuration(environment)
+
+
+def test_render_reset_fails_closed_until_the_owner_pins_a_digest(
+    render_safety: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#410 AC5: an empty pin admits no Render configuration at all."""
+    binding = importlib.import_module("config.replacement_target_binding")
+    monkeypatch.setattr(binding, "_EXPECTED_RENDER_RESET_DIGEST", "")
+
+    with pytest.raises(render_safety.ResetSafetyError):
+        render_safety.load_configuration(render_environment())
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    (
+        pytest.param({"TAILTAG_STAGING_DATABASE_NAME": "postgres"}, id="control-db"),
+        pytest.param({"TAILTAG_STAGING_RESET_ENABLED": "false"}, id="disabled"),
+    ),
+)
+def test_pinned_render_values_still_pass_the_private_value_grammar(
+    render_safety: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    overrides: Mapping[str, str],
+) -> None:
+    """#410 AC5: a matching digest does not excuse an unsafe or disabled reset."""
+    binding = importlib.import_module("config.replacement_target_binding")
+    unsafe = render_private(**overrides)
+    monkeypatch.setattr(
+        binding,
+        "_EXPECTED_RENDER_RESET_DIGEST",
+        binding.fingerprint_render_reset_configuration(unsafe),
+    )
+
+    with pytest.raises(render_safety.ResetSafetyError):
+        render_safety.load_configuration(render_environment(**unsafe))

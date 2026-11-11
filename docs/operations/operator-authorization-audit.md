@@ -1,6 +1,6 @@
 # Field-beta operator authorization and audit
 
-This runbook covers the eight existing sensitive Django-admin actions for
+This runbook covers the nine existing sensitive Django-admin actions for
 field-beta operations. It is not an operator-management UI, an audit viewer, or
 a product API. Do not run the Staging procedure or mutate Staging without
 separate explicit authorization.
@@ -33,6 +33,7 @@ for other sensitive actions.
 | `set_profile_enabled` | `profiles.playerprofile` | `profiles.set_profile_enabled` is independently sufficient for this action; normal explicit `profiles.view_playerprofile` is required for inspection, but generic permission is not required before executing the action. `profiles.change_playerprofile` and `profiles.delete_playerprofile` are not required. |
 | `set_fursuit_enabled` | `fursuits.fursuit` | `fursuits.set_fursuit_enabled` is independently sufficient for this action; normal explicit `fursuits.view_fursuit` is required for inspection, but generic permission is not required before executing the action. `fursuits.change_fursuit` and `fursuits.delete_fursuit` are not required. |
 | `set_convention_playability` | `conventions.convention` | `conventions.set_convention_playability` is independently sufficient for this action; normal explicit `conventions.view_convention` is required for inspection, but generic permission is not required before executing the action. `conventions.change_convention` and `conventions.delete_convention` are not required. |
+| `revoke_fursuit_tag` | `fursuits.fursuittag` | `fursuits.revoke_fursuit_tag` is independently sufficient for this action. `fursuits.view_fursuittag` or `fursuits.revoke_fursuit_tag` permits inspection. `fursuits.change_fursuittag` and `fursuits.delete_fursuittag` are not required. The admin never shows a tag token or payload, and revocation creates no replacement. |
 
 Normal `change_convention` still governs ordinary metadata corrections and
 non-playable lifecycle changes; it does not cross the playability boundary.
@@ -51,25 +52,22 @@ convenience only: authorization/admin checks use explicit permissions, never a
 group-name check. Provisioning does not create or make a normal operator a
 superuser.
 
-The SSH invocation below is a **retired-generation historical example**: its
-project ID selects the former Railway project and it is unsupported for the
-replacement Staging target. Do not run it for replacement provisioning. The
-[replacement #243 execution record](../development/staging-operator-validation-243-execution-attempts.md)
-documents the current bounded operator evidence; any new provisioning requires
-a separately verified, code-pinned replacement procedure and authorization.
+Render Staging provisions the normal operator through one launcher. Run it from
+the repository root in your own terminal:
 
-The retired command sequence was:
-
-```text
-railway ssh --project 85324de4-be6a-49c3-a3f9-6cac13877849 --service api --environment staging
-python manage.py bootstrap_staging_operator --settings=config.settings.production
+```bash
+uv --directory services/api run --locked --no-sync python ../../scripts/api_staging_render_ssh.py managed-create
 ```
 
-The command accepts only `RAILWAY_ENVIRONMENT_NAME=staging` and
-`RAILWAY_SERVICE_NAME=api`; it rejects a wrong, different, non-Staging, or
-outside target/environment/service. It also rejects a non-TTY, invalid command
-arguments, or a confirmation other than `bootstrap Railway Staging operator`.
-At its hidden, not echoed input prompts enter the dedicated operator identifier,
+[Operator commands over render ssh](../development/staging.md#operator-commands-over-render-ssh)
+describes the launcher checks and results. The launcher accepts only the pinned
+Render Staging service `tailtag-api-stg`. It rejects a wrong or different
+target, a non-TTY, and a confirmation other than
+`bootstrap Render Staging operator`. The
+[replacement #243 execution record](../development/staging-operator-validation-243-execution-attempts.md)
+documents the bounded operator evidence from the Railway era.
+
+At the hidden, not echoed input prompts, enter the dedicated operator identifier,
 password, and password confirmation. Never put an identifier, password, or
 credential in a command argument or environment variable, and never retain one
 in shell history, logs, chat, tickets, or committed evidence.
@@ -80,6 +78,24 @@ group and exact permission set. It fails closed for an ordinary player,
 superuser, ambiguous account, group collision, unavailable permissions, or
 database failure, without manually elevating an account. Do not run it
 automatically during build, pre-deploy, startup, health check, or Gunicorn.
+
+#504 added `fursuits.revoke_fursuit_tag` and `fursuits.view_fursuittag` to the
+exact permission set. An operator made before #504 holds the previous set. The
+operator inspector then reports `FAIL_MANAGED_OPERATOR_UPGRADABLE`. In that
+state, the other managed and emergency commands stop at their precondition.
+
+To upgrade, run the same launcher with `managed-upgrade` instead of
+`managed-create`, after the promotion that carries #504:
+
+```bash
+uv --directory services/api run --locked --no-sync python ../../scripts/api_staging_render_ssh.py managed-upgrade
+```
+
+Enter the same confirmation phrase as for `managed-create`, the existing
+operator identifier, and a new password twice. The command adds the two permissions,
+sets the new password, and prints `Staging operator reconciled and upgraded.`
+The launcher then requires the inspector result `PASS`. Any other permission
+set fails closed with `FAIL_MANAGED_OPERATOR_PERMISSION`.
 
 ## Emergency superuser
 
@@ -104,7 +120,7 @@ domain-contract transition. `failed` means an unexpected failure occurred and
 the requested transition did not commit. A lifecycle cascade records exactly one
 top-level operator action, not separate operator intent for each consequence.
 
-Django `LogEntry` is not authoritative, and structured application or Railway
+Django `LogEntry` is not authoritative, and structured application or platform
 logs are not authoritative. OperatorAuditEvent audit records contain only the
 closed allowed fields. They must not include secrets, credentials, tokens, Clerk
 identifiers, provider identifiers, emails, QR payloads, private URLs, raw

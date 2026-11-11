@@ -208,6 +208,8 @@ def test_local_accepts_a_reported_source_sha() -> None:
         ("", None),
         ("staging", STAGING_ORIGIN),
         ("staging", "https://example.test"),
+        # #411 AC2: the Render host name is not the Staging target.
+        ("staging", "https://tailtag-api-staging.onrender.com"),
         ("local", "https://staging.tailtag.app"),
         ("local", "http://127.0.0.1:8001"),
         ("local", "https://127.0.0.1:8000"),
@@ -308,10 +310,6 @@ IDENTITY_FAILURES: dict[str, tuple[str, list[Responder]]] = {
     "staging-non-uuid-deployment": (
         "staging",
         [identity_response(identity_body("staging", deployment_id="deploy-1"))],
-    ),
-    "staging-null-deployment": (
-        "staging",
-        [identity_response(identity_body("staging", deployment_id=None))],
     ),
     "local-reports-staging": (
         "local",
@@ -454,12 +452,22 @@ def test_redirects_fail_and_are_never_followed(case: str) -> None:
     assert all(not r.url.path.endswith("x") for r in outcome.requests)
 
 
-@pytest.mark.parametrize("target", ["staging", "local"])
+@pytest.mark.parametrize(
+    ("target", "overrides"),
+    [
+        ("staging", {}),
+        # #411 AC2/AC4: Render Staging reports no deploy ID.
+        ("staging", {"deployment_id": None}),
+        ("local", {}),
+    ],
+    ids=["staging-railway", "staging-render", "local"],
+)
 def test_reported_smoke_persists_verified_end_identity_without_changing_workload(
-    tmp_path: Path, target: str
+    tmp_path: Path, target: str, overrides: dict[str, object]
 ) -> None:
     report = recorder(tmp_path, config={"target": target})
-    server = healthy(target)
+    expected = identity_body(target, **overrides)
+    server = Server(identity=[lambda: httpx.Response(200, json=expected)], me=[me_ok()])
     initial_requests: list[str] = []
     handle = server.handle
 
@@ -475,10 +483,10 @@ def test_reported_smoke_persists_verified_end_identity_without_changing_workload
     assert value["scenario"]["id"] == "smoke"
     assert value["scenario"]["consumes_randomness"] is False
     assert value["target"]["starting"] == {
-        "value": identity_body(target),
+        "value": expected,
         "reason": None,
     }
-    assert value["target"]["final"] == {"value": identity_body(target), "reason": None}
+    assert value["target"]["final"] == {"value": expected, "reason": None}
     assert value["target"]["attribution"] == "verified"
     assert initial_requests[0] == "running"
     assert [request.url.path for request in outcome.authorized()] == [ME_PATH] * 2

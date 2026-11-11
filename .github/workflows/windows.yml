@@ -1,0 +1,228 @@
+# Native Windows parity for Taskfile commands (issue #315). Runs in PowerShell
+# with Git Bash tools removed from PATH, so a pass means no POSIX shell helped.
+name: Windows parity
+
+on:
+  # Documentation-only changes start no app workflow. Keep this list equal to
+  # _APP_PATHS in scripts/render_development_deploy.py.
+  pull_request:
+    paths:
+      - '**'
+      - '!docs/**'
+      - '!**/*.md'
+      - 'services/api/**'
+      - '.semgrep/**'
+      - 'docs/operations/simulation-host.md'
+      - 'docs/development/staging.md'
+      - 'docs/development/backend-delivery-operations.md'
+      - 'docs/operations/operator-authorization-audit.md'
+      - 'docs/operations/catch-administration.md'
+      - 'docs/specs/README.md'
+      - 'docs/specs/2026-09-22-v0-migration-application-rollback.md'
+      - 'docs/specs/2026-09-22-v0-migration-application-rollback-implementation-plan.md'
+      - 'docs/development/staging-recovery/2026-09-22-issue-206-no-go.json'
+  push:
+    branches:
+      - main
+    paths:
+      - '**'
+      - '!docs/**'
+      - '!**/*.md'
+      - 'services/api/**'
+      - '.semgrep/**'
+      - 'docs/operations/simulation-host.md'
+      - 'docs/development/staging.md'
+      - 'docs/development/backend-delivery-operations.md'
+      - 'docs/operations/operator-authorization-audit.md'
+      - 'docs/operations/catch-administration.md'
+      - 'docs/specs/README.md'
+      - 'docs/specs/2026-09-22-v0-migration-application-rollback.md'
+      - 'docs/specs/2026-09-22-v0-migration-application-rollback-implementation-plan.md'
+      - 'docs/development/staging-recovery/2026-09-22-issue-206-no-go.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  api:
+    name: Windows API commands
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      DATABASE_URL: postgresql://tailtag:tailtag@localhost:5432/tailtag
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      DJANGO_SECRET_KEY: ci-not-a-real-secret
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+      DJANGO_CSRF_TRUSTED_ORIGINS: http://localhost
+      MEDIA_STORAGE_ENDPOINT_URL: https://media.example.test
+      MEDIA_STORAGE_BUCKET_NAME: ci-media-bucket
+      MEDIA_STORAGE_REGION: auto
+      MEDIA_STORAGE_ACCESS_KEY_ID: ci-not-a-real-access-key
+      MEDIA_STORAGE_SECRET_ACCESS_KEY: ci-not-a-real-secret-key
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install locked uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.9.17"
+
+      - name: Install pinned go-task
+        uses: ./.github/actions/install-go-task-windows
+
+      - name: Start preinstalled PostgreSQL
+        env:
+          PGPASSWORD: root
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $service = Get-Service -Name 'postgresql*' | Select-Object -First 1
+          Set-Service -InputObject $service -StartupType Manual
+          Start-Service -InputObject $service
+          & "$env:PGBIN\pg_isready.exe" -h localhost -p 5432
+          & "$env:PGBIN\psql.exe" -h localhost -U postgres -c "CREATE ROLE tailtag LOGIN SUPERUSER PASSWORD 'tailtag';"
+          & "$env:PGBIN\createdb.exe" -h localhost -U postgres -O tailtag tailtag
+
+      - name: Require a native shell
+        run: ./.github/actions/install-go-task-windows/require-native-shell.ps1
+
+      - name: Run API commands natively
+        run: |
+          . ./.github/actions/install-go-task-windows/require-native-shell.ps1
+          $results = [ordered]@{}
+          function Record($name, $code) { $results[$name] = $code; Write-Host "$name -> exit $code" }
+
+          task api-setup; Record 'api-setup' $LASTEXITCODE
+          task api-check; Record 'api-check' $LASTEXITCODE
+          task api-migrate; Record 'api-migrate' $LASTEXITCODE
+          task api-migrations; Record 'api-migrations' $LASTEXITCODE
+          $dirty = git status --porcelain
+          Record 'api-migrations created no files' ([int][bool]$dirty)
+          $shell = "print('shell-' + 'ok')" | task api-shell
+          Record 'api-shell' ([int](-not ($shell -match 'shell-ok')))
+
+          # Contributors run the server with local settings; production settings
+          # correctly fail readiness with this job's placeholder values.
+          $env:DJANGO_SETTINGS_MODULE = 'config.settings.local'
+          $server = Start-Process -FilePath task -ArgumentList 'api-run' -PassThru -NoNewWindow
+          $ready = $false
+          foreach ($attempt in 1..60) {
+            try { if ((Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/health/live).StatusCode -eq 200) { $ready = $true; break } } catch { }
+            Start-Sleep -Seconds 2
+          }
+          Record 'api-run serves /health/live' ([int](-not $ready))
+          task api-smoke; Record 'api-smoke' $LASTEXITCODE
+          taskkill /PID $server.Id /T /F | Out-Null
+
+          Write-Host '--- summary'
+          $results.GetEnumerator() | ForEach-Object { Write-Host ("{0}: {1}" -f $_.Key, $_.Value) }
+          if ($results.Values | Where-Object { $_ -ne 0 }) { exit 1 }
+
+  simulator:
+    name: Windows simulator commands
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install locked uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.9.17"
+
+      - name: Install pinned go-task
+        uses: ./.github/actions/install-go-task-windows
+
+      - name: Run simulator commands natively
+        run: |
+          . ./.github/actions/install-go-task-windows/require-native-shell.ps1
+          $results = [ordered]@{}
+          function Record($name, $code) { $results[$name] = $code; Write-Host "$name -> exit $code" }
+
+          task sim-setup; Record 'sim-setup' $LASTEXITCODE
+          task sim-check; Record 'sim-check' $LASTEXITCODE
+          # Report paths resolve inside tools/simulator, where uv runs the simulator.
+          task sim-report-validate REPORT=tests/data/report-v1-smoke.json; Record 'sim-report-validate' $LASTEXITCODE
+          task sim-report-trend DIR=tests/data; Record 'sim-report-trend' $LASTEXITCODE
+
+          Write-Host '--- summary'
+          $results.GetEnumerator() | ForEach-Object { Write-Host ("{0}: {1}" -f $_.Key, $_.Value) }
+          if ($results.Values | Where-Object { $_ -ne 0 }) { exit 1 }
+
+  # Added in #315 slice 2: the mobile and doctor tooling is Python now, so the
+  # mobile task commands run natively on Windows. No device is attached, and
+  # iOS is macOS-only, so this covers setup, checks, and doctor only.
+  mobile:
+    name: Windows mobile commands
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install locked uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.9.17"
+
+      - name: Install pinned go-task
+        uses: ./.github/actions/install-go-task-windows
+
+      # Provides Dart for installing FVM. FVM then installs its own copy of the
+      # same pinned SDK, which is what the task guards require.
+      - name: Install Flutter (provides Dart)
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version-file: apps/mobile/.fvmrc
+
+      - name: Install pinned FVM and the pinned Flutter SDK
+        working-directory: apps/mobile
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dart pub global activate fvm 4.3.1
+          if ($LASTEXITCODE -ne 0) { throw 'fvm activation failed' }
+          $pubBin = Join-Path $env:LOCALAPPDATA 'Pub\Cache\bin'
+          $pubBin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          $env:PATH = "$pubBin;$env:PATH"
+          fvm --version
+          fvm install --skip-pub-get
+          if ($LASTEXITCODE -ne 0) { throw 'fvm install failed' }
+
+      - name: Run mobile commands natively
+        run: |
+          . ./.github/actions/install-go-task-windows/require-native-shell.ps1
+          $results = [ordered]@{}
+          function Record($name, $code) { $results[$name] = $code; Write-Host "$name -> exit $code" }
+
+          task mobile-setup; Record 'mobile-setup' $LASTEXITCODE
+          task mobile-check; Record 'mobile-check' $LASTEXITCODE
+          # No device or configuration here, so doctor warns for both; a
+          # failure means the runner's Android toolchain or FVM is unusable.
+          task mobile-doctor; Record 'mobile-doctor' $LASTEXITCODE
+
+          Write-Host '--- summary'
+          $results.GetEnumerator() | ForEach-Object { Write-Host ("{0}: {1}" -f $_.Key, $_.Value) }
+          if ($results.Values | Where-Object { $_ -ne 0 }) { exit 1 }
+
+      - name: Show Flutter toolchain details
+        if: failure()
+        working-directory: apps/mobile
+        run: fvm flutter doctor -v

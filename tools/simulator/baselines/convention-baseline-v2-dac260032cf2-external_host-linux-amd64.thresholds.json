@@ -26,11 +26,11 @@
    },
    "p95_ms": {
     "assumption": "Proposed: 2x the baseline p95, rounded up to 1 ms; maintainer to review.",
-    "value": 636
+    "value": 1171
    },
    "p99_ms": {
     "assumption": "Proposed: 2x the baseline p99, rounded up to 1 ms; maintainer to review.",
-    "value": 788
+    "value": 1633
    },
    "timeout_rate": {
     "assumption": "Proposed: the greater of 2x the baseline rate and 0.01; maintainer to review.",
@@ -44,11 +44,11 @@
    },
    "p95_ms": {
     "assumption": "Proposed: 2x the baseline p95, rounded up to 1 ms; maintainer to review.",
-    "value": 633
+    "value": 1124
    },
    "p99_ms": {
     "assumption": "Proposed: 2x the baseline p99, rounded up to 1 ms; maintainer to review.",
-    "value": 787
+    "value": 1424
    },
    "timeout_rate": {
     "assumption": "Proposed: the greater of 2x the baseline rate and 0.01; maintainer to review.",
@@ -62,11 +62,11 @@
    },
    "p95_ms": {
     "assumption": "Proposed: 2x the baseline p95, rounded up to 1 ms; maintainer to review.",
-    "value": 634
+    "value": 1248
    },
    "p99_ms": {
     "assumption": "Proposed: 2x the baseline p99, rounded up to 1 ms; maintainer to review.",
-    "value": 758
+    "value": 1801
    },
    "timeout_rate": {
     "assumption": "Proposed: the greater of 2x the baseline rate and 0.01; maintainer to review.",
@@ -80,11 +80,11 @@
    },
    "p95_ms": {
     "assumption": "Proposed: 2x the baseline p95, rounded up to 1 ms; maintainer to review.",
-    "value": 634
+    "value": 1193
    },
    "p99_ms": {
     "assumption": "Proposed: 2x the baseline p99, rounded up to 1 ms; maintainer to review.",
-    "value": 770
+    "value": 1655
    },
    "timeout_rate": {
     "assumption": "Proposed: the greater of 2x the baseline rate and 0.01; maintainer to review.",

@@ -5,7 +5,6 @@ import getpass
 import hashlib
 import importlib
 import json
-import socket
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -13,7 +12,15 @@ from typing import Any
 import httpx
 import pool_support
 import pytest
-from convention_support import CONFIG, BlockedHttp, Inspection, Rig, rig
+from convention_support import (
+    CONFIG,
+    RUN_HANG_GUARD_SECONDS,
+    BlockedHttp,
+    Inspection,
+    Rig,
+    rig,
+)
+from network_support import forbid_connect
 from pool_support import POOL, RUN_ID, SECRET
 from report_support import literal_report, read_report
 
@@ -128,7 +135,8 @@ def test_v2_workload_evidence_drives_cleanup_or_retention_and_always_releases(
     async def exercise() -> int:
         before = asyncio.all_tasks()
         code = await asyncio.wait_for(
-            execute(run, config, api_transport=httpx.MockTransport(respond)), 3
+            execute(run, config, api_transport=httpx.MockTransport(respond)),
+            RUN_HANG_GUARD_SECONDS,
         )
         assert asyncio.all_tasks() - before == set()
         return code
@@ -200,10 +208,10 @@ def test_v2_cancelled_pending_real_confirmation_is_joined_before_retention_and_r
         before = asyncio.all_tasks()
         task = asyncio.create_task(execute(run, config, api_transport=blocked.boundary))
         try:
-            await asyncio.wait_for(blocked.entered.wait(), 3)
+            await asyncio.wait_for(blocked.entered.wait(), RUN_HANG_GUARD_SECONDS)
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
-                await asyncio.wait_for(task, 3)
+                await asyncio.wait_for(task, RUN_HANG_GUARD_SECONDS)
             assert blocked.cancelled.is_set()
             assert asyncio.all_tasks() - before == set()
         finally:
@@ -255,7 +263,7 @@ def test_v2_cli_rejects_invalid_nested_configuration_before_external_actions(
         reached.append("external")
         raise AssertionError("invalid nested configuration reached external work")
 
-    monkeypatch.setattr(socket.socket, "connect", trip)
+    forbid_connect(monkeypatch, trip)
     monkeypatch.setattr(subprocess, "Popen", trip)
     monkeypatch.setattr(getpass, "getpass", trip)
     assert (
@@ -344,7 +352,7 @@ def test_successful_cli_v2_forwards_version_to_real_runner(
     ):
         for path in directory.rglob("*"):
             if path.is_file() and path.suffix in {".py", ".json", ".jpg"}:
-                files[f"{destination}/{path.relative_to(directory)}"] = (
+                files[f"{destination}/{path.relative_to(directory).as_posix()}"] = (
                     path.read_bytes()
                 )
     for name, content in files.items():

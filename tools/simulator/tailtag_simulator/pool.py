@@ -12,16 +12,14 @@ handle, token, secret, or response text is ever written.
 
 import asyncio
 import json
-import os
 import re
-import signal
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Protocol, cast
+from typing import Any, Final, Protocol, cast
 
 import httpx
 
@@ -52,6 +50,7 @@ from tailtag_simulator.phases import (
     observe_identity,
     reconcile,
 )
+from tailtag_simulator.process_tree import ProcessTree, spawn_options
 from tailtag_simulator.reports import RunReport
 from tailtag_simulator.safety import SafetyAborted, SafetyRuntime, active_runtime
 from tailtag_simulator.smoke import StageFailed, attribute, guarded_stage
@@ -113,44 +112,102 @@ LAUNCHER_ERRORS: Final = (
 )
 
 
+# Render runs each instance as `<service ID>-<hex>-<5-character slug>` (#411 AC1).
+_RENDER_INSTANCE: Final = re.compile(r"srv-[a-z0-9]{1,60}-[0-9a-f]{1,32}-[a-z0-9]{5}")
+
+
+class InstancePin:
+    """The one Render Staging instance that every relay in this process must reach.
+
+    The first relay reply that names an instance sets the pin. Each later request
+    names it, so the relay reaches only that instance and fails closed once it is
+    gone or replaced (#411 AC3). A process runs one command or one host run.
+    """
+
+    def __init__(self) -> None:
+        self.value: str | None = None
+
+    def request(self, request: bytes) -> bytes:
+        if self.value is None:
+            return request
+        envelope = json.loads(request)
+        if not isinstance(envelope, dict):
+            raise TypeError
+        return json.dumps({**envelope, "expected_instance": self.value}).encode()
+
+    def record(self, instance: object) -> None:
+        if (
+            not isinstance(instance, str)
+            or _RENDER_INSTANCE.fullmatch(instance) is None
+            or self.value not in (None, instance)
+        ):
+            raise ValueError
+        self.value = instance
+
+
+INSTANCE_PIN: Final = InstancePin()
+
+
 async def run_launcher(
-    command: Sequence[str], cwd: Path | None, timeout_seconds: float, request: bytes
+    command: Sequence[str],
+    cwd: Path | None,
+    timeout_seconds: float,
+    request: bytes,
+    env: Mapping[str, str] | None = None,
 ) -> tuple[str, dict[str, object]]:
     """Run one launcher child and return its `(result, data)`; any deviation raises.
 
     The request goes on stdin only and the child's stderr is discarded. Only the exact
-    `{"result", "data"}` shape is accepted, and `PASS` must go with exit code 0 and
-    nothing else. Raises one of `LAUNCHER_ERRORS` for every deviation, with no detail.
+    `{"result", "data"}` shape is accepted, plus the Render `instance` that sets or
+    must equal `INSTANCE_PIN`. `PASS` must go with exit code 0 and nothing else.
+    Raises one of `LAUNCHER_ERRORS` for every deviation, with no detail.
+    `env` replaces the child's environment; `None` inherits the caller's.
     """
+    request = INSTANCE_PIN.request(request)
     process = await asyncio.create_subprocess_exec(
         *command,
         cwd=cwd,
+        env=env,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
-        start_new_session=True,
+        **cast(dict[str, Any], spawn_options()),
     )
+    # No await between the spawn and attach: on Windows the child starts
+    # suspended and only runs once it is inside the job.
+    tree = ProcessTree()
     try:
-        output, _ = await asyncio.wait_for(
-            process.communicate(request), timeout_seconds
-        )
+        tree.attach(process.pid)
     except BaseException:
-        with suppress(ProcessLookupError):
-            os.killpg(process.pid, signal.SIGKILL)
+        process.kill()
         await process.wait()
+        tree.close()
         raise
+    try:
+        try:
+            output, _ = await asyncio.wait_for(
+                process.communicate(request), timeout_seconds
+            )
+        except BaseException:
+            tree.kill()
+            await process.wait()
+            raise
+    finally:
+        tree.close()
     if len(output) > MAX_LAUNCHER_OUTPUT_BYTES:
         raise ValueError
     parsed = json.loads(output)
     reply = cast(dict[str, object], parsed) if isinstance(parsed, dict) else {}
     result, data = reply.get("result"), reply.get("data")
     if (
-        frozenset(reply) != frozenset({"result", "data"})
+        frozenset(reply) - {"instance"} != frozenset({"result", "data"})
         or not isinstance(result, str)
         or not isinstance(data, dict)
         or (result == "PASS") != (process.returncode == 0)
     ):
         raise ValueError
+    if "instance" in reply:
+        INSTANCE_PIN.record(reply["instance"])
     return result, cast(dict[str, object], data)
 
 

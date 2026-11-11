@@ -30,7 +30,7 @@ __all__ = [
     "replace_fursuit_photo",
     "require_fursuit_write_eligible",
     "set_fursuit_enabled",
-    "update_fursuit_name",
+    "update_fursuit",
 ]
 
 
@@ -89,17 +89,35 @@ def create_fursuit(user: User, *, name: str, photo: File[bytes]) -> Fursuit:
     return created
 
 
-def update_fursuit_name(user: User, *, fursuit_id: int, name: str) -> Fursuit:
-    """Update an owned fursuit name, preserving a normalized no-op exactly."""
+def update_fursuit(
+    user: User,
+    *,
+    fursuit_id: int,
+    name: str | None = None,
+    catch_approval_mode: str | None = None,
+) -> Fursuit:
+    """Update an owned fursuit name and approval mode, preserving a no-op exactly.
+
+    The Fursuit row lock orders a mode change against catch request submission,
+    so the change applies only to submissions that commit after it (#505 AC4).
+    """
     require_fursuit_write_eligible(user)
-    normalized_name = normalize_fursuit_name(name)
+    normalized_name = None if name is None else normalize_fursuit_name(name)
     with transaction.atomic():
         _locked_eligible_profile(user)
         owned = _locked_owned_fursuit(user, fursuit_id)
-        if owned.name == normalized_name:
-            return owned
-        owned.name = normalized_name
-        owned.save(update_fields={"name", "updated_at"})
+        changed: set[str] = set()
+        if normalized_name is not None and owned.name != normalized_name:
+            owned.name = normalized_name
+            changed.add("name")
+        if (
+            catch_approval_mode is not None
+            and owned.catch_approval_mode != catch_approval_mode
+        ):
+            owned.catch_approval_mode = catch_approval_mode
+            changed.add("catch_approval_mode")
+        if changed:
+            owned.save(update_fields={*changed, "updated_at"})
         return owned
 
 

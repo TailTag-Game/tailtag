@@ -33,6 +33,7 @@ from tailtag_simulator.pool import (
     LAUNCHER_TIMEOUT_SECONDS,
     Held,
     LeaseChannel,
+    LeaseFailed,
     SetupFailed,
     open_identities,
     release,
@@ -45,6 +46,8 @@ from tailtag_simulator.targets import resolve_target, verify_target
 
 ACTIVE_PATH: Final = "/api/conventions/active/"
 FURSUITS_PATH: Final = "/api/fursuits/"
+# Consecutive transient heartbeat relay failures that end the run.
+HEARTBEAT_FAILURE_LIMIT: Final = 3
 
 _RESULT: Final = re.compile(r"FAIL_[A-Z_]{1,32}")
 
@@ -410,23 +413,34 @@ class _Renewal:
             return data
 
     async def _renew(self, pool: str, allocation: Mapping[str, object]) -> None:
+        transient = 0
         try:
             while True:
                 await asyncio.sleep(60)
-                async with self.mutation_lock:
-                    data = await self.channel.call(
-                        "heartbeat",
-                        pool,
-                        {
-                            "run_id": allocation["run_id"],
-                            "ttl_seconds": limits.LEASE_TTL_SECONDS,
-                        },
-                    )
+                try:
+                    async with self.mutation_lock:
+                        data = await self.channel.call(
+                            "heartbeat",
+                            pool,
+                            {
+                                "run_id": allocation["run_id"],
+                                "ttl_seconds": limits.LEASE_TTL_SECONDS,
+                            },
+                        )
+                except LeaseFailed as error:
+                    if error.result != "FAIL_LAUNCHER":
+                        raise
+                    # One lost relay is retried on the next tick; a streak is fatal.
+                    transient += 1
+                    if transient >= HEARTBEAT_FAILURE_LIMIT:
+                        raise
+                    continue
                 if (
                     type(data.get("extended")) is not int
                     or data["extended"] != allocation["count"]
                 ):
                     raise FixtureFailed("FAIL_LEASE")
+                transient = 0
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 - never expose launcher details

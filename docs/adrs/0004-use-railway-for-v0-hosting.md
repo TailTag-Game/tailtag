@@ -1,6 +1,6 @@
 # Use Railway for V0 hosting
 
-**Status:** accepted
+**Status:** superseded by [ADR 0011](0011-move-v0-hosting-from-railway-to-render.md) (2026-10-29)
 
 ## Context and constraints
 

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from tailtag_simulator import reports
+from tailtag_simulator.owner_only import create_private_file
 from tailtag_simulator.reports import ReportFailed, utc_now, validate_report
 from tailtag_simulator.traffic_metrics import OPERATIONS
 
@@ -185,7 +186,8 @@ def parse_baseline(value: object) -> dict[str, Any]:
     backend = closed_object(
         report["backend"], {"deployment_id", "source_sha", "environment"}
     )
-    require(uuid_text(backend["deployment_id"]))
+    # Render Staging reports no deploy ID (#411).
+    require(backend["deployment_id"] is None or uuid_text(backend["deployment_id"]))
     require(
         hex_digest(backend["source_sha"], 40) and backend["environment"] == "staging"
     )
@@ -673,7 +675,7 @@ def write_evaluation(artifact: Mapping[str, Any], out: Path) -> None:
     created = False
     try:
         text = json.dumps(artifact, indent=1, allow_nan=False) + "\n"
-        fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        fd = create_private_file(out)
         created = True
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             stream.write(text)

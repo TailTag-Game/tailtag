@@ -23,13 +23,16 @@ For simulator commands, see the
 
 ## Operating model: attended
 
-Every run is attended. The maintainer starts it from their own machine, enters
-the Clerk secret at the hidden prompt, and keeps the foreground bridge open
-until the run ends:
+Every run is attended. The maintainer starts it in a
+[host operator session](simulation-host.md#host-operator-session) and enters
+the Clerk secret at the hidden prompt. The bridge runs on the host, inside
+`run-local`, until the run ends:
 
-- privileged Staging setup and reconciliation go through `railway ssh`, which
-  uses the maintainer's personal Railway login;
-- no Railway or Clerk credential is stored on the host;
+- privileged Staging setup and reconciliation go through plain `ssh` to the
+  Render Virginia gateway, as the
+  [Render session](simulation-host.md#render-session) describes;
+- the host holds only a per-session Render SSH key during a host operator
+  session, and never a Clerk credential or a Render CLI login;
 - `--unattended` stays refused;
 - no timer or scheduler starts runs.
 
@@ -70,17 +73,22 @@ Smoke runs the deterministic `journeys` v1 scenario through the host (seven
 identities, seed 0). It covers the canonical public journeys and their
 expected rejections, then reconciliation, cleanup and release.
 
+Run every workload in a
+[host operator session](simulation-host.md#host-operator-session). Inside the
+session, prepare and run the smoke from the release directory:
+
 ```sh
-make sim-host-prepare PROFILE="$TRANSFER/smoke-profile.json" \
-  SAFETY_CONFIG="$SIM_REPO_ROOT/tools/simulator/host/safety.json" \
-  RELEASE="$TRANSFER/release.json" MANIFEST="$TRANSFER/smoke-manifest.json"
-make sim-host-run MANIFEST="$TRANSFER/smoke-manifest.json" HOST=tailtag-sim \
-  HOST_ROOT=/srv/tailtag-simulator
+.venv/bin/python -m tailtag_simulator.host_operator prepare \
+  --profile "$WORKSPACE/tools/simulator/host/smoke-profile.json" \
+  --safety-config "$WORKSPACE/tools/simulator/host/safety.json" \
+  --release "$RELEASE_DIR/release.json" --output "$STATE/manifests/smoke-1.json"
+.venv/bin/python -m tailtag_simulator.host_operator run-local \
+  --manifest "$STATE/manifests/smoke-1.json" --host-root "$HOST_ROOT" \
+  --workspace "$WORKSPACE" --tools "$HOST_ROOT/tools" --state-dir "$STATE"
 ```
 
-Copy each committed profile into the owner-private transfer directory, set
-its pool there, and keep it outside Git, as described in the
-[host runbook](simulation-host.md#profile-preparation-and-foreground-execution).
+The runbook's [Running a workload](simulation-host.md#running-a-workload)
+section sets these variables. The committed profiles use pool `host228`.
 
 Smoke is a gate. If it does not pass, run nothing else that cycle and follow
 [After a failure](#after-a-failure). Smoke is correctness-only: it has no
@@ -99,7 +107,7 @@ evidence. Then run that night's family:
 | Wednesday | `nightly-retry-profile.json` |
 | Thursday | `nightly-soak-profile.json` |
 
-Each run uses a fresh `sim-host-prepare` and a new manifest. Never reuse a
+Each run uses a fresh `prepare` and a new manifest. Never reuse a
 manifest. A run must finish and have its hold resolved before the next run is
 admitted; the host refuses overlapping runs.
 
@@ -109,7 +117,7 @@ admitted; the host refuses overlapping runs.
 and the full persona mix. It stays inside the standard host ceilings: 50
 identities, ten actors and in-flight requests, 900 s setup and execution, and
 600 s finalization. It needs pool `host228` expanded to 50 identities
-(`make sim-pool-provision POOL=host228 SIZE=50`, separately authorized).
+(`task sim-pool-provision POOL=host228 SIZE=50`, separately authorized).
 
 ## Profile assumptions
 
@@ -124,7 +132,7 @@ target.
 | `normal-profile.json` | 22801 | 20 | Unchanged #228 normal run: ten active actors for 300 s. Its key carries the committed baseline. |
 | `nightly-post-event-profile.json` | 23001 | 20 | Grouped collection after an event, as family-default bursts. |
 | `nightly-hotspot-profile.json` | 23002 | 20 | Two popular owners attract concentrated catches and overlapping duplicates. |
-| `nightly-retry-profile.json` | 23003 | 20 | Four retry-prone attendees on poor networks, with injected pre-send failures and lost responses. |
+| `nightly-retry-profile.json` | 23003 | 20 | Four retry-prone attendees revisit their catches. Every read, resolve and confirm attempt, from any actor, has a 10% injected pre-send failure and a 10% lost response. Five attempts per call keep a chance run failure near 1.6%; with three, about a third of runs would fail by chance. |
 | `nightly-soak-profile.json` | 23004 | 20 | Three finite cycles that revisit the same catch pairs. |
 | `weekend-profile.json` | 23010 | 50 | Every persona. Ten active actors for 300 s with 2 s think time. |
 | `expiration-profile.json` | 23020 | 2 | One owner and one casual attendee. Exercises the natural 12-hour catch-session expiry. A one-time proof only. |
@@ -217,8 +225,8 @@ Failures fail closed:
    hash-verified procedure.
 3. Follow the [exact-run recovery](simulation-host.md#recovery-and-refusal-handling):
    - verify the target identity;
-   - inspect `make sim-retained` and `make sim-pool-status`;
-   - run `make sim-cleanup` for the exact run;
+   - inspect `task sim-retained` and `task sim-pool-status`;
+   - run `task sim-cleanup` for the exact run;
    - resolve the hold with a trusted receipt.
 4. Record the cause before resuming. A failed smoke means the promoted build
    needs investigation before any nightly run.
@@ -250,7 +258,7 @@ Collect at least every 6 days. The cadence above collects on Wednesday and
 Sunday.
 
 ```sh
-make sim-host-collect HOST=tailtag-sim HOST_ROOT=/srv/tailtag-simulator \
+task sim-host-collect HOST=tailtag-sim HOST_ROOT=/srv/tailtag-simulator \
   RELEASE="$TRANSFER/release.json" ARCHIVE="$ARCHIVE"
 ```
 
@@ -281,7 +289,7 @@ A run that fails verification leaves nothing behind and makes the command exit
 nonzero. Investigate before collecting again. Keep `ARCHIVE` owner-private and
 outside Git.
 
-Trend over the archive with `make sim-report-trend DIR="$ARCHIVE"`.
+Trend over the archive with `task sim-report-trend DIR="$ARCHIVE"`.
 
 ## Baselines
 
@@ -290,8 +298,9 @@ promote the first reviewed passing run of each nightly family and the weekend
 profile:
 
 1. Review the collected report, its evaluation and any backend context.
-2. Run `make sim-baseline-promote REPORT=… HOST_COMPANION=… RATIONALE="…"
-   INITIAL_THRESHOLDS=1` on the maintainer machine. See
+2. Run `RATIONALE='…' task sim-baseline-promote REPORT=… HOST_COMPANION=…
+   INITIAL_THRESHOLDS=1` on the maintainer machine. The rationale is taken from
+   the environment so go-task does not alter it. See
    [Promote a baseline](../../tools/simulator/README.md#promote-a-baseline).
 3. Open a pull request with the baseline and thresholds files. Promotion takes
    effect only when it merges.
@@ -310,6 +319,12 @@ Scheduled runs use the release currently selected on the host:
   report it as a caveat.
 
 ## Natural-expiration proof (one-time)
+
+**Status:** not run. Three attempts stopped before expiry, and on 2026-10-14
+the maintainer replaced this run with deployed-source verification plus
+backend tests ([#316](https://github.com/TailTag-Game/tailtag/issues/316)). See
+the [Staging proof](../specs/2026-10-13-simulation-operations-staging-proof.md#natural-expiration-proof-ac25).
+The profile stays available but needs fresh live authorization.
 
 `expiration-profile.json` with `expiration-safety.json` proves that an
 unrefreshed catch session expires at the server's real 12-hour lifetime, with

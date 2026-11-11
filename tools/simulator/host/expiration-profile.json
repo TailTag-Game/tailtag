@@ -34,7 +34,7 @@
       "in_flight": 2,
       "attempts": 5000,
       "generation_seconds": 44500,
-      "drain_seconds": 15
+      "drain_seconds": 120
     }
   }
 }

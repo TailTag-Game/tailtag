@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, cast
 
+from django import forms
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
 from django.forms import ModelForm
@@ -19,13 +21,22 @@ from operator_audit.admin_actions import (
 )
 from operator_audit.models import OperatorAction, OperatorTargetType
 
-from .models import Fursuit
+from .models import Fursuit, FursuitTag
 from .services import set_fursuit_enabled
+from .tag_protocol import TAG_TOKEN_PATTERN
+from .tags import revoke_tag_as_operator
+
+_SENSITIVE_TAG_SEARCH_PATTERN = re.compile(TAG_TOKEN_PATTERN, re.ASCII)
+_REDACTED_TAG_SEARCH_QUERY = "__tailtag_admin_tag_query_redacted__"
 
 if TYPE_CHECKING:
     FursuitAdminBase = admin.ModelAdmin[Fursuit]
+    FursuitTagAdminBase = admin.ModelAdmin[FursuitTag]
+    FursuitTagAdminFormBase = forms.ModelForm[FursuitTag]
 else:
     FursuitAdminBase = admin.ModelAdmin
+    FursuitTagAdminBase = admin.ModelAdmin
+    FursuitTagAdminFormBase = forms.ModelForm
 
 
 def _has_permission(request: HttpRequest, permission: str) -> bool:
@@ -162,4 +173,158 @@ class FursuitAdmin(FursuitAdminBase):
             else transition.value
         )
         obj.is_enabled = updated.is_enabled
+        obj.updated_at = updated.updated_at
+
+
+class FursuitTagAdminForm(FursuitTagAdminFormBase):
+    """Expose only the explicit revocation control. The token is never a field."""
+
+    revoke = forms.BooleanField(required=False, label="Revoke current tag")
+
+    class Meta:
+        model = FursuitTag
+        fields: tuple[()] = ()
+
+
+@admin.register(FursuitTag)
+class FursuitTagAdmin(FursuitTagAdminBase):
+    """Inspect tag history and permit only current-tag revocation.
+
+    No view shows the token or payload, and search never matches a token.
+    """
+
+    form = FursuitTagAdminForm
+    fields = (
+        "id",
+        "fursuit",
+        "created_version",
+        "revoked_at",
+        "revocation_reason",
+        "created_at",
+        "updated_at",
+        "revoke",
+    )
+    readonly_fields = (
+        "id",
+        "fursuit",
+        "created_version",
+        "revoked_at",
+        "revocation_reason",
+        "created_at",
+        "updated_at",
+    )
+    list_display = (
+        "id",
+        "fursuit",
+        "created_version",
+        "is_current",
+        "revoked_at",
+        "revocation_reason",
+        "created_at",
+    )
+    list_filter = ("revocation_reason",)
+    search_fields = (
+        "id__exact",
+        "fursuit__id__exact",
+        "fursuit__tailtag_id__exact",
+        "fursuit__owner__id__exact",
+        "fursuit__name",
+    )
+    ordering = ("-created_at", "-id")
+    actions = None
+
+    @admin.display(boolean=True, description="Current")
+    def is_current(self, tag: FursuitTag) -> bool:
+        return tag.is_current
+
+    def lookup_allowed(self, lookup: str, value: str, request: HttpRequest) -> bool:
+        """Allow URL filters only on the revocation reason.
+
+        Django otherwise accepts a lookup on any local field, so a URL such as
+        ``?token__startswith=`` would let an operator recover a token.
+        """
+        return lookup.split("__", 1)[0] == "revocation_reason"
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        """Tags originate only from the owner lifecycle."""
+        return False
+
+    def has_delete_permission(
+        self, request: HttpRequest, obj: FursuitTag | None = None
+    ) -> bool:
+        """Tag history is append-only and has no administrative delete path."""
+        return False
+
+    def has_change_permission(
+        self, request: HttpRequest, obj: FursuitTag | None = None
+    ) -> bool:
+        return _has_permission(request, "fursuits.revoke_fursuit_tag")
+
+    def has_view_permission(
+        self, request: HttpRequest, obj: FursuitTag | None = None
+    ) -> bool:
+        return self.has_change_permission(request, obj) or super().has_view_permission(
+            request, obj
+        )
+
+    def changeform_view(
+        self,
+        request: HttpRequest,
+        object_id: str | None = None,
+        form_url: str = "",
+        extra_context: dict[str, object] | None = None,
+    ) -> HttpResponse:
+        if request.method != "POST" or object_id is None:
+            return super().changeform_view(request, object_id, form_url, extra_context)
+        target_id = parse_admin_object_id(object_id)
+        if target_id is None:
+            raise Http404
+        return run_sensitive_admin_attempt(
+            request,
+            permission="fursuits.revoke_fursuit_tag",
+            action=OperatorAction.REVOKE_FURSUIT_TAG,
+            target_type=OperatorTargetType.FURSUIT_TAG,
+            target_id=target_id,
+            handler=lambda: super(FursuitTagAdmin, self).changeform_view(
+                request, object_id, form_url, extra_context
+            ),
+            rejected_exceptions=(PermissionDenied,),
+        )
+
+    def changelist_view(
+        self,
+        request: HttpRequest,
+        extra_context: dict[str, object] | None = None,
+    ) -> HttpResponse:
+        """Redact token-shaped queries before Django renders preserved filters."""
+        if any(
+            _SENSITIVE_TAG_SEARCH_PATTERN.search(value)
+            for value in request.GET.getlist("q")
+        ):
+            query = request.GET.copy()
+            query.setlist("q", [_REDACTED_TAG_SEARCH_QUERY])
+            object.__setattr__(request, "GET", query)
+            request.META["QUERY_STRING"] = query.urlencode()
+        return super().changelist_view(request, extra_context=extra_context)
+
+    def save_model(
+        self,
+        request: HttpRequest,
+        obj: FursuitTag,
+        form: FursuitTagAdminForm,
+        change: bool,
+    ) -> None:
+        """Delegate the sole permitted mutation to its lock-aware service."""
+        if not change or set(form.changed_data) - {"revoke"}:
+            raise PermissionDenied
+        if not form.cleaned_data["revoke"]:
+            return
+        transition = revoke_tag_as_operator(obj.pk)
+        updated = (
+            execute_bound_operator_transition(request, lambda: transition)
+            if hasattr(request, "_operator_audit_attempt")
+            else transition.value
+        )
+        obj.revoked_at = updated.revoked_at
+        obj.revocation_reason = updated.revocation_reason
         obj.updated_at = updated.updated_at

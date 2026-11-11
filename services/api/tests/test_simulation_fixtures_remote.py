@@ -12,6 +12,13 @@ import pytest
 from conventions import services as convention_services
 from profiles.models import PlayerProfile
 from simulation_fixtures import remote
+from tests.render_target_support import (
+    DEVELOPMENT_SERVICE,
+    INSTANCE,
+    RENDER_STAGING_ENVIRON,
+    UNPINNED_SERVICE,
+    pin_render_services,
+)
 from tests.simulation_fixtures_test_support import (
     OTHER_RUN,
     POOL,
@@ -23,10 +30,17 @@ from tests.simulation_fixtures_test_support import (
 
 IDENTITY = {
     "source_sha": "a" * 40,
-    "deployment_id": "11111111-1111-4111-8111-111111111111",
+    "deployment_id": None,
     "environment": "staging",
 }
-ENVIRON = {"RAILWAY_ENVIRONMENT_NAME": "staging", "RAILWAY_SERVICE_NAME": "api"}
+ENVIRON = RENDER_STAGING_ENVIRON
+
+
+@pytest.fixture(autouse=True)
+def render_pins(monkeypatch: pytest.MonkeyPatch) -> None:
+    pin_render_services(monkeypatch)
+
+
 PROVISION_ARGUMENTS: dict[str, object] = {
     "pool": POOL,
     "run_id": RUN_A,
@@ -60,7 +74,13 @@ def execute(
     runtime_identity: Mapping[str, object] = IDENTITY,
     environ: Mapping[str, str] = ENVIRON,
 ) -> dict[str, object]:
-    return remote.execute(payload, runtime_identity=runtime_identity, environ=environ)
+    response = remote.execute(
+        payload, runtime_identity=runtime_identity, environ=environ
+    )
+    # Render names the instance it served. The shapes below cover the rest.
+    if "instance" in response:
+        assert response.pop("instance") == INSTANCE
+    return response
 
 
 def test_provision_and_status_return_fixed_shapes_without_identifying_data() -> None:
@@ -165,6 +185,7 @@ def test_each_failure_has_a_fixed_code_and_no_detail(
     monkeypatch.setattr(convention_services, "set_fursuit_activation_state", explode)
     errored = execute(provision_request(run_id=RUN_B, owners=[4, 5], catchers=[6]))
     monkeypatch.undo()
+    pin_render_services(monkeypatch)
     reused = execute(provision_request(run_id=RUN_B, owners=[4, 5], catchers=[6]))
 
     assert unknown == {"result": "FAIL_RUN_UNKNOWN", "data": {}}
@@ -179,11 +200,13 @@ def test_each_failure_has_a_fixed_code_and_no_detail(
 @pytest.mark.parametrize(
     ("runtime_identity", "environ"),
     (
-        (IDENTITY, {**ENVIRON, "RAILWAY_ENVIRONMENT_NAME": "development"}),
-        (IDENTITY, {**ENVIRON, "RAILWAY_ENVIRONMENT_NAME": "production"}),
-        (IDENTITY, {"RAILWAY_SERVICE_NAME": "api"}),
-        (IDENTITY, {**ENVIRON, "RAILWAY_SERVICE_NAME": "worker"}),
-        (IDENTITY, {"RAILWAY_ENVIRONMENT_NAME": "staging"}),
+        (IDENTITY, {**ENVIRON, "RENDER_SERVICE_ID": DEVELOPMENT_SERVICE}),
+        (IDENTITY, {**ENVIRON, "RENDER_SERVICE_ID": UNPINNED_SERVICE}),
+        (IDENTITY, {**ENVIRON, "RENDER": "false"}),
+        (
+            IDENTITY,
+            {"RENDER": "true", "RENDER_SERVICE_ID": ENVIRON["RENDER_SERVICE_ID"]},
+        ),
         (IDENTITY, {}),
         ({**IDENTITY, "source_sha": "b" * 40}, ENVIRON),
         (
@@ -194,12 +217,11 @@ def test_each_failure_has_a_fixed_code_and_no_detail(
         ({"source_sha": IDENTITY["source_sha"]}, ENVIRON),
     ),
     ids=(
-        "railway-development",
-        "railway-production",
-        "railway-environment-missing",
-        "railway-wrong-service",
-        "railway-service-missing",
-        "railway-empty",
+        "render-development",
+        "render-unpinned-service",
+        "render-marker-false",
+        "render-instance-missing",
+        "no-platform",
         "source-sha-mismatch",
         "deployment-mismatch",
         "runtime-not-staging",

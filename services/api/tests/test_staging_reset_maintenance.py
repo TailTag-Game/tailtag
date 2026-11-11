@@ -7,6 +7,7 @@ import os
 import sys
 import uuid
 from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -17,10 +18,14 @@ from urllib.parse import urlparse, urlunparse
 import psycopg
 import pytest
 from django.db import connection, connections
+from psycopg import sql
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 API_ROOT = REPOSITORY_ROOT / "services" / "api"
 DEDICATED_DATABASE = "tailtag_204_maintenance_test"
+RENDER_OWNER = "tailtag_204_render_owner"
+OTHER_ROLE = "tailtag_204_other_role"
+ROLE_PASSWORD = "local-test-only"
 MEDIA_KEY = "images/0123456789abcdef0123456789abcdef.png"
 
 if str(API_ROOT) not in sys.path:
@@ -99,18 +104,73 @@ def control_url() -> str:
 
 
 @pytest.fixture
-def maintenance_target(safety: ModuleType) -> Generator[MaintenanceTarget]:
+def local_roles() -> Generator[None]:
+    """Create task-owned login roles that are never superusers, then drop them."""
+    with psycopg.connect(control_url(), autocommit=True) as database:
+        for role in (RENDER_OWNER, OTHER_ROLE):
+            database.execute(f"DROP ROLE IF EXISTS {role}")
+            database.execute(
+                f"CREATE ROLE {role} LOGIN NOSUPERUSER PASSWORD '{ROLE_PASSWORD}'"
+            )
+    yield
+    with psycopg.connect(control_url(), autocommit=True) as database:
+        for role in (RENDER_OWNER, OTHER_ROLE):
+            database.execute(f"DROP ROLE IF EXISTS {role}")
+
+
+@pytest.fixture
+def render_owner_target(
+    safety: ModuleType, local_roles: None
+) -> Generator[MaintenanceTarget]:
+    """Run the executor as the non-superuser owner, like Render Postgres."""
+    with _dedicated_target(safety, owner=RENDER_OWNER, executor=RENDER_OWNER) as target:
+        yield target
+
+
+@pytest.fixture
+def maintenance_target(render_owner_target: MaintenanceTarget) -> MaintenanceTarget:
     """Point Django at one disposable DB and always restore/drop only that DB."""
+    return render_owner_target
+
+
+def _role_url(url: str, role: str) -> str:
+    parsed = urlparse(url)
+    netloc = f"{role}:{ROLE_PASSWORD}@{parsed.hostname}:{parsed.port}"
+    return urlunparse(parsed._replace(netloc=netloc))
+
+
+@contextmanager
+def _dedicated_target(
+    safety: ModuleType,
+    *,
+    owner: str | None = None,
+    executor: str | None = None,
+    portless: bool = True,
+) -> Generator[MaintenanceTarget]:
     control = control_url()
     target = urlunparse(urlparse(control)._replace(path=f"/{DEDICATED_DATABASE}"))
     with psycopg.connect(control, autocommit=True) as database:
         database.execute(f"DROP DATABASE IF EXISTS {DEDICATED_DATABASE}")
-        database.execute(f"CREATE DATABASE {DEDICATED_DATABASE}")
+        create = sql.SQL("CREATE DATABASE {}").format(
+            sql.Identifier(DEDICATED_DATABASE)
+        )
+        if owner:
+            create = sql.SQL("{} OWNER {}").format(create, sql.Identifier(owner))
+        database.execute(create)
 
     database_settings = connections.databases["default"]
     original = deepcopy(database_settings)
     connections.close_all()
     database_settings["NAME"] = DEDICATED_DATABASE
+    if executor is not None:
+        database_settings["USER"] = executor
+        database_settings["PASSWORD"] = ROLE_PASSWORD
+        target = _role_url(target, executor)
+    database_port = str(database_settings["PORT"])
+    if portless:
+        # The Render internal URL names no port, so libpq uses its 5432 default.
+        assert database_port == "5432"
+        database_settings["PORT"] = ""
     connection.ensure_connection()
     try:
         with connection.cursor() as cursor:
@@ -121,7 +181,7 @@ def maintenance_target(safety: ModuleType) -> Generator[MaintenanceTarget]:
                 environment_id=uuid.uuid4(),
                 cluster_identifier=system_identifier,
                 database_host=str(database_settings["HOST"]),
-                database_port=str(database_settings["PORT"]),
+                database_port=database_port,
                 database_name=DEDICATED_DATABASE,
                 owner_clerk_id="user_rehearsal_owner",
                 catcher_clerk_id="user_rehearsal_catcher",
@@ -303,3 +363,102 @@ def test_maintenance_commits_the_connection_gate_before_draining_writers(
         writer.close()
 
     assert any("pg_terminate_backend" in query for query in events)
+
+
+def _observe_control(events: list[str]) -> Callable[..., Any]:
+    real_connect = psycopg.connect
+
+    def connect(
+        *args: Any, **kwargs: Any
+    ) -> psycopg.Connection[Any] | _ControlConnection:
+        delegate = real_connect(*args, **kwargs)
+        if kwargs.get("dbname") != "postgres":
+            return delegate
+        return _ControlConnection(delegate, events)
+
+    return connect
+
+
+@pytest.mark.django_db(transaction=True)
+def test_render_maintenance_gates_drains_and_reopens_as_the_non_superuser_owner(
+    safety: ModuleType,
+    render_owner_target: MaintenanceTarget,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#410 AC4: Render Postgres has no superuser, so the exact owner runs the gate."""
+    monkeypatch.setattr(safety, "validate_identity", validated_identity)
+    configuration = render_owner_target.configuration
+    writer = psycopg.connect(render_owner_target.target_url)
+    try:
+        with safety.DatabaseMaintenance(configuration) as maintenance:
+            maintenance.quiesce()
+
+            assert target_allows_connections(render_owner_target.control_url) is False
+            safety.assert_quiescent(configuration)
+            maintenance.resume()
+
+        with pytest.raises(psycopg.OperationalError):
+            writer.execute("SELECT 1")
+    finally:
+        writer.close()
+
+    assert target_allows_connections(render_owner_target.control_url) is True
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("owner", "executor"),
+    (
+        pytest.param(None, None, id="render-superuser-executor"),
+        pytest.param(None, RENDER_OWNER, id="render-executor-not-owner"),
+    ),
+)
+def test_maintenance_refuses_an_executor_render_does_not_permit(
+    safety: ModuleType,
+    local_roles: None,
+    monkeypatch: pytest.MonkeyPatch,
+    owner: str | None,
+    executor: str | None,
+) -> None:
+    """#410 AC4/AC11: Render admits only the non-superuser database owner."""
+    events: list[str] = []
+    monkeypatch.setattr(safety, "validate_identity", validated_identity)
+    monkeypatch.setattr(safety.psycopg, "connect", _observe_control(events))
+
+    with _dedicated_target(safety, owner=owner, executor=executor) as target:
+        with pytest.raises(safety.ResetSafetyError):
+            safety.validate_database(target.configuration)
+        with (
+            pytest.raises(safety.ResetSafetyError),
+            safety.DatabaseMaintenance(target.configuration),
+        ):
+            raise AssertionError("an unpermitted executor entered maintenance")
+
+        assert target_allows_connections(target.control_url) is True
+    assert not any(
+        "ALTER DATABASE" in query or "pg_terminate_backend" in query for query in events
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_render_maintenance_fails_closed_on_another_roles_session(
+    safety: ModuleType,
+    render_owner_target: MaintenanceTarget,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#410 AC3/AC4: the owner cannot end another role's client, so the gate stays."""
+    monkeypatch.setattr(safety, "validate_identity", validated_identity)
+    stranger = psycopg.connect(_role_url(render_owner_target.target_url, OTHER_ROLE))
+    try:
+        with (
+            pytest.raises(safety.ResetSafetyError),
+            safety.DatabaseMaintenance(
+                render_owner_target.configuration
+            ) as maintenance,
+        ):
+            maintenance.quiesce()
+
+        assert target_allows_connections(render_owner_target.control_url) is False
+        assert stranger.execute("SELECT 1").fetchone() == (1,)
+    finally:
+        stranger.close()

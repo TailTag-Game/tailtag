@@ -3,6 +3,7 @@
 import hashlib
 import json
 import stat
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ from evaluation_support import (
     stopped_failed_run,
 )
 from report_support import RUN_ID
+from windows_acl_support import assert_private_access
 
 from tailtag_simulator.__main__ import main
 from tailtag_simulator.evaluation import (
@@ -519,7 +521,11 @@ def test_written_evaluation_is_private_exclusive_and_never_overwritten(
     artifact = run(build(tmp_path))
     out = tmp_path / "evaluation.json"
     write_evaluation(artifact, out)
-    assert stat.S_IMODE(out.stat().st_mode) == 0o600
+    # S3-6: private on both platforms (mode bits on POSIX, access list on Windows).
+    if sys.platform != "win32":
+        assert stat.S_IMODE(out.stat().st_mode) == 0o600
+    else:
+        assert_private_access(out)
     assert json.loads(out.read_text()) == json.loads(json.dumps(artifact))
     written = out.read_bytes()
     with pytest.raises((EvaluationFailed, OSError)):
@@ -542,7 +548,11 @@ def test_cli_prints_the_verdict_and_writes_one_private_artifact(
         if explicit_out
         else list(inputs.report.parent.glob(f"{RUN_ID}.evaluation-*.json"))
     )
-    assert stat.S_IMODE(written.stat().st_mode) == 0o600
+    # S3-6: private on both platforms (mode bits on POSIX, access list on Windows).
+    if sys.platform != "win32":
+        assert stat.S_IMODE(written.stat().st_mode) == 0o600
+    else:
+        assert_private_access(written)
     assert json.loads(written.read_text())["verdict"] == "acceptable"
 
 

@@ -144,6 +144,8 @@ docs: add contributor environment guide
 
 Every pull request must explain how the change was validated.
 
+Developer commands run through [go-task](https://taskfile.dev); run `task --list` in the repository root to see them.
+
 Depending on the work, validation may include:
 
 * Automated tests

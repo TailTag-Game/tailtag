@@ -9,3 +9,8 @@ from __future__ import annotations
 from observability.logging import build_logging_config
 
 logconfig_dict = build_logging_config()
+
+# Sync workers hold one database connection each. A value here overrides the
+# `WEB_CONCURRENCY=1` that Render sets on the `0.5c-512mb` plan (#448).
+workers = 3
+worker_class = "sync"

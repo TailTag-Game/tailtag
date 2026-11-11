@@ -1,0 +1,94 @@
+{
+ "key": {
+  "descriptor_digest": "33e1572c639e216092ded0231ed5422afe0e5ff4cb6c97d002de6b29d989b4a0",
+  "environment": "staging",
+  "execution_context": "external_host:linux/amd64",
+  "plan_digest": "154b7029c7da47c49a9d277a2cba534f7aae851d6be71939798015ba1c66ff2f",
+  "scenario_id": "convention-soak",
+  "scenario_version": 2
+ },
+ "kind": "thresholds",
+ "minimum_samples": {
+  "p95": {
+   "assumption": "Proposed: minimum samples for a meaningful p95.",
+   "value": 200
+  },
+  "p99": {
+   "assumption": "Proposed: minimum samples for a meaningful p99.",
+   "value": 1000
+  }
+ },
+ "operations": {
+  "confirm": {
+   "error_rate": {
+    "assumption": "Proposed: the greater of 2x the baseline rate and 0.01; maintainer to review.",
+    "value": 0.01
+   },
+   "p95_ms": {
+    "assumption": "Proposed: 2x the baseline p95, rounded up to 1 ms; maintainer to review.",
+    "value": 691
+   },
+   "timeout_rate": {
+    "assumption": "Proposed: the greater of 2x the baseline rate and 0.01; maintainer to review.",
+    "value": 0.01
+   }
+  },
+  "resolve": {
+   "error_rate": {
+    "assumption": "Proposed: the greater of 2x the baseline rate and 0.01; maintainer to review.",
+    "value": 0.01
+   },
+   "p95_ms": {
+    "assumption": "Proposed: 2x the baseline p95, rounded up to 1 ms; maintainer to review.",
+    "value": 585
+   },
+   "timeout_rate": {
+    "assumption": "Proposed: the greater of 2x the baseline rate and 0.01; maintainer to review.",
+    "value": 0.01
+   }
+  },
+  "total": {
+   "error_rate": {
+    "assumption": "Proposed: the greater of 2x the baseline rate and 0.01; maintainer to review.",
+    "value": 0.01
+   },
+   "p95_ms": {
+    "assumption": "Proposed: 2x the baseline p95, rounded up to 1 ms; maintainer to review.",
+    "value": 621
+   },
+   "timeout_rate": {
+    "assumption": "Proposed: the greater of 2x the baseline rate and 0.01; maintainer to review.",
+    "value": 0.01
+   }
+  }
+ },
+ "regression": {
+  "minimum_delta_ms": {
+   "assumption": "Proposed: ignore regressions smaller than 20 ms.",
+   "value": 20
+  },
+  "p95_percent": {
+   "assumption": "Proposed: p95 may rise 25% over the baseline.",
+   "value": 25
+  },
+  "p99_percent": {
+   "assumption": "Proposed: p99 may rise 50% over the baseline.",
+   "value": 50
+  }
+ },
+ "saturation": {
+  "lag_seconds": {
+   "assumption": "Proposed: generator lag above 1 s is saturation.",
+   "value": 1.0
+  },
+  "peak_cpu_percent": {
+   "assumption": "Proposed: 80% of 2 vCPUs in Docker CPUPerc units.",
+   "value": 160
+  },
+  "steal_ticks_delta": {
+   "assumption": "Proposed: CPU steal above 1500 USER_HZ ticks is saturation.",
+   "value": 1500
+  }
+ },
+ "schema_version": 1
+}

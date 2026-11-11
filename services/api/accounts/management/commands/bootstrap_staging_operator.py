@@ -1,4 +1,4 @@
-"""Bootstrap the limited Django operator for Railway Staging only."""
+"""Bootstrap the managed Django operator for Render Staging only."""
 
 from __future__ import annotations
 
@@ -16,10 +16,9 @@ from django.core.management.base import CommandParser
 from django.db import DatabaseError, IntegrityError, transaction
 
 from accounts.models import User
+from accounts.staging_target import staging_platform
 
-REQUIRED_ENVIRONMENT = "staging"
-REQUIRED_SERVICE = "api"
-CONFIRMATION_PHRASE = "bootstrap Railway Staging operator"
+RENDER_CONFIRMATION_PHRASE = "bootstrap Render Staging operator"
 OPERATOR_GROUP_NAME = "TailTag Field Beta Operators"
 EXPECTED_PERMISSION_NAMES = {
     "catches.delete_catch",
@@ -38,13 +37,21 @@ EXPECTED_PERMISSION_NAMES = {
     "profiles.view_playerprofile",
     "fursuits.set_fursuit_enabled",
     "fursuits.view_fursuit",
+    "fursuits.revoke_fursuit_tag",
+    "fursuits.view_fursuittag",
+}
+# The exact set before #504 added tag revocation. Reconciling an operator whose
+# group holds exactly this set upgrades the group to EXPECTED_PERMISSION_NAMES.
+PREVIOUS_PERMISSION_NAMES = EXPECTED_PERMISSION_NAMES - {
+    "fursuits.revoke_fursuit_tag",
+    "fursuits.view_fursuittag",
 }
 
 __all__ = ["Command"]
 
 
 class Command(BaseCommand):
-    """Create or reconcile the guarded Railway Staging operator."""
+    """Create or reconcile the guarded Render Staging operator."""
 
     def create_parser(
         self, prog_name: str, subcommand: str, **kwargs: object
@@ -56,14 +63,11 @@ class Command(BaseCommand):
 
     def handle(self, *args: object, **options: object) -> None:
         """Create or rotate the limited operator after guarded confirmation."""
-        if (
-            os.environ.get("RAILWAY_ENVIRONMENT_NAME") != REQUIRED_ENVIRONMENT
-            or os.environ.get("RAILWAY_SERVICE_NAME") != REQUIRED_SERVICE
-        ):
+        if staging_platform(os.environ) is None:
             raise CommandError("This command is unavailable for the current target.")
         if not sys.stdin.isatty() or not sys.stdout.isatty():
             raise CommandError("This command requires an interactive terminal.")
-        if input("Confirmation: ") != CONFIRMATION_PHRASE:
+        if input("Confirmation: ") != RENDER_CONFIRMATION_PHRASE:
             raise CommandError("Confirmation failed.")
 
         operator_id = getpass.getpass("Operator identifier: ")
@@ -142,13 +146,38 @@ class Command(BaseCommand):
         operator: User,
         permissions: Iterable[Permission],
     ) -> str:
-        """Rotate an existing password only for the exact managed operator."""
-        permission_ids = {permission.pk for permission in permissions}
-        if not self._is_exact_managed_operator(operator, permission_ids):
-            raise CommandError("Existing account cannot be used as an operator.")
+        """Rotate an existing password only for the exact managed operator.
 
+        An operator whose group holds exactly the previous permission set is
+        upgraded to the current set in the same transaction.
+        """
+        permissions = tuple(permissions)
+        permission_ids = {permission.pk for permission in permissions}
+        previous_ids = {
+            permission.pk
+            for permission in permissions
+            if self._permission_name(permission) in PREVIOUS_PERMISSION_NAMES
+        }
+        # Lock the group before reading its permissions so the check and any
+        # upgrade see one state.
+        group = (
+            Group.objects.select_for_update().filter(name=OPERATOR_GROUP_NAME).first()
+        )
+        upgrade = False
+        if not self._is_exact_managed_operator(operator, permission_ids):
+            if not self._is_exact_managed_operator(operator, previous_ids):
+                raise CommandError("Existing account cannot be used as an operator.")
+            upgrade = True
+
+        if upgrade:
+            if group is None:
+                # The exact check above guarantees the named group exists.
+                raise CommandError("Existing account cannot be used as an operator.")
+            group.permissions.set(permissions)  # pyright: ignore[reportUnknownMemberType]
         operator.set_password(password)
         operator.save(update_fields={"password"})
+        if upgrade:
+            return "Staging operator reconciled and upgraded."
         return "Staging operator reconciled."
 
     @staticmethod

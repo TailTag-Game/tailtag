@@ -26,7 +26,7 @@ from tests.observability_test_support import (
 )
 
 BOOM_URLCONF = "tests.observability_test_support"
-RAILWAY_ID = "NnpHMrRbT-6rmzcsHn5Ytg"
+EDGE_ID = "ce8e4b48-511a-4e2f"
 SECRET_HEADER = "synthetic-bearer-token-must-not-leak"
 SECRET_QUERY = "synthetic-query-secret-must-not-leak"
 SECRET_BODY = "synthetic-body-credential-must-not-leak"
@@ -143,7 +143,7 @@ def _send_hostile_request(client: Client, path: str) -> Any:
         data=json.dumps({"password": SECRET_BODY}),
         content_type="application/json",
         HTTP_AUTHORIZATION=f"Bearer {SECRET_HEADER}",
-        HTTP_X_RAILWAY_REQUEST_ID=RAILWAY_ID,
+        HTTP_RNDR_ID=EDGE_ID,
     )
 
 
@@ -162,7 +162,7 @@ def _assert_reported_without_secrets(
             & event.get("request", {}).keys()
         )
         assert event["tags"]["request_id"] == completion["request_id"]
-        assert event["tags"]["railway_request_id"] == RAILWAY_ID
+        assert event["tags"]["edge_request_id"] == EDGE_ID
     for secret in SECRETS:
         assert secret not in transport.serialized()
         assert secret not in capture.text

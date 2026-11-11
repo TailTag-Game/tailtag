@@ -7,17 +7,21 @@ import os
 import re
 import stat
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from copy import deepcopy
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from tailtag_simulator.host_protocol import (
     decode_frame,
     encode_frame,
     validate_manifest,
 )
-from tailtag_simulator.pool import LAUNCHER_TIMEOUT_SECONDS, run_launcher
+from tailtag_simulator.pool import (
+    INSTANCE_PIN,
+    LAUNCHER_TIMEOUT_SECONDS,
+    run_launcher,
+)
 
 RelayDispatch = Callable[
     [str, dict[str, object]], Awaitable[tuple[str, dict[str, object]]]
@@ -76,6 +80,7 @@ _HEALTH_COUNTERS = (
     "close_timeouts",
     "peak_active",
 )
+_HEARTBEAT_OFFSET_CAP = 64
 
 
 def _rejected(result: str = "FAIL_REQUEST") -> dict[str, object]:
@@ -99,16 +104,25 @@ def _same(left: object, right: object) -> bool:
     )
 
 
-async def fixed_dispatch(
-    channel: str, envelope: dict[str, object]
-) -> tuple[str, dict[str, object]]:
-    """Trusted argv/cwd only; the complete request travels exclusively on stdin."""
-    return await run_launcher(
-        ["make", "-s", "--no-print-directory", _TARGETS[channel]],
-        Path(__file__).resolve().parents[3],
-        LAUNCHER_TIMEOUT_SECONDS,
-        encode_frame(envelope),
-    )
+def relay_dispatch(
+    workspace: Path, task: Path, env: Mapping[str, str] | None
+) -> Callable[
+    [str, dict[str, object]], Coroutine[Any, Any, tuple[str, dict[str, object]]]
+]:
+    """Trusted argv/cwd/env only; the complete request travels exclusively on stdin."""
+
+    async def dispatch(
+        channel: str, envelope: dict[str, object]
+    ) -> tuple[str, dict[str, object]]:
+        return await run_launcher(
+            [str(task), "-s", _TARGETS[channel]],
+            workspace,
+            LAUNCHER_TIMEOUT_SECONDS,
+            encode_frame(envelope),
+            env,
+        )
+
+    return dispatch
 
 
 class BridgeSession:
@@ -163,6 +177,8 @@ class BridgeSession:
         self._mutating_started = False
         # Non-authoritative diagnostics (#230): never read back for decisions.
         self.health_counters = dict.fromkeys(_HEALTH_COUNTERS, 0)
+        self._heartbeat_failed = 0
+        self._heartbeat_failure_offsets: list[float] = []
         self._revocation: dict[str, object] | None = None
 
     def health(self) -> dict[str, object]:
@@ -223,7 +239,13 @@ class BridgeSession:
             "target_veto": self._veto,
             "recovery_hold": self._mutating_started and not self._released,
             "health": dict(self.health_counters),
+            "heartbeat": {
+                "failed": self._heartbeat_failed,
+                "failure_offsets": list(self._heartbeat_failure_offsets),
+            },
             "revocation": None if self._revocation is None else dict(self._revocation),
+            # The Render Staging instance that every relay reached (#411 G13).
+            "render_instance": INSTANCE_PIN.value,
         }
 
     def _envelope(
@@ -473,7 +495,16 @@ class BridgeSession:
                 self._dispatch(channel, envelope), max(0, self._end - self._clock())
             )
             data = decode_frame(encode_frame(data))
-            if result not in _FAILURES | {"PASS"} or (
+            if (
+                op == "heartbeat"
+                and result == "PASS"
+                and set(data) == {"extended"}
+                and _integer(data["extended"])
+                and data["extended"] != self._count
+            ):
+                # A well-formed wrong count shows a lost lease, not a lost relay.
+                result, data = "FAIL_LEASE", {}
+            elif result not in _FAILURES | {"PASS"} or (
                 result == "PASS" and not self._ack(op, data)
             ):
                 result, data = "FAIL_LAUNCHER", {}
@@ -484,6 +515,12 @@ class BridgeSession:
             result, data = "FAIL_LAUNCHER", {}
         if result == "FAIL_TARGET":
             self._veto = True
+        if op == "heartbeat" and result != "PASS":
+            self._heartbeat_failed += 1
+            if len(self._heartbeat_failure_offsets) < _HEARTBEAT_OFFSET_CAP:
+                self._heartbeat_failure_offsets.append(
+                    round(self._clock() - self._started, 1)
+                )
         if op in _MUTATIONS and op != "heartbeat" and result in _UNCERTAIN:
             self._uncertain = True
         self._outcomes[op] = result
@@ -575,32 +612,48 @@ async def _read_frame(reader: asyncio.StreamReader) -> bytes:
 
 
 class BridgeServer:
-    def __init__(self, session: BridgeSession, directory: Path) -> None:
-        self._session, self._directory = session, directory
+    def __init__(
+        self, session: BridgeSession, rpc_path: Path, health_path: Path
+    ) -> None:
+        self._session = session
+        self._paths = {"rpc": rpc_path, "health": health_path}
         self._servers: list[asyncio.Server] = []
         self._owned: dict[Path, tuple[int, int]] = {}
         self._active = {"rpc": 0, "health": 0}
         self._handlers: set[asyncio.Task[None]] = set()
 
-    async def start(self) -> None:
-        if self._servers or self._directory.is_symlink():
-            raise ValueError("invalid bridge paths")
-        if not self._directory.exists():
-            self._directory.mkdir(mode=0o700)
-        directory_stat = self._directory.stat()
+    @classmethod
+    def for_paths(
+        cls, session: BridgeSession, rpc_path: Path, health_path: Path
+    ) -> "BridgeServer":
+        """Each socket sits in its own run-owned directory (#316)."""
+        return cls(session, rpc_path, health_path)
+
+    @staticmethod
+    def _private_parent(parent: Path) -> None:
+        info = parent.stat()
         if (
-            not stat.S_ISDIR(directory_stat.st_mode)
-            or directory_stat.st_uid != os.getuid()
-            or stat.S_IMODE(directory_stat.st_mode) != 0o700
+            not stat.S_ISDIR(info.st_mode)
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) != 0o700
         ):
             raise ValueError("invalid bridge paths")
-        for name in ("rpc.sock", "health.sock"):
-            path = self._directory / name
+
+    async def start(self) -> None:
+        if self._servers:
+            raise ValueError("invalid bridge paths")
+        # Validate every path before binding any: a late refusal must leave no socket.
+        for path in self._paths.values():
+            if not path.is_absolute() or any(
+                p.is_symlink() for p in (path, *path.parents)
+            ):
+                raise ValueError("invalid bridge paths")
+            self._private_parent(path.parent)
             if path.exists() or path.is_symlink():
                 raise ValueError("invalid bridge paths")
+        previous = os.umask(0o077)
         try:
-            for kind in ("rpc", "health"):
-                path = self._directory / (kind + ".sock")
+            for kind, path in self._paths.items():
                 server = await asyncio.start_unix_server(
                     lambda r, w, kind=kind: self._accept(kind, r, w),
                     path=path,
@@ -614,6 +667,8 @@ class BridgeServer:
         except BaseException:
             await self.close()
             raise
+        finally:
+            os.umask(previous)
 
     def _accept(
         self, kind: str, reader: asyncio.StreamReader, writer: asyncio.StreamWriter

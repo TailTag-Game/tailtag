@@ -23,7 +23,7 @@ from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 
 from accounts.models import User
-from catches.models import Catch
+from catches.models import Catch, CatchBlock, CatchRequest
 from conventions.models import (
     Convention,
     ConventionEnrollment,
@@ -31,7 +31,7 @@ from conventions.models import (
     FursuitCatchCredential,
     FursuitCatchSession,
 )
-from fursuits.models import Fursuit
+from fursuits.models import Fursuit, FursuitTag
 from profiles.models import PlayerProfile
 from rehearsal.models import StagingResetIdentity
 from simulation_fixtures.models import (
@@ -157,6 +157,11 @@ def _delete(queryset: QuerySet[Model]) -> int:
     return deleted
 
 
+def _delete_with_tags(fursuits: QuerySet[Fursuit]) -> int:
+    FursuitTag.objects.filter(fursuit__in=fursuits).delete()
+    return _delete(fursuits)
+
+
 def _delete_run_state(run: FixtureRun, indexes: list[int]) -> None:
     """Delete the run's deletion set in PROTECT order and record the pending images."""
     users = _users_by_index(run.pool, indexes)
@@ -186,6 +191,18 @@ def _delete_run_state(run: FixtureRun, indexes: list[int]) -> None:
         .exclude(convention_id=convention_id)
         .exists()
         or Catch.objects.filter(fursuit__owner_id__in=all_ids)
+        .exclude(convention_id=convention_id)
+        .exists()
+        or CatchRequest.objects.filter(player_id__in=all_ids)
+        .exclude(convention_id=convention_id)
+        .exists()
+        or CatchRequest.objects.filter(fursuit__owner_id__in=all_ids)
+        .exclude(convention_id=convention_id)
+        .exists()
+        or CatchBlock.objects.filter(player_id__in=all_ids)
+        .exclude(convention_id=convention_id)
+        .exists()
+        or CatchBlock.objects.filter(fursuit__owner_id__in=all_ids)
         .exclude(convention_id=convention_id)
         .exists()
     )
@@ -224,6 +241,23 @@ def _delete_run_state(run: FixtureRun, indexes: list[int]) -> None:
     try:
         # Every foreign key into these tables is PROTECT, so a row outside the set
         # that still references one of them blocks the delete and refuses the run.
+        # Blocks and catch requests go first, with the catch filter. The closed
+        # cleanup report has no request or block key, so the simulator wire shape
+        # stays unchanged.
+        _delete(
+            CatchBlock.objects.filter(
+                Q(player_id__in=provisioned_ids)
+                | Q(fursuit__in=fursuits)
+                | Q(convention_id=convention_id)
+            )
+        )
+        _delete(
+            CatchRequest.objects.filter(
+                Q(player_id__in=provisioned_ids)
+                | Q(fursuit__in=fursuits)
+                | Q(convention_id=convention_id)
+            )
+        )
         counts = {
             "catch": _delete(
                 Catch.objects.filter(
@@ -244,7 +278,9 @@ def _delete_run_state(run: FixtureRun, indexes: list[int]) -> None:
                     Q(user_id__in=provisioned_ids) | Q(convention_id=convention_id)
                 )
             ),
-            "fursuit": _delete(fursuits),
+            # Reusable tags are deleted with their fursuits. The closed cleanup
+            # report has no tag key, so the simulator wire shape stays unchanged.
+            "fursuit": _delete_with_tags(fursuits),
             "convention": _delete(Convention.objects.filter(pk=convention_id)),
         }
     except ProtectedError:

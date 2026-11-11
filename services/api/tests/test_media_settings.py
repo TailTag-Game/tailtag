@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 from collections.abc import Mapping
@@ -12,6 +11,7 @@ from typing import cast
 import pytest
 from django.core.files.storage import default_storage
 
+from tests.process_support import minimal_environment
 from tests.test_production_settings import VALID_ENVIRONMENT, run_settings_import
 
 MEDIA_ENVIRONMENT = {
@@ -36,7 +36,7 @@ def inspect_storage_settings(
         [sys.executable, "-c", command],
         cwd=".",
         env={
-            "PATH": os.environ["PATH"],
+            **minimal_environment(),
             "DJANGO_SETTINGS_MODULE": settings_module,
             **environment,
         },
@@ -61,7 +61,7 @@ def inspect_production_botocore_loggers(
         [sys.executable, "-c", command],
         cwd=".",
         env={
-            "PATH": os.environ["PATH"],
+            **minimal_environment(),
             "DJANGO_SETTINGS_MODULE": "config.settings.production",
             **environment,
         },

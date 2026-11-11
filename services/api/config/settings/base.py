@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import os
+import zoneinfo
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from config.catch_requests_gate import parse_catch_requests_enabled
 from observability.logging import build_logging_config
 from observability.postgresql import ENGINE as DATABASE_ENGINE
 
@@ -67,6 +70,9 @@ TEMPLATES: list[dict[str, object]] = [
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
+# Convention review deadlines load zone rules only from the pinned tzdata
+# package, so every platform and image uses one zone data version (#503).
+zoneinfo.reset_tzpath(to=())
 USE_I18N = True
 USE_TZ = True
 
@@ -87,6 +93,13 @@ STORAGES = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
+
+# Reusable tags and catch requests (#502). Off unless the environment says true.
+CATCH_REQUESTS_ENABLED = parse_catch_requests_enabled(os.environ)
+# The per-player request limit (#506). #508 validates it against representative
+# play. A change goes through review, so the limit has no environment override.
+CATCH_REQUEST_LIMIT_COUNT = 30
+CATCH_REQUEST_LIMIT_WINDOW_SECONDS = 600
 
 AUTH_PASSWORD_VALIDATORS: list[dict[str, object]] = [
     {
@@ -119,6 +132,8 @@ SPECTACULAR_SETTINGS = {
     "POSTPROCESSING_HOOKS": [
         "drf_spectacular.hooks.postprocess_schema_enums",
         "config.openapi.close_issue_120_component_schemas",
+        "config.openapi.add_catch_request_components",
+        "config.openapi.require_reusable_tag_request_bodies",
     ],
 }
 
@@ -142,6 +157,7 @@ def database_from_url(database_url: str) -> dict[str, object]:
         "PORT": str(parsed.port or ""),
         # Bounded well below Gunicorn's 30-second worker timeout, so an
         # unreachable database raises (and is recorded) instead of the worker
-        # being killed first.
-        "OPTIONS": {"connect_timeout": 5},
+        # being killed first. `tcp_user_timeout` (milliseconds) also bounds a
+        # query on a reused connection whose peer stopped acknowledging (#448).
+        "OPTIONS": {"connect_timeout": 5, "tcp_user_timeout": 10_000},
     }

@@ -118,7 +118,7 @@ The metric name and the log `event` are the same string.
 | `tailtag.catches.confirmation` | `created`, `already_caught` | none |
 | | `rejected` | `payload_invalid`, `catcher_ineligible`, `convention_mismatch`, `self_catch`, and the target reasons |
 | `tailtag.conventions.credential_resolution` | `resolved` | none |
-| | `rejected` | `payload_invalid`, `caller_ineligible`, `convention_unknown`, and the target reasons |
+| | `rejected` | `payload_invalid`, `caller_ineligible`, `convention_unknown`, `requests_unavailable` and `self_catch` (tag preview only), and the target reasons |
 | `tailtag.conventions.catch_session` | `started` | none |
 | | `start_rejected` | `owner_ineligible`, `not_enrolled`, `activation_ineligible` |
 | | `ended` | `owner`, `operator`, `eligibility_lost`, `expired` (the `FursuitCatchSessionEndReason` values) |
@@ -135,6 +135,12 @@ Target reasons, checked in this order (first failing check wins):
 | `activation_inactive` | The activation is missing, mismatched, or inactive |
 | `session_inactive` | The activation has no unended session |
 | `session_expired` | The activation's unended session has reached `expires_at` |
+
+The reusable tag preview (#504) records on
+`tailtag.conventions.credential_resolution`. It uses the same reasons, plus
+`requests_unavailable` when the convention has no time zone or a closed review
+window, and `self_catch` when the owner scans their own tag. An unknown or malformed tag is `payload_invalid` or
+`credential_unknown`. A replaced or revoked tag is `credential_revoked`.
 
 Credential resolution applies the same meanings to its existing checks:
 `activation_inactive` for an inactive activation, `target_ineligible` for an

@@ -30,7 +30,6 @@ The in-run CLEANUP line is pinned in test_run_lifecycle.
 
 import asyncio
 import getpass
-import socket
 import subprocess
 from collections.abc import Mapping
 from types import CoroutineType
@@ -38,6 +37,7 @@ from typing import Any, Final
 
 import pytest
 from fixture_support import CLEANUP_DATA
+from network_support import forbid_connect
 from pool_support import POOL, RUN_ID
 
 from tailtag_simulator.__main__ import main
@@ -179,7 +179,7 @@ def nothing_reached(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     monkeypatch.setattr(getpass, "getpass", trip)
     monkeypatch.setattr(subprocess, "Popen", trip)
-    monkeypatch.setattr(socket.socket, "connect", trip)
+    forbid_connect(monkeypatch, trip)
     return reached
 
 

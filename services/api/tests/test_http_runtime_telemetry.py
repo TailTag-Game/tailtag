@@ -29,7 +29,6 @@ from pytest_django.fixtures import SettingsWrapper
 
 from observability import sentry as observability_sentry
 from tests.observability_test_support import (
-    DEPLOYMENT_ID,
     SOURCE_SHA,
     SQL_PARAMETER,
     CapturingTransport,
@@ -329,9 +328,15 @@ def restored_process_logging(settings: SettingsWrapper) -> Iterator[None]:
 def test_gunicorn_error_records_are_json_lines_with_build_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """AC-8: a worker timeout, otherwise plain stderr text, is searchable in Railway."""
-    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "development")
-    monkeypatch.setenv("RAILWAY_DEPLOYMENT_ID", DEPLOYMENT_ID)
+    """AC-8: a worker timeout, otherwise plain stderr text, is searchable in logs."""
+    monkeypatch.setattr(
+        "observability.logging.get_identity",
+        lambda: {
+            "environment": "development",
+            "source_sha": None,
+            "deployment_id": None,
+        },
+    )
     config = _GunicornConfigOnly().cfg  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
     gunicorn_logger = glogging.Logger(config)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
@@ -343,7 +348,7 @@ def test_gunicorn_error_records_are_json_lines_with_build_identity(
     assert line["level"] == "error"
     assert line["message"] == "WORKER TIMEOUT (pid:4242)"
     assert line["environment"] == "development"
-    assert line["deployment_id"] == DEPLOYMENT_ID
+    assert "deployment_id" not in line
 
 
 @pytest.mark.usefixtures("restored_process_logging")

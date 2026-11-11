@@ -15,7 +15,7 @@ from typing import Any, cast
 PACKAGE = "tools/simulator/tailtag_simulator"
 IMAGES = "services/api/simulation_fixtures/images"
 BUILD_FILES = {
-    "Makefile",
+    "Taskfile.yml",
     "tools/simulator/Dockerfile",
     "tools/simulator/.dockerignore",
     "tools/simulator/pyproject.toml",
@@ -27,7 +27,7 @@ HOST_FILES = {
     "scripts/api_sim_pool_ssh.py",
     "scripts/api_sim_fixture_ssh.py",
     "scripts/api_sim_inspect_ssh.py",
-    "scripts/api_staging_reset_ssh.py",
+    "scripts/api_sim_render_relay.py",
     "scripts/api_staging_preflight.py",
     "services/api/pyproject.toml",
     "services/api/uv.lock",
@@ -116,7 +116,7 @@ def _host(root: Path) -> tuple[str, dict[str, bytes]]:
         if name and _relevant(name)
     }
     required = {
-        "Makefile",
+        "Taskfile.yml",
         "tools/simulator/Dockerfile",
         "tools/simulator/pyproject.toml",
         "tools/simulator/uv.lock",
@@ -298,7 +298,7 @@ def _build(root: Path, tag: str, selected_platform: str | None = None) -> None:
         context = Path(temporary)
         manifest: dict[str, str] = {}
         for name, content in inputs.items():
-            if name in {"Makefile"} | HOST_FILES | HOST_OPTIONAL_FILES:
+            if name in {"Taskfile.yml"} | HOST_FILES | HOST_OPTIONAL_FILES:
                 continue
             destination = name.removeprefix("tools/simulator/")
             path = context / destination

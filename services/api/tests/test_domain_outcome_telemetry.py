@@ -12,6 +12,7 @@ so a renamed enum member cannot silently pass; tests construct enums by value.
 from __future__ import annotations
 
 import datetime
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, cast
@@ -26,6 +27,7 @@ from clerk_backend_api.security.types import (
 )
 from django.conf import settings
 from django.db import transaction
+from django.db.models import F
 from django.test import Client
 from django.utils import timezone
 from pytest import MonkeyPatch
@@ -107,6 +109,8 @@ EXPECTED_SIGNALS = {CATCH_SIGNAL, RESOLUTION_SIGNAL, SESSION_SIGNAL, AUTH_SIGNAL
 EXPECTED_OUTCOMES = {
     "created",
     "already_caught",
+    "pending",
+    "already_pending",
     "rejected",
     "resolved",
     "started",
@@ -114,6 +118,9 @@ EXPECTED_OUTCOMES = {
     "ended",
 }
 EXPECTED_REASONS = {
+    "blocked",
+    "cooldown_active",
+    "rate_limited",
     "payload_invalid",
     "catcher_ineligible",
     "convention_mismatch",
@@ -751,7 +758,14 @@ def _signed_out(reason: Any) -> RequestState:
     return RequestState(AuthStatus.SIGNED_OUT, reason=reason)
 
 
-VALID_CLAIMS = {"sub": "user_sentinel_subject", "sid": "sess_sentinel_session"}
+# Mirrors a native Clerk token: no azp, a 60 s lifetime.
+_ISSUED_AT = int(time.time())
+NATIVE_TIME_CLAIMS = {"iat": _ISSUED_AT, "exp": _ISSUED_AT + 60}
+VALID_CLAIMS = {
+    "sub": "user_sentinel_subject",
+    "sid": "sess_sentinel_session",
+    **NATIVE_TIME_CLAIMS,
+}
 
 
 @pytest.mark.django_db
@@ -779,7 +793,7 @@ VALID_CLAIMS = {"sub": "user_sentinel_subject", "sid": "sess_sentinel_session"}
         ),
         pytest.param(
             "Bearer synthetic.token.value",
-            _signed_in({"sub": VALID_CLAIMS["sub"]}),
+            _signed_in({"sub": VALID_CLAIMS["sub"], **NATIVE_TIME_CLAIMS}),
             "claims_missing",
             id="session-claim-missing",
         ),
@@ -849,3 +863,109 @@ def test_a_request_without_an_authorization_header_is_not_an_authentication_outc
 
     assert response.status_code == 401
     assert telemetry.outcomes() == []
+
+
+# --- #505 AC28: catch request submission ---
+
+
+@pytest.mark.django_db
+def test_catch_request_submission_records_one_confirmation_outcome_per_call(
+    telemetry: Telemetry, settings: Any
+) -> None:
+    """#505 AC28: the confirmation signal carries the request outcomes."""
+    from fursuits.models import Fursuit
+    from tests.fursuit_tag_test_support import (
+        assert_no_token_leak,
+        create_player,
+        create_preview_scenario,
+    )
+
+    settings.CATCH_REQUESTS_ENABLED = True
+    scenario = create_preview_scenario("telemetry")
+    client = scenario.catcher_client()
+    path = "/api/catches/requests/"
+
+    def submit(payload: str) -> int:
+        return client.post(
+            path, {"payload": payload}, content_type="application/json"
+        ).status_code
+
+    statuses = [
+        submit(scenario.payload),
+        submit(scenario.payload),
+        submit("https://tailtag.app/t#" + "Z" * 43),
+    ]
+    Fursuit.objects.filter(pk=scenario.fursuit.pk).update(
+        catch_approval_mode="automatic"
+    )
+    other, _ = create_player("telemetry_automatic")
+    scenario.catcher_enrollment.__class__.objects.create(
+        user=other, convention=scenario.convention, is_active=True
+    )
+    automatic = force_authenticated_client(user=other).post(
+        path, {"payload": scenario.payload}, content_type="application/json"
+    )
+
+    assert [*statuses, automatic.status_code] == [201, 200, 404, 201]
+    assert [
+        outcome for outcome in telemetry.outcomes() if outcome[0] == CATCH_SIGNAL
+    ] == [
+        (CATCH_SIGNAL, "pending", None),
+        (CATCH_SIGNAL, "already_pending", None),
+        (CATCH_SIGNAL, "rejected", "credential_unknown"),
+        (CATCH_SIGNAL, "created", None),
+    ]
+    assert_no_token_leak(telemetry.emitted_text())
+
+
+@pytest.mark.django_db
+def test_catch_request_refusals_record_the_protection_reasons(
+    telemetry: Telemetry, settings: Any
+) -> None:
+    """#506 AC40: blocks, cooldowns, and the limit each have a reason."""
+    from catches.models import CatchRequest
+    from tests.fursuit_tag_test_support import create_preview_scenario, owner_client
+
+    settings.CATCH_REQUESTS_ENABLED = True
+    scenario = create_preview_scenario("telemetry_protections")
+    client = scenario.catcher_client()
+
+    def submit() -> int:
+        return client.post(
+            "/api/catches/requests/",
+            {"payload": scenario.payload},
+            content_type="application/json",
+        ).status_code
+
+    def decline(*, block: bool) -> None:
+        request_id = CatchRequest.objects.get().pk
+        response = owner_client(scenario.owner).post(
+            f"/api/catches/incoming-requests/{request_id}/decline/",
+            {"block": block},
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+
+    assert submit() == 201
+    decline(block=False)
+    cooled = submit()
+    CatchRequest.objects.update(
+        requested_at=F("requested_at") - datetime.timedelta(seconds=11),
+        declined_at=F("declined_at") - datetime.timedelta(seconds=11),
+    )
+    settings.CATCH_REQUEST_LIMIT_COUNT = 1
+    limited = submit()
+    settings.CATCH_REQUEST_LIMIT_COUNT = 30
+    decline(block=True)
+    blocked = submit()
+
+    assert (cooled, limited, blocked) == (429, 429, 404)
+    assert [
+        outcome
+        for outcome in telemetry.outcomes()
+        if outcome[0] == CATCH_SIGNAL and outcome[1] == "rejected"
+    ] == [
+        (CATCH_SIGNAL, "rejected", "cooldown_active"),
+        (CATCH_SIGNAL, "rejected", "rate_limited"),
+        (CATCH_SIGNAL, "rejected", "blocked"),
+    ]

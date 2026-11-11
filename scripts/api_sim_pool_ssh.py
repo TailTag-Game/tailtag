@@ -7,17 +7,13 @@ import sys
 from collections.abc import Mapping, Sequence
 from typing import Final, TextIO, cast
 
+from scripts import api_sim_render_relay as _render_relay
 from scripts import api_staging_preflight as _staging_preflight
-from scripts import api_staging_reset_ssh as _reset_ssh
 
-_target_ids = _reset_ssh._target_ids  # pyright: ignore[reportPrivateUsage]
-_active_instance = _reset_ssh._active_instance  # pyright: ignore[reportPrivateUsage]
-_preflight = _reset_ssh._preflight  # pyright: ignore[reportPrivateUsage]
-_railway_identity = _reset_ssh._railway_identity  # pyright: ignore[reportPrivateUsage]
-_run = _reset_ssh._run  # pyright: ignore[reportPrivateUsage]
-_json_loads = _reset_ssh._json_loads  # pyright: ignore[reportPrivateUsage]
+_json_loads = _render_relay._json_loads  # pyright: ignore[reportPrivateUsage]
 
 _MAX_REQUEST_BYTES: Final = 64 * 1024
+_SSH_TIMEOUT_SECONDS: Final = 30
 _REQUEST_KEYS: Final = frozenset({"operation", "pool", "arguments"})
 _RESULTS: Final = frozenset(
     {
@@ -35,8 +31,11 @@ _FAILURE: Final[dict[str, object]] = {"result": "FAIL_LAUNCHER", "data": {}}
 # object. Imported-code output is captured so nothing else reaches stdout.
 _BOOTSTRAP: Final = r"""
 import contextlib, io, json, os, sys
-def _emit(result, data):
-    sys.stdout.write(json.dumps({"result": result, "data": data}, sort_keys=True) + "\n")
+def _emit(result, data, instance=None):
+    reply = {"result": result, "data": data}
+    if instance is not None:
+        reply["instance"] = instance
+    sys.stdout.write(json.dumps(reply, sort_keys=True) + "\n")
 try:
     raw = sys.stdin.buffer.read(65537)
     if len(raw) > 65536:
@@ -50,7 +49,7 @@ try:
         from config.build_identity import get_identity
         from simulation_pool import remote
         response = remote.execute(request, runtime_identity=get_identity(), environ=os.environ)
-    _emit(response["result"], response["data"])
+    _emit(response["result"], response["data"], response.get("instance"))
 except BaseException:
     _emit("FAIL_BOOTSTRAP", {})
 """
@@ -64,7 +63,7 @@ def _caller_request(stdin: TextIO) -> dict[str, object]:
     if not isinstance(value, dict):
         raise TypeError
     request = cast(dict[str, object], value)
-    if frozenset(request) not in (_REQUEST_KEYS, _REQUEST_KEYS | {"expected_identity"}):
+    if frozenset(request) - {"expected_identity", "expected_instance"} != _REQUEST_KEYS:
         raise ValueError
     if "expected_identity" in request:
         _staging_preflight._validate_identity(  # pyright: ignore[reportPrivateUsage]
@@ -99,40 +98,9 @@ def _validated_output(raw: str) -> dict[str, object]:
 
 
 def _execute(request: dict[str, object]) -> dict[str, object]:
-    _railway_identity()
-    identity = _preflight()
-    if "expected_identity" in request and request["expected_identity"] != identity:
-        return {"result": "FAIL_TARGET", "data": {}}
-    remote_request = {
-        key: value for key, value in request.items() if key != "expected_identity"
-    }
-    project_id, environment_id, service_id, _ = _target_ids()
-    instance = _active_instance(identity)
-    execution = _run(
-        [
-            "railway",
-            "ssh",
-            "--project",
-            project_id,
-            "--service",
-            service_id,
-            "--environment",
-            environment_id,
-            "--deployment-instance",
-            instance,
-            "--",
-            "/app/.venv/bin/python",
-            "-I",
-            "-c",
-            _BOOTSTRAP,
-        ],
-        input=json.dumps(
-            {**remote_request, "identity": identity}, separators=(",", ":")
-        ),
+    return _render_relay.execute(
+        request, _BOOTSTRAP, _validated_output, timeout=_SSH_TIMEOUT_SECONDS
     )
-    if execution.returncode != 0:
-        raise ValueError
-    return _validated_output(execution.stdout)
 
 
 def main(

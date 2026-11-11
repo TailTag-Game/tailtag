@@ -22,9 +22,8 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = REPOSITORY_ROOT / "scripts" / "api_staging_preflight.py"
 STAGING_URL = "https://staging.tailtag.app"
 SOURCE_SHA = "c070f413eec1518459f1fef21b471642765a54e9"
-DEPLOYMENT_ID = "93de11d6-714f-405a-b931-a9b567d5ec1e"
+RAILWAY_SHAPED_DEPLOYMENT_ID = "93de11d6-714f-405a-b931-a9b567d5ec1e"
 SECOND_SOURCE_SHA = "d" * 40
-SECOND_DEPLOYMENT_ID = "1b6a4b35-4e94-4775-a4b9-304205c75786"
 SENSITIVE_DIAGNOSTIC = "preflight-private-diagnostic-secret"
 
 if str(REPOSITORY_ROOT) not in sys.path:
@@ -93,10 +92,10 @@ def preflight() -> ModuleType:
 
 
 def identity(**overrides: object) -> dict[str, object]:
-    """Return a valid public #201 tuple and nothing else."""
+    """Return a valid public Render identity tuple and nothing else."""
     return {
         "source_sha": SOURCE_SHA,
-        "deployment_id": DEPLOYMENT_ID,
+        "deployment_id": None,
         "environment": "staging",
         **overrides,
     }
@@ -121,30 +120,26 @@ def fetch_sequence(
     return calls
 
 
-@pytest.mark.parametrize(
-    ("source_sha", "deployment_id"),
-    ((SOURCE_SHA, DEPLOYMENT_ID), (SECOND_SOURCE_SHA, SECOND_DEPLOYMENT_ID)),
-)
-def test_validate_target_returns_only_the_stable_observed_identity(
+@pytest.mark.parametrize("source_sha", (SOURCE_SHA, SECOND_SOURCE_SHA))
+def test_render_staging_returns_only_the_stable_observed_identity(
     preflight: ModuleType,
     monkeypatch: MonkeyPatch,
     source_sha: str,
-    deployment_id: str,
 ) -> None:
     """AC-5/6/7: exact Staging origin, identity, readiness, and recheck all pass."""
     calls = fetch_sequence(
         monkeypatch,
         preflight,
         [
-            identity(source_sha=source_sha, deployment_id=deployment_id),
+            identity(source_sha=source_sha),
             ready(),
-            identity(source_sha=source_sha, deployment_id=deployment_id),
+            identity(source_sha=source_sha),
         ],
     )
 
-    observed = preflight.validate_target(STAGING_URL)
+    observed = preflight.validate_render_staging_target()
 
-    assert observed == identity(source_sha=source_sha, deployment_id=deployment_id)
+    assert observed == identity(source_sha=source_sha)
     assert set(observed) == {"source_sha", "deployment_id", "environment"}
     assert calls == [
         STAGING_URL + "/health/identity",
@@ -154,58 +149,17 @@ def test_validate_target_returns_only_the_stable_observed_identity(
 
 
 @pytest.mark.parametrize(
-    "unsafe_origin",
-    (
-        "",
-        "http://staging.tailtag.app",
-        "https://staging.tailtag.app/",
-        "https://staging.tailtag.app:443",
-        "https://staging.tailtag.app/path",
-        "https://staging.tailtag.app?query=1",
-        "https://staging.tailtag.app#fragment",
-        "https://user:pass@staging.tailtag.app",
-        "https://STAGING.tailtag.app",
-        " https://staging.tailtag.app",
-        "https://staging.tailtag.app ",
-        "https://staging.tailtag.app%2f.evil.example",
-        "https://127.0.0.1",
-        "https://localhost",
-        "https://development.tailtag.app",
-        "https://production.tailtag.app",
-        "https://other.tailtag.app",
-        "not a url",
-    ),
-)
-def test_unsafe_origin_is_denied_before_any_transport_call(
-    preflight: ModuleType, monkeypatch: MonkeyPatch, unsafe_origin: str
-) -> None:
-    """AC-5/SECURITY: no parsing, normalization, or override reaches the network."""
-    calls: list[str] = []
-
-    def unexpected_fetch(url: str) -> NoReturn:
-        calls.append(url)
-        raise AssertionError("unsafe origin reached transport")
-
-    monkeypatch.setattr(preflight, "_fetch_json", unexpected_fetch)
-
-    with pytest.raises(preflight.TargetSafetyError):
-        preflight.validate_target(unsafe_origin)
-
-    assert calls == []
-
-
-@pytest.mark.parametrize(
     "untrusted_identity",
     (
         {},
-        {"source_sha": SOURCE_SHA, "deployment_id": DEPLOYMENT_ID},
+        {"source_sha": SOURCE_SHA, "deployment_id": None},
         {**identity(), "unexpected": SENSITIVE_DIAGNOSTIC},
         identity(source_sha=None),
         identity(source_sha=1),
         identity(source_sha=[]),
         identity(source_sha="A" * 40),
         identity(source_sha="a" * 39),
-        identity(deployment_id=None),
+        identity(deployment_id=RAILWAY_SHAPED_DEPLOYMENT_ID),
         identity(deployment_id=1),
         identity(deployment_id=[]),
         identity(deployment_id="93DE11D6-714F-405A-B931-A9B567D5EC1E"),
@@ -226,7 +180,7 @@ def test_unsafe_origin_is_denied_before_any_transport_call(
         "list-sha",
         "uppercase-sha",
         "short-sha",
-        "null-deployment-id",
+        "railway-shaped-deployment-id",
         "integer-deployment-id",
         "list-deployment-id",
         "noncanonical-uuid",
@@ -246,7 +200,7 @@ def test_untrusted_first_identity_denies_before_readiness(
     calls = fetch_sequence(monkeypatch, preflight, [untrusted_identity])
 
     with pytest.raises(preflight.TargetSafetyError):
-        preflight.validate_target(STAGING_URL)
+        preflight.validate_render_staging_target()
 
     assert calls == [STAGING_URL + "/health/identity"]
 
@@ -274,7 +228,7 @@ def test_untrusted_readiness_denies_before_second_identity(
     )
 
     with pytest.raises(preflight.TargetSafetyError):
-        preflight.validate_target(STAGING_URL)
+        preflight.validate_render_staging_target()
 
     assert calls == [
         STAGING_URL + "/health/identity",
@@ -292,12 +246,12 @@ def test_identity_change_during_preflight_denies_traffic(
         [
             identity(),
             ready(),
-            identity(source_sha=SECOND_SOURCE_SHA, deployment_id=SECOND_DEPLOYMENT_ID),
+            identity(source_sha=SECOND_SOURCE_SHA),
         ],
     )
 
     with pytest.raises(preflight.TargetSafetyError):
-        preflight.validate_target(STAGING_URL)
+        preflight.validate_render_staging_target()
 
     assert calls[-1] == STAGING_URL + "/health/identity"
 
@@ -459,11 +413,11 @@ def test_main_prints_only_validated_identity_json(
 ) -> None:
     """AC-7/9: CLI success emits only the captured three-field safe tuple."""
 
-    def validated_identity(_: str) -> dict[str, object]:
+    def validated_identity() -> dict[str, object]:
         return identity()
 
-    monkeypatch.setattr(preflight, "validate_target", validated_identity)
-    monkeypatch.setattr(sys, "argv", ["api_staging_preflight.py", STAGING_URL])
+    monkeypatch.setattr(preflight, "validate_render_staging_target", validated_identity)
+    monkeypatch.setattr(sys, "argv", ["api_staging_preflight.py", "--render-staging"])
 
     assert preflight.main() == 0
     captured = capsys.readouterr()
@@ -481,7 +435,7 @@ def test_main_prints_only_validated_identity_json(
     "arguments",
     (
         [],
-        [STAGING_URL, "unexpected"],
+        ["--render-staging", "unexpected"],
     ),
     ids=("missing", "extra"),
 )
@@ -493,10 +447,10 @@ def test_main_denies_bad_argument_count_without_default_target(
 ) -> None:
     """AC-5/9: the CLI requires exactly one explicit safe target argument."""
 
-    def unexpected_target(_: str) -> NoReturn:
+    def unexpected_target() -> NoReturn:
         raise AssertionError("invalid arguments must not begin target validation")
 
-    monkeypatch.setattr(preflight, "validate_target", unexpected_target)
+    monkeypatch.setattr(preflight, "validate_render_staging_target", unexpected_target)
     monkeypatch.setattr(sys, "argv", ["api_staging_preflight.py", *arguments])
 
     assert preflight.main() == 1
@@ -507,10 +461,16 @@ def test_main_denies_bad_argument_count_without_default_target(
     assert "Traceback" not in captured.err
 
 
-def test_main_denies_unsafe_origin_before_transport(
-    preflight: ModuleType, monkeypatch: MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    "argument", ("https://other.invalid", "https://staging.tailtag.app")
+)
+def test_main_denies_any_url_argument_before_transport(
+    preflight: ModuleType,
+    monkeypatch: MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    argument: str,
 ) -> None:
-    """AC-5/9: one explicit unsafe URL still reaches the exact origin guard first."""
+    """#412: the retired URL form is refused; only the named Render flags run."""
 
     def unexpected_fetch(_: str) -> NoReturn:
         raise AssertionError("unsafe origin must not reach transport")
@@ -519,7 +479,7 @@ def test_main_denies_unsafe_origin_before_transport(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["api_staging_preflight.py", "https://other.invalid"],
+        ["api_staging_preflight.py", argument],
     )
 
     assert preflight.main() == 1
@@ -535,11 +495,11 @@ def test_main_sanitizes_preflight_failure(
 ) -> None:
     """AC-9/SECURITY: preflight diagnostics never cross the command boundary."""
 
-    def denied(_: str) -> NoReturn:
+    def denied() -> NoReturn:
         raise preflight.TargetSafetyError(SENSITIVE_DIAGNOSTIC)
 
-    monkeypatch.setattr(preflight, "validate_target", denied)
-    monkeypatch.setattr(sys, "argv", ["api_staging_preflight.py", STAGING_URL])
+    monkeypatch.setattr(preflight, "validate_render_staging_target", denied)
+    monkeypatch.setattr(sys, "argv", ["api_staging_preflight.py", "--render-staging"])
 
     assert preflight.main() == 1
     captured = capsys.readouterr()

@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import builtins
 import datetime
 import importlib
-import subprocess
-import sys
 import uuid
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Protocol, cast
+from typing import Protocol, cast
 
 import pytest
 from django.contrib.auth.models import Group, Permission
@@ -46,19 +43,9 @@ from rehearsal import baseline
 from rehearsal.models import StagingResetIdentity
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-SCRIPT = REPOSITORY_ROOT / "scripts" / "api_staging_operator_inspect.py"
-SOURCE_SHA = "a" * 40
-DEPLOYMENT_ID = "11111111-1111-4111-8111-111111111111"
+SCRIPT = REPOSITORY_ROOT / "services" / "api" / "rehearsal" / "operator_inspect.py"
 MEDIA_KEY = "images/0123456789abcdef0123456789abcdef.png"
-RUNTIME_SELECTORS = {
-    "RAILWAY_ENVIRONMENT_NAME": "staging",
-    "RAILWAY_SERVICE_NAME": "api",
-    "RAILWAY_PROJECT_ID": "a1111111-1111-4111-8111-111111111111",
-    "RAILWAY_ENVIRONMENT_ID": "c3333333-3333-4333-8333-333333333333",
-    "RAILWAY_SERVICE_ID": "d4444444-4444-4444-8444-444444444444",
-}
-# #204's reset sentinel is an independently generated identity. It deliberately
-# differs from the Railway environment selector above.
+# #204's reset sentinel is an independently generated identity.
 RESET_ENVIRONMENT_ID = "a5f9e443-b520-437d-84cd-cf984f6eb3ba"
 
 PASS = "PASS"
@@ -70,6 +57,7 @@ FAIL_MANAGED_OPERATOR_AMBIGUOUS = "FAIL_MANAGED_OPERATOR_AMBIGUOUS"
 FAIL_MANAGED_OPERATOR_STATE = "FAIL_MANAGED_OPERATOR_STATE"
 FAIL_MANAGED_OPERATOR_PASSWORD_UNUSABLE = "FAIL_MANAGED_OPERATOR_PASSWORD_UNUSABLE"
 FAIL_MANAGED_OPERATOR_PERMISSION = "FAIL_MANAGED_OPERATOR_PERMISSION"
+FAIL_MANAGED_OPERATOR_UPGRADABLE = "FAIL_MANAGED_OPERATOR_UPGRADABLE"
 FAIL_LIMITED_OPERATOR_MISSING = "FAIL_LIMITED_OPERATOR_MISSING"
 FAIL_LIMITED_OPERATOR_AMBIGUOUS = "FAIL_LIMITED_OPERATOR_AMBIGUOUS"
 FAIL_LIMITED_OPERATOR_STATE = "FAIL_LIMITED_OPERATOR_STATE"
@@ -88,6 +76,7 @@ ALL_CODES = frozenset(
         FAIL_MANAGED_OPERATOR_STATE,
         FAIL_MANAGED_OPERATOR_PASSWORD_UNUSABLE,
         FAIL_MANAGED_OPERATOR_PERMISSION,
+        FAIL_MANAGED_OPERATOR_UPGRADABLE,
         FAIL_LIMITED_OPERATOR_MISSING,
         FAIL_LIMITED_OPERATOR_AMBIGUOUS,
         FAIL_LIMITED_OPERATOR_STATE,
@@ -310,46 +299,19 @@ def create_owned_baseline() -> StagingResetIdentity:
 @pytest.fixture
 def inspector() -> ModuleType:
     """Import the repository-owned read-only inspector once it exists."""
-    assert SCRIPT.is_file(), "scripts/api_staging_operator_inspect.py must exist"
-    return importlib.import_module("scripts.api_staging_operator_inspect")
+    assert SCRIPT.is_file(), "rehearsal/operator_inspect.py must exist"
+    return importlib.import_module("rehearsal.operator_inspect")
 
 
 @pytest.fixture
-def configured_inspector(
-    inspector: ModuleType, monkeypatch: pytest.MonkeyPatch
-) -> ModuleType:
-    """Bind every local run to the only accepted runtime identity tuple."""
-    for name, value in RUNTIME_SELECTORS.items():
-        monkeypatch.setenv(name, value)
-    binding = importlib.import_module("config.replacement_target_binding")
-    monkeypatch.setattr(
-        binding,
-        "_EXPECTED_DIGESTS",
-        {
-            **binding._EXPECTED_DIGESTS,
-            "staging-api": binding.fingerprint_tuple(
-                "staging-api",
-                RUNTIME_SELECTORS["RAILWAY_PROJECT_ID"],
-                RUNTIME_SELECTORS["RAILWAY_ENVIRONMENT_ID"],
-                RUNTIME_SELECTORS["RAILWAY_SERVICE_ID"],
-            ),
-        },
-    )
-    monkeypatch.setattr(
-        inspector,
-        "get_identity",
-        lambda: {
-            "source_sha": SOURCE_SHA,
-            "deployment_id": DEPLOYMENT_ID,
-            "environment": "staging",
-        },
-    )
+def configured_inspector(inspector: ModuleType) -> ModuleType:
+    """Keep the shared fixture name for the ORM precondition checks."""
     return inspector
 
 
 def inspect(script: ModuleType) -> str:
-    """Exercise the public pre-mutation guard with its expected build identity."""
-    return cast(str, script.inspect_preconditions(SOURCE_SHA, DEPLOYMENT_ID))
+    """Exercise the ORM preconditions that the Render job runs."""
+    return cast(str, script.inspect_orm_preconditions())  # pyright: ignore[reportPrivateUsage]
 
 
 @pytest.mark.django_db
@@ -372,12 +334,11 @@ def test_exact_owned_baseline_and_distinct_exact_roles_pass(
 
 
 @pytest.mark.django_db
-def test_distinct_railway_and_reset_environment_uuids_reach_both_role_checks(
+def test_exact_owned_baseline_reaches_both_role_checks(
     configured_inspector: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The Railway selector and #204 sentinel are separate UUID namespaces."""
-    assert RESET_ENVIRONMENT_ID != RUNTIME_SELECTORS["RAILWAY_ENVIRONMENT_ID"]
+    """A valid #204 baseline reaches the managed and limited role checks."""
     create_owned_baseline()
     create_managed_operator()
     create_limited_operator()
@@ -463,7 +424,7 @@ def test_malformed_registry_baseline_has_distinct_failure(
 def test_non_v4_reset_sentinel_remains_a_fixture_state_failure(
     configured_inspector: ModuleType,
 ) -> None:
-    """The #204 reset UUID is validated by its own sentinel contract, not Railway."""
+    """The #204 reset UUID is validated by its own sentinel contract."""
     identity = create_owned_baseline()
     create_managed_operator()
     create_limited_operator()
@@ -512,6 +473,40 @@ def test_managed_operator_permission_drift_has_distinct_failure(
     )
 
     assert inspect(configured_inspector) == FAIL_MANAGED_OPERATOR_PERMISSION
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("removed", "expected"),
+    [
+        (
+            ("fursuits.revoke_fursuit_tag", "fursuits.view_fursuittag"),
+            FAIL_MANAGED_OPERATOR_UPGRADABLE,
+        ),
+        (("fursuits.revoke_fursuit_tag",), FAIL_MANAGED_OPERATOR_PERMISSION),
+        (
+            (
+                "fursuits.revoke_fursuit_tag",
+                "fursuits.view_fursuittag",
+                "fursuits.view_fursuit",
+            ),
+            FAIL_MANAGED_OPERATOR_PERMISSION,
+        ),
+    ],
+)
+def test_only_the_exact_previous_set_is_upgradable(
+    configured_inspector: ModuleType, removed: tuple[str, ...], expected: str
+) -> None:
+    """#504: the group from before tag revocation is upgradable, and no other."""
+    create_owned_baseline()
+    managed = create_managed_operator()
+    create_limited_operator()
+    group = cast(UserWithRoles, managed).groups.get()
+    cast(GroupWithPermissions, group).permissions.remove(
+        *[permission_map()[name] for name in removed]
+    )
+
+    assert inspect(configured_inspector) == expected
 
 
 @pytest.mark.django_db
@@ -1028,226 +1023,6 @@ def test_query_failure_is_sanitized_as_execution_failure(
     monkeypatch.setattr(StagingResetIdentity.objects, "get", unavailable)
 
     assert inspect(configured_inspector) == FAIL_EXECUTION
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize(
-    ("source_sha", "deployment_id"),
-    (("not-a-sha", DEPLOYMENT_ID), (SOURCE_SHA, "not-a-deployment")),
-)
-def test_malformed_expected_identity_fails_before_fixture_inspection(
-    configured_inspector: ModuleType, source_sha: str, deployment_id: str
-) -> None:
-    """Malformed public inputs fail closed without reading private fixture state."""
-    result = configured_inspector.inspect_preconditions(source_sha, deployment_id)
-
-    assert result == FAIL_INVALID_INPUT
-
-
-@pytest.mark.django_db
-def test_mismatched_running_build_identity_fails_before_fixture_inspection(
-    configured_inspector: ModuleType, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The target-bound public tuple cannot be substituted for another deployment."""
-    monkeypatch.setattr(
-        configured_inspector,
-        "get_identity",
-        lambda: {
-            "source_sha": "b" * 40,
-            "deployment_id": DEPLOYMENT_ID,
-            "environment": "staging",
-        },
-    )
-
-    assert inspect(configured_inspector) == FAIL_INVALID_INPUT
-
-
-@pytest.mark.django_db
-def test_mismatched_railway_environment_selector_fails_before_orm_inspection(
-    configured_inspector: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Railway selector drift remains a target failure despite an independent reset UUID."""
-    create_owned_baseline()
-    create_managed_operator()
-    create_limited_operator()
-    reached_fixture_guard = False
-
-    def fixture_guard() -> str | None:
-        nonlocal reached_fixture_guard
-        reached_fixture_guard = True
-        return None
-
-    monkeypatch.setenv("RAILWAY_ENVIRONMENT_ID", "00000000-0000-4000-8000-000000000000")
-    monkeypatch.setattr(configured_inspector, "_validate_fixture", fixture_guard)
-
-    assert inspect(configured_inspector) == FAIL_INVALID_INPUT
-    assert not reached_fixture_guard
-
-
-def test_replacement_runtime_reaches_both_role_checks_and_retired_runtime_does_not(
-    inspector: ModuleType, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """#243 in-image authority follows code-pinned replacement, not old UUIDs."""
-    binding = importlib.import_module("config.replacement_target_binding")
-    replacement = {
-        "RAILWAY_ENVIRONMENT_NAME": "staging",
-        "RAILWAY_SERVICE_NAME": "api",
-        "RAILWAY_PROJECT_ID": "a1111111-1111-4111-8111-111111111111",
-        "RAILWAY_ENVIRONMENT_ID": "c3333333-3333-4333-8333-333333333333",
-        "RAILWAY_SERVICE_ID": "d4444444-4444-4444-8444-444444444444",
-    }
-    monkeypatch.setattr(
-        binding,
-        "_EXPECTED_DIGESTS",
-        {
-            **binding._EXPECTED_DIGESTS,
-            "staging-api": binding.fingerprint_tuple(
-                "staging-api",
-                replacement["RAILWAY_PROJECT_ID"],
-                replacement["RAILWAY_ENVIRONMENT_ID"],
-                replacement["RAILWAY_SERVICE_ID"],
-            ),
-        },
-    )
-    monkeypatch.setattr(
-        inspector,
-        "get_identity",
-        lambda: {
-            "source_sha": SOURCE_SHA,
-            "deployment_id": DEPLOYMENT_ID,
-            "environment": "staging",
-        },
-    )
-    checks: list[str] = []
-    for name in (
-        "_validate_fixture",
-        "_validate_managed_operator",
-        "_validate_limited_operator",
-    ):
-        monkeypatch.setattr(
-            inspector,
-            name,
-            lambda name=name: checks.append(name) or None,
-        )
-    for name, value in replacement.items():
-        monkeypatch.setenv(name, value)
-
-    assert inspector.inspect_preconditions(SOURCE_SHA, DEPLOYMENT_ID) == PASS
-    assert checks == [
-        "_validate_fixture",
-        "_validate_managed_operator",
-        "_validate_limited_operator",
-    ]
-
-    checks.clear()
-    for name, value in {
-        "RAILWAY_ENVIRONMENT_NAME": "staging",
-        "RAILWAY_SERVICE_NAME": "api",
-        "RAILWAY_PROJECT_ID": "85324de4-be6a-49c3-a3f9-6cac13877849",
-        "RAILWAY_ENVIRONMENT_ID": "5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e",
-        "RAILWAY_SERVICE_ID": "2247da27-97df-4d5d-b1dc-d21eeb7901d9",
-    }.items():
-        monkeypatch.setenv(name, value)
-    assert (
-        inspector.inspect_preconditions(SOURCE_SHA, DEPLOYMENT_ID) == FAIL_INVALID_INPUT
-    )
-    assert checks == []
-
-
-def test_main_prints_one_allowlisted_code_for_malformed_arguments(
-    inspector: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """The CLI preserves the no-identifiers/no-permission-dumps evidence boundary."""
-    monkeypatch.setattr(sys, "argv", ["api_staging_operator_inspect.py", "--bad"])
-
-    assert inspector.main() != 0
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert captured.err.strip() == FAIL_INVALID_INPUT
-
-
-def test_stdin_inspector_from_root_cwd_fails_closed_without_traceback() -> None:
-    """A streamed inspector must not depend on its checkout path being its cwd."""
-    result = subprocess.run(
-        [sys.executable, "-", "--bad"],
-        cwd=Path("/"),
-        input=SCRIPT.read_text(encoding="utf-8"),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 1
-    assert result.stdout == ""
-    assert result.stderr.strip() == FAIL_INVALID_INPUT
-    assert "Traceback" not in result.stderr
-
-
-def test_main_never_reflects_an_execution_exception(
-    inspector: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """A failed inspector never leaks an exception message into durable evidence."""
-    secret = "private-operator-identity"
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "api_staging_operator_inspect.py",
-            "--expected-source-sha",
-            SOURCE_SHA,
-            "--expected-deployment-id",
-            DEPLOYMENT_ID,
-        ],
-    )
-
-    def unavailable() -> None:
-        raise DatabaseError(secret)
-
-    monkeypatch.setattr(inspector, "get_identity", unavailable)
-
-    assert inspector.main() != 0
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert captured.err.strip() == FAIL_EXECUTION
-    assert secret not in captured.err
-
-
-def test_main_sanitizes_build_identity_import_failure(
-    inspector: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """A streamed runner must not print a traceback if identity code cannot load."""
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "api_staging_operator_inspect.py",
-            "--expected-source-sha",
-            SOURCE_SHA,
-            "--expected-deployment-id",
-            DEPLOYMENT_ID,
-        ],
-    )
-    original_import = builtins.__import__
-
-    def unavailable(name: str, *args: Any, **kwargs: Any) -> Any:
-        if name == "config.build_identity":
-            raise ImportError("private-path-detail")
-        return original_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", unavailable)
-
-    assert inspector.main() != 0
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert captured.err.strip() == FAIL_EXECUTION
-    assert "private-path-detail" not in captured.err
 
 
 def test_all_rendered_statuses_are_fixed_sanitized_codes(

@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+import os
 import stat
+import sys
 from collections.abc import Iterator
 from copy import deepcopy
 from pathlib import Path
@@ -20,6 +22,7 @@ from test_host_protocol import (
     section,
 )
 
+from tailtag_simulator import host_bridge
 from tailtag_simulator.host_bridge import BridgeServer, BridgeSession
 from tailtag_simulator.host_protocol import decode_frame, encode_frame
 
@@ -65,7 +68,17 @@ def socket_root() -> Iterator[Path]:
     # macOS Unix socket paths are limited to 104 bytes; pytest's default
     # temporary root beneath /private/var/folders can already exceed that.
     with TemporaryDirectory(prefix="tt228-", dir="/tmp") as directory:
-        yield Path(directory)
+        # for_paths refuses a symlink in any ancestor, and /tmp is one on macOS.
+        yield Path(directory).resolve()
+
+
+def private_server(session: BridgeSession, directory: Path) -> BridgeServer:
+    """Bind both sockets inside one existing owner-only directory (for_paths)."""
+    if not directory.exists() and not directory.is_symlink():
+        directory.mkdir(mode=0o700)
+    return BridgeServer.for_paths(
+        session, directory / "rpc.sock", directory / "health.sock"
+    )
 
 
 def envelope(operation: str, **changes: object) -> dict[str, object]:
@@ -700,7 +713,7 @@ def test_socket_disconnect_does_not_cancel_or_repeat_allocation(
         relay.held.add("allocate")
         session = BridgeSession(manifest(), relay.dispatch)
         directory = socket_root / "bridge"
-        server = BridgeServer(session, directory)
+        server = private_server(session, directory)
         await server.start()
         reader, writer = await asyncio.open_unix_connection(str(directory / "rpc.sock"))
         del reader
@@ -754,7 +767,7 @@ def test_socket_paths_are_private_owned_and_never_replace_foreign_paths(
                 (directory / "health.sock").symlink_to(marker)
         relay = Relay()
         session = BridgeSession(manifest(), relay.dispatch)
-        server = BridgeServer(session, directory)
+        server = private_server(session, directory)
         try:
             if obstacle == "none":
                 await server.start()
@@ -785,6 +798,141 @@ def test_socket_paths_are_private_owned_and_never_replace_foreign_paths(
     asyncio.run(execute())
 
 
+@pytest.mark.parametrize(
+    "case",
+    [
+        "none",
+        "replaced-before-close",
+        "ancestor-symlink",
+        "health-parent-mode",
+        "missing-parent",
+        "health-path-exists",
+    ],
+)
+def test_explicit_socket_paths_are_validated_private_and_unlinked_only_when_owned(
+    socket_root: Path, case: str
+) -> None:
+    """#316 C3: local mode binds `runs/<UUID>/rpc` and `control` directories separately."""
+
+    async def execute() -> None:
+        # /tmp is itself a symlink on macOS; the contract forbids any link in the path.
+        socket_root_real = socket_root.resolve()
+        rpc_dir, health_dir = socket_root_real / "rpc", socket_root_real / "control"
+        rpc_dir.mkdir(mode=0o700)
+        health_dir.mkdir(mode=0o700)
+        foreign = socket_root_real / "foreign"
+        foreign.mkdir()
+        marker = foreign / "keep"
+        marker.write_text(SENTINEL)
+        rpc_path, health_path = rpc_dir / "rpc.sock", health_dir / "health.sock"
+        if case == "ancestor-symlink":
+            # The parent itself is a private real directory; only the link above it is wrong.
+            (foreign / "rpc").mkdir(mode=0o700)
+            (socket_root_real / "link").symlink_to(foreign, target_is_directory=True)
+            rpc_path = socket_root_real / "link" / "rpc" / "rpc.sock"
+        elif case == "health-parent-mode":
+            health_dir.chmod(0o755)
+        elif case == "missing-parent":
+            rpc_dir.rmdir()
+        elif case == "health-path-exists":
+            health_path.write_text(SENTINEL)
+        relay = Relay()
+        session = BridgeSession(manifest(), relay.dispatch)
+        server = BridgeServer.for_paths(session, rpc_path, health_path)
+        previous = os.umask(0)  # the server must not depend on the caller's umask
+        try:
+            if case in {"none", "replaced-before-close"}:
+                await server.start()
+                for path in (rpc_path, health_path):
+                    assert stat.S_ISSOCK(path.stat().st_mode)
+                    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+                assert await wire(rpc_dir, "rpc.sock", envelope_frame()) == {
+                    "result": "PASS",
+                    "data": {"retained": 0, "unfinished": 0},
+                }
+                assert await wire(
+                    health_dir,
+                    "health.sock",
+                    {"schema_version": 1, "channel": "health", "run_id": RUN},
+                ) == {"run_id": RUN, "live": True}
+                if case == "replaced-before-close":
+                    rpc_path.unlink()
+                    rpc_path.write_text(SENTINEL)
+                await server.close()
+                assert not health_path.exists()
+                assert rpc_path.exists() == (case == "replaced-before-close")
+                if case == "replaced-before-close":
+                    assert rpc_path.read_text() == SENTINEL
+            else:
+                with pytest.raises((ValueError, OSError)):
+                    await server.start()
+                assert not any(
+                    p.is_socket() for p in (rpc_path, health_path) if p.exists()
+                )
+                if case == "missing-parent":
+                    assert not rpc_dir.exists()  # prepare owns directory creation
+                if case == "health-path-exists":
+                    assert health_path.read_text() == SENTINEL
+                    assert not rpc_path.exists()
+                if case == "ancestor-symlink":
+                    assert list((foreign / "rpc").iterdir()) == []
+            assert marker.read_text() == SENTINEL
+        finally:
+            os.umask(previous)
+            await server.close()
+            session.close()
+
+    asyncio.run(execute())
+
+
+def envelope_frame() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "channel": "fixture",
+        "request": envelope("retained_counts"),
+    }
+
+
+def test_relay_dispatch_runs_the_given_task_in_the_workspace_with_exactly_the_given_env(
+    socket_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#316 C2: the relay never derives its root from this module's file location."""
+    workspace = socket_root / "workspace"
+    task = socket_root / "tools" / "bin" / "task"
+    task.parent.mkdir(parents=True)
+    workspace.mkdir()
+    task.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "print(json.dumps({'result': 'PASS', 'data': {'argv': sys.argv, 'cwd': os.getcwd(),\n"
+        "    'env': dict(os.environ), 'stdin': sys.stdin.read()}}))\n"
+    )
+    task.chmod(0o700)
+    environment = {
+        "PATH": f"{task.parent}:/usr/bin:/bin",
+        "UV": "/srv/tools/uv",
+        "HOME": str(socket_root),
+    }
+    monkeypatch.setenv("TT316_INHERITED_SENTINEL", "leak")
+    request: dict[str, object] = {
+        "channel": "inspection",
+        "request": {"operation": "x"},
+    }
+
+    result, data = asyncio.run(
+        host_bridge.relay_dispatch(workspace, task, environment)("inspection", request)
+    )
+
+    assert result == "PASS"
+    assert data["argv"] == [str(task), "-s", "api-sim-inspect-ssh"]
+    assert Path(cast(str, data["cwd"])).resolve() == workspace.resolve()
+    assert data["stdin"] == encode_frame(request).decode()
+    actual = cast(dict[str, str], data["env"])
+    assert {k: v for k, v in actual.items() if k in environment} == environment
+    # Interpreters may add locale/CoreFoundation keys; nothing else may be inherited.
+    assert set(actual) - set(environment) <= {"LC_CTYPE", "__CF_USER_TEXT_ENCODING"}
+
+
 def test_slow_rpc_admission_is_bounded_independent_of_health_and_expires(
     socket_root: Path,
 ) -> None:
@@ -792,7 +940,7 @@ def test_slow_rpc_admission_is_bounded_independent_of_health_and_expires(
         relay = Relay()
         session = BridgeSession(manifest(), relay.dispatch)
         directory = socket_root / "bridge"
-        server = BridgeServer(session, directory)
+        server = private_server(session, directory)
         connections: list[tuple[asyncio.StreamReader, asyncio.StreamWriter]] = []
         await server.start()
         try:
@@ -934,7 +1082,7 @@ def test_invalid_socket_frames_never_dispatch_or_echo_input(
         relay = Relay()
         session = BridgeSession(manifest(), relay.dispatch)
         directory = socket_root / "bridge"
-        server = BridgeServer(session, directory)
+        server = private_server(session, directory)
         await server.start()
         reader, writer = await asyncio.open_unix_connection(str(directory / listener))
         try:
@@ -1022,7 +1170,7 @@ def test_unfinished_health_close_is_bounded_and_never_pins_capacity(
     async def execute() -> None:
         session = BridgeSession(manifest(), Relay().dispatch)
         directory = socket_root / "bridge"
-        server = BridgeServer(session, directory)
+        server = private_server(session, directory)
         await server.start()
         writers: list[asyncio.StreamWriter] = []
 
@@ -1073,15 +1221,19 @@ def test_unfinished_health_close_is_bounded_and_never_pins_capacity(
 
 
 def test_health_evidence_is_closed_and_counts_live_not_live_and_invalid(
-    socket_root: Path,
+    socket_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # #411 G13: the bridge records the Render instance that the relays pinned.
+    instance = "srv-d0staging000000000000-874b544b8-k7qws"
+    monkeypatch.setattr(host_bridge.INSTANCE_PIN, "value", instance)
+
     async def execute() -> None:
         now = [100.0]
         launch = manifest()
         section(launch, "safety").update(seconds=10, final_seconds=5)
         session = BridgeSession(launch, Relay().dispatch, clock=lambda: now[0])
         directory = socket_root / "bridge"
-        server = BridgeServer(session, directory)
+        server = private_server(session, directory)
         await server.start()
         try:
             evidence = session.evidence()
@@ -1101,9 +1253,13 @@ def test_health_evidence_is_closed_and_counts_live_not_live_and_invalid(
                 "target_veto",
                 "recovery_hold",
                 "health",
+                "heartbeat",
                 "revocation",
+                "render_instance",
             }
+            assert evidence["render_instance"] == instance
             assert evidence["health"] == health_counters()
+            assert evidence["heartbeat"] == {"failed": 0, "failure_offsets": []}
             assert evidence["revocation"] is None
 
             assert await wire(directory, "health.sock", HEALTH_FRAME) == {
@@ -1366,6 +1522,50 @@ def test_heartbeat_budget_follows_safety_and_never_consumes_other_operations(
             assert_rejected(await call(session, "heartbeat"))
             assert len(relay.calls) == before
             assert (await call(session, "release"))["result"] == "PASS"
+        finally:
+            session.close()
+
+    asyncio.run(execute())
+
+
+def test_heartbeat_failures_are_diagnostics_only_with_rounded_capped_offsets() -> None:
+    async def execute() -> None:
+        now = [100.0]
+        # The long expiration tier admits well over 64 heartbeats.
+        launch = expiration_manifest()
+        relay = Relay()
+        relay.answers["allocate"] = ("PASS", {"indexes": INDEXES[:2]})
+        session = BridgeSession(launch, relay.dispatch, clock=lambda: now[0])
+
+        async def beat(
+            offset: float, answer: tuple[str, dict[str, object]] | Exception
+        ):
+            now[0] = 100.0 + offset
+            relay.answers["heartbeat"] = answer
+            return (await call(session, "heartbeat"))["result"]
+
+        passed: tuple[str, dict[str, object]] = ("PASS", {"extended": 2})
+        try:
+            assert (await call(session, "allocate", count=2))["result"] == "PASS"
+            assert await beat(5.0, passed) == "PASS"
+            receipt = session.receipt()
+            # Any non-PASS dispatch counts: a relay verdict, then a lost relay.
+            assert await beat(12.34, ("FAIL_REQUEST", {})) == "FAIL_REQUEST"
+            assert await beat(20.06, RuntimeError()) == "FAIL_LAUNCHER"
+            assert await beat(25.0, passed) == "PASS"
+            for offset in range(30, 98):
+                assert await beat(float(offset), ("FAIL_LAUNCHER", {})) != "PASS"
+            relay.answers["quarantine"] = ("FAIL_REQUEST", {})
+            assert (await call(session, "quarantine"))["result"] == "FAIL_REQUEST"
+
+            evidence = session.evidence()
+            # The count is exact; the offsets stop at the first 64.
+            assert evidence["heartbeat"] == {
+                "failed": 70,
+                "failure_offsets": [12.3, 20.1, *[float(o) for o in range(30, 92)]],
+            }
+            assert session.receipt() == receipt
+            assert len(json.dumps(evidence, allow_nan=False)) < 65536
         finally:
             session.close()
 

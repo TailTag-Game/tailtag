@@ -23,6 +23,8 @@ target-version = "py313"
 [tool.pyright]
 pythonVersion = "3.13"
 typeCheckingMode = "strict"
+# The host runner and CI are Linux; check against Linux stubs on every host, including Windows.
+pythonPlatform = "Linux"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

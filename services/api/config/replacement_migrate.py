@@ -1,4 +1,4 @@
-"""Fail-closed first migration for the replacement Railway API instances."""
+"""Fail-closed first migration for the replacement Render API instances."""
 
 from __future__ import annotations
 
@@ -8,9 +8,10 @@ from pathlib import Path
 from typing import Final
 
 _BUILD_METADATA_PATH: Path = Path("/opt/tailtag/build-identity.json")
-_EXPECTED_BINDING_DIGESTS: Final = {
-    "development": "4f9d3738265641df9a2d1f94c9748884e35270524713295786b2bb30bd9c8daa",
-    "staging": "083e5cec1d20a62b89b3989b1745d57e24489634cdec712cc17eb6ce997c6ac3",
+_EXPECTED_RENDER_BINDING_DIGESTS: Final[dict[str, str]] = {
+    "development": "fc7b82cb795038b14c4fc120c86a6de75dbedaf457fac60cfd7b42557f55e484",
+    # tailtag-postgres-stg in Virginia (ADR 0012, #452).
+    "staging": "a1e2b4ed0ccb407e7c2b88c22a693d0565c77e9a4d46e2f4f3e1dcfade402e9b",
 }
 
 
@@ -23,33 +24,26 @@ def _runtime_environment() -> str:
 
     if os.environ.get("DJANGO_SETTINGS_MODULE") != "config.settings.production":
         raise _GuardFailure
-    replacement_target_binding.validate_runtime_target(os.environ)
-    environment = os.environ["RAILWAY_ENVIRONMENT_NAME"]
+    environment = replacement_target_binding.validate_runtime_target(os.environ)
     identity = build_identity._load_identity(  # pyright: ignore[reportPrivateUsage]
         _BUILD_METADATA_PATH, os.environ
     )
-    if identity["source_sha"] is None or identity["deployment_id"] is None:
+    if identity["source_sha"] is None or identity["environment"] != environment:
         raise _GuardFailure
     if environment == "staging" and os.environ.get(
         "TAILTAG_STAGING_TARGET_PHASE"
     ) not in {"candidate", "canonical"}:
         raise _GuardFailure
-    replacement_target_binding._pinned(  # pyright: ignore[reportPrivateUsage]
-        f"{environment}-postgres",
-        os.environ["RAILWAY_PROJECT_ID"],
-        os.environ["RAILWAY_ENVIRONMENT_ID"],
-        os.environ["TAILTAG_REPLACEMENT_POSTGRES_SERVICE_ID"],
-    )
+    # Render has no runtime deploy ID. The database digest binds the
+    # physical cluster to the pinned API service instead.
     return environment
 
 
 def _database_digest(environment: str, name: str, cluster: str) -> str:
     fields = (
-        "tailtag-postgres-first-boot-v1",
+        "tailtag-render-postgres-first-boot-v1",
         environment,
-        os.environ["RAILWAY_PROJECT_ID"],
-        os.environ["RAILWAY_ENVIRONMENT_ID"],
-        os.environ["TAILTAG_REPLACEMENT_POSTGRES_SERVICE_ID"],
+        os.environ["RENDER_SERVICE_ID"],
         name,
         cluster,
     )
@@ -68,14 +62,14 @@ def _migrate(environment: str) -> None:
     if configured.get("ENGINE") != ENGINE:
         raise _GuardFailure
     name, host, port = (configured.get(key) for key in ("NAME", "HOST", "PORT"))
+    # The Render internal database URL names no port, so libpq uses 5432.
     if (
         not isinstance(name, str)
         or not name
         or not isinstance(host, str)
         or not host
         or not isinstance(port, str)
-        or not port.isdecimal()
-        or not 1 <= int(port) <= 65535
+        or (port != "" and (not port.isdecimal() or not 1 <= int(port) <= 65535))
     ):
         raise _GuardFailure
     connection = connections["default"]
@@ -95,7 +89,7 @@ def _migrate(environment: str) -> None:
     ):
         raise _GuardFailure
     physical = connection.connection
-    expected = _EXPECTED_BINDING_DIGESTS.get(environment)
+    expected = _EXPECTED_RENDER_BINDING_DIGESTS.get(environment)
     if (
         physical is None
         or expected is None

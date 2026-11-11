@@ -292,6 +292,61 @@ def test_natural_expiration_uses_public_deadline_without_refresh_or_stop(
         assert confirmations(world)[0] == confirmations(world)[-1]
 
 
+class _CodedResolveWorld(TrafficWorld):
+    """Server whose post-expiry resolve rejection carries a different error code."""
+
+    def route(self, method: str, path: str, index: int) -> httpx.Response | None:
+        response = super().route(method, path, index)
+        if path.endswith("/catch-credentials/resolve/") and not any(
+            self.gameplay.sessions.values()
+        ):
+            return httpx.Response(404, json={"code": "SENTINEL_OTHER_CODE"})
+        return response
+
+
+@pytest.mark.parametrize(
+    ("world_type", "passes"),
+    [(TrafficWorld, True), (_CodedResolveWorld, False)],
+    ids=["codeless-404-is-expected", "other-reply-fails-visit"],
+)
+def test_visit_after_expiry_accepts_only_the_apis_codeless_resolve_404(
+    world_type: type[TrafficWorld], passes: bool
+) -> None:
+    """The API's expired-credential 404 has no `code`; a second visit must see it."""
+    config = config_for(
+        failure={"domain_case": "expired"},
+        traffic={
+            "segments": [{"duration_seconds": 43300, "start": 0, "end": 0}],
+            "bursts": [
+                {"at_seconds": 0.01, "count": 1},
+                {"at_seconds": 43250, "count": 1},
+            ],
+            "think_seconds": 0,
+            "max_entries": 2,
+            "bucket_seconds": 100,
+        },
+        limits={"generation_seconds": 43400},
+    )
+    world = world_type(config)
+    runtime = TrafficRuntime(config, clock=world.time.clock)
+
+    result, compared = run_traffic(world, config, runtime=runtime)
+
+    resolves = [
+        (status, body)
+        for _actor, path, status, body in world.responses
+        if path.endswith("/catch-credentials/resolve/")
+    ]
+    assert [status for status, _body in resolves] == [200, 404]
+    assert result.population.passed is passes
+    if passes:
+        assert compared.passed
+        assert resolves[1][1] == {"detail": "Not found."}
+        assert_rejections_reclassified(runtime, result)
+        assert result.traffic["completed"] == 2
+    assert world.gameplay.catches == []
+
+
 def test_presend_confirm_failure_never_sends_and_leaves_owner_bootstrap_uninjected() -> (
     None
 ):

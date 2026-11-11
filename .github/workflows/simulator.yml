@@ -8,13 +8,13 @@ on:
       - "scripts/api_sim_pool_ssh.py"
       - "scripts/api_sim_fixture_ssh.py"
       - "scripts/api_sim_inspect_ssh.py"
-      - "scripts/api_staging_reset_ssh.py"
+      - "scripts/api_sim_render_relay.py"
       - "scripts/api_staging_preflight.py"
       - "services/api/pyproject.toml"
       - "services/api/uv.lock"
       - "services/api/simulation_fixtures/images/**"
       - ".semgrep/**"
-      - "Makefile"
+      - "Taskfile.yml"
       - "scripts/validate_semgrep_contract.py"
       - ".github/workflows/simulator.yml"
   push:
@@ -26,13 +26,13 @@ on:
       - "scripts/api_sim_pool_ssh.py"
       - "scripts/api_sim_fixture_ssh.py"
       - "scripts/api_sim_inspect_ssh.py"
-      - "scripts/api_staging_reset_ssh.py"
+      - "scripts/api_sim_render_relay.py"
       - "scripts/api_staging_preflight.py"
       - "services/api/pyproject.toml"
       - "services/api/uv.lock"
       - "services/api/simulation_fixtures/images/**"
       - ".semgrep/**"
-      - "Makefile"
+      - "Taskfile.yml"
       - "scripts/validate_semgrep_contract.py"
       - ".github/workflows/simulator.yml"
   workflow_dispatch:
@@ -63,6 +63,9 @@ jobs:
           version: "0.9.17"
           enable-cache: true
 
+      - name: Install pinned go-task
+        uses: ./.github/actions/install-go-task
+
       - name: Synchronize locked dependencies
         run: |
           uv --directory tools/simulator sync --all-groups --locked
@@ -78,7 +81,7 @@ jobs:
       - name: Run canonical simulator validation
         run: |
           ulimit -c 0
-          make sim-check
+          task sim-check
 
       - name: Build simulator image
-        run: make sim-image PLATFORM=linux/amd64
+        run: task sim-image PLATFORM=linux/amd64

@@ -32,3 +32,6 @@ Runner/GeneratedPluginRegistrant.*
 !default.mode2v3
 !default.pbxuser
 !default.perspectivev3
+
+# The local Apple team for device builds. See docs/development/mobile.md.
+Flutter/Signing.local.xcconfig

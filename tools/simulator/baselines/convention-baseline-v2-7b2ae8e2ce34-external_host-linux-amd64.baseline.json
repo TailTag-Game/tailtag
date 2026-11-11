@@ -1,0 +1,82 @@
+{
+ "key": {
+  "descriptor_digest": "423b3f70cabf0fd6a9d556378d633d59bf1155349c16cde87cb1462f4eca0b12",
+  "environment": "staging",
+  "execution_context": "external_host:linux/amd64",
+  "plan_digest": "7b2ae8e2ce343fbdf5b6f468b9fb03401a162383ef712ed72fc9ebce8d0939a0",
+  "scenario_id": "convention-baseline",
+  "scenario_version": 2
+ },
+ "kind": "baseline",
+ "metrics": {
+  "auxiliary": {
+   "error_rate": 0.0,
+   "max": 270.003,
+   "p50": 43.382,
+   "p95": 80.542,
+   "p99": 100.924,
+   "samples": 160,
+   "throughput": 0.5261707947253381,
+   "timeout_rate": 0.0
+  },
+  "confirm": {
+   "error_rate": 0.0,
+   "max": 562.032,
+   "p50": 137.059,
+   "p95": 275.093,
+   "p99": 425.432,
+   "samples": 3261,
+   "throughput": 10.724018509995798,
+   "timeout_rate": 0.0
+  },
+  "read": {
+   "error_rate": 0.0,
+   "max": 572.415,
+   "p50": 133.94,
+   "p95": 258.844,
+   "p99": 392.421,
+   "samples": 882,
+   "throughput": 2.9005165059234264,
+   "timeout_rate": 0.0
+  },
+  "resolve": {
+   "error_rate": 0.0,
+   "max": 585.749,
+   "p50": 145.809,
+   "p95": 279.357,
+   "p99": 402.317,
+   "samples": 2703,
+   "throughput": 8.88899786339118,
+   "timeout_rate": 0.0
+  },
+  "total": {
+   "error_rate": 0.0,
+   "max": 585.749,
+   "p50": 137.221,
+   "p95": 275.75,
+   "p99": 407.027,
+   "samples": 7006,
+   "throughput": 23.039703674035742,
+   "timeout_rate": 0.0
+  }
+ },
+ "rationale": "Reviewed 2026-10-13: first passing weekend host run (2026-10-11, simulator 49ee1f4, Staging e8aedd0d). Outcome and correctness passed; no saturation, errors or timeouts. Initial baseline for #230.",
+ "report": {
+  "backend": {
+   "deployment_id": "9359c0a2-4915-42cd-9994-521ce7bc740e",
+   "environment": "staging",
+   "source_sha": "e8aedd0d2b4e0e0787edf6bcafc7fbcbb95d4902"
+  },
+  "dependency_lock_sha256": "c218b2fb441f1016746c100f4b28899b0422585980e934cad5abd76a277dba9f",
+  "execution": {
+   "image_id": "sha256:c7b8f871908e74378e54555e7c8c68aadbbb6e8ed5ebdcce136ccdc8a51f586b",
+   "platform": "linux/amd64"
+  },
+  "run_id": "85f19b2e-4e01-49be-8cc7-52286e43f88e",
+  "sha256": "6b757a482ed08b0bd55f22798759aeecf582094f8f417b729efaece66118f728",
+  "simulator_sha": "49ee1f4a120c24df23f366c88627742c657bc8c7",
+  "started_at": "2026-10-11T06:48:10.778724Z"
+ },
+ "schema_version": 1,
+ "supersedes": null
+}

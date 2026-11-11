@@ -6,6 +6,12 @@ Small, reversible changes with clear acceptance criteria do not need a spec. Spe
 
 ## Current V0 specifications
 
+- [Reusable TailTag and catch request contract](2026-11-09-reusable-tailtag-catch-request-contract.md) — #502 frozen review deadline, tag format and versioning, request states, competing actions, cooldowns, privacy owners, release gate, and operations for #503 to #513
+- [Native account-access capability contract](2026-11-05-native-auth-capability-contract.md) — #476 pinned SDK capability matrix, frozen auth operations and failure categories, and Clerk Development configuration contract
+- [Windows owner-only files and process trees](2026-10-15-windows-owner-only-files-and-process-trees.md) — #315 slice 3 Windows access-list rule, private creation, Job Object process trees, and simulation-host fail-fast
+  ([implementation plan](2026-10-15-windows-owner-only-files-and-process-trees-implementation-plan.md))
+- [Flutter contributor tooling, configuration, and diagnostics](2026-10-12-mobile-contributor-tooling.md) — #132 frozen `make mobile-*`, `AppConfig`, and `doctor.sh --mobile` contract
+  ([implementation plan](2026-10-12-mobile-contributor-tooling-implementation-plan.md))
 - [Synthetic simulation identity pool](2026-10-02-synthetic-identity-pool.md) — #219 durable Staging synthetic identities, ticket and cookie token path, leases, and #200/#218 amendments
 - [Field-beta observability validation](2026-10-01-field-beta-observability-validation.md) — #217 Staging walkthrough, canary absence check, M6/D6/D7/D10, and #199 signal handoff
 - [Field-beta operations dashboard and alerts](2026-09-30-field-beta-operations-dashboard.md) — #216 Staging Sentry dashboard, sustained count-based monitors, and swap rehearsal

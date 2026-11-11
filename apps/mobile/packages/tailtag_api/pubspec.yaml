@@ -1,0 +1,16 @@
+name: tailtag_api
+description: Generated API client for TailTag API
+version: 0.1.0
+resolution: workspace
+environment:
+  sdk: '>=3.13.0 <4.0.0'
+
+dependencies:
+  big_decimal: ^0.7.0
+  collection: ^1.19.1
+  http: ^1.6.0
+  meta: ^1.19.0
+  tonik_util: ^0.10.0
+
+dev_dependencies:
+  lints: ^6.1.0

@@ -748,6 +748,7 @@ dependencies = [
     { name = "psycopg", extra = ["binary"] },
     { name = "python-dotenv" },
     { name = "sentry-sdk" },
+    { name = "tzdata" },
     { name = "whitenoise" },
 ]
 
@@ -776,6 +777,7 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "python-dotenv", specifier = ">=1.1,<2" },
     { name = "sentry-sdk", specifier = ">=2.71,<3" },
+    { name = "tzdata", specifier = ">=2026.3" },
     { name = "whitenoise", specifier = ">=6.12,<7" },
 ]
 

@@ -9,7 +9,24 @@ the identifier `app.tailtag`.
 The current UI is only a neutral scaffold proving startup, routing, and
 Riverpod composition.
 
-Root commands, configuration, and diagnostics; CI; API/OpenAPI integration;
-and Clerk integration remain assigned to issues #132–#135. Do not infer setup
-or run commands from this scaffold: issue #132 defines the contributor
-interface.
+Run these from the repository root on Windows, macOS, or Linux (iOS targets
+need macOS with Xcode):
+
+- `task mobile-setup` installs locked dependencies (needs FVM and the pinned
+  SDK; run `fvm install` here once).
+- `task mobile-check` checks the generated API client against the OpenAPI
+  snapshot, then runs format, analysis, and tests; it does not build.
+- `task mobile-api-generate` regenerates the API client after a contract change.
+- `task mobile-doctor` diagnoses the environment.
+- `task mobile-run DEVICE=<id>` launches the app on one connected Android or iOS
+  target, using `config/development.json` copied from
+  `config/development.example.json`.
+- `task mobile-showcase DEVICE=<id>` launches the component showcase, a
+  development-only app that shows the shared components and tokens. It needs no
+  configuration file. See [Shared UI](lib/core/ui/README.md#showcase).
+
+Setup, configuration, local connectivity, CI, and the API contract and client
+conventions are in
+[Mobile contributor environment](../../docs/development/mobile.md). The Clerk
+auth boundary is described in its
+[Authentication](../../docs/development/mobile.md#authentication) section.

@@ -262,15 +262,8 @@ async def simulate_traffic_population(
                     case == "expired" and clock.wall_time() >= deadlines[target.id]
                 )
                 if expired and reply.status != 200:
-                    await step(
-                        "resolve",
-                        _reply(reply),
-                        404,
-                        "catch_target_unavailable",
-                        shape=lambda b: (
-                            get_value(b, "code") == "catch_target_unavailable"
-                        ),
-                    )
+                    # The API's "Catch credential not found." body carries no code.
+                    await step("resolve", _reply(reply), 404)
                     runtime.expected_rejection("resolve")
                 else:
                     await step(

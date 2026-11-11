@@ -32,6 +32,7 @@ class OperatorAction(models.TextChoices):
         "set_convention_playability",
         "Set convention playability",
     )
+    REVOKE_FURSUIT_TAG = "revoke_fursuit_tag", "Revoke fursuit tag"
 
 
 class OperatorActorClass(models.TextChoices):
@@ -68,6 +69,7 @@ class OperatorTargetType(models.TextChoices):
     PLAYER_PROFILE = "profiles.playerprofile", "Player profile"
     FURSUIT = "fursuits.fursuit", "Fursuit"
     CONVENTION = "conventions.convention", "Convention"
+    FURSUIT_TAG = "fursuits.fursuittag", "Fursuit tag"
 
 
 class OperatorAuditEvent(models.Model):

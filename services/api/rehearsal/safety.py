@@ -15,7 +15,9 @@ from django.db import connection
 from psycopg import sql
 
 from config.replacement_target_binding import (
+    RENDER_RESET_NAMES,
     TargetBindingError,
+    validate_render_reset_configuration,
     validate_runtime_target,
 )
 from media.keys import validate_image_key
@@ -54,37 +56,35 @@ class ResetConfiguration:
     media_key: str
 
 
+# Render Postgres grants no superuser, so Render requires the exact database owner.
+_RENDER_EXECUTOR = (
+    "SELECT NOT r.rolsuper AND EXISTS (SELECT 1 FROM pg_database d"
+    " WHERE d.datname = %s AND d.datdba = r.oid)"
+    " FROM pg_roles r WHERE r.rolname = current_user"
+)
+_RENDER_CONTROL = (
+    "SELECT current_database(), (pg_control_system()).system_identifier,"
+    " NOT r.rolsuper AND EXISTS (SELECT 1 FROM pg_database d"
+    " WHERE d.datname = %s AND d.datdba = r.oid)"
+    " FROM pg_roles r WHERE r.rolname = current_user"
+)
+
+
 def load_configuration(environment: Mapping[str, str]) -> ResetConfiguration:
-    """Parse only the independently configured, canonical Staging facts."""
-    required = (
-        "RAILWAY_ENVIRONMENT_NAME",
-        "RAILWAY_PROJECT_ID",
-        "RAILWAY_ENVIRONMENT_ID",
-        "RAILWAY_SERVICE_ID",
-        "TAILTAG_STAGING_RESET_ENABLED",
-        "TAILTAG_STAGING_RESET_ID",
-        "TAILTAG_STAGING_DATABASE_SYSTEM_ID",
-        "TAILTAG_STAGING_DATABASE_HOST",
-        "TAILTAG_STAGING_DATABASE_PORT",
-        "TAILTAG_STAGING_DATABASE_NAME",
-        "TAILTAG_STAGING_RESET_OWNER_CLERK_ID",
-        "TAILTAG_STAGING_RESET_CATCHER_CLERK_ID",
-        "TAILTAG_STAGING_RESET_MEDIA_KEY",
-    )
+    """Admit Render Staging only when its values equal the owner's pinned file."""
     try:
-        values = {name: environment[name] for name in required}
-    except KeyError:
-        raise ResetSafetyError from None
-    if (
-        values["RAILWAY_ENVIRONMENT_NAME"] != "staging"
-        or values["TAILTAG_STAGING_RESET_ENABLED"] != "true"
-    ):
-        raise ResetSafetyError
-    try:
-        validate_runtime_target(
-            {**values, "RAILWAY_SERVICE_NAME": environment["RAILWAY_SERVICE_NAME"]}
-        )
+        if validate_runtime_target(environment) != "staging":
+            raise ResetSafetyError
+        values = {name: environment[name] for name in RENDER_RESET_NAMES}
+        validate_render_reset_configuration(values)
     except (KeyError, TargetBindingError):
+        raise ResetSafetyError from None
+    return _parse_private_values(values)
+
+
+def _parse_private_values(values: Mapping[str, str]) -> ResetConfiguration:
+    """Parse the canonical private reset facts."""
+    if values["TAILTAG_STAGING_RESET_ENABLED"] != "true":
         raise ResetSafetyError
     try:
         environment_id = uuid.UUID(values["TAILTAG_STAGING_RESET_ID"])
@@ -147,13 +147,17 @@ def validate_database(configuration: ResetConfiguration) -> None:
             prepared = cursor.fetchone()[0]
             cursor.execute("SELECT count(*) FROM pg_subscription")
             subscriptions = cursor.fetchone()[0]
-            cursor.execute("SELECT rolsuper FROM pg_roles WHERE rolname = current_user")
-            executor_superuser = cursor.fetchone()[0]
+            cursor.execute(_RENDER_EXECUTOR, (configuration.database_name,))
+            executor_permitted = cursor.fetchone()[0]
     except Exception:  # noqa: BLE001
         raise ResetSafetyError from None
+    port = str(database.get("PORT", ""))
+    if port == "":
+        # The Render internal URL names no port, so libpq uses 5432.
+        port = "5432"
     if (
         str(database.get("HOST", "")),
-        str(database.get("PORT", "")),
+        port,
         name,
         cluster,
     ) != (
@@ -163,7 +167,7 @@ def validate_database(configuration: ResetConfiguration) -> None:
         configuration.cluster_identifier,
     ):
         raise ResetSafetyError
-    if prepared or subscriptions or not executor_superuser:
+    if prepared or subscriptions or not executor_permitted:
         raise ResetSafetyError
 
 
@@ -222,6 +226,13 @@ def validate_identity(configuration: ResetConfiguration) -> StagingResetIdentity
     return identity
 
 
+def _control_row(
+    control: psycopg.Connection[Any], configuration: ResetConfiguration
+) -> tuple[Any, ...] | None:
+    """Read the control connection's database, cluster, and gate-privilege facts."""
+    return control.execute(_RENDER_CONTROL, (configuration.database_name,)).fetchone()
+
+
 class DatabaseMaintenance:
     """Keep the target executor while a trusted control connection gates writers."""
 
@@ -247,9 +258,7 @@ class DatabaseMaintenance:
                 connect_timeout=5,
                 options="-c statement_timeout=5000 -c lock_timeout=5000",
             )
-            row = self._control.execute(
-                "SELECT current_database(), (pg_control_system()).system_identifier, rolsuper FROM pg_roles WHERE rolname = current_user"
-            ).fetchone()
+            row = _control_row(self._control, self.configuration)
             if row is None or (str(row[0]), str(row[1]), bool(row[2])) != (
                 "postgres",
                 self.configuration.cluster_identifier,
@@ -317,9 +326,15 @@ class DatabaseMaintenance:
                 denied.close()
                 raise ResetSafetyError
             connection.ensure_connection()
-            executor_pid = connection.connection.info.backend_pid
+            # Ask the server for the executor pid, as the replica did, so the
+            # terminate filter never depends on what the client reports.
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_backend_pid()")
+                executor_pid = cursor.fetchone()[0]
+            # The owner can end only its own role's sessions. Another role's
+            # client stays and fails the quiescence count below.
             self._control.execute(
-                "SELECT pg_terminate_backend(pid, 5000) FROM pg_stat_activity WHERE datname = %s AND pid <> %s",
+                "SELECT pg_terminate_backend(pid, 5000) FROM pg_stat_activity WHERE datname = %s AND pid <> %s AND usename = current_user",
                 (self.configuration.database_name, executor_pid),
             )
             assert_quiescent(self.configuration)
@@ -333,9 +348,7 @@ class DatabaseMaintenance:
             validate_database(self.configuration)
             validate_identity(self.configuration)
             assert_quiescent(self.configuration)
-            row = self._control.execute(
-                "SELECT current_database(), (pg_control_system()).system_identifier, rolsuper FROM pg_roles WHERE rolname = current_user"
-            ).fetchone()
+            row = _control_row(self._control, self.configuration)
             if row is None or (str(row[0]), str(row[1]), bool(row[2])) != (
                 "postgres",
                 self.configuration.cluster_identifier,
@@ -360,8 +373,10 @@ def assert_quiescent(configuration: ResetConfiguration) -> None:
                 "SELECT datallowconn FROM pg_database WHERE datname = current_database()"
             )
             allowed = cursor.fetchone()[0]
+            # Every client session has a role. Role-less rows are background
+            # workers such as autovacuum, which the owner cannot end.
             cursor.execute(
-                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()"
+                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND usename IS NOT NULL"
             )
             count = cursor.fetchone()[0]
     except Exception:  # noqa: BLE001

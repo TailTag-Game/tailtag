@@ -24,13 +24,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import User
+from config.catch_requests_gate import catch_requests_enabled
 from fursuits.models import Fursuit
 from observability.outcomes import Outcome, Reason, Signal, record_outcome
 
 from . import catch_credentials, catch_sessions, services
 from .models import (
     Convention,
-    ConventionEnrollment,
     ConventionStatus,
     FursuitActivation,
 )
@@ -260,29 +260,34 @@ class FursuitCatchCredentialResolutionView(APIView):
             "application/json": FURSUIT_CATCH_CREDENTIAL_RESOLUTION_REQUEST_SCHEMA
         },
         responses=_FURSUIT_CATCH_CREDENTIAL_RESOLUTION_OPENAPI_RESPONSES,
+        deprecated=True,
     )
     def post(self, request: Request, convention_id: int) -> Response:
+        if catch_requests_enabled():
+            # The catch request gate retires v1 player codes with no compatibility period.
+            return Response(
+                {
+                    "code": "catch_target_unavailable",
+                    "detail": "The catch target is unavailable.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
         serializer = FursuitCatchCredentialResolutionRequestSerializer(
             data=request.data
         )
         serializer.is_valid(raise_exception=True)
-        convention = Convention.objects.filter(pk=convention_id).first()
-        if convention is None:
+        caller = services.get_convention_caller_participation(
+            _user(request), convention_id=convention_id
+        )
+        if caller is None:
             _record_resolution_rejected(Reason.CONVENTION_UNKNOWN)
             raise NotFound() from None
-        try:
-            services.require_convention_participation_eligible(_user(request))
-        except services.ConventionParticipationIneligibleError:
-            _record_resolution_rejected(Reason.CALLER_INELIGIBLE)
-            raise PermissionDenied from None
-        if not ConventionEnrollment.objects.filter(
-            user=_user(request), convention=convention
-        ).exists():
+        if not caller.profile_eligible or not caller.enrolled:
             _record_resolution_rejected(Reason.CALLER_INELIGIBLE)
             raise PermissionDenied from None
         try:
             credential = catch_credentials.resolve_catch_credential(
-                convention_id=convention.pk,
+                convention_id=convention_id,
                 payload=serializer.validated_data["payload"],
             )
         except catch_credentials.CatchCredentialNotFoundError as error:
@@ -367,8 +372,11 @@ class FursuitCatchCredentialFetchView(_FursuitActivationAPIView):
             "when absent. This does not start a catch session and is not catch authorization."
         ),
         responses=_FURSUIT_CATCH_CREDENTIAL_OPENAPI_RESPONSES,
+        deprecated=True,
     )
     def get(self, request: Request, convention_id: int, fursuit_id: int) -> Response:
+        if catch_requests_enabled():
+            raise NotFound()
         _resolve_owner_credential_resources(
             _user(request), convention_id=convention_id, fursuit_id=fursuit_id
         )
@@ -403,8 +411,11 @@ class FursuitCatchCredentialRotationView(_FursuitActivationAPIView):
         ),
         request=None,
         responses=_FURSUIT_CATCH_CREDENTIAL_OPENAPI_RESPONSES,
+        deprecated=True,
     )
     def post(self, request: Request, convention_id: int, fursuit_id: int) -> Response:
+        if catch_requests_enabled():
+            raise NotFound()
         _resolve_owner_credential_resources(
             _user(request), convention_id=convention_id, fursuit_id=fursuit_id
         )

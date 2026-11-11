@@ -11,6 +11,9 @@
     "active": 4,
     "heavy": 2,
     "retry_prone": 4,
-    "fursuits": 1
+    "fursuits": 1,
+    "retry": {
+      "attempts": 5
+    }
   }
 }

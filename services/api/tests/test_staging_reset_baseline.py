@@ -20,7 +20,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from accounts.models import User
-from catches.models import Catch
+from catches.models import Catch, CatchBlock, CatchRequest
 from conventions.models import (
     Convention,
     ConventionEnrollment,
@@ -29,6 +29,7 @@ from conventions.models import (
     FursuitCatchCredential,
     FursuitCatchSession,
 )
+from conventions.review_deadline import compute_review_deadline
 from fursuits.models import Fursuit
 from operator_audit.models import (
     OperatorAction,
@@ -261,6 +262,23 @@ def active_graph(
         activation=activation,
         catch_session=session,
     )
+    # A pending request on the same session must not block the reset (#505).
+    CatchRequest.objects.create(
+        player=catcher,
+        fursuit=fursuit,
+        convention=convention,
+        activation=activation,
+        catch_session=session,
+        state="pending",
+        requested_at=timezone.now(),
+    )
+    # Nor must a block for the same trio (#506).
+    CatchBlock.objects.create(
+        player=catcher,
+        fursuit=fursuit,
+        convention=convention,
+        created_at=timezone.now(),
+    )
     return activation, session, credential, catch
 
 
@@ -279,7 +297,14 @@ def semantic_snapshot(identity: StagingResetIdentity) -> dict[str, object]:
             )
         ),
         "convention": Convention.objects.filter(pk=identity.convention_id)
-        .values_list("name", "status", "start_date", "end_date")
+        .values_list(
+            "name",
+            "status",
+            "start_date",
+            "end_date",
+            "time_zone",
+            "review_deadline_at",
+        )
         .get(),
         "fursuits": list(
             Fursuit.objects.filter(
@@ -300,6 +325,12 @@ def semantic_snapshot(identity: StagingResetIdentity) -> dict[str, object]:
         ),
         "counts": {
             "catches": Catch.objects.filter(
+                fursuit_id__in=(identity.first_fursuit_id, identity.second_fursuit_id)
+            ).count(),
+            "requests": CatchRequest.objects.filter(
+                fursuit_id__in=(identity.first_fursuit_id, identity.second_fursuit_id)
+            ).count(),
+            "blocks": CatchBlock.objects.filter(
                 fursuit_id__in=(identity.first_fursuit_id, identity.second_fursuit_id)
             ).count(),
             "sessions": FursuitCatchSession.objects.filter(
@@ -496,9 +527,12 @@ def test_identity_guard_denies_non_s3_storage_even_with_a_registered_identity(
 @pytest.mark.django_db(transaction=True)
 def test_provision_binds_only_preexisting_identities_and_creates_no_baseline_roots(
     reset_modules: tuple[ModuleType, ModuleType, ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """AC-1/2/4: provisioning establishes the preserved registry, never fixture data."""
     _, reset, safety = reset_modules
+    # The Render owner rule has its own tests. This one covers the registry.
+    monkeypatch.setattr(safety, "_RENDER_EXECUTOR", "SELECT %s <> ''")
     owner = User.objects.create_user("user_rehearsal_owner")
     catcher = User.objects.create_user("user_rehearsal_catcher")
     configuration = current_database_configuration(safety, owner=owner, catcher=catcher)
@@ -606,6 +640,9 @@ def test_first_reset_binds_all_null_registry_roots_atomically(
     identity.refresh_from_db()
     assert identity.convention_id is not None
     assert identity.first_fursuit_id is not None
+    assert Convention.objects.values_list("time_zone", "review_deadline_at").get(
+        pk=identity.convention_id
+    ) == ("America/New_York", datetime.datetime(2036, 9, 4, 4, tzinfo=datetime.UTC))
     assert identity.second_fursuit_id is not None
     assert {
         Fursuit.objects.get(pk=identity.first_fursuit_id).tailtag_id,
@@ -807,9 +844,23 @@ def test_reset_rebuilds_only_registered_closure_and_preserves_identity_admin_and
     identity.refresh_from_db()
     assert semantic_snapshot(identity)["counts"] == {
         "catches": 0,
+        "requests": 0,
+        "blocks": 0,
         "sessions": 0,
         "credentials": 0,
     }
+    # A registered convention from before #503 has no zone. The rebuild sets the
+    # baseline zone, so catch requests can run there once the gate is on.
+    assert semantic_snapshot(identity)["convention"] == (
+        baseline.CONVENTION_NAME,
+        ConventionStatus.ACTIVE,
+        datetime.date(2026, 9, 1),
+        datetime.date(2036, 9, 1),
+        baseline.CONVENTION_TIME_ZONE,
+        compute_review_deadline(
+            datetime.date(2036, 9, 1), baseline.CONVENTION_TIME_ZONE
+        ),
+    )
     assert list(
         PlayerProfile.objects.filter(user__in=(owner, catcher))
         .order_by("user__clerk_user_id")
@@ -845,6 +896,7 @@ def test_reset_rebuilds_only_registered_closure_and_preserves_identity_admin_and
     assert Convention.objects.filter(pk=unowned_convention.pk).exists()
     assert Fursuit.objects.filter(pk=unowned_fursuit.pk).exists()
     assert Catch.objects.filter(pk=unowned_catch.pk).exists()
+    assert CatchRequest.objects.filter(catch_session=unowned_session).exists()
     assert FursuitCatchSession.objects.filter(pk=unowned_session.pk).exists()
     assert FursuitCatchCredential.objects.filter(pk=unowned_credential.pk).exists()
     retained_audit = OperatorAuditEvent.objects.get(pk=audit.pk)

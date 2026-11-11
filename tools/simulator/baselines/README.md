@@ -17,7 +17,9 @@ claims.
 
 ## Changing a baseline
 
-1. Run `make sim-baseline-promote` on a reviewed, archived report. The command
+1. Run `RATIONALE='<text>' task sim-baseline-promote REPORT=<path>` on a reviewed,
+   archived report (the rationale is taken from the environment so go-task does
+   not alter it). The command
    refuses any run that did not pass, failed correctness, breached or regressed,
    saturated the generator, or cannot be compared. A refused run writes nothing.
 2. Open a pull request with only the changed files from this directory. In the
@@ -36,3 +38,21 @@ claims.
 
 No run, evaluation or trend command writes here. A passing run never replaces a
 baseline. To retire a baseline, delete its file in a reviewed pull request.
+
+## Render and Railway-era baselines
+
+The normal profile baseline (`dac260032cf2`) comes from Render Staging run
+`2e17d592` in Virginia, backend `2706490` (#411 AC14). Its thresholds are the
+proposed defaults from that run.
+
+No Render run passed the Railway thresholds, and Railway is retired (#412).
+So #411 retired the Railway `dac260032cf2` files and promoted the Render run as
+a first baseline. Git history keeps the Railway files:
+
+- baseline SHA-256 `bdbbaaa065da5967513e74389fcf50466515848cca2b7aa2de2fdb28dad6a03e`
+- thresholds SHA-256 `e229cfb3bc95db44c3b8d7dac06d04d5eb0dd2ec8a1273291f0af76d54855b33`
+
+The weekend (`7b2ae8e2ce34`) and soak (`154b7029c7da`) baselines still come
+from Railway Staging runs. They stay as history and as the evidence for #229.
+No new run can match them as a fresh Railway run. Render weekend and soak
+baselines are deferred (#411).

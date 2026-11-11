@@ -7,6 +7,12 @@ and [#201 deployment identity join](../specs/2026-09-16-backend-build-deployment
 after the replacement environment became canonical. The retired project's
 promotion receipts remain historical.
 
+Railway-era note: Items 1 to 6 below describe the Railway Staging promotion.
+Railway Staging is frozen, and #412 retires it. Render Staging promotes
+through the contract in
+[Render Staging identity (#409)](#render-staging-identity-409), which keeps
+items 1, 2, 4, and 5 with the exceptions it lists.
+
 ## Acceptance contract
 
 1. Load the replacement `staging` API project, environment, and service selectors
@@ -44,8 +50,8 @@ promotion receipts remain historical.
 
 ## Test surface and scope guard
 
-Use the existing offline command seams and synthetic Railway/GitHub responses
-in `test_api_staging_promote.py` and `test_api_deployment_identity.py`. Stub only
+Use the existing offline command seams and synthetic Render/GitHub responses
+in `test_api_staging_render_promote.py`. Stub only
 the existing reviewed replacement target-loader seam with synthetic selector
 tuples for unit tests; keep the actual owner-only manifest parsing and fingerprint
 pins covered by their current tests. Add negative cases for unavailable/wrong
@@ -56,3 +62,27 @@ and this contract unless an evidenced required integration surface emerges.
 Do not change Django product behavior, Railway configuration, the target
 manifest, #204 reset behavior, unrelated #243 validation tooling, or the
 successful-promotion predicate.
+
+## Render Staging identity (#409)
+
+[ADR 0011](../adrs/0011-move-v0-hosting-from-railway-to-render.md) moves
+Staging to Render. `scripts/api_staging_render_promote.py` keeps items 1, 2,
+4, and 5 above for the Render Staging service. The exceptions are the
+exact-instance identity in item 4 and the Railway identity gates in item 5.
+On Render, this rule replaces them, item 3, and the #201 SSH join in #202
+item 7:
+
+- Render has no runtime deploy ID, so `/health/identity` reports
+  `deployment_id: null`. An SSH join cannot bind the image to D.
+- The Render API must show D on the pinned service with commit S and the
+  final status `live`.
+- The public `/health/identity` must show `source_sha` S, `environment`
+  `staging`, and `deployment_id: null`. Readiness must pass between two equal
+  identity reads.
+- Render keeps only one `live` deploy per service. So D `live` with commit S,
+  plus the matching public identity, is the exact-deployment proof.
+
+The receipt keeps the #202 field set. `deployment_id` holds the `dep-…` ID.
+The [Staging runbook](staging.md#render-staging-promotion-409) gives the
+status mapping. `test_api_staging_render_promote.py` holds the offline
+contract.

@@ -33,8 +33,15 @@ from .models import (
     FursuitCatchCredential,
     FursuitCatchSession,
 )
+from .review_deadline import (
+    apply_review_schedule,
+    review_deadline_local_date,
+    review_window_open,
+    time_zone_names,
+)
 from .services import (
     ConventionPlayabilityBoundaryError,
+    ConventionTimeZoneRequiredError,
     deactivate_fursuit_activation_as_operator,
     remove_convention_enrollment,
     set_convention_admin_state,
@@ -44,6 +51,7 @@ _SENSITIVE_CREDENTIAL_SEARCH_PATTERN = re.compile(
     CATCH_CREDENTIAL_TOKEN_PATTERN, re.ASCII
 )
 _REDACTED_CREDENTIAL_SEARCH_QUERY = "__tailtag_admin_credential_query_redacted__"
+_CREDENTIAL_FILTER_LOOKUPS = ("revocation_reason", "activation__convention")
 
 if TYPE_CHECKING:
     ConventionAdminBase = admin.ModelAdmin[Convention]
@@ -64,10 +72,36 @@ def _has_permission(request: HttpRequest, permission: str) -> bool:
     return user.is_staff and user.has_perm(permission)
 
 
+def _time_zone_choices() -> list[tuple[str, str]]:
+    """Build the zone list at form time, so a tzdata update needs no migration."""
+    return [("", "---------"), *((name, name) for name in sorted(time_zone_names()))]
+
+
 class ConventionAdminForm(forms.ModelForm):  # pyright: ignore[reportMissingTypeArgument]
+    time_zone = forms.ChoiceField(
+        choices=_time_zone_choices,
+        required=False,
+        help_text=(
+            "IANA time zone of the convention. Catch requests stay unavailable "
+            "until it is set. A set zone cannot be removed."
+        ),
+    )
+
     class Meta:
         model = Convention
         fields = "__all__"
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)  # pyright: ignore[reportArgumentType, reportUnknownMemberType]
+        field = self.fields.get("time_zone")
+        if isinstance(field, forms.ChoiceField) and self.instance.time_zone:  # pyright: ignore[reportUnknownMemberType]
+            field.choices = [choice for choice in _time_zone_choices() if choice[0]]
+
+    def clean_time_zone(self) -> str | None:
+        time_zone = self.cleaned_data["time_zone"] or None
+        if time_zone is None and self.instance.time_zone:  # pyright: ignore[reportUnknownMemberType]
+            raise forms.ValidationError("A set time zone cannot be removed.")
+        return time_zone
 
     def clean_status(self) -> str:
         status = self.cleaned_data["status"]
@@ -88,15 +122,21 @@ class ConventionAdmin(ConventionAdminBase):
         "status",
         "start_date",
         "end_date",
+        "time_zone",
+        "review_deadline_at",
         "created_at",
     )
     list_filter = (
         "status",
         "start_date",
         "end_date",
+        ("time_zone", admin.EmptyFieldListFilter),
     )
     search_fields = ("name",)
     readonly_fields = (
+        "review_deadline_utc",
+        "review_deadline_local_day",
+        "review_window",
         "created_at",
         "updated_at",
     )
@@ -109,6 +149,17 @@ class ConventionAdmin(ConventionAdminBase):
                     "status",
                     "start_date",
                     "end_date",
+                    "time_zone",
+                ),
+            },
+        ),
+        (
+            "Catch request review",
+            {
+                "fields": (
+                    "review_deadline_utc",
+                    "review_deadline_local_day",
+                    "review_window",
                 ),
             },
         ),
@@ -132,8 +183,30 @@ class ConventionAdmin(ConventionAdminBase):
             and _has_permission(request, "conventions.set_convention_playability")
             and not _has_permission(request, "conventions.change_convention")
         ):
-            return (*self.readonly_fields, "name", "start_date", "end_date")
+            return (
+                *self.readonly_fields,
+                "name",
+                "start_date",
+                "end_date",
+                "time_zone",
+            )
         return tuple(self.readonly_fields)
+
+    @admin.display(description="Review deadline (UTC)")
+    def review_deadline_utc(self, obj: Convention) -> str:
+        deadline = obj.review_deadline_at
+        return "-" if deadline is None else deadline.isoformat()
+
+    @admin.display(description="Review deadline local date")
+    def review_deadline_local_day(self, obj: Convention) -> str:
+        local_date = review_deadline_local_date(obj)
+        return "-" if local_date is None else local_date.isoformat()
+
+    @admin.display(description="Review window")
+    def review_window(self, obj: Convention) -> str:
+        if obj.review_deadline_at is None:
+            return "Unavailable until a time zone is set"
+        return "Open" if review_window_open(obj, timezone.now()) else "Closed"
 
     def has_change_permission(
         self, request: HttpRequest, obj: Convention | None = None
@@ -192,8 +265,8 @@ class ConventionAdmin(ConventionAdminBase):
                 and not generic
                 and any(
                     field in request.POST
-                    and request.POST[field] != str(getattr(convention, field))
-                    for field in ("name", "start_date", "end_date")
+                    and request.POST[field] != str(getattr(convention, field) or "")
+                    for field in ("name", "start_date", "end_date", "time_zone")
                 )
             ):
                 raise PermissionDenied
@@ -233,6 +306,7 @@ class ConventionAdmin(ConventionAdminBase):
     ) -> None:
         """Route edits through the lock-aware Convention lifecycle seam."""
         if not change:
+            apply_review_schedule(obj, end_date=obj.end_date, time_zone=obj.time_zone)
             super().save_model(request, obj, form, change)
             return
         if (
@@ -247,6 +321,7 @@ class ConventionAdmin(ConventionAdminBase):
             status=obj.status,
             start_date=obj.start_date,
             end_date=obj.end_date,
+            time_zone=obj.time_zone,
             expected_is_playable=cast(
                 bool, request.__dict__["_convention_expected_is_playable"]
             ),
@@ -259,9 +334,13 @@ class ConventionAdmin(ConventionAdminBase):
                 updated = execute_bound_operator_transition(request, operation)
             else:
                 updated = operation().value
-        except ConventionPlayabilityBoundaryError as error:
+        except (
+            ConventionPlayabilityBoundaryError,
+            ConventionTimeZoneRequiredError,
+        ) as error:
             raise PermissionDenied from error
         obj.updated_at = updated.updated_at
+        obj.review_deadline_at = updated.review_deadline_at
 
     def delete_model(self, request: HttpRequest, obj: Convention) -> None:
         with transaction.atomic():
@@ -601,6 +680,17 @@ class FursuitCatchCredentialAdmin(FursuitCatchCredentialAdminBase):
     def is_current(self, credential: FursuitCatchCredential) -> bool:
         """Derive current state solely from the terminal timestamp."""
         return credential.revoked_at is None
+
+    def lookup_allowed(self, lookup: str, value: str, request: HttpRequest) -> bool:
+        """Allow URL filters only behind the list filters.
+
+        Django otherwise accepts a lookup on any local field, so a URL such as
+        ``?token__startswith=`` would let an operator recover a token.
+        """
+        return any(
+            lookup == prefix or lookup.startswith(f"{prefix}__")
+            for prefix in _CREDENTIAL_FILTER_LOOKUPS
+        )
 
     def has_add_permission(self, request: HttpRequest) -> bool:
         """Credentials originate only from the owner lifecycle."""

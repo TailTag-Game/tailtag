@@ -7,9 +7,10 @@ consumers, subprocess ownership and the signal-receiving Python child are real.
 import asyncio
 import json
 import os
-import shlex
+import pty
 import signal
 import socket
+import subprocess
 import sys
 import tempfile
 import time
@@ -33,7 +34,6 @@ from test_host_cli import (
 )
 from traffic_support import ManualClock
 
-from tailtag_simulator.host_operator import run_session
 from tailtag_simulator.host_runner import supervise_run
 
 CID = "1" * 64
@@ -94,50 +94,6 @@ def prepared_skeleton(root: Path, value: dict[str, object]) -> tuple[Path, Path]
     return run_root, control
 
 
-def ssh_boundary(root: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    binary = root / "bin"
-    binary.mkdir(mode=0o700)
-    record = root / "ssh.jsonl"
-    executable(binary / "scp", "import sys\nraise SystemExit(0)\n")
-    executable(
-        binary / "ssh",
-        f"""
-import json, os, sys, time
-from pathlib import Path
-root = Path({str(root)!r})
-argv = sys.argv[1:]
-with (root / "ssh.jsonl").open("a") as out:
-    out.write(json.dumps({{"argv": argv, "pid": os.getpid(),
-                          "stdio_devices":[os.fstat(fd).st_rdev for fd in range(3)]}}) + "\\n")
-if "-R" in argv:
-    while not (root / "ssh-exit").exists():
-        time.sleep(0.01)
-    raise SystemExit(1)
-print(json.dumps({{"image_id": {IMAGE!r}, "platform": "linux/amd64"}}))
-""",
-    )
-    monkeypatch.setenv("PATH", str(binary) + os.pathsep + os.environ["PATH"])
-    return record
-
-
-async def health(path: Path) -> dict[str, object]:
-    reader, writer = await asyncio.wait_for(asyncio.open_unix_connection(path), 2)
-    try:
-        writer.write(
-            json.dumps(
-                {"schema_version": 1, "channel": "health", "run_id": RUN}
-            ).encode()
-            + b"\n"
-        )
-        await writer.drain()
-        return cast(
-            dict[str, object], json.loads(await asyncio.wait_for(reader.readline(), 2))
-        )
-    finally:
-        writer.close()
-        await writer.wait_closed()
-
-
 def first_revocation(state: Path, cause: str) -> float:
     """The operator's bridge evidence records only the first cause of revocation."""
     bridge = json.loads((state / (RUN + ".bridge.json")).read_text())
@@ -147,413 +103,6 @@ def first_revocation(state: Path, cause: str) -> float:
     offset = revocation["offset_seconds"]
     assert offset >= 0 and round(offset, 1) == offset
     return cast(float, offset)
-
-
-def attached_ssh(record: Path) -> dict[str, Any] | None:
-    return next((item for item in records(record) if "-R" in item["argv"]), None)
-
-
-@pytest.mark.parametrize("stop", ["ssh-exit", "SIGINT", "SIGHUP"])
-def test_operator_owned_ssh_or_terminal_loss_revokes_health_before_teardown(
-    monkeypatch: pytest.MonkeyPatch, stop: str
-) -> None:
-    async def execute(root: Path) -> None:
-        record = ssh_boundary(root, monkeypatch)
-        manifest = root / "manifest.json"
-        manifest.write_text(json.dumps(host_manifest()))
-        manifest.chmod(0o600)
-        state = root / "state"
-        process = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-m",
-            "tailtag_simulator.host_operator",
-            "run",
-            "--manifest",
-            str(manifest),
-            "--host",
-            "tailtag-test",
-            "--host-root",
-            "/srv/tailtag root",
-            "--state-dir",
-            str(state),
-            # The operator inherits these caller streams. Nothing reads a secret.
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        ssh_pid: int | None = None
-        try:
-            await eventually(
-                lambda: attached_ssh(record) is not None, "owned SSH never attached"
-            )
-            attached = attached_ssh(record)
-            assert attached is not None
-            ssh_pid = int(attached["pid"])
-            assert attached["stdio_devices"] == [os.stat(os.devnull).st_rdev] * 3
-            argv = cast(list[str], attached["argv"])
-            forwards = [
-                argv[index + 1] for index, arg in enumerate(argv) if arg == "-R"
-            ]
-            assert len(forwards) == 2
-            local_health = next(
-                Path(item.split(":", 1)[1])
-                for item in forwards
-                if "health.sock" in item
-            )
-            assert await health(local_health) == {"run_id": RUN, "live": True}
-            joined = " ".join(argv)
-            assert "ForwardAgent=no" in joined or "-a" in argv
-            for setting in (
-                "StrictHostKeyChecking=yes",
-                "ExitOnForwardFailure=yes",
-                "StreamLocalBindUnlink=no",
-            ):
-                assert setting in joined
-            assert "/srv/tailtag root" in shlex.split(argv[-1])
-            if stop == "ssh-exit":
-                (root / "ssh-exit").touch()
-            else:
-                process.send_signal(getattr(signal, stop))
-
-            # A removed listener is closed authority too. A reachable listener
-            # must never answer live after loss and cannot reopen on a reread.
-            for _ in range(2):
-                await asyncio.sleep(0.05)
-                try:
-                    assert await health(local_health) == {"run_id": RUN, "live": False}
-                except (OSError, asyncio.IncompleteReadError, json.JSONDecodeError):
-                    pass
-            assert await asyncio.wait_for(process.wait(), 5) != 0
-            first_revocation(
-                state,
-                {
-                    "ssh-exit": "child_exit",
-                    "SIGINT": "signal_SIGINT",
-                    "SIGHUP": "signal_SIGHUP",
-                }[stop],
-            )
-            assert state.stat().st_mode & 0o777 == 0o700
-            assert RUN in "".join(
-                path.name + path.read_text()
-                for path in state.rglob("*")
-                if path.is_file()
-            )
-            assert not local_health.exists()
-        finally:
-            if process.returncode is None:
-                process.kill()
-                await process.wait()
-            if ssh_pid is not None:
-                with suppress(ProcessLookupError):
-                    os.kill(ssh_pid, signal.SIGKILL)
-
-    with owned_root() as root:
-        asyncio.run(execute(root))
-
-
-def test_operator_deadline_is_nonrenewable_and_manifest_cannot_reopen(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def execute(root: Path) -> None:
-        record = ssh_boundary(root, monkeypatch)
-        value = host_manifest()
-        section(value, "safety")["seconds"] = 1
-        section(value, "safety")["final_seconds"] = 1
-        timer = ManualClock()
-        state = root / "state"
-        task = asyncio.create_task(
-            run_session(
-                value,
-                "tailtag-test",
-                Path("/srv/tailtag"),
-                state_dir=state,
-                clock=lambda: timer.now,
-                sleep=timer.sleep,
-            )
-        )
-        ssh_pid: int | None = None
-        try:
-            await eventually(
-                lambda: attached_ssh(record) is not None, "owned SSH never attached"
-            )
-            attached = attached_ssh(record)
-            assert attached is not None
-            ssh_pid = int(attached["pid"])
-            argv = cast(list[str], attached["argv"])
-            local_health = next(
-                Path(argv[i + 1].split(":", 1)[1])
-                for i, arg in enumerate(argv)
-                if arg == "-R" and "health.sock" in argv[i + 1]
-            )
-            assert (await health(local_health))["live"] is True
-            await timer.advance(0.9)
-            assert (await health(local_health))["live"] is True
-            await timer.advance(0.1)
-            assert (await health(local_health))["live"] is False
-            await timer.advance(2)
-            assert await asyncio.wait_for(task, 5) != 0
-            # The deadline is session-clock time since the session was created.
-            assert 1.0 <= first_revocation(state, "execution_deadline") <= 3.0
-            count = len(records(record))
-            assert (
-                await run_session(
-                    value, "tailtag-test", Path("/srv/tailtag"), state_dir=state
-                )
-                != 0
-            )
-            assert len(records(record)) == count
-            assert state.stat().st_mode & 0o777 == 0o700
-            assert all(path.stat().st_mode & 0o077 == 0 for path in state.rglob("*"))
-        finally:
-            if not task.done():
-                task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await task
-            if ssh_pid is not None:
-                with suppress(ProcessLookupError):
-                    os.kill(ssh_pid, signal.SIGKILL)
-
-    with owned_root() as root:
-        asyncio.run(execute(root))
-
-
-@pytest.mark.parametrize(
-    ("host", "host_root"),
-    [
-        ("-oProxyCommand=bad", "/srv/tailtag"),
-        ("tailtag;echo SENTINEL", "/srv/tailtag"),
-        ("tailtag-test", "relative"),
-        ("tailtag-test", "/srv/tailtag\nSENTINEL"),
-    ],
-)
-def test_operator_rejects_unsafe_ssh_inputs_before_any_external_process(
-    monkeypatch: pytest.MonkeyPatch,
-    host: str,
-    host_root: str,
-) -> None:
-    async def execute(root: Path) -> None:
-        record = ssh_boundary(root, monkeypatch)
-        assert (
-            await run_session(
-                host_manifest(), host, Path(host_root), state_dir=root / "state"
-            )
-            != 0
-        )
-        assert not records(record)
-
-    with owned_root() as root:
-        asyncio.run(execute(root))
-
-
-def test_remote_commands_import_uninstalled_release_from_unrelated_cwd(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def execute(root: Path) -> None:
-        value = host_manifest()
-        host_root = root / "host's release root"
-        release_root = (
-            host_root / "releases" / str(section(value, "release")["simulator_sha"])
-        )
-        packaged_source(release_root)
-        python = release_root / ".venv/bin/python"
-        python.parent.mkdir(parents=True)
-        # Keep the actual dependency-bearing interpreter prefix; a bare venv
-        # symlink without pyvenv.cfg would accidentally lose installed httpx.
-        executable(
-            python,
-            f"import os, sys\nos.execv({sys.executable!r}, [{sys.executable!r}, *sys.argv[1:]])\n",
-        )
-        unrelated = root / "ssh-home"
-        unrelated.mkdir()
-        binary = root / "bin"
-        binary.mkdir()
-        executable(
-            binary / "ssh",
-            f"""
-import json, os, shlex, subprocess, sys
-from pathlib import Path
-root = Path({str(root)!r})
-command = sys.argv[-1]
-words = shlex.split(command)
-operation = words[words.index("tailtag_simulator.host_runner") + 1]
-payload = json.loads(sys.stdin.read()) if operation != "run" else None
-environment = dict(os.environ)
-environment.pop("PYTHONPATH", None)
-environment.pop("PYTHONHOME", None)
-# Actual remote shell syntax/cwd and actual uninstalled package imports. Help
-# stops before Linux policy/workload; this is not a simulated host execution.
-result = subprocess.run(["/bin/sh", "-c", command + " --help"],
-                        cwd=root / "ssh-home", env=environment,
-                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE, timeout=5)
-with (root / "ssh.jsonl").open("a") as out:
-    out.write(json.dumps({{"operation":operation, "returncode":result.returncode,
-                          "help": "usage:" in result.stdout.decode(),
-                          "payload":payload}}) + "\\n")
-raise SystemExit(result.returncode)
-""",
-        )
-        monkeypatch.setenv("PATH", str(binary) + os.pathsep + os.environ["PATH"])
-        assert (
-            await asyncio.wait_for(
-                run_session(value, "tailtag-test", host_root, state_dir=root / "state"),
-                10,
-            )
-            == 0
-        )
-        commands = records(root / "ssh.jsonl")
-        assert [item["operation"] for item in commands] == [
-            "prepare",
-            "run",
-            "recovery-resolve",
-        ]
-        assert all(item["returncode"] == 0 and item["help"] for item in commands)
-        assert commands[0]["payload"] == value
-        assert commands[-1]["payload"] == {
-            "schema_version": 1,
-            "run_id": RUN,
-            "backend_identity": value["backend_identity"],
-            "disposition": "no_mutation",
-        }
-
-    with owned_root() as root:
-        asyncio.run(execute(root))
-
-
-@pytest.mark.parametrize(
-    "outcome",
-    ["no_mutation", "released", "resolve_failure", "held", "released_runner_failure"],
-)
-def test_operator_runner_zero_requires_acknowledged_exact_recovery_receipt(
-    monkeypatch: pytest.MonkeyPatch,
-    outcome: str,
-) -> None:
-    async def execute(root: Path) -> None:
-        value = host_manifest()
-        binary = root / "bin"
-        binary.mkdir()
-        executable(
-            binary / "make",
-            f"""
-import json, sys
-from pathlib import Path
-root = Path({str(root)!r})
-request = json.loads(sys.stdin.read())
-with (root / "relay.jsonl").open("a") as out:
-    out.write(json.dumps({{"argv":sys.argv[1:],"request":request}}) + "\\n")
-operation = request["operation"]
-assert operation in {{"allocate", "release"}}
-data = {{"indexes":[17,23,31,37,41,43,47,53]}} if operation == "allocate" else {{"released":8}}
-print(json.dumps({{"result":"PASS","data":data}}))
-""",
-        )
-        executable(
-            binary / "ssh",
-            f"""
-import json, shlex, socket, sys
-from pathlib import Path
-root = Path({str(root)!r})
-argv = sys.argv[1:]
-words = shlex.split(argv[-1])
-operation = words[words.index("tailtag_simulator.host_runner") + 1]
-payload = json.loads(sys.stdin.read()) if operation != "run" else None
-with (root / "ssh.jsonl").open("a") as out:
-    out.write(json.dumps({{"operation":operation,"argv":argv,"payload":payload}}) + "\\n")
-if operation == "run" and {outcome!r} in ("released", "held", "released_runner_failure"):
-    path = next(argv[i+1].split(":",1)[1] for i,arg in enumerate(argv)
-                if arg == "-R" and "rpc.sock" in argv[i+1])
-    manifest = json.loads((root / "launch.json").read_text())
-    for op in (["allocate", "release"] if {outcome!r} in ("released", "released_runner_failure") else ["allocate"]):
-        arguments = {{"run_id":manifest["run_id"]}}
-        if op == "allocate": arguments.update(count=8, ttl_seconds=1800)
-        request = {{"operation":op,"pool":"p1","arguments":arguments,
-                   "expected_identity":manifest["backend_identity"]}}
-        with socket.socket(socket.AF_UNIX) as connection:
-            connection.connect(path)
-            connection.sendall((json.dumps({{"schema_version":1,"channel":"pool","request":request}})+"\\n").encode())
-            with connection.makefile("rb") as stream:
-                reply = json.loads(stream.readline())
-        assert reply["result"] == "PASS", reply
-failed = (operation == "recovery-resolve" and {outcome!r} == "resolve_failure"
-          or operation == "run" and {outcome!r} == "released_runner_failure")
-raise SystemExit(1 if failed else 0)
-""",
-        )
-        (root / "launch.json").write_text(json.dumps(value))
-        monkeypatch.setenv("PATH", str(binary) + os.pathsep + os.environ["PATH"])
-        result = await asyncio.wait_for(
-            run_session(
-                value, "tailtag-test", root / "remote", state_dir=root / "state"
-            ),
-            5,
-        )
-        assert result == (0 if outcome in {"no_mutation", "released"} else 1)
-        ssh = records(root / "ssh.jsonl")
-        expected_operations = ["prepare", "run"] + (
-            []
-            if outcome in {"held", "released_runner_failure"}
-            else ["recovery-resolve"]
-        )
-        assert [item["operation"] for item in ssh] == expected_operations
-        disposition = (
-            "released"
-            if outcome in {"released", "released_runner_failure"}
-            else "held"
-            if outcome == "held"
-            else "no_mutation"
-        )
-        receipt = {
-            "schema_version": 1,
-            "run_id": RUN,
-            "backend_identity": value["backend_identity"],
-            "disposition": disposition,
-        }
-        if outcome not in {"held", "released_runner_failure"}:
-            assert ssh[-1]["payload"] == receipt
-            words = shlex.split(ssh[-1]["argv"][-1])
-            assert words[-6:] == [
-                "--root",
-                str(root / "remote"),
-                "--run-id",
-                RUN,
-                "--receipt",
-                "-",
-            ]
-        relays = records(root / "relay.jsonl")
-        operations = (
-            ["allocate", "release"]
-            if outcome in {"released", "released_runner_failure"}
-            else ["allocate"]
-            if outcome == "held"
-            else []
-        )
-        expected_requests: list[dict[str, object]] = []
-        for operation in operations:
-            arguments: dict[str, object] = {"run_id": RUN}
-            if operation == "allocate":
-                arguments.update(count=8, ttl_seconds=1800)
-            expected_requests.append(
-                {
-                    "operation": operation,
-                    "pool": "p1",
-                    "arguments": arguments,
-                    "expected_identity": value["backend_identity"],
-                }
-            )
-        assert [item["request"] for item in relays] == expected_requests
-        assert all(
-            item["argv"] == ["-s", "--no-print-directory", "api-sim-pool-ssh"]
-            for item in relays
-        )
-        snapshots = [
-            json.loads(path.read_text()) for path in (root / "state").glob("*.json")
-        ]
-        evidence = next(item for item in snapshots if "disposition" in item)
-        assert {key: evidence[key] for key in receipt} == receipt
-        assert SENTINEL not in json.dumps(evidence)
-
-    with owned_root() as root:
-        asyncio.run(execute(root))
 
 
 def docker_boundary(
@@ -1725,3 +1274,451 @@ def test_container_command_is_built_from_the_admitted_scenario(
 
     with owned_root() as root:
         asyncio.run(execute(root))
+
+
+# --- #316 U2: `host_operator run-local` (bridge and host_runner on one machine) ---
+
+RUNNER = """
+import json, os, signal, socket, sys, time
+from pathlib import Path
+root = Path({root!r})
+argv = sys.argv[1:]
+assert argv[:2] == ["-m", "tailtag_simulator.host_runner"], argv
+op = argv[2]
+host_root = Path(argv[argv.index("--root") + 1])
+base = host_root / "runs" / {run!r}
+state = root / "state"
+scenario = (root / "scenario").read_text()
+record = {{"op": op, "argv": argv, "cwd": os.getcwd(), "pid": os.getpid(),
+          "used": (state / "{run}.used.json").exists(),
+          "bridge": (state / "{run}.bridge.json").exists()}}
+
+def ask(path, frame):
+    with socket.socket(socket.AF_UNIX) as connection:
+        connection.settimeout(3)
+        connection.connect(str(path))
+        connection.sendall((json.dumps(frame) + "\\n").encode())
+        with connection.makefile("rb") as stream:
+            return json.loads(stream.readline())
+
+def health():
+    try:
+        return ask(base / "control/health.sock",
+                   {{"schema_version": 1, "channel": "health", "run_id": {run!r}}})
+    except OSError:
+        return None
+
+def log(entry):
+    with (root / "runner.jsonl").open("a") as out:
+        out.write(json.dumps(entry) + "\\n")
+
+if op in ("prepare", "recovery-resolve"):
+    record["payload"] = json.loads(sys.stdin.read())
+if op == "prepare":
+    for directory in (host_root / "runs", base, base / "rpc", base / "control"):
+        directory.mkdir(mode=0o700, exist_ok=True)
+if op == "run":
+    record["tty"] = [os.isatty(0), os.isatty(1)]
+    record["sockets"] = {{
+        name: [(base / name).is_socket(), (base / name).stat().st_mode & 0o777]
+        for name in ("rpc/rpc.sock", "control/health.sock")
+        if (base / name).exists()
+    }}
+    record["health"] = health()
+log(record)
+if op == "run" and scenario == "wait":
+    def stopped(number, _frame):
+        log({{"op": "signal", "name": signal.Signals(number).name, "health": health()}})
+        raise SystemExit(1)
+    for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(number, stopped)
+    (root / "ready").touch()
+    time.sleep(60)
+if op == "recovery-resolve" and scenario == "resolve_failure":
+    raise SystemExit(1)
+if op == "run" and scenario in ("released", "runner_failure", "held", "resolve_failure"):
+    for name in (["allocate"] if scenario == "held" else ["allocate", "release"]):
+        arguments = {{"run_id": {run!r}}}
+        if name == "allocate":
+            arguments.update(count=8, ttl_seconds=1800)
+        manifest = json.loads((root / "manifest.json").read_text())
+        reply = ask(base / "rpc/rpc.sock", {{"schema_version": 1, "channel": "pool", "request": {{
+            "operation": name, "pool": "p1", "arguments": arguments,
+            "expected_identity": manifest["backend_identity"]}}}})
+        assert reply["result"] == "PASS", reply
+    raise SystemExit(1 if scenario == "runner_failure" else 0)
+"""
+
+TASK = """
+import json, os, sys
+from pathlib import Path
+request = json.loads(sys.stdin.read())
+with Path({root!r}, "task.jsonl").open("a") as out:
+    out.write(json.dumps({{"argv": sys.argv, "cwd": os.getcwd(), "env": dict(os.environ),
+                          "operation": request["operation"]}}) + "\\n")
+data = ({{"indexes": [17, 23, 31, 37, 41, 43, 47, 53]}}
+        if request["operation"] == "allocate" else {{"released": 8}})
+print(json.dumps({{"result": "PASS", "data": data}}))
+"""
+
+LOCAL_FAULTS = [
+    "stdin-not-tty",
+    "stdout-not-tty",
+    "no-taskfile",
+    "no-services-api",
+    "no-task",
+    "no-uv",
+    "relative-tools",
+    "symlinked-host-root",
+    "relative-state-dir",
+]
+
+
+class LocalRig:
+    def __init__(self, root: Path, scenario: str, final_seconds: float = 5) -> None:
+        self.root = root
+        self.host_root = root / "host"
+        self.workspace = root / "workspace"
+        self.tools = root / "tools"
+        self.state = root / "state"
+        value = host_manifest()
+        section(value, "safety")["final_seconds"] = final_seconds
+        self.value = value
+        (root / "manifest.json").write_text(json.dumps(value))
+        (root / "scenario").write_text(scenario)
+        sha = str(section(value, "release")["simulator_sha"])
+        self.release = self.host_root / "releases" / sha
+        python = self.release / ".venv/bin/python"
+        python.parent.mkdir(parents=True)
+        executable(python, RUNNER.format(root=str(root), run=RUN))
+        self.workspace.mkdir()
+        (self.workspace / "Taskfile.yml").write_text("version: '3'\n")
+        (self.workspace / "services/api").mkdir(parents=True)
+        (self.tools / "bin").mkdir(parents=True)
+        executable(self.tools / "bin/task", TASK.format(root=str(root)))
+        for tool in (self.tools / "uv",):
+            executable(tool, "")
+        self.home = root / "home"
+        self.home.mkdir()
+
+    def environment(self, **changes: str | None) -> dict[str, str]:
+        env = {
+            **os.environ,
+            "HOME": str(self.home),
+            "PATH": "/tt316-sentinel-bin" + os.pathsep + os.environ["PATH"],
+        }
+        for key, replacement in changes.items():
+            if replacement is None:
+                env.pop(key, None)
+            else:
+                env[key] = replacement
+        return env
+
+    def command(self, paths: dict[str, str] | None = None) -> list[str]:
+        values = {
+            "manifest": str(self.root / "manifest.json"),
+            "host-root": str(self.host_root),
+            "workspace": str(self.workspace),
+            "tools": str(self.tools),
+            "state-dir": str(self.state),
+            **(paths or {}),
+        }
+        return [
+            sys.executable,
+            "-m",
+            "tailtag_simulator.host_operator",
+            "run-local",
+            *(item for key, value in values.items() for item in (f"--{key}", value)),
+        ]
+
+    @contextmanager
+    def start(
+        self,
+        *,
+        stdin_tty: bool = True,
+        stdout_tty: bool = True,
+        paths: dict[str, str] | None = None,
+        cwd: Path | None = None,
+        **changes: str | None,
+    ) -> Generator[subprocess.Popen[bytes]]:
+        """Run the operator on a real pseudo-terminal; plain files stand in for a non-tty."""
+        master, slave = pty.openpty()
+        process: subprocess.Popen[bytes] | None = None
+        try:
+            process = subprocess.Popen(
+                self.command(paths),
+                cwd=cwd,
+                env=self.environment(**changes),
+                stdin=slave if stdin_tty else subprocess.DEVNULL,
+                stdout=slave if stdout_tty else subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            os.close(slave)
+            yield process
+        finally:
+            if process is not None and process.poll() is None:
+                process.kill()
+                process.wait()
+            for entry in records(self.root / "runner.jsonl"):
+                if entry["op"] == "run":
+                    with suppress(ProcessLookupError):
+                        os.kill(int(entry["pid"]), signal.SIGKILL)
+            os.close(master)
+
+    def ops(self) -> list[str]:
+        return [entry["op"] for entry in records(self.root / "runner.jsonl")]
+
+
+@pytest.mark.parametrize("fault", LOCAL_FAULTS)
+def test_run_local_refuses_unsafe_start_before_prepare(fault: str) -> None:
+    """#316 C1 and AC8: every refusal exits 1 before any host_runner process starts."""
+    with owned_root() as root:
+        rig = LocalRig(root, "released")
+        changes: dict[str, str | None] = {}
+        if fault == "no-taskfile":
+            (rig.workspace / "Taskfile.yml").unlink()
+        elif fault == "no-services-api":
+            (rig.workspace / "services/api").rmdir()
+            (rig.workspace / "services").rmdir()
+        elif fault == "no-task":
+            (rig.tools / "bin/task").unlink()
+        elif fault == "no-uv":
+            # The plan does not say whether uv sits at tools/uv or tools/bin/uv.
+            (rig.tools / "uv").unlink()
+            (rig.tools / "bin/uv").unlink(missing_ok=True)
+        # Path faults: each good path exists and is resolved, so only the form is wrong.
+        paths: dict[str, str] = {}
+        cwd: Path | None = None
+        if fault in {"relative-tools", "relative-state-dir"}:
+            # Relative to this cwd the path resolves to a real tools/state directory.
+            cwd = root
+            changes["PYTHONPATH"] = str(Path(__file__).parents[1])
+            paths = (
+                {"tools": "tools"}
+                if fault == "relative-tools"
+                else {"state-dir": "state"}
+            )
+        elif fault == "symlinked-host-root":
+            (root / "hostlink").symlink_to(rig.host_root, target_is_directory=True)
+            paths = {"host-root": str(root / "hostlink")}
+        with rig.start(
+            stdin_tty=fault != "stdin-not-tty",
+            stdout_tty=fault != "stdout-not-tty",
+            paths=paths,
+            cwd=cwd,
+            **changes,
+        ) as process:
+            assert process.wait(timeout=20) == 1
+        assert rig.ops() == []
+        assert not (rig.host_root / "runs").exists()
+        assert list(root.rglob("*.used.json")) == []
+
+
+RENDER_LOCAL_FAULTS = [
+    "render-api-key",
+    "render-cli-config-dir",
+    "render-cli-login",
+    "render-cli-in-tools",
+]
+
+
+@pytest.mark.parametrize("fault", RENDER_LOCAL_FAULTS)
+def test_run_local_on_render_refuses_any_render_credential_but_the_ssh_key(
+    fault: str,
+) -> None:
+    """#411 AC6: in Render mode the session SSH key is the only Render credential."""
+    with owned_root() as root:
+        rig = LocalRig(root, "released")
+        changes: dict[str, str | None] = {}
+        if fault == "render-api-key":
+            changes["RENDER_API_KEY"] = "rnd_SENTINEL"
+        elif fault == "render-cli-config-dir":
+            changes["RENDER_CLI_CONFIG_DIR"] = str(root / "render-config")
+        elif fault == "render-cli-login":
+            (rig.home / ".render").mkdir()
+            (rig.home / ".render/cli.yaml").write_text("")
+        elif fault == "render-cli-in-tools":
+            executable(rig.tools / "bin/render", "")
+        with rig.start(
+            stdin_tty=True,
+            stdout_tty=True,
+            paths=None,
+            cwd=None,
+            **changes,
+        ) as process:
+            assert process.wait(timeout=20) == 1
+        assert rig.ops() == []
+        assert list(root.rglob("*.used.json")) == []
+
+
+@pytest.mark.parametrize("outcome", ["released", "runner_failure"])
+def test_run_local_prepares_then_binds_then_runs_and_resolves_the_receipt_locally(
+    outcome: str,
+) -> None:
+    """#316 AC8/C2/C3: order, sockets before run, workspace relays, local resolve."""
+    with owned_root() as root:
+        rig = LocalRig(root, outcome)
+        changes: dict[str, str | None] = {}
+        with rig.start(
+            stdin_tty=True,
+            stdout_tty=True,
+            paths=None,
+            cwd=None,
+            **changes,
+        ) as process:
+            assert process.wait(timeout=30) == (0 if outcome == "released" else 1)
+        entries = records(root / "runner.jsonl")
+        prepare, run = entries[0], entries[1]
+        # recovery-resolve runs only after a clean runner exit with a released receipt.
+        assert [e["op"] for e in entries] == (
+            ["prepare", "run", "recovery-resolve"]
+            if outcome == "released"
+            else ["prepare", "run"]
+        )
+        assert all(e["cwd"] == str(rig.release) for e in entries)
+        assert prepare["payload"] == rig.value
+        assert prepare["used"] is True  # <UUID>.used.json exists before prepare
+        # prepare created the 0700 parents; the bridge bound both sockets before run.
+        assert run["sockets"] == {
+            "rpc/rpc.sock": [True, 0o600],
+            "control/health.sock": [True, 0o600],
+        }
+        assert run["health"] == {"run_id": RUN, "live": True}
+        assert run["tty"] == [True, True]  # the Clerk prompt needs the terminal
+        assert run["bridge"] is False
+        words = run["argv"]
+        assert words[words.index("--root") + 1] == str(rig.host_root)
+        assert words[words.index("--manifest") + 1] == str(
+            rig.host_root / "runs" / RUN / "control/manifest.json"
+        )
+        assert words[words.index("--release") + 1] == str(rig.release / "release.json")
+        evidence = json.loads((rig.state / (RUN + ".bridge.json")).read_text())
+        assert evidence["disposition"] == "released"
+        assert json.loads((rig.state / (RUN + ".used.json")).read_text()) == {
+            "schema_version": 1,
+            "run_id": RUN,
+        }
+        # The relays run `task` by absolute path in the workspace, with an explicit env.
+        relays = records(root / "task.jsonl")
+        assert [r["operation"] for r in relays] == ["allocate", "release"]
+        for relay in relays:
+            assert relay["argv"] == [
+                str(rig.tools / "bin/task"),
+                "-s",
+                "api-sim-pool-ssh",
+            ]
+            assert Path(relay["cwd"]).resolve() == rig.workspace.resolve()
+            env = relay["env"]
+            assert "RAILWAY_NO_AUTO_UPDATE" not in env
+            assert env["HOME"] == str(rig.home)
+            assert Path(env["UV"]).name == "uv"
+            assert Path(env["UV"]).is_relative_to(rig.tools)
+            assert str(rig.tools / "bin") in env["PATH"].split(os.pathsep)
+            assert "/tt316-sentinel-bin" not in env["PATH"]
+        if outcome == "released":
+            resolve = entries[2]
+            assert resolve["bridge"] is True  # evidence is written after settle
+            assert resolve["payload"] == {
+                "schema_version": 1,
+                "run_id": RUN,
+                "backend_identity": rig.value["backend_identity"],
+                "disposition": "released",
+            }
+            assert resolve["argv"][-6:] == [
+                "--root",
+                str(rig.host_root),
+                "--run-id",
+                RUN,
+                "--receipt",
+                "-",
+            ]
+            # The used file is create-once: the same manifest never starts again.
+            with rig.start(
+                stdin_tty=True,
+                stdout_tty=True,
+                paths=None,
+                cwd=None,
+                **changes,
+            ) as again:
+                assert again.wait(timeout=20) == 1
+            assert rig.ops() == ["prepare", "run", "recovery-resolve"]
+
+
+@pytest.mark.parametrize("sent", ["SIGINT", "SIGTERM", "SIGHUP"])
+def test_run_local_revokes_on_a_signal_and_stops_the_runner_child(sent: str) -> None:
+    """#316 C3: a signal to the operator alone revokes health and reaches the child."""
+    with owned_root() as root:
+        rig = LocalRig(root, "wait", final_seconds=20)
+        with rig.start() as process:
+            deadline = time.monotonic() + 15
+            while not (root / "ready").exists():
+                assert time.monotonic() < deadline, "runner never started"
+                assert process.poll() is None
+                time.sleep(0.02)
+            process.send_signal(getattr(signal, sent))
+            # final_seconds is 20: only an explicit stop ends the child within 8 s.
+            assert process.wait(timeout=8) != 0
+        received = next(
+            e for e in records(root / "runner.jsonl") if e["op"] == "signal"
+        )
+        assert received["name"] in (
+            {sent} if sent != "SIGINT" else {"SIGINT", "SIGTERM"}
+        )
+        assert received["health"] == {"run_id": RUN, "live": False}
+        assert first_revocation(rig.state, "signal_" + sent) >= 0
+
+
+def test_run_local_revokes_at_the_execution_deadline_and_stops_the_runner() -> None:
+    """Shared core: the deadline never renews and ends a runner that would not stop."""
+    with owned_root() as root:
+        rig = LocalRig(root, "wait", final_seconds=1)
+        section(rig.value, "safety")["seconds"] = 1
+        (root / "manifest.json").write_text(json.dumps(rig.value))
+        with rig.start() as process:
+            deadline = time.monotonic() + 15
+            while not (root / "ready").exists():
+                assert time.monotonic() < deadline, "runner never started"
+                assert process.poll() is None
+                time.sleep(0.02)
+            # The runner sleeps 60 s: only the operator's deadline can end it.
+            assert process.wait(timeout=15) != 0
+        received = next(
+            e for e in records(root / "runner.jsonl") if e["op"] == "signal"
+        )
+        assert received["health"] == {"run_id": RUN, "live": False}
+        assert first_revocation(rig.state, "execution_deadline") >= 1.0
+
+
+def test_run_local_withholds_recovery_resolve_when_the_receipt_is_held() -> None:
+    """Shared core: a clean runner exit that leaves the pool held must not resolve."""
+    with owned_root() as root:
+        rig = LocalRig(root, "held")
+        with rig.start() as process:
+            assert process.wait(timeout=30) == 1
+        assert rig.ops() == ["prepare", "run"]
+        evidence = json.loads((rig.state / (RUN + ".bridge.json")).read_text())
+        assert evidence["disposition"] == "held"
+
+
+def test_run_local_fails_but_keeps_evidence_when_the_recovery_resolve_fails() -> None:
+    """Shared core: a failed local resolve is a failed session, never a pass."""
+    with owned_root() as root:
+        rig = LocalRig(root, "resolve_failure")
+        with rig.start() as process:
+            assert process.wait(timeout=30) == 1
+        assert rig.ops() == ["prepare", "run", "recovery-resolve"]
+        evidence = json.loads((rig.state / (RUN + ".bridge.json")).read_text())
+        assert evidence["disposition"] == "released"
+
+
+def test_run_local_resolves_a_no_mutation_receipt_and_exits_clean() -> None:
+    """Shared core: a runner that never allocated still resolves and passes."""
+    with owned_root() as root:
+        rig = LocalRig(root, "no_mutation")
+        with rig.start() as process:
+            assert process.wait(timeout=30) == 0
+        entries = records(root / "runner.jsonl")
+        assert [e["op"] for e in entries] == ["prepare", "run", "recovery-resolve"]
+        assert entries[2]["payload"]["disposition"] == "no_mutation"
+        evidence = json.loads((rig.state / (RUN + ".bridge.json")).read_text())
+        assert evidence["disposition"] == "no_mutation"

@@ -10,6 +10,7 @@ import secrets
 from typing import Final
 
 from django.db import IntegrityError, transaction
+from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
 from accounts.models import User
@@ -23,7 +24,7 @@ from conventions.models import (
 from fursuits.models import Fursuit
 from observability.outcomes import Reason
 from operator_audit.services import OperatorTransition
-from profiles.eligibility import is_participation_eligible
+from profiles.eligibility import eligible_player_profiles, is_participation_eligible
 from profiles.models import PlayerProfile
 
 from .catch_credential_protocol import (
@@ -31,11 +32,10 @@ from .catch_credential_protocol import (
     CATCH_CREDENTIAL_TOKEN_BYTES,
     CATCH_CREDENTIAL_TOKEN_PATTERN,
 )
-from .catch_sessions import get_unended_fursuit_catch_session_for_activation
+from .catch_sessions import unended_fursuit_catch_sessions
 from .services import (
     ConventionParticipationIneligibleError,
     FursuitActivationNotEligibleError,
-    is_fursuit_activation_eligible,
 )
 
 _TOKEN_PATTERN: Final = re.compile(rf"^{CATCH_CREDENTIAL_TOKEN_PATTERN}$", re.ASCII)
@@ -80,18 +80,29 @@ def resolve_catch_credential(
 ) -> FursuitCatchCredential:
     """Resolve a current credential to its catchable activation without locking.
 
-    This is intentionally a preview-only read.  The final current-row query
-    closes the meaningful revocation/rotation race without adding reservations.
+    This is intentionally a preview-only read in two statements. The target read
+    loads the credential with its owner's participation facts. After the target
+    is evaluated, the final statement reads the effective session and proves the
+    credential is still current. That closes the meaningful revocation/rotation
+    race without adding reservations.
     """
     token = parse_catch_credential_payload(payload)
+    owner_id = OuterRef("activation__fursuit__owner_id")
     credential = (
         FursuitCatchCredential.objects.filter(
             token=token, activation__convention_id=convention_id
         )
-        .select_related(
-            "activation__fursuit",
-            "activation__fursuit__owner",
-            "activation__convention",
+        .select_related("activation__fursuit", "activation__convention")
+        .annotate(
+            owner_participation_eligible=Exists(
+                eligible_player_profiles().filter(user_id=owner_id)
+            ),
+            owner_enrolled=Exists(
+                ConventionEnrollment.objects.filter(
+                    user_id=owner_id,
+                    convention_id=OuterRef("activation__convention_id"),
+                )
+            ),
         )
         .first()
     )
@@ -99,27 +110,48 @@ def resolve_catch_credential(
         raise CatchCredentialNotFoundError(Reason.CREDENTIAL_UNKNOWN)
     if credential.revoked_at is not None:
         raise CatchCredentialNotFoundError(Reason.CREDENTIAL_REVOKED)
-
-    activation = credential.activation
-    if not activation.is_active:
+    if not credential.activation.is_active:
         raise CatchCredentialNotFoundError(Reason.ACTIVATION_INACTIVE)
-    if not is_fursuit_activation_eligible(activation):
+    if not _is_resolved_target_eligible(credential):
         raise CatchCredentialNotFoundError(Reason.TARGET_INELIGIBLE)
-    session = get_unended_fursuit_catch_session_for_activation(activation)
+
+    session = (
+        unended_fursuit_catch_sessions(activation_id=credential.activation_id)
+        .annotate(
+            credential_is_current=Exists(
+                FursuitCatchCredential.objects.filter(
+                    pk=credential.pk,
+                    activation_id=credential.activation_id,
+                    token=token,
+                    revoked_at__isnull=True,
+                )
+            )
+        )
+        .first()
+    )
     if session is None:
         raise CatchCredentialNotFoundError(Reason.SESSION_INACTIVE)
     if session.expires_at <= timezone.now():
         raise CatchCredentialNotFoundError(Reason.SESSION_EXPIRED)
-
-    if not FursuitCatchCredential.objects.filter(
-        pk=credential.pk,
-        activation_id=credential.activation_id,
-        token=token,
-        revoked_at__isnull=True,
-    ).exists():
+    if not getattr(session, "credential_is_current", False):
         # The row stopped being current after it was read, which only revocation does.
         raise CatchCredentialNotFoundError(Reason.CREDENTIAL_REVOKED)
     return credential
+
+
+def _is_resolved_target_eligible(credential: FursuitCatchCredential) -> bool:
+    """Apply `is_fursuit_activation_eligible` to the facts the target read loaded.
+
+    Keep the two in step: owner participation, owner enrollment, Convention
+    playability, and an enabled fursuit.
+    """
+    activation = credential.activation
+    return (
+        bool(getattr(credential, "owner_participation_eligible", False))
+        and bool(getattr(credential, "owner_enrolled", False))
+        and activation.convention.is_playable
+        and activation.fursuit.is_enabled
+    )
 
 
 def _valid_catch_credential_token(token: str) -> str:

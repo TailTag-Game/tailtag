@@ -1,0 +1,21 @@
+name: tailtag_clerk
+description: Native Clerk bridge for TailTag (iOS and Android only).
+version: 0.1.0
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ^3.13.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: app.tailtag.tailtag_clerk
+        pluginClass: TailTagClerkPlugin
+      ios:
+        pluginClass: TailTagClerkPlugin

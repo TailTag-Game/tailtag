@@ -46,7 +46,7 @@ or one of Sentry's default user widgets such as `count_unique(user)`.
 | D5 | Are requests slow? | Spans | `p50(span.duration)` and `p95(span.duration)` where `is_transaction` is `true`, grouped by `transaction` |
 | D6 | Are catches succeeding? | Application Metrics | `sum(tailtag.catches.confirmation)`, grouped by `tailtag.outcome` |
 | D7 | Why are catches rejected? | Application Metrics | `sum(tailtag.catches.confirmation)` where `tailtag.outcome` is `rejected`, grouped by `tailtag.reason` |
-| D8 | Is PostgreSQL healthy? | Application Metrics | Two widgets: `sum(tailtag.db.connection.attempts)`, line, grouped by `tailtag.outcome` and `tailtag.reason`; and `p95(tailtag.db.connection.duration)`, line |
+| D8 | Is PostgreSQL healthy? | Application Metrics | Two widgets: `sum(tailtag.db.connection.attempts)`, line, grouped by `tailtag.outcome` and `tailtag.reason`; and `p95(tailtag.db.connection.duration)`, line. Both count new connections, not requests: a worker reuses its connection for up to 60 seconds |
 | D9 | Is authentication abnormal? | Application Metrics | `sum(tailtag.authentication.verification)`, grouped by `tailtag.reason` |
 | D10 | Is media storage failing? | Application Metrics | `sum(tailtag.media.storage.operations)` where `tailtag.outcome` is `failed`, grouped by `rpc.method` and `tailtag.reason` (see below) |
 | D11 | Which build is observed? | Application Metrics | `sum(tailtag.http.server.requests)`, bar, grouped by `release` |
@@ -116,7 +116,7 @@ without a real problem.
 | --- | --- | --- |
 | M1 | `/health/identity` and the latest Staging deployment; D8 for failed connection reasons | [Bad deployment](staging-first-response.md#bad-deployment), [Database unavailable or degraded](staging-first-response.md#database-unavailable-or-degraded) |
 | M2 | D3 and D4 for the route; Sentry issues for the exception | [Bad deployment](staging-first-response.md#bad-deployment) |
-| M3 | D5 for the slow transaction; Railway CPU and memory | [Abnormal API load](staging-first-response.md#abnormal-api-load) |
+| M3 | D5 for the slow transaction; Render CPU and memory | [Abnormal API load](staging-first-response.md#abnormal-api-load) |
 | M4 | D8 for the reason (`timeout`, `too_many_connections`, `unreachable`, `rejected`, `other`) | [Database unavailable or degraded](staging-first-response.md#database-unavailable-or-degraded) |
 | M5, M6 | D6 and D7; Sentry issues on the catch route | [Elevated catch-confirmation failures](staging-first-response.md#elevated-catch-confirmation-failures) |
 | M7 | D9 for which reason rose | [Clerk or authentication failure](staging-first-response.md#clerk-or-authentication-failure) |
@@ -186,7 +186,7 @@ breaking anything. #212 to #214 already prove that real failures produce the
 signals. Run it in Staging after the monitors are saved, and again after any
 change to a monitor's query.
 
-- Never stop a service, change a Railway variable, or generate load.
+- Never stop a service, change a Render variable, or generate load.
 - Change one monitor at a time, and restore it straight after its check.
 - Send only a few dozen ordinary requests in total.
 
@@ -210,7 +210,7 @@ Write the evidence by hand from allow-listed values: counts, outcomes, reasons,
 status classes, route templates, `source_sha`, Sentry issue short IDs, and
 times. Check it against the
 [must-not-contain list](../architecture/backend/telemetry-retention-access.md#6-preserved-evidence)
-before committing it; in particular, no Sentry or Railway URLs.
+before committing it; in particular, no Sentry or Render URLs.
 
 ## Limits
 

@@ -6,7 +6,7 @@ This repository contains the community-led rebuild of the TailTag platform, incl
 
 ## Project status
 
-TailTag is in its foundational community-rebuild phase. V0 is a controlled convention beta, and the accepted backend direction is Python, Django, Django REST Framework, PostgreSQL, Clerk authentication, a modular monolith, and Railway hosting.
+TailTag is in its foundational community-rebuild phase. V0 is a controlled convention beta, and the accepted backend direction is Python, Django, Django REST Framework, PostgreSQL, Clerk authentication, a modular monolith, and Render hosting. Development runs on Render in Oregon, and Staging runs on Render in Virginia (ADR 0012). Railway Development and Staging are frozen, and #412 retires them.
 
 The initial backend foundation is present. Client applications, TailTag-specific administrative tooling, and other V0/V1 details may continue to evolve as their issues and specifications are approved.
 
@@ -73,7 +73,7 @@ The guide covers repository access, cloning, Git configuration, environment veri
 
 ## Authenticated Development API smoke
 
-`make api-auth-smoke` is the sole manual, interactive check of Clerk
+`task api-auth-smoke` is the sole manual, interactive check of Clerk
 Development authentication against `GET /api/me/`; it is excluded from normal
 tests, CI, and production operations. A maintainer must first create and retain
 one dedicated user in the Clerk Development instance, copy its opaque user ID
@@ -84,22 +84,22 @@ every invocation and is never stored in configuration.
 
 The helper always uses `http://localhost:3000` as a fixed synthetic tooling
 origin. Add that exact origin to `CLERK_AUTHORIZED_PARTIES` in both local and
-Railway development API settings. It does not require a frontend to be running
+Render Development API settings. It does not require a frontend to be running
 on port 3000, and production configuration must not gain that allowance.
 
 Local development:
 
 ```bash
-CLERK_SMOKE_USER_ID=<opaque-development-user-id> make api-auth-smoke
+CLERK_SMOKE_USER_ID=<opaque-development-user-id> task api-auth-smoke
 ```
 
-Railway development (the URL must be the exact approved API root):
+Render Development (the URL must be the exact approved API root):
 
 ```bash
 API_BASE_URL=https://<exact-development-api-host> \
 TAILTAG_DEVELOPMENT_API_BASE_URL=https://<exact-development-api-host> \
 CLERK_SMOKE_USER_ID=<opaque-development-user-id> \
-make api-auth-smoke
+task api-auth-smoke
 ```
 
 The dedicated Clerk and TailTag users are persistent test state. Each run uses

@@ -75,6 +75,14 @@ def test_credential_migration_reversal_preserves_existing_history() -> None:
     """AC-03/18: 0005 reverses cleanly but refuses to drop credential history."""
     before_credential_migration = ("conventions", "0004_fursuitcatchsession")
     credential_migration = ("conventions", "0005_fursuitcatchcredential")
+    # Build the scenario with current models while the schema is current. Later
+    # Convention columns do not exist at 0005, so current models cannot insert there.
+    scenario = create_credential_scenario(
+        clerk_user_id="credential_migration_reversal_owner"
+    )
+    activation = create_activation_row(
+        fursuit=scenario.fursuit, convention=scenario.convention, active=True
+    )
     executor = MigrationExecutor(connection)
     latest = executor.loader.graph.leaf_nodes()
     try:
@@ -94,12 +102,6 @@ def test_credential_migration_reversal_preserves_existing_history() -> None:
         Credential = executor.loader.project_state(
             [credential_migration]
         ).apps.get_model("conventions", "FursuitCatchCredential")
-        scenario = create_credential_scenario(
-            clerk_user_id="credential_migration_reversal_owner"
-        )
-        activation = create_activation_row(
-            fursuit=scenario.fursuit, convention=scenario.convention, active=True
-        )
         credential = Credential.objects.create(
             activation_id=activation.pk,
             token=TOKEN_A,

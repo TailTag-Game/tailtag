@@ -57,6 +57,7 @@ from tests.observability_test_support import (
     identity,
     sentry_capturing,
 )
+from tests.process_support import skip_on_windows
 from tests.test_health import LOCAL_STORAGES, configure_local_profile
 from tests.test_media_storage import FakeS3Client, StaticClientFactory
 
@@ -179,6 +180,8 @@ def test_database_configuration_uses_telemetry_backend_and_bounded_connect_timeo
     assert configuration["ENGINE"] == "observability.postgresql"
     options = cast(dict[str, object], configuration["OPTIONS"])
     assert options["connect_timeout"] == 5
+    # #448: a reused connection cannot block past Gunicorn's 30-second timeout.
+    assert options["tcp_user_timeout"] == 10_000
     assert "pool" not in options
     assert configuration.get("CONN_MAX_AGE", 0) == 0
 
@@ -287,6 +290,36 @@ def test_successful_connection_records_one_attempt_and_duration(
 
 
 @pytest.mark.django_db
+def test_a_reused_connection_the_server_closed_is_replaced_and_recorded(
+    observed: Observed,
+) -> None:
+    """#448 AC2: the next request reconnects, and the reconnect is an attempt."""
+    wrapper = _isolated_connection(CONN_MAX_AGE=60, CONN_HEALTH_CHECKS=True)
+    try:
+        with wrapper.cursor() as cursor:
+            cursor.execute("SELECT pg_backend_pid()")
+            [closed_pid] = cursor.fetchone()
+        with connections["default"].cursor() as cursor:
+            cursor.execute("SELECT pg_terminate_backend(%s, 5000)", [closed_pid])
+        # What `request_started` does before the next request.
+        wrapper.close_if_unusable_or_obsolete()
+        with wrapper.cursor() as cursor:
+            cursor.execute("SELECT pg_backend_pid()")
+            [reopened_pid] = cursor.fetchone()
+    finally:
+        wrapper.close()
+
+    assert reopened_pid != closed_pid
+    attempt = {
+        "type": "counter",
+        "value": 1.0,
+        "unit": None,
+        "attributes": {"tailtag.outcome": "succeeded"},
+    }
+    assert observed.points(ATTEMPTS) == [attempt, attempt]
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     ("message", "reason"),
     (
@@ -360,6 +393,9 @@ def test_a_real_login_refusal_is_rejected(
     _assert_one_attempt(observed, "failed", reason)
 
 
+@skip_on_windows(
+    "Windows reports a refused local connection as a timeout, not unreachable."
+)
 @pytest.mark.django_db
 def test_a_real_refused_connection_is_unreachable(observed: Observed) -> None:
     """AC-3: libpq's refused-connection wording, from a port nothing listens on."""

@@ -10,7 +10,7 @@ from django.db.models import F, Q
 from django.utils import timezone
 
 from accounts.models import User
-from catches.models import Catch
+from catches.models import Catch, CatchBlock, CatchRequest
 from conventions.models import (
     Convention,
     ConventionEnrollment,
@@ -19,6 +19,7 @@ from conventions.models import (
     FursuitCatchCredential,
     FursuitCatchSession,
 )
+from conventions.review_deadline import apply_review_schedule
 from fursuits.models import Fursuit
 from profiles.models import PlayerProfile
 
@@ -96,12 +97,17 @@ def _roots(identity: StagingResetIdentity) -> tuple[Convention, Fursuit, Fursuit
             ).exists()
         ):
             raise ResetSafetyError
-        convention = Convention.objects.create(
+        convention = Convention(
             name=baseline.CONVENTION_NAME,
             status=ConventionStatus.ACTIVE,
             start_date=datetime.date(2026, 9, 1),
-            end_date=datetime.date(2036, 9, 1),
         )
+        apply_review_schedule(
+            convention,
+            end_date=datetime.date(2036, 9, 1),
+            time_zone=baseline.CONVENTION_TIME_ZONE,
+        )
+        convention.save()
         first = Fursuit.objects.create(
             owner=identity.owner,
             name="Rehearsal Panther",
@@ -178,6 +184,32 @@ def _assert_closure(
         activation__convention_id=F("convention_id"),
         catch_session__activation_id=F("activation_id"),
     ).exists():
+        raise ResetSafetyError
+    # Catch requests follow the same closure as catches (#505).
+    requests = CatchRequest.objects.filter(
+        Q(fursuit_id__in=ids)
+        | Q(convention=convention)
+        | Q(activation_id__in=activation_ids)
+        | Q(catch_session_id__in=session_ids)
+    )
+    if requests.exclude(
+        player__in=(identity.owner, identity.catcher),
+        fursuit_id__in=ids,
+        convention=convention,
+        activation_id__in=activation_ids,
+        catch_session_id__in=session_ids,
+    ).exists():
+        raise ResetSafetyError
+    # Blocks follow the request closure without session links (#506).
+    if (
+        CatchBlock.objects.filter(Q(fursuit_id__in=ids) | Q(convention=convention))
+        .exclude(
+            player__in=(identity.owner, identity.catcher),
+            fursuit_id__in=ids,
+            convention=convention,
+        )
+        .exists()
+    ):
         raise ResetSafetyError
 
 
@@ -306,6 +338,12 @@ def validate_baseline(identity: StagingResetIdentity) -> dict[str, int]:
         Catch.objects.filter(
             fursuit_id__in=(identity.first_fursuit_id, identity.second_fursuit_id)
         ).exists()
+        or CatchRequest.objects.filter(
+            fursuit_id__in=(identity.first_fursuit_id, identity.second_fursuit_id)
+        ).exists()
+        or CatchBlock.objects.filter(
+            fursuit_id__in=(identity.first_fursuit_id, identity.second_fursuit_id)
+        ).exists()
         or FursuitCatchSession.objects.filter(
             activation__fursuit_id__in=(
                 identity.first_fursuit_id,
@@ -362,6 +400,10 @@ def reset_baseline(configuration: ResetConfiguration) -> dict[str, int]:
                 activation_id__in=activation_ids
             ).values_list("pk", flat=True)
         )
+        CatchBlock.objects.filter(
+            fursuit__in=(first, second), convention=convention
+        ).delete()
+        CatchRequest.objects.filter(catch_session_id__in=session_ids).delete()
         Catch.objects.filter(catch_session_id__in=session_ids).delete()
         FursuitCatchCredential.objects.filter(activation_id__in=activation_ids).delete()
         FursuitCatchSession.objects.filter(pk__in=session_ids).delete()
@@ -370,11 +412,21 @@ def reset_baseline(configuration: ResetConfiguration) -> dict[str, int]:
             convention=convention, user__in=(identity.owner, identity.catcher)
         ).delete()
         _profiles(identity)
+        # A registered convention from before #503 has no zone. The schedule
+        # step sets the baseline zone and deadline under the Convention lock.
+        locked = Convention.objects.select_for_update().get(pk=convention.pk)
+        apply_review_schedule(
+            locked,
+            end_date=datetime.date(2036, 9, 1),
+            time_zone=baseline.CONVENTION_TIME_ZONE,
+        )
         Convention.objects.filter(pk=convention.pk).update(
             name=baseline.CONVENTION_NAME,
             status=ConventionStatus.ACTIVE,
             start_date=datetime.date(2026, 9, 1),
-            end_date=datetime.date(2036, 9, 1),
+            end_date=locked.end_date,
+            time_zone=locked.time_zone,
+            review_deadline_at=locked.review_deadline_at,
         )
         Fursuit.objects.filter(pk=first.pk).update(
             owner=identity.owner,

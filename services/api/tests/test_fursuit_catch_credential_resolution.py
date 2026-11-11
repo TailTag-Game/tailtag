@@ -8,7 +8,12 @@ import pytest
 from django.test import Client, override_settings
 from django.utils import timezone
 
-from conventions.models import Convention, ConventionEnrollment, FursuitActivation
+from conventions.models import (
+    Convention,
+    ConventionEnrollment,
+    FursuitActivation,
+    FursuitCatchCredential,
+)
 from fursuits.models import Fursuit
 from profiles.models import PlayerProfile
 from tests.authentication_support import TEST_CLERK_CONFIGURATION
@@ -217,22 +222,22 @@ def test_resolution_rechecks_current_credential_after_target_evaluation(
     credential = create_credential(activation=activation, token=TOKEN_A)
     caller = create_credential_scenario(clerk_user_id="credential_final_check_caller")
     ConventionEnrollment.objects.create(user=caller.user, convention=target.convention)
-    # This is the approved activation-oriented target-eligibility collaborator.
-    # It leaves the credential current for lookup, then makes it terminal before
-    # the resolver's required final-current check.
+    # This is the approved target-eligibility step of the resolver. It leaves the
+    # credential current for lookup, then makes it terminal before the resolver's
+    # required final-current check.
     from conventions import catch_credentials
 
-    original_eligible = catch_credentials.is_fursuit_activation_eligible
+    original_eligible = catch_credentials._is_resolved_target_eligible  # pyright: ignore[reportPrivateUsage]
 
-    def revoke_after_target_check(checked_activation: FursuitActivation) -> bool:
-        assert checked_activation == activation
+    def revoke_after_target_check(checked: FursuitCatchCredential) -> bool:
+        assert checked.activation == activation
         credential.revoked_at = timezone.now()
         credential.revocation_reason = "operator"
         credential.save(update_fields=["revoked_at", "revocation_reason", "updated_at"])
-        return original_eligible(checked_activation)
+        return original_eligible(checked)
 
     monkeypatch.setattr(
-        catch_credentials, "is_fursuit_activation_eligible", revoke_after_target_check
+        catch_credentials, "_is_resolved_target_eligible", revoke_after_target_check
     )
     assert_not_found(
         caller.client.post(

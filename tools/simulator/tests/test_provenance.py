@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from platform_support import skip_on_windows
 from report_support import DATA, commit, git, literal_report, repository
 
 from tailtag_simulator import provenance
@@ -44,11 +45,11 @@ def source_repo(tmp_path: Path) -> Path:
             "tools/simulator/uv.lock": "version = 1\nrevision = 3\n",
             "tools/simulator/Dockerfile": "FROM scratch\nCOPY . /app\n",
             "services/api/simulation_fixtures/images/valid-a.png": b"committed-workload-bytes",
-            "Makefile": "sim-image:\n\tdocker build tools/simulator\n",
+            "Taskfile.yml": "version: '3'\ntasks:\n  sim-image:\n    cmds:\n      - docker build tools/simulator\n",
             "scripts/api_sim_pool_ssh.py": "# committed host launcher\n",
             "scripts/api_sim_fixture_ssh.py": "# committed host launcher\n",
             "scripts/api_sim_inspect_ssh.py": "# committed host launcher\n",
-            "scripts/api_staging_reset_ssh.py": "# committed shared host launcher\n",
+            "scripts/api_sim_render_relay.py": "# committed host launcher\n",
             "scripts/api_staging_preflight.py": "# committed host target preflight\n",
             "services/api/pyproject.toml": "# committed host dependency declaration\n",
             "services/api/uv.lock": "# committed host dependency lock\n",
@@ -122,7 +123,7 @@ def test_changed_or_untracked_runtime_inputs_cannot_claim_a_clean_git_identity(
     elif change == "fixture_deleted":
         (source_repo / "services/api/simulation_fixtures/images/valid-a.png").unlink()
     elif change == "wiring":
-        (source_repo / "Makefile").write_text("SENTINEL_changed_build_wiring")
+        (source_repo / "Taskfile.yml").write_text("SENTINEL_changed_build_wiring")
     elif change in {"untracked", "ignored"}:
         (
             package
@@ -154,7 +155,7 @@ def test_changed_or_untracked_runtime_inputs_cannot_claim_a_clean_git_identity(
         shadow = source_repo / f"scripts/api_sim_fixture_ssh{EXTENSION_SUFFIXES[0]}"
         shadow.write_bytes(b"SENTINEL_native_loader_input")
     elif change == "host_dangling_package":
-        (source_repo / "scripts/api_staging_reset_ssh").symlink_to(
+        (source_repo / "scripts/api_sim_pool_ssh").symlink_to(
             tmp_path / "SENTINEL-missing-package", target_is_directory=True
         )
     elif change in {"namespace_extension", "initializer_extension"}:
@@ -207,6 +208,17 @@ def test_missing_source_identity_is_rejected_with_sanitized_failure(
     with pytest.raises(SourceRejected) as failure:
         load_source(root)
     assert "SENTINEL" not in str(failure.value) + repr(failure.value)
+
+
+def test_taskfile_is_required_build_wiring_in_place_of_the_makefile(
+    source_repo: Path,
+) -> None:
+    assert "Taskfile.yml" in provenance.BUILD_FILES
+    assert "Makefile" not in provenance.BUILD_FILES
+    git(source_repo, "rm", "-q", "Taskfile.yml")
+    commit(source_repo, "Remove build wiring")
+    with pytest.raises(SourceRejected):
+        load_source(source_repo)
 
 
 def docker_recorder(
@@ -262,6 +274,9 @@ def test_build_validates_git_before_docker_and_copies_a_self_verifying_runtime_c
     assert metadata["simulator_sha"] == git(source_repo, "rev-parse", "HEAD")
     assert metadata["schema_version"] == 1
     assert metadata["manifest"]
+    # Build wiring validates the source but never ships in the runtime image.
+    assert "Taskfile.yml" not in metadata["manifest"]
+    assert not (captured / "Taskfile.yml").exists()
     assert not any(
         name.startswith("scripts/")
         or name in {"services/api/pyproject.toml", "services/api/uv.lock"}
@@ -320,6 +335,9 @@ def test_failed_docker_build_cleans_its_context_and_sanitizes_stderr(
     assert "SENTINEL" not in output.out + output.err
 
 
+@skip_on_windows(
+    "Exercises the Linux container layout, which Windows never runs natively."
+)
 def test_packaged_layout_resolves_source_and_runs_offline_cli_without_host_checkout(
     source_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

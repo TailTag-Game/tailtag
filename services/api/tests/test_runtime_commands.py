@@ -5,10 +5,14 @@ from __future__ import annotations
 import json
 import re
 import shlex
+import subprocess
+import sys
 from pathlib import Path
 from typing import cast
 
 import pytest
+
+from tests.process_support import minimal_environment, skip_on_windows
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = SERVICE_ROOT.parents[1]
@@ -125,8 +129,14 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
         assert "COPY --chown=tailtag:tailtag . ./" in stage
         assert "USER tailtag" in stage
     assert "RUN uv sync --locked --no-install-project" in development
-    assert "apt-get install --no-install-recommends -y git make" in development
+    # The development image carries the pinned, checksum-verified go-task.
+    assert "make" not in development.replace("makemigrations", "")
+    assert "3.54.0" in development
+    assert "sha256" in development.lower()
+    assert "3.54.0" not in production
     assert "RUN uv sync --locked --no-dev --no-install-project" in production
+    # Render SSH requires an owner-only ~/.ssh for the container user.
+    assert "install -d -m 0700 -o tailtag -g tailtag /home/tailtag/.ssh" in production
     production_copy_index = production.index("COPY --chown=tailtag:tailtag . ./")
     static_collection = (
         "RUN python manage.py collectstatic --settings=config.settings.build --noinput"
@@ -139,6 +149,13 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
     )
     assert gunicorn_command in production
     assert production.index(static_collection) < production.index(gunicorn_command)
+    # #448 AC7: tini is PID 1, so finished `render ssh` children are not
+    # reaped by Gunicorn and logged as worker exits.
+    assert "apt-get install --no-install-recommends -y tini" in production
+    init_entrypoint = 'ENTRYPOINT ["tini", "--"]'
+    assert init_entrypoint in production
+    assert production.index(init_entrypoint) < production.index(gunicorn_command)
+    assert "ENTRYPOINT" not in development
     assert "migrate" not in development
     assert "migrate" not in production
     assert "collectstatic" not in development
@@ -173,6 +190,29 @@ def test_runtime_files_define_development_and_production_contracts() -> None:
         in environment_template
     )
     assert "POSTGRES_PASSWORD=tailtag-local-password" in environment_template
+
+
+@skip_on_windows("Gunicorn imports fcntl and pwd, which Windows does not have.")
+def test_gunicorn_runs_three_sync_workers_over_the_render_default() -> None:
+    """#448 AC3: `gunicorn.conf.py` wins over the `WEB_CONCURRENCY=1` Render sets."""
+    resolve = (
+        "import sys; sys.argv = ['gunicorn', 'config.wsgi:application']; "
+        "from gunicorn.app.wsgiapp import WSGIApplication; "
+        "configuration = WSGIApplication().cfg; "
+        "print(configuration.workers, configuration.worker_class_str)"
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-c", resolve],
+        cwd=SERVICE_ROOT,
+        env={**minimal_environment(), "WEB_CONCURRENCY": "1"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout == "3 sync\n"
 
 
 def test_production_image_records_oci_attribution() -> None:
@@ -231,16 +271,16 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
     workflow = (REPOSITORY_ROOT / ".github/workflows/api.yml").read_text()
 
     canonical_contributor_commands = [
-        "make api-setup",
-        "make api-run",
-        "make api-test",
-        "make api-semgrep-check",
-        "make api-check",
-        "make api-migrate",
-        "make api-migrations",
-        "make api-migrations-check",
-        "make api-shell",
-        "make api-smoke",
+        "task api-setup",
+        "task api-run",
+        "task api-test",
+        "task api-semgrep-check",
+        "task api-check",
+        "task api-migrate",
+        "task api-migrations",
+        "task api-migrations-check",
+        "task api-shell",
+        "task api-smoke",
     ]
     for command in canonical_contributor_commands:
         assert command in readme
@@ -255,7 +295,7 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
     assert "uv --directory services/api run python manage.py createsuperuser" in readme
 
     assert "name: API foundation checks" in workflow
-    assert "run: make api-check" in workflow
+    assert "run: task api-check" in workflow
     assert_api_workflow_least_privilege(workflow)
     for duplicated_command in (
         "uv run pytest -q",
@@ -313,11 +353,17 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
     assert push_trigger
     push_configuration = push_trigger.group("configuration")
     assert "    branches:\n      - main" in push_configuration
-    assert "    paths:" not in push_configuration
+    # Documentation-only changes skip the workflow (#418). The deny-list first
+    # matches every path, so an unknown path still runs backend validation.
+    push_paths = push_configuration.partition("    paths:\n")[2]
+    assert push_paths.startswith(
+        "      - '**'\n      - '!docs/**'\n      - '!**/*.md'\n"
+    )
+    assert "      - 'services/api/**'\n" in push_paths
     assert "    paths-ignore:" not in push_configuration
     assert "workflow_dispatch:" in workflow
     assert workflow.count("name: API foundation checks") == 1
-    assert workflow.count("run: make api-check") == 1
+    assert workflow.count("run: task api-check") == 1
     assert "scripts/backend_ci_relevance.py" in workflow
     assert "--force-run" in workflow
     assert (
@@ -331,14 +377,14 @@ def test_contributor_commands_and_ci_share_the_api_foundation_contract() -> None
     )
     assert pull_request_trigger
     pull_request_configuration = pull_request_trigger.group("configuration")
-    assert "    paths:" not in pull_request_configuration
+    assert pull_request_configuration.partition("    paths:\n")[2] == push_paths
     assert "    paths-ignore:" not in pull_request_configuration
     assert 'python-version: "3.13"' in workflow
     assert "postgres:17" in workflow
     api_job = yaml_mapping_contents(
         yaml_mapping_contents(workflow, "jobs", 0), "api", 2
     )
-    validation_index = api_job.index("run: make api-check")
+    validation_index = api_job.index("run: task api-check")
     for setup_command in (
         "uv --directory services/api sync --all-groups --locked",
         "uv --directory .semgrep sync --locked",
@@ -351,18 +397,16 @@ OPERATOR_COMMAND = (
     "python manage.py bootstrap_development_operator "
     "--settings=config.settings.production"
 )
-OPERATOR_PROCEDURE = (
-    f"railway ssh --service api --environment development\n{OPERATOR_COMMAND}"
-)
+OPERATOR_PROCEDURE = OPERATOR_COMMAND
 OPERATOR_AUTOMATION_PROHIBITIONS = (
     (
-        "Do not add a Make target or script, set a `DJANGO_SUPERUSER_PASSWORD`, "
-        "configure Railway credential variables, or run the command automatically "
+        "Do not add a task or script, set a `DJANGO_SUPERUSER_PASSWORD`, "
+        "configure credential variables, or run the command automatically "
         "during build, pre-deploy, startup, health checks, or Gunicorn."
     ),
     (
-        "Do not set `DJANGO_SUPERUSER_PASSWORD`, add Railway credential variables, "
-        "create a Make target or script, or run this command automatically in build, "
+        "Do not set `DJANGO_SUPERUSER_PASSWORD`, add credential variables, "
+        "create a task or script, or run this command automatically in build, "
         "pre-deploy, startup, health checks, or Gunicorn."
     ),
 )
@@ -399,32 +443,30 @@ def assert_safe_operator_runbook(runbook: str) -> None:
         for block in command_block_bodies
         for credential in (
             "DJANGO_SUPERUSER_PASSWORD",
-            "RAILWAY_TOKEN",
-            "RAILWAY_API_TOKEN",
+            "RENDER_API_KEY",
         )
     )
-    assert "RAILWAY_TOKEN" not in runbook
-    assert "RAILWAY_API_TOKEN" not in runbook
+    assert "RENDER_API_KEY" not in runbook
     assert runbook.count("DJANGO_SUPERUSER_PASSWORD") == 1
     assert any(
         prohibition in normalized_runbook
         for prohibition in OPERATOR_AUTOMATION_PROHIBITIONS
     )
 
-    assert "bootstrap Railway Development operator" in normalized_runbook
+    assert "bootstrap Render Development operator" in normalized_runbook
     for prohibition in OPERATOR_AUTOMATION_PROHIBITIONS:
         normalized_runbook = normalized_runbook.replace(prohibition, "")
     assert "automatically" not in normalized_runbook
 
 
-def test_railway_operator_documentation_preserves_the_interactive_boundary() -> None:
-    """The documented Railway operator path is canonical and credential-safe."""
+def test_render_operator_documentation_preserves_the_interactive_boundary() -> None:
+    """The documented Render operator path is canonical and credential-safe."""
     readme = (SERVICE_ROOT / "README.md").read_text()
     operations = (
         REPOSITORY_ROOT / "docs/development/backend-delivery-operations.md"
     ).read_text()
     readme_runbook = operator_runbook(
-        readme, "### Railway Development operator", "## Direct Compose usage"
+        readme, "### Render Development operator", "## Direct Compose usage"
     )
     operations_runbook = operator_runbook(
         operations,
@@ -440,10 +482,10 @@ def test_railway_operator_documentation_preserves_the_interactive_boundary() -> 
     assert OPERATOR_PROCEDURE in readme
     assert OPERATOR_PROCEDURE in operations
     for required_guidance in (
-        "copy the exact SSH command from the Railway dashboard",
+        "open the Shell tab of `tailtag-api-dev`",
         "hidden interactive prompts",
         "visible confirmation prompt",
-        "bootstrap Railway Development operator",
+        "bootstrap Render Development operator",
         "No Clerk secret is required.",
         "shell history, logs, issues, pull requests, or committed evidence",
         "ordinary, staff-only, or superuser-only player account",
@@ -456,25 +498,25 @@ def test_railway_operator_documentation_preserves_the_interactive_boundary() -> 
         assert required_guidance in normalized_documentation
 
     assert "Do not set `DJANGO_SUPERUSER_PASSWORD`" in normalized_documentation
-    assert "Railway credential variables" in normalized_documentation
+    assert "credential variables" in normalized_documentation
     assert "run the command automatically" in normalized_documentation
 
 
-def test_railway_operator_runbook_rejects_plausible_unsafe_mutants() -> None:
+def test_render_operator_runbook_rejects_plausible_unsafe_mutants() -> None:
     """Unsafe credential, fence, and automation guidance must fail the contract."""
     readme = (SERVICE_ROOT / "README.md").read_text()
     runbook = operator_runbook(
-        readme, "### Railway Development operator", "## Direct Compose usage"
+        readme, "### Render Development operator", "## Direct Compose usage"
     )
     unsafe_mutants = (
         runbook.replace(
             "No Clerk secret is required.",
-            "No Clerk secret is required. Add a RAILWAY_TOKEN variable in the "
-            "Railway dashboard.",
+            "No Clerk secret is required. Add a RENDER_API_KEY variable in the "
+            "Render dashboard.",
         ),
-        f"{runbook}\n```shell\nRAILWAY_TOKEN\n```\n",
-        f"{runbook}\n```\nRAILWAY_API_TOKEN\n```\n",
-        f"{runbook}\n~~~shell\nRAILWAY_TOKEN\n~~~\n",
+        f"{runbook}\n```shell\nRENDER_API_KEY\n```\n",
+        f"{runbook}\n```\nDJANGO_SUPERUSER_PASSWORD=x\n```\n",
+        f"{runbook}\n~~~shell\nRENDER_API_KEY\n~~~\n",
         f"{runbook}\nRun it automatically during pre-deploy.\n",
     )
 
@@ -484,13 +526,12 @@ def test_railway_operator_runbook_rejects_plausible_unsafe_mutants() -> None:
 
 
 STAGING_OPERATOR_COMMAND = (
-    "python manage.py bootstrap_staging_operator --settings=config.settings.production"
+    "uv --directory services/api run --locked --no-sync python "
+    "../../scripts/api_staging_render_ssh.py managed-create"
 )
-STAGING_OPERATOR_PROCEDURE = (
-    "railway ssh --project 85324de4-be6a-49c3-a3f9-6cac13877849 "
-    f"--service api --environment staging\n{STAGING_OPERATOR_COMMAND}"
-)
-STAGING_OPERATOR_CONFIRMATION = "bootstrap Railway Staging operator"
+STAGING_OPERATOR_PROCEDURE = STAGING_OPERATOR_COMMAND
+STAGING_OPERATOR_TARGET = "`tailtag-api-stg`"
+STAGING_OPERATOR_CONFIRMATION = "bootstrap Render Staging operator"
 OPERATOR_AUDIT_RUNBOOK = (
     REPOSITORY_ROOT / "docs/operations/operator-authorization-audit.md"
 )
@@ -758,7 +799,9 @@ def assert_safe_staging_operator_runbook(runbook: str) -> None:
     """Require the one guarded, interactive Staging provisioning procedure."""
     normalized_runbook = " ".join(runbook.split())
     command_lines = [
-        line for line in runbook.splitlines() if "bootstrap_staging_operator" in line
+        line
+        for line in runbook.splitlines()
+        if "api_staging_render_ssh.py managed-create" in line
     ]
     assert command_lines == [STAGING_OPERATOR_COMMAND]
     command_blocks = re.findall(
@@ -769,13 +812,12 @@ def assert_safe_staging_operator_runbook(runbook: str) -> None:
     operator_command_blocks = [
         body.strip()
         for _, body in command_blocks
-        if "bootstrap_staging_operator" in body
+        if "api_staging_render_ssh.py managed-create" in body
     ]
     assert operator_command_blocks == [STAGING_OPERATOR_PROCEDURE]
 
     for credential_name in (
-        "RAILWAY_TOKEN",
-        "RAILWAY_API_TOKEN",
+        "RENDER_API_KEY",
         "DJANGO_SUPERUSER_PASSWORD",
     ):
         assert credential_name not in runbook
@@ -786,8 +828,7 @@ def assert_safe_staging_operator_runbook(runbook: str) -> None:
     )
     assert not re.search(r"(?i)--(?:password|credential|token)(?:=|\s)", runbook)
 
-    assert "RAILWAY_ENVIRONMENT_NAME=staging" in runbook
-    assert "RAILWAY_SERVICE_NAME=api" in runbook
+    assert STAGING_OPERATOR_TARGET in runbook
     assert re.search(
         r"(?i)(?:hidden|not echoed).{0,100}(?:input|prompt)", normalized_runbook
     )
@@ -1372,20 +1413,14 @@ def test_staging_operator_runbook_rejects_unsafe_documentation_mutants() -> None
         for generic_permission in GENERIC_PERMISSION_CODENAMES_BY_ACTION[action]
     )
     unsafe_mutants = (
-        runbook.replace("--environment staging", "--environment development", 1),
-        runbook.replace(
-            "RAILWAY_ENVIRONMENT_NAME=staging",
-            "RAILWAY_ENVIRONMENT_NAME=development",
-            1,
-        ),
+        runbook.replace(STAGING_OPERATOR_TARGET, "`tailtag-api-dev`", 1),
         runbook.replace(STAGING_OPERATOR_CONFIRMATION, "confirm operator", 1),
         runbook.replace(
             STAGING_OPERATOR_COMMAND,
             f"{STAGING_OPERATOR_COMMAND} --password=not-allowed",
             1,
         ),
-        f"{runbook}\n```shell\nRAILWAY_TOKEN=not-allowed\n```\n",
-        f"{runbook}\n```shell\nRAILWAY_API_TOKEN=not-allowed\n```\n",
+        f"{runbook}\n```shell\nRENDER_API_KEY=not-allowed\n```\n",
         f"{runbook}\n```shell\nDJANGO_SUPERUSER_PASSWORD=not-allowed\n```\n",
         f"{runbook}\n```shell\nOPERATOR_CREDENTIAL=not-allowed\n```\n",
         f"{runbook}\n`is_staff=True` authorizes sensitive operations.\n",
@@ -1648,11 +1683,26 @@ def assert_issue_206_no_go_boundaries(staging_runbook: str) -> None:
 
 
 def issue_206_staging_recovery_section(staging_runbook: str) -> str:
-    """Return the #206 recovery section without constraining adjacent runbooks."""
-    return markdown_section(
-        staging_runbook,
-        r"(?mi)^## Migration and application-image recovery \(#206\)\s*$",
-    )
+    """Return the #206 policy and its Railway-era history, nothing adjacent.
+
+    #412 moved the Railway NO-GO record and rehearsal rules into the History
+    section, so both level-three history records join the policy section.
+    """
+    sections = [
+        markdown_section(
+            staging_runbook,
+            r"(?mi)^## Migration and application-image recovery \(#206\)\s*$",
+        )
+    ]
+    for heading in (
+        "Retired-generation candidate conclusion: NO-GO",
+        "Verified Railway interface and future exact evidence",
+    ):
+        start = staging_runbook.index(f"\n### {heading}\n") + 1
+        following = re.search(r"(?m)^##{1,2}\s+", staging_runbook[start + 4 :])
+        end = start + 4 + following.start() if following else len(staging_runbook)
+        sections.append(staging_runbook[start:end])
+    return "\n".join(sections)
 
 
 def assert_issue_206_railway_rehearsal_procedure(staging_runbook: str) -> None:
@@ -1777,25 +1827,21 @@ def test_issue_206_staging_runbook_rejects_unsafe_rehearsal_mutants() -> None:
     """AC-6/7: misleading pre-deploy, latest, or second-rollback claims fail."""
     staging_runbook = read_required_issue_206_document(ISSUE_206_STAGING_RUNBOOK)
     recovery_section = issue_206_staging_recovery_section(staging_runbook)
-    unsafe_mutants = (
-        recovery_section.replace(
+    replacements = (
+        (
             "PRE_DEPLOY_COMMAND remains **unverified**",
             "PRE_DEPLOY_COMMAND runs during rollback",
-            1,
         ),
-        recovery_section.replace("do not retry blindly", "retry until it succeeds", 1),
-        recovery_section.replace("never `latest`", "use `latest`", 1),
-        recovery_section.replace(
-            "never a second rollback", "use a second rollback for restoration", 1
-        ),
+        ("do not retry blindly", "retry until it succeeds"),
+        ("never `latest`", "use `latest`"),
+        ("never a second rollback", "use a second rollback for restoration"),
     )
 
-    for mutant in unsafe_mutants:
-        assert mutant != recovery_section
+    for safe, unsafe in replacements:
+        assert safe in recovery_section
+        mutant = staging_runbook.replace(safe, unsafe)
         with pytest.raises(AssertionError):
-            assert_issue_206_railway_rehearsal_procedure(
-                staging_runbook.replace(recovery_section, mutant, 1)
-            )
+            assert_issue_206_railway_rehearsal_procedure(mutant)
 
     unrelated_latest = (
         f"{staging_runbook}\n## Unrelated historical promotion note\n"

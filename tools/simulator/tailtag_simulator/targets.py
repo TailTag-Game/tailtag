@@ -94,10 +94,11 @@ async def _read_identity(client: ApiClient, target: Target) -> dict[str, object]
     deployment_id = identity["deployment_id"]
     environment = identity["environment"]
     if target.name == "staging":
+        # Render Staging reports no deploy ID; the relays pin its instance (#411).
         valid = (
             environment == "staging"
             and _is_source_sha(source_sha)
-            and _is_canonical_uuid(deployment_id)
+            and (deployment_id is None or _is_canonical_uuid(deployment_id))
         )
     else:
         valid = (

@@ -13,7 +13,7 @@ The service uses Python 3.13, Django, Django REST Framework, PostgreSQL 17,
 the detailed operating reference for API contributors; the concise fresh-clone
 journey is in [Getting Started](../../docs/development/getting-started.md).
 
-Maintainers operating or recovering the shared Railway development backend
+Maintainers operating or recovering the shared Render development backend
 should use the [backend development delivery operations guide](../../docs/development/backend-delivery-operations.md).
 
 ## Current foundation boundary
@@ -24,7 +24,7 @@ state, and the `fursuits` module owns durable, owner-scoped participating
 character records.
 
 The POC application migrations were intentionally reset. On a clean database,
-`make api-migrate` applies the approved TailTag and Django framework migrations;
+`task api-migrate` applies the approved TailTag and Django framework migrations;
 future TailTag domain migrations require approved feature work. Historical
 Django POC documents remain evaluation evidence and are not current setup
 instructions.
@@ -91,7 +91,7 @@ in place.
 
 Do not deploy this user-model switch to an already-migrated development database
 until maintainers have separately authorized and coordinated its reset or
-transition. The normal `make api-migrate` and Railway pre-deploy migration command
+transition. The normal `task api-migrate` and the Render pre-deploy migration command
 do not perform that operation. This repository contains no production
 environment, and #95 does not authorize any database or environment reset.
 
@@ -154,7 +154,7 @@ metadata; the source byte stream is not retained. Cropping, presentation
 resizing, thumbnails, filters, and alternate renditions are outside V0.
 
 Production uses the private S3-compatible storage backend and fails at startup
-unless all five Railway `api` service variables are present and valid:
+unless all five Render service variables are present and valid:
 
 | Variable | Requirement |
 | --- | --- |
@@ -174,16 +174,20 @@ public bucket URL, presigned upload URL, or direct-to-R2 upload path.
 ### Opt-in live Development storage verification
 
 The only supported live storage check is maintainer-run from the checked-out
-branch:
+branch. Render has no command that copies service variables into a local
+process, so the check runs locally with values that the maintainer enters at
+hidden prompts. The
+[backend development delivery operations guide](../../docs/development/backend-delivery-operations.md#smoke-checks)
+has the exact command block. It ends with:
 
 ```bash
-TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM=run-r2-development-media-storage-smoke \
-railway run --service api --environment development -- make api-media-storage-smoke
+TAILTAG_MEDIA_STORAGE_SMOKE_CONFIRM=run-r2-render-development-media-storage-smoke \
+task api-media-storage-smoke
 ```
 
-It is not part of `make api-check`, application startup, deployment, or
-ordinary CI. The command requires the exact Railway target `development`/`api`,
-the fixed confirmation value above, production Django settings, and
+It is not part of `task api-check`, application startup, deployment, or
+ordinary CI. The command requires the pinned Render Development service ID, the
+fixed confirmation value above, production Django settings, and
 `S3MediaStorage`; it rejects production and any unknown target. It uses only
 synthetic canonical image bytes, verifies upload, existence, a 600-second
 presigned GET with exact byte equality, deletion, and confirmed absence. Its
@@ -209,7 +213,7 @@ authoritative. V0 provides no generalized garbage collection, bucket inventory
 reconciliation, account/fursuit deletion handling, or generic asset-lifecycle
 platform. An application rollback neither restores nor deletes R2 objects.
 
-For the required Railway Development setup, controlled validation, and rollback
+For the required Render Development setup, controlled validation, and rollback
 boundary, follow the [backend development delivery operations guide](../../docs/development/backend-delivery-operations.md).
 
 ## Clerk request authentication and identity resolution (#96/#97)
@@ -222,7 +226,24 @@ configuration is available:
 | --- | --- | --- |
 | `CLERK_AUTHENTICATION_ENABLED` | No; defaults to `false` | Enables Clerk bearer-token verification. |
 | `CLERK_JWT_KEY` | Yes when enabled | Configured Clerk instance JWT public key used for verification. |
-| `CLERK_AUTHORIZED_PARTIES` | Yes when enabled | Comma-separated list of authorized parties. |
+| `CLERK_AUTHORIZED_PARTIES` | Yes when enabled | Comma-separated list of authorized parties. The `azp` rule below uses it. |
+
+The verifier checks the `azp` claim (authorized party, the web origin that asked
+for the token) itself. In Development and Staging, the rule is:
+
+- If a token has an `azp` claim, the value must be in `CLERK_AUTHORIZED_PARTIES`.
+  Otherwise the API returns `401`. This kind of token has no extra lifetime
+  limit. Its `exp` claim still applies.
+- If a token has no `azp` claim, the API accepts it only when `exp - iat` is 60
+  seconds or less. The native mobile app sends tokens of this kind. A longer
+  lifetime gives `401`.
+
+The 60-second limit is the default session-token lifetime of a Clerk instance.
+If a maintainer changes that lifetime in the Clerk dashboard, the
+`_MAX_LIFETIME_WITHOUT_AUTHORIZED_PARTY_SECONDS` constant in
+`authentication/clerk.py` must change in the same release. See the
+[native session-token acceptance spec](../../docs/specs/2026-10-16-native-session-token-acceptance.md)
+and issue [#329](https://github.com/TailTag-Game/tailtag/issues/329).
 
 Verification uses Clerk backend SDK 7.0.0 with the configured instance JWT
 public key and does not make network requests. It does not require, read, or
@@ -285,8 +306,8 @@ remain on the generic `500` path. Public responses do not expose credentials,
 external subjects, SQL, connection information, constraint details, or provider
 internals.
 
-Issue #99 owns reusable and live developer tooling. Issue #100 owns Railway
-validation. This README makes no claim about provider metadata sync, account
+Issue #99 owns reusable and live developer tooling. Issue #100 owns the
+historical Railway validation. This README makes no claim about provider metadata sync, account
 lifecycle, webhooks, or production operations.
 
 ## V0 player profiles
@@ -324,7 +345,7 @@ profile is represented and are never persisted or logged. Profile tests use
 PostgreSQL plus deterministic in-memory or recording media storage and make no
 Clerk or object-storage network requests. `GET /api/me/` remains identity-only,
 returning only the TailTag application-user ID; it is not a profile endpoint.
-There is no Issue #113 Railway profile smoke command.
+There is no Issue #113 live profile smoke command.
 
 ## V0 fursuits
 
@@ -367,7 +388,7 @@ server-generated opaque object keys, short-lived read URLs, and compensating
 cleanup. URLs are generated afresh for every successful player representation
 and are never persisted or logged. PostgreSQL-backed API and concurrency tests,
 with deterministic media fakes where appropriate, are the acceptance boundary;
-this issue introduces no live Railway or object-storage smoke workflow.
+this issue introduces no live hosted or object-storage smoke workflow.
 
 Django admin permits fursuit inspection and per-object `is_enabled` changes
 only. It does not permit fursuit creation, deletion, bulk enablement changes,
@@ -385,7 +406,7 @@ reversal.
 
 ## Complete Wave 2 participation validation
 
-Issue #120 owns the composed Railway Development proof across authentication,
+Issue #120 owns the composed Development proof (recorded on Railway, before the Render move) across authentication,
 profiles, Conventions, enrollment, fursuit media, per-Convention activation,
 catch sessions, and Convention-scoped catch credentials. The maintained
 [Wave 2 participation validation procedure](../../docs/development/wave-2-participation-validation.md)
@@ -396,7 +417,7 @@ records a catch.
 
 ## Complete Wave 3 catching and collection validation
 
-Issue #179 owns the composed Railway Development proof from explicit catch
+Issue #179 owns the composed Development proof (recorded on Railway, before the Render move) from explicit catch
 confirmation through durable Catch persistence, private player
 collection/history, retry and PostgreSQL concurrency integrity, and restricted
 operator correction. The maintained
@@ -415,28 +436,29 @@ having to remember `uv`, Django, or individual quality-tool invocations.
 
 | Command | Purpose | Required state |
 | --- | --- | --- |
-| `make help` | List canonical backend commands. | None. |
-| `make api-setup` | Synchronize locked API and Semgrep dependencies. | `uv` available; does not start services or change schema. |
-| `make api-run` | Run Django on port 8000. | Dependencies, `services/api/.env`, and PostgreSQL available. |
-| `make api-test` | Run PostgreSQL-backed backend tests. | Dependencies, `services/api/.env`, and PostgreSQL available. |
-| `make api-semgrep-check` | Run deterministic TailTag Semgrep security analysis. | Run `make api-setup` first. |
-| `make api-check` | Run complete local pre-PR backend validation. | Dependencies, `services/api/.env`, and PostgreSQL available. |
-| `make api-migrate` | **Apply existing Django migrations.** | Dependencies, `services/api/.env`, and PostgreSQL available; mutates schema. |
-| `make api-migrations` | **Create Django migrations from model changes.** | Dependencies and `services/api/.env`; mutates migration state but does not apply migrations. |
-| `make api-migrations-check` | Check for migration drift. | Dependencies, `services/api/.env`, and PostgreSQL available; does not create migrations. |
-| `make api-shell` | Open the Django shell. | Dependencies, `services/api/.env`, and PostgreSQL available. |
-| `make api-smoke` | HTTP-check an already-running API. | API already running; never starts services or applies migrations. |
-| `make api-auth-smoke` | Manually exercise Clerk Development authentication against `/api/me/`. | Interactive terminal, an already-running approved Development API, and explicitly supplied non-secret smoke-user configuration. Never CI or production. |
+| `task help` | List canonical backend commands. | None. |
+| `task api-setup` | Synchronize locked API and Semgrep dependencies. | `uv` available; does not start services or change schema. |
+| `task api-run` | Run Django on port 8000. | Dependencies, `services/api/.env`, and PostgreSQL available. |
+| `task api-test` | Run PostgreSQL-backed backend tests. | Dependencies, `services/api/.env`, and PostgreSQL available. |
+| `task api-semgrep-check` | Run deterministic TailTag Semgrep security analysis. | Run `task api-setup` first. |
+| `task api-check` | Run complete local pre-PR backend validation. | Dependencies, `services/api/.env`, and PostgreSQL available. |
+| `task api-migrate` | **Apply existing Django migrations.** | Dependencies, `services/api/.env`, and PostgreSQL available; mutates schema. |
+| `task api-migrations` | **Create Django migrations from model changes.** | Dependencies and `services/api/.env`; mutates migration state but does not apply migrations. |
+| `task api-migrations-check` | Check for migration drift. | Dependencies, `services/api/.env`, and PostgreSQL available; does not create migrations. |
+| `task api-schema` | **Regenerate the committed OpenAPI snapshot** `services/api/openapi/schema.yaml`. | Dependencies available; needs no database. `task api-schema-check` (part of `task api-check`) fails when the snapshot is stale. |
+| `task api-shell` | Open the Django shell. | Dependencies, `services/api/.env`, and PostgreSQL available. |
+| `task api-smoke` | HTTP-check an already-running API. | API already running; never starts services or applies migrations. |
+| `task api-auth-smoke` | Manually exercise Clerk Development authentication against `/api/me/`. | Interactive terminal, an already-running approved Development API, and explicitly supplied non-secret smoke-user configuration. Never CI or production. |
 
-`make api-setup` synchronizes the two locked development projects:
+`task api-setup` synchronizes the two locked development projects:
 `services/api/` and the separate non-package `.semgrep/` project. Once setup
-has completed, `make api-semgrep-check` uses locked, no-sync environments to
+has completed, `task api-semgrep-check` uses locked, no-sync environments to
 run the fail-closed fixture-contract preflight, Semgrep's fixture tests, and
 the local blocking scan. It explicitly clears any inherited Semgrep baseline;
 the command is deterministic both normally and with the supported forced
 offline boundary.
 
-`make api-check` runs formatting, linting, strict typing, the Semgrep rule
+`task api-check` runs formatting, linting, strict typing, the Semgrep rule
 tests and local blocking scan, PostgreSQL-backed tests, Django system checks,
 migration-drift detection, OpenAPI validation, and Gunicorn
 production-configuration loading. It neither synchronizes dependencies nor
@@ -453,9 +475,9 @@ scope, and limitation guidance.
 
 ## Authenticated Development API smoke
 
-`make api-auth-smoke` is the only supported live Clerk Development workflow.
+`task api-auth-smoke` is the only supported live Clerk Development workflow.
 It is a manual, interactive Development-only operation: it is not a dependency
-of `make api-check`, `make api-smoke`, ordinary tests, or CI, and it must never
+of `task api-check`, `task api-smoke`, ordinary tests, or CI, and it must never
 be run against or configured for production.
 
 ### One-time Development setup
@@ -468,7 +490,7 @@ Clerk user and that TailTag user are intentional persistent state and must not
 be deleted or recreated by the command.
 
 Set `CLERK_SMOKE_USER_ID` only as a non-secret shell environment value. For a
-non-default Railway destination, set `TAILTAG_DEVELOPMENT_API_BASE_URL` to the
+non-default remote destination, set `TAILTAG_DEVELOPMENT_API_BASE_URL` to the
 exact HTTPS API root. The tool does not automatically load `.env`; export or
 prefix these non-secret values instead. Do not define any Clerk secret in `.env`
 or another configuration source for this helper.
@@ -482,12 +504,14 @@ an authority source. No provider URL, proxy, redirect target, or alternate
 server can be configured by a contributor.
 
 The helper uses the fixed synthetic origin `http://localhost:3000` for every
-Clerk token exchange, including against Railway. Add that exact origin to
-`CLERK_AUTHORIZED_PARTIES` in **both** local and Railway development API
+Clerk token exchange, including against Render. Add that exact origin to
+`CLERK_AUTHORIZED_PARTIES` in **both** local and Render development API
 settings. This is backend tooling, so no frontend needs to listen on port 3000.
 Do not add the synthetic origin to production settings.
 
-### Verified Railway Development runtime
+### Verified Development runtime
+
+This section is a historical record from Railway, before the Render move. It is not a current procedure. The Render values are in the [delivery operations guide](../../docs/development/backend-delivery-operations.md#runtime-variables).
 
 Issue [#100](https://github.com/TailTag-Game/tailtag/issues/100) validated the
 complete Clerk-to-TailTag identity path against Railway Development at revision
@@ -505,9 +529,9 @@ fixed origin identifies the credential-creation context, while
 `API_BASE_URL` identifies the independently validated API destination.
 
 `CLERK_SMOKE_USER_ID` and `TAILTAG_DEVELOPMENT_API_BASE_URL` remain local
-operator/tooling inputs and do not belong in the Railway API runtime. The
+operator/tooling inputs and do not belong in the API runtime. The
 interactive `sk_test_` credential also remains local process-only input and
-must never be configured on Railway. The verified configuration and its
+must never be configured on Render. The verified configuration and its
 operational limitations are maintained in this README and the
 [backend delivery operations guide](../../docs/development/backend-delivery-operations.md).
 
@@ -516,16 +540,16 @@ operational limitations are maintained in this README and the
 With a local API already running at its fixed local target:
 
 ```bash
-CLERK_SMOKE_USER_ID=<opaque-development-user-id> make api-auth-smoke
+CLERK_SMOKE_USER_ID=<opaque-development-user-id> task api-auth-smoke
 ```
 
-For Railway development, both URL variables must name the same exact API root:
+For Render development, both URL variables must name the same exact API root:
 
 ```bash
 API_BASE_URL=https://<exact-development-api-host> \
 TAILTAG_DEVELOPMENT_API_BASE_URL=https://<exact-development-api-host> \
 CLERK_SMOKE_USER_ID=<opaque-development-user-id> \
-make api-auth-smoke
+task api-auth-smoke
 ```
 
 After its credential-free baseline smoke succeeds, the command requires a TTY
@@ -580,54 +604,47 @@ The bounded failure categories are:
 The refined session-token entries are fixed, non-sensitive classifications only.
 Diagnostics never emit raw provider status, body, headers, or identifiers.
 
-## Railway development migrations
+## Render development migrations
 
-The shared Railway `development` API service applies Django migrations through
-its service-level **Pre-Deploy Command**:
-
-```text
-python manage.py migrate --settings=config.settings.production --noinput
-```
-
-This is configured in Railway service settings, not in `railway.toml` or
-`railway.json`. The Django `--settings` option explicitly selects the same
-production settings as Gunicorn. Railway builds the candidate API image, runs
-the command in its pre-deploy container using the API service's existing
-`DATABASE_URL` reference, then starts Gunicorn only when the command exits
-successfully. Railway readiness checks `/health/ready` after the candidate
-application starts.
+The shared Render `development` API service applies Django migrations through
+its pre-deploy command, which `render.yaml` declares:
 
 ```text
-build candidate image
--> run Django migrations in Railway pre-deploy
--> start candidate Gunicorn process
--> Railway readiness check
--> #77 post-deploy HTTP smoke verification
+python -m config.replacement_migrate
 ```
 
-The pre-deploy command runs for each API deployment attempt. A manual redeploy
+The command runs the guarded migration. It prints one word: `PASS`,
+`FAIL_GUARD`, or `FAIL_MIGRATION`. Render builds the new API image, runs the
+command before the new version takes traffic, and keeps the previous version
+serving if the command fails. Render checks `/health/ready` after the new
+version starts.
+
+```text
+build new image
+-> run the guarded migration in Render pre-deploy
+-> start new Gunicorn process
+-> Render readiness check
+-> task api-smoke in the Render Development deploy workflow
+```
+
+The pre-deploy command runs for each API deployment attempt. A redeploy
 is a new attempt and can run it again; Django's migration table normally makes
 already-applied migrations a no-op. This is deliberately not a global
 exactly-once guarantee and does not require distributed locking for V0.
 
 Migrations must remain absent from Docker CMD/entrypoint, Gunicorn and Django
-startup, health/readiness endpoints, and normal local commands such as `make
-api-run`. Local contributors continue to run `make api-migrate` explicitly.
-The Railway pre-deploy container uses the same private Railway database
+startup, health/readiness endpoints, and normal local commands such as `task
+api-run`. Local contributors continue to run `task api-migrate` explicitly.
+The Render pre-deploy command uses the same database
 configuration as the API; do not add a second database URL, expose a public
 PostgreSQL endpoint, or put database credentials in source or logs.
 
-### Railway migration failures and recovery
+### Render migration failures and recovery
 
-A non-zero pre-deploy command fails the candidate deployment before it becomes
-the active application deployment. Inspect the deployment's state and logs in
-the Railway dashboard, or use the Railway CLI without printing service
-variables:
-
-```bash
-railway deployment list --service api --environment development --json
-railway logs <deployment-id> --deployment --lines 200
-```
+A failed pre-deploy command fails the deploy before the new version takes
+traffic. Inspect the deploy's state and log in the Render dashboard, as the
+[delivery operations guide](../../docs/development/backend-delivery-operations.md#find-state-and-logs)
+describes.
 
 Do not blindly redeploy a failed migration. Inspect the migration or
 configuration error, correct it in a reviewed change, run the normal CI checks,
@@ -651,18 +668,18 @@ revisions no longer use the old schema. This is guidance, not a claim that every
 schema change is backward compatible or a mandate for a separate migration
 framework.
 
-The GitHub Actions post-deploy smoke workflow verifies a successful Railway
-development deployment with the same `make api-smoke` contract. It does not
-deploy, migrate, or start the API. The protected `main`-to-development
-delivery chain owns those separate responsibilities.
+The `Render Development deploy` workflow runs the same `task api-smoke`
+contract after each deploy. It does not migrate or start the API. Render owns
+those separate responsibilities.
 
 Use the commands for distinct purposes:
 
-- `./scripts/doctor.sh` diagnoses environment readiness; it does not repair or
-  mutate the environment.
-- `make api-test` is the normal feedback loop while developing.
-- `make api-smoke` verifies an already-running API over HTTP.
-- `make api-check` is the pre-pull-request validation suite.
+- `task doctor` diagnoses environment readiness; it does not repair or mutate
+  the environment. On macOS and Linux, `./scripts/doctor.sh` runs the same
+  checks.
+- `task api-test` is the normal feedback loop while developing.
+- `task api-smoke` verifies an already-running API over HTTP.
+- `task api-check` is the pre-pull-request validation suite.
 
 ## Recommended devcontainer workflow
 
@@ -680,18 +697,18 @@ Its post-create hook synchronizes locked dependencies. It does not apply
 migrations or make schema changes. Inside the devcontainer, run:
 
 ```bash
-./scripts/doctor.sh
-make api-migrate
-make api-run
+task doctor
+task api-migrate
+task api-run
 ```
 
-Leave `make api-run` running. In another terminal, run:
+Leave `task api-run` running. In another terminal, run:
 
 ```bash
-make api-smoke
+task api-smoke
 ```
 
-Use `make api-test` while developing and `make api-check` before a pull request.
+Use `task api-test` while developing and `task api-check` before a pull request.
 Migrations remain explicit after a new, reopened, or rebuilt devcontainer.
 
 ## Supported native workflow
@@ -708,12 +725,12 @@ same canonical commands:
 
 ```bash
 docker compose -f services/api/compose.yaml up -d db
-make api-setup
-make api-migrate
-make api-run
+task api-setup
+task api-migrate
+task api-run
 ```
 
-In a second terminal, use `make api-smoke`. The host connects to the
+In a second terminal, use `task api-smoke`. The host connects to the
 Compose-published database at `127.0.0.1:5432`, as configured by `.env`.
 
 This support boundary excludes host-installed PostgreSQL, SQLite, Python versions
@@ -741,12 +758,12 @@ database state, use the following **destructive** command:
 docker compose -f services/api/compose.yaml down --volumes
 ```
 
-This deletes local PostgreSQL data. Start the database again and run `make
+This deletes local PostgreSQL data. Start the database again and run `task
 api-migrate` explicitly; no workflow automatically recreates schema state.
 
 ## HTTP surfaces
 
-With `make api-run` running, local development surfaces are:
+With `task api-run` running, local development surfaces are:
 
 | URL | Purpose |
 | --- | --- |
@@ -758,13 +775,13 @@ With `make api-run` running, local development surfaces are:
 | `http://127.0.0.1:8000/api/docs/` | Interactive OpenAPI documentation. |
 | `http://127.0.0.1:8000/admin/` | Django development/operational administration. |
 
-`make api-smoke` is the normal HTTP verification path. It requires an already
+`task api-smoke` is the normal HTTP verification path. It requires an already
 running service and checks liveness, readiness, schema, and interactive docs for
 HTTP 200. It defaults to `http://127.0.0.1:8000`; target another running
 environment only when appropriate:
 
 ```bash
-API_BASE_URL=https://example.internal make api-smoke
+API_BASE_URL=https://example.internal task api-smoke
 ```
 
 If `/health/ready` returns `503`, required configuration or PostgreSQL is not
@@ -774,50 +791,46 @@ Liveness remains independent of configuration and database health.
 
 The [Staging preflight](../../docs/development/staging.md) requires the exact
 canonical Staging origin, valid public runtime identity, and successful readiness.
-It needs no Railway credentials or deployment timestamp; exact-deployment operator
+It needs no hosting-provider credentials or deployment timestamp; exact-deployment operator
 correlation remains optional #201 evidence.
 
 ### Post-deploy development verification
 
-`.github/workflows/post-deploy-smoke.yml` reacts to an observed successful
-Railway `deployment_status` event only when the deployment environment is
-`TailTag / development` and its creator is `railway-app[bot]`. It can also be
-run manually without initiating a deployment. Both paths use the non-secret
-repository Actions variable `TAILTAG_DEVELOPMENT_API_BASE_URL` and run the
-canonical `API_BASE_URL=... make api-smoke` command.
+The `Render Development deploy` workflow runs `task api-smoke` after each
+deploy, once `/health/identity` shows the deployed commit. A maintainer can also
+run the workflow by hand with an empty SHA to check the current deploy without
+deploying. Both paths use the non-secret repository Actions variable
+`TAILTAG_DEVELOPMENT_API_BASE_URL` and run the canonical
+`API_BASE_URL=... task api-smoke` command.
 
-The workflow logs the triggering deployment/status identifiers, ref, and public
-target URL, then fails its GitHub Actions job if any smoke endpoint fails. It
-does not print the raw GitHub event, use Railway credentials, provision a
-database, migrate, roll back, redeploy, or stop the service. The deployment
-event identifies what triggered verification; the resulting stable-URL requests
-show that the shared development endpoint met the smoke contract after that
-event, not that each response is provably served by that deployment's SHA.
+The workflow fails its GitHub Actions job if any smoke endpoint fails. It does
+not provision a database, migrate, roll back, or stop the service. A stable-URL
+smoke result proves the HTTP contract after the deploy, not that each response
+is provably served by that deployment's SHA. The identity check covers the SHA.
 
 ### Protected main-to-development delivery
 
-Normal contributor delivery is a composed GitHub and Railway control path:
+Normal contributor delivery is a composed GitHub and Render control path:
 
 1. A contributor opens a pull request. The active `Protect main` ruleset
    requires one approval, resolved review conversations, squash merge, and the
    stable `API foundation checks` status check.
 2. The API workflow runs that one named job on every pull request. Relevant
-   changes run `make api-check`; irrelevant changes take the explicit
+   changes run `task api-check`; irrelevant changes take the explicit
    successful skip path.
 3. A normal merge creates a `main` commit. The same workflow force-runs the
-   canonical `make api-check` contract for that push.
-4. Railway's development `api` service autodeploys only
-   `TailTag-Game/tailtag` `main` commits and has Wait for CI enabled. It
-   waits while GitHub workflows run, skips the candidate when a workflow fails,
-   and proceeds only after they succeed.
-5. Railway runs the existing pre-deploy migration command, checks
-   `/health/ready`, then reports its deployment status. The #77 workflow
-   performs the independent real-HTTP smoke verification after a successful
-   Railway deployment.
+   canonical `task api-check` contract for that push.
+4. For a merge that changes `services/api/**`, the `Render Development deploy`
+   workflow waits until every workflow on the commit passes. It does not deploy
+   after a failed workflow or when a newer backend commit exists. Otherwise it
+   calls the Render deploy hook. Render auto-deploy is off.
+5. Render runs the guarded pre-deploy migration, checks `/health/ready`, and
+   then takes traffic. The workflow waits until `/health/identity` shows the
+   commit, then runs `task api-smoke` against the public API.
 
-Railway watches only `services/api/**` for this service. Its deployment
+The workflow runs only for pushes that change `services/api/**`. Its deployment
 relevance is intentionally narrower than backend CI relevance: a change only to
-the root `Makefile`, `scripts/api_smoke.py`, `.github/workflows/api.yml`,
+the root `Taskfile.yml`, `scripts/api_smoke.py`, `.github/workflows/api.yml`,
 documentation, or frontend code does not rebuild the running API unless an
 approved runtime build change makes that path relevant.
 
@@ -833,20 +846,19 @@ Use the first failing boundary to diagnose delivery:
 | --- | --- |
 | PR cannot merge because backend CI failed | The GitHub `API foundation checks` job. |
 | PR cannot merge because review is incomplete | GitHub ruleset and PR merge requirements. |
-| Railway candidate waits or is skipped | GitHub Actions for the pushed `main` SHA, then the Railway deployment trigger state. |
-| Candidate fails before app startup | Railway pre-deploy migration logs/status. |
-| Candidate build, deploy, or readiness fails | Railway deployment state/logs. |
-| Railway succeeds but API verification fails | The #77 post-deploy smoke workflow run. |
+| The deploy waits or does not start | GitHub Actions for the pushed `main` SHA, then the `Render Development deploy` run. |
+| Deploy fails before app startup | The failed deploy's pre-deploy log in Render. |
+| Deploy build or readiness fails | The failed deploy's state and log in Render. |
+| Render succeeds but API verification fails | The smoke step of the `Render Development deploy` run. |
 
 No automatic rollback occurs. A failed migration, deployment, readiness check,
 or smoke run must be diagnosed through its owning surface before any deliberate
 recovery action.
 
-For revision evidence, match the merged `main` SHA to the push workflow SHA,
-Railway Git-triggered deployment metadata, and the `deployment_status`
-SHA/ref that #77 logs. That metadata proves what Railway deployed. A stable
-development-domain smoke result proves the HTTP contract after that deployment,
-not a cryptographic response-to-SHA binding; record a later superseding
+For revision evidence, match the merged `main` SHA to the push workflow SHA, the
+`Render Development deploy` run, and the commit that `/health/identity` shows.
+A stable development-domain smoke result proves the HTTP contract after that
+deploy, not a cryptographic response-to-SHA binding. Record a later superseding
 deployment as a race limitation rather than adding an application version
 endpoint.
 
@@ -867,7 +879,7 @@ profile or fursuit administration. Convention and catch domain workflows remain
 outside this administrative surface.
 
 Create a development-only Django superuser after PostgreSQL is available. There
-is no canonical Make target for this one Django operation, so use this narrow
+is no canonical task for this one Django operation, so use this narrow
 low-level command from the repository root:
 
 ```bash
@@ -878,15 +890,13 @@ Supply a unique Clerk user ID for the administrative user when prompted, then
 sign in at `http://127.0.0.1:8000/admin/` with that ID and the local admin
 password.
 
-### Railway Development operator
+### Render Development operator
 
-The local procedure above is not the Railway procedure. To establish or recover
-the dedicated operator in Railway **Development**, first copy the exact SSH
-command from the Railway dashboard for the `development` `api` service, or open
-an explicit CLI shell:
+The local procedure above is not the Render procedure. To establish or recover
+the dedicated operator in Render Development, open the Shell tab of
+`tailtag-api-dev` in the Render dashboard and run:
 
 ```text
-railway ssh --service api --environment development
 python manage.py bootstrap_development_operator --settings=config.settings.production
 ```
 
@@ -899,21 +909,20 @@ trying to elevate a player.
 
 Enter the operator identifier and password only through the command's hidden
 interactive prompts. At its visible confirmation prompt, type the exact
-non-secret phrase `bootstrap Railway Development operator`. Never put either
+non-secret phrase `bootstrap Render Development operator`. Never put either
 credential in command arguments, environment variables, shell history, logs,
 issues, pull requests, or committed evidence. No Clerk secret is required. Do
-not add a Make target or script, set a
-`DJANGO_SUPERUSER_PASSWORD`, configure Railway credential variables, or run the
+not add a task or script, set a
+`DJANGO_SUPERUSER_PASSWORD`, configure credential variables, or run the
 command automatically during build, pre-deploy, startup, health checks, or
 Gunicorn.
 
-If the command rejects the target, exit and confirm the Railway workspace,
-project, `development` environment, and `api` service before reconnecting. If
-it rejects the terminal or confirmation, start a real interactive SSH session
-and re-run the command manually. For empty, mismatched, or invalid passwords,
-correct the hidden input and run it again. For a database failure or any
-unexpected refusal, make no account changes by hand; retain only sanitized
-failure details and follow the operations runbook.
+If the command rejects the target, exit and make sure that the Shell belongs
+to `tailtag-api-dev`. If it rejects the terminal or confirmation, use the
+dashboard Shell tab and re-run the command manually. For empty, mismatched,
+or invalid passwords, correct the hidden input and run it again. For a database
+failure or any unexpected refusal, make no account changes by hand; retain only
+sanitized failure details and follow the operations runbook.
 
 ## Direct Compose usage
 
@@ -944,18 +953,18 @@ apply the recovery for the supported workflow.
 
 | Symptom | Likely cause and diagnostic | Safe recovery |
 | --- | --- | --- |
-| `doctor.sh` reports Docker or Compose `FAIL` | Docker CLI is missing, daemon is stopped, or the Compose plugin is unavailable. Re-run `./scripts/doctor.sh` after checking Docker Desktop/Engine. | Install or start a compatible Docker Engine with Compose, then re-run doctor. A missing Dev Container CLI is only a `WARN` when a compatible editor is used. |
-| Devcontainer cannot open or build | Docker/Compose is unhealthy, or `services/api/.env` is missing. Check host `./scripts/doctor.sh` and the editor's devcontainer build output. | Restore Docker/Compose, create `.env` from the template, then rebuild or reopen the container. |
-| Devcontainer post-create dependency sync fails | Locked dependencies could not synchronize. Inside the container, run `./scripts/doctor.sh` to distinguish dependency and database readiness. | Resolve the reported environment problem, then run `make api-setup`; reopen or rebuild only if the editor environment itself is stale. |
+| `task doctor` reports Docker or Compose `FAIL` | Docker CLI is missing, daemon is stopped, or the Compose plugin is unavailable. Re-run `task doctor` after checking Docker Desktop/Engine. | Install or start a compatible Docker Engine with Compose, then re-run doctor. A missing Dev Container CLI is only a `WARN` when a compatible editor is used. |
+| Devcontainer cannot open or build | Docker/Compose is unhealthy, or `services/api/.env` is missing. Check host `task doctor` and the editor's devcontainer build output. | Restore Docker/Compose, create `.env` from the template, then rebuild or reopen the container. |
+| Devcontainer post-create dependency sync fails | Locked dependencies could not synchronize. Inside the container, run `task doctor` to distinguish dependency and database readiness. | Resolve the reported environment problem, then run `task api-setup`; reopen or rebuild only if the editor environment itself is stale. |
 | Django reports missing configuration or an invalid `DATABASE_URL` | `services/api/.env` is missing, incomplete, or malformed. | Recopy the template if appropriate and edit only local values. Do not paste `.env` contents into logs or commit the file. |
 | Database is unreachable or unhealthy | The `db` service is not running or has failed its health check. Run `docker compose -f services/api/compose.yaml ps` and `docker compose -f services/api/compose.yaml logs db`. | Start it with `docker compose -f services/api/compose.yaml up -d db`, then retry the canonical command. |
 | Port 5432 is already in use | Another host process is using the published PostgreSQL port. Check the host process or Compose output. | Stop or reconfigure the conflicting local process; do not substitute a host-installed PostgreSQL workflow. |
-| Port 8000 is already in use | Another Django/API process is still listening. | Stop that process, then rerun `make api-run`; `make api-smoke` must target the API instance you intend to verify. |
-| Migration errors or drift | Existing migrations have not been applied, or model changes need review. | Use `make api-migrate` for existing migrations. Use `make api-migrations-check` to inspect drift; create migrations only with `make api-migrations` when approved work changes models. |
-| `/health/ready` is unavailable or `make api-smoke` fails | The service is not running, PostgreSQL is not ready, or the target URL/status is wrong. Run `make api-smoke` against the running service and inspect `db` status/logs. | Start or repair the intended service/database, then rerun smoke. Use `API_BASE_URL` only for another already-running target. |
-| Local database state must be discarded | The named volume intentionally persists through normal stops and rebuilds. | Use the destructive `down --volumes` command in [PostgreSQL lifecycle](#postgresql-lifecycle), then explicitly run `make api-migrate`. |
+| Port 8000 is already in use | Another Django/API process is still listening. | Stop that process, then rerun `task api-run`; `task api-smoke` must target the API instance you intend to verify. |
+| Migration errors or drift | Existing migrations have not been applied, or model changes need review. | Use `task api-migrate` for existing migrations. Use `task api-migrations-check` to inspect drift; create migrations only with `task api-migrations` when approved work changes models. |
+| `/health/ready` is unavailable or `task api-smoke` fails | The service is not running, PostgreSQL is not ready, or the target URL/status is wrong. Run `task api-smoke` against the running service and inspect `db` status/logs. | Start or repair the intended service/database, then rerun smoke. Use `API_BASE_URL` only for another already-running target. |
+| Local database state must be discarded | The named volume intentionally persists through normal stops and rebuilds. | Use the destructive `down --volumes` command in [PostgreSQL lifecycle](#postgresql-lifecycle), then explicitly run `task api-migrate`. |
 
-`FAIL` from `doctor.sh` means a required condition for the environment it is
+`FAIL` from `task doctor` means a required condition for the environment it is
 checking is absent. `WARN` is advisory and does not cause the command to fail.
 
 ## Validation boundary

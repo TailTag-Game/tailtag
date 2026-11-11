@@ -26,6 +26,8 @@ class Signal(StrEnum):
 class Outcome(StrEnum):
     CREATED = "created"
     ALREADY_CAUGHT = "already_caught"
+    PENDING = "pending"
+    ALREADY_PENDING = "already_pending"
     REJECTED = "rejected"
     RESOLVED = "resolved"
     STARTED = "started"
@@ -49,6 +51,12 @@ class Reason(StrEnum):
     ACTIVATION_INACTIVE = "activation_inactive"
     SESSION_INACTIVE = "session_inactive"
     SESSION_EXPIRED = "session_expired"
+    # Reusable tag preview: the convention has no time zone or a closed window.
+    REQUESTS_UNAVAILABLE = "requests_unavailable"
+    # Catch request protections (#506). A block shares the neutral target 404.
+    BLOCKED = "blocked"
+    COOLDOWN_ACTIVE = "cooldown_active"
+    RATE_LIMITED = "rate_limited"
     # Catch session start rejections.
     OWNER_INELIGIBLE = "owner_ineligible"
     NOT_ENROLLED = "not_enrolled"

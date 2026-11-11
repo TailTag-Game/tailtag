@@ -1,4 +1,4 @@
-"""Acceptance coverage for guarded Railway Staging operator provisioning."""
+"""Acceptance coverage for guarded Render Staging operator provisioning."""
 
 from __future__ import annotations
 
@@ -23,10 +23,18 @@ from django.db import IntegrityError, close_old_connections, connection
 from psycopg import sql
 
 from accounts.models import User
+from tests.process_support import minimal_environment
+from tests.render_target_support import (
+    DEVELOPMENT_SERVICE,
+    STAGING_SERVICE,
+    UNPINNED_SERVICE,
+    pin_render_services,
+    select_render_service,
+)
 
 COMMAND_MODULE = "accounts.management.commands.bootstrap_staging_operator"
 COMMAND_NAME = "bootstrap_staging_operator"
-CONFIRMATION_PHRASE = "bootstrap Railway Staging operator"
+CONFIRMATION_PHRASE = "bootstrap Render Staging operator"
 OPERATOR_GROUP_NAME = "TailTag Field Beta Operators"
 OPERATOR_IDENTIFIER = "operator_staging_205"
 INITIAL_PASSWORD = "railway-staging-operator-password-2026"
@@ -53,7 +61,11 @@ EXPECTED_OPERATOR_PERMISSIONS = {
     "profiles.view_playerprofile",
     "fursuits.set_fursuit_enabled",
     "fursuits.view_fursuit",
+    "fursuits.revoke_fursuit_tag",
+    "fursuits.view_fursuittag",
 }
+TAG_PERMISSIONS = {"fursuits.revoke_fursuit_tag", "fursuits.view_fursuittag"}
+UPGRADED_OUTPUT = "Staging operator reconciled and upgraded.\n"
 API_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -64,7 +76,7 @@ def run_invalid_command_arguments(
     return subprocess.run(
         [sys.executable, "manage.py", COMMAND_NAME, *arguments],
         cwd=API_ROOT,
-        env={"PATH": os.environ["PATH"]},
+        env=minimal_environment(),
         capture_output=True,
         text=True,
         check=False,
@@ -239,7 +251,7 @@ def assert_private_values_absent_from_environment(
 ) -> None:
     """Permit target selection only; never permit hidden command input in env."""
     environment_after = dict(os.environ)
-    target_keys = {"RAILWAY_ENVIRONMENT_NAME", "RAILWAY_SERVICE_NAME"}
+    target_keys = {"RENDER", "RENDER_SERVICE_ID"}
     changed_keys = {
         key
         for key in environment_before.keys() | environment_after.keys()
@@ -256,8 +268,7 @@ def invoke_command(
     *,
     confirmation: str = CONFIRMATION_PHRASE,
     private_inputs: Iterable[str] = (),
-    environment: str | None = "staging",
-    service: str | None = "api",
+    service_id: str | None = STAGING_SERVICE,
     stdin: StringIO | None = None,
     stdout: StringIO | None = None,
     stderr: StringIO | None = None,
@@ -286,14 +297,8 @@ def invoke_command(
         monkeypatch.setattr(sys, "stderr", stderr)
         monkeypatch.setattr("builtins.input", confirmation_input)
         monkeypatch.setattr(command_module.getpass, "getpass", private_input)
-        if environment is None:
-            monkeypatch.delenv("RAILWAY_ENVIRONMENT_NAME", raising=False)
-        else:
-            monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", environment)
-        if service is None:
-            monkeypatch.delenv("RAILWAY_SERVICE_NAME", raising=False)
-        else:
-            monkeypatch.setenv("RAILWAY_SERVICE_NAME", service)
+        pin_render_services(monkeypatch)
+        select_render_service(monkeypatch, service_id)
 
         call_command(COMMAND_NAME, stdout=stdout, stderr=stderr)
     finally:
@@ -468,6 +473,53 @@ def test_bootstrap_reconciles_only_an_existing_exact_managed_operator(
 
 
 @pytest.mark.django_db
+def test_bootstrap_upgrades_an_operator_that_holds_exactly_the_previous_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#504: an operator from before tag revocation gains the two tag permissions."""
+    operator = create_exact_managed_operator()
+    group = operator.groups.get()  # pyright: ignore[reportUnknownMemberType]
+    group.permissions.remove(  # pyright: ignore[reportUnknownMemberType]
+        *[required_permissions()[name] for name in TAG_PERMISSIONS]
+    )
+
+    stdout, stderr = invoke_command(
+        monkeypatch,
+        private_inputs=(OPERATOR_IDENTIFIER, ROTATED_PASSWORD, ROTATED_PASSWORD),
+    )
+
+    assert stdout.getvalue() == UPGRADED_OUTPUT
+    assert stderr.getvalue() == ""
+    assert_exact_managed_operator(operator, ROTATED_PASSWORD)
+
+
+@pytest.mark.django_db
+def test_bootstrap_refuses_an_operator_that_holds_only_part_of_the_previous_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#504: only the exact previous set upgrades. Any other set is refused."""
+    operator = create_exact_managed_operator()
+    group = operator.groups.get()  # pyright: ignore[reportUnknownMemberType]
+    group.permissions.remove(  # pyright: ignore[reportUnknownMemberType]
+        *[
+            required_permissions()[name]
+            for name in (*TAG_PERMISSIONS, "fursuits.view_fursuit")
+        ]
+    )
+    before = stored_account_state(operator)
+    group_permissions = set(group.permissions.values_list("pk", flat=True))  # pyright: ignore[reportUnknownMemberType]
+
+    with pytest.raises(CommandError, match="Existing account cannot be used"):
+        invoke_command(
+            monkeypatch,
+            private_inputs=(OPERATOR_IDENTIFIER, ROTATED_PASSWORD, ROTATED_PASSWORD),
+        )
+
+    assert stored_account_state(operator) == before
+    assert set(group.permissions.values_list("pk", flat=True)) == group_permissions  # pyright: ignore[reportUnknownMemberType]
+
+
+@pytest.mark.django_db
 def test_bootstrap_refuses_to_reconcile_a_named_group_shared_with_another_member(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -603,8 +655,8 @@ def test_concurrent_first_bootstraps_yield_one_exact_staging_operator(
     monkeypatch.setattr(sys, "stdout", shared_terminal)
     monkeypatch.setattr("builtins.input", confirmation_input)
     monkeypatch.setattr(command_module.getpass, "getpass", private_input)
-    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "staging")
-    monkeypatch.setenv("RAILWAY_SERVICE_NAME", "api")
+    pin_render_services(monkeypatch)
+    select_render_service(monkeypatch)
 
     executor: ThreadPoolExecutor | None = None
     try:
@@ -814,20 +866,14 @@ def test_bootstrap_database_failure_rolls_back_identity_and_group_state(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("environment", "service"),
-    (
-        (None, "api"),
-        ("Staging", "api"),
-        ("production", "api"),
-        ("staging", None),
-        ("staging", "API"),
-        ("staging", "worker"),
-    ),
+    "service_id",
+    (None, DEVELOPMENT_SERVICE, UNPINNED_SERVICE),
+    ids=("no-render-markers", "development-service", "unpinned-service"),
 )
-def test_bootstrap_rejects_wrong_or_missing_railway_target_without_mutation(
-    monkeypatch: pytest.MonkeyPatch, environment: str | None, service: str | None
+def test_bootstrap_rejects_wrong_or_missing_render_target_without_mutation(
+    monkeypatch: pytest.MonkeyPatch, service_id: str | None
 ) -> None:
-    """AC-11: only exact Railway Staging api metadata may reach provisioning."""
+    """AC-11: only the pinned Render Staging service may reach provisioning."""
     unrelated = User.objects.create_user("unrelated_staging_target_guard_user")
     refusal_before = stored_provisioning_state(unrelated)
     stdout = TtyStream()
@@ -836,8 +882,7 @@ def test_bootstrap_rejects_wrong_or_missing_railway_target_without_mutation(
     with pytest.raises(CommandError) as error:
         invoke_command(
             monkeypatch,
-            environment=environment,
-            service=service,
+            service_id=service_id,
             stdout=stdout,
             stderr=stderr,
         )

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Final
 
 from django.db import transaction
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from accounts.models import User
@@ -88,15 +89,20 @@ def get_effective_fursuit_catch_session_for_activation(
     return session
 
 
+def unended_fursuit_catch_sessions(
+    *, activation_id: int
+) -> QuerySet[FursuitCatchSession]:
+    """Return an activation's unended sessions, newest first, without locking."""
+    return FursuitCatchSession.objects.filter(
+        activation_id=activation_id, ended_at__isnull=True
+    ).order_by("-started_at", "-id")
+
+
 def get_unended_fursuit_catch_session_for_activation(
     activation: FursuitActivation,
 ) -> FursuitCatchSession | None:
     """Return an activation's one unended session, expired or not, without locking."""
-    return (
-        FursuitCatchSession.objects.filter(activation=activation, ended_at__isnull=True)
-        .order_by("-started_at", "-id")
-        .first()
-    )
+    return unended_fursuit_catch_sessions(activation_id=activation.pk).first()
 
 
 def terminate_for_activation_deactivation(

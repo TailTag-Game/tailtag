@@ -38,14 +38,14 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from accounts.models import User
-from catches.models import Catch
+from catches.models import Catch, CatchBlock, CatchRequest
 from conventions.models import (
     Convention,
     ConventionEnrollment,
     ConventionStatus,
     FursuitActivation,
 )
-from fursuits.models import Fursuit
+from fursuits.models import Fursuit, FursuitTag
 from media import service as media_service
 from profiles.models import PlayerProfile
 from rehearsal.models import StagingResetIdentity
@@ -119,8 +119,11 @@ def start_run() -> Journey:
     # State outside the run that cleanup must never touch.
     bystander_user = create_eligible_user()
     bystander_key = media_service.store_image(image_upload())
-    Fursuit.objects.create(
+    bystander_fursuit = Fursuit.objects.create(
         owner=bystander_user, name="Baseline", photo_key=bystander_key
+    )
+    FursuitTag.objects.create(
+        fursuit=bystander_fursuit, token="k" * 43, created_version=1
     )
     foreign = Convention.objects.create(
         name="Elsewhere",
@@ -151,12 +154,33 @@ def start_run() -> Journey:
         revocation_reason="owner_rotation",
     )
     create_credential(activation=activation, token=TOKEN_B)
+    # A reusable tag on a run fursuit must not block the PROTECT delete.
+    FursuitTag.objects.create(
+        fursuit=activation.fursuit, token="r" * 43, created_version=1
+    )
     Catch.objects.create(
         catcher_user=users[2],
         fursuit=activation.fursuit,
         convention=activation.convention,
         activation=activation,
         catch_session=session,
+    )
+    # A catch request on the run session must not block the PROTECT delete (#505).
+    CatchRequest.objects.create(
+        player=users[2],
+        fursuit=activation.fursuit,
+        convention=activation.convention,
+        activation=activation,
+        catch_session=session,
+        state="pending",
+        requested_at=timezone.now(),
+    )
+    # Nor must a block on the run fursuit (#506).
+    CatchBlock.objects.create(
+        player=users[2],
+        fursuit=activation.fursuit,
+        convention=activation.convention,
+        created_at=timezone.now(),
     )
     journey_photo_key = media_service.store_image(image_upload())
     Fursuit.objects.create(
@@ -194,6 +218,7 @@ def assert_run_removed_and_bystanders_kept(journey: Journey) -> None:
     assert Convention.objects.get() == journey.foreign
     assert ConventionEnrollment.objects.get().user == journey.bystander_user
     assert Fursuit.objects.get().photo_key == journey.bystander_key
+    assert list(FursuitTag.objects.values_list("token", flat=True)) == ["k" * 43]
     assert FursuitActivation.objects.count() == 0
     state = world(slots=False)
     assert (state["sessions"], state["credentials"], state["catches"]) == (0, 0, 0)

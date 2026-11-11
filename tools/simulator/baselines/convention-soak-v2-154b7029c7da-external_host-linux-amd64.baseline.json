@@ -1,0 +1,82 @@
+{
+ "key": {
+  "descriptor_digest": "33e1572c639e216092ded0231ed5422afe0e5ff4cb6c97d002de6b29d989b4a0",
+  "environment": "staging",
+  "execution_context": "external_host:linux/amd64",
+  "plan_digest": "154b7029c7da47c49a9d277a2cba534f7aae851d6be71939798015ba1c66ff2f",
+  "scenario_id": "convention-soak",
+  "scenario_version": 2
+ },
+ "kind": "baseline",
+ "metrics": {
+  "auxiliary": {
+   "error_rate": 0.0,
+   "max": 72.868,
+   "p50": 39.755,
+   "p95": 71.237,
+   "p99": 72.868,
+   "samples": 60,
+   "throughput": 1.8692138151050792,
+   "timeout_rate": 0.0
+  },
+  "confirm": {
+   "error_rate": 0.0,
+   "max": 618.998,
+   "p50": 171.607,
+   "p95": 345.232,
+   "p99": 570.412,
+   "samples": 374,
+   "throughput": 11.65143278082166,
+   "timeout_rate": 0.0
+  },
+  "read": {
+   "error_rate": 0.0,
+   "max": 503.667,
+   "p50": 165.878,
+   "p95": 307.196,
+   "p99": 428.508,
+   "samples": 146,
+   "throughput": 4.5484202834223595,
+   "timeout_rate": 0.0
+  },
+  "resolve": {
+   "error_rate": 0.0,
+   "max": 597.127,
+   "p50": 170.186,
+   "p95": 292.271,
+   "p99": 456.607,
+   "samples": 302,
+   "throughput": 9.408376202695566,
+   "timeout_rate": 0.0
+  },
+  "total": {
+   "error_rate": 0.0,
+   "max": 618.998,
+   "p50": 163.793,
+   "p95": 310.111,
+   "p99": 519.984,
+   "samples": 882,
+   "throughput": 27.477443082044662,
+   "timeout_rate": 0.0
+  }
+ },
+ "rationale": "Reviewed 2026-10-13: first passing nightly soak host run (2026-10-11, simulator 49ee1f4, Staging e8aedd0d). Outcome and correctness passed; no saturation, errors or timeouts. Initial baseline for #230.",
+ "report": {
+  "backend": {
+   "deployment_id": "9359c0a2-4915-42cd-9994-521ce7bc740e",
+   "environment": "staging",
+   "source_sha": "e8aedd0d2b4e0e0787edf6bcafc7fbcbb95d4902"
+  },
+  "dependency_lock_sha256": "c218b2fb441f1016746c100f4b28899b0422585980e934cad5abd76a277dba9f",
+  "execution": {
+   "image_id": "sha256:c7b8f871908e74378e54555e7c8c68aadbbb6e8ed5ebdcce136ccdc8a51f586b",
+   "platform": "linux/amd64"
+  },
+  "run_id": "5ce93331-42f3-47a7-aca5-6fd0cd3523c6",
+  "sha256": "8d81f042d3926153489040246d4cc75151a80ff3fc74e65a4f860b8c1ff0abc8",
+  "simulator_sha": "49ee1f4a120c24df23f366c88627742c657bc8c7",
+  "started_at": "2026-10-11T16:53:29.925857Z"
+ },
+ "schema_version": 1,
+ "supersedes": null
+}

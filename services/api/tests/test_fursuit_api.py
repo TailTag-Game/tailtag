@@ -292,7 +292,7 @@ def test_absent_and_cross_owner_ids_have_no_eligibility_normalization_media_url_
         raise AssertionError("owner-filtered 404 must not perform this side effect")
 
     monkeypatch.setattr(services, "require_fursuit_write_eligible", forbidden)
-    monkeypatch.setattr(services, "update_fursuit_name", forbidden)
+    monkeypatch.setattr(services, "update_fursuit", forbidden)
     monkeypatch.setattr(services, "replace_fursuit_photo", forbidden)
     monkeypatch.setattr(services, "normalize_fursuit_name", forbidden)
     monkeypatch.setattr(media_service, "store_image", forbidden)

@@ -9,8 +9,11 @@ import json
 import os
 import re
 import selectors
+import shutil
 import signal
 import subprocess
+import tarfile
+import tempfile
 import threading
 import time
 import uuid
@@ -110,6 +113,7 @@ def _run(
     timeout_seconds: float = COMMAND_SECONDS,
     cleanup: bool = False,
     deadline: float | None = None,
+    cwd: Path | None = None,
 ) -> str:
     state = None if cleanup else _COMMAND_STATE.get()
     if state is not None and state[0].is_set():
@@ -127,6 +131,7 @@ def _run(
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
+        cwd=cwd,
     )
     output = bytearray()
     completed = False
@@ -512,18 +517,82 @@ def install_runtime(archive: Path, metadata: Path, root: Path) -> Path:
     return runtime
 
 
+def install_operator(
+    archive: Path, archive_sha256: str, source_sha: str, root: Path
+) -> Path:
+    """Extract a verified source archive into a private operator workspace."""
+    if not root.is_absolute() or any(
+        parent.is_symlink() for parent in (root, *root.parents)
+    ):
+        raise SourceRejected()
+    _private(root)
+    if (
+        SHA.fullmatch(source_sha) is None
+        or DIGEST.fullmatch(archive_sha256) is None
+        or _hash(archive) != archive_sha256
+        or read_release(root / "releases" / source_sha / "release.json")[
+            "simulator_sha"
+        ]
+        != source_sha
+    ):
+        raise SourceRejected()
+    operator = root / "operator"
+    workspace = operator / source_sha
+    if workspace.exists() or workspace.is_symlink():
+        raise SourceRejected()
+    operator.mkdir(mode=0o700, exist_ok=True)
+    _private(operator)
+    _private(root / "tools")
+    uv = root / "tools" / "uv"
+    if (
+        uv.is_symlink()
+        or not uv.is_file()
+        or uv.stat().st_uid != os.getuid()
+        or uv.stat().st_mode & 0o077
+    ):
+        raise SourceRejected()
+    staging = Path(tempfile.mkdtemp(prefix=".extract-", dir=operator))
+    installed = False
+    try:
+        try:
+            with tarfile.open(archive) as tar:
+                tar.extractall(staging, filter="data")
+        except tarfile.TarError:
+            raise SourceRejected() from None
+        for path in staging.rglob("*"):
+            if path.is_symlink():
+                raise SourceRejected()
+            path.chmod(0o700 if path.is_dir() else 0o600, follow_symlinks=False)
+        staging.chmod(0o700, follow_symlinks=False)
+        staging.rename(workspace)
+        installed = True
+        _run(
+            [str(uv), "sync", "--project", "services/api", "--locked"],
+            timeout_seconds=TRANSFER_SECONDS,
+            cwd=workspace,
+        )
+    except BaseException:
+        shutil.rmtree(workspace if installed else staging, ignore_errors=True)
+        raise
+    return workspace
+
+
 def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Verify immutable host simulator releases"
     )
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("export", "load", "install-runtime"):
+    for name in ("export", "load", "install-runtime", "install-operator"):
         command = commands.add_parser(name)
         command.add_argument("--archive", type=Path, required=True)
-        command.add_argument("--metadata", type=Path, required=True)
+        if name != "install-operator":
+            command.add_argument("--metadata", type=Path, required=True)
         if name == "export":
             command.add_argument("--image", required=True)
-        if name == "install-runtime":
+        if name == "install-operator":
+            command.add_argument("--archive-sha256", required=True)
+            command.add_argument("--source-sha", required=True)
+        if name in ("install-runtime", "install-operator"):
             command.add_argument("--root", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
@@ -551,6 +620,12 @@ def _main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "install-runtime":
             print(install_runtime(args.archive, args.metadata, args.root))
+        elif args.command == "install-operator":
+            print(
+                install_operator(
+                    args.archive, args.archive_sha256, args.source_sha, args.root
+                )
+            )
         else:
             print(load_release(args.archive, args.metadata))
         return 0

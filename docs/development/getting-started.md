@@ -5,11 +5,11 @@ usable V0 backend development environment. For the detailed backend operating
 reference—including configuration, database lifecycle, commands, and
 troubleshooting—see the [API README](../../services/api/README.md).
 
-For the Flutter contributor environment contract, see [Mobile contributor
-environment](mobile.md). The application scaffold exists at `apps/mobile/`,
-while supported root mobile commands and the complete contributor workflow
-remain assigned to #132 and later validation issues; this guide's backend flow
-is the currently implemented setup.
+For the Flutter app at `apps/mobile/`, see [Mobile contributor
+environment](mobile.md): host-side `task mobile-setup`, `task mobile-check`,
+`task mobile-doctor`, and `task mobile-run DEVICE=<id>`, plus configuration and
+Local/Render Development connectivity. The backend flow below is separate and
+runs in the devcontainer.
 
 The Django/DRF service at `services/api` is a minimal V0 foundation. Historical
 Django POC documents are evaluation evidence, not current setup instructions or
@@ -52,11 +52,15 @@ Run the host diagnostic before opening the backend environment:
 ./scripts/doctor.sh
 ```
 
-On the host, `doctor.sh` checks the repository, Docker, Compose, and an
-optionally detectable Dev Container CLI. It does not require host Python, `uv`,
-or PostgreSQL. `FAIL` identifies a required condition that prevents the intended
-workflow; `WARN` is advisory. The script diagnoses the environment only—it does
-not install dependencies, start services, or repair configuration.
+On the host, doctor checks the repository, Docker, Compose, and an optionally
+detectable Dev Container CLI. It does not require PostgreSQL or a project
+environment. It is a Python script: `./scripts/doctor.sh` (macOS and Linux)
+runs it with `uv` when installed, else `python3` 3.9 or newer, and otherwise
+prints an install hint. If go-task and `uv` are installed, `task doctor` runs
+the same checks on any host, including native Windows. `FAIL` identifies a
+required condition that prevents the intended workflow; `WARN` is advisory.
+Doctor diagnoses the environment only—it does not install dependencies, start
+services, or repair configuration.
 
 ## Configure the backend environment
 
@@ -82,62 +86,134 @@ post-create setup synchronizes dependencies but does not apply migrations.
 Inside the devcontainer, confirm the backend environment:
 
 ```bash
-./scripts/doctor.sh
+task doctor
 ```
 
 Then use the canonical repository-root commands to prepare and verify the API:
 
 ```bash
-make api-migrate
-make api-run
+task api-migrate
+task api-run
 ```
 
-Leave `make api-run` running. In another devcontainer terminal, verify the
+Leave `task api-run` running. In another devcontainer terminal, verify the
 running service:
 
 ```bash
-make api-smoke
+task api-smoke
 ```
 
 During development, run:
 
 ```bash
-make api-test
+task api-test
 ```
 
 Before opening or updating a pull request, run:
 
 ```bash
-make api-check
+task api-check
 ```
 
 Migrations are always explicit; neither opening the devcontainer nor running
-`doctor.sh` applies them. The [Devcontainer](../../services/api/README.md#recommended-devcontainer-workflow),
+`task doctor` applies them. The [Devcontainer](../../services/api/README.md#recommended-devcontainer-workflow),
 [HTTP surfaces](../../services/api/README.md#http-surfaces), and [canonical
 commands](../../services/api/README.md#canonical-backend-commands) sections
 explain the expected outcomes and operating details.
 
 ## Secondary supported path: native Django with Compose PostgreSQL
 
-The supported native alternative is deliberately narrow: host Python 3.13 and
-`uv`, plus Docker with the Compose plugin. PostgreSQL 17 is supplied by this
+The supported native alternative is deliberately narrow: host Python 3.13,
+`uv`, and [go-task](https://taskfile.dev), plus Docker with the Compose plugin. PostgreSQL 17 is supplied by this
 repository's Compose `db` service; Django runs on the host and consumes
 `services/api/.env`.
 
-Start the database service, then use the same root `make api-*` commands shown
+Start the database service, then use the same root `task api-*` commands shown
 above:
 
 ```bash
 docker compose -f services/api/compose.yaml up -d db
-make api-setup
-make api-migrate
-make api-run
+task api-setup
+task api-migrate
+task api-run
 ```
 
 This is not support for host-installed PostgreSQL, SQLite, other Python
 versions, or arbitrary environment managers. See [Supported native
 workflow](../../services/api/README.md#supported-native-workflow) for the
 configuration and lifecycle details.
+
+### Native Windows
+
+The same native path works from PowerShell on Windows, with no Git Bash or
+other POSIX shell. Install `uv`, go-task 3.54.0, and Docker Desktop, then run
+the same commands from the repository root:
+
+```powershell
+docker compose -f services/api/compose.yaml up -d db
+task api-setup
+task api-check
+```
+
+The local API commands (`api-migrate`, `api-migrations`, `api-run`,
+`api-shell`, and `api-smoke`) work the same way, as do the offline simulator
+commands: `sim-setup`, `sim-check`, `sim-report-validate`, and
+`sim-report-trend`. `task doctor` and the mobile commands (`mobile-setup`,
+`mobile-check`, and `mobile-doctor`) also run natively; the mobile commands
+need FVM and the pinned Flutter SDK (see [Mobile contributor
+environment](mobile.md)), and iOS targets still need macOS with Xcode. CI runs
+`mobile-setup`, `mobile-check`, and `mobile-doctor` natively on Windows on every
+pull request, with no device attached. `task doctor`'s host checks and
+`mobile-run` are covered by tests rather than run as commands there.
+`sim-report-evaluate` and `sim-baseline-promote` also run natively;
+CI exercises their code through the simulator tests rather than as commands,
+because they need a real archived run report. `sim-smoke` should also work,
+but it has not yet been run against a live API on Windows.
+
+A few checks differ visibly on Windows:
+
+- `api-gunicorn-check` prints a `SKIP` line, because Gunicorn runs only on
+  Unix. CI checks the production Gunicorn configuration on Linux.
+- `sim-host-bootstrap-check`, part of `sim-check`, prints a `SKIP` line,
+  because `bootstrap.sh` provisions an Ubuntu host and its syntax check needs
+  bash. CI checks it on Linux.
+- `api-test` and the simulator tests do not collect the POSIX-only operator
+  and host tooling modules (pty and termios sessions, SSH relays, the host
+  runner). The pytest header lists them. A few individual tests are skipped
+  with a stated reason.
+- `sim-host-collect`,
+  `sim-host-release-export`, and `sim-host-release-load` print
+  `FAIL  The simulation host workflow needs macOS or Linux (WSL works)` and
+  fail. That workflow uses `fcntl`
+  locks, and walks evidence trees with directory descriptors, so it has no
+  faithful Windows equivalent. See [External Staging simulation
+  host](../operations/simulation-host.md).
+
+#### Staging operator and simulator Staging tasks
+
+These tasks also run natively on Windows: the `sim-pool-*` tasks, `sim-fixture-smoke`, `sim-journeys`,
+`sim-convention`, `sim-cleanup`, `sim-retained`, and `sim-image`. Windows CI
+exercises their file-access checks and process-tree cleanup with local files
+and fake commands. It does not run a live Staging simulation, so those runs are
+not verified on Windows.
+
+- **Private files.** The tooling reads Staging secrets and bindings only from
+  owner-only files. On Windows that means the owner is you, and the only
+  access entries belong to you, `SYSTEM`, and `Administrators`; any other
+  account or group, and any symlink or junction, is refused. Files the tooling
+  creates get exactly that access list. The setup is in [Windows operator
+  setup](staging.md#windows-operator-setup).
+- **Checkout location.** Clone TailTag under `%USERPROFILE%`, for example
+  `$HOME\repos\tailtag`, and keep `uv` and its cache in their default per-user
+  locations. Do not use a folder under a drive root such as `C:\src` unless no
+  other account can write to it: these tasks run Python from the checkout and
+  its virtual environment, so anyone who can write there can run code as you.
+  The tooling does not check this.
+- **Docker.** The restore drill accepts only a local Docker named pipe
+  (`npipe:////./pipe/<name>`, which Docker Desktop uses) on Windows.
+- **Still POSIX-only.** Operator scripts that no task runs stay POSIX-only, as
+  do their tests: the operator matrix, managed-auth diagnosis, password
+  rotation, the emergency operator, and restart.
 
 ## Contribute changes
 

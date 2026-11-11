@@ -6,7 +6,7 @@ import dataclasses
 from collections.abc import Callable, Mapping
 from typing import Final, cast
 
-from simulation_pool import services
+from simulation_pool import services, target
 
 _IDENTITY_KEYS: Final = frozenset({"source_sha", "deployment_id", "environment"})
 _REQUEST_KEYS: Final = frozenset({"operation", "pool", "identity", "arguments"})
@@ -62,23 +62,13 @@ _OPERATIONS: Final[dict[str, tuple[frozenset[str], _Operation]]] = {
 }
 
 
-def _response(result: str, data: _Data | None = None) -> dict[str, object]:
-    return {"result": result, "data": data or {}}
-
-
-def _target_matches(
-    identity: Mapping[str, object],
-    runtime_identity: Mapping[str, object],
-    environ: Mapping[str, str],
-) -> bool:
-    return (
-        environ.get("RAILWAY_ENVIRONMENT_NAME") == "staging"
-        and environ.get("RAILWAY_SERVICE_NAME") == "api"
-        and identity.get("environment") == "staging"
-        and isinstance(identity.get("source_sha"), str)
-        and isinstance(identity.get("deployment_id"), str)
-        and dict(runtime_identity) == dict(identity)
-    )
+def _response(
+    result: str, data: _Data | None = None, instance: str | None = None
+) -> dict[str, object]:
+    response: dict[str, object] = {"result": result, "data": data or {}}
+    if instance is not None:
+        response["instance"] = instance
+    return response
 
 
 def execute(
@@ -102,28 +92,34 @@ def execute(
     typed_identity = cast(Mapping[str, object], identity)
     if frozenset(typed_identity) != _IDENTITY_KEYS:
         return _response("FAIL_REQUEST")
-    if not _target_matches(typed_identity, runtime_identity, environ):
+    try:
+        instance = target.check(
+            typed_identity, runtime_identity, environ, fields.get("expected_instance")
+        )
+    except target.TargetRefused:
         return _response("FAIL_TARGET")
     operation = fields.get("operation")
     arguments = fields.get("arguments")
     pool = fields.get("pool")
     if (
-        frozenset(fields) != _REQUEST_KEYS
+        frozenset(fields) - {"expected_instance"} != _REQUEST_KEYS
         or not isinstance(operation, str)
         or operation not in _OPERATIONS
         or not isinstance(pool, str)
         or not isinstance(arguments, Mapping)
     ):
-        return _response("FAIL_REQUEST")
+        return _response("FAIL_REQUEST", instance=instance)
     names, run = _OPERATIONS[operation]
     typed_arguments = cast(Mapping[str, object], arguments)
     if frozenset(typed_arguments) != names:
-        return _response("FAIL_REQUEST")
+        return _response("FAIL_REQUEST", instance=instance)
     try:
-        return _response("PASS", run(pool, typed_arguments))
+        return _response("PASS", run(pool, typed_arguments), instance)
     except ValueError:
-        return _response("FAIL_REQUEST")
+        return _response("FAIL_REQUEST", instance=instance)
     except services.InsufficientPool as shortage:
-        return _response("FAIL_INSUFFICIENT", {"available": shortage.available})
+        return _response(
+            "FAIL_INSUFFICIENT", {"available": shortage.available}, instance
+        )
     except (services.SlotNotLeased, services.UnknownSlot):
-        return _response("FAIL_SLOT")
+        return _response("FAIL_SLOT", instance=instance)

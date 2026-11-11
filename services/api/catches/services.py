@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import logging
 from dataclasses import dataclass
 from enum import StrEnum
@@ -201,6 +202,7 @@ def confirm_catch(user: User, *, payload: str) -> CatchConfirmationResult:
                     convention_id=convention_id,
                     activation_id=activation_id,
                     catch_session_id=session.pk,
+                    caught_at=now,
                 )
         except IntegrityError as error:
             if _constraint_name(error) != _CATCH_UNIQUE_CONSTRAINT:
@@ -216,6 +218,8 @@ def confirm_catch(user: User, *, payload: str) -> CatchConfirmationResult:
                 winner, CatchConfirmationStatus.ALREADY_CAUGHT
             )
 
+        # The response projects the fursuit; reuse the row already locked above.
+        catch.fursuit = fursuit
         return CatchConfirmationResult(catch, CatchConfirmationStatus.CREATED)
 
 
@@ -290,11 +294,15 @@ def _profile_is_eligible(profile: PlayerProfile | None) -> bool:
 def _find_existing_catch(
     *, catcher_user_id: int, fursuit_id: int, convention_id: int
 ) -> Catch | None:
-    return Catch.objects.filter(
-        catcher_user_id=catcher_user_id,
-        fursuit_id=fursuit_id,
-        convention_id=convention_id,
-    ).first()
+    return (
+        Catch.objects.filter(
+            catcher_user_id=catcher_user_id,
+            fursuit_id=fursuit_id,
+            convention_id=convention_id,
+        )
+        .select_related("fursuit")
+        .first()
+    )
 
 
 def _insert_catch(
@@ -304,13 +312,17 @@ def _insert_catch(
     convention_id: int,
     activation_id: int,
     catch_session_id: int,
+    caught_at: datetime.datetime,
 ) -> Catch:
+    # A v1 catch is approved when it is caught, so both times share one value.
     return Catch.objects.create(
         catcher_user_id=catcher_user_id,
         fursuit_id=fursuit_id,
         convention_id=convention_id,
         activation_id=activation_id,
         catch_session_id=catch_session_id,
+        caught_at=caught_at,
+        approved_at=caught_at,
     )
 
 

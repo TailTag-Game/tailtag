@@ -2,6 +2,8 @@
 
 This runbook implements the [approved #228 contract](../specs/2026-10-08-external-simulation-host.md) and [implementation plan](../specs/2026-10-08-external-simulation-host-implementation-plan.md). The [native Staging proof](../specs/2026-10-10-external-simulation-host-staging-proof.md) records completed live normal, controlled-stop and public-path milestones; private provider inventory remains pending. Local implementation and offline verification alone do not establish live acceptance. Provisioning and Staging traffic require separate explicit authorization; do not close #228 until the external evidence below is collected. CI validates/builds only and never starts sustained load.
 
+The Mac side of the host workflow (`sim-host-collect`, `sim-host-release-export`, `sim-host-release-load`) needs macOS or Linux on the maintainer machine; WSL works. It uses `fcntl` locks and walks evidence trees with directory descriptors. On native Windows these tasks print `FAIL  The simulation host workflow needs macOS or Linux (WSL works)` and fail. `sim-image` and the offline simulator tasks run natively on Windows. Runs start on the host itself, in a [host operator session](#host-operator-session).
+
 ## Host selection and private inventory
 
 The provisioned host uses the maintainer-approved override: **DigitalOcean RIC1, v5, 2 vCPUs, 4 GiB RAM, 30 GiB disk**, at **US$0.052/hour**, with a **US$40/month before-tax operating budget**. This supersedes the original NYC3/80-GiB, US$24/month proposal and US$30/month operating budget. The original proposal and research remain historical evidence in the implementation plan. Plan class, transfer allowance and billing ownership are not established by this override; retain verified provider details in private inventory. Review metered usage and potential overage after each milestone. No paid add-ons, automatic resizing, additional paid service, registry, scheduled workload or automatic restart is approved. Further provisioning or a host/budget change requires separate authorization.
@@ -19,7 +21,9 @@ Bootstrap is secret-free. Its supported Docker packages are fixed, with no lates
 
 Use the official signed Docker apt repository. Host control uses owner-local uv **0.9.17**, whose official amd64 archive SHA-256 is `0114d54f9aafd07516cf1cadfe72afa970f5fd293fbe82dd924b8a7b42c984d8`, and managed CPython **3.13.11** from that uv release's checksum-bound metadata. Ubuntu's system Python remains unchanged. Record installed OS/kernel, Docker, uv, Python and locked dependency versions. The [plan's pinned upstream sources](../specs/2026-10-08-external-simulation-host-implementation-plan.md#task-3-host-admission-artifacts-and-immutable-releases-u3) explain these choices; package availability is mutable and upgrades require a deliberate reviewed pin update between runs.
 
-Disable disk-backed swap, kernel/process core dumps and terminal recording before credential entry. Verify `swapon --show` is empty, `ulimit -c` is zero in the operator session, and `/proc/sys/kernel/core_pattern` is exactly `|/bin/false`; Docker also applies core limit zero. Host prepare/run require Linux amd64 and a nonroot owner. CI configures these same swap/core settings only on its disposable Ubuntu 24.04 runner so the real Linux admission/signal test runs without bypassing policy; it starts no hosted load. Do not run `script`, record a raw TTY, enable shell tracing around prompts, or retain unsanitized diagnostic transcripts. Docker uses logging driver `none`. Clerk secrets are hidden interactive inputs only; no arguments, environment variables, files or image layers carry them. Railway/platform credentials and their existing relay configuration remain exclusively on the maintainer machine.
+Disable disk-backed swap, kernel/process core dumps and terminal recording before credential entry. Verify `swapon --show` is empty, `ulimit -c` is zero in the operator session, and `/proc/sys/kernel/core_pattern` is exactly `|/bin/false`; Docker also applies core limit zero. Host prepare/run require Linux amd64 and a nonroot owner. CI configures these same swap/core settings only on its disposable Ubuntu 24.04 runner so the real Linux admission/signal test runs without bypassing policy; it starts no hosted load. Do not run `script`, record a raw TTY, enable shell tracing around prompts, or retain unsanitized diagnostic transcripts. Docker uses logging driver `none`. Clerk secrets are hidden interactive inputs only; no arguments, environment variables, files or image layers carry them.
+
+Render credentials exist on the host only during an attended [host operator session](#host-operator-session). During a session, the host holds one per-session SSH key that Render accepts. Nothing remains on the host outside a session. The [Render trust rules](#trust-and-compromise) cover a compromised host. The workload container runs as the same Linux user as the session. A separate container user is required before Production shares this Render account.
 
 Keep a private SSH configuration, for example:
 
@@ -32,11 +36,9 @@ Host tailtag-sim
     ForwardAgent no
     StrictHostKeyChecking yes
     UserKnownHostsFile <private-known-hosts-path>
-    ExitOnForwardFailure yes
-    StreamLocalBindUnlink no
 ```
 
-Verify the host key fingerprint through the provider console or another independently trusted channel before adding it to known_hosts. `ssh-keyscan` alone does not authenticate a key. Protect configuration/key/inventory files with owner permissions. Do not bypass a changed key warning. The operator adds two run-private reverse Unix-socket forwards. Bootstrap sets `AllowTcpForwarding remote` with `PermitListen none` and `AllowStreamLocalForwarding remote`: Ubuntu 24.04/OpenSSH 9.6 admits the remote Unix channel while remote TCP listeners and local TCP forwarding are refused. Agent forwarding and tunnels remain disabled; socket mask 0177, unlink refusal and TTY access are preserved.
+Verify the host key fingerprint through the provider console or another independently trusted channel before adding it to known_hosts. `ssh-keyscan` alone does not authenticate a key. Protect configuration/key/inventory files with owner permissions. Do not bypass a changed key warning. Bootstrap turns off all forwarding for the owner with `DisableForwarding yes` (TCP, stream-local, agent and X11) and `PermitTunnel no`. TTY access stays on for the host operator session. Runs bind their bridge sockets locally on the host, so no session needs forwarding.
 
 ## Immutable release handoff
 
@@ -44,12 +46,12 @@ Use a clean, verified contributor checkout and the locked simulator environment.
 
 ```sh
 SIM_REPO_ROOT="$PWD"
-make sim-image PLATFORM=linux/amd64
+task sim-image PLATFORM=linux/amd64
 IMAGE_ID="$(docker image inspect --format '{{.Id}}' tailtag-simulator:local)"
 umask 077
 mkdir -p "$HOME/.local/state/tailtag-host-transfer"
 TRANSFER="$HOME/.local/state/tailtag-host-transfer"
-make sim-host-release-export IMAGE_ID="$IMAGE_ID" \
+task sim-host-release-export IMAGE_ID="$IMAGE_ID" \
   ARCHIVE="$TRANSFER/simulator.tar" RELEASE="$TRANSFER/release.json"
 ```
 
@@ -115,9 +117,9 @@ HOST_PY="$HOST_ROOT/releases/$SIMULATOR_SHA/.venv/bin/python"
 
 `install-runtime` verifies the new trusted archive/source and performs locked no-dev sync. Select the new `SIMULATOR_SHA`, runtime and fresh prepare/run only after installation succeeds. Preserve the previous approved release for rollback; a failed installation does not change the selected release or authorize traffic.
 
-Bootstrap prints the exact installed host Python path and records package/uv/Python versions in `/srv/tailtag-simulator/tools/versions.txt`. Incoming archive/metadata must remain readable by the dedicated owner. No repository clone, GitHub credential, Railway credential or maintainer home directory is transferred. Installation failures prevent host readiness; a local bootstrap review does not establish that installation on an unprovisioned VM succeeded.
+Bootstrap prints the exact installed host Python path and records package/uv/Python versions in `/srv/tailtag-simulator/tools/versions.txt`. Incoming archive/metadata must remain readable by the dedicated owner. No repository clone, GitHub credential, Render credential or maintainer home directory is transferred. Installation failures prevent host readiness; a local bootstrap review does not establish that installation on an unprovisioned VM succeeded.
 
-## Profile preparation and foreground execution
+## Profiles and run supervision
 
 The checked-in profile wrappers have exactly `scenario_id`, `scenario_version`, `seed`, and `configuration`. They are preparation examples, with pool `host228`: select an already provisioned, approved Staging synthetic pool in a private copy before prepare. Do not edit the manifest after preparation or put pool/credential inventory in the repository.
 
@@ -130,44 +132,155 @@ The [operations guide](simulation-operations.md#profile-assumptions) lists the f
 
 Traffic uses existing finite scheduler semantics, so realized starts, concurrency and completion can differ from the target. Both profiles cap ordinary in-flight requests at ten. The normal profile explicitly sets `configuration.limits.attempts=9000`: this is a per-request execution attempt budget, not a ten-requests-per-second target. Its active mode selects ten actors; each journey can issue multiple requests. The approved `limits.generation_seconds=360` includes owner preparation and scheduling overhead around the unchanged 300-second traffic schedule. It is a ceiling, not a six-minute traffic schedule; request and safety budgets are unchanged. `host/safety.json` is a separate safety policy: 900 seconds for setup/execution and 600 seconds shared finalization reserve, 10,000 public execution attempts, 1,000 finalization attempts and at most 50 identities. The five-minute traffic window therefore has setup/drain margin; it is not the entire wall-runtime budget. A reserved control request slot is additional to the ten ordinary requests. Host admission refuses limits beyond 50 identities, ten actors/in-flight requests or 900+600 seconds; health, lease renewals and RPC activity never renew those deadlines.
 
-Shared Staging setup waits asynchronously for four seconds between completed identity attempts, including failed attempts, before the next identity lookup and fresh single-use ticket mint. There is no initial or trailing wait. Twenty identities add 76 seconds of setup waiting; the 300-second workload window, scheduling, request budgets, deadlines, lease TTL and finalization reserve remain unchanged. Host lease renewal continues during the wait, and cancellation, deadline or target veto still stops setup under existing recovery rules. Each identity receives only one attempt.
+Shared Staging setup waits asynchronously for four seconds between completed identity attempts, including failed attempts, before the next identity lookup and fresh single-use ticket mint. Each identity receives only one attempt. There is no initial or trailing wait. Twenty identities add 76 seconds of setup waiting; the 300-second workload window, scheduling, request budgets, deadlines, lease TTL and finalization reserve remain unchanged. Host lease renewal continues during the wait, and cancellation, deadline or target veto still stops setup under existing recovery rules. Renewal tolerates up to two consecutive transient heartbeat relay failures and retries each on the next 60 s tick. A third consecutive failure, or a reply that shows a lost lease, ends the run with `FAIL_LEASE`.
 
 The native diagnostic run observed HTTP 429 at `frontend_sign_in` for the final five identities. [Clerk's system limits](https://clerk.com/docs/guides/how-clerk-works/system-limits) document an IP-based frontend limit and a CreateSignIn `/v1/sign_ins` limit of five requests per ten seconds. The simulator uses the legacy `/v1/client/sign_ins` route, so its precise rejecting limiter/window remains unknown. Four-second spacing is a conservative mitigation. Both subsequently authorized native milestones completed setup without a 429; see the [live proof](../specs/2026-10-10-external-simulation-host-staging-proof.md). These observations do not establish the unidentified provider limit or guarantee future admission. A subsequent 429 remains a setup failure and requires targeted provider-limit investigation before another workload.
 
-On the maintainer machine, confirm the existing Railway relay environment and owner manifest are ready, without exporting them to the VPS. Use an interactive terminal with recording disabled. Create an owner-private profile copy, then edit its pool to the already provisioned approved pool before preparing. Keep this copy outside Git; use the private copy for both profile selection and later evidence.
+Each workload runs in a [host operator session](#host-operator-session). `host_operator prepare` verifies the current public Staging identity twice, resolves configuration and safety, validates the release metadata, generates a fresh UUID and writes an owner-only manifest without changing Staging. `host_operator run-local` then runs `host_runner prepare`, binds the run's bridge sockets, runs `host_runner run` as a child process, and resolves the hold with the bridge receipt. A manifest UUID is used once. Each workload needs a fresh `prepare`. The bridge invokes only the fixed pool, fixture and inspection relays. Setup authority is finite: one allocation, one provision attempt, the exact manifest pool, run and index partitions, and bounded inspection and terminal operations. A target mismatch permanently revokes the bridge, including cleanup and release.
 
-```sh
-cp "$SIM_REPO_ROOT/tools/simulator/host/normal-profile.json" "$TRANSFER/normal-profile.json"
-chmod 0600 "$TRANSFER/normal-profile.json"
-```
-
-Prepare verifies the current public Staging identity twice using the existing target checker, resolves configuration/safety, validates release metadata, generates a fresh UUID, and writes an owner-only immutable manifest without mutating Staging:
-
-```sh
-make sim-host-prepare PROFILE="$TRANSFER/normal-profile.json" \
-  SAFETY_CONFIG="$SIM_REPO_ROOT/tools/simulator/host/safety.json" \
-  RELEASE="$TRANSFER/release.json" MANIFEST="$TRANSFER/manifest.json"
-make sim-host-run MANIFEST="$TRANSFER/manifest.json" HOST=tailtag-sim \
-  HOST_ROOT=/srv/tailtag-simulator
-```
-
-These Make wrappers invoke the frozen `host_operator prepare --profile --safety-config --release --output` and `run --manifest --host --host-root` CLI. `sim-host-release-export` invokes `host_release export --image --archive --metadata`; `sim-host-release-load ARCHIVE=path RELEASE=path` invokes the same verified `load --archive --metadata` implementation on a machine with Docker. All parameters are secret-free paths, an SSH alias or an immutable image ID. Prefer absolute values for every new Make path parameter (`PROFILE`, `SAFETY_CONFIG`, `RELEASE`, `MANIFEST`, `ARCHIVE`, `STATE_DIR`, `HOST_ROOT`): the wrappers use `uv --directory tools/simulator`, so relative CLI paths are evaluated from `tools/simulator`, not the caller's repository-root shell. `make sim-host-bootstrap-check` checks Bash syntax without executing bootstrap and is part of canonical `make sim-check`; simulator CI runs that check and builds explicitly for `linux/amd64`, never executes load.
-
-Use a private profile copy when changing the pool. The default local operator state directory is `~/.local/state/tailtag-simulator`; optional `STATE_DIR=path` on `sim-host-run` (CLI `--state-dir PATH`) chooses another owner-private directory. It writes `<UUID>.used.json` before opening SSH and `<UUID>.bridge.json` after revoking workload and joining bridge-owned operations. Both are owner-only closed JSON evidence, with file/parent-directory fsync. The bridge record contains bounded dispatch/attempt/outcome and acknowledgement/uncertainty state, never raw requests or provider details. Preserve and archive these files alongside the original manifest; preserve used-UUID markers even after completion. A completed, interrupted or crashed manifest cannot reopen a session. Each subsequent workload uses `prepare` and a new manifest/UUID; no automatic restart or allocation retry is provided. `--unattended` remains refused. Later scheduling needs separately approved noninteractive authentication, overlap prevention, automated resource-abort policy and schedule-disable/recovery controls; these are outside this issue.
-
-The foreground operator owns the bridge and attached SSH child. It selects the absolute host control Python at `root/releases/<simulator_sha>/.venv/bin/python`, then sends the manifest over a bounded separate SSH control command to `host_runner prepare --root ABSOLUTE_PATH --manifest -`. That command creates only the fresh run's private `rpc`/`control` parents and `control/manifest.json`. The operator then opens attached SSH with `rpc.sock` and `health.sock` reverse forwards and invokes `host_runner run --root ABSOLUTE_PATH --manifest root/runs/<UUID>/control/manifest.json --release root/releases/<simulator_sha>/release.json`. Host control module imports require the matching `root/releases/<simulator_sha>` working directory as well as its absolute venv Python; selecting a venv alone does not establish package imports. The operator consistently wraps automatic prepare, attached run and recovery commands in fixed, safely quoted `cd -- RELEASE_DIRECTORY && exec ABSOLUTE_PYTHON ...` shell grammar. Each manual SSH session must establish that release directory again. The host runner verifies the same release and manifest before workload. The bridge invokes only the existing fixed pool/fixture/inspection relays: neither profile JSON nor socket traffic can select a command, provider or arbitrary path. Setup authority is finite: one allocation, one provision attempt, exact manifest pool/run/index partitions, and bounded inspection/terminal operations. A target mismatch permanently revokes forwarding, including cleanup/release.
+`sim-host-release-export` invokes `host_release export --image --archive --metadata`. `sim-host-release-load ARCHIVE=path RELEASE=path` invokes the same verified `load --archive --metadata` implementation on a machine with Docker. `task sim-host-bootstrap-check` checks Bash syntax without running bootstrap, and is part of `task sim-check`.
 
 The Linux runner holds a whole-host exclusive lock through work and evidence finalization, and creates a durable recovery hold before external work. An overlapping invocation or unresolved hold refuses admission; do not steal a lock or kill an unknown process. Hard host/process failure may leave only the last durable snapshot with unfinished fixtures and unreleased or expired leases, so use the exact-run recovery procedure below even after a reboot. Container name is exactly `tailtag-sim-<UUID>`, but supervision identifies the new container by its full 64-character lowercase-hex CID persisted in supervisor-private `control/container.cid`. This must be a fresh Docker-created, single-link owner-only regular file for the current invocation; validated creation proves that invocation owns the CID before metadata inspection. Normal admission and success additionally require Docker inspection to match `Id` to the stored CID, `Name` to `/tailtag-sim-<UUID>`, `Image` to the manifest's immutable image ID, and `Config.Labels["tailtag.run_id"]` to the exact run UUID. Runtime inspection/stats/signals/wait/removal use that owned CID. If initial metadata inspection fails after launch, the supervisor still attempts bounded SIGINT/wait/SIGKILL cleanup of its freshly owned CID and preserves uncertainty with a hold; inspection failure cannot authorize abandoning its Python process. Unknown or missing CID evidence in a name collision grants no container action. The manual stop CLI requires the complete stored-CID/metadata binding before SIGINT; a mismatched persisted manual-stop record grants no action against that container. Its convention invocation uses `--host-manifest /manifest.json --host-socket-dir /bridge` and the manifest family/pool/version/seed. It omits `--config` and `--safety-config`, so the existing CLI consumes the immutable manifest configuration and safety directly; no competing runtime copy is accepted. It runs direct Python with Docker init, nonroot host UID/GID, core limit zero, no restart and no Docker logging. Only `runs/<UUID>/rpc` and the exact control manifest are mounted read-only; only `runs/<UUID>/reports` is writable. Supervisor control, Docker socket, SSH agent and maintainer credential directories are never mounted.
 
 The attached Docker client has its own process session and uses `--sig-proxy=false`, while retaining inherited terminal descriptors for hidden input. The supervisor controls workload signals explicitly by owned CID; terminal process-group HUP cannot bypass graceful SIGINT by Docker's default signal proxy.
 
-The supervisor polls health every five seconds, allowing two seconds per request. Thirty seconds since its last fresh live response permanently latches supervision loss and sends SIGINT to that owned container's Python process. Recovery of SSH/health does not resume traffic. Operator SIGINT/SIGHUP, SSH exit and the execution deadline revoke workload liveness. Terminal recovery remains bounded when transport survives. After finalization allowance plus ten seconds, the supervisor kills only the owned task container and records hard-stop uncertainty; child exit is never proof of remote rollback.
+The supervisor polls health every five seconds, allowing two seconds per request. Thirty seconds since its last fresh live response permanently latches supervision loss and sends SIGINT to that owned container's Python process. Recovery of health does not resume traffic. Operator SIGINT, SIGTERM or SIGHUP and the execution deadline revoke workload liveness. Terminal recovery remains bounded when transport survives. After finalization allowance plus ten seconds, the supervisor kills only the owned task container and records hard-stop uncertainty; child exit is never proof of remote rollback.
+
+## Host operator session
+
+A host operator session runs an attended run from the host itself. The bridge, the Render relays and the host runner run as `tailtag_sim` in one tmux session, with no SSH between them. The maintainer can disconnect, and the run continues. The [trust rules](#host-selection-and-private-inventory) above apply.
+
+### Render session
+
+Staging runs on Render since 2026-10-30 (#409). The relays need one Render credential on the host: a per-session SSH key. The relays run plain `ssh` to the Virginia gateway `ssh.virginia.render.com` (ADR 0012) and pin the gateway host key `SHA256:NCpSwboPnqL/Nvyy2Qc8Kgzpc3P/f3w5wDphhc+UZO0` in code. The host holds no Render CLI, no CLI login and no API key. `run-local` refuses to start in any of these cases:
+
+- `RENDER_API_KEY` or `RENDER_CLI_CONFIG_DIR` is set.
+- `~/.render/cli.yaml` exists. That file is the Render CLI login.
+- A `render` program is in the tools directory or in the relay path.
+
+### One-time setup
+
+Do these steps once, and again after each new release.
+
+1. Make sure that 2FA is on for the maintainer's Render account.
+2. On the host, install go-task 3.54.0 into `/srv/tailtag-simulator/tools/bin`. Check it against the pinned SHA-256 in `.github/actions/install-go-task/action.yml`.
+3. Append the output of `task --version` and the SHA-256 of the `task` binary to `/srv/tailtag-simulator/tools/versions.txt`. Bootstrap rewrites that file, so append them again after any bootstrap.
+4. On the host, install the selector manifest at `~/.config/tailtag/staging-clean-rebuild-targets.json` with mode 0600. It holds six keys: the five `rebuild_*` identifiers that `validate_selectors` reads, and `render_staging_api_service_id`. Copy those keys from the maintainer's own manifest, and no others. The Render relays refuse to run without the Render key.
+5. Use a release and a workspace from #459 or later. Earlier releases do not work with Virginia Staging. On the Mac, create the workspace archive from a clean checkout of the installed release SHA:
+
+   ```sh
+   git archive --format=tar.gz -o "$TRANSFER/workspace.tar.gz" "$SIMULATOR_SHA"
+   shasum -a 256 "$TRANSFER/workspace.tar.gz"
+   ```
+
+6. Copy the archive to `/srv/tailtag-simulator/incoming/` with scp. On the host, install the workspace from the release directory:
+
+   ```sh
+   HOST_ROOT=/srv/tailtag-simulator
+   cd "$HOST_ROOT/releases/$SIMULATOR_SHA" && .venv/bin/python -m tailtag_simulator.host_release install-operator \
+     --archive "$HOST_ROOT/incoming/workspace.tar.gz" --archive-sha256 "$ARCHIVE_SHA256" \
+     --source-sha "$SIMULATOR_SHA" --root "$HOST_ROOT"
+   ```
+
+   The command makes sure that the archive digest matches and that the SHA names an installed release. It extracts into `operator/<sha>` with private modes, then runs a locked `uv sync` of `services/api`. Any failure leaves no workspace.
+
+7. On a host bootstrapped before forwarding was turned off, apply the new sshd policy once from the trusted provider console as root. Bootstrap writes the same file on a new host.
+
+   ```sh
+   printf 'Match User %s\n    DisableForwarding yes\n    PermitTunnel no\n    PermitTTY yes\nMatch all\n' tailtag_sim > /etc/ssh/sshd_config.d/90-tailtag.conf
+   sshd -t && systemctl reload ssh
+   ```
+
+   If `sshd -t` fails, do not reload. Report the error.
+
+8. Make sure that `command -v render` prints nothing and that `~/.render` does not exist.
+9. Run `ls -la ~/.ssh`. It must hold no private key: only `authorized_keys`, and `config` if it exists.
+
+### Session start
+
+Run these steps in order, in a new SSH login as `tailtag_sim`. Do not start a session unless the Render Dashboard is reachable from a second device, because the Dashboard is the [kill switch](#kill-switch).
+
+1. Run `tmux new-session -s operator`. Do not use tmux `pipe-pane` or any session logging.
+2. Run `umask 077`, and turn off shell history with `set +o history`.
+3. Make sure that `swapon --show` is empty, `ulimit -c` is 0, and `/proc/sys/kernel/core_pattern` is `|/bin/false`.
+4. Make sure that systemd-logind `KillUserProcesses` is false, so tmux survives an SSH logout.
+5. Choose the key location. Create an owner-only test file in `/dev/shm`, detach tmux, log out of SSH, log in again and reattach. If the file is still there, keep the key in `/dev/shm`. If it is gone, keep the key in the owner-only workspace instead, and remove it with `shred -u` at session end.
+6. Run `export PATH="/srv/tailtag-simulator/tools/bin:$PATH"`. Do not set any `RENDER_` variable.
+7. Run the first negative control (#411 AC9). No `Host ssh.virginia.render.com` block exists yet, so ssh offers its default keys:
+
+   ```sh
+   cd "/srv/tailtag-simulator/operator/$SIMULATOR_SHA"
+   printf '%s' '{"operation":"status","pool":"host228","arguments":{}}' \
+     | UV=/srv/tailtag-simulator/tools/uv task -s api-sim-pool-ssh
+   ```
+
+   The relay must print `FAIL_LAUNCHER`. If it prints `PASS`, a default key on the host can reach Render. Stop and find that key.
+8. Generate an ed25519 key with the comment `tailtag-sim-<date>` in the chosen location.
+9. Add a `Host ssh.virginia.render.com` block to `~/.ssh/config` with `IdentityFile` set to that key, `IdentitiesOnly yes` and `ForwardAgent no`. The relays bring their own pinned host key, so `known_hosts` needs no entry.
+10. Run the command from step 7 again. The new key is not on Render yet, so the relay must print `FAIL_LAUNCHER`.
+11. In the Render Dashboard, open Account Settings, then SSH Public Keys. Remove any leftover key whose name starts with `tailtag-sim-`. That prefix is reserved for session keys. Add the session public key with the name `tailtag-sim-<date>`.
+12. Run the command from step 7 again. It must print `PASS` and an `instance` value. Record all three results.
+13. Run workloads as in [Running a workload](#running-a-workload).
+
+### Running a workload
+
+Prepare and run each workload from the release directory. The workspace holds the committed profiles with private modes.
+
+```sh
+HOST_ROOT=/srv/tailtag-simulator
+RELEASE_DIR="$HOST_ROOT/releases/$SIMULATOR_SHA"
+WORKSPACE="$HOST_ROOT/operator/$SIMULATOR_SHA"
+STATE="$HOST_ROOT/operator-state"
+install -d -m 0700 "$STATE" "$STATE/manifests"
+cd "$RELEASE_DIR"
+.venv/bin/python -m tailtag_simulator.host_operator prepare \
+  --profile "$WORKSPACE/tools/simulator/host/smoke-profile.json" \
+  --safety-config "$WORKSPACE/tools/simulator/host/safety.json" \
+  --release "$RELEASE_DIR/release.json" --output "$STATE/manifests/smoke-1.json"
+.venv/bin/python -m tailtag_simulator.host_operator run-local \
+  --manifest "$STATE/manifests/smoke-1.json" --host-root "$HOST_ROOT" \
+  --workspace "$WORKSPACE" --tools "$HOST_ROOT/tools" --state-dir "$STATE"
+```
+
+`run-local` always uses Render. It also refuses to start unless stdin and stdout are terminals. It refuses unless the workspace and the tools are complete. It writes `<UUID>.used.json` and `<UUID>.bridge.json` in the state directory, and `sim-host-collect` copies them with the run. Enter the Clerk Staging secret at the hidden prompt. Each workload needs a fresh `prepare` and a new manifest.
+
+### Session end
+
+The session end is mandatory after any exit, including a crash or a reboot.
+
+1. In the Render Dashboard, remove the session key `tailtag-sim-<date>`.
+2. With the key file and the `Host` block still in place, run the command from step 7 of the session start. It must print `FAIL_LAUNCHER`. If it prints `PASS`, the key is still on Render. Remove it again, and repeat this step.
+3. If the private key still exists, run `shred -u` on it. Remove the public key.
+4. Remove the `Host ssh.virginia.render.com` block from `~/.ssh/config`.
+5. On the Mac, open the SSH Public Keys page in the Dashboard. Make sure that no `tailtag-sim-` key remains.
+
+### Kill switch
+
+To stop a session's authority from anywhere, remove the session key in the Render Dashboard. The gateway then refuses the key, and every later relay fails with `FAIL_LAUNCHER`. Removal does not end a connection that is already open. Each relay is one call with its own timeout, so an in-flight relay can finish, but nothing stays connected past that timeout. The run fails with `FAIL_LEASE` after three failed heartbeats, and its hold stays in place. If the relays fail fast, this takes about three minutes. If they hang until the 180 s launcher timeout, it takes up to about twelve minutes. Recover the held run from the Mac with the [recovery procedure](#recovery-and-refusal-handling). With access to the host, reattach tmux and press Ctrl-C, or use the controlled stop below.
+
+### Trust and compromise
+
+The session key opens a shell on every Render service that the maintainer's account can reach by SSH, in every workspace. That includes Render Development, and Production once it exists. Production must not be created in this Render account until host sessions are reviewed again (#316 C8).
+
+A shell on the Staging instance can read every Staging service variable. The host also holds the Clerk Staging secret key in memory during a run. If the host is compromised during a session, remove every `tailtag-sim-` key in the Dashboard. Then rotate the Clerk Staging secret key and these Staging values:
+
+- the database password in `DATABASE_URL`
+- `DJANGO_SECRET_KEY`
+- `MEDIA_STORAGE_ACCESS_KEY_ID` and `MEDIA_STORAGE_SECRET_ACCESS_KEY`
+- `SENTRY_DSN`
+- the nine #410 reset values, with a new pinned digest
+
+The key also reaches Development, so rotate the same values there. It also reaches every SSH-enabled service in the other workspaces of the account, so rotate their secrets too.
+
+### Detection window
+
+Each run pins one Render instance. The first relay reply names the instance, and every later relay must reach it. A restart or a redeploy replaces the instance, and the relays then fail closed. But a replaced instance keeps accepting ssh for about 3.5 minutes (#411 G12). So a restart or a same-SHA redeploy in the last 3.5 minutes of a run is not detected. Do not restart, redeploy or promote Staging during a run. Record this limit with each load run that serves as parity evidence.
 
 ## Observation and controlled stop
 
-For the authorized normal run, observe host Docker CPU/memory and Linux CPU steal, report realized active/in-flight peaks and scheduling lag, and observe existing Staging Railway/Sentry evidence. The companion samples CPU/memory percentages and the cumulative Linux CPU-steal tick counter; retain its actual units, rather than label raw ticks a percentage. Record offered/admitted/skipped/completed work from the report alongside these observations. Record unavailable evidence explicitly; automated backend saturation monitoring is unavailable. Generator saturation or resource failure requires investigation and separate resizing authorization before larger work. Do not equate an offered actor count or a single VM run with backend capacity.
+For the authorized normal run, observe host Docker CPU/memory and Linux CPU steal, report realized active/in-flight peaks and scheduling lag, and observe existing Staging Render/Sentry evidence. The companion samples CPU/memory percentages and the cumulative Linux CPU-steal tick counter; retain its actual units, rather than label raw ticks a percentage. Record offered/admitted/skipped/completed work from the report alongside these observations. Record unavailable evidence explicitly; automated backend saturation monitoring is unavailable. Generator saturation or resource failure requires investigation and separate resizing authorization before larger work. Do not equate an offered actor count or a single VM run with backend capacity.
 
-For the separately authorized small stop run, prepare `stop-profile.json` into a new manifest and have the second trusted SSH session ready before launching foreground execution. Interrupt promptly after setup using Ctrl-C in the maintainer terminal or the host stop command. Do not wait for a chat response during the finite traffic window. In that new host session, set `SIMULATOR_SHA` and canonical `RUN_ID` from the original trusted manifest, then establish the release cwd and absolute Python explicitly:
+For the separately authorized small stop run, prepare `stop-profile.json` into a new manifest and have a second SSH session ready before you start `run-local`. Interrupt promptly after setup with Ctrl-C in the operator tmux pane, or with the host stop command. Do not wait for a chat response during the finite traffic window. In that new host session, set `SIMULATOR_SHA` and canonical `RUN_ID` from the original trusted manifest, then establish the release cwd and absolute Python explicitly:
 
 ```sh
 HOST_ROOT=/srv/tailtag-simulator
@@ -208,10 +321,10 @@ A report PASS, validated report, clean-looking pool, expired lease, process exit
 From the maintainer's existing trusted environment, independently verify current Staging `/health/identity` using the target check and compare its exact source/deployment/environment tuple with the held manifest. Existing relays independently verify provider and deployed target too. Confirm all bridge-owned mutating operations have settled remotely, including any indeterminate provision. Preserve report/companion evidence and inspect the exact retained/unfinished run, then use the existing commands:
 
 ```sh
-make sim-retained
-make sim-pool-status POOL="$POOL"
-make sim-cleanup POOL="$POOL" RUN_ID="$RUN_ID"
-make sim-pool-status POOL="$POOL"
+task sim-retained
+task sim-pool-status POOL="$POOL"
+task sim-cleanup POOL="$POOL" RUN_ID="$RUN_ID"
+task sim-pool-status POOL="$POOL"
 ```
 
 Set `POOL` and canonical `RUN_ID` from the original trusted manifest before these commands, not an assumed example value. `sim-cleanup` accepts retained/provisioned runs and readmits the run's quarantined identities only after verified clean. It does not accept a cleaned/failed row; do not reinterpret that refusal as proof that a lost provision never committed. `FAIL_ATTRIBUTION`, `FAIL_VERIFY`, `FAIL_TARGET`, `FAIL_STORAGE`, `FAIL_LIMIT` or other failure requires investigation, not host hold removal. After storage failure the documented exact-run cleanup may be retried; setup authority remains closed. Existing independent Clerk session closure must also be acknowledged or uncertainty retained.
@@ -219,13 +332,13 @@ Set `POOL` and canonical `RUN_ID` from the original trusted manifest before thes
 Set `REPAIRED_INDEX` only from the exact-run verified repair record. Only if an identity remains independently quarantined after verified repair/cleanup, use the existing explicit per-index recovery and recheck pool status:
 
 ```sh
-make sim-pool-readmit POOL="$POOL" INDEX="$REPAIRED_INDEX"
-make sim-pool-status POOL="$POOL"
+task sim-pool-readmit POOL="$POOL" INDEX="$REPAIRED_INDEX"
+task sim-pool-status POOL="$POOL"
 ```
 
 Readmission alone removes no fixtures and cannot establish cleanup. Review the [existing cleanup failure/recovery semantics](../../tools/simulator/README.md#run-lifecycle) before this step.
 
-Completion is deliberately two-phase. The attached runner can exit 0 only with a present schema-valid report whose exact run, clean simulator/lock attribution and pinned backend identity match the manifest and whose `outcome` is `passed`; container exit 0 alone cannot pass. Missing, malformed, misattributed or nonpassing evidence makes the runner fail and preserves its hold. It records available validated completion evidence in `runs/<UUID>/host.json` and leaves `recovery-hold.json` in place. For nonpassing runs, report target identity differences do not discard host evidence: `evidence.report_attribution` is `matched` when both starting and safety identities match the manifest, `mismatched` when both are available but either differs, and `unavailable` when either identity or the report is absent. Report schema, exact run and clean simulator/lock attribution remain mandatory when a report is present; validation or storage failure may leave only the last durable snapshot, manifest and hold. After attached SSH exits, the maintainer operator revokes workload authority, joins its owned mutations, fsyncs local `<UUID>.bridge.json`, and derives the trusted recovery receipt. Only after runner exit 0 may a `released` or `no_mutation` receipt be sent through a new authenticated SSH control command to `host_runner recovery-resolve --root ABSOLUTE_PATH --run-id UUID --receipt -`, where `-` reads bounded JSON from stdin. Host resolution records `control/recovery.json` and clears only the exact matching hold. Outer operator exit 0 requires runner exit 0, no operator interruption/deadline breach, settled bridge recovery and a successful separate resolution exit 0. A runner exit 0 or passing report alone is insufficient. Failed/interrupted/nonzero runners retain a manual hold even if the bridge receipt says `released`; automatic receipt resolution is not attempted for those outcomes.
+Completion is deliberately two-phase. The attached runner can exit 0 only with a present schema-valid report whose exact run, clean simulator/lock attribution and pinned backend identity match the manifest and whose `outcome` is `passed`; container exit 0 alone cannot pass. Missing, malformed, misattributed or nonpassing evidence makes the runner fail and preserves its hold. It records available validated completion evidence in `runs/<UUID>/host.json` and leaves `recovery-hold.json` in place. For nonpassing runs, report target identity differences do not discard host evidence: `evidence.report_attribution` is `matched` when both starting and safety identities match the manifest, `mismatched` when both are available but either differs, and `unavailable` when either identity or the report is absent. Report schema, exact run and clean simulator/lock attribution remain mandatory when a report is present; validation or storage failure may leave only the last durable snapshot, manifest and hold. After the runner child exits, `run-local` revokes workload authority, joins its owned mutations, fsyncs `<UUID>.bridge.json` in the operator state directory, and derives the trusted recovery receipt. Only after runner exit 0 does it send a `released` or `no_mutation` receipt on stdin to a local `host_runner recovery-resolve --root ABSOLUTE_PATH --run-id UUID --receipt -`. Host resolution records `control/recovery.json` and clears only the exact matching hold. Outer operator exit 0 requires runner exit 0, no operator interruption/deadline breach, settled bridge recovery and a successful separate resolution exit 0. A runner exit 0 or passing report alone is insufficient. Failed/interrupted/nonzero runners retain a manual hold even if the bridge receipt says `released`; automatic receipt resolution is not attempted for those outcomes.
 
 The trusted receipt's exact shape is `{schema_version:1, run_id, backend_identity, disposition}`. `released` derives only from acknowledged bridge lease release; `no_mutation` only when no mutating dispatch started; every unresolved case is `held`. The UUID and backend tuple must match the original manifest. The simulator's report/RPC reply cannot supply this authority, and the container never mounts the receipt directory.
 
@@ -242,13 +355,13 @@ HOST_PY="$HOST_ROOT/releases/$SIMULATOR_SHA/.venv/bin/python"
 
 `--receipt PATH` reads an owner-private file; `--receipt -` reads bounded JSON from trusted stdin. Automatic delivery uses stdin after runner completion and never asks the container for a receipt. For manual file delivery, copy only the maintainer-validated receipt into the supervisor control directory and run the command as its owner. Do not fabricate `no_mutation` from absence of a report or `released` from a lease timeout. Missing, mismatched, held or unacknowledged recovery evidence preserves the hold. Investigate retained/unfinished state, acknowledge verified cleanup and lease/session settlement, finalize evidence, and only then admit a new UUID. Do not delete holds by hand or automatically resolve them at startup.
 
-Invalid profile/manifest/release, reused UUID, unsafe/symlinked/foreign paths, missing hidden TTY, unverified host key, failed forwarding, target mismatch, overlap, recovery hold or inadequate storage all refuse execution. Capacity/privileged-operation exhaustion, supervision loss, stage/report write failure and safety stops cannot produce PASS. Read only sanitized stage/companion output; do not enable raw diagnostics to work around a refusal.
+Invalid profile/manifest/release, reused UUID, unsafe/symlinked/foreign paths, missing hidden TTY, unverified host key, target mismatch, overlap, recovery hold or inadequate storage all refuse execution. Capacity/privileged-operation exhaustion, supervision loss, stage/report write failure and safety stops cannot produce PASS. Read only sanitized stage/companion output; do not enable raw diagnostics to work around a refusal.
 
 ## Artifacts, retrieval and maintenance
 
-Owner-only run directories contain `runs/<UUID>/reports/<UUID>.json`, fixed sanitized `runs/<UUID>/reports/stages.log` (at most one MiB), and supervisor-owned `runs/<UUID>/host.json`. `control/manifest.json`, `control/recovery.json`, `control/container.cid` and `recovery-hold.json` stay outside the container-writable report mount. The runner also writes a non-authoritative `runs/<UUID>/control/health.json` (per-check health counts, longest gap between live replies and the last 64 failed checks) for any run that reached supervision; read it over ssh when diagnosing a `supervision_lost` stop. It is not part of `host.json` and is not collected, and a failure to write it changes no outcome. The operator's local `<state>/<UUID>.bridge.json` records the bridge's own `health` counters and the first `revocation` cause. Reports/companion are retained 30 days and stage logs seven days, so collect evidence at least every six days. The aggregate report/log/companion budget is one GiB; each admitted run reserves 32 MiB within both that budget and free filesystem space. During execution, budget/write failures stop work and prevent PASS. Only expired completed-run artifacts are pruned. Active or recovery-held evidence is never pruned or used as expendable storage; resolve its hold explicitly. When admission is storage-blocked, the maintainer owns hash-verified export and exact-run recovery; prune only eligible expired completed evidence, then rerun admission. Do not delete held/live evidence or expand the paid host automatically. Images and rollback releases have their separate lifecycle.
+Owner-only run directories contain `runs/<UUID>/reports/<UUID>.json`, fixed sanitized `runs/<UUID>/reports/stages.log` (at most one MiB), and supervisor-owned `runs/<UUID>/host.json`. `control/manifest.json`, `control/recovery.json`, `control/container.cid` and `recovery-hold.json` stay outside the container-writable report mount. The runner also writes a non-authoritative `runs/<UUID>/control/health.json` (per-check health counts, longest gap between live replies and the last 64 failed checks) for any run that reached supervision; read it over ssh when diagnosing a `supervision_lost` stop. It is not part of `host.json` and is not collected, and a failure to write it changes no outcome. The operator's local `<state>/<UUID>.bridge.json` records the bridge's own `health` counters and the first `revocation` cause. Its `heartbeat` field records failed heartbeats as non-authoritative diagnostics. Reports/companion are retained 30 days and stage logs seven days, so collect evidence at least every six days. The aggregate report/log/companion budget is one GiB; each admitted run reserves 32 MiB within both that budget and free filesystem space. During execution, budget/write failures stop work and prevent PASS. Only expired completed-run artifacts are pruned. Active or recovery-held evidence is never pruned or used as expendable storage; resolve its hold explicitly. When admission is storage-blocked, the maintainer owns hash-verified export and exact-run recovery; prune only eligible expired completed evidence, then rerun admission. Do not delete held/live evidence or expand the paid host automatically. Images and rollback releases have their separate lifecycle.
 
-For routine operation, `make sim-host-collect HOST=tailtag-sim HOST_ROOT=/srv/tailtag-simulator RELEASE=path ARCHIVE=path` runs a read-only `host_runner inventory` on the host, copies every settled, not-yet-collected run with size and SHA-256 verification, validates and evaluates it, and never writes to the host or resolves holds; see the [operations guide](simulation-operations.md#collection-and-evaluation). The manual procedure below remains valid for a single run.
+For routine operation, `task sim-host-collect HOST=tailtag-sim HOST_ROOT=/srv/tailtag-simulator RELEASE=path ARCHIVE=path` runs a read-only `host_runner inventory` on the host, copies every settled, not-yet-collected run with size and SHA-256 verification, validates and evaluates it, and never writes to the host or resolves holds; see the [operations guide](simulation-operations.md#collection-and-evaluation). The manual procedure below remains valid for a single run.
 
 Retrieve selected evidence through verified SSH to an owner-private maintainer archive. Enumerate exact files for the selected UUID; do not copy runtime credential/configuration directories. Capture a SHA-256 inventory on the host, transfer those same report/stage/companion files, and verify hashes locally. For example, after verifying the original canonical UUID and filenames:
 
@@ -258,7 +371,7 @@ scp "tailtag-sim:/srv/tailtag-simulator/runs/$RUN_ID/reports/$RUN_ID.json" "$TRA
 scp "tailtag-sim:/srv/tailtag-simulator/runs/$RUN_ID/reports/stages.log" "$TRANSFER/"
 scp "tailtag-sim:/srv/tailtag-simulator/runs/$RUN_ID/host.json" "$TRANSFER/"
 shasum -a 256 "$TRANSFER/$RUN_ID.json" "$TRANSFER/stages.log" "$TRANSFER/host.json"
-make sim-report-validate REPORT="$TRANSFER/$RUN_ID.json"
+task sim-report-validate REPORT="$TRANSFER/$RUN_ID.json"
 ```
 
 Keep each milestone in its own owner-private archive directory with original manifest, release metadata, hash inventory and bounded observations; avoid overwriting another run's `host.json`. Validate using the recorded simulator revision/release, rather than assuming the current validator is compatible. Preserve original reports when rolling back.
@@ -272,7 +385,7 @@ into the milestone archive. Evaluation is offline. Run it on the maintainer mach
 from a checkout of the merged simulator, not on the host:
 
 ```bash
-make sim-report-evaluate REPORT="$ARCHIVE/<run-uuid>.json" \
+task sim-report-evaluate REPORT="$ARCHIVE/<run-uuid>.json" \
   HOST_COMPANION="$ARCHIVE/<run-uuid>/host.json" CONTEXT="$ARCHIVE/<run-uuid>.context.json"
 ```
 
@@ -294,9 +407,9 @@ closed value per signal:
 | `http_5xx` | `tailtag.http.server.requests` with `http.response.status_class` `5xx`, by `http.route` | [service signals](backend-service-signals.md) |
 | `server_latency` | Sentry trace p95 by transaction for the routes in the simulator README's operation table | [service signals](backend-service-signals.md) |
 | `db_connections` | `tailtag.db.connection.attempts` outcomes and `tailtag.db.connection.duration` p95 | [dependency health](backend-dependency-health.md#postgresql) |
-| `worker_timeouts` | `WORKER TIMEOUT` or `SIGKILL` lines from `gunicorn.error` in Railway logs | [runtime failures](backend-service-signals.md#runtime-failures) |
-| `restarts_or_oom` | Railway deployment events: restarts, redeploys, out-of-memory kills | [dependency health](backend-dependency-health.md#runtime-resources) |
-| `runtime_resources` | Railway API service CPU and memory graphs for the window | [dependency health](backend-dependency-health.md#runtime-resources) |
+| `worker_timeouts` | `WORKER TIMEOUT` or `SIGKILL` lines from `gunicorn.error`: `render logs` for Render Staging | [runtime failures](backend-service-signals.md#runtime-failures) |
+| `restarts_or_oom` | Restarts, redeploys and out-of-memory kills: the Render service Events page | [dependency health](backend-dependency-health.md#runtime-resources) |
+| `runtime_resources` | API service CPU and memory for the window: the Render service Metrics page | [dependency health](backend-dependency-health.md#runtime-resources) |
 | `domain_outcomes` | #213 outcome counts, such as `tailtag.catches.confirmation` rejected by `tailtag.reason` | [domain outcomes](backend-domain-outcomes.md) |
 
 Use `observed_pressure` only for evidence of saturation or failure inside the
@@ -308,7 +421,7 @@ failure apart from database or runtime pressure. It never changes the verdict.
 Sentry traces are sampled, so the simulator's own latency remains the primary
 measurement.
 
-Promote a reviewed run with `make sim-baseline-promote`, as described in the
+Promote a reviewed run with `task sim-baseline-promote`, as described in the
 simulator README. Promotion takes effect only through a reviewed pull request.
 Never promote from the host.
 

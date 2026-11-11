@@ -28,47 +28,22 @@ from operator_audit.models import (
     OperatorAuditOutcome,
     OperatorTargetType,
 )
+from tests.render_target_support import (
+    DEVELOPMENT_SERVICE,
+    STAGING_SERVICE,
+    UNPINNED_SERVICE,
+    pin_render_services,
+    select_render_service,
+)
 
 COMMAND = "replace_staging_managed_operator"
-CONFIRMATION = "replace Railway Staging managed operator"
-DEPLOYMENT_ID = "cbe83780-0256-49c2-b026-34709ddb69b0"
+CONFIRMATION = "replace Render Staging managed operator"
 SOURCE_SHA = "856a43863ec4e8f2f68cc2a6aaf5b333e8299a7a"
-EXPECTED_IDENTITY = {
+EXPECTED_IDENTITY: dict[str, str | None] = {
     "environment": "staging",
     "source_sha": SOURCE_SHA,
-    "deployment_id": DEPLOYMENT_ID,
+    "deployment_id": None,
 }
-RAILWAY_SELECTORS = {
-    "RAILWAY_PROJECT_ID": "85324de4-be6a-49c3-a3f9-6cac13877849",
-    "RAILWAY_ENVIRONMENT_ID": "5f4ab4f2-af14-4b2b-a4c3-3344d281fe5e",
-    "RAILWAY_SERVICE_ID": "2247da27-97df-4d5d-b1dc-d21eeb7901d9",
-}
-REPLACEMENT_SELECTORS = {
-    "RAILWAY_PROJECT_ID": "a1111111-1111-4111-8111-111111111111",
-    "RAILWAY_ENVIRONMENT_ID": "c3333333-3333-4333-8333-333333333333",
-    "RAILWAY_SERVICE_ID": "d4444444-4444-4444-8444-444444444444",
-}
-
-
-def pin_replacement_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Bind disposable selectors to the same code-owned replacement contract."""
-    from config import replacement_target_binding as binding
-
-    monkeypatch.setattr(
-        binding,
-        "_EXPECTED_DIGESTS",
-        {
-            **binding._EXPECTED_DIGESTS,  # pyright: ignore[reportPrivateUsage]
-            "staging-api": binding.fingerprint_tuple(
-                "staging-api",
-                REPLACEMENT_SELECTORS["RAILWAY_PROJECT_ID"],
-                REPLACEMENT_SELECTORS["RAILWAY_ENVIRONMENT_ID"],
-                REPLACEMENT_SELECTORS["RAILWAY_SERVICE_ID"],
-            ),
-        },
-    )
-
-
 MANAGED_GROUP = "TailTag Field Beta Operators"
 LIMITED_GROUP = "TailTag #243 Validation Operator"
 OLD_IDENTIFIER = "operator_staging_205"
@@ -94,6 +69,8 @@ MANAGED_PERMISSIONS = frozenset(
         "profiles.view_playerprofile",
         "fursuits.set_fursuit_enabled",
         "fursuits.view_fursuit",
+        "fursuits.revoke_fursuit_tag",
+        "fursuits.view_fursuittag",
     }
 )
 LIMITED_PERMISSIONS = frozenset(
@@ -178,15 +155,13 @@ def invoke(
     password: str = NEW_PASSWORD,
     password_confirmation: str | None = None,
     confirmation: str = CONFIRMATION,
-    environment: str = "staging",
-    service: str = "api",
+    service_id: str | None = STAGING_SERVICE,
     terminal: StringIO | None = None,
     stderr: StringIO | None = None,
     on_hidden_prompt: Callable[[str], None] | None = None,
-    expected_identity: dict[str, str] | None = EXPECTED_IDENTITY,
-    live_identity: dict[str, str] | None = EXPECTED_IDENTITY,
-    live_identity_provider: Callable[[], dict[str, str] | None] | None = None,
-    selector_override: tuple[str, str] | None = None,
+    expected_identity: dict[str, str | None] | None = EXPECTED_IDENTITY,
+    live_identity: dict[str, str | None] | None = EXPECTED_IDENTITY,
+    live_identity_provider: Callable[[], dict[str, str | None] | None] | None = None,
 ) -> tuple[StringIO, StringIO]:
     terminal = terminal if terminal is not None else Tty()
     stderr = stderr if stderr is not None else Tty()
@@ -208,14 +183,8 @@ def invoke(
     monkeypatch.setattr(sys, "stderr", stderr)
     monkeypatch.setattr("builtins.input", lambda _prompt="": confirmation)
     monkeypatch.setattr(getpass, "getpass", hidden_input)
-    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", environment)
-    monkeypatch.setenv("RAILWAY_SERVICE_NAME", service)
-    monkeypatch.setenv("RAILWAY_DEPLOYMENT_ID", DEPLOYMENT_ID)
-    pin_replacement_runtime(monkeypatch)
-    for key, value in REPLACEMENT_SELECTORS.items():
-        monkeypatch.setenv(key, value)
-    if selector_override is not None:
-        monkeypatch.setenv(*selector_override)
+    pin_render_services(monkeypatch)
+    select_render_service(monkeypatch, service_id)
     from config import build_identity
 
     monkeypatch.setattr(
@@ -246,24 +215,26 @@ def invoke(
     ("replace_staging_managed_operator", "rotate_staging_managed_password"),
 )
 @pytest.mark.parametrize(
-    ("runtime_selectors", "expected"),
-    ((REPLACEMENT_SELECTORS, True), (RAILWAY_SELECTORS, False)),
-    ids=("pinned-replacement", "retired-project"),
+    ("service_id", "expected"),
+    (
+        (STAGING_SERVICE, True),
+        (DEVELOPMENT_SERVICE, False),
+        (UNPINNED_SERVICE, False),
+        (None, False),
+    ),
+    ids=("pinned-staging", "development", "unpinned", "no-render-markers"),
 )
-def test_managed_recovery_target_guard_uses_replacement_pin(
+def test_managed_recovery_target_guard_uses_the_render_pin(
     monkeypatch: pytest.MonkeyPatch,
     command_name: str,
-    runtime_selectors: dict[str, str],
+    service_id: str | None,
     expected: bool,
 ) -> None:
-    """Both managed recovery commands accept only the code-pinned runtime."""
+    """Both managed recovery commands accept only the pinned Render Staging API."""
     from config import build_identity
 
-    pin_replacement_runtime(monkeypatch)
-    for key, value in runtime_selectors.items():
-        monkeypatch.setenv(key, value)
-    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "staging")
-    monkeypatch.setenv("RAILWAY_SERVICE_NAME", "api")
+    pin_render_services(monkeypatch)
+    select_render_service(monkeypatch, service_id)
     monkeypatch.setattr(build_identity, "get_identity", lambda: EXPECTED_IDENTITY)
     command = importlib.import_module(f"accounts.management.commands.{command_name}")
 
@@ -590,18 +561,18 @@ def test_stale_pre_prompt_managed_identity_refuses(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("environment", "service", "confirmation", "tty"),
+    ("service_id", "confirmation", "tty"),
     (
-        ("production", "api", CONFIRMATION, True),
-        ("staging", "worker", CONFIRMATION, True),
-        ("staging", "api", "wrong confirmation", True),
-        ("staging", "api", CONFIRMATION, False),
+        (DEVELOPMENT_SERVICE, CONFIRMATION, True),
+        (UNPINNED_SERVICE, CONFIRMATION, True),
+        (None, CONFIRMATION, True),
+        (STAGING_SERVICE, "wrong confirmation", True),
+        (STAGING_SERVICE, CONFIRMATION, False),
     ),
 )
 def test_target_and_interactive_guards_refuse_before_write(
     monkeypatch: pytest.MonkeyPatch,
-    environment: str,
-    service: str,
+    service_id: str | None,
     confirmation: str,
     tty: bool,
 ) -> None:
@@ -618,39 +589,9 @@ def test_target_and_interactive_guards_refuse_before_write(
     with pytest.raises(CommandError):
         invoke(
             monkeypatch,
-            environment=environment,
-            service=service,
+            service_id=service_id,
             confirmation=confirmation,
             terminal=terminal,
-        )
-
-    assert (
-        state(old),
-        state(limited),
-        group_state(managed_group),
-        group_state(limited_group),
-    ) == before
-    assert User.objects.count() == 2
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("selector", tuple(REPLACEMENT_SELECTORS))
-def test_wrong_railway_resource_selector_refuses_without_write(
-    monkeypatch: pytest.MonkeyPatch, selector: str
-) -> None:
-    """AC-1: project, environment, and service resources must be exact."""
-    old, limited, managed_group, limited_group = seed_roles()
-    before = (
-        state(old),
-        state(limited),
-        group_state(managed_group),
-        group_state(limited_group),
-    )
-
-    with pytest.raises(CommandError):
-        invoke(
-            monkeypatch,
-            selector_override=(selector, "00000000-0000-4000-8000-000000000000"),
         )
 
     assert (
@@ -680,8 +621,8 @@ def test_wrong_railway_resource_selector_refuses_without_write(
 )
 def test_missing_or_mismatched_exact_instance_identity_refuses(
     monkeypatch: pytest.MonkeyPatch,
-    expected: dict[str, str] | None,
-    observed: dict[str, str] | None,
+    expected: dict[str, str | None] | None,
+    observed: dict[str, str | None] | None,
 ) -> None:
     """AC-1/4: no direct command use or mismatched source/deployment can write."""
     old, limited, managed_group, limited_group = seed_roles()
@@ -718,15 +659,12 @@ def test_target_drift_after_hidden_input_refuses_without_write(
     )
     reads = 0
 
-    def changing_identity() -> dict[str, str]:
+    def changing_identity() -> dict[str, str | None]:
         nonlocal reads
         reads += 1
         if reads == 1:
             return EXPECTED_IDENTITY
-        return {
-            **EXPECTED_IDENTITY,
-            "deployment_id": "f97225b9-d7bb-4d8b-9ea1-fd1f433a7a9e",
-        }
+        return {**EXPECTED_IDENTITY, "source_sha": "f" * 40}
 
     with pytest.raises(CommandError):
         invoke(monkeypatch, live_identity_provider=changing_identity)

@@ -20,24 +20,15 @@ import psycopg
 import pytest
 from psycopg import sql
 
+from tests.process_support import minimal_environment
 from tests.test_production_settings import VALID_ENVIRONMENT
 
-PROJECT = "a1111111-1111-4111-8111-111111111111"
-DEVELOPMENT = "22222222-2222-4222-8222-222222222222"
-STAGING = "33333333-3333-4333-8333-333333333333"
-API = "d4444444-4444-4444-8444-444444444444"
-POSTGRES = "55555555-5555-4555-8555-555555555555"
-OTHER = "66666666-6666-4666-8666-666666666666"
-DEPLOYMENT = "77777777-7777-4777-8777-777777777777"
+STAGING_SERVICE = "srv-d0staging000000000000"
+DEVELOPMENT_SERVICE = "srv-d0development00000000"
+OTHER_SERVICE = "srv-d0unpinned00000000000"
 SOURCE_SHA = "a" * 40
 PRIVATE_SENTINEL = "private-migration-sentinel-must-not-escape"
 API_ROOT = Path(__file__).resolve().parents[1]
-
-
-def _tuple_digest(role: str, environment: str, service: str) -> str:
-    return hashlib.sha256(
-        _frame("tailtag-rebuild-v1", role, PROJECT, environment, service)
-    ).hexdigest()
 
 
 def _frame(*fields: str) -> bytes:
@@ -45,28 +36,27 @@ def _frame(*fields: str) -> bytes:
     return "\0".join(fields).encode()
 
 
+def _service(environment: str) -> str:
+    return DEVELOPMENT_SERVICE if environment == "development" else STAGING_SERVICE
+
+
 def _target_pins() -> dict[str, str]:
     return {
-        "development-api": _tuple_digest("development-api", DEVELOPMENT, API),
-        "development-postgres": _tuple_digest(
-            "development-postgres", DEVELOPMENT, POSTGRES
-        ),
-        "staging-api": _tuple_digest("staging-api", STAGING, API),
-        "staging-postgres": _tuple_digest("staging-postgres", STAGING, POSTGRES),
+        environment: hashlib.sha256(
+            _frame("tailtag-render-api-v1", environment, _service(environment))
+        ).hexdigest()
+        for environment in ("development", "staging")
     }
 
 
 def _database_digest(
-    environment: str, name: str, cluster: str, service: str = POSTGRES
+    environment: str, name: str, cluster: str, service: str | None = None
 ) -> str:
-    environment_id = DEVELOPMENT if environment == "development" else STAGING
     return hashlib.sha256(
         _frame(
-            "tailtag-postgres-first-boot-v1",
+            "tailtag-render-postgres-first-boot-v1",
             environment,
-            PROJECT,
-            environment_id,
-            service,
+            service or _service(environment),
             name,
             cluster,
         )
@@ -75,19 +65,12 @@ def _database_digest(
 
 def _runtime(environment: str = "development") -> dict[str, str]:
     return {
-        "RAILWAY_PROJECT_ID": PROJECT,
-        "RAILWAY_ENVIRONMENT_ID": (
-            DEVELOPMENT if environment == "development" else STAGING
-        ),
-        "RAILWAY_ENVIRONMENT_NAME": environment,
-        "RAILWAY_SERVICE_ID": API,
-        "RAILWAY_SERVICE_NAME": "api",
-        "RAILWAY_DEPLOYMENT_ID": DEPLOYMENT,
-        "TAILTAG_REPLACEMENT_POSTGRES_SERVICE_ID": POSTGRES,
+        "RENDER": "true",
+        "RENDER_SERVICE_ID": _service(environment),
         "TAILTAG_STAGING_TARGET_PHASE": "candidate",
         # Runtime source/expectation fields must not replace the baked artifact
         # or the code-owned database digest.
-        "RAILWAY_GIT_COMMIT_SHA": "b" * 40,
+        "RENDER_GIT_COMMIT": "b" * 40,
         "TAILTAG_EXPECTED_DATABASE_DIGEST": PRIVATE_SENTINEL,
     }
 
@@ -96,7 +79,7 @@ def _environment(
     database_url: str, overrides: Mapping[str, str] | None = None
 ) -> dict[str, str]:
     return {
-        "PATH": os.environ.get("PATH", ""),
+        **minimal_environment(),
         "PYTHONPATH": str(API_ROOT),
         "DJANGO_SETTINGS_MODULE": "config.settings.production",
         **VALID_ENVIRONMENT,
@@ -151,10 +134,10 @@ def _run_wrapper(
         f"{setup_spy}"
         f"{migration_spy}"
         "import config.replacement_target_binding as binding\n"
-        f"binding._EXPECTED_DIGESTS = {_target_pins()!r}\n"
+        f"binding._EXPECTED_RENDER_DIGESTS = {_target_pins()!r}\n"
         "import config.replacement_migrate as wrapper\n"
         f"wrapper._BUILD_METADATA_PATH = Path({str(metadata)!r})\n"
-        f"wrapper._EXPECTED_BINDING_DIGESTS = {dict(database_digests or {})!r}\n"
+        f"wrapper._EXPECTED_RENDER_BINDING_DIGESTS = {dict(database_digests or {})!r}\n"
         f"{before_main}\n"
         "raise SystemExit(wrapper.main())\n"
     )
@@ -188,12 +171,9 @@ def _assert_classification(
         pytest.fail("replacement migration classification mismatch", pytrace=False)
     for value in (
         PRIVATE_SENTINEL,
-        PROJECT,
-        DEVELOPMENT,
-        STAGING,
-        API,
-        POSTGRES,
-        DEPLOYMENT,
+        DEVELOPMENT_SERVICE,
+        STAGING_SERVICE,
+        OTHER_SERVICE,
     ):
         if value in completed.stdout or value in completed.stderr:
             pytest.fail("replacement migration output not sanitized", pytrace=False)
@@ -213,15 +193,11 @@ def test_classification_assertion_does_not_echo_leaked_process_output() -> None:
 @pytest.mark.parametrize(
     ("changed", "source_sha"),
     (
-        ({"RAILWAY_PROJECT_ID": OTHER}, SOURCE_SHA),
-        ({"RAILWAY_ENVIRONMENT_ID": STAGING}, SOURCE_SHA),
-        ({"RAILWAY_SERVICE_ID": POSTGRES}, SOURCE_SHA),
-        ({"RAILWAY_SERVICE_NAME": "Postgres"}, SOURCE_SHA),
-        ({"RAILWAY_ENVIRONMENT_NAME": "production"}, SOURCE_SHA),
-        ({"TAILTAG_REPLACEMENT_POSTGRES_SERVICE_ID": API}, SOURCE_SHA),
-        ({"TAILTAG_REPLACEMENT_POSTGRES_SERVICE_ID": "not-a-uuid"}, SOURCE_SHA),
-        ({"RAILWAY_DEPLOYMENT_ID": "not-a-uuid"}, SOURCE_SHA),
-        ({"RAILWAY_DEPLOYMENT_ID": ""}, SOURCE_SHA),
+        ({"RENDER_SERVICE_ID": OTHER_SERVICE}, SOURCE_SHA),
+        ({"RENDER_SERVICE_ID": STAGING_SERVICE}, SOURCE_SHA),
+        ({"RENDER": "false"}, SOURCE_SHA),
+        ({"RAILWAY_PROJECT_ID": "retired"}, SOURCE_SHA),
+        ({"RAILWAY_ENVIRONMENT_NAME": "development"}, SOURCE_SHA),
         ({"DJANGO_SETTINGS_MODULE": "config.settings.local"}, SOURCE_SHA),
         ({}, None),
         ({}, "malformed-source-sha"),
@@ -249,13 +225,8 @@ def test_invalid_runtime_identity_stops_before_setup_or_migration(
 @pytest.mark.parametrize(
     "missing",
     (
-        "RAILWAY_PROJECT_ID",
-        "RAILWAY_ENVIRONMENT_ID",
-        "RAILWAY_ENVIRONMENT_NAME",
-        "RAILWAY_SERVICE_ID",
-        "RAILWAY_SERVICE_NAME",
-        "RAILWAY_DEPLOYMENT_ID",
-        "TAILTAG_REPLACEMENT_POSTGRES_SERVICE_ID",
+        "RENDER",
+        "RENDER_SERVICE_ID",
         "DJANGO_SETTINGS_MODULE",
     ),
 )
@@ -361,7 +332,7 @@ def test_executable_entrypoint_rejects_unpinned_target_with_fixed_output() -> No
             cwd=API_ROOT,
             env=_environment(
                 "postgresql://local:local@127.0.0.1:1/does_not_exist",
-                {"RAILWAY_PROJECT_ID": OTHER},
+                {"RAILWAY_PROJECT_ID": "retired"},
             ),
             capture_output=True,
             text=True,
@@ -375,8 +346,7 @@ def test_executable_entrypoint_rejects_unpinned_target_with_fixed_output() -> No
 
 @pytest.fixture
 def disposable_database() -> Iterator[tuple[str, str, str]]:
-    """Make an isolated local database; never connect to a Railway resource."""
-    assert not os.environ.get("RAILWAY_PROJECT_ID")
+    """Make an isolated local database; never connect to a hosted resource."""
     base_url = os.environ["DATABASE_URL"]
     parsed = urlsplit(base_url)
     assert parsed.scheme in {"postgres", "postgresql"}
@@ -469,7 +439,7 @@ def test_wrong_or_missing_code_owned_database_binding_denies_before_migrate(
     elif digest_kind == "wrong-name":
         digest = _database_digest("development", f"{name}_old", cluster)
     elif digest_kind == "wrong-service":
-        digest = _database_digest("development", name, cluster, service=OTHER)
+        digest = _database_digest("development", name, cluster, service=OTHER_SERVICE)
     elif digest_kind == "missing":
         digest = ""
     elif digest_kind == "runtime-spoof":
@@ -874,3 +844,110 @@ def test_process_descriptor_output_and_raw_exception_are_suppressed(
         before_import="import os\n" + poison,
     )
     _assert_classification(completed, expected)
+
+
+RENDER_DEVELOPMENT_SERVICE = "srv-d0development00000000"
+RENDER_OTHER_SERVICE = "srv-d0unpinned00000000000"
+
+
+def _render_service_digest(environment: str, service: str) -> str:
+    return hashlib.sha256(
+        _frame("tailtag-render-api-v1", environment, service)
+    ).hexdigest()
+
+
+def _render_database_digest(
+    environment: str, name: str, cluster: str, service: str = RENDER_DEVELOPMENT_SERVICE
+) -> str:
+    return hashlib.sha256(
+        _frame(
+            "tailtag-render-postgres-first-boot-v1", environment, service, name, cluster
+        )
+    ).hexdigest()
+
+
+def _render_environment(
+    database_url: str, overrides: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """Replace every Railway runtime variable with a Render service runtime."""
+    return {
+        **{
+            key: value
+            for key, value in _environment(database_url).items()
+            if not key.startswith("RAILWAY_")
+        },
+        "RENDER": "true",
+        "RENDER_SERVICE_ID": RENDER_DEVELOPMENT_SERVICE,
+        "RENDER_GIT_COMMIT": "b" * 40,
+        **(overrides or {}),
+    }
+
+
+def _render_pins(database_digests: Mapping[str, str]) -> str:
+    return (
+        "binding._EXPECTED_RENDER_DIGESTS = "
+        f"{ {'development': _render_service_digest('development', RENDER_DEVELOPMENT_SERVICE)}!r}\n"
+        f"wrapper._EXPECTED_RENDER_BINDING_DIGESTS = {dict(database_digests)!r}\n"
+    )
+
+
+@pytest.mark.parametrize("port", ("explicit", "default"))
+def test_render_migration_binds_the_pinned_service_and_database(
+    tmp_path: Path, disposable_database: tuple[str, str, str], port: str
+) -> None:
+    """AC16: Render needs no deployment ID, only the service and database pins.
+
+    The Render internal database URL names no port, so libpq uses 5432.
+    """
+    url, name, cluster = disposable_database
+    if port == "default":
+        parsed = urlsplit(url)
+        assert parsed.port in {None, 5432}
+        url = urlunsplit(parsed._replace(netloc=parsed.netloc.rsplit(":", 1)[0]))
+        assert urlsplit(url).port is None
+    completed, _, migration_marker = _run_wrapper(
+        tmp_path,
+        environment=_render_environment(url),
+        before_main=_render_pins(
+            {"development": _render_database_digest("development", name, cluster)}
+        ),
+        observe_migration=True,
+    )
+
+    _assert_classification(completed, "PASS")
+    assert migration_marker.read_text() == "x"
+
+
+@pytest.mark.parametrize(
+    "case",
+    ("unpinned-service", "mixed-host", "wrong-database-service"),
+)
+def test_render_migration_denies_unpinned_mixed_or_foreign_targets(
+    tmp_path: Path, disposable_database: tuple[str, str, str], case: str
+) -> None:
+    """AC16: an unpinned service, mixed host, or other database never migrates."""
+    url, name, cluster = disposable_database
+    overrides: dict[str, str] = {}
+    digest = _render_database_digest("development", name, cluster)
+    if case == "unpinned-service":
+        overrides = {"RENDER_SERVICE_ID": RENDER_OTHER_SERVICE}
+    elif case == "mixed-host":
+        overrides = {"RAILWAY_ENVIRONMENT_NAME": "development"}
+    elif case == "wrong-database-service":
+        digest = _render_database_digest(
+            "development", name, cluster, service=RENDER_OTHER_SERVICE
+        )
+    completed, setup_marker, migration_marker = _run_wrapper(
+        tmp_path,
+        environment=_render_environment(url, overrides),
+        database_digests={
+            "development": _database_digest("development", name, cluster)
+        },
+        before_main=_render_pins({"development": digest}),
+        observe_setup=True,
+        observe_migration=True,
+    )
+
+    _assert_classification(completed, "FAIL_GUARD")
+    assert not setup_marker.exists()
+    assert not migration_marker.exists()

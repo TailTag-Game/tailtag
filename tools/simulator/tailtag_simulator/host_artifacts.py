@@ -432,7 +432,16 @@ def _exists(directory: int, name: str) -> bool:
     return True
 
 
-def _run_files(runs: int, run_id: str) -> tuple[str, dict[str, object] | None, float]:
+def _operator_evidence(top: int, name: str) -> bytes | None:
+    try:
+        return _contents(top, ("operator-state", name), optional=True)
+    except FileNotFoundError:
+        return None  # No operator-state directory: no run has operator evidence.
+
+
+def _run_files(
+    top: int, runs: int, run_id: str
+) -> tuple[str, dict[str, object] | None, float]:
     """Classify one run directory, reading nothing outside its fixed evidence.
 
     The states are held, incomplete, settled and pruned (nothing left to collect).
@@ -462,6 +471,10 @@ def _run_files(runs: int, run_id: str) -> tuple[str, dict[str, object] | None, f
                 ),
                 "host": _digest(host),
             }
+            for kind in ("used", "bridge"):
+                evidence = _operator_evidence(top, f"{run_id}.{kind}.json")
+                if evidence is not None:
+                    files[kind] = _digest(evidence)
             _contents(base, ("control", "recovery.json"))  # Presence and ownership.
             assert host is not None
             return "settled", files, _completed_at(host)
@@ -478,8 +491,9 @@ def inventory_runs(root: Path) -> dict[str, object]:
     top = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         runs = os.open("runs", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=top)
-    finally:
+    except BaseException:
         os.close(top)
+        raise
     try:
         pending: list[dict[str, object]] = []
         settled: list[tuple[float, dict[str, object]]] = []
@@ -495,7 +509,7 @@ def inventory_runs(root: Path) -> dict[str, object]:
             except FileNotFoundError:
                 continue  # Removed after listing; this listing takes no lock.
             try:
-                state, files, completed = _run_files(runs, run_id)
+                state, files, completed = _run_files(top, runs, run_id)
             except OSError:
                 state, files, completed = "incomplete", None, 0.0
             if state == "pruned":
@@ -520,3 +534,4 @@ def inventory_runs(root: Path) -> dict[str, object]:
         }
     finally:
         os.close(runs)
+        os.close(top)

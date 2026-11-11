@@ -20,9 +20,9 @@ Each outcome is recorded twice, with the same values:
 - one INFO log line with `event` set to the signal, `tailtag_outcome`, and
   `tailtag_reason`, plus the usual `request_id`, `environment`, and `release`.
 
-Use the Sentry metric for counts and rates. Use Railway service logs to follow
-one request: search `@event:tailtag.catches.confirmation @tailtag_reason:credential_revoked`,
-then take a line's `request_id` to the steps in
+Use the Sentry metric for counts and rates. Use Render logs to follow
+one request: search the text `credential_revoked`, or the regular expression
+`/tailtag.catches.confirmation.*credential_revoked/`, then take a line's `request_id` to the steps in
 [backend logging](backend-logging.md#following-one-request).
 
 Outcome lines and metrics carry no user, Clerk, fursuit, convention, catch, or
@@ -49,6 +49,21 @@ session ID, and never a credential or token.
 | `rejected` | `self_catch` | The player scanned their own fursuit. |
 | `rejected` | a target reason | The fursuit cannot be caught right now. See [target reasons](#target-reasons). |
 
+With the catch request gate on, `POST /api/catches/requests/` records this signal instead of the retired v1 confirmation (#505).
+
+| Outcome | Reason | Meaning |
+| --- | --- | --- |
+| `pending` | | A new request waits for the owner (HTTP 201). |
+| `already_pending` | | The player already has a pending request for this suit at this convention (HTTP 200). This is a normal retry result. |
+| `created` | | Automatic approval recorded a new catch (HTTP 201). |
+| `already_caught` | | The player already caught this suit at this convention (HTTP 200). |
+| `rejected` | `requests_unavailable` | The convention has no time zone, or its review window is closed. |
+| `rejected` | `blocked` | The owner blocked the player for this suit at this convention. The player gets the neutral 404 (#506). |
+| `rejected` | `cooldown_active` | A trio cooldown refused the attempt with HTTP 429 (#506). |
+| `rejected` | `rate_limited` | The per-player limit refused the attempt with HTTP 429 (#506). |
+
+Request rejections also use `payload_invalid`, `catcher_ineligible`, `self_catch`, and the target reasons. Owner decisions and withdrawals record no outcome yet. #508 adds those metrics.
+
 ### Credential resolution
 
 | Outcome | Reason | Meaning |
@@ -58,6 +73,8 @@ session ID, and never a credential or token.
 | `rejected` | `caller_ineligible` | The scanning player cannot play at this convention. |
 | `rejected` | `convention_unknown` | The convention in the URL does not exist. Usually a client bug. |
 | `rejected` | a target reason | See [target reasons](#target-reasons). |
+
+With the catch request gate on, `POST /api/catches/preview/` records this signal. A blocked player gets reason `blocked` and the neutral 404 (#506).
 
 ### Target reasons
 
@@ -136,7 +153,7 @@ metric.
   it from a bad token.
 - Sentry counts can occasionally include a duplicate sample. During Development
   evidence, one outcome was stored twice with the same trace and timestamp while
-  Railway had one line for it. Treat Railway lines as exact and Sentry counts as
+  the host logs had one line for it. Treat log lines as exact and Sentry counts as
   close; a single extra count is not a double emission.
 
 ## Adding an outcome or reason
@@ -163,6 +180,9 @@ it.
    this guide.
 
 ## Development evidence
+
+This evidence was recorded on Railway, before the Render move. Its log search
+syntax is Railway syntax and does not work on Render.
 
 Recorded on 2026-09-30 against Development deployment `7d3edb34` of `main` at
 `f8eb380` (the #213 merge). Railway service logs were read through the CLI,
