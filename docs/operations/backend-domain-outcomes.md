@@ -58,8 +58,11 @@ With the catch request gate on, `POST /api/catches/requests/` records this signa
 | `created` | | Automatic approval recorded a new catch (HTTP 201). |
 | `already_caught` | | The player already caught this suit at this convention (HTTP 200). |
 | `rejected` | `requests_unavailable` | The convention has no time zone, or its review window is closed. |
+| `rejected` | `blocked` | The owner blocked the player for this suit at this convention. The player gets the neutral 404 (#506). |
+| `rejected` | `cooldown_active` | A trio cooldown refused the attempt with HTTP 429 (#506). |
+| `rejected` | `rate_limited` | The per-player limit refused the attempt with HTTP 429 (#506). |
 
-Request rejections also use `payload_invalid`, `catcher_ineligible`, `self_catch`, and the target reasons.
+Request rejections also use `payload_invalid`, `catcher_ineligible`, `self_catch`, and the target reasons. Owner decisions and withdrawals record no outcome yet. #508 adds those metrics.
 
 ### Credential resolution
 
@@ -70,6 +73,8 @@ Request rejections also use `payload_invalid`, `catcher_ineligible`, `self_catch
 | `rejected` | `caller_ineligible` | The scanning player cannot play at this convention. |
 | `rejected` | `convention_unknown` | The convention in the URL does not exist. Usually a client bug. |
 | `rejected` | a target reason | See [target reasons](#target-reasons). |
+
+With the catch request gate on, `POST /api/catches/preview/` records this signal. A blocked player gets reason `blocked` and the neutral 404 (#506).
 
 ### Target reasons
 

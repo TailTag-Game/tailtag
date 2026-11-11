@@ -41,7 +41,13 @@ def close_issue_120_component_schemas(
 # drf-spectacular never marks a raw dict request schema as required. These
 # operations reject a missing body with 400, so the schema must say so (#504).
 _REQUIRED_BODY_OPERATIONS = frozenset(
-    {"catch_preview", "fursuit_tag_replace", "catch_requests_create", "fursuits_update"}
+    {
+        "catch_preview",
+        "fursuit_tag_replace",
+        "catch_requests_create",
+        "fursuits_update",
+        "catch_incoming_requests_decline",
+    }
 )
 
 

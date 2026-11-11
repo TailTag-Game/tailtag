@@ -38,7 +38,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from accounts.models import User
-from catches.models import Catch, CatchRequest
+from catches.models import Catch, CatchBlock, CatchRequest
 from conventions.models import (
     Convention,
     ConventionEnrollment,
@@ -174,6 +174,13 @@ def start_run() -> Journey:
         catch_session=session,
         state="pending",
         requested_at=timezone.now(),
+    )
+    # Nor must a block on the run fursuit (#506).
+    CatchBlock.objects.create(
+        player=users[2],
+        fursuit=activation.fursuit,
+        convention=activation.convention,
+        created_at=timezone.now(),
     )
     journey_photo_key = media_service.store_image(image_upload())
     Fursuit.objects.create(

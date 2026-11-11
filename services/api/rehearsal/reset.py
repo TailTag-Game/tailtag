@@ -10,7 +10,7 @@ from django.db.models import F, Q
 from django.utils import timezone
 
 from accounts.models import User
-from catches.models import Catch, CatchRequest
+from catches.models import Catch, CatchBlock, CatchRequest
 from conventions.models import (
     Convention,
     ConventionEnrollment,
@@ -200,6 +200,17 @@ def _assert_closure(
         catch_session_id__in=session_ids,
     ).exists():
         raise ResetSafetyError
+    # Blocks follow the request closure without session links (#506).
+    if (
+        CatchBlock.objects.filter(Q(fursuit_id__in=ids) | Q(convention=convention))
+        .exclude(
+            player__in=(identity.owner, identity.catcher),
+            fursuit_id__in=ids,
+            convention=convention,
+        )
+        .exists()
+    ):
+        raise ResetSafetyError
 
 
 def _profiles(identity: StagingResetIdentity) -> None:
@@ -330,6 +341,9 @@ def validate_baseline(identity: StagingResetIdentity) -> dict[str, int]:
         or CatchRequest.objects.filter(
             fursuit_id__in=(identity.first_fursuit_id, identity.second_fursuit_id)
         ).exists()
+        or CatchBlock.objects.filter(
+            fursuit_id__in=(identity.first_fursuit_id, identity.second_fursuit_id)
+        ).exists()
         or FursuitCatchSession.objects.filter(
             activation__fursuit_id__in=(
                 identity.first_fursuit_id,
@@ -386,6 +400,9 @@ def reset_baseline(configuration: ResetConfiguration) -> dict[str, int]:
                 activation_id__in=activation_ids
             ).values_list("pk", flat=True)
         )
+        CatchBlock.objects.filter(
+            fursuit__in=(first, second), convention=convention
+        ).delete()
         CatchRequest.objects.filter(catch_session_id__in=session_ids).delete()
         Catch.objects.filter(catch_session_id__in=session_ids).delete()
         FursuitCatchCredential.objects.filter(activation_id__in=activation_ids).delete()

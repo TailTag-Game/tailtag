@@ -19,7 +19,7 @@ from PIL import Image, UnidentifiedImageError
 from pytest_django.fixtures import SettingsWrapper
 
 from accounts.models import User
-from catches.models import CatchRequest
+from catches.models import CatchBlock, CatchRequest
 from conventions import services as convention_services
 from conventions.models import (
     Convention,
@@ -356,6 +356,20 @@ def _request_then_lose_enrollment(user: User) -> None:
     )
 
 
+def _blocked_then_lose_enrollment(user: User) -> None:
+    # A block outlives the player's enrollment, like a request (#506).
+    scenario = create_catch_scenario(
+        catcher_clerk_user_id=f"blocked_{user.pk}",
+        target_owner_clerk_user_id=f"block_target_{user.pk}",
+    )
+    CatchBlock.objects.create(
+        player=user,
+        fursuit=scenario.fursuit,
+        convention=scenario.convention,
+        created_at=timezone.now(),
+    )
+
+
 @pytest.mark.parametrize(
     "dirtying",
     (
@@ -364,6 +378,7 @@ def _request_then_lose_enrollment(user: User) -> None:
         ((0, _set_an_avatar),),
         ((3, _catch_then_lose_enrollment),),
         ((3, _request_then_lose_enrollment),),
+        ((3, _blocked_then_lose_enrollment),),
         ((0, _own_a_fursuit), (3, _set_an_avatar)),
     ),
     ids=(
@@ -372,6 +387,7 @@ def _request_then_lose_enrollment(user: User) -> None:
         "owner-has-an-avatar",
         "catcher-has-a-catch",
         "catcher-has-a-request",
+        "catcher-has-a-block",
         "two-dirty-identities",
     ),
 )

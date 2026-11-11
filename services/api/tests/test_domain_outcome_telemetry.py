@@ -27,6 +27,7 @@ from clerk_backend_api.security.types import (
 )
 from django.conf import settings
 from django.db import transaction
+from django.db.models import F
 from django.test import Client
 from django.utils import timezone
 from pytest import MonkeyPatch
@@ -117,6 +118,9 @@ EXPECTED_OUTCOMES = {
     "ended",
 }
 EXPECTED_REASONS = {
+    "blocked",
+    "cooldown_active",
+    "rate_limited",
     "payload_invalid",
     "catcher_ineligible",
     "convention_mismatch",
@@ -912,3 +916,56 @@ def test_catch_request_submission_records_one_confirmation_outcome_per_call(
         (CATCH_SIGNAL, "created", None),
     ]
     assert_no_token_leak(telemetry.emitted_text())
+
+
+@pytest.mark.django_db
+def test_catch_request_refusals_record_the_protection_reasons(
+    telemetry: Telemetry, settings: Any
+) -> None:
+    """#506 AC40: blocks, cooldowns, and the limit each have a reason."""
+    from catches.models import CatchRequest
+    from tests.fursuit_tag_test_support import create_preview_scenario, owner_client
+
+    settings.CATCH_REQUESTS_ENABLED = True
+    scenario = create_preview_scenario("telemetry_protections")
+    client = scenario.catcher_client()
+
+    def submit() -> int:
+        return client.post(
+            "/api/catches/requests/",
+            {"payload": scenario.payload},
+            content_type="application/json",
+        ).status_code
+
+    def decline(*, block: bool) -> None:
+        request_id = CatchRequest.objects.get().pk
+        response = owner_client(scenario.owner).post(
+            f"/api/catches/incoming-requests/{request_id}/decline/",
+            {"block": block},
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+
+    assert submit() == 201
+    decline(block=False)
+    cooled = submit()
+    CatchRequest.objects.update(
+        requested_at=F("requested_at") - datetime.timedelta(seconds=11),
+        declined_at=F("declined_at") - datetime.timedelta(seconds=11),
+    )
+    settings.CATCH_REQUEST_LIMIT_COUNT = 1
+    limited = submit()
+    settings.CATCH_REQUEST_LIMIT_COUNT = 30
+    decline(block=True)
+    blocked = submit()
+
+    assert (cooled, limited, blocked) == (429, 429, 404)
+    assert [
+        outcome
+        for outcome in telemetry.outcomes()
+        if outcome[0] == CATCH_SIGNAL and outcome[1] == "rejected"
+    ] == [
+        (CATCH_SIGNAL, "rejected", "cooldown_active"),
+        (CATCH_SIGNAL, "rejected", "rate_limited"),
+        (CATCH_SIGNAL, "rejected", "blocked"),
+    ]

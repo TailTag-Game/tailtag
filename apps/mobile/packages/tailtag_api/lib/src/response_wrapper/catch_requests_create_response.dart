@@ -11,6 +11,8 @@ import 'package:tailtag_api/src/model/catch_request_error.dart' as _i6;
 import 'package:tailtag_api/src/model/catch_request_not_found.dart' as _i7;
 import 'package:tailtag_api/src/model/catch_request_submission.dart' as _i2;
 import 'package:tailtag_api/src/model/detail_error.dart' as _i5;
+import 'package:tailtag_api/src/response/api_catches_requests_post429_response.dart'
+    as _i8;
 
 sealed class CatchRequestsCreateResponse {
   const CatchRequestsCreateResponse();
@@ -122,6 +124,22 @@ class CatchRequestsCreateResponse409 extends CatchRequestsCreateResponse {
   _i3.bool operator ==(_i3.Object other) {
     if (_i3.identical(this, other)) return true;
     return other is CatchRequestsCreateResponse409 && other.body == this.body;
+  }
+
+  @_i3.override
+  _i3.int get hashCode => body.hashCode;
+}
+
+@_i1.immutable
+class CatchRequestsCreateResponse429 extends CatchRequestsCreateResponse {
+  const CatchRequestsCreateResponse429({required this.body});
+
+  final _i8.ApiCatchesRequestsPost429Response body;
+
+  @_i3.override
+  _i3.bool operator ==(_i3.Object other) {
+    if (_i3.identical(this, other)) return true;
+    return other is CatchRequestsCreateResponse429 && other.body == this.body;
   }
 
   @_i3.override

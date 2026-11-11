@@ -53,6 +53,10 @@ class Reason(StrEnum):
     SESSION_EXPIRED = "session_expired"
     # Reusable tag preview: the convention has no time zone or a closed window.
     REQUESTS_UNAVAILABLE = "requests_unavailable"
+    # Catch request protections (#506). A block shares the neutral target 404.
+    BLOCKED = "blocked"
+    COOLDOWN_ACTIVE = "cooldown_active"
+    RATE_LIMITED = "rate_limited"
     # Catch session start rejections.
     OWNER_INELIGIBLE = "owner_ineligible"
     NOT_ENROLLED = "not_enrolled"

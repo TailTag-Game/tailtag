@@ -1,4 +1,4 @@
-"""Real PostgreSQL, lock-observed catch request races (#505 AC19, AC20).
+"""Real PostgreSQL, lock-observed catch request races (#505 AC19, AC20, #506 AC36).
 
 A held PlayerProfile lock queues the workers. pg_blocking_pids proves the
 queue, so no sleep picks a winner. The harness follows
@@ -7,6 +7,7 @@ test_fursuit_tag_concurrency.py.
 
 from __future__ import annotations
 
+import datetime
 import math
 import os
 from collections.abc import Callable, Sequence
@@ -17,9 +18,11 @@ from typing import Any
 
 import pytest
 from django.db import close_old_connections, connection, transaction
+from django.db.models import F
+from django.utils import timezone
 
 from accounts.models import User
-from catches.models import Catch, CatchRequest
+from catches.models import Catch, CatchBlock, CatchRequest, CatchRequestState
 from conventions.models import ConventionEnrollment
 from fursuits.models import Fursuit
 from profiles.models import PlayerProfile
@@ -36,6 +39,7 @@ from tests.fursuit_tag_test_support import (
 )
 
 REQUESTS_PATH = "/api/catches/requests/"
+INCOMING_PATH = "/api/catches/incoming-requests/"
 
 
 def _wait_seconds() -> float:
@@ -199,3 +203,188 @@ def test_two_players_catching_each_others_suits_do_not_deadlock() -> None:
 
     assert (one.status_code, two.status_code) == (201, 201)
     assert CatchRequest.objects.filter(state="pending").count() == 2
+
+
+# --- #506 AC36, AC37: owner decisions, withdrawal, blocks, and the limit ---
+
+
+def _owner_action(
+    scenario: PreviewScenario, request_id: int, action: str, body: object = None
+) -> Callable[[], Any]:
+    def call() -> Any:
+        client = force_authenticated_client(user=User.objects.get(pk=scenario.owner.pk))
+        return client.post(
+            f"{INCOMING_PATH}{request_id}/{action}/",
+            {} if body is None else body,
+            content_type="application/json",
+        )
+
+    return call
+
+
+def _withdraw(scenario: PreviewScenario, request_id: int) -> Callable[[], Any]:
+    def call() -> Any:
+        client = force_authenticated_client(
+            user=User.objects.get(pk=scenario.catcher.pk)
+        )
+        return client.post(f"{REQUESTS_PATH}{request_id}/withdraw/")
+
+    return call
+
+
+def _pending(label: str) -> tuple[PreviewScenario, int]:
+    scenario = create_preview_scenario(label)
+    response = _submit(scenario.catcher, scenario.payload)()
+    assert response.status_code == 201, response.content
+    return scenario, int(response.json()["request"]["id"])
+
+
+def _both(scenario: PreviewScenario) -> list[int]:
+    return [scenario.owner_profile.pk, scenario.catcher_profile.pk]
+
+
+def _age(request_id: int) -> None:
+    delta = datetime.timedelta(seconds=11)
+    rows = CatchRequest.objects.filter(pk=request_id)
+    rows.update(requested_at=F("requested_at") - delta)
+    rows.filter(declined_at__isnull=False).update(declined_at=F("declined_at") - delta)
+
+
+# These actions lock different profile sets, so PostgreSQL may grant either
+# queued worker first. Each test accepts both valid orders and checks the
+# invariants: one result, no duplicate row, and no server error.
+
+
+@pytest.mark.django_db(transaction=True)
+def test_approve_and_withdraw_give_one_result() -> None:
+    scenario, request_id = _pending("race_approve_withdraw")
+
+    approve, withdraw = _race(
+        _both(scenario),
+        _owner_action(scenario, request_id, "approve"),
+        _withdraw(scenario, request_id),
+    )
+
+    state = CatchRequest.objects.get(pk=request_id).state
+    if state == CatchRequestState.APPROVED.value:
+        assert approve.status_code == 200, approve.content
+        assert withdraw.json() | {"detail": ""} == {
+            "code": "request_state_changed",
+            "detail": "",
+            "state": "approved",
+        }
+        assert Catch.objects.count() == 1
+    else:
+        assert state == CatchRequestState.WITHDRAWN.value
+        assert withdraw.status_code == 200, withdraw.content
+        assert (approve.status_code, approve.json()["state"]) == (409, "withdrawn")
+        assert not Catch.objects.exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_two_approvals_create_one_catch() -> None:
+    scenario, request_id = _pending("race_two_approvals")
+    approve = _owner_action(scenario, request_id, "approve")
+
+    one, two = _race(_both(scenario), approve, approve)
+
+    assert (one.status_code, two.status_code) == (200, 200)
+    assert one.json()["catch"] == two.json()["catch"]
+    assert Catch.objects.count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_restore_and_resubmission_keep_one_pending_request() -> None:
+    scenario, request_id = _pending("race_restore_submit")
+    declined = _owner_action(scenario, request_id, "decline", {"block": False})()
+    assert declined.status_code == 200
+    _age(request_id)
+
+    restore, submit = _race(
+        _both(scenario),
+        _owner_action(scenario, request_id, "restore"),
+        _submit(scenario.catcher, scenario.payload),
+    )
+
+    pending = list(
+        CatchRequest.objects.filter(state=CatchRequestState.PENDING).values_list(
+            "pk", flat=True
+        )
+    )
+    assert len(pending) == 1
+    if pending == [request_id]:
+        assert restore.status_code == 200, restore.content
+        assert (submit.status_code, submit.json()["outcome"]) == (
+            200,
+            "already_pending",
+        )
+    else:
+        assert (submit.status_code, submit.json()["outcome"]) == (201, "pending")
+        assert (restore.status_code, restore.json()["code"]) == (
+            409,
+            "request_superseded",
+        )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_decline_with_block_and_a_racing_submission_create_no_request() -> None:
+    scenario, request_id = _pending("race_block_submit")
+
+    decline, submit = _race(
+        _both(scenario),
+        _owner_action(scenario, request_id, "decline", {"block": True}),
+        _submit(scenario.catcher, scenario.payload),
+    )
+
+    assert decline.status_code == 200, decline.content
+    assert (
+        submit.status_code,
+        submit.json().get("outcome", submit.json().get("code")),
+    ) in {
+        (200, "already_pending"),
+        (404, "catch_target_unavailable"),
+    }
+    assert CatchRequest.objects.count() == 1
+    assert CatchBlock.objects.count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_two_submissions_at_the_limit_create_one_request() -> None:
+    scenario = create_preview_scenario("race_limit")
+    second_suit = create_suit(scenario.owner)
+    create_catch_session(
+        activation=create_activation_row(
+            fursuit=second_suit, convention=scenario.convention, active=True
+        )
+    )
+    second_payload = read_payload(scenario.owner, second_suit)
+    filler = create_suit(scenario.owner)
+    activation = create_activation_row(
+        fursuit=filler, convention=create_convention("race_limit_fill"), active=True
+    )
+    session = create_catch_session(activation=activation)
+    now = timezone.now()
+    CatchRequest.objects.bulk_create(
+        CatchRequest(
+            player=scenario.catcher,
+            fursuit=filler,
+            convention=activation.convention,
+            activation=activation,
+            catch_session=session,
+            state=CatchRequestState.WITHDRAWN,
+            requested_at=now,
+            withdrawn_at=now,
+        )
+        for _ in range(29)
+    )
+
+    one, two = _race(
+        _both(scenario),
+        _submit(scenario.catcher, scenario.payload),
+        _submit(scenario.catcher, second_payload),
+    )
+
+    assert sorted([one.status_code, two.status_code]) == [201, 429]
+    refused = one if one.status_code == 429 else two
+    assert refused.json()["code"] == "rate_limited"
+    assert CatchRequest.objects.filter(player=scenario.catcher).count() == 30

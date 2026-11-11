@@ -1,8 +1,8 @@
 """Preview-only resolution of a reusable tag at the catcher's selected convention.
 
 Preview reads and never writes. It runs the contract submission checks that
-exist today, in contract order. #506 adds the block check. Each rejection
-carries a telemetry reason that is never public.
+exist today, in contract order, through the block check (#506). Each
+rejection carries a telemetry reason that is never public.
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from accounts.models import User
+from catches.request_protections import is_blocked
 from conventions.catch_sessions import unended_fursuit_catch_sessions
 from conventions.models import Convention, ConventionEnrollment, FursuitActivation
 from conventions.review_deadline import database_now, review_window_open
@@ -103,6 +104,12 @@ def preview_tag(user: User, *, payload: str) -> TagPreview:
         raise TagPreviewTargetUnavailableError(Reason.SESSION_EXPIRED)
     if fursuit.owner_id == user.pk:
         raise TagPreviewSelfCatchError(Reason.SELF_CATCH)
+    # Check 10: a block shares the neutral 404. Preview applies no cooldown or
+    # limit, because it creates nothing (#506 G6).
+    if is_blocked(
+        player_id=user.pk, fursuit_id=fursuit.pk, convention_id=convention.pk
+    ):
+        raise TagPreviewTargetUnavailableError(Reason.BLOCKED)
 
     # A tag replaced after the first read must not resolve. Re-check last.
     if not FursuitTag.objects.filter(pk=tag.pk, revoked_at__isnull=True).exists():

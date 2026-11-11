@@ -244,6 +244,389 @@ paths:
                 - code
                 - detail
           description: An unexpected error occurred.
+  /api/catches/incoming-requests/:
+    get:
+      operationId: catch_incoming_requests_list
+      description: List requests on the caller's suits, newest first, for conventions
+        whose review window is open.
+      parameters:
+      - in: query
+        name: convention_id
+        schema:
+          type: integer
+        description: Limit the list to one convention.
+      - in: query
+        name: fursuit_id
+        schema:
+          type: integer
+        description: Limit the list to one suit.
+      tags:
+      - catches
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerRequestList'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestError'
+          description: 'invalid_query: a filter is not a positive integer.'
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailError'
+          description: Authentication credentials were not provided.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailError'
+          description: The caller has no enabled, completed profile.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailError'
+          description: The catch request gate is off.
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestError'
+          description: server_error
+  /api/catches/incoming-requests/{id}/approve/:
+    post:
+      operationId: catch_incoming_requests_approve
+      description: Approve a pending request. The catch time is the request time.
+        A repeat returns the same catch.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - catches
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerApproval'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailError'
+          description: Authentication credentials were not provided.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailError'
+          description: The caller has no enabled, completed profile.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestActionError'
+          description: request_not_found. While the catch request gate is off, every
+            call returns the generic not-found shape.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestActionError'
+          description: request_state_changed, review_window_closed, approval_paused,
+            request_superseded
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestError'
+          description: server_error
+  /api/catches/incoming-requests/{id}/block/:
+    delete:
+      operationId: catch_incoming_requests_unblock
+      description: Remove the block for this request's player, suit, and convention.
+        The cooldown stays. No block in place also returns 204.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - catches
+      security:
+      - BearerAuth: []
+      responses:
+        '204':
+          description: The block is gone.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailError'
+          description: Authentication credentials were not provided.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailError'
+          description: The caller has no enabled, completed profile.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestActionError'
+          description: request_not_found. While the catch request gate is off, every
+            call returns the generic not-found shape.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestActionError'
+          description: review_window_closed
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestError'
+          description: server_error
+  /api/catches/incoming-requests/{id}/decline/:
+    post:
+      operationId: catch_incoming_requests_decline
+      description: Decline a pending request. No reason is needed. With block true,
+        the player is also blocked for this suit at this convention.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - catches
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CatchRequestDecline'
+        required: true
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerRequest'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestError'
+          description: 'invalid_request: the body needs one boolean block.'
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailError'
+          description: Authentication credentials were not provided.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailError'
+          description: The caller has no enabled, completed profile.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestActionError'
+          description: request_not_found. While the catch request gate is off, every
+            call returns the generic not-found shape.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestActionError'
+          description: request_state_changed, review_window_closed
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestError'
+          description: server_error
+  /api/catches/incoming-requests/{id}/restore/:
+    post:
+      operationId: catch_incoming_requests_restore
+      description: Restore a declined request to pending before the review deadline.
+        An active block stays.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - catches
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerRequest'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailError'
+          description: Authentication credentials were not provided.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailError'
+          description: The caller has no enabled, completed profile.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestActionError'
+          description: request_not_found. While the catch request gate is off, every
+            call returns the generic not-found shape.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestActionError'
+          description: request_state_changed, review_window_closed, request_superseded
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestError'
+          description: server_error
+  /api/catches/incoming-requests/{id}/undo-decline/:
+    post:
+      operationId: catch_incoming_requests_undo_decline
+      description: Undo an ordinary decline within 10 seconds. The request returns
+        to pending, and the decline no longer counts.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - catches
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerRequest'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailError'
+          description: Authentication credentials were not provided.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailError'
+          description: The caller has no enabled, completed profile.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestActionError'
+          description: request_not_found. While the catch request gate is off, every
+            call returns the generic not-found shape.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestActionError'
+          description: request_state_changed, review_window_closed, undo_expired,
+            request_superseded
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestError'
+          description: server_error
+  /api/catches/incoming-requests/summary/:
+    get:
+      operationId: catch_incoming_requests_summary
+      description: Count pending requests on the caller's suits in open windows.
+      parameters:
+      - in: query
+        name: convention_id
+        schema:
+          type: integer
+        description: Limit the counts to one convention.
+      tags:
+      - catches
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerRequestSummary'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestError'
+          description: 'invalid_query: a filter is not a positive integer.'
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailError'
+          description: Authentication credentials were not provided.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailError'
+          description: The caller has no enabled, completed profile.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailError'
+          description: The catch request gate is off.
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestError'
+          description: server_error
   /api/catches/preview/:
     post:
       operationId: catch_preview
@@ -507,6 +890,70 @@ paths:
               schema:
                 $ref: '#/components/schemas/CatchRequestError'
           description: catch_requests_unavailable or self_catch_not_allowed
+        '429':
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds until the next submission can succeed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestRefusal'
+          description: cooldown_active or rate_limited
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestError'
+          description: server_error
+  /api/catches/requests/{id}/withdraw/:
+    post:
+      operationId: catch_requests_withdraw
+      description: Withdraw the caller's pending request. A withdrawal does not count
+        as a decline and does not reset a cooldown.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - catches
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlayerRequest'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailError'
+          description: Authentication credentials were not provided.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestError'
+          description: catcher_ineligible
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestActionError'
+          description: request_not_found. While the catch request gate is off, every
+            call returns the generic not-found shape.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatchRequestActionError'
+          description: request_state_changed, review_window_closed
         '500':
           content:
             application/json:
@@ -2906,6 +3353,144 @@ components:
           type: string
       required:
       - detail
+    CatchRequestRefusal:
+      type: object
+      additionalProperties: false
+      description: cooldown_active or rate_limited. The Retry-After header carries
+        the same number of seconds.
+      properties:
+        code:
+          type: string
+          enum:
+          - cooldown_active
+          - rate_limited
+        detail:
+          type: string
+        retry_after_seconds:
+          type: integer
+          minimum: 1
+      required:
+      - code
+      - detail
+      - retry_after_seconds
+    CatchRequestActionError:
+      type: object
+      additionalProperties: false
+      description: request_state_changed carries the current state. Other codes carry
+        code and detail only.
+      properties:
+        code:
+          type: string
+        detail:
+          type: string
+        state:
+          $ref: '#/components/schemas/CatchRequestState'
+      required:
+      - code
+      - detail
+    CatchRequestDecline:
+      type: object
+      additionalProperties: false
+      properties:
+        block:
+          type: boolean
+          description: True also blocks the player for this suit here.
+      required:
+      - block
+    OwnerRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+        fursuit:
+          $ref: '#/components/schemas/FursuitSummary'
+        convention_id:
+          type: integer
+        player:
+          type: object
+          additionalProperties: false
+          properties:
+            display_name:
+              type: string
+            handle:
+              type: string
+          required:
+          - display_name
+          - handle
+        state:
+          $ref: '#/components/schemas/CatchRequestState'
+        requested_at:
+          type: string
+          format: date-time
+        undo_available_until:
+          type: string
+          format: date-time
+          nullable: true
+        prior_decline_count:
+          type: integer
+        player_blocked:
+          type: boolean
+        approval_paused:
+          type: boolean
+        review_deadline_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - fursuit
+      - convention_id
+      - player
+      - state
+      - requested_at
+      - undo_available_until
+      - prior_decline_count
+      - player_blocked
+      - approval_paused
+      - review_deadline_at
+    OwnerRequestList:
+      type: object
+      additionalProperties: false
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/OwnerRequest'
+      required:
+      - results
+    OwnerRequestSummary:
+      type: object
+      additionalProperties: false
+      properties:
+        pending_count:
+          type: integer
+        fursuits:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              fursuit_id:
+                type: integer
+              pending_count:
+                type: integer
+            required:
+            - fursuit_id
+            - pending_count
+      required:
+      - pending_count
+      - fursuits
+    OwnerApproval:
+      type: object
+      additionalProperties: false
+      properties:
+        request:
+          $ref: '#/components/schemas/OwnerRequest'
+        catch:
+          $ref: '#/components/schemas/RequestCatch'
+      required:
+      - request
+      - catch
   securitySchemes:
     BearerAuth:
       type: http
