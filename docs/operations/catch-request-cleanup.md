@@ -119,13 +119,31 @@ The next scheduled run retries every convention that still has history. To retry
 A PITR restore can bring back request rows that cleanup already deleted. Run cleanup against the restored database before it serves traffic.
 
 1. Restore the database, as in [Restore the database with PITR](../development/staging.md#restore-the-database-with-pitr).
-2. Before any service points at the restored database, run cleanup against it, for example as a one-off job of a service bound to that database, or over `render ssh`:
+2. Copy the internal URL of the restored database from **Connect > Internal**. Note its host.
+3. Open a shell on the web service of the same environment with `render ssh`. That service still uses the live database, so point this one shell at the restored database. Paste the URL at the hidden prompt:
+
+   ```bash
+   read -rs DATABASE_URL && export DATABASE_URL
+   ```
+
+4. Print the database host that Django will use:
+
+   ```bash
+   python manage.py shell -c "from django.db import connection; print(connection.settings_dict['HOST'])"
+   ```
+
+   If the host is not the restored database host from step 2, stop. Do not run cleanup.
+5. Run cleanup, then run it again:
 
    ```bash
    python manage.py cleanup_catch_requests
+   python manage.py cleanup_catch_requests
    ```
 
-3. Make sure that the output line says how many requests and blocks it deleted, and that the exit status is 0.
-4. Only then move traffic to the restored database. Moving Staging to a restored database needs its own reviewed plan.
+   Make sure that both runs exit with status 0, and that the second run prints `Deleted 0 catch requests and 0 blocks.`
+6. Run `unset DATABASE_URL` and close the shell.
+7. Only then move traffic to the restored database. Moving Staging to a restored database needs its own reviewed plan.
+
+A manual run also sends check-ins to the `catch-request-cleanup` monitor.
 
 A manual database export holds request history too. Run cleanup on any database restored from it before that database serves traffic.

@@ -16,7 +16,9 @@ lookup are in [backend logging](backend-logging.md).
 Each outcome is recorded twice, with the same values:
 
 - a Sentry count of 1, named by the signal, with attributes `tailtag.outcome`
-  and, when there is one, `tailtag.reason`;
+  and, when there is one, `tailtag.reason`. The cleanup signal is the one
+  exception: its count can be larger (see
+  [catch request cleanup](#catch-request-cleanup));
 - one INFO log line with `event` set to the signal, `tailtag_outcome`, and
   `tailtag_reason`, plus the usual `request_id`, `environment`, and `release`.
 
@@ -67,7 +69,7 @@ Request rejections also use `payload_invalid`, `catcher_ineligible`, `self_catch
 
 ### Catch request cleanup
 
-The daily cleanup job records this signal once per state that it deleted, and once for the run (#507). A cleanup line carries `tailtag_count`, and its Sentry count uses that value instead of 1. See the [cleanup runbook](catch-request-cleanup.md#outcome-signal).
+The daily cleanup job records this signal once per state that it deleted, and once for the run (#507). When a count is larger than 1, the log line carries `tailtag_count` with that value, and the Sentry count uses the same value. A line without `tailtag_count` counts 1. That covers every `succeeded` and `failed` line, and a `deleted` line for a single row. See the [cleanup runbook](catch-request-cleanup.md#outcome-signal).
 
 | Outcome | Reason | Meaning |
 | --- | --- | --- |

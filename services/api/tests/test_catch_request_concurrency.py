@@ -26,7 +26,11 @@ from catches.models import Catch, CatchBlock, CatchRequest, CatchRequestState
 from catches.request_cleanup import run_cleanup
 from catches.request_invalidation import invalidate_request_as_operator
 from conventions.models import Convention, ConventionEnrollment
-from conventions.services import remove_convention_enrollment
+from conventions.services import (
+    deactivate_fursuit_activation_as_operator,
+    remove_convention_enrollment,
+    set_convention_admin_state,
+)
 from fursuits.models import Fursuit
 from profiles.models import PlayerProfile
 from tests.authentication_support import force_authenticated_client
@@ -479,3 +483,42 @@ def test_cleanup_and_an_owner_action_at_the_deadline_give_one_result() -> None:
     assert (result.succeeded, sum(result.deleted_requests.values())) == (True, 1)
     assert not CatchRequest.objects.exists()
     assert not CatchBlock.objects.exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_operator_deactivation_waits_for_a_convention_edit_that_closes_the_window() -> (
+    None
+):
+    """#507 AC13, AC16: the deactivation hook checks the window after the edit.
+
+    The edit recomputes a deadline that is already past, so the window closes.
+    Deactivation locks the Convention first, queues behind the edit, and then
+    leaves the request unchanged.
+    """
+    scenario, request_id = _pending("race_deactivate_edit")
+    convention = scenario.convention
+
+    def close_by_edit() -> Any:
+        return set_convention_admin_state(
+            convention_id=convention.pk,
+            name=f"{convention.name} renamed",
+            status=convention.status,
+            start_date=convention.start_date,
+            end_date=convention.end_date,
+            time_zone=convention.time_zone,
+        )
+
+    edit, deactivation = _race(
+        [],
+        close_by_edit,
+        lambda: deactivate_fursuit_activation_as_operator(
+            activation_id=scenario.activation.pk
+        ),
+        convention_ids=[convention.pk],
+    )
+
+    assert edit.changed is True
+    assert deactivation.changed is True
+    closed = Convention.objects.get(pk=convention.pk).review_deadline_at
+    assert closed is not None and closed < timezone.now()
+    assert CatchRequest.objects.get(pk=request_id).state == CatchRequestState.PENDING

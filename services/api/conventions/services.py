@@ -263,6 +263,11 @@ def deactivate_fursuit_activation_as_operator(
         candidate = FursuitActivation.objects.filter(pk=activation_id).first()
         if candidate is None:
             raise FursuitActivation.DoesNotExist()
+        # Contract lock order: Convention before Fursuit, as in approve. The
+        # Convention lock serializes the window check with convention edits (#507).
+        convention = Convention.objects.select_for_update().get(
+            pk=candidate.convention_id
+        )
         fursuit = Fursuit.objects.select_for_update().get(pk=candidate.fursuit_id)
         activation = FursuitActivation.objects.select_for_update().get(pk=candidate.pk)
         if not activation.is_active:
@@ -276,7 +281,7 @@ def deactivate_fursuit_activation_as_operator(
         activation.is_active = False
         activation.deactivated_at = now
         activation.save(update_fields=["is_active", "deactivated_at", "updated_at"])
-        _invalidate_for_activation_deactivation(activation)
+        _invalidate_for_activation_deactivation(activation, convention)
         # Keep the fursuit lock until the state transition commits.
         del fursuit
         return OperatorTransition(value=activation, changed=True)
@@ -323,17 +328,13 @@ def remove_convention_enrollment(*, enrollment_id: int) -> OperatorTransition[No
         return OperatorTransition(value=None, changed=True)
 
 
-def _invalidate_for_activation_deactivation(activation: FursuitActivation) -> None:
-    """Invalidate the suit's open requests at the activation's convention (#507).
-
-    The deadline is read without a Convention lock. Locking it after the
-    Fursuit would invert approve's order. A closed window never reopens, so an
-    unlocked read cannot wrongly invalidate a closed-window request.
-    """
+def _invalidate_for_activation_deactivation(
+    activation: FursuitActivation, convention: Convention
+) -> None:
+    """Invalidate the suit's open requests at the locked *convention* (#507)."""
     from catches.models import CatchRequest
     from catches.request_invalidation import invalidate_open_requests
 
-    convention = Convention.objects.get(pk=activation.convention_id)
     invalidate_open_requests(
         CatchRequest.objects.filter(fursuit_id=activation.fursuit_id),
         convention=convention,
