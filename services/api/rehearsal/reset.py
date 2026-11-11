@@ -395,11 +395,21 @@ def reset_baseline(configuration: ResetConfiguration) -> dict[str, int]:
             convention=convention, user__in=(identity.owner, identity.catcher)
         ).delete()
         _profiles(identity)
+        # A registered convention from before #503 has no zone. The schedule
+        # step sets the baseline zone and deadline under the Convention lock.
+        locked = Convention.objects.select_for_update().get(pk=convention.pk)
+        apply_review_schedule(
+            locked,
+            end_date=datetime.date(2036, 9, 1),
+            time_zone=baseline.CONVENTION_TIME_ZONE,
+        )
         Convention.objects.filter(pk=convention.pk).update(
             name=baseline.CONVENTION_NAME,
             status=ConventionStatus.ACTIVE,
             start_date=datetime.date(2026, 9, 1),
-            end_date=datetime.date(2036, 9, 1),
+            end_date=locked.end_date,
+            time_zone=locked.time_zone,
+            review_deadline_at=locked.review_deadline_at,
         )
         Fursuit.objects.filter(pk=first.pk).update(
             owner=identity.owner,
