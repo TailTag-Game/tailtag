@@ -49,8 +49,19 @@ in these steps:
 4. It calls the Render deploy hook for that commit. The hook URL is the
    `RENDER_DEVELOPMENT_DEPLOY_HOOK_URL` secret of the `render-development`
    GitHub environment. Only `main` can use that environment.
-5. It waits until `/health/identity` shows the commit, then runs
-   `task api-smoke`. A timeout or a failed smoke turns the run red.
+5. It waits until `/health/identity` shows the commit.
+6. It deploys the catch request cleanup cron job, `tailtag-cleanup-dev`,
+   through its deploy hook (#507). Render cannot deploy a cron job at a chosen
+   commit, so the hook builds the head of `main`. The step calls the hook only
+   while the deployed commit is still the newest backend commit, so the head
+   holds the same `services/api` tree. The hook URL is the
+   `RENDER_DEVELOPMENT_CLEANUP_DEPLOY_HOOK_URL` secret of the same environment.
+   A missing or malformed hook turns the run red.
+7. It runs `task api-smoke`. A timeout or a failed smoke turns the run red.
+
+The cron job has auto-deploy off. It moves only with the API, so it never runs
+ahead of the Development schema. A failed check that stops the API deploy also
+stops the cron deploy. The recovery below deploys both.
 
 If a flaky check blocks a deploy, rerun the check. When the rerun passes, run
 the workflow with **Run workflow** and enter the full 40-character commit SHA.
@@ -59,8 +70,8 @@ backend commit on `main`. A manual run cancels any running deploy run, so the
 workflow turns red for an older commit. Do not deploy from the Render
 dashboard, because that skips the CI gate.
 
-If the hook URL leaks, regenerate it in the Render service settings. Then
-store the new URL in the secret again.
+If a hook URL leaks, regenerate it in the Render settings of that service or
+cron job. Then store the new URL in its secret again.
 
 Before the new version takes traffic, Render runs the pre-deploy command
 `python -m config.replacement_migrate`. The command prints one word:
