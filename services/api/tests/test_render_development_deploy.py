@@ -299,69 +299,6 @@ def test_unexpected_hook_url_fails_closed_without_echoing_it(
     assert "SyntheticHookKey" not in str(caught.value)
 
 
-CLEANUP_HOOK = (
-    "https://api.render.com/deploy/crn-d0developmentcleanup0?key=SyntheticCronKey"
-)
-
-
-@pytest.mark.parametrize(
-    ("latest", "deployed"), ((SHA, True), (NEWER_SHA, False)), ids=("head", "newer")
-)
-def test_cleanup_cron_follows_only_the_newest_backend_commit(
-    requests: list[tuple[str, str]],
-    capsys: pytest.CaptureFixture[str],
-    latest: str,
-    deployed: bool,
-) -> None:
-    """#507: the cron job builds the head of main, so it deploys only while the
-    API commit is still the newest backend commit. No commit reference is sent."""
-    environment = {
-        "TAILTAG_DEPLOY_SHA": SHA,
-        "RENDER_DEVELOPMENT_CLEANUP_DEPLOY_HOOK_URL": CLEANUP_HOOK,
-    }
-
-    assert deploy.run_cleanup(environment, FakeGitHub([], latest)) is deployed
-
-    assert requests == ([("POST", CLEANUP_HOOK)] if deployed else [])
-    captured = capsys.readouterr()
-    assert "SyntheticCronKey" not in captured.out + captured.err
-
-
-@pytest.mark.parametrize(
-    "hook",
-    (
-        "",
-        HOOK,
-        "https://api.render.com.example/deploy/crn-d0developmentcleanup0?key=SyntheticCronKey",
-        f"{CLEANUP_HOOK}&ref={SHA}",
-    ),
-    ids=("missing", "service-hook", "other-host", "extra-query"),
-)
-def test_unexpected_cleanup_hook_fails_the_step_without_echoing_it(
-    monkeypatch: MonkeyPatch,
-    requests: list[tuple[str, str]],
-    capsys: pytest.CaptureFixture[str],
-    hook: str,
-) -> None:
-    """#507: only a Render cron job hook is called, and a bad one turns red."""
-    monkeypatch.setenv("GITHUB_TOKEN", TOKEN)
-    monkeypatch.setenv("TAILTAG_DEPLOY_SHA", SHA)
-    monkeypatch.setenv("RENDER_DEVELOPMENT_CLEANUP_DEPLOY_HOOK_URL", hook)
-
-    def latest(_self: deploy.GitHub) -> str:
-        return SHA
-
-    monkeypatch.setattr(deploy.GitHub, "latest_backend_sha", latest)
-
-    assert deploy.main(["--cleanup-cron"]) == 1
-    assert deploy.main(["--unknown"]) == 2
-
-    assert requests == []
-    captured = capsys.readouterr()
-    assert "FAIL Render Development cleanup cron job deploy unavailable" in captured.err
-    assert "SyntheticCronKey" not in captured.out + captured.err
-
-
 def test_main_writes_only_the_decision_and_hides_failure_details(
     monkeypatch: MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -427,16 +364,8 @@ def test_deploy_workflow_keeps_the_secret_and_inputs_inside_the_gate() -> None:
     assert job["environment"] == "render-development"
     secret_steps = [step for step in job["steps"] if "secrets." in str(step)]
     assert [step["name"] for step in secret_steps] == [
-        "Wait for CI and request the deploy",
-        "Deploy the cleanup cron job after the API",
+        "Wait for CI and request the deploy"
     ]
-    cleanup = secret_steps[1]
-    assert cleanup["if"] == (
-        "steps.deploy.outputs.deployed == 'true' && steps.identity.outcome == 'success'"
-    )
-    assert (
-        cleanup["run"] == "python -m scripts.render_development_deploy --cleanup-cron"
-    )
     assert all("inputs." not in step.get("run", "") for step in job["steps"])
     assert {match.split("@", 1)[0] for match in re.findall(r"uses: (\S+)", text)} == {
         "actions/checkout",

@@ -2,8 +2,7 @@ name: Render Development deploy
 
 # Render auto-deploy is off for Development. This workflow deploys a backend
 # commit on main only after every CI workflow on that commit passes, then
-# proves that Render serves the commit (#408). It then deploys the catch
-# request cleanup cron job, so the cron job follows the API (#507).
+# proves that Render serves the commit (#408).
 
 on:
   push:
@@ -73,16 +72,6 @@ jobs:
             python -m scripts.api_staging_preflight --render-development-current > /dev/null
             echo "Current Render Development endpoint healthy; deployment attribution unavailable."
           fi
-
-      - name: Deploy the cleanup cron job after the API
-        # The cron job has auto-deploy off. It follows the API through the same
-        # CI gate, so it never runs ahead of the Development schema (#507).
-        if: steps.deploy.outputs.deployed == 'true' && steps.identity.outcome == 'success'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          TAILTAG_DEPLOY_SHA: ${{ github.event_name == 'push' && github.sha || inputs.sha }}
-          RENDER_DEVELOPMENT_CLEANUP_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEVELOPMENT_CLEANUP_DEPLOY_HOOK_URL }}
-        run: python -m scripts.render_development_deploy --cleanup-cron
 
       - name: Check out verifier revision
         if: steps.identity.outcome == 'success'
