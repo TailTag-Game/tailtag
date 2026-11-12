@@ -336,9 +336,9 @@ def _sync(path: Path) -> None:
 def _evaluate_collected(
     report: dict[str, object], partial: Path, run_id: str, baselines: Path
 ) -> str:
-    """Evaluate a verified convention schema-5 report; never fails the collection."""
+    """Evaluate a verified convention schema 5 or 6 report; never fails the collection."""
     scenario = cast(dict[str, Any], report["scenario"])
-    if report["schema_version"] != 5 or not str(scenario["id"]).startswith(
+    if report["schema_version"] not in (5, 6) or not str(scenario["id"]).startswith(
         "convention-"
     ):
         return "not_applicable"

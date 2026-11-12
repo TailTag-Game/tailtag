@@ -921,7 +921,7 @@ class RunReport:
         self._update_sections(results=results, performance=copy.deepcopy(measured))
 
     def record_execution_mode(self, mode: str) -> None:
-        _require(self._value["schema_version"] == 5)
+        _require(self._value["schema_version"] in (5, 6))
         self._update(
             "performance",
             {**self._value["performance"], "execution_mode": observed(mode)},
