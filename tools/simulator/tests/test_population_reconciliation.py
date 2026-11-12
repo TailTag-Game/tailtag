@@ -358,7 +358,7 @@ def test_population_launcher_uses_the_versioned_operation_on_stdin(
 
     assert result == DATA
     assert json.loads(record.read_text()) == {
-        "operation": "inspect-population-v1",
+        "operation": "inspect-population-v2",
         "arguments": {"pool": POOL, "run_id": RUN_ID, "identities": INDEXES},
     }
 

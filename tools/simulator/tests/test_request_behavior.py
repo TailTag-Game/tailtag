@@ -1,9 +1,10 @@
 """#508 AC11 to AC19: load traffic on the catch request flow, end to end."""
 
+from collections.abc import Callable
 from typing import cast
 
 import pytest
-from request_support import RequestWorld, request_config, run_requests
+from request_support import RequestWorld, Row, request_config, run_requests
 
 
 def totals(run: object, *keys: str) -> dict[str, int]:
@@ -126,3 +127,53 @@ def test_an_unplanned_429_fails_correctness() -> None:
 
     assert not run.population.passed
     assert run.traffic["stop_reason"] == "correctness"
+
+
+def _second_row(world: RequestWorld) -> None:
+    first = world.rows[0]
+    world.rows.append(
+        Row(first.id + 100, first.player, first.fursuit, "pending", first.requested_at)
+    )
+
+
+def _uncredited(world: RequestWorld) -> None:
+    world.catches.clear()
+
+
+def _declined_with_credit(world: RequestWorld) -> None:
+    row = next(r for r in world.rows if r.state == "approved")
+    row.state = "declined"
+
+
+def _state_changed(world: RequestWorld) -> None:
+    world.rows[0].state = "invalidated"
+
+
+@pytest.mark.parametrize(
+    ("tamper", "check"),
+    [
+        (_second_row, "request_duplicate"),
+        (_uncredited, "request_credit"),
+        (_declined_with_credit, "request_credit"),
+        (_state_changed, "request_state"),
+    ],
+    ids=(
+        "two-rows-one-trio",
+        "approved-without-catch",
+        "catch-without-approval",
+        "state-differs",
+    ),
+)
+def test_request_reconciliation_finds_each_break(
+    tamper: Callable[[RequestWorld], None], check: str
+) -> None:
+    """#508 AC24 to AC26: credit and state disagreements fail reconciliation."""
+    config = request_config(actors=2, review={"automatic_share": 0, "approve_rate": 1})
+    world = RequestWorld(config)
+    world.tamper = tamper
+
+    run, compared = run_requests(world, config, reconcile=True)
+
+    assert run.population.passed
+    assert compared is not None and not compared.passed
+    assert check in {item.check for item in compared.discrepancies}

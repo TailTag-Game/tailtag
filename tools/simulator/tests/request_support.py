@@ -8,7 +8,7 @@ target checks. Faults sit on the HTTP boundary only.
 
 import asyncio
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import AsyncExitStack, nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -103,6 +103,8 @@ class RequestWorld:
         self.lost_submits = 0
         self.refuse_submits = 0
         self.duplicate_catch = False
+        # Changes server state after the run, before the inspection reads it.
+        self.tamper: Callable[[RequestWorld], None] | None = None
         self.overlap = False
         self.submitting = 0
         self.release = asyncio.Event()
@@ -424,6 +426,9 @@ class RequestWorld:
         self, pool: str, run_id: str, identities: Mapping[str, int]
     ) -> Mapping[str, object]:
         assert pool and run_id and dict(identities) == self.indexes
+        if self.tamper is not None:
+            self.tamper(self)
+            self.tamper = None
         index = self.indexes
         return {
             "catches": [
@@ -510,6 +515,7 @@ def run_requests(
                         pool="alpha",
                         run_id="aaaaaaaa-1111-4111-8111-111111111111",
                         convention=result.population.convention,
+                        request_flow=True,
                     )
                 return result, compared
         finally:
