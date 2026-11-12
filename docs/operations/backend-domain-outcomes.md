@@ -16,9 +16,10 @@ lookup are in [backend logging](backend-logging.md).
 Each outcome is recorded twice, with the same values:
 
 - a Sentry count of 1, named by the signal, with attributes `tailtag.outcome`
-  and, when there is one, `tailtag.reason`. The cleanup signal is the one
-  exception: its count can be larger (see
-  [catch request cleanup](#catch-request-cleanup));
+  and, when there is one, `tailtag.reason`. The cleanup signal and a hook
+  invalidation are the exceptions: their count can be larger (see
+  [catch request cleanup](#catch-request-cleanup) and
+  [catch request decisions](#catch-request-decisions));
 - one INFO log line with `event` set to the signal, `tailtag_outcome`, and
   `tailtag_reason`, plus the usual `request_id`, `environment`, and `release`.
 
@@ -37,6 +38,7 @@ session ID, and never a credential or token.
 | `tailtag.conventions.catch_session` | Are fursuiters starting catch sessions, and how are sessions ending? |
 | `tailtag.authentication.verification` | Why are presented tokens being rejected? |
 | `tailtag.catches.request_cleanup` | Did the daily cleanup delete closed request history, and how many rows in each state? |
+| `tailtag.catches.request_decision` | How are catch requests resolved: approved, declined, undone, restored, withdrawn, or invalidated, and why? |
 
 ## Outcomes and reasons
 
@@ -65,7 +67,32 @@ With the catch request gate on, `POST /api/catches/requests/` records this signa
 | `rejected` | `cooldown_active` | A trio cooldown refused the attempt with HTTP 429 (#506). |
 | `rejected` | `rate_limited` | The per-player limit refused the attempt with HTTP 429 (#506). |
 
-Request rejections also use `payload_invalid`, `catcher_ineligible`, `self_catch`, and the target reasons. Owner decisions and withdrawals record no outcome yet. #508 adds those metrics.
+Request rejections also use `payload_invalid`, `catcher_ineligible`, `self_catch`, and the target reasons. Owner decisions, withdrawals, and invalidations use the [request decision](#catch-request-decisions) signal.
+
+### Catch request decisions
+
+Each request state change records one outcome after its transaction commits (#508). A repeat of an action that already happened records nothing. A refused action records nothing, for example `review_window_closed` or `undo_expired`. The HTTP request metric still counts those responses.
+
+| Outcome | Reason | Meaning |
+| --- | --- | --- |
+| `approved` | | The owner approved a pending request, and a catch was recorded. |
+| `declined` | | The owner declined a pending request. |
+| `declined` | `blocked` | The owner declined a pending request and blocked the player for this suit. |
+| `decline_undone` | | The owner undid a decline inside the 10-second undo window. The request is pending again. |
+| `restored` | | The owner restored a declined request after the undo window. The request is pending again. |
+| `withdrawn` | | The player withdrew a pending request. |
+| `invalidated` | `operator` | An operator invalidated one request. |
+| `invalidated` | `activation_removed` | An operator deactivated the suit at the convention. |
+| `invalidated` | `enrollment_removed` | An operator removed the player's or the owner's enrollment. |
+| `invalidated` | `convention_cancelled` | The convention moved into `cancelled`. |
+
+A hook can invalidate many requests in one transaction. It records one `invalidated` outcome whose count is the number of rows, like the [cleanup signal](#catch-request-cleanup). The log line carries `tailtag_count` only when more than one row changed. The hook records nothing when no row changed.
+
+Other request results keep their own signals:
+
+- Automatic approval is `created` on `tailtag.catches.confirmation`.
+- Expiry is `deleted` with reason `expired` on `tailtag.catches.request_cleanup`.
+- Cooldown and limit refusals are `rejected` with `cooldown_active` and `rate_limited` on `tailtag.catches.confirmation`.
 
 ### Catch request cleanup
 

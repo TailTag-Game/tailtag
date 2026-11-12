@@ -106,12 +106,14 @@ INVALID_PAYLOAD = "tailtag:catch:v0:" + "Z" * 43
 
 # The frozen taxonomy. Values are add-only, so the code must contain at least these.
 CLEANUP_SIGNAL = "tailtag.catches.request_cleanup"
+DECISION_SIGNAL = "tailtag.catches.request_decision"
 EXPECTED_SIGNALS = {
     CATCH_SIGNAL,
     RESOLUTION_SIGNAL,
     SESSION_SIGNAL,
     AUTH_SIGNAL,
     CLEANUP_SIGNAL,
+    DECISION_SIGNAL,
 }
 EXPECTED_OUTCOMES = {
     "created",
@@ -126,6 +128,12 @@ EXPECTED_OUTCOMES = {
     "succeeded",
     "failed",
     "deleted",
+    "approved",
+    "declined",
+    "decline_undone",
+    "restored",
+    "withdrawn",
+    "invalidated",
 }
 EXPECTED_REASONS = {
     "blocked",
@@ -163,6 +171,9 @@ EXPECTED_REASONS = {
     "declined",
     "withdrawn",
     "invalidated",
+    "activation_removed",
+    "enrollment_removed",
+    "convention_cancelled",
 }
 
 
@@ -983,3 +994,224 @@ def test_catch_request_refusals_record_the_protection_reasons(
         (CATCH_SIGNAL, "rejected", "rate_limited"),
         (CATCH_SIGNAL, "rejected", "blocked"),
     ]
+
+
+# --- #508 AC1 to AC9: catch request decisions ---------------------------------
+
+
+def _decision_outcomes(telemetry: Telemetry) -> list[tuple[str, str | None, int]]:
+    from tests.observability_test_support import recorded_outcome_counts
+
+    return [
+        (outcome, reason, count)
+        for signal, outcome, reason, count in recorded_outcome_counts(
+            telemetry.logs, telemetry.transport
+        )
+        if signal == DECISION_SIGNAL
+    ]
+
+
+def _assert_decision_metrics_carry_no_identifiers(telemetry: Telemetry) -> None:
+    """#508 AC9: only bounded enumeration values, never an ID or payload.
+
+    Metric attributes and outcome log keys are closed: anything that could
+    carry a player, suit, request, convention, or tag ID fails here.
+    """
+    sentry_sdk.flush()
+    outcomes = {str(outcome) for outcome in Outcome}
+    reasons = {str(reason) for reason in Reason}
+    metrics = [m for m in telemetry.transport.metrics() if m["name"] == DECISION_SIGNAL]
+    assert metrics
+    for metric in metrics:
+        attributes = {
+            key: entry["value"]
+            for key, entry in metric["attributes"].items()
+            if not key.startswith("sentry.")
+        }
+        assert set(attributes) <= {"tailtag.outcome", "tailtag.reason"}
+        assert attributes["tailtag.outcome"] in outcomes
+        assert attributes.get("tailtag.reason", "owner") in reasons
+    lines = [
+        line for line in telemetry.logs.lines() if line.get("event") == DECISION_SIGNAL
+    ]
+    assert lines
+    for line in lines:
+        assert {key for key in line if key.startswith("tailtag_")} <= {
+            "tailtag_outcome",
+            "tailtag_reason",
+            "tailtag_count",
+        }
+        assert not {"user_id", "fursuit_id", "convention_id", "request"} & set(line)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_owner_and_player_decisions_record_one_outcome_per_state_change(
+    telemetry: Telemetry, settings: Any
+) -> None:
+    """#508 AC2 to AC4, AC7, AC9: one outcome per committed change, none for a refusal."""
+    from catches.models import CatchRequest
+    from tests.fursuit_tag_test_support import (
+        assert_no_token_leak,
+        create_player,
+        create_preview_scenario,
+        owner_client,
+    )
+
+    settings.CATCH_REQUESTS_ENABLED = True
+    scenario = create_preview_scenario("decisions")
+    catcher = scenario.catcher_client()
+    owner = owner_client(scenario.owner)
+    incoming = "/api/catches/incoming-requests/"
+
+    def submit() -> int:
+        response = catcher.post(
+            "/api/catches/requests/",
+            {"payload": scenario.payload},
+            content_type="application/json",
+        )
+        assert response.status_code in (200, 201), response.content
+        return int(response.json()["request"]["id"])
+
+    def act(client: Any, path: str, body: dict[str, Any] | None = None) -> int:
+        return client.post(
+            path, body or {}, content_type="application/json"
+        ).status_code
+
+    def rewind(seconds: int) -> None:
+        CatchRequest.objects.update(
+            requested_at=F("requested_at") - datetime.timedelta(seconds=seconds),
+            declined_at=F("declined_at") - datetime.timedelta(seconds=seconds),
+        )
+
+    first = submit()
+    statuses = [
+        act(owner, f"{incoming}{first}/decline/", {"block": False}),
+        act(owner, f"{incoming}{first}/decline/", {"block": False}),  # repeat
+        act(owner, f"{incoming}{first}/undo-decline/"),
+        act(owner, f"{incoming}{first}/decline/", {"block": False}),
+    ]
+    rewind(11)  # past the undo window
+    statuses += [
+        act(owner, f"{incoming}{first}/undo-decline/"),  # refused: undo_expired
+        act(owner, f"{incoming}{first}/restore/"),
+        act(catcher, f"/api/catches/requests/{first}/withdraw/"),
+        act(owner, f"{incoming}{first}/approve/"),  # refused: state changed
+    ]
+    rewind(11)  # past the submission floor
+    second = submit()
+    statuses += [
+        act(owner, f"{incoming}{second}/approve/"),
+        act(owner, f"{incoming}{second}/approve/"),  # repeat
+    ]
+    # The block path needs a fresh pending request from another player.
+    other, _ = create_player("decisions_other")
+    scenario.catcher_enrollment.__class__.objects.create(
+        user=other, convention=scenario.convention, is_active=True
+    )
+    third = force_authenticated_client(user=other).post(
+        "/api/catches/requests/",
+        {"payload": scenario.payload},
+        content_type="application/json",
+    )
+    third_id = int(third.json()["request"]["id"])
+    statuses.append(act(owner, f"{incoming}{third_id}/decline/", {"block": True}))
+
+    # A rolled-back transaction records nothing (AC7).
+    from catches.request_actions import record_decision_on_commit
+
+    with pytest.raises(RuntimeError), transaction.atomic():
+        record_decision_on_commit(Outcome.APPROVED)
+        raise RuntimeError
+
+    assert statuses == [200, 200, 200, 200, 409, 200, 200, 409, 200, 200, 200]
+    assert _decision_outcomes(telemetry) == [
+        ("declined", None, 1),
+        ("decline_undone", None, 1),
+        ("declined", None, 1),
+        ("restored", None, 1),
+        ("withdrawn", None, 1),
+        ("approved", None, 1),
+        ("declined", "blocked", 1),
+    ]
+    _assert_decision_metrics_carry_no_identifiers(telemetry)
+    assert_no_token_leak(telemetry.emitted_text())
+
+
+@pytest.mark.django_db(transaction=True)
+def test_invalidations_record_their_cause_and_count_only_when_rows_change(
+    telemetry: Telemetry, settings: Any
+) -> None:
+    """#508 AC5, AC6: operator invalidation and the three hooks name their cause and count."""
+    from catches.models import CatchRequest, CatchRequestState
+    from catches.request_invalidation import invalidate_request_as_operator
+    from conventions.review_deadline import compute_review_deadline
+    from conventions.services import (
+        deactivate_fursuit_activation_as_operator,
+        remove_convention_enrollment,
+        set_convention_admin_state,
+    )
+    from tests.fursuit_tag_test_support import create_player, create_preview_scenario
+
+    settings.CATCH_REQUESTS_ENABLED = True
+    scenario = create_preview_scenario("invalidations")
+    end_date = timezone.localdate()
+    Convention.objects.filter(pk=scenario.convention.pk).update(
+        end_date=end_date,
+        review_deadline_at=compute_review_deadline(end_date, "America/New_York"),
+    )
+
+    def pending(player: Any) -> CatchRequest:
+        now = timezone.now()
+        return CatchRequest.objects.create(
+            player=player,
+            fursuit=scenario.fursuit,
+            convention=scenario.convention,
+            activation=scenario.activation,
+            catch_session=scenario.session,
+            state=CatchRequestState.PENDING,
+            requested_at=now,
+        )
+
+    players = [create_player(f"invalidations_{index}")[0] for index in range(4)]
+    for player in players:
+        ConventionEnrollment.objects.create(
+            user=player, convention=scenario.convention, is_active=True
+        )
+    single = pending(players[0])
+    assert invalidate_request_as_operator(request_id=single.pk).changed
+    assert not invalidate_request_as_operator(request_id=single.pk).changed
+
+    pending(players[1])
+    remove_convention_enrollment(
+        enrollment_id=ConventionEnrollment.objects.get(
+            user=players[1], convention=scenario.convention
+        ).pk
+    )
+    remove_convention_enrollment(  # nothing open for this player
+        enrollment_id=ConventionEnrollment.objects.get(
+            user=players[3], convention=scenario.convention
+        ).pk
+    )
+
+    pending(players[2])
+    pending(scenario.catcher)
+    deactivate_fursuit_activation_as_operator(activation_id=scenario.activation.pk)
+
+    pending(players[2])  # reopened by a fresh row on the same suit
+    convention = Convention.objects.get(pk=scenario.convention.pk)
+    set_convention_admin_state(
+        convention_id=convention.pk,
+        name=convention.name,
+        status=ConventionStatus.CANCELLED,
+        start_date=convention.start_date,
+        end_date=convention.end_date,
+        time_zone=convention.time_zone,
+    )
+
+    assert _decision_outcomes(telemetry) == [
+        ("invalidated", "operator", 1),
+        ("invalidated", "enrollment_removed", 1),
+        ("invalidated", "activation_removed", 2),
+        ("invalidated", "convention_cancelled", 1),
+    ]
+    _assert_decision_metrics_carry_no_identifiers(telemetry)

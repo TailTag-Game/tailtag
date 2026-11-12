@@ -195,6 +195,11 @@ def test_five_fursuits_per_owner_for_single_owner_and_catcher_is_accepted() -> N
         {"extras": [3]},
         {"extras": [5, 5]},
         {"extras": list(range(10, 21))},
+        {"review_deadline_offset_seconds": 59},
+        {"review_deadline_offset_seconds": 3601},
+        {"review_deadline_offset_seconds": True},
+        {"review_deadline_offset_seconds": "600"},
+        {"review_deadline_offset_seconds": 600.0},
     ),
     ids=(
         "no-owners",
@@ -217,6 +222,11 @@ def test_five_fursuits_per_owner_for_single_owner_and_catcher_is_accepted() -> N
         "extra-overlaps-a-catcher",
         "duplicate-extra",
         "too-many-extras",
+        "deadline-offset-too-short",
+        "deadline-offset-too-long",
+        "deadline-offset-boolean",
+        "deadline-offset-string",
+        "deadline-offset-float",
     ),
 )
 def test_invalid_configuration_is_rejected_before_any_write(
@@ -713,3 +723,29 @@ def test_empty_directory_yields_a_deterministic_acceptable_generated_png(
     assert image_problems(first) == []
     with Image.open(BytesIO(first)) as generated:
         assert (generated.format, generated.size) == ("PNG", (512, 512))
+
+
+@pytest.mark.parametrize("offset", [None, 60, 3600])
+def test_a_review_deadline_offset_moves_only_the_run_conventions_stored_deadline(
+    offset: int | None,
+) -> None:
+    """#508 AC20: the offset sets database time plus seconds; the rule stays."""
+    from conventions.models import Convention
+    from conventions.review_deadline import compute_review_deadline, database_now
+
+    lease_pool(POOL, RUN_A, 4)
+    before = database_now()
+
+    result = provision(review_deadline_offset_seconds=offset)
+
+    after = database_now()
+    convention = Convention.objects.get()
+    assert result.result == "PASS"
+    assert convention.review_deadline_at is not None
+    if offset is None:
+        assert convention.review_deadline_at == compute_review_deadline(
+            convention.end_date, "America/New_York"
+        )
+    else:
+        delta = dt.timedelta(seconds=offset)
+        assert before + delta <= convention.review_deadline_at <= after + delta
