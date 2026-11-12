@@ -15,7 +15,10 @@ from tailtag_simulator.behavior_config import (
     resolve_behavior_config,
 )
 from tailtag_simulator.targets import LOCAL_ORIGINS
-from tailtag_simulator.traffic_config import resolve_traffic_config
+from tailtag_simulator.traffic_config import (
+    resolve_request_traffic_config,
+    resolve_traffic_config,
+)
 
 
 class ScenarioRejected(Exception):
@@ -39,8 +42,10 @@ IDS = (
     "pool-smoke",
     "fixture-smoke",
     "journeys",
+    "request-limit",
     *(f"convention-{family}" for family in FAMILIES),
 )
+# Journeys v1 ran the retired v1 catch path. The names stay for archived reports.
 JOURNEYS = (
     "unauthenticated",
     "catch",
@@ -56,6 +61,48 @@ JOURNEYS = (
     "fursuit_photo",
     "image_rejections",
 )
+# Journeys v2: the catch request flow (#508).
+JOURNEYS_V2 = (
+    "unauthenticated",
+    "pending_approve",
+    "automatic",
+    "decline",
+    "decline_block",
+    "undo",
+    "restore",
+    "withdraw",
+    "cooldown",
+    "retry",
+    "duplicate",
+    "stopped_session",
+    "replaced_tag",
+    "deactivated",
+    "self_catch",
+    "convention_mismatch",
+    "ineligible_catcher",
+    "not_owner",
+    "avatar",
+    "fursuit_photo",
+    "image_rejections",
+)
+REQUEST_LIMIT_JOURNEYS = ("normal_play", "abuse_limit", "expiry")
+# Supported versions per scenario id. Older versions stay loadable so archived
+# reports still validate. Only the newest version of each id can run.
+VERSIONS: dict[str, tuple[int, ...]] = {
+    "smoke": (1,),
+    "pool-smoke": (1,),
+    "fixture-smoke": (1,),
+    "journeys": (1, 2),
+    "request-limit": (1,),
+    **{f"convention-{family}": (1, 2, 3) for family in FAMILIES},
+}
+
+
+def journey_names(scenario: str, version: int) -> tuple[str, ...]:
+    """The pass/fail journey names a deterministic scenario reports."""
+    if scenario == "request-limit":
+        return REQUEST_LIMIT_JOURNEYS
+    return JOURNEYS_V2 if version == 2 else JOURNEYS
 
 
 def _pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -93,8 +140,7 @@ def _entry(path: Path) -> dict[str, Any]:
         set(value) != expected
         or value["id"] not in IDS
         or type(value["version"]) is not int
-        or value["version"] not in (1, 2)
-        or (value["version"] == 2 and not value["id"].startswith("convention-"))
+        or value["version"] not in VERSIONS[value["id"]]
     ):
         raise ScenarioRejected
     descriptor = {k: v for k, v in value.items() if k != "descriptor_digest"}
@@ -122,10 +168,12 @@ def _entry(path: Path) -> dict[str, Any]:
             "family": family,
             "cycles": 3 if family == "soak" else 1,
         }
-        if value["version"] == 2:
+        if value["version"] >= 2:
             expected_defaults.update(
                 {key: {} for key in ("traffic", "failure", "retry", "limits")}
             )
+        if value["version"] == 3:
+            expected_defaults["review"] = {}
         macro = dict(
             zip(
                 FAMILIES,
@@ -149,7 +197,9 @@ def _entry(path: Path) -> dict[str, Any]:
                 "provision",
                 "context",
                 "owner_cycle",
-                "traffic_schedule" if value["version"] == 2 else macro,
+                {1: macro, 2: "traffic_schedule", 3: "request_traffic_schedule"}[
+                    value["version"]
+                ],
                 "owner_stop",
                 "reconciliation",
                 "identity_final",
@@ -163,8 +213,9 @@ def _entry(path: Path) -> dict[str, Any]:
                 "run_owned_fursuits",
                 "public_api_only",
                 "separate_owner_attendee",
-                "bounded_generation" if value["version"] == 2 else "finite_cycles",
+                "bounded_generation" if value["version"] >= 2 else "finite_cycles",
                 f"family_{family.replace('-', '_')}",
+                *(["request_flow"] if value["version"] == 3 else []),
             ],
             "waits_seconds": [],
         }
@@ -182,6 +233,7 @@ def _entry(path: Path) -> dict[str, Any]:
         "pool-smoke": {"pool": None, "count": None},
         "fixture-smoke": {"pool": None, "owners": 2, "fursuits": 1, "catchers": 2},
         "journeys": {"pool": None},
+        "request-limit": {"pool": None},
     }[value["id"]]
     expected_defaults = {**base, **extras}
     expected_parameters = {
@@ -249,14 +301,42 @@ def _entry(path: Path) -> dict[str, Any]:
                 "lease",
                 "token_setup",
                 "provision",
-                *JOURNEYS,
+                *journey_names("journeys", value["version"]),
                 "reconciliation",
                 "identity_final",
                 "cleanup",
                 "retain_on_failure",
                 "release",
             ],
-            ["isolated_convention", "fixed_seven_identities", "public_api_journeys"],
+            [
+                "isolated_convention",
+                "fixed_seven_identities",
+                "public_api_journeys",
+                *(["request_flow"] if value["version"] == 2 else []),
+            ],
+            [],
+        ),
+        "request-limit": (
+            ["owner", "player"],
+            [
+                "identity_preflight",
+                "retention_preflight",
+                "lease",
+                "token_setup",
+                "provision",
+                *REQUEST_LIMIT_JOURNEYS,
+                "reconciliation",
+                "identity_final",
+                "cleanup",
+                "retain_on_failure",
+                "release",
+            ],
+            [
+                "isolated_convention",
+                "request_flow",
+                "review_deadline_offset",
+                "owners_never_decide",
+            ],
             [],
         ),
     }
@@ -320,7 +400,11 @@ def resolve_scenario(
     command: str, version: int, config: Mapping[str, object]
 ) -> dict[str, object]:
     try:
-        if command not in IDS or type(version) is not int or version not in (1, 2):
+        if (
+            command not in IDS
+            or type(version) is not int
+            or version not in VERSIONS[command]
+        ):
             raise ScenarioRejected
         entry = _entry(CATALOG / f"{command}-v{version}.json")
         descriptor = {k: v for k, v in entry.items() if k != "descriptor_digest"}
@@ -334,9 +418,11 @@ def resolve_scenario(
             raise ScenarioRejected
         effective = {**defaults, **config}
         if command.startswith("convention-"):
-            effective = (
-                resolve_traffic_config if version == 2 else resolve_behavior_config
-            )(effective)
+            effective = {
+                1: resolve_behavior_config,
+                2: resolve_traffic_config,
+                3: resolve_request_traffic_config,
+            }[version](effective)
             if effective["family"] != command.removeprefix("convention-"):
                 raise ScenarioRejected
             return {
