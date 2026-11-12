@@ -16,7 +16,7 @@ from django.db import connection, transaction
 from django.db.models import BooleanField, ExpressionWrapper, F, Q
 from django.db.models.functions import Now
 
-from catches.models import Catch
+from catches.models import Catch, CatchRequest
 from fursuits.models import Fursuit
 from profiles.models import PlayerProfile
 from simulation_fixtures.models import (
@@ -44,6 +44,10 @@ ROLES: Final = (
     "outsider",
 )
 MAX_RECORDS: Final = 200
+# v2 adds requests, so its catch and request caps are lower. The widest answer
+# (64-bit ids, 10-digit pool indexes, false flags, 250 avatars) must still fit
+# the 64 KiB relay limit (#508).
+V2_MAX_RECORDS: Final = 120
 
 
 @dataclass(frozen=True)
@@ -127,6 +131,23 @@ def inspect_population(
     pool: str, run_id: str, identities: Mapping[str, int]
 ) -> InspectionOutcome:
     """Inspect a bounded owner/attendee population using the existing read scope."""
+    return _inspect_population(pool, run_id, identities, requests=False)
+
+
+def inspect_population_v2(
+    pool: str, run_id: str, identities: Mapping[str, int]
+) -> InspectionOutcome:
+    """Like ``inspect_population``, plus the run's catch requests (#508).
+
+    Each request reports its stored state, so ``invalidated`` stays distinct
+    from what players and owners see. The read scope and caps are the same.
+    """
+    return _inspect_population(pool, run_id, identities, requests=True)
+
+
+def _inspect_population(
+    pool: str, run_id: str, identities: Mapping[str, int], *, requests: bool
+) -> InspectionOutcome:
     try:
         pool, run_id, indexes = _population_validated(pool, run_id, identities)
     except (TypeError, ValueError):
@@ -134,10 +155,12 @@ def inspect_population(
     with transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute("SET TRANSACTION READ ONLY")
-        return _read(pool, run_id, sorted(indexes.values()))
+        return _read(pool, run_id, sorted(indexes.values()), requests=requests)
 
 
-def _read(pool: str, run_id: str, indexes: list[int]) -> InspectionOutcome:
+def _read(
+    pool: str, run_id: str, indexes: list[int], *, requests: bool = False
+) -> InspectionOutcome:
     slots = {
         slot.index: slot
         for slot in PoolSlot.objects.filter(pool=pool, index__in=indexes)
@@ -202,7 +225,32 @@ def _read(pool: str, run_id: str, indexes: list[int]) -> InspectionOutcome:
         .order_by("id")
         .values_list("id", "owner_id")[: MAX_RECORDS + 1]
     )
-    if len(rows) > MAX_RECORDS or len(extra) > MAX_RECORDS:
+    request_rows = (
+        list(
+            CatchRequest.objects.filter(
+                Q(player_id__in=index_of)
+                | Q(convention_id=convention_id)
+                | Q(fursuit__owner_id__in=index_of)
+            )
+            .order_by("id")
+            .values_list(
+                "id",
+                "player_id",
+                "fursuit_id",
+                "convention_id",
+                "state",
+                "requested_at",
+            )[: MAX_RECORDS + 1]
+        )
+        if requests
+        else []
+    )
+    record_cap = V2_MAX_RECORDS if requests else MAX_RECORDS
+    if (
+        len(rows) > record_cap
+        or len(extra) > MAX_RECORDS
+        or len(request_rows) > record_cap
+    ):
         return InspectionOutcome("FAIL_LIMIT")
 
     current_photos = dict(
@@ -242,5 +290,29 @@ def _read(pool: str, run_id: str, indexes: list[int]) -> InspectionOutcome:
             ],
             "fixture_photos_unchanged": current_photos == ledger_photos,
             "avatars": sorted(index_of[user_id] for user_id in avatar_owners),
+            **(
+                {
+                    "requests": [
+                        {
+                            "id": request_id,
+                            "player": index_of.get(player_id),
+                            "fursuit": fursuit_id,
+                            "run_convention": request_convention == convention_id,
+                            "state": state,
+                            "requested_at": _caught_at(requested_at),
+                        }
+                        for (
+                            request_id,
+                            player_id,
+                            fursuit_id,
+                            request_convention,
+                            state,
+                            requested_at,
+                        ) in request_rows
+                    ]
+                }
+                if requests
+                else {}
+            ),
         },
     )

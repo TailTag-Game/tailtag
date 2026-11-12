@@ -24,7 +24,7 @@ from accounts.models import User
 from catches.models import Catch, CatchBlock, CatchRequest
 from conventions import services as convention_services
 from conventions.models import Convention, ConventionEnrollment, ConventionStatus
-from conventions.review_deadline import apply_review_schedule
+from conventions.review_deadline import apply_review_schedule, database_now
 from fursuits import services as fursuit_services
 from fursuits.models import Fursuit
 from profiles.models import PlayerProfile
@@ -55,6 +55,8 @@ _OWNERS: Final = (1, 50)
 _CATCHERS: Final = (1, 200)
 _EXTRAS: Final = (0, 10)
 _FURSUITS_PER_OWNER: Final = (1, 5)
+# A run convention can close its review window inside the run (#508 G4).
+_REVIEW_DEADLINE_OFFSET_SECONDS: Final = (60, 3600)
 
 # Service-defined rejections of the requested state; anything else is an error.
 _DOMAIN_REJECTIONS: Final = (
@@ -157,6 +159,15 @@ def _validated(
     )
 
 
+def _review_deadline_offset(value: object) -> dt.timedelta | None:
+    if value is None:
+        return None
+    low, high = _REVIEW_DEADLINE_OFFSET_SECONDS
+    if type(value) is not int or not low <= value <= high:
+        raise ValueError("review_deadline_offset_seconds invalid")
+    return dt.timedelta(seconds=value)
+
+
 def provision(
     pool: str,
     run_id: str,
@@ -164,6 +175,7 @@ def provision(
     catchers: Sequence[int],
     fursuits_per_owner: int,
     extras: Sequence[int] = (),
+    review_deadline_offset_seconds: int | None = None,
 ) -> ProvisionResult:
     """Create the run's Convention, enrollments, fursuits, and activations.
 
@@ -171,8 +183,13 @@ def provision(
     and recorded like owners and catchers. Everything is written in one transaction.
     A failure after creation starts rolls it back, deletes the images it stored, and
     records a ``failed`` run.
+
+    ``review_deadline_offset_seconds`` moves the run convention's stored review
+    deadline to that many seconds after the database time, so request expiry can
+    happen inside a run. The real deadline rule does not change.
     """
     try:
+        offset = _review_deadline_offset(review_deadline_offset_seconds)
         (
             pool,
             run_id,
@@ -197,6 +214,7 @@ def provision(
                     fursuits_per_owner,
                     stored_keys,
                     leased,
+                    offset,
                 )
             except Exception as error:  # noqa: BLE001 - classified after rollback.
                 raise _CreationFailed(error) from None
@@ -322,6 +340,7 @@ def _create(
     fursuits_per_owner: int,
     stored_keys: list[str],
     leased: list[int],
+    review_deadline_offset: dt.timedelta | None = None,
 ) -> dict[str, int]:
     """Create the run state and its ledger; record each stored image key at once."""
     today = dt.datetime.now(dt.UTC).date()
@@ -345,6 +364,10 @@ def _create(
         end_date=end_date,
         time_zone=FIXTURE_CONVENTION_TIME_ZONE,
     )
+    if review_deadline_offset is not None:
+        Convention.objects.filter(pk=convention.pk).update(
+            review_deadline_at=database_now() + review_deadline_offset
+        )
     enrollment_ids = [
         convention_services.enroll_in_convention(
             user, convention_id=convention.pk, set_active=True

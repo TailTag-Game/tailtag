@@ -20,6 +20,7 @@ from django.db.models import QuerySet
 from catches.models import CatchRequest, CatchRequestState
 from conventions.models import Convention
 from conventions.review_deadline import database_now, review_window_open
+from observability.outcomes import Outcome, Reason, Signal, record_outcome
 from operator_audit.services import OperatorTransition
 from profiles.models import PlayerProfile
 
@@ -65,23 +66,36 @@ def invalidate_request_as_operator(
         request.state = CatchRequestState.INVALIDATED
         request.invalidated_at = now
         request.save(update_fields=["state", "invalidated_at"])
+        transaction.on_commit(
+            lambda: record_outcome(
+                Signal.REQUEST_DECISION, Outcome.INVALIDATED, Reason.OPERATOR
+            )
+        )
         # Keep the profile lock until commit.
         del profile
         return OperatorTransition(value=request, changed=True)
 
 
 def invalidate_open_requests(
-    requests: QuerySet[CatchRequest], *, convention: Convention
+    requests: QuerySet[CatchRequest], *, convention: Convention, reason: Reason
 ) -> int:
     """Invalidate the pending and declined *requests* at *convention*.
 
     The caller runs inside its operator transaction and holds the contract
     locks above CatchRequest. Nothing changes when the window is closed. The
-    return value is the number of invalidated rows.
+    return value is the number of invalidated rows. After commit, one outcome
+    with *reason* counts them (#508).
     """
     now = database_now()
     if not review_window_open(convention, now):
         return 0
-    return requests.filter(
+    count = requests.filter(
         convention_id=convention.pk, state__in=INVALIDATABLE_STATES
     ).update(state=CatchRequestState.INVALIDATED, invalidated_at=now)
+    if count:
+        transaction.on_commit(
+            lambda: record_outcome(
+                Signal.REQUEST_DECISION, Outcome.INVALIDATED, reason, count=count
+            )
+        )
+    return count

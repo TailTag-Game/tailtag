@@ -21,6 +21,7 @@ from conventions.review_deadline import (
     compute_review_deadline,
 )
 from fursuits.models import Fursuit
+from observability.outcomes import Reason
 from operator_audit.services import OperatorTransition
 from profiles.eligibility import eligible_player_profiles, is_participation_eligible
 from profiles.models import PlayerProfile
@@ -338,6 +339,7 @@ def _invalidate_for_activation_deactivation(
     invalidate_open_requests(
         CatchRequest.objects.filter(fursuit_id=activation.fursuit_id),
         convention=convention,
+        reason=Reason.ACTIVATION_REMOVED,
     )
 
 
@@ -353,6 +355,7 @@ def _invalidate_for_enrollment_removal(
             Q(player_id=enrollment.user_id) | Q(fursuit__owner_id=enrollment.user_id)
         ),
         convention=convention,
+        reason=Reason.ENROLLMENT_REMOVED,
     )
 
 
@@ -428,7 +431,11 @@ def set_convention_admin_state(
             from catches.models import CatchRequest
             from catches.request_invalidation import invalidate_open_requests
 
-            invalidate_open_requests(CatchRequest.objects.all(), convention=convention)
+            invalidate_open_requests(
+                CatchRequest.objects.all(),
+                convention=convention,
+                reason=Reason.CONVENTION_CANCELLED,
+            )
         convention.name = name
         convention.status = status
         convention.start_date = start_date

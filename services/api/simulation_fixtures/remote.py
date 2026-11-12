@@ -23,6 +23,7 @@ def _provision(arguments: Mapping[str, object]) -> tuple[str, _Data]:
         cast(list[int], arguments["catchers"]),
         cast(int, arguments["fursuits_per_owner"]),
         cast(list[int], arguments["extras"]),
+        cast(int | None, arguments.get("review_deadline_offset_seconds")),
     )
     return outcome.result, dict(outcome.counts)
 
@@ -75,6 +76,12 @@ _OPERATIONS: Final[dict[str, tuple[frozenset[str], _Operation]]] = {
 }
 
 
+# Older simulator releases omit these, so they stay optional (#508).
+_OPTIONAL_ARGUMENTS: Final[dict[str, frozenset[str]]] = {
+    "provision": frozenset({"review_deadline_offset_seconds"}),
+}
+
+
 def _response(
     result: str, data: _Data | None = None, instance: str | None = None
 ) -> dict[str, object]:
@@ -122,7 +129,10 @@ def execute(
         return _response("FAIL_REQUEST", instance=instance)
     names, run = _OPERATIONS[operation]
     typed_arguments = cast(Mapping[str, object], arguments)
-    if frozenset(typed_arguments) != names:
+    if (
+        frozenset(typed_arguments) - _OPTIONAL_ARGUMENTS.get(operation, frozenset())
+        != names
+    ):
         return _response("FAIL_REQUEST", instance=instance)
     try:
         result, data = run(typed_arguments)
