@@ -38,7 +38,7 @@ Cleanup runs whatever the `CATCH_REQUESTS_ENABLED` gate value is. With no histor
 
 | Environment | Render service | Schedule | Deploys |
 | --- | --- | --- | --- |
-| Development | `tailtag-cleanup-dev` | 10:00 UTC daily | After the GitHub checks pass on `main` |
+| Development | `tailtag-cleanup-dev` | 10:00 UTC daily | By the `Render Development deploy` workflow, right after the API |
 | Staging | `tailtag-cleanup-stg` | 10:00 UTC daily | At the promoted commit, by the [promotion step](#deploy-the-staging-cron-job) |
 
 Render runs one run at a time. If a run is still active at the next scheduled time, Render delays the next run until the active one finishes. Render stops a run after 12 hours.
@@ -78,6 +78,18 @@ These steps are separate authorized owner actions. The #507 pull request does no
 7. Make sure that the first scheduled run in each environment shows an `ok` check-in and a `succeeded` outcome.
 
 The cron job gets only the variables that production settings need. Clerk stays off. The hosts values are placeholders, because the job serves no HTTP traffic. Production settings require the media storage values at startup, so the job holds them but never uses them.
+
+## Deploy the Development cron job
+
+`tailtag-cleanup-dev` has auto-deploy off. The `Render Development deploy` workflow deploys it after it deploys and checks the API. See [Development delivery](../development/backend-delivery-operations.md#delivery). Unrelated failing checks, such as a Dependabot job, do not hold it back. A failed workflow that the API gate expects stops both deploys.
+
+The workflow needs the cron job's deploy hook:
+
+1. In the Render dashboard, open `tailtag-cleanup-dev`, then **Settings**, and copy its deploy hook URL. It starts with `https://api.render.com/deploy/crn-`.
+2. Store it as the `RENDER_DEVELOPMENT_CLEANUP_DEPLOY_HOOK_URL` secret of the `render-development` GitHub environment.
+3. In the same **Settings**, make sure that auto-deploy is off.
+
+Do not deploy the Development cron job from the dashboard. That skips the CI gate.
 
 ## Deploy the Staging cron job
 
