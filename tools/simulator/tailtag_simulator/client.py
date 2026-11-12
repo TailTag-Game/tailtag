@@ -38,6 +38,8 @@ class Reply:
 
     status: int
     body: object | None
+    # Whole seconds from a `Retry-After` header, for HTTP 429 (#508).
+    retry_after: int | None = None
 
 
 @dataclass(frozen=True)
@@ -121,7 +123,10 @@ class ApiClient:
         runtime = active_runtime()
         start_send: Callable[[], None] | None = None
 
+        retry_after: int | None = None
+
         async def send() -> tuple[int, bytearray]:
+            nonlocal retry_after
             status: int | None = None
             transport_failed = False
             try:
@@ -136,6 +141,9 @@ class ApiClient:
                     status = response.status_code
                     if 300 <= response.status_code < 400:
                         raise RequestFailed
+                    header = response.headers.get("Retry-After", "")
+                    if header.isascii() and header.isdigit() and len(header) <= 6:
+                        retry_after = int(header)
                     raw = bytearray()
                     async for chunk in response.aiter_bytes():
                         raw.extend(chunk)
@@ -162,7 +170,7 @@ class ApiClient:
             parsed: object | None = json.loads(raw)
         except (RecursionError, UnicodeError, ValueError):
             parsed = None
-        return Reply(status, parsed)
+        return Reply(status, parsed, retry_after)
 
 
 @asynccontextmanager

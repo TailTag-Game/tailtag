@@ -30,6 +30,7 @@ _CODES: Final = frozenset(
         "undo_expired",
         "approval_paused",
         "tag_version_conflict",
+        "fursuit_not_found",
     }
 )
 # The API's image rejections carry no code: the exact message is the identity.

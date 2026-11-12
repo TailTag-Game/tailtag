@@ -16,6 +16,7 @@ code, or an image rejection name mapped from its exact message). Tokens, payload
 URLs, names, IDs and other body text are never written.
 """
 
+import asyncio
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
@@ -42,7 +43,7 @@ from tailtag_simulator.gameplay import (
     StepFailed as _StepFailed,
 )
 from tailtag_simulator.gameplay import (
-    arm_session as _arm,
+    arm_request_session as _arm,
 )
 from tailtag_simulator.gameplay import (
     get_value as _get,
@@ -52,6 +53,9 @@ from tailtag_simulator.gameplay import (
 )
 from tailtag_simulator.gameplay import (
     positive_number as _number,
+)
+from tailtag_simulator.gameplay import (
+    replace_tag as _replace,
 )
 from tailtag_simulator.gameplay import (
     step as _step,
@@ -85,7 +89,10 @@ from tailtag_simulator.smoke import StageFailed, guarded_stage
 
 MALFORMED_TOKEN: Final = "not-a-token"
 FURSUIT_NAME: Final = "Sim journey"
-CONFIRM_PATH: Final = "/api/catches/confirm/"
+PREVIEW_PATH: Final = "/api/catches/preview/"
+REQUESTS_PATH: Final = "/api/catches/requests/"
+INCOMING_PATH: Final = "/api/catches/incoming-requests/"
+UNDO_WINDOW_SECONDS: Final = 10
 AVATAR_PATH: Final = "/api/profile/avatar/"
 
 _OWNERS: Final = 2
@@ -156,6 +163,7 @@ class _Run:
     catch_id: int = 0  # set once journey `catch` has created the catch
     created: int = 0  # the fursuit journey `fursuit_photo` created
     expectations: Expectations = field(default_factory=Expectations)
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
 
     async def convention_id(self) -> int:
         if not self.convention:
@@ -185,12 +193,12 @@ class _Run:
         fursuit = await self.fursuit(owner, position)
         return f"/api/conventions/{convention}/fursuit-activations/{fursuit}/"
 
-    def confirm(
+    def submit(
         self, role: Role, client: ApiClient, fursuit: int, payload: str
     ) -> Awaitable[Reply]:
-        """Confirm a catch, recording the attempted pair first."""
+        """Submit a catch request, recording the attempted pair first."""
         self.expectations.attempt(role, fursuit)
-        return client.post(CONFIRM_PATH, {"payload": payload})
+        return client.post(REQUESTS_PATH, {"payload": payload})
 
     def confirmed(self, role: Role, fursuit: int, catch: int, caught_at: str) -> None:
         self.expectations.confirmed(role, fursuit, catch, caught_at)
@@ -199,12 +207,7 @@ class _Run:
             catch,
             caught_at,
         ):
-            raise IntegrityFailed("confirm", "canonical", "changed")
-
-    async def resolve_path(self) -> str:
-        return (
-            f"/api/conventions/{await self.convention_id()}/catch-credentials/resolve/"
-        )
+            raise IntegrityFailed("submit", "canonical", "changed")
 
 
 def _fursuit_ids(body: object) -> list[int]:
@@ -241,42 +244,240 @@ async def _unauthenticated(run: _Run) -> None:
     await _step("malformed_token", context.malformed.get(ME_PATH), 401)
 
 
-async def _catch(run: _Run) -> None:
-    owner, catcher = run.context.owners[0], run.context.catchers[0]
-    activation = await run.activation(0, 0)
-    payload = await _arm(owner, activation)
+# Suits: owner 0 position 0 (S00), 0/1 (S01, automatic), 1/0 (S10), 1/1 (S11).
+# Each journey uses its own trios, so one journey's request state never decides
+# another journey's result.
+_AUTOMATIC: Final = frozenset({(0, 1)})
+
+
+async def _arm_suit(run: _Run, owner: int, position: int) -> str:
+    """Activate the suit, start its session, set its mode, and return the tag payload."""
+    client = run.context.owners[owner]
+    activation = await run.activation(owner, position)
+    await _step(
+        "activate",
+        client.put(activation, {"is_active": True}),
+        200,
+        shape=lambda b: _get(b, "is_active") is True,
+    )
+    return await _arm(
+        client,
+        activation,
+        await run.fursuit(owner, position),
+        automatic=(owner, position) in _AUTOMATIC,
+    )
+
+
+async def _preview(run: _Run, client: ApiClient, fursuit: int, payload: str) -> None:
     convention = await run.convention_id()
     await _step(
-        "resolve",
-        catcher.post(await run.resolve_path(), {"payload": payload}),
+        "preview",
+        client.post(PREVIEW_PATH, {"payload": payload}),
         200,
-        shape=lambda b: _get(b, "convention_id") == convention,
-    )
-    fursuit = await run.fursuit(0, 0)
-    body = await _step(
-        "confirm",
-        run.confirm(Role.CATCHER0, catcher, fursuit, payload),
-        201,
-        "created",
         shape=lambda b: (
-            _number(b, "catch", "id") > 0 and bool(_text(b, "catch", "caught_at"))
+            _number(b, "convention_id") == convention
+            and _number(b, "fursuit", "id") == fursuit
         ),
     )
-    run.catch_id = _number(body, "catch", "id")
-    run.expectations.created(
-        Role.CATCHER0, fursuit, run.catch_id, _text(body, "catch", "caught_at")
+
+
+async def _pending(
+    run: _Run, role: Role, client: ApiClient, fursuit: int, payload: str
+) -> int:
+    """Submit a new request that waits for the owner; return its id."""
+    body = await _step(
+        "submit",
+        run.submit(role, client, fursuit, payload),
+        201,
+        "pending",
+        shape=lambda b: (
+            _number(b, "request", "id") > 0
+            and _get(b, "request", "state") == "pending"
+            and _number(b, "request", "fursuit", "id") == fursuit
+        ),
     )
-    await _only_catch(catcher, run, run.catch_id, fursuit)
+    return _number(body, "request", "id")
+
+
+async def _decide(
+    run: _Run, owner: int, request: int, action: str, body: object | None = None
+) -> object:
+    return await _step(
+        action,
+        run.context.owners[owner].post(
+            f"{INCOMING_PATH}{request}/{action}/",
+            None if body is None else cast(dict[str, object], body),
+        ),
+        200,
+    )
+
+
+async def _approve(
+    run: _Run, owner: int, request: int, role: Role, fursuit: int
+) -> None:
+    body = await _step(
+        "approve",
+        run.context.owners[owner].post(f"{INCOMING_PATH}{request}/approve/"),
+        200,
+        shape=lambda b: (
+            _get(b, "request", "state") == "approved"
+            and _number(b, "catch", "id") > 0
+            and _text(b, "catch", "caught_at") == _text(b, "request", "requested_at")
+        ),
+    )
+    run.expectations.created(
+        role, fursuit, _number(body, "catch", "id"), _text(body, "catch", "caught_at")
+    )
+
+
+async def _player_state(run: _Run, client: ApiClient, request: int, state: str) -> None:
+    convention = await run.convention_id()
+
+    def listed(body: object) -> bool:
+        rows = [r for r in _items(_get(body, "results")) if _number(r, "id") == request]
+        return len(rows) == 1 and _get(rows[0], "state") == state
+
+    await _step(
+        "player_list",
+        client.get(f"{REQUESTS_PATH}?convention_id={convention}"),
+        200,
+        shape=listed,
+    )
+
+
+async def _pending_approve(run: _Run) -> None:
+    catcher, fursuit = run.context.catchers[0], await run.fursuit(0, 0)
+    payload = await _arm_suit(run, 0, 0)
+    await _preview(run, catcher, fursuit, payload)
+    request = await _pending(run, Role.CATCHER0, catcher, fursuit, payload)
+    await _player_state(run, catcher, request, "pending")
+    await _approve(run, 0, request, Role.CATCHER0, fursuit)
+    made = run.expectations.made[(Role.CATCHER0, fursuit)]
+    run.catch_id = made.catch_id
+    await _only_catch(catcher, run, made.catch_id, fursuit)
+
+
+async def _automatic(run: _Run) -> None:
+    catcher, fursuit = run.context.catchers[0], await run.fursuit(0, 1)
+    payload = await _arm_suit(run, 0, 1)
+    body = await _step(
+        "submit",
+        run.submit(Role.CATCHER0, catcher, fursuit, payload),
+        201,
+        "approved",
+        shape=lambda b: (
+            _get(b, "request", "state") == "approved"
+            and _number(b, "catch", "id") > 0
+            and _text(b, "catch", "caught_at") == _text(b, "request", "requested_at")
+        ),
+    )
+    run.expectations.created(
+        Role.CATCHER0,
+        fursuit,
+        _number(body, "catch", "id"),
+        _text(body, "catch", "caught_at"),
+    )
+
+
+async def _decline(run: _Run) -> None:
+    catcher, fursuit = run.context.catchers[0], await run.fursuit(1, 0)
+    payload = await _arm_suit(run, 1, 0)
+    request = await _pending(run, Role.CATCHER0, catcher, fursuit, payload)
+    await _decide(run, 1, request, "decline", {"block": False})
+    await _player_state(run, catcher, request, "declined")
+
+
+async def _decline_block(run: _Run) -> None:
+    catcher, fursuit = run.context.catchers[1], await run.fursuit(1, 1)
+    payload = await _arm_suit(run, 1, 1)
+    request = await _pending(run, Role.CATCHER1, catcher, fursuit, payload)
+    await _decide(run, 1, request, "decline", {"block": True})
+    # The player sees the decline and never a block code.
+    await _player_state(run, catcher, request, "declined")
+    await _step(
+        "submit_blocked",
+        run.submit(Role.CATCHER1, catcher, fursuit, payload),
+        404,
+        "catch_target_unavailable",
+    )
+
+
+async def _undo(run: _Run) -> None:
+    catcher, fursuit = run.context.catchers[1], await run.fursuit(1, 0)
+    payload = await _arm_suit(run, 1, 0)
+    request = await _pending(run, Role.CATCHER1, catcher, fursuit, payload)
+    await _decide(run, 1, request, "decline", {"block": False})
+    await _step(
+        "undo",
+        run.context.owners[1].post(f"{INCOMING_PATH}{request}/undo-decline/"),
+        200,
+        shape=lambda b: _get(b, "state") == "pending",
+    )
+    await _player_state(run, catcher, request, "pending")
+
+
+async def _restore(run: _Run) -> None:
+    catcher, fursuit = run.context.catchers[2], await run.fursuit(1, 0)
+    payload = await _arm_suit(run, 1, 0)
+    request = await _pending(run, Role.CATCHER2, catcher, fursuit, payload)
+    await _decide(run, 1, request, "decline", {"block": False})
+    await run.sleep(UNDO_WINDOW_SECONDS + 1)
+    await _step(
+        "undo_expired",
+        run.context.owners[1].post(f"{INCOMING_PATH}{request}/undo-decline/"),
+        409,
+        "undo_expired",
+    )
+    await _step(
+        "restore",
+        run.context.owners[1].post(f"{INCOMING_PATH}{request}/restore/"),
+        200,
+        shape=lambda b: _get(b, "state") == "pending",
+    )
+
+
+async def _withdraw(run: _Run) -> None:
+    catcher, fursuit = run.context.catchers[3], await run.fursuit(1, 0)
+    payload = await _arm_suit(run, 1, 0)
+    request = await _pending(run, Role.CATCHER3, catcher, fursuit, payload)
+    await _step(
+        "withdraw",
+        catcher.post(f"{REQUESTS_PATH}{request}/withdraw/"),
+        200,
+        shape=lambda b: _get(b, "state") == "withdrawn",
+    )
+    await _step(
+        "approve_withdrawn",
+        run.context.owners[1].post(f"{INCOMING_PATH}{request}/approve/"),
+        409,
+        "request_state_changed",
+    )
+
+
+async def _cooldown(run: _Run) -> None:
+    catcher, fursuit = run.context.catchers[0], await run.fursuit(1, 1)
+    payload = await _arm_suit(run, 1, 1)
+    request = await _pending(run, Role.CATCHER0, catcher, fursuit, payload)
+    await _decide(run, 1, request, "decline", {"block": False})
+    reply = await run.submit(Role.CATCHER0, catcher, fursuit, payload)
+    wait = _number(reply.body, "retry_after_seconds")
+    await _step(
+        "submit_cooled",
+        _ready(reply),
+        429,
+        "cooldown_active",
+        shape=lambda _b: wait > 0 and reply.retry_after == wait,
+    )
 
 
 async def _retry(run: _Run) -> None:
-    owner, catcher = run.context.owners[0], run.context.catchers[0]
-    activation = await run.activation(0, 0)
-    payload = await _arm(owner, activation)
-    fursuit = await run.fursuit(0, 0)
+    owner_suit = await run.fursuit(0, 0)
+    payload = await _arm_suit(run, 0, 0)
+    # A repeat after approval returns the same catch, even after the session stops.
+    catcher = run.context.catchers[0]
     body = await _step(
-        "confirm",
-        run.confirm(Role.CATCHER0, catcher, fursuit, payload),
+        "submit_caught",
+        run.submit(Role.CATCHER0, catcher, owner_suit, payload),
         200,
         "already_caught",
         shape=lambda b: (
@@ -284,63 +485,74 @@ async def _retry(run: _Run) -> None:
             and run.catch_id in (0, _number(b, "catch", "id"))
         ),
     )
-    catch = _number(body, "catch", "id")
-    run.confirmed(Role.CATCHER0, fursuit, catch, _text(body, "catch", "caught_at"))
-    await _stop(owner, activation)
-    body = await _step(
-        "confirm_stopped",
-        run.confirm(Role.CATCHER0, catcher, fursuit, payload),
-        200,
-        "already_caught",
-        shape=lambda b: _number(b, "catch", "id") == catch,
+    run.confirmed(
+        Role.CATCHER0,
+        owner_suit,
+        _number(body, "catch", "id"),
+        _text(body, "catch", "caught_at"),
     )
-    run.confirmed(Role.CATCHER0, fursuit, catch, _text(body, "catch", "caught_at"))
-    await _only_catch(catcher, run, catch, fursuit)
+    # A lost response: the repeat names the same pending request.
+    other = run.context.catchers[1]
+    request = await _pending(run, Role.CATCHER1, other, owner_suit, payload)
+    await _step(
+        "submit_again",
+        run.submit(Role.CATCHER1, other, owner_suit, payload),
+        200,
+        "already_pending",
+        shape=lambda b: _number(b, "request", "id") == request,
+    )
+
+
+async def _duplicate(run: _Run) -> None:
+    catcher, fursuit = run.context.catchers[2], await run.fursuit(0, 0)
+    payload = await _arm_suit(run, 0, 0)
+    replies = await asyncio.gather(
+        run.submit(Role.CATCHER2, catcher, fursuit, payload),
+        run.submit(Role.CATCHER2, catcher, fursuit, payload),
+    )
+    ids = {_number(reply.body, "request", "id") for reply in replies}
+    statuses = sorted(reply.status for reply in replies)
+    if statuses != [200, 201] or len(ids) != 1 or 0 in ids:
+        raise _StepFailed("submit_twice", "200+201/same", f"{statuses}/{len(ids)}")
 
 
 async def _stopped_session(run: _Run) -> None:
-    owner, catcher = run.context.owners[0], run.context.catchers[1]
-    activation = await run.activation(0, 1)
-    payload = await _arm(owner, activation)
-    await _stop(owner, activation)
+    owner, fursuit = run.context.owners[1], await run.fursuit(1, 1)
+    payload = await _arm_suit(run, 1, 1)
+    first = run.context.catchers[2]
+    request = await _pending(run, Role.CATCHER2, first, fursuit, payload)
+    await _stop(owner, await run.activation(1, 1))
     await _step(
-        "confirm",
-        run.confirm(Role.CATCHER1, catcher, await run.fursuit(0, 1), payload),
+        "submit_stopped",
+        run.submit(Role.CATCHER3, run.context.catchers[3], fursuit, payload),
         404,
         "catch_target_unavailable",
     )
+    await _approve(run, 1, request, Role.CATCHER2, fursuit)
 
 
-async def _stale_credential(run: _Run) -> None:
-    owner, catcher = run.context.owners[1], run.context.catchers[1]
-    activation = await run.activation(1, 0)
-    old = await _arm(owner, activation)
-    body = await _step(
-        "rotate",
-        owner.post(f"{activation}catch-credential/rotate/"),
-        200,
-        shape=lambda b: bool(_text(b, "payload")) and _text(b, "payload") != old,
-    )
-    new = _text(body, "payload")
+async def _replaced_tag(run: _Run) -> None:
+    owner, fursuit = run.context.owners[0], await run.fursuit(0, 0)
+    old = await _arm_suit(run, 0, 0)
+    catcher = run.context.catchers[3]
+    request = await _pending(run, Role.CATCHER3, catcher, fursuit, old)
+    new = await _replace(owner, fursuit)
+    if new == old:
+        raise _StepFailed("replace", "new payload", "same")
     await _step(
-        "confirm_old",
-        run.confirm(Role.CATCHER1, catcher, await run.fursuit(1, 0), old),
+        "preview_old",
+        catcher.post(PREVIEW_PATH, {"payload": old}),
         404,
         "catch_target_unavailable",
     )
-    convention = await run.convention_id()
-    await _step(
-        "resolve_new",
-        catcher.post(await run.resolve_path(), {"payload": new}),
-        200,
-        shape=lambda b: _get(b, "convention_id") == convention,
-    )
+    await _preview(run, catcher, fursuit, new)
+    await _approve(run, 0, request, Role.CATCHER3, fursuit)
 
 
 async def _deactivated(run: _Run) -> None:
-    owner, catcher = run.context.owners[1], run.context.catchers[2]
-    activation = await run.activation(1, 1)
-    payload = await _arm(owner, activation)
+    owner, fursuit = run.context.owners[0], await run.fursuit(0, 1)
+    activation = await run.activation(0, 1)
+    payload = await _arm_suit(run, 0, 1)
     await _step(
         "deactivate",
         owner.put(activation, {"is_active": False}),
@@ -348,36 +560,36 @@ async def _deactivated(run: _Run) -> None:
         shape=lambda b: _get(b, "is_active") is False,
     )
     await _step(
-        "confirm",
-        run.confirm(Role.CATCHER2, catcher, await run.fursuit(1, 1), payload),
+        "submit",
+        run.submit(Role.CATCHER1, run.context.catchers[1], fursuit, payload),
         404,
         "catch_target_unavailable",
     )
 
 
 async def _self_catch(run: _Run) -> None:
-    owner = run.context.owners[1]
-    payload = await _arm(owner, await run.activation(1, 0))
+    owner, fursuit = run.context.owners[1], await run.fursuit(1, 0)
+    payload = await _arm_suit(run, 1, 0)
     await _step(
-        "confirm",
-        run.confirm(Role.OWNER1, owner, await run.fursuit(1, 0), payload),
+        "submit",
+        run.submit(Role.OWNER1, owner, fursuit, payload),
         409,
         "self_catch_not_allowed",
     )
 
 
 async def _convention_mismatch(run: _Run) -> None:
-    owner, catcher = run.context.owners[1], run.context.catchers[3]
-    payload = await _arm(owner, await run.activation(1, 0))
+    catcher, fursuit = run.context.catchers[3], await run.fursuit(1, 0)
+    payload = await _arm_suit(run, 1, 0)
     convention = await run.convention_id()
     first: _StepFailed | None = None
     try:
         await _step("leave", catcher.delete(ACTIVE_PATH), 204)
         await _step(
-            "confirm",
-            run.confirm(Role.CATCHER3, catcher, await run.fursuit(1, 0), payload),
-            409,
-            "active_convention_mismatch",
+            "submit",
+            run.submit(Role.CATCHER3, catcher, fursuit, payload),
+            403,
+            "catcher_ineligible",
         )
     except _StepFailed as failed:
         first = failed
@@ -395,12 +607,11 @@ async def _convention_mismatch(run: _Run) -> None:
 
 
 async def _ineligible_catcher(run: _Run) -> None:
-    payload = await _arm(run.context.owners[1], await run.activation(1, 0))
+    fursuit = await run.fursuit(1, 0)
+    payload = await _arm_suit(run, 1, 0)
     await _step(
-        "confirm",
-        run.confirm(
-            Role.OUTSIDER, run.context.outsider, await run.fursuit(1, 0), payload
-        ),
+        "submit",
+        run.submit(Role.OUTSIDER, run.context.outsider, fursuit, payload),
         403,
         "catcher_ineligible",
     )
@@ -408,11 +619,18 @@ async def _ineligible_catcher(run: _Run) -> None:
 
 async def _not_owner(run: _Run) -> None:
     intruder = run.context.owners[0]
+    fursuit = await run.fursuit(1, 0)
     activation = await run.activation(1, 0)
-    await _step("credential", intruder.get(f"{activation}catch-credential/"), 404)
+    await _step(
+        "tag", intruder.get(f"/api/fursuits/{fursuit}/tag/"), 404, "fursuit_not_found"
+    )
     await _step(
         "session", intruder.put(f"{activation}catch-session/", {"is_active": True}), 404
     )
+
+
+async def _ready(reply: Reply) -> Reply:
+    return reply
 
 
 async def _avatar(run: _Run) -> None:
@@ -488,10 +706,18 @@ async def _image_rejections(run: _Run) -> None:
 
 _JOURNEYS: Final[tuple[tuple[str, Callable[[_Run], Awaitable[None]]], ...]] = (
     ("unauthenticated", _unauthenticated),
-    ("catch", _catch),
+    ("pending_approve", _pending_approve),
+    ("automatic", _automatic),
+    ("decline", _decline),
+    ("decline_block", _decline_block),
+    ("undo", _undo),
+    ("restore", _restore),
+    ("withdraw", _withdraw),
+    ("cooldown", _cooldown),
     ("retry", _retry),
+    ("duplicate", _duplicate),
     ("stopped_session", _stopped_session),
-    ("stale_credential", _stale_credential),
+    ("replaced_tag", _replaced_tag),
     ("deactivated", _deactivated),
     ("self_catch", _self_catch),
     ("convention_mismatch", _convention_mismatch),
@@ -508,10 +734,13 @@ JOURNEY_NAMES: Final = tuple(name for name, _ in _JOURNEYS)
 
 
 async def simulate_journeys(
-    context: JourneyContext, *, partial: Callable[[JourneyRun], None] | None = None
+    context: JourneyContext,
+    *,
+    partial: Callable[[JourneyRun], None] | None = None,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> JourneyRun:
     """Run every journey in order; one failing never stops the next."""
-    run = _Run(context)
+    run = _Run(context, sleep=sleep)
     results: list[JourneyResult] = []
     try:
         for name, journey in _JOURNEYS:
