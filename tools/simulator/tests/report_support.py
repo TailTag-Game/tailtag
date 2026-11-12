@@ -45,6 +45,7 @@ def recorder(
     config: dict[str, object] | None = None,
     clock: ReportClock | None = None,
     run_id: str | None = RUN_ID,
+    scenario_version: int | None = None,
 ) -> "RunReport":
     from tailtag_simulator.reports import RunReport
 
@@ -52,6 +53,8 @@ def recorder(
     report = RunReport(
         root,
         scenario,
+        # Journeys run only version 2 (#508); archived v1 reports are fixtures.
+        scenario_version=scenario_version or (2 if scenario == "journeys" else 1),
         config=config or {"target": "staging", "base_url": None},
         run_id=run_id,
         wall_clock=clock.wall_clock,

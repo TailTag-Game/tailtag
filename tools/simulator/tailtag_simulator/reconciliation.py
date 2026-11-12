@@ -31,7 +31,19 @@ HISTORY_PATH: Final = "/api/catches/"
 HISTORY_PAGE_SIZE: Final = 100
 
 # Journeys meant to produce a catch; every other journey must produce none.
-_POSITIVE_JOURNEYS: Final = frozenset({"catch", "retry"})
+# Journeys whose pairs may hold a catch. Journeys v2 (#508) approve requests in
+# `pending_approve`, `stopped_session`, and `replaced_tag`, and `automatic`
+# approves on submit. `catch` is the retired v1 name.
+_POSITIVE_JOURNEYS: Final = frozenset(
+    {
+        "catch",
+        "retry",
+        "pending_approve",
+        "automatic",
+        "stopped_session",
+        "replaced_tag",
+    }
+)
 _FURSUIT_JOURNEY: Final = "fursuit_photo"
 _AVATAR_JOURNEY: Final = "avatar"
 # The relay's fixed result codes; anything else is printed as a launcher failure.
@@ -94,9 +106,9 @@ class Made:
 class Expectations:
     """What the journeys expect to have written, recorded as they run.
 
-    A pair is a confirming role and a fursuit. `attempt` is recorded before every
-    confirm. `created` (a 201) and `confirmed` (a 200 `already_caught`) are recorded
-    only by the positive journeys, `catch` and `retry`.
+    A pair is a submitting role and a fursuit. `attempt` is recorded before every
+    submission. `created` (an approval) and `confirmed` (a 200 `already_caught`) are
+    recorded only by the positive journeys.
     """
 
     journeys: list[str] = field(default_factory=list[str], init=False)

@@ -246,7 +246,7 @@ async def _unauthenticated(run: _Run) -> None:
 
 # Suits: owner 0 position 0 (S00), 0/1 (S01, automatic), 1/0 (S10), 1/1 (S11).
 # Each journey uses its own trios, so one journey's request state never decides
-# another journey's result.
+# another journey's result. Each catcher ends with at most one catch.
 _AUTOMATIC: Final = frozenset({(0, 1)})
 
 
@@ -358,11 +358,11 @@ async def _pending_approve(run: _Run) -> None:
 
 
 async def _automatic(run: _Run) -> None:
-    catcher, fursuit = run.context.catchers[0], await run.fursuit(0, 1)
+    catcher, fursuit = run.context.catchers[1], await run.fursuit(0, 1)
     payload = await _arm_suit(run, 0, 1)
     body = await _step(
         "submit",
-        run.submit(Role.CATCHER0, catcher, fursuit, payload),
+        run.submit(Role.CATCHER1, catcher, fursuit, payload),
         201,
         "approved",
         shape=lambda b: (
@@ -372,7 +372,7 @@ async def _automatic(run: _Run) -> None:
         ),
     )
     run.expectations.created(
-        Role.CATCHER0,
+        Role.CATCHER1,
         fursuit,
         _number(body, "catch", "id"),
         _text(body, "catch", "caught_at"),
@@ -510,10 +510,24 @@ async def _duplicate(run: _Run) -> None:
         run.submit(Role.CATCHER2, catcher, fursuit, payload),
         run.submit(Role.CATCHER2, catcher, fursuit, payload),
     )
-    ids = {_number(reply.body, "request", "id") for reply in replies}
-    statuses = sorted(reply.status for reply in replies)
-    if statuses != [200, 201] or len(ids) != 1 or 0 in ids:
-        raise _StepFailed("submit_twice", "200+201/same", f"{statuses}/{len(ids)}")
+    first, second = sorted(replies, key=lambda reply: -reply.status)
+    created = await _step(
+        "submit",
+        _ready(first),
+        201,
+        "pending",
+        shape=lambda b: _number(b, "request", "id") > 0,
+    )
+    # The concurrent twin must name the same request, never a second one.
+    await _step(
+        "submit_twice",
+        _ready(second),
+        200,
+        "already_pending",
+        shape=lambda b: (
+            _number(b, "request", "id") == _number(created, "request", "id")
+        ),
+    )
 
 
 async def _stopped_session(run: _Run) -> None:
@@ -561,7 +575,7 @@ async def _deactivated(run: _Run) -> None:
     )
     await _step(
         "submit",
-        run.submit(Role.CATCHER1, run.context.catchers[1], fursuit, payload),
+        run.submit(Role.CATCHER2, run.context.catchers[2], fursuit, payload),
         404,
         "catch_target_unavailable",
     )
@@ -797,8 +811,9 @@ async def run_journeys(
     run_id: str | None = None,
     report: RunReport | None = None,
     safety: SafetyRuntime | None = None,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> int:
-    """Run the 13 journeys on Staging, reconcile them, and return the exit code.
+    """Run the journeys on Staging, reconcile them, and return the exit code.
 
     The exit code is 0 only if every stage, journey and reconciliation passed.
     RECONCILIATION runs after the journey lines and before release, and release always
@@ -910,6 +925,7 @@ async def run_journeys(
                     images=images,
                 ),
                 partial=preserve,
+                sleep=sleep,
             )
         if report is not None:
             failed = sum(result.failed_step is not None for result in simulated.results)

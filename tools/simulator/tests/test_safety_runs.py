@@ -92,13 +92,15 @@ def test_every_execution_command_uses_the_supplied_shared_budget_before_credenti
             from journey_support import JourneyWorld
             from test_journeys import make_rig
 
-            value = make_rig(JourneyWorld())
+            journey_world = JourneyWorld()
+            value = make_rig(journey_world)
             return await run_journeys(
                 POOL,
                 images=JourneyImages(valid_a=VALID_A, valid_b=VALID_B),
                 lease_channel=value.leases,
                 fixture_channel=value.fixtures,
                 inspection_channel=value.inspection,
+                sleep=journey_world.gameplay.advance,
                 **common,
             )
         value = rig(tmp_path)

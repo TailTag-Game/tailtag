@@ -49,6 +49,9 @@ CREDENTIAL: Final = "catch-credential/"
 ROTATE: Final = "catch-credential/rotate/"
 RESOLVE_PATH: Final = f"/api/conventions/{CONVENTION_ID}/catch-credentials/resolve/"
 CONFIRM_PATH: Final = "/api/catches/confirm/"
+PREVIEW_PATH: Final = "/api/catches/preview/"
+REQUESTS_PATH: Final = "/api/catches/requests/"
+AT: Final = "2026-10-03T12:00:00Z"
 HISTORY_PATH: Final = "/api/catches/"
 AVATAR_PATH: Final = "/api/profile/avatar/"
 CREATE_PATH: Final = FURSUITS_PATH
@@ -150,6 +153,16 @@ class Catch:
 
 
 @dataclass
+class RequestRow:
+    id: int
+    player: int
+    fursuit_id: int
+    state: str
+    declined_at: float | None = None
+    blocked: bool = False
+
+
+@dataclass
 class Uploaded:
     content: bytes
     fields: dict[str, str]
@@ -183,6 +196,15 @@ class Gameplay:
     stored: list[bytes] = field(default_factory=list[bytes])
     photo_puts: list[tuple[int, int]] = field(default_factory=list[tuple[int, int]])
     avatar_puts: list[int] = field(default_factory=list[int])
+    # The catch request flow (#508).
+    now: float = 0.0
+    modes: dict[int, str] = field(default_factory=dict[int, str])
+    rows: list[RequestRow] = field(default_factory=list[RequestRow])
+    blocks: set[tuple[int, int]] = field(default_factory=set[tuple[int, int]])
+
+    async def advance(self, seconds: float) -> None:
+        """The journeys' injected sleep: server time moves, no real wait."""
+        self.now += seconds
 
     def break_rule(self, name: str) -> None:
         self.broken = name
@@ -254,6 +276,9 @@ class Gameplay:
             return self.confirm(index)
         if (method, path) == ("GET", HISTORY_PATH):
             return self.history(index)
+        handled = self.request_route(method, path, index)
+        if handled is not None:
+            return handled
         if path == AVATAR_PATH and method in ("PUT", "DELETE"):
             return self.avatar(method, index)
         photo = re.fullmatch(r"/api/fursuits/(\d+)/photo/", path)
@@ -312,8 +337,8 @@ class Gameplay:
         if active:
             self.deactivated.discard(fursuit_id)
         elif self.broken != "deactivated":  # broken: only the response changes
+            # A reusable tag outlives a deactivation; the session does not.
             self.deactivated.add(fursuit_id)
-            self.revoked.update(self.issued.get(fursuit_id, []))
             self.sessions[fursuit_id] = False
         return reply(200, {**activation_body(fursuit_id), "is_active": active})
 
@@ -391,6 +416,263 @@ class Gameplay:
                 "results": results,
             },
         )
+
+    # -- the catch request flow (#508) ----------------------------------------
+    def request_route(
+        self, method: str, path: str, index: int
+    ) -> httpx.Response | None:
+        tag = re.fullmatch(r"/api/fursuits/(\d+)/(tag/|tag/replace/|)", path)
+        if tag is not None:
+            return self.tag_action(method, int(tag[1]), tag[2], index)
+        if (method, path) == ("POST", PREVIEW_PATH):
+            return self.preview(index)
+        if (method, path) == ("POST", REQUESTS_PATH):
+            return self.submit(index)
+        if (method, path) == ("GET", REQUESTS_PATH):
+            mine = [r for r in reversed(self.rows) if r.player == index]
+            return reply(200, {"results": [self.request_view(r) for r in mine]})
+        withdraw = re.fullmatch(r"/api/catches/requests/(\d+)/withdraw/", path)
+        if method == "POST" and withdraw is not None:
+            return self.withdraw(index, int(withdraw[1]))
+        action = re.fullmatch(r"/api/catches/incoming-requests/(\d+)/([a-z-]+)/", path)
+        if method == "POST" and action is not None:
+            return self.decide(index, int(action[1]), action[2])
+        return None
+
+    def current_payload(self, fursuit_id: int) -> str:
+        return (self.issued.get(fursuit_id) or [self.issue(fursuit_id)])[-1]
+
+    def tag_action(
+        self, method: str, fursuit_id: int, suffix: str, index: int
+    ) -> httpx.Response | None:
+        leaking = self.broken == "not_owner" and (method, suffix) == ("GET", "tag/")
+        if self.owner_of(fursuit_id) != index and not leaking:
+            return failure(404, "fursuit_not_found")
+        if (method, suffix) == ("PATCH", ""):
+            self.modes[fursuit_id] = str(self.body()["catch_approval_mode"])
+            return reply(
+                200, {"id": fursuit_id, "catch_approval_mode": self.modes[fursuit_id]}
+            )
+        if (method, suffix) == ("GET", "tag/"):
+            return reply(200, self.tag_view(fursuit_id))
+        if (method, suffix) == ("POST", "tag/replace/"):
+            old = self.current_payload(fursuit_id)
+            if self.body().get("expected_version") != len(self.issued[fursuit_id]):
+                return failure(409, "tag_version_conflict")
+            if self.broken != "replaced_tag":
+                self.revoked.add(old)
+            self.issue(fursuit_id)
+            return reply(200, self.tag_view(fursuit_id))
+        return None
+
+    def tag_view(self, fursuit_id: int) -> dict[str, object]:
+        payload = self.current_payload(fursuit_id)
+        return {
+            "fursuit_id": fursuit_id,
+            "state": "current",
+            "tag_version": len(self.issued[fursuit_id]),
+            "payload": payload,
+        }
+
+    def summary(self, fursuit_id: int) -> dict[str, object]:
+        fursuit = self.fursuit(fursuit_id)
+        return {
+            "id": fursuit_id,
+            "tailtag_id": fursuit["tailtag_id"],
+            "name": fursuit["name"],
+            "photo_url": fursuit["photo_url"],
+        }
+
+    def request_view(self, row: RequestRow) -> dict[str, object]:
+        return {
+            "id": row.id,
+            "fursuit": self.summary(row.fursuit_id),
+            "convention_id": CONVENTION_ID,
+            "state": row.state,
+            "requested_at": AT,
+            "review_deadline_at": "2026-10-06T04:00:00Z",
+        }
+
+    def catch_for(self, index: int, fursuit_id: int) -> Catch | None:
+        return next(
+            (
+                c
+                for c in self.catches
+                if (c.catcher, c.fursuit_id) == (index, fursuit_id)
+            ),
+            None,
+        )
+
+    def eligible(self, index: int) -> bool:
+        enrolled = (
+            index in self.state.enrollments or self.broken == "ineligible_catcher"
+        )
+        selected = (
+            index not in self.inactive_enrollments
+            or self.broken == "convention_mismatch"
+        )
+        return enrolled and selected
+
+    def preview(self, index: int) -> httpx.Response:
+        payload = str(self.body().get("payload"))
+        fursuit_id = self.fursuit_of.get(payload)
+        if not self.eligible(index):
+            return failure(403, "catcher_ineligible")
+        known = fursuit_id is not None and (
+            self.live(fursuit_id, payload) or self.broken == "replaced_tag"
+        )
+        if fursuit_id is None or not known or (index, fursuit_id) in self.blocks:
+            return failure(404, "catch_target_unavailable")
+        return reply(
+            200, {"fursuit": self.summary(fursuit_id), "convention_id": CONVENTION_ID}
+        )
+
+    def submit(self, index: int) -> httpx.Response:
+        unavailable = failure(404, "catch_target_unavailable")
+        payload = str(self.body().get("payload"))
+        fursuit_id = self.fursuit_of.get(payload)
+        if fursuit_id is None:
+            return unavailable
+        if not self.eligible(index):
+            return failure(403, "catcher_ineligible")
+        caught = self.catch_for(index, fursuit_id)
+        if caught is not None:
+            return reply(
+                200,
+                {
+                    "outcome": "already_caught",
+                    "request": None,
+                    "catch": self.catch_view(caught),
+                },
+            )
+        pending = next(
+            (
+                r
+                for r in self.rows
+                if (r.player, r.fursuit_id) == (index, fursuit_id)
+                and r.state == "pending"
+            ),
+            None,
+        )
+        # Each break is scoped to the catcher its journey uses: retry uses the
+        # second catcher (index 4) and duplicate the third (index 5).
+        forget = (self.broken, index) in {("retry", 4), ("duplicate", 5)}
+        if pending is not None and not forget:
+            return reply(
+                200,
+                {
+                    "outcome": "already_pending",
+                    "request": self.request_view(pending),
+                    "catch": None,
+                },
+            )
+        # Stopped, deactivated, and replaced breaks already keep the target live.
+        if not self.live(fursuit_id, payload):
+            return unavailable
+        if (index, fursuit_id) in self.blocks and self.broken != "decline_block":
+            return unavailable
+        if self.owner_of(fursuit_id) == index and self.broken != "self_catch":
+            unknown = self.broken == "self_catch_unknown_code"
+            return failure(
+                409, "SENTINEL_UNKNOWN_CODE" if unknown else "self_catch_not_allowed"
+            )
+        declined = [
+            r.declined_at
+            for r in self.rows
+            if (r.player, r.fursuit_id) == (index, fursuit_id)
+            and r.declined_at is not None
+        ]
+        if declined and self.now < max(declined) + 10 and self.broken != "cooldown":
+            return httpx.Response(
+                429,
+                headers={"Retry-After": "10"},
+                json={
+                    "code": "cooldown_active",
+                    "detail": "Try again later.",
+                    "retry_after_seconds": 10,
+                },
+            )
+        row = RequestRow(8000 + len(self.rows) + 1, index, fursuit_id, "pending")
+        self.rows.append(row)
+        if self.modes.get(fursuit_id) == "automatic" and self.broken != "automatic":
+            caught = self.approve(row)
+            return reply(
+                201,
+                {
+                    "outcome": "approved",
+                    "request": self.request_view(row),
+                    "catch": self.catch_view(caught),
+                },
+            )
+        return reply(
+            201,
+            {"outcome": "pending", "request": self.request_view(row), "catch": None},
+        )
+
+    def approve(self, row: RequestRow) -> Catch:
+        row.state = "approved"
+        caught = Catch(7000 + len(self.catches) + 1, row.player, row.fursuit_id)
+        self.catches.append(caught)
+        return caught
+
+    def withdraw(self, index: int, request_id: int) -> httpx.Response:
+        row = next(
+            (r for r in self.rows if r.id == request_id and r.player == index), None
+        )
+        if row is None:
+            return failure(404, "request_not_found")
+        if row.state != "pending":
+            return failure(409, "request_state_changed")
+        row.state = "withdrawn"
+        return reply(200, self.request_view(row))
+
+    def decide(self, index: int, request_id: int, action: str) -> httpx.Response:
+        row = next(
+            (
+                r
+                for r in self.rows
+                if r.id == request_id and self.owner_of(r.fursuit_id) == index
+            ),
+            None,
+        )
+        if row is None:
+            return failure(404, "request_not_found")
+        changed = failure(409, "request_state_changed")
+        if action == "approve":
+            if row.state != "pending" and not (
+                self.broken == "withdraw" and row.state == "withdrawn"
+            ):
+                return changed
+            caught = self.approve(row)
+            view = self.catch_view(caught)
+            if self.broken == "pending_approve":
+                view = {**view, "caught_at": "2026-10-03T12:00:01Z"}
+            return reply(200, {"request": self.request_view(row), "catch": view})
+        if action == "decline":
+            if row.state != "pending":
+                return changed
+            if self.broken != "decline":
+                row.state = "declined"
+                row.declined_at = self.now
+                row.blocked = self.body().get("block") is True
+                if row.blocked:
+                    self.blocks.add((row.player, row.fursuit_id))
+            return reply(200, self.request_view(row))
+        if action in ("undo-decline", "restore"):
+            if row.state != "declined":
+                return changed
+            expired = (
+                row.blocked
+                or row.declined_at is None
+                or self.now >= row.declined_at + 10
+            )
+            if action == "undo-decline" and (
+                self.broken == "undo" or (expired and self.broken != "restore")
+            ):
+                return failure(409, "undo_expired")
+            row.state, row.declined_at = "pending", None
+            return reply(200, self.request_view(row))
+        return failure(404, "request_not_found")
 
     # -- images --------------------------------------------------------------
     def read_upload(self, key: str, text: set[str]) -> Uploaded | httpx.Response:
