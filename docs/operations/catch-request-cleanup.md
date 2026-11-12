@@ -38,7 +38,7 @@ Cleanup runs whatever the `CATCH_REQUESTS_ENABLED` gate value is. With no histor
 
 | Environment | Render service | Schedule | Deploys |
 | --- | --- | --- | --- |
-| Development | `tailtag-cleanup-dev` | 10:00 UTC daily | By the `Render Development deploy` workflow, right after the API |
+| Development | `tailtag-cleanup-dev` | 10:00 UTC daily | On each `main` commit that changes `services/api`, by [Render auto-deploy](#deploy-the-development-cron-job) |
 | Staging | `tailtag-cleanup-stg` | 10:00 UTC daily | At the promoted commit, by the [promotion step](#deploy-the-staging-cron-job) |
 
 Render runs one run at a time. If a run is still active at the next scheduled time, Render delays the next run until the active one finishes. Render stops a run after 12 hours.
@@ -81,15 +81,11 @@ The cron job gets only the variables that production settings need. Clerk stays 
 
 ## Deploy the Development cron job
 
-`tailtag-cleanup-dev` has auto-deploy off. The `Render Development deploy` workflow deploys it after it deploys and checks the API. See [Development delivery](../development/backend-delivery-operations.md#delivery). Unrelated failing checks, such as a Dependabot job, do not hold it back. A failed workflow that the API gate expects stops both deploys.
+`tailtag-cleanup-dev` uses Render auto-deploy **On Commit**, with the build filter `services/api/**`. Render deploys it on each `main` commit that changes the API. Failing checks, such as a mobile build or a Dependabot job, do not hold it back.
 
-The workflow needs the cron job's deploy hook:
+The API uses the `Render Development deploy` workflow, which waits for CI. The cron job cannot use that workflow: a Render cron job has no deploy hook, and Render refuses a commit reference for a cron job. So after a merge, the cron job can run a newer commit than the API for a while. If that commit adds a migration, a run in that time can fail until the API deploys it. The failure is visible in Sentry, and the next run retries.
 
-1. In the Render dashboard, open `tailtag-cleanup-dev`, then **Settings**, and copy its deploy hook URL. It starts with `https://api.render.com/deploy/crn-`.
-2. Store it as the `RENDER_DEVELOPMENT_CLEANUP_DEPLOY_HOOK_URL` secret of the `render-development` GitHub environment.
-3. In the same **Settings**, make sure that auto-deploy is off.
-
-Do not deploy the Development cron job from the dashboard. That skips the CI gate.
+Make sure that the cron job's **Settings** in the Render dashboard show auto-deploy **On Commit** and the build filter path `services/api/**`.
 
 ## Deploy the Staging cron job
 

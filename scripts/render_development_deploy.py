@@ -1,8 +1,4 @@
-"""Deploy one main commit to Render Development after every CI workflow passes.
-
-With `--cleanup-cron`, it then deploys the catch request cleanup cron job, so
-the cron job always follows the API through the same gate (#507).
-"""
+"""Deploy one main commit to Render Development after every CI workflow passes."""
 
 from __future__ import annotations
 
@@ -13,7 +9,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping
 from http.client import HTTPException
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
@@ -23,10 +19,6 @@ _SHA: Final = re.compile(r"[0-9a-f]{40}")
 _REPOSITORY: Final = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 _HOOK: Final = re.compile(
     r"https://api\.render\.com/deploy/srv-[a-z0-9]{1,60}\?key=[A-Za-z0-9_-]{1,200}"
-)
-# Render cron job deploy hooks name a `crn-` cron job instead of a `srv-` service.
-_CLEANUP_HOOK: Final = re.compile(
-    r"https://api\.render\.com/deploy/crn-[a-z0-9]{1,60}\?key=[A-Za-z0-9_-]{1,200}"
 )
 # This workflow is not CI for the commit.
 _EXCLUDED_WORKFLOWS: Final = frozenset({"Render Development deploy"})
@@ -243,17 +235,6 @@ def trigger_deploy(hook_url: str, sha: str) -> None:
     _request(f"{hook_url}&ref={sha}", method="POST")
 
 
-def trigger_cleanup_deploy(hook_url: str) -> None:
-    """Ask Render to deploy the cleanup cron job. Never reveal the hook URL.
-
-    Render refuses a commit reference for a cron job, so the hook sends none.
-    Render then builds the head of `main`.
-    """
-    if _CLEANUP_HOOK.fullmatch(hook_url) is None:
-        raise DeployFailure
-    _request(hook_url, method="POST")
-
-
 def wait_for_ci(
     github: GitHub,
     sha: str,
@@ -310,46 +291,18 @@ def run(environment: Mapping[str, str], github: GitHub) -> bool:
     return True
 
 
-def run_cleanup(environment: Mapping[str, str], github: GitHub) -> bool:
-    """Deploy the cleanup cron job after Render Development serves the commit.
-
-    The cron job builds the head of `main`. It deploys only while this commit is
-    still the newest backend commit, so the head holds the same `services/api`
-    tree as the API. A newer backend commit gets its own workflow run.
-    """
-    sha = environment.get("TAILTAG_DEPLOY_SHA", "")
-    if _SHA.fullmatch(sha) is None:
-        raise DeployFailure
-    if github.latest_backend_sha() != sha:
-        print("::notice::A newer backend commit exists on main; not deploying.")
-        return False
-    trigger_cleanup_deploy(
-        environment.get("RENDER_DEVELOPMENT_CLEANUP_DEPLOY_HOOK_URL", "")
-    )
-    print("Render Development cleanup cron job deploy requested.")
-    return True
-
-
-def main(argv: Sequence[str] | None = None) -> int:
+def main() -> int:
     """Run the gate and write only a fixed deploy decision to the step outputs."""
-    arguments = [] if argv is None else list(argv)
-    if arguments not in ([], ["--cleanup-cron"]):
-        print("FAIL Render Development deploy arguments", file=sys.stderr)
-        return 2
-    cleanup = arguments == ["--cleanup-cron"]
     try:
         github = GitHub(
             os.environ.get("GITHUB_API_URL", ""),
             os.environ.get("GITHUB_REPOSITORY", ""),
             os.environ["GITHUB_TOKEN"],
         )
-        deployed = (run_cleanup if cleanup else run)(os.environ, github)
+        deployed = run(os.environ, github)
     except (DeployFailure, KeyError):
-        subject = "cleanup cron job deploy" if cleanup else "deploy"
-        print(f"FAIL Render Development {subject} unavailable", file=sys.stderr)
+        print("FAIL Render Development deploy unavailable", file=sys.stderr)
         return 1
-    if cleanup:
-        return 0
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
         with Path(output).open("a") as stream:
@@ -358,4 +311,4 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
+    raise SystemExit(main())

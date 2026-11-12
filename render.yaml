@@ -2,7 +2,8 @@
 #
 # Auto Sync stays off. The owner runs each sync after review, because a sync
 # creates or changes paid resources. Secret values use `sync: false` and never
-# live in this file. Each service builds `main`. Render auto-deploy stays off.
+# live in this file. Each service builds `main`. Render auto-deploy stays off,
+# except for the Development cleanup cron job below.
 # The "Render Development deploy" workflow deploys a backend commit through
 # the deploy hook after every CI workflow on it passes. The guarded migration
 # runs before the new version takes traffic (#408). Staging deploys only
@@ -13,11 +14,10 @@
 # rollback window ends. Development stays in Oregon.
 #
 # Each environment also has one cron job that deletes catch request history
-# after the review deadline (ADR 0013, #507). The "Render Development deploy"
-# workflow deploys the Development cron job after the API, through the same
-# CI gate. The Staging cron job deploys only by the promotion checklist step,
-# at the promoted commit. A cron job is its own Render service, so its
-# identity needs its own pin (#507 G15).
+# after the review deadline (ADR 0013, #507). The Development cron job deploys
+# on each `main` commit that changes `services/api`. The Staging cron job
+# deploys only by the promotion checklist step, at the promoted commit. A cron
+# job is its own Render service, so its identity needs its own pin (#507 G15).
 
 previews:
   generation: "off"
@@ -93,7 +93,13 @@ projects:
             branch: main
             dockerfilePath: ./services/api/Dockerfile
             dockerContext: ./services/api
-            autoDeployTrigger: "off"
+            # Render deploys the cron job on each main commit that changes the
+            # API. It cannot use the API's deploy workflow, because a cron job
+            # has no deploy hook and accepts no commit reference (#507).
+            autoDeployTrigger: "commit"
+            buildFilter:
+              paths:
+                - services/api/**
             dockerCommand: python manage.py cleanup_catch_requests
             envVars:
               - key: DJANGO_SETTINGS_MODULE
