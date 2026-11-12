@@ -71,6 +71,9 @@ MANAGED_PERMISSIONS = frozenset(
         "fursuits.view_fursuit",
         "fursuits.revoke_fursuit_tag",
         "fursuits.view_fursuittag",
+        "catches.invalidate_catch_request",
+        "catches.view_catchrequest",
+        "catches.view_catchblock",
     }
 )
 LIMITED_PERMISSIONS = frozenset(

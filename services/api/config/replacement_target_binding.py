@@ -26,10 +26,21 @@ _EXPECTED_DEVELOPMENT_CLERK_PORTAL_ORIGIN_DIGEST: Final = (
 
 _RENDER_ENVIRONMENTS: Final = ("development", "staging")
 _RENDER_SERVICE_ID: Final = re.compile(r"srv-[a-z0-9]{1,60}")
+_RENDER_CRON_JOB_ID: Final = re.compile(r"crn-[a-z0-9]{1,60}")
 _EXPECTED_RENDER_DIGESTS: Final[dict[str, str]] = {
     "development": "64d011b1894192693c980dd0f18d90965df3f56b45b2c604a2a79e2ca2617010",
     # Virginia Staging (ADR 0012, #452).
     "staging": "38c9d94cbcb405005988ca158bc4c81e23a066b13b538e8d8aa7148963a94470",
+}
+# The catch request cleanup cron jobs (#507 G15). A cron job is its own Render
+# service, with a `crn-` ID. Only build identity reads these pins. Guarded
+# operator paths keep `validate_runtime_target`, which accepts only the `srv-`
+# web services above.
+_EXPECTED_RENDER_CLEANUP_DIGESTS: Final[dict[str, str]] = {
+    # tailtag-cleanup-dev (Oregon).
+    "development": "a4d1f810b9c9c1427f436a75a8c615a949a072d669408ed2ff26de29ef4d4d7d",
+    # tailtag-cleanup-stg (Virginia).
+    "staging": "91e6977c0ed9509722716919d443347c763dbdd6a46fa14e8d4abaa2f2988632",
 }
 _EXPECTED_RENDER_HOST_DIGESTS: Final[dict[str, str]] = {
     "development": "55770374ef59dccf72a2aa1c98a9a1eaccbd140c2924a1a60376ff0161ae72c0",
@@ -96,6 +107,41 @@ def validate_runtime_target(actual: Mapping[str, str]) -> str:
     if len(matches) != 1:
         raise TargetBindingError
     return matches[0]
+
+
+def runtime_environment(actual: Mapping[str, str]) -> str:
+    """Name the environment of a pinned web or cleanup cron service.
+
+    This widens only build identity, for logs and Sentry. Every guarded operator
+    path calls `validate_runtime_target`, which a cron service cannot pass.
+    """
+    try:
+        return validate_runtime_target(actual)
+    except TargetBindingError:
+        pass
+    job_id = actual.get("RENDER_SERVICE_ID")
+    matches = [
+        environment
+        for environment in _RENDER_ENVIRONMENTS
+        if _EXPECTED_RENDER_CLEANUP_DIGESTS.get(environment)
+        == fingerprint_render_cron_job(environment, job_id)
+    ]
+    if len(matches) != 1:
+        raise TargetBindingError
+    return matches[0]
+
+
+def fingerprint_render_cron_job(environment: str, job_id: object) -> str:
+    """Hash one environment and one canonical Render cron job ID (#507 G15)."""
+    if (
+        environment not in _RENDER_ENVIRONMENTS
+        or not isinstance(job_id, str)
+        or _RENDER_CRON_JOB_ID.fullmatch(job_id) is None
+    ):
+        raise TargetBindingError
+    return hashlib.sha256(
+        f"tailtag-render-cleanup-v1\0{environment}\0{job_id}".encode()
+    ).hexdigest()
 
 
 def fingerprint_render_reset_configuration(values: Mapping[str, str]) -> str:

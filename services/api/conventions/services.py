@@ -6,7 +6,7 @@ import datetime
 from dataclasses import dataclass
 
 from django.db import IntegrityError, transaction
-from django.db.models import Exists, OuterRef, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.utils import timezone
 
 from accounts.models import User
@@ -263,6 +263,11 @@ def deactivate_fursuit_activation_as_operator(
         candidate = FursuitActivation.objects.filter(pk=activation_id).first()
         if candidate is None:
             raise FursuitActivation.DoesNotExist()
+        # Contract lock order: Convention before Fursuit, as in approve. The
+        # Convention lock serializes the window check with convention edits (#507).
+        convention = Convention.objects.select_for_update().get(
+            pk=candidate.convention_id
+        )
         fursuit = Fursuit.objects.select_for_update().get(pk=candidate.fursuit_id)
         activation = FursuitActivation.objects.select_for_update().get(pk=candidate.pk)
         if not activation.is_active:
@@ -276,6 +281,7 @@ def deactivate_fursuit_activation_as_operator(
         activation.is_active = False
         activation.deactivated_at = now
         activation.save(update_fields=["is_active", "deactivated_at", "updated_at"])
+        _invalidate_for_activation_deactivation(activation, convention)
         # Keep the fursuit lock until the state transition commits.
         del fursuit
         return OperatorTransition(value=activation, changed=True)
@@ -315,10 +321,39 @@ def remove_convention_enrollment(*, enrollment_id: int) -> OperatorTransition[No
 
         activations = revoke_for_enrollment_removal(enrollment, now=now)
         terminate_for_locked_activations(activations, now=now)
+        _invalidate_for_enrollment_removal(enrollment, convention)
         enrollment.delete()
         # Keep optional upstream locks until commit.
         del profile
         return OperatorTransition(value=None, changed=True)
+
+
+def _invalidate_for_activation_deactivation(
+    activation: FursuitActivation, convention: Convention
+) -> None:
+    """Invalidate the suit's open requests at the locked *convention* (#507)."""
+    from catches.models import CatchRequest
+    from catches.request_invalidation import invalidate_open_requests
+
+    invalidate_open_requests(
+        CatchRequest.objects.filter(fursuit_id=activation.fursuit_id),
+        convention=convention,
+    )
+
+
+def _invalidate_for_enrollment_removal(
+    enrollment: ConventionEnrollment, convention: Convention
+) -> None:
+    """Invalidate the user's open requests as player and as suit owner (#507 G6)."""
+    from catches.models import CatchRequest
+    from catches.request_invalidation import invalidate_open_requests
+
+    invalidate_open_requests(
+        CatchRequest.objects.filter(
+            Q(player_id=enrollment.user_id) | Q(fursuit__owner_id=enrollment.user_id)
+        ),
+        convention=convention,
+    )
 
 
 def _review_deadline_is_stale(convention: Convention) -> bool:
@@ -373,6 +408,14 @@ def set_convention_admin_state(
         )
         if not changed:
             return OperatorTransition(value=convention, changed=False)
+        becomes_cancelled = (
+            status == ConventionStatus.CANCELLED.value
+            and convention.status != ConventionStatus.CANCELLED.value
+        )
+        if becomes_cancelled and not allow_playability_transition:
+            # A move into cancellation ends requests, so it needs the same
+            # authority as a playability change (#507 G4).
+            raise ConventionPlayabilityBoundaryError()
         became_nonplayable = convention.is_playable and not submitted_is_playable
         now = timezone.now()
         if became_nonplayable:
@@ -381,6 +424,11 @@ def set_convention_admin_state(
 
             activations = revoke_for_convention_nonplayable(convention, now=now)
             terminate_for_locked_activations(activations, now=now)
+        if becomes_cancelled:
+            from catches.models import CatchRequest
+            from catches.request_invalidation import invalidate_open_requests
+
+            invalidate_open_requests(CatchRequest.objects.all(), convention=convention)
         convention.name = name
         convention.status = status
         convention.start_date = start_date

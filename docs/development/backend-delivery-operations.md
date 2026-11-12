@@ -52,6 +52,11 @@ in these steps:
 5. It waits until `/health/identity` shows the commit, then runs
    `task api-smoke`. A timeout or a failed smoke turns the run red.
 
+The catch request cleanup cron job, `tailtag-cleanup-dev`, does not use this
+workflow. Render auto-deploys it on each `main` commit that changes
+`services/api`. See
+[deploy the Development cron job](../operations/catch-request-cleanup.md#deploy-the-development-cron-job).
+
 If a flaky check blocks a deploy, rerun the check. When the rerun passes, run
 the workflow with **Run workflow** and enter the full 40-character commit SHA.
 The workflow runs the same checks before it deploys. Enter only the latest

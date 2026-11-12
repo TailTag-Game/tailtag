@@ -63,8 +63,15 @@ EXPECTED_OPERATOR_PERMISSIONS = {
     "fursuits.view_fursuit",
     "fursuits.revoke_fursuit_tag",
     "fursuits.view_fursuittag",
+    "catches.invalidate_catch_request",
+    "catches.view_catchrequest",
+    "catches.view_catchblock",
 }
-TAG_PERMISSIONS = {"fursuits.revoke_fursuit_tag", "fursuits.view_fursuittag"}
+REQUEST_PERMISSIONS = {
+    "catches.invalidate_catch_request",
+    "catches.view_catchrequest",
+    "catches.view_catchblock",
+}
 UPGRADED_OUTPUT = "Staging operator reconciled and upgraded.\n"
 API_ROOT = Path(__file__).resolve().parents[1]
 
@@ -476,11 +483,11 @@ def test_bootstrap_reconciles_only_an_existing_exact_managed_operator(
 def test_bootstrap_upgrades_an_operator_that_holds_exactly_the_previous_set(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#504: an operator from before tag revocation gains the two tag permissions."""
+    """#507: an operator from before request administration gains the three permissions."""
     operator = create_exact_managed_operator()
     group = operator.groups.get()  # pyright: ignore[reportUnknownMemberType]
     group.permissions.remove(  # pyright: ignore[reportUnknownMemberType]
-        *[required_permissions()[name] for name in TAG_PERMISSIONS]
+        *[required_permissions()[name] for name in REQUEST_PERMISSIONS]
     )
 
     stdout, stderr = invoke_command(
@@ -497,13 +504,13 @@ def test_bootstrap_upgrades_an_operator_that_holds_exactly_the_previous_set(
 def test_bootstrap_refuses_an_operator_that_holds_only_part_of_the_previous_set(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#504: only the exact previous set upgrades. Any other set is refused."""
+    """#507: only the exact previous set upgrades. Any other set is refused."""
     operator = create_exact_managed_operator()
     group = operator.groups.get()  # pyright: ignore[reportUnknownMemberType]
     group.permissions.remove(  # pyright: ignore[reportUnknownMemberType]
         *[
             required_permissions()[name]
-            for name in (*TAG_PERMISSIONS, "fursuits.view_fursuit")
+            for name in (*REQUEST_PERMISSIONS, "fursuits.view_fursuit")
         ]
     )
     before = stored_account_state(operator)

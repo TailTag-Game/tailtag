@@ -239,6 +239,47 @@ def test_render_identity_uses_baked_sha_pinned_environment_and_no_deployment(
     }
 
 
+# The real Render cron job IDs from the Blueprint sync (#507 G15).
+RENDER_DEVELOPMENT_CLEANUP = "crn-dbqbhkbl550s73emiqn0"
+RENDER_STAGING_CLEANUP = "crn-dbqbhkbl550s73emiqug"
+
+
+@pytest.mark.usefixtures("render_pins")
+@pytest.mark.parametrize(
+    ("job_id", "environment"),
+    (
+        (RENDER_DEVELOPMENT_CLEANUP, "development"),
+        (RENDER_STAGING_CLEANUP, "staging"),
+        ("crn-d0unpinnedcleanup000", None),
+    ),
+)
+def test_a_pinned_cleanup_cron_names_its_environment_but_passes_no_guard(
+    build_identity: ModuleType,
+    tmp_path: Path,
+    job_id: str,
+    environment: str | None,
+) -> None:
+    """#507 AC41, AC42: cron pins widen build identity only."""
+    binding = importlib.import_module("config.replacement_target_binding")
+    staging_target = importlib.import_module("accounts.staging_target")
+    metadata = tmp_path / "build-identity.json"
+    write_metadata(metadata, SOURCE_SHA)
+    actual = render_environment(job_id)
+
+    if environment is None:
+        with pytest.raises(ValueError):
+            build_identity._load_identity(metadata, actual)
+    else:
+        assert build_identity._load_identity(metadata, actual) == {
+            "source_sha": SOURCE_SHA,
+            "deployment_id": None,
+            "environment": environment,
+        }
+    with pytest.raises(binding.TargetBindingError):
+        binding.validate_runtime_target(actual)
+    assert staging_target.staging_platform(actual) is None
+
+
 @pytest.mark.usefixtures("render_pins")
 def test_render_staging_identity_requires_a_baked_source_sha(
     build_identity: ModuleType, tmp_path: Path

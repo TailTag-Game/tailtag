@@ -23,7 +23,14 @@ from django.utils import timezone
 
 from accounts.models import User
 from catches.models import Catch, CatchBlock, CatchRequest, CatchRequestState
-from conventions.models import ConventionEnrollment
+from catches.request_cleanup import run_cleanup
+from catches.request_invalidation import invalidate_request_as_operator
+from conventions.models import Convention, ConventionEnrollment
+from conventions.services import (
+    deactivate_fursuit_activation_as_operator,
+    remove_convention_enrollment,
+    set_convention_admin_state,
+)
 from fursuits.models import Fursuit
 from profiles.models import PlayerProfile
 from tests.authentication_support import force_authenticated_client
@@ -108,9 +115,16 @@ def _blocked(waiter: int, holders: set[int], future: Future[Any]) -> None:
 
 
 def _race(
-    profile_ids: Sequence[int], first: Callable[[], Any], second: Callable[[], Any]
+    profile_ids: Sequence[int],
+    first: Callable[[], Any],
+    second: Callable[[], Any],
+    *,
+    convention_ids: Sequence[int] = (),
 ) -> tuple[Any, Any]:
-    """Hold *profile_ids*, queue *first* then *second* behind them, then release."""
+    """Hold *profile_ids*, queue *first* then *second* behind them, then release.
+
+    *convention_ids* are also held, for a worker that locks no profile.
+    """
     first_pids: Queue[int] = Queue()
     second_pids: Queue[int] = Queue()
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -118,6 +132,11 @@ def _race(
             list(
                 PlayerProfile.objects.select_for_update()
                 .filter(pk__in=profile_ids)
+                .order_by("pk")
+            )
+            list(
+                Convention.objects.select_for_update()
+                .filter(pk__in=convention_ids)
                 .order_by("pk")
             )
             holder = _configured_pid()
@@ -388,3 +407,118 @@ def test_two_submissions_at_the_limit_create_one_request() -> None:
     refused = one if one.status_code == 429 else two
     assert refused.json()["code"] == "rate_limited"
     assert CatchRequest.objects.filter(player=scenario.catcher).count() == 30
+
+
+# --- #507 operator invalidation and cleanup -------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_operator_invalidation_and_approval_give_one_result() -> None:
+    """#507 AC37: no catch exists for an invalidated request."""
+    scenario, request_id = _pending("race_invalidate_approve")
+
+    invalidated, approve = _race(
+        _both(scenario),
+        lambda: invalidate_request_as_operator(request_id=request_id),
+        _owner_action(scenario, request_id, "approve"),
+    )
+
+    state = CatchRequest.objects.get(pk=request_id).state
+    if state == CatchRequestState.INVALIDATED.value:
+        assert invalidated.changed is True
+        assert (approve.status_code, approve.json()["state"]) == (409, "unavailable")
+        assert not Catch.objects.exists()
+    else:
+        assert state == CatchRequestState.APPROVED.value
+        assert approve.status_code == 200, approve.content
+        assert invalidated.changed is False
+        assert Catch.objects.count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_owner_enrollment_removal_and_approval_give_one_result() -> None:
+    """#507 AC37: removal invalidates a pending request, or approval keeps its catch."""
+    scenario, request_id = _pending("race_removal_approve")
+
+    _, approve = _race(
+        _both(scenario),
+        lambda: remove_convention_enrollment(
+            enrollment_id=scenario.owner_enrollment.pk
+        ),
+        _owner_action(scenario, request_id, "approve"),
+    )
+
+    state = CatchRequest.objects.get(pk=request_id).state
+    assert not ConventionEnrollment.objects.filter(
+        pk=scenario.owner_enrollment.pk
+    ).exists()
+    if state == CatchRequestState.INVALIDATED.value:
+        assert approve.status_code == 409, approve.content
+        assert not Catch.objects.exists()
+    else:
+        assert state == CatchRequestState.APPROVED.value
+        assert approve.status_code == 200, approve.content
+        assert Catch.objects.count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_cleanup_and_an_owner_action_at_the_deadline_give_one_result() -> None:
+    """#507 AC37: the action sees a closed window or a deleted row, never a 500."""
+    scenario, request_id = _pending("race_cleanup_decline")
+    Convention.objects.filter(pk=scenario.convention.pk).update(
+        review_deadline_at=timezone.now() - datetime.timedelta(seconds=1)
+    )
+
+    decline, result = _race(
+        _both(scenario),
+        _owner_action(scenario, request_id, "decline", {"block": True}),
+        run_cleanup,
+        convention_ids=[scenario.convention.pk],
+    )
+
+    assert (decline.status_code, decline.json()["code"]) in {
+        (409, "review_window_closed"),
+        (404, "request_not_found"),
+    }
+    assert (result.succeeded, sum(result.deleted_requests.values())) == (True, 1)
+    assert not CatchRequest.objects.exists()
+    assert not CatchBlock.objects.exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_operator_deactivation_waits_for_a_convention_edit_that_closes_the_window() -> (
+    None
+):
+    """#507 AC13, AC16: the deactivation hook checks the window after the edit.
+
+    The edit recomputes a deadline that is already past, so the window closes.
+    Deactivation locks the Convention first, queues behind the edit, and then
+    leaves the request unchanged.
+    """
+    scenario, request_id = _pending("race_deactivate_edit")
+    convention = scenario.convention
+
+    def close_by_edit() -> Any:
+        return set_convention_admin_state(
+            convention_id=convention.pk,
+            name=f"{convention.name} renamed",
+            status=convention.status,
+            start_date=convention.start_date,
+            end_date=convention.end_date,
+            time_zone=convention.time_zone,
+        )
+
+    edit, deactivation = _race(
+        [],
+        close_by_edit,
+        lambda: deactivate_fursuit_activation_as_operator(
+            activation_id=scenario.activation.pk
+        ),
+        convention_ids=[convention.pk],
+    )
+
+    assert edit.changed is True
+    assert deactivation.changed is True
+    closed = Convention.objects.get(pk=convention.pk).review_deadline_at
+    assert closed is not None and closed < timezone.now()
+    assert CatchRequest.objects.get(pk=request_id).state == CatchRequestState.PENDING

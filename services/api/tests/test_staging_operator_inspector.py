@@ -480,15 +480,20 @@ def test_managed_operator_permission_drift_has_distinct_failure(
     ("removed", "expected"),
     [
         (
-            ("fursuits.revoke_fursuit_tag", "fursuits.view_fursuittag"),
+            (
+                "catches.invalidate_catch_request",
+                "catches.view_catchrequest",
+                "catches.view_catchblock",
+            ),
             FAIL_MANAGED_OPERATOR_UPGRADABLE,
         ),
-        (("fursuits.revoke_fursuit_tag",), FAIL_MANAGED_OPERATOR_PERMISSION),
+        (("catches.invalidate_catch_request",), FAIL_MANAGED_OPERATOR_PERMISSION),
         (
             (
-                "fursuits.revoke_fursuit_tag",
+                "catches.invalidate_catch_request",
+                "catches.view_catchrequest",
+                "catches.view_catchblock",
                 "fursuits.view_fursuittag",
-                "fursuits.view_fursuit",
             ),
             FAIL_MANAGED_OPERATOR_PERMISSION,
         ),
@@ -497,7 +502,7 @@ def test_managed_operator_permission_drift_has_distinct_failure(
 def test_only_the_exact_previous_set_is_upgradable(
     configured_inspector: ModuleType, removed: tuple[str, ...], expected: str
 ) -> None:
-    """#504: the group from before tag revocation is upgradable, and no other."""
+    """#507: the group from before request administration is upgradable, and no other."""
     create_owned_baseline()
     managed = create_managed_operator()
     create_limited_operator()

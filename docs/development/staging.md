@@ -195,6 +195,10 @@ uncontrolled deploy. A Blueprint sync deploys the latest `main` commit, even
 with auto-deploy off. After such a deploy, promote the intended SHA with this
 command before any Staging proof counts.
 
+The Staging cleanup cron job, `tailtag-cleanup-stg`, has auto-deploy off.
+After each promotion, deploy it at the promoted commit. See
+[deploy the Staging cron job](../operations/catch-request-cleanup.md#deploy-the-staging-cron-job).
+
 ### Render Staging smoke checks
 
 Run the credential-free preflight:
@@ -644,6 +648,10 @@ counter records that value, but it does not gate on it.
 
 After the check, delete the new database in its **Settings**, after owner
 approval. It is a paid resource. Record its create time, delete time, and cost.
+
+A restored database can hold catch request rows that cleanup already deleted.
+Before a restored database serves traffic, run cleanup against it. See
+[after a database restore](../operations/catch-request-cleanup.md#after-a-database-restore).
 
 The practice drill on 2026-11-01 passed: all 25 tables matched. The #410 issue
 holds the record. Moving Staging to a restored database is a different

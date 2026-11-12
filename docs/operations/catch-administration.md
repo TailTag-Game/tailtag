@@ -105,3 +105,45 @@ Catch removal is executed by `remove_catch_as_operator` in `catches.services`:
    authoritative audit evidence. The durable record contains no credential
    payloads, tokens, or other secrets; see the
    [operator authorization and audit runbook](operator-authorization-audit.md).
+
+## Catch requests and blocks (#507)
+
+A catch request is one catch attempt that waits for, or got, an owner decision. A block is an owner's refusal of one player for one suit at one convention. The [catch request contract](../specs/2026-11-09-reusable-tailtag-catch-request-contract.md#operator-operations) sets the operator rules.
+
+### Find and inspect requests
+
+An operator with `catches.view_catchrequest` or `catches.invalidate_catch_request` opens **Catches > Catch requests**.
+
+- The list shows the player, suit, convention, stored state, request time, and whether the decline added a block.
+- Filters: state and convention.
+- Search: request ID (exact), player user ID (exact), suit TailTag ID (exact UUID), and convention name.
+- The detail page also shows the activation, the session, and every decision time.
+- Operators see the stored state `invalidated`. Players and owners see `unavailable` instead.
+- Operators see a request after the review deadline until cleanup deletes it. See [catch request cleanup](catch-request-cleanup.md).
+
+No admin path adds, edits, or deletes a request. No admin path approves, declines, undoes, or restores a request for an owner.
+
+### Invalidate one request
+
+An operator with `catches.invalidate_catch_request` ticks **Invalidate this pending or declined request** on the detail page and saves.
+
+- A pending or declined request in an open review window becomes `invalidated`. A declined request keeps its decline time, so its cooldown still counts.
+- Any other state, or a closed window, changes nothing and records `rejected`.
+- Each attempt records one `invalidate_catch_request` audit row. See the [operator audit runbook](operator-authorization-audit.md).
+- Re-enrollment or an owner action never restores an invalidated request. The player can submit a new request when the normal checks allow it.
+
+### Actions that also invalidate requests
+
+These existing operator actions invalidate pending and declined requests in an open window:
+
+| Operator action | Requests that it invalidates |
+| --- | --- |
+| Remove a convention enrollment | The user's requests at that convention, as player and as suit owner |
+| Deactivate a fursuit activation | Requests on that suit at that convention |
+| Move a convention into `cancelled` | Every request at that convention |
+
+An owner's own deactivation, a session end, a tag revocation, and a disabled profile or suit invalidate nothing. A disabled party only pauses approval.
+
+### Inspect blocks
+
+An operator with `catches.view_catchblock` opens **Catches > Catch blocks**. The list is read-only. Only the owner can remove a block, through the app. Cleanup deletes blocks with request history.

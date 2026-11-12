@@ -16,7 +16,9 @@ lookup are in [backend logging](backend-logging.md).
 Each outcome is recorded twice, with the same values:
 
 - a Sentry count of 1, named by the signal, with attributes `tailtag.outcome`
-  and, when there is one, `tailtag.reason`;
+  and, when there is one, `tailtag.reason`. The cleanup signal is the one
+  exception: its count can be larger (see
+  [catch request cleanup](#catch-request-cleanup));
 - one INFO log line with `event` set to the signal, `tailtag_outcome`, and
   `tailtag_reason`, plus the usual `request_id`, `environment`, and `release`.
 
@@ -34,6 +36,7 @@ session ID, and never a credential or token.
 | `tailtag.conventions.credential_resolution` | Did a scanned credential resolve to a catchable fursuit, and if not, why? |
 | `tailtag.conventions.catch_session` | Are fursuiters starting catch sessions, and how are sessions ending? |
 | `tailtag.authentication.verification` | Why are presented tokens being rejected? |
+| `tailtag.catches.request_cleanup` | Did the daily cleanup delete closed request history, and how many rows in each state? |
 
 ## Outcomes and reasons
 
@@ -63,6 +66,17 @@ With the catch request gate on, `POST /api/catches/requests/` records this signa
 | `rejected` | `rate_limited` | The per-player limit refused the attempt with HTTP 429 (#506). |
 
 Request rejections also use `payload_invalid`, `catcher_ineligible`, `self_catch`, and the target reasons. Owner decisions and withdrawals record no outcome yet. #508 adds those metrics.
+
+### Catch request cleanup
+
+The daily cleanup job records this signal once per state that it deleted, and once for the run (#507). When a count is larger than 1, the log line carries `tailtag_count` with that value, and the Sentry count uses the same value. A line without `tailtag_count` counts 1. That covers every `succeeded` and `failed` line, and a `deleted` line for a single row. See the [cleanup runbook](catch-request-cleanup.md#outcome-signal).
+
+| Outcome | Reason | Meaning |
+| --- | --- | --- |
+| `deleted` | `expired` | Pending requests that expired at the deadline. |
+| `deleted` | `approved`, `declined`, `withdrawn`, or `invalidated` | Requests deleted in that state. |
+| `succeeded` | | Every closed convention was cleaned. |
+| `failed` | | At least one convention failed, or the run stopped. The next run retries. |
 
 ### Credential resolution
 
