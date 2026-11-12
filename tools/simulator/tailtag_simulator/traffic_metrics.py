@@ -4,7 +4,11 @@ import math
 from array import array
 from collections.abc import Sequence
 
+# Schema 5 names stay frozen for archived reports.
 OPERATIONS = ("auxiliary", "resolve", "confirm", "read")
+# Schema 6, the catch request flow (#508). `review` is the owner list and
+# summary. `decide` is approve, decline, undo, restore, withdraw, and block.
+V6_OPERATIONS = ("auxiliary", "preview", "submit", "review", "decide", "read")
 CLASSES = (
     "success",
     "expected_rejection",
@@ -34,11 +38,12 @@ def classify_reply(status: int) -> str:
 class OperationMeter:
     """Counts per class and latency samples; raw samples never leave the process."""
 
-    def __init__(self) -> None:
+    def __init__(self, operations: tuple[str, ...] = OPERATIONS) -> None:
+        self.operations = operations
         self.counts: dict[str, dict[str, int]] = {
-            op: {outcome: 0 for outcome in CLASSES} for op in OPERATIONS
+            op: {outcome: 0 for outcome in CLASSES} for op in operations
         }
-        self.samples = {op: array("d") for op in OPERATIONS}
+        self.samples = {op: array("d") for op in operations}
 
     def record(
         self, operation: str, outcome: str, milliseconds: float | None = None
