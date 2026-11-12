@@ -89,6 +89,15 @@ CHECKS = frozenset(
         "avatar",
     }
 )
+# Request-aware reconciliation checks: schema 6 only (#508).
+V6_CHECKS = frozenset({"request_state", "request_duplicate", "request_credit"})
+
+
+def checks_for(config: Mapping[str, Any]) -> frozenset[str]:
+    """The check names a convention report can carry; v3 configs have ``review``."""
+    return CHECKS | V6_CHECKS if "review" in config else CHECKS
+
+
 ROLES = frozenset(
     {"owner0", "owner1", "catcher0", "catcher1", "catcher2", "catcher3", "outsider"}
 )
@@ -374,7 +383,7 @@ def _validate_report(
             if type(candidate.get("schema_version")) is int:
                 if candidate["schema_version"] == 4:
                     return reports_v4.validate(candidate, admitted_scenario)
-                if candidate["schema_version"] == 5:
+                if candidate["schema_version"] in (5, 6):
                     return reports_v5.validate(candidate, admitted_scenario)
         report = _object(
             value,
@@ -416,7 +425,8 @@ def _validate_report(
         v2 = isinstance(scenario["id"], str) and scenario["id"].startswith(
             "convention-"
         )
-        v3 = v2 and scenario["version"] == 2
+        # Traffic evidence: scenario v2 (v1 catch path) and v3 (catch requests).
+        v3 = v2 and scenario["version"] in (2, 3)
         _require(report["schema_version"] == (3 if v3 else 2 if v2 else 1))
         _require(
             type(scenario["seed"]) is int
@@ -734,9 +744,9 @@ class RunReport:
             else ({"cleanup", "retention"} if scenario_id == "pool-smoke" else set())
         )
         v2 = scenario_id.startswith("convention-")
-        v5 = v2 and scenario_version == 2
+        v5 = v2 and scenario_version in (2, 3)
         self._value: dict[str, Any] = {
-            "schema_version": 5 if v5 else 4,
+            "schema_version": (6 if scenario_version == 3 else 5) if v5 else 4,
             "safety": SafetyRuntime(
                 {} if safety_policy is None else safety_policy
             ).snapshot(),
@@ -848,7 +858,7 @@ class RunReport:
                 "checks": {"items": [], "count": 0, "reason": "not_observed"},
                 "cleanup": unavailable(),
             }
-        if v2 and scenario_version == 2:
+        if v5:
             self._value["profile"] = reports_v3.profile(
                 resolved["descriptor"], configuration
             )
@@ -893,7 +903,7 @@ class RunReport:
     def record_traffic(
         self, snapshot: Mapping[str, object], performance: Mapping[str, Any]
     ) -> None:
-        _require(self._value["schema_version"] == 5)
+        _require(self._value["schema_version"] in (5, 6))
         window = cast(float, snapshot["generation_seconds"]) + cast(
             float, snapshot["drain_seconds"]
         )

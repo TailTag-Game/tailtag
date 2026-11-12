@@ -227,9 +227,9 @@ def _resolve(
     if not isinstance(operations, list):
         raise _invalid()
     ops = cast(list[object], operations)
-    if any(
-        type(op) is not str or op not in failure_operations for op in ops
-    ) or len(set(cast(list[str], ops))) != len(ops):
+    if any(type(op) is not str or op not in failure_operations for op in ops) or len(
+        set(cast(list[str], ops))
+    ) != len(ops):
         raise _invalid()
     for key in ("pre_send_failure_rate", "lost_response_rate", "timeout_rate"):
         _number(failure[key], 0, 1)
