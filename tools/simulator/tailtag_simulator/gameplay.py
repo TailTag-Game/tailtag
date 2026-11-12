@@ -16,6 +16,20 @@ _CODES: Final = frozenset(
         "active_convention_mismatch",
         "self_catch_not_allowed",
         "catch_target_unavailable",
+        # The catch request flow (#508).
+        "pending",
+        "approved",
+        "already_pending",
+        "catch_requests_unavailable",
+        "cooldown_active",
+        "rate_limited",
+        "request_not_found",
+        "request_state_changed",
+        "request_superseded",
+        "review_window_closed",
+        "undo_expired",
+        "approval_paused",
+        "tag_version_conflict",
     }
 )
 # The API's image rejections carry no code: the exact message is the identity.
@@ -141,6 +155,65 @@ async def arm_session(
         owner.get(f"{activation}catch-credential/"),
         200,
         shape=lambda b: bool(text_value(b, "payload")),
+    )
+    return text_value(body, "payload")
+
+
+async def arm_request_session(
+    owner: ApiClient,
+    activation: str,
+    fursuit: int,
+    *,
+    automatic: bool,
+    observed_session: Callable[[object], None] | None = None,
+) -> str:
+    """Start the session, set the approval mode, and read the reusable tag payload."""
+    session = await step(
+        "session",
+        owner.put(f"{activation}catch-session/", {"is_active": True}),
+        200,
+        shape=lambda b: get_value(b, "is_active") is True,
+    )
+    if observed_session is not None:
+        observed_session(session)
+    mode = "automatic" if automatic else "manual"
+    await step(
+        "approval_mode",
+        owner.patch(f"/api/fursuits/{fursuit}/", {"catch_approval_mode": mode}),
+        200,
+        shape=lambda b: get_value(b, "catch_approval_mode") == mode,
+    )
+    body = await step(
+        "tag",
+        owner.get(f"/api/fursuits/{fursuit}/tag/"),
+        200,
+        shape=lambda b: (
+            get_value(b, "state") == "current"
+            and positive_number(b, "fursuit_id") == fursuit
+            and bool(text_value(b, "payload"))
+        ),
+    )
+    return text_value(body, "payload")
+
+
+async def replace_tag(owner: ApiClient, fursuit: int) -> str:
+    """Replace the tag with the version the owner last read; return the new payload."""
+    current = await step(
+        "tag",
+        owner.get(f"/api/fursuits/{fursuit}/tag/"),
+        200,
+        shape=lambda b: type(get_value(b, "tag_version")) is int,
+    )
+    version = get_value(current, "tag_version")
+    body = await step(
+        "replace",
+        owner.post(
+            f"/api/fursuits/{fursuit}/tag/replace/", {"expected_version": version}
+        ),
+        200,
+        shape=lambda b: (
+            get_value(b, "state") == "current" and bool(text_value(b, "payload"))
+        ),
     )
     return text_value(body, "payload")
 

@@ -24,13 +24,23 @@ from tailtag_simulator.safety import SafetyAborted, active_runtime
 
 
 @dataclass
+class RequestFact:
+    """One trio's catch request as the simulator last observed it (#508)."""
+
+    id: int
+    state: str
+    requested_at: str
+
+
+@dataclass
 class PopulationExpectations:
-    pairs: dict[tuple[str, int], Literal["required", "forbidden", "unresolved"]] = (
-        field(
-            default_factory=dict[
-                tuple[str, int], Literal["required", "forbidden", "unresolved"]
-            ]
-        )
+    # `pending` is the catch request flow only: a request waits for its owner.
+    pairs: dict[
+        tuple[str, int], Literal["required", "forbidden", "unresolved", "pending"]
+    ] = field(
+        default_factory=dict[
+            tuple[str, int], Literal["required", "forbidden", "unresolved", "pending"]
+        ]
     )
     target_owners: dict[int, str] = field(default_factory=dict[int, str])
     attempts: set[tuple[str, int]] = field(default_factory=set[tuple[str, int]])
@@ -39,6 +49,10 @@ class PopulationExpectations:
     )
     seen: dict[tuple[str, int], list[Made]] = field(
         default_factory=dict[tuple[str, int], list[Made]]
+    )
+    # Catch request flow only: the latest request per trio.
+    requests: dict[tuple[str, int], RequestFact] = field(
+        default_factory=dict[tuple[str, int], RequestFact]
     )
 
 

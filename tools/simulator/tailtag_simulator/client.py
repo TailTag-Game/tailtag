@@ -74,6 +74,9 @@ class ApiClient:
     async def put(self, path: str, body: Mapping[str, object]) -> Reply:
         return await self._send("PUT", path, body)
 
+    async def patch(self, path: str, body: Mapping[str, object]) -> Reply:
+        return await self._send("PATCH", path, body)
+
     async def post(self, path: str, body: Mapping[str, object] | None = None) -> Reply:
         """POST a JSON body, or no body at all when `body` is None."""
         return await self._send("POST", path, body)
