@@ -35,7 +35,6 @@ class PopulationRun:
     trace: tuple[tuple[str, str, str], ...]
 
 
-
 @dataclass
 class _Target:
     owner: int
