@@ -648,7 +648,7 @@ def test_cli_passes_the_pool_and_resolves_committed_fixture_image_inputs(
     (arguments,) = seen
     assert arguments["pool"] == POOL
     assert arguments["command"] == "journeys"
-    assert arguments["scenario_version"] == 1 and arguments["seed"] == 0
+    assert arguments["scenario_version"] == 2 and arguments["seed"] == 0
     assert INSPECTION_LAUNCHER_COMMAND[-1] == "api-sim-inspect-ssh"
     # Input loading and channels are created inside the execution coroutine now;
     # exercise the actual committed image input reader, while existing journey and

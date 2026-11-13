@@ -554,7 +554,7 @@ class Gameplay:
                 {
                     "outcome": "already_caught",
                     "request": None,
-                    "catch": self.catch_view(caught),
+                    "catch": self.request_catch(caught),
                 },
             )
         pending = next(
@@ -613,7 +613,7 @@ class Gameplay:
                 {
                     "outcome": "approved",
                     "request": self.request_view(row),
-                    "catch": self.catch_view(caught),
+                    "catch": self.request_catch(caught),
                 },
             )
         return reply(

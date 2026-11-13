@@ -59,6 +59,7 @@ class PopulationWorld:
         self.fault: str | None = None
         self.failed = False
         self.failure_at: int | None = None
+        self.lost_actor: str | None = None
         owners = int(str(config["normal_owners"])) + int(str(config["popular_owners"]))
         attendees = sum(int(str(config[name])) for name in ATTENDEE_PERSONAS)
         self.rebind(range(17, 17 + owners), range(31, 31 + attendees))
@@ -137,6 +138,16 @@ class PopulationWorld:
         if response is None:
             return None
         response = complete_public_reply(self.gameplay, index, request, response)
+        if (
+            self.fault == "ambiguous-positive"
+            and (method, path) == ("POST", "/api/catches/requests/")
+            and self.lost_actor in (None, actor)
+        ):
+            # Every submission by one actor commits, then its response is lost,
+            # so retries exhaust without an answer (#508).
+            self.lost_actor = actor
+            self.failure_at = len(self.requests) - 1
+            raise httpx.ReadError("SENTINEL-secret-lost-response")
         if not self.failed and self.fault is not None:
             if (
                 path.endswith("/catch-credentials/resolve/")
@@ -149,6 +160,7 @@ class PopulationWorld:
                 self.failed = True
                 self.failure_at = len(self.requests) - 1
                 return httpx.Response(200, json=changed)
+
             if path == "/api/catches/confirm/":
                 if self.fault == "wrong-confirm-target":
                     self.failed = True
