@@ -51,6 +51,7 @@ RESOLVE_PATH: Final = f"/api/conventions/{CONVENTION_ID}/catch-credentials/resol
 CONFIRM_PATH: Final = "/api/catches/confirm/"
 PREVIEW_PATH: Final = "/api/catches/preview/"
 REQUESTS_PATH: Final = "/api/catches/requests/"
+INCOMING_PATH: Final = "/api/catches/incoming-requests/"
 AT: Final = "2026-10-03T12:00:00Z"
 HISTORY_PATH: Final = "/api/catches/"
 AVATAR_PATH: Final = "/api/profile/avatar/"
@@ -431,6 +432,17 @@ class Gameplay:
         if (method, path) == ("GET", REQUESTS_PATH):
             mine = [r for r in reversed(self.rows) if r.player == index]
             return reply(200, {"results": [self.request_view(r) for r in mine]})
+        if (method, path) == ("GET", INCOMING_PATH):
+            mine = [r for r in reversed(self.rows) if self.owner_of(r.fursuit_id) == index]
+            return reply(
+                200,
+                {
+                    "results": [
+                        {**self.request_view(r), "player": {"display_name": "", "handle": ""}}
+                        for r in mine
+                    ]
+                },
+            )
         withdraw = re.fullmatch(r"/api/catches/requests/(\d+)/withdraw/", path)
         if method == "POST" and withdraw is not None:
             return self.withdraw(index, int(withdraw[1]))
@@ -609,6 +621,16 @@ class Gameplay:
             {"outcome": "pending", "request": self.request_view(row), "catch": None},
         )
 
+    def request_catch(self, caught: Catch) -> dict[str, object]:
+        view = self.catch_view(caught)
+        fursuit = cast(dict[str, object], view["fursuit"])
+        return {
+            **view,
+            "approved_at": AT,
+            "convention_id": CONVENTION_ID,
+            "fursuit": {k: fursuit[k] for k in ("tailtag_id", "name", "photo_url")},
+        }
+
     def approve(self, row: RequestRow) -> Catch:
         row.state = "approved"
         caught = Catch(7000 + len(self.catches) + 1, row.player, row.fursuit_id)
@@ -644,7 +666,7 @@ class Gameplay:
             ):
                 return changed
             caught = self.approve(row)
-            view = self.catch_view(caught)
+            view = self.request_catch(caught)
             if self.broken == "pending_approve":
                 view = {**view, "caught_at": "2026-10-03T12:00:01Z"}
             return reply(200, {"request": self.request_view(row), "catch": view})

@@ -85,7 +85,7 @@ def test_existing_launcher_uses_real_shim_and_exact_private_rpc_wire(
                 "alpha", RUN, {"owner0": 17, "attendee0": 23}
             )
             envelope = {
-                "operation": "inspect-population-v1",
+                "operation": "inspect-population-v2",
                 "arguments": {
                     "pool": "alpha",
                     "run_id": RUN,

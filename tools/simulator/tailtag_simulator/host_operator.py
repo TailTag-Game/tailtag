@@ -32,7 +32,7 @@ from .host_release import read_release
 from .reports import load_report
 from .safety import resolve_safety_policy
 from .targets import resolve_target, verify_target
-from .traffic_config import resolve_traffic_config
+from .traffic_config import resolve_request_traffic_config
 
 SSH_OPTIONS = [
     "-a",
@@ -87,7 +87,9 @@ async def _prepare(
         # Journeys carry a pool-only configuration that validate_manifest closes.
         "configuration": cast(dict[str, object], wrapper["configuration"])
         if wrapper["scenario_id"] == "journeys"
-        else resolve_traffic_config(cast(dict[str, object], wrapper["configuration"])),
+        else resolve_request_traffic_config(
+            cast(dict[str, object], wrapper["configuration"])
+        ),
         "safety": resolve_safety_policy(read_json(safety)),
         "backend_identity": {
             "source_sha": "0" * 40,

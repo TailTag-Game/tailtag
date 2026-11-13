@@ -215,6 +215,17 @@ class PopulationWorld:
             "fursuits": [],
             "fixture_photos_unchanged": True,
             "avatars": [],
+            "requests": [
+                {
+                    "id": row.id,
+                    "player": row.player,
+                    "fursuit": row.fursuit_id,
+                    "run_convention": True,
+                    "state": row.state,
+                    "requested_at": "2026-10-03T12:00:00Z",
+                }
+                for row in self.gameplay.rows
+            ],
         }
 
     def owner_targets(self, owner: int) -> tuple[int, ...]:

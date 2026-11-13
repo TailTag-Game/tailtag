@@ -19,7 +19,7 @@ from tailtag_simulator.client import ApiClient
 from tailtag_simulator.fixtures import FixtureFailed, run_provisioned
 from tailtag_simulator.host_bridge import BridgeSession
 from tailtag_simulator.pool import LeaseFailed
-from tailtag_simulator.traffic_config import resolve_traffic_config
+from tailtag_simulator.traffic_config import resolve_request_traffic_config
 
 world = pool_support.world
 
@@ -56,7 +56,7 @@ class HostBoundary:
             "environment": "staging",
         }
         if not expiration:
-            launch["configuration"] = resolve_traffic_config(
+            launch["configuration"] = resolve_request_traffic_config(
                 {
                     "pool": POOL,
                     "normal_owners": 1,

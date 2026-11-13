@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import cast
 
 from tailtag_simulator.baselines import PromotionFailed, promote, trend
-from tailtag_simulator.behavior_config import resolve_behavior_config
 from tailtag_simulator.cleanup import run_cleanup, run_retained
 from tailtag_simulator.convention import run_convention
 from tailtag_simulator.evaluation import (
@@ -47,10 +46,13 @@ from tailtag_simulator.reports import ReportFailed, RunReport, load_report
 from tailtag_simulator.safety import SafetyRuntime, resolve_safety_policy
 from tailtag_simulator.scenarios import ScenarioRejected
 from tailtag_simulator.smoke import run_smoke
-from tailtag_simulator.traffic_config import resolve_traffic_config
+from tailtag_simulator.traffic_config import resolve_request_traffic_config
 
 # `task -s` keeps launcher stdout to the child's JSON result alone.
 LAUNCHER_COMMAND = ["task", "-s", "api-sim-pool-ssh"]
+# The only scenario versions a new run can use. Older versions stay in the
+# catalog for archived report validation (#508).
+RUNNABLE_VERSIONS = {"convention": 3, "journeys": 2}
 FIXTURE_LAUNCHER_COMMAND = ["task", "-s", "api-sim-fixture-ssh"]
 INSPECTION_LAUNCHER_COMMAND = ["task", "-s", "api-sim-inspect-ssh"]
 
@@ -211,7 +213,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     baseline_promote.add_argument("--initial-thresholds", action="store_true")
     for execution in (smoke, pool_smoke, fixture_smoke, journeys, convention):
         execution.add_argument("--safety-config", type=Path)
-        execution.add_argument("--scenario-version", type=int, default=1)
+        execution.add_argument("--scenario-version", type=int, default=None)
         execution.add_argument("--seed", type=int, default=0)
         execution.add_argument(
             "--report-dir",
@@ -223,6 +225,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             ),
         )
     args = parser.parse_args(argv)
+    if getattr(args, "scenario_version", 0) is None:
+        # Only the newest version of each scenario can run (#508).
+        args.scenario_version = RUNNABLE_VERSIONS.get(args.command, 1)
     for name in ("httpx", "httpcore"):  # their INFO lines carry full request URLs
         logging.getLogger(name).setLevel(logging.WARNING)
         logging.getLogger(name).propagate = False
@@ -414,14 +419,18 @@ async def _execute(args: argparse.Namespace) -> int:
                 )
                 config["pool"] = args.pool
                 config["family"] = args.family
-                config = (
-                    resolve_traffic_config
-                    if args.scenario_version == 2
-                    else resolve_behavior_config
-                )(config)
+                if args.scenario_version != RUNNABLE_VERSIONS["convention"]:
+                    raise ScenarioRejected
+                config = resolve_request_traffic_config(config)
             except (ScenarioRejected, ValueError):
                 _emit("FAIL configuration")
                 return 1
+        if (
+            args.command == "journeys"
+            and args.scenario_version != RUNNABLE_VERSIONS["journeys"]
+        ):
+            _emit("FAIL configuration")
+            return 1
         host: dict[str, object] | None = None
         convention = args.command == "convention"
         if args.command in {"convention", "journeys"} and (
@@ -433,7 +442,8 @@ async def _execute(args: argparse.Namespace) -> int:
                 if (
                     args.host_manifest is None
                     or args.host_socket_dir is None
-                    or args.scenario_version != (2 if convention else 1)
+                    or args.scenario_version
+                    != RUNNABLE_VERSIONS["convention" if convention else "journeys"]
                     or not args.host_socket_dir.is_absolute()
                 ):
                     raise ValueError
@@ -508,7 +518,7 @@ async def _execute(args: argparse.Namespace) -> int:
             report.finish(130)
             raise
         report.record_source(source)
-        if args.command == "convention" and args.scenario_version == 2:
+        if args.command == "convention":
             report.record_execution_mode(execution_mode(REPOSITORY_ROOT))
         report.end("provenance", "passed")
         if report.write_failed:

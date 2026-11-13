@@ -9,7 +9,7 @@ from typing import cast
 
 from tailtag_simulator.pool import validate_pool_name
 from tailtag_simulator.safety import resolve_safety_policy
-from tailtag_simulator.traffic_config import resolve_traffic_config
+from tailtag_simulator.traffic_config import resolve_request_traffic_config
 
 MAX_FRAME_BYTES = 65536
 
@@ -109,7 +109,7 @@ def _journeys_shape(
 ) -> None:
     """Journeys smoke: fixed seven identities, no randomness, pool-only configuration."""
     if (
-        launch["scenario_version"] != 1
+        launch["scenario_version"] != 2
         or launch["seed"] != 0
         or set(config) != {"pool"}
         or not isinstance(config["pool"], str)
@@ -125,8 +125,8 @@ def _convention_shape(
 ) -> None:
     """Standard tier, or the expiration tier selected only by the closed shape."""
     if (
-        launch["scenario_version"] != 2
-        or resolve_traffic_config(config) != config
+        launch["scenario_version"] != 3
+        or resolve_request_traffic_config(config) != config
         or launch["scenario_id"] != "convention-" + cast(str, config["family"])
     ):
         raise _invalid()

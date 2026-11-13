@@ -32,7 +32,7 @@ from tailtag_simulator.host_bridge import BridgeServer, BridgeSession
 from tailtag_simulator.host_operator import main as operator_main
 from tailtag_simulator.reconciliation import Role
 from tailtag_simulator.safety import resolve_safety_policy
-from tailtag_simulator.traffic_config import resolve_traffic_config
+from tailtag_simulator.traffic_config import resolve_request_traffic_config
 
 RUN = "55555555-5555-4555-8555-555555555555"
 IDENTITY: dict[str, object] = {
@@ -49,9 +49,9 @@ def host_manifest() -> dict[str, object]:
         "schema_version": 1,
         "run_id": RUN,
         "scenario_id": "convention-baseline",
-        "scenario_version": 2,
+        "scenario_version": 3,
         "seed": -7,
-        "configuration": resolve_traffic_config(
+        "configuration": resolve_request_traffic_config(
             {
                 **CONFIG,
                 "traffic": {
@@ -132,7 +132,7 @@ def cli_files(root: Path, value: dict[str, object]) -> list[str]:
         "--family",
         "baseline",
         "--scenario-version",
-        "2",
+        "3",
         "--seed",
         "-7",
         "--config",
@@ -330,7 +330,7 @@ def test_host_cli_binds_manifest_uuid_socket_channels_and_stage_only_capture(
         "retained_counts",
         "allocate",
         "provision",
-        "inspect-population-v1",
+        "inspect-population-v2",
         "cleanup",
         "release",
     ]
@@ -573,7 +573,7 @@ def test_every_committed_profile_drain_outlasts_one_think_sleep() -> None:
     profiles = sorted(HOST_DIR.glob("*-profile.json"))
     assert profiles
     for path in profiles:
-        resolved = resolve_traffic_config(
+        resolved = resolve_request_traffic_config(
             cast(dict[str, object], committed(path.name)["configuration"])
         )
         drain = cast(dict[str, float], resolved["limits"])["drain_seconds"]
@@ -639,7 +639,7 @@ def journeys_host_manifest() -> dict[str, object]:
     value = host_manifest()
     value.update(
         scenario_id="journeys",
-        scenario_version=1,
+        scenario_version=2,
         seed=0,
         configuration={"pool": POOL},
         safety=resolve_safety_policy({"population": 50, "final_seconds": 5}),
@@ -695,7 +695,7 @@ def test_host_journeys_runs_through_bridge_channels_with_manifest_identity(
                     "--pool",
                     POOL,
                     "--scenario-version",
-                    "1",
+                    "2",
                     "--seed",
                     "0",
                     "--host-manifest",

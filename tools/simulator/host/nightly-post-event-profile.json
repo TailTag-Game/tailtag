@@ -1,6 +1,6 @@
 {
   "scenario_id": "convention-post-event",
-  "scenario_version": 2,
+  "scenario_version": 3,
   "seed": 23001,
   "configuration": {
     "pool": "host228",

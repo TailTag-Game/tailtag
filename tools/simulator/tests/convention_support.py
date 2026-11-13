@@ -33,6 +33,13 @@ CONFIG: dict[str, object] = {
 }
 
 
+# Convention runs use scenario v3 (#508). Real-clock tests review at once.
+REQUEST_CONFIG: dict[str, object] = {
+    **CONFIG,
+    "review": {"delay_min_seconds": 0, "delay_max_seconds": 0, "poll_seconds": 0.01},
+}
+
+
 class PopulationFixtures(FakeFixtureChannel):
     def __init__(
         self, world: JourneyWorld, leases: FakeChannel, population: PopulationWorld
@@ -85,7 +92,7 @@ class Rig:
 
         return await run_convention(
             POOL,
-            config=CONFIG,
+            config=REQUEST_CONFIG,
             seed=-42,
             prompt_secret=lambda: SECRET,
             lease_channel=self.leases,
@@ -101,9 +108,9 @@ class Rig:
 
 
 def rig(root: Path, *, safety_policy: Mapping[str, object] | None = None) -> Rig:
-    from tailtag_simulator.behavior_config import resolve_behavior_config
+    from tailtag_simulator.traffic_config import resolve_request_traffic_config
 
-    config = resolve_behavior_config(CONFIG)
+    config = resolve_request_traffic_config(REQUEST_CONFIG)
     population = PopulationWorld(config)
     population.rebind(range(2), range(2, 8))
     world = JourneyWorld(gameplay=population.gameplay)
@@ -114,6 +121,7 @@ def rig(root: Path, *, safety_policy: Mapping[str, object] | None = None) -> Rig
     report = RunReport(
         root,
         "convention-baseline",
+        scenario_version=3,
         config=config,
         seed=-42,
         run_id=RUN_ID,

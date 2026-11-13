@@ -133,7 +133,7 @@ from tailtag_simulator.safety import SafetyRuntime
 root = Path({str(root)!r})
 manifest = json.loads((root / "run-manifest.json").read_text())
 report = RunReport(root / "runs" / {RUN!r} / "reports", "convention-baseline",
-                   scenario_version=2, seed=-7, config=manifest["configuration"],
+                   scenario_version=3, seed=-7, config=manifest["configuration"],
                    safety_policy=manifest["safety"], run_id={RUN!r})
 report.record_source(load_source(root / "source"))
 identity = manifest["backend_identity"]

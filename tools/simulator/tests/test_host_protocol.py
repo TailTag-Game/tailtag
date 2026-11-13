@@ -13,7 +13,7 @@ from tailtag_simulator.host_protocol import (
     validate_manifest,
 )
 from tailtag_simulator.safety import resolve_safety_policy
-from tailtag_simulator.traffic_config import resolve_traffic_config
+from tailtag_simulator.traffic_config import resolve_request_traffic_config
 
 RUN = "55555555-5555-4555-8555-555555555555"
 IDENTITY: dict[str, object] = {
@@ -31,9 +31,9 @@ def manifest() -> dict[str, object]:
         "schema_version": 1,
         "run_id": RUN,
         "scenario_id": "convention-baseline",
-        "scenario_version": 2,
+        "scenario_version": 3,
         "seed": -7,
-        "configuration": resolve_traffic_config({"pool": "alpha"}),
+        "configuration": resolve_request_traffic_config({"pool": "alpha"}),
         "safety": resolve_safety_policy({"population": 50}),
         "backend_identity": dict(IDENTITY),
         "release": {
@@ -60,7 +60,7 @@ def test_normalized_manifest_is_detached_and_accepts_host_boundary_population(
     supplied = manifest()
     # #411 AC4: Render Staging reports no deploy ID.
     section(supplied, "backend_identity")["deployment_id"] = deployment_id
-    configuration = resolve_traffic_config(
+    configuration = resolve_request_traffic_config(
         {
             "pool": "alpha",
             "normal_owners": 1,
@@ -195,7 +195,7 @@ def journeys_manifest(**changes: object) -> dict[str, object]:
     launch = manifest()
     launch.update(
         scenario_id="journeys",
-        scenario_version=1,
+        scenario_version=2,
         seed=0,
         configuration={"pool": "alpha"},
         safety=resolve_safety_policy({"population": 7}),
@@ -245,7 +245,7 @@ def expiration_manifest(
 ) -> dict[str, object]:
     launch = manifest()
     launch.update(
-        configuration=resolve_traffic_config(merged(EXPIRATION_CONFIG, config or {})),
+        configuration=resolve_request_traffic_config(merged(EXPIRATION_CONFIG, config or {})),
         safety=resolve_safety_policy({**EXPIRATION_SAFETY, **(safety or {})}),
     )
     launch.update(top)
@@ -263,7 +263,7 @@ ADMISSION_REFUSED: list[tuple[str, dict[str, object]]] = [
     ("journeys-family", journeys_manifest(configuration={"pool": "a", "family": "b"})),
     ("journeys-bad-pool", journeys_manifest(configuration={"pool": "Bad_Pool"})),
     ("journeys-seed", journeys_manifest(seed=1)),
-    ("journeys-version", journeys_manifest(scenario_version=2)),
+    ("journeys-version", journeys_manifest(scenario_version=1)),
     (
         "journeys-population",
         journeys_manifest(safety=resolve_safety_policy({"population": 6})),
