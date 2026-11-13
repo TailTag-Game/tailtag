@@ -182,22 +182,23 @@ def test_request_reconciliation_finds_each_break(
 def test_owner_weights_steer_the_seeded_target_choices() -> None:
     """The shared actor plans follow the configured owner weights (prepare_population)."""
 
-    def first_targets(**weights: int) -> list[int]:
+    def first_targets(normal: int, popular: int) -> list[int]:
         config = request_config(
             actors=6,
             normal_owners=1,
             popular_owners=1,
             fursuits=2,
+            normal_weight=normal,
+            popular_weight=popular,
             review={"automatic_share": 0, "approve_rate": 1},
-            **weights,
         )
         world = RequestWorld(config)
         run_requests(world, config, seed=5)
         return [row.fursuit for row in world.rows]
 
     popular = 510  # the popular owner's suits are 510 and 511
-    heavy_popular = first_targets(normal_weight=1, popular_weight=100)
-    heavy_normal = first_targets(normal_weight=100, popular_weight=1)
+    heavy_popular = first_targets(1, 100)
+    heavy_normal = first_targets(100, 1)
 
     assert sum(f >= popular for f in heavy_popular) > sum(
         f >= popular for f in heavy_normal
