@@ -182,6 +182,17 @@ The PR stays a draft until step 6 passes.
 - `task sim-report-validate` against one archived v5 report fixture, to prove archived reports still validate.
 - `task doctor` and `git diff --check`.
 
+## Implementation notes
+
+These choices came up during the build. They do not change the criteria.
+
+- A new `RequestCheck` enum holds the three request checks. The journeys keep the `Check` enum and its count.
+- The limit scenario sends `review_deadline_offset_seconds` through `run_provisioned`, including the lease-renewal path. The host bridge treats the offset as part of the fixed partition, so any other value vetoes the session.
+- The limit scenario has its own host safety tier, `host/request-limit-safety.json`, with 1800 seconds. The standard tier allows 900 seconds.
+- `client.Reply` now carries `Retry-After` as whole seconds, for planned 429 checks.
+- The host runner builds container commands with the newest scenario versions: convention 3, journeys 2, and `request-limit` 1.
+- `task sim-request-limit` runs the limit scenario outside a host session.
+
 ## Out of scope
 
 - The gate change. PR 2 owns it.

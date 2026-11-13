@@ -383,6 +383,71 @@ readmitted by cleanup: readmit it with `task sim-pool-readmit POOL=<pool> INDEX=
   until they expire (1800 seconds). It then shows as `unfinished`, and the next
   `provision` still quarantines any dirty identity.
 
+## Catch request flow
+
+The gate `CATCH_REQUESTS_ENABLED` retires the v1 catch path: credential reads, resolve, confirm, and rotate (#508). The simulator runs only the catch request flow. Only the newest version of each scenario can run:
+
+| Scenario | Version | What it runs |
+| --- | --- | --- |
+| `convention-<family>` | 3 | Load on the request flow, with owner review |
+| `journeys` | 2 | Smoke: each request journey once |
+| `request-limit` | 1 | The per-player limit and request expiry |
+
+Older versions stay in the catalog, so archived reports still validate. The runner refuses them with `FAIL configuration`. Sections below that name `resolve` or `confirm` describe archived versions.
+
+Each new run needs the gate on in its target. A Staging run before the gate change fails on the first tag read.
+
+### Owner setup and catchers
+
+Owners activate each suit, start its catch session, set `catch_approval_mode`, and read the reusable tag with `GET /api/fursuits/<id>/tag/`. Catchers call `POST /api/catches/preview/` and then `POST /api/catches/requests/`. A repeat returns `already_pending` or `already_caught`. With `duplicate_overlap`, two concurrent submissions must name the same request.
+
+### Owner review (convention v3)
+
+Each owner reads `GET /api/catches/incoming-requests/` every `poll_seconds`. A pending request waits a seeded delay, then the owner approves or declines it. An owner never decides a request while its catcher is still submitting. After the last arrival, owners decide every pending request before `owner_stop`.
+
+The closed `review` section sets the mix. Every value is a simulation assumption:
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `automatic_share` | 0.25 | Share of suits on automatic approval, chosen from the seed |
+| `delay_min_seconds` | 5 | Shortest review delay |
+| `delay_max_seconds` | 30 | Longest review delay |
+| `approve_rate` | 0.85 | Share of manual requests that owners approve. Owners decline the rest. |
+| `poll_seconds` | 2 | How often each owner reads the incoming list |
+
+`failure.operations` takes `read`, `preview`, and `submit`. `failure.domain_case` takes `none`, `replaced` (the owner replaces the tag), `stopped`, or `expired`. A pending request stays approvable after a replacement or a stop. A v3 run plans at most 120 requests, the `inspect-population-v2` cap.
+
+### 429 responses
+
+A planned 429 counts as an expected rejection. Any other 429 is a correctness failure. The simulator never submits again before `Retry-After` has passed. The load profiles plan no 429, so a 429 in a nightly run means the per-player limit refused normal play.
+
+### Journeys v2
+
+Journeys v2 keeps the account and image journeys and replaces the catch journeys: `pending_approve`, `automatic`, `decline`, `decline_block`, `undo`, `restore`, `withdraw`, `cooldown`, `retry`, `duplicate`, `stopped_session`, `replaced_tag`, `deactivated`, `self_catch`, `convention_mismatch`, `ineligible_catcher`, and `not_owner`. Each journey uses its own trios, so one journey's request state never decides another's result. `restore` waits 11 seconds for the undo window.
+
+### Request limit
+
+```bash
+task sim-request-limit POOL=host228
+```
+
+The run leases 10 identities: 8 owners with 5 suits each, and 2 players. Provisioning moves the run convention's review deadline 1200 seconds into the run. Owners never decide. Three journeys run:
+
+- `normal_play`: one player creates a request every 30 seconds for 10 minutes. Any 429 fails it.
+- `abuse_limit`: the second player submits every 2 seconds. Requests 1 to 30 succeed, the 31st gets 429 `rate_limited`, and the next submission after `Retry-After` succeeds.
+- `expiry`: after the deadline, the request lists are empty and approval returns 409 `review_window_closed`.
+
+Reconciliation expects 51 pending requests and no catch. The run takes about 21 minutes and uses `host/request-limit-safety.json`, which allows 1800 seconds.
+
+### Reconciliation of requests
+
+`inspect-population-v2` returns the run's catch requests with their stored state. Reconciliation then also checks `request_state`, `request_duplicate`, and `request_credit`:
+
+- An approved request needs exactly one catch, with `caught_at` equal to the request time.
+- A catch needs an approved request.
+- A pending, declined, withdrawn, invalidated, or expired request has no catch.
+- One trio has at most one pending request.
+
 ## Journeys
 
 `journeys` proves the implemented V0 gameplay and image contract end to end through the
@@ -764,6 +829,19 @@ Metrics are kept per operation and as a total:
 `auxiliary` includes preparation before the traffic window, so its throughput and
 the total throughput are not workload rates. Use the per-operation `resolve`,
 `confirm` and `read` throughput to compare workloads.
+
+Report schema 6 (convention v3) uses the catch request operations instead:
+
+| Operation | Requests | API route template |
+| --- | --- | --- |
+| `preview` | tag preview | `api/catches/preview/` |
+| `submit` | catch request submission | `api/catches/requests/` |
+| `review` | owner incoming list and summary | `api/catches/incoming-requests/` |
+| `decide` | approve, decline, undo, restore, withdraw, block | `api/catches/incoming-requests/<id>/...` |
+| `read` | player request list | `api/catches/requests/` |
+| `auxiliary` | population preparation, activation, session, approval mode, tag read | several |
+
+Thresholds for schema 6 need limits for `preview`, `submit`, and `read`.
 
 Each attempt gets exactly one class:
 

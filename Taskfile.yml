@@ -507,8 +507,17 @@ tasks:
       - >-
         {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator journeys --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' {{if .VERSION}}--scenario-version '{{.VERSION | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .SEED}}--seed '{{.SEED | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .REPORT_DIR}}--report-dir '{{.REPORT_DIR | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .SAFETY_CONFIG}}--safety-config '{{.SAFETY_CONFIG | replace "'" "'\"'\"'"}}'{{end}}
 
+  sim-request-limit:
+    desc: "Check the per-player limit and request expiry on Staging: POOL=name (host only; leases 10 identities, about 21 minutes)."
+    cmds:
+      - cmd: >-
+          test -n "{{.POOL}}" || { printf '%s\n' 'POOL is required.' >&2; exit 2; }
+        silent: true
+      - >-
+        {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator request-limit --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' {{if .REPORT_DIR}}--report-dir '{{.REPORT_DIR | default "" | replace "'" "'\"'\"'"}}'{{end}} {{if .SAFETY_CONFIG}}--safety-config '{{.SAFETY_CONFIG | replace "'" "'\"'\"'"}}'{{end}}
+
   sim-convention:
-    desc: "Run convention workloads: POOL=name FAMILY=baseline [CONFIG=path VERSION=1|2 SEED=0 REPORT_DIR=path]."
+    desc: "Run convention workloads: POOL=name FAMILY=baseline [CONFIG=path VERSION=3 SEED=0 REPORT_DIR=path]."
     cmds:
       - >-
         {{.UV | toSlash}} --directory tools/simulator run --locked --no-sync python -m tailtag_simulator convention --pool '{{.POOL | default "" | replace "'" "'\"'\"'"}}' --family '{{.FAMILY | default "" | replace "'" "'\"'\"'"}}' {{if .CONFIG}}--config '{{.CONFIG | replace "'" "'\"'\"'"}}'{{end}} {{if .VERSION}}--scenario-version '{{.VERSION | replace "'" "'\"'\"'"}}'{{end}} {{if .SEED}}--seed '{{.SEED | replace "'" "'\"'\"'"}}'{{end}} {{if .REPORT_DIR}}--report-dir '{{.REPORT_DIR | replace "'" "'\"'\"'"}}'{{end}} {{if .SAFETY_CONFIG}}--safety-config '{{.SAFETY_CONFIG | replace "'" "'\"'\"'"}}'{{end}} {{if has .UNATTENDED (list "1" "true" "yes")}}--unattended{{end}}
