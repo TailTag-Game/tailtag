@@ -1253,7 +1253,7 @@ def test_container_command_is_built_from_the_admitted_scenario(
             flags = dict(zip(command[1::2], command[2::2], strict=True))
             expected = {
                 "--pool": POOL,
-                "--scenario-version": "2" if scenario == "convention" else "1",
+                "--scenario-version": "3" if scenario == "convention" else "2",
                 "--seed": "-7" if scenario == "convention" else "0",
                 "--host-manifest": "/manifest.json",
                 "--host-socket-dir": "/bridge",
