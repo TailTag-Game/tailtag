@@ -12,7 +12,14 @@ from typing import TypedDict, cast
 import httpx
 import pool_support
 import pytest
-from convention_support import CONFIG, BlockedHttp, PopulationFixtures, Rig, rig
+from convention_support import (
+    CONFIG,
+    REQUEST_CONFIG,
+    BlockedHttp,
+    PopulationFixtures,
+    Rig,
+    rig,
+)
 from fixture_support import FakeFixtureChannel, FixtureState
 from journey_support import VALID_A, VALID_B
 from platform_support import skip_on_windows
@@ -29,7 +36,8 @@ from tailtag_simulator.safety import SafetyRuntime
 from tailtag_simulator.smoke import run_smoke
 
 world = pool_support.world
-CONFIRM = "/api/catches/confirm/"
+# The catch request submission: the convention workload's write (#508).
+CONFIRM = "/api/catches/requests/"
 
 
 class SharedRunArgs(TypedDict):
@@ -49,8 +57,7 @@ class SharedRunArgs(TypedDict):
         "pool-smoke",
         "fixture-smoke",
         "journeys",
-        "convention-v1",
-        "convention-v2",
+        "convention",
     ],
 )
 def test_every_execution_command_uses_the_supplied_shared_budget_before_credentials(
@@ -106,9 +113,8 @@ def test_every_execution_command_uses_the_supplied_shared_budget_before_credenti
         value = rig(tmp_path)
         return await run_convention(
             POOL,
-            config=CONFIG,
+            config=REQUEST_CONFIG,
             seed=-42,
-            scenario_version=2 if command == "convention-v2" else 1,
             lease_channel=value.leases,
             fixture_channel=value.fixtures,
             inspection_channel=value.inspection,
@@ -130,7 +136,7 @@ async def guarded_convention(
 ) -> int:
     return await run_convention(
         POOL,
-        config=CONFIG,
+        config=REQUEST_CONFIG,
         seed=-42,
         prompt_secret=lambda: SECRET,
         lease_channel=value.leases,
@@ -377,7 +383,7 @@ def test_aborted_convention_cancels_work_and_applies_target_safe_finalization(
     assert asyncio.run(execute()) != 0
     assert runtime.abort_reason == cause
     report = read_report(value.report.path)
-    assert report["schema_version"] == 4 and report["outcome"] == "aborted"
+    assert report["schema_version"] == 6 and report["outcome"] == "aborted"
     assert report["safety"]["abort"]["reason"] == cause
     assert "cleanup" not in value.fixtures.operations
     assert set(value.world.ended_sessions) == set(value.world.opened_sessions)
@@ -393,9 +399,9 @@ def test_aborted_convention_cancels_work_and_applies_target_safe_finalization(
         assert report["safety"]["finalization"]["release"] == "passed"
         if cause in {"correctness", "duration_ceiling"}:
             assert value.inspection.calls
-            assert report["safety"]["finalization"]["reconciliation"] == (
-                "failed" if cause == "duration_ceiling" else "passed"
-            )
+            # The malformed success left a stored request the simulator never
+            # observed, so reconciliation cannot pass it either (#508).
+            assert report["safety"]["finalization"]["reconciliation"] == "failed"
         else:
             assert not value.inspection.calls
     for private in (SECRET, "SENTINEL", "user_SECRET", "tailtag:catch"):

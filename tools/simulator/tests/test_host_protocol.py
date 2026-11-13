@@ -245,7 +245,9 @@ def expiration_manifest(
 ) -> dict[str, object]:
     launch = manifest()
     launch.update(
-        configuration=resolve_request_traffic_config(merged(EXPIRATION_CONFIG, config or {})),
+        configuration=resolve_request_traffic_config(
+            merged(EXPIRATION_CONFIG, config or {})
+        ),
         safety=resolve_safety_policy({**EXPIRATION_SAFETY, **(safety or {})}),
     )
     launch.update(top)

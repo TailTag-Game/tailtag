@@ -15,6 +15,7 @@ only changes what that journey observes; every other journey keeps its own state
 import json
 import re
 import struct
+import time
 import zlib
 from dataclasses import dataclass, field
 from typing import Final, cast
@@ -206,6 +207,10 @@ class Gameplay:
     async def advance(self, seconds: float) -> None:
         """The journeys' injected sleep: server time moves, no real wait."""
         self.now += seconds
+
+    def clock(self) -> float:
+        """Server time: real elapsed time plus every injected advance."""
+        return time.monotonic() + self.now
 
     def break_rule(self, name: str) -> None:
         self.broken = name
@@ -433,12 +438,17 @@ class Gameplay:
             mine = [r for r in reversed(self.rows) if r.player == index]
             return reply(200, {"results": [self.request_view(r) for r in mine]})
         if (method, path) == ("GET", INCOMING_PATH):
-            mine = [r for r in reversed(self.rows) if self.owner_of(r.fursuit_id) == index]
+            mine = [
+                r for r in reversed(self.rows) if self.owner_of(r.fursuit_id) == index
+            ]
             return reply(
                 200,
                 {
                     "results": [
-                        {**self.request_view(r), "player": {"display_name": "", "handle": ""}}
+                        {
+                            **self.request_view(r),
+                            "player": {"display_name": "", "handle": ""},
+                        }
                         for r in mine
                     ]
                 },
@@ -594,7 +604,7 @@ class Gameplay:
             if (r.player, r.fursuit_id) == (index, fursuit_id)
             and r.declined_at is not None
         ]
-        if declined and self.now < max(declined) + 10 and self.broken != "cooldown":
+        if declined and self.clock() < max(declined) + 10 and self.broken != "cooldown":
             return httpx.Response(
                 429,
                 headers={"Retry-After": "10"},
@@ -675,7 +685,7 @@ class Gameplay:
                 return changed
             if self.broken != "decline":
                 row.state = "declined"
-                row.declined_at = self.now
+                row.declined_at = self.clock()
                 row.blocked = self.body().get("block") is True
                 if row.blocked:
                     self.blocks.add((row.player, row.fursuit_id))
@@ -686,7 +696,7 @@ class Gameplay:
             expired = (
                 row.blocked
                 or row.declined_at is None
-                or self.now >= row.declined_at + 10
+                or self.clock() >= row.declined_at + 10
             )
             if action == "undo-decline" and (
                 self.broken == "undo" or (expired and self.broken != "restore")
