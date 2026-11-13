@@ -84,9 +84,10 @@ async def _prepare(
         "schema_version": 1,
         "run_id": str(uuid.uuid4()),
         **wrapper,
-        # Journeys carry a pool-only configuration that validate_manifest closes.
+        # Journeys and the limit scenario carry a pool-only configuration that
+        # validate_manifest closes.
         "configuration": cast(dict[str, object], wrapper["configuration"])
-        if wrapper["scenario_id"] == "journeys"
+        if wrapper["scenario_id"] in ("journeys", "request-limit")
         else resolve_request_traffic_config(
             cast(dict[str, object], wrapper["configuration"])
         ),

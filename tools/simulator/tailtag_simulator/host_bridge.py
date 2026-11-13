@@ -17,6 +17,7 @@ from tailtag_simulator.host_protocol import (
     encode_frame,
     validate_manifest,
 )
+from tailtag_simulator.limits import REVIEW_DEADLINE_OFFSET_SECONDS
 from tailtag_simulator.pool import (
     INSTANCE_PIN,
     LAUNCHER_TIMEOUT_SECONDS,
@@ -140,9 +141,13 @@ class BridgeSession:
         config = _dict(self.manifest["configuration"])
         self._pool = config["pool"]
         self._journeys = self.manifest["scenario_id"] == "journeys"
+        self._limit = self.manifest["scenario_id"] == "request-limit"
         if self._journeys:
             # Fixed by journeys.py: 2 owners, 4 catchers and 1 outsider without fixture state.
             self._owners, self._extras, self._count, self._fursuits = 2, 1, 7, 2
+        elif self._limit:
+            # Fixed by request_limit.py: 8 owners with 5 suits each and 2 players.
+            self._owners, self._extras, self._count, self._fursuits = 8, 0, 10, 5
         else:
             self._owners = cast(int, config["normal_owners"]) + cast(
                 int, config["popular_owners"]
@@ -298,6 +303,10 @@ class BridgeSession:
                 extras=self._indexes[split:],
                 fursuits_per_owner=self._fursuits,
             )
+            if self._limit:
+                expected["review_deadline_offset_seconds"] = (
+                    REVIEW_DEADLINE_OFFSET_SECONDS
+                )
         elif op == "inspect" and self._journeys:
             names = ["owner0", "owner1", *(f"catcher{i}" for i in range(4)), "outsider"]
             expected.update(
@@ -330,9 +339,11 @@ class BridgeSession:
             "extras",
             "identities",
         }
-        if self._journeys:
-            # The journeys partition is wholly fixed, so any deviation is authority.
+        if self._journeys or self._limit:
+            # These partitions are wholly fixed, so any deviation is authority.
             authority_keys.add("fursuits_per_owner")
+        if self._limit:
+            authority_keys.add("review_deadline_offset_seconds")
         if any(not _same(args[k], expected[k]) for k in authority_keys & set(expected)):
             self._veto = True
             raise ValueError

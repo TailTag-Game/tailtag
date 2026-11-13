@@ -542,7 +542,10 @@ def prepare_committed(
 @pytest.mark.parametrize(
     ("profile", "safety"),
     [(name, "safety.json") for name in STANDARD_PROFILES]
-    + [("expiration-profile.json", "expiration-safety.json")],
+    + [
+        ("expiration-profile.json", "expiration-safety.json"),
+        ("request-limit-profile.json", "request-limit-safety.json"),
+    ],
 )
 def test_every_committed_profile_prepares_with_its_intended_safety_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile: str, safety: str
@@ -555,7 +558,9 @@ def test_every_committed_profile_prepares_with_its_intended_safety_file(
     assert prepared["seed"] == wrapper["seed"]
 
 
-@pytest.mark.parametrize("safety", ["safety.json", "expiration-safety.json"])
+@pytest.mark.parametrize(
+    "safety", ["safety.json", "expiration-safety.json", "request-limit-safety.json"]
+)
 def test_committed_safety_checks_fit_inside_their_own_request_ceiling(
     safety: str,
 ) -> None:

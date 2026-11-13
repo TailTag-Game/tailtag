@@ -104,6 +104,31 @@ _EXPIRATION_SAFETY = {
 }
 
 
+# The limit scenario waits for its review deadline (1200 s) inside the run (#508).
+_LIMIT_SAFETY = {
+    "seconds": 1800,
+    "final_seconds": 600,
+    "population": 50,
+    "in_flight": 10,
+}
+
+
+def _limit_shape(
+    launch: dict[str, object], config: dict[str, object], safety: dict[str, object]
+) -> None:
+    """Request limit: fixed ten identities, no randomness, pool-only configuration."""
+    if (
+        launch["scenario_version"] != 1
+        or launch["seed"] != 0
+        or set(config) != {"pool"}
+        or not isinstance(config["pool"], str)
+        or validate_pool_name(config["pool"]) != config["pool"]
+        or cast(int, safety["population"]) < 10
+        or not _within(safety, _LIMIT_SAFETY)
+    ):
+        raise _invalid()
+
+
 def _journeys_shape(
     launch: dict[str, object], config: dict[str, object], safety: dict[str, object]
 ) -> None:
@@ -189,6 +214,8 @@ def validate_manifest(value: object) -> dict[str, object]:
             raise _invalid()
         if launch["scenario_id"] == "journeys":
             _journeys_shape(launch, config, safety)
+        elif launch["scenario_id"] == "request-limit":
+            _limit_shape(launch, config, safety)
         else:
             _convention_shape(launch, config, safety)
         identity = _mapping(launch["backend_identity"])

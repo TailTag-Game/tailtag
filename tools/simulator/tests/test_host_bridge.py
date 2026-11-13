@@ -25,6 +25,7 @@ from test_host_protocol import (
 from tailtag_simulator import host_bridge
 from tailtag_simulator.host_bridge import BridgeServer, BridgeSession
 from tailtag_simulator.host_protocol import decode_frame, encode_frame
+from tailtag_simulator.safety import resolve_safety_policy
 
 INDEXES = [17, 23, 31, 37, 41, 43]
 ROLES = {
@@ -1588,6 +1589,58 @@ def test_heartbeats_never_extend_the_non_heartbeat_operation_cap() -> None:
             before = len(relay.calls)
             assert_rejected(await call(session, "inspect", identities=JOURNEY_ROLES))
             assert len(relay.calls) == before
+        finally:
+            session.close()
+
+    asyncio.run(execute())
+
+
+# -- #508: the request-limit partition and its deadline offset ---------------------
+
+LIMIT_INDEXES = [17, 23, 31, 37, 41, 43, 47, 53, 59, 61]
+LIMIT_PROVISION: dict[str, object] = {
+    "owners": LIMIT_INDEXES[:8],
+    "catchers": LIMIT_INDEXES[8:],
+    "extras": [],
+    "fursuits_per_owner": 5,
+    "review_deadline_offset_seconds": 1200,
+}
+LIMIT_ACK = {"convention": 1, "enrollment": 10, "fursuit": 40, "activation": 40}
+
+
+def limit_manifest() -> dict[str, object]:
+    return journeys_manifest(
+        scenario_id="request-limit",
+        scenario_version=1,
+        safety=resolve_safety_policy({"population": 10, "seconds": 1800}),
+    )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{}, {"review_deadline_offset_seconds": 600}, {"fursuits_per_owner": 4}],
+    ids=("fixed-partition", "other-offset", "other-fursuits"),
+)
+def test_limit_provision_carries_only_the_fixed_partition_and_offset(
+    change: dict[str, object],
+) -> None:
+    async def execute() -> None:
+        relay = Relay()
+        relay.answers.update(
+            allocate=("PASS", {"indexes": LIMIT_INDEXES}),
+            provision=("PASS", dict(LIMIT_ACK)),
+        )
+        session = BridgeSession(limit_manifest(), relay.dispatch)
+        try:
+            assert (await call(session, "allocate", count=10))["result"] == "PASS"
+            before = len(relay.calls)
+            reply = await call(session, "provision", **{**LIMIT_PROVISION, **change})
+            if not change:
+                assert reply == {"result": "PASS", "data": LIMIT_ACK}
+            else:
+                assert_rejected(reply)
+                assert len(relay.calls) == before
+                assert session.health() == {"run_id": RUN, "live": False}
         finally:
             session.close()
 

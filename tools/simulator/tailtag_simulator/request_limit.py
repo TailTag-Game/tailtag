@@ -36,6 +36,7 @@ from tailtag_simulator.gameplay import (
     text_value,
 )
 from tailtag_simulator.journeys import JourneyResult, journey_lines
+from tailtag_simulator.limits import REVIEW_DEADLINE_OFFSET_SECONDS
 from tailtag_simulator.pool import LeaseChannel
 from tailtag_simulator.population_reconciliation import (
     PopulationExpectations,
@@ -51,7 +52,6 @@ from tailtag_simulator.smoke import guarded_stage
 OWNERS: Final = 8
 FURSUITS_PER_OWNER: Final = 5
 PLAYERS: Final = 2
-REVIEW_DEADLINE_OFFSET_SECONDS: Final = 1200
 NORMAL_REQUESTS: Final = 20
 NORMAL_SPACING_SECONDS: Final = 30
 LIMIT: Final = 30
@@ -335,5 +335,7 @@ async def run_request_limit(
         report=report,
         safety=safety,
         simulate_and_reconcile=simulate,
+        # The run outlasts one lease while it waits for the deadline.
+        renew_leases=True,
         review_deadline_offset_seconds=REVIEW_DEADLINE_OFFSET_SECONDS,
     )
