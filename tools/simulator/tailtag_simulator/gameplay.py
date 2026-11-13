@@ -136,30 +136,6 @@ async def step(
     return reply.body
 
 
-async def arm_session(
-    owner: ApiClient,
-    activation: str,
-    *,
-    observed_session: Callable[[object], None] | None = None,
-) -> str:
-    """Start the fursuit's catch session and read its credential; return the payload."""
-    session = await step(
-        "session",
-        owner.put(f"{activation}catch-session/", {"is_active": True}),
-        200,
-        shape=lambda b: get_value(b, "is_active") is True,
-    )
-    if observed_session is not None:
-        observed_session(session)
-    body = await step(
-        "credential",
-        owner.get(f"{activation}catch-credential/"),
-        200,
-        shape=lambda b: bool(text_value(b, "payload")),
-    )
-    return text_value(body, "payload")
-
-
 async def arm_request_session(
     owner: ApiClient,
     activation: str,

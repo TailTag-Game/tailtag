@@ -48,9 +48,7 @@ from pool_support import (
 INDEXES: Final = 8  # slot 0 is quarantined; the run leases 1..7
 
 CATCH_SESSION: Final = "catch-session/"
-CREDENTIAL: Final = "catch-credential/"
-ROTATE: Final = "catch-credential/rotate/"
-RESOLVE_PATH: Final = f"/api/conventions/{CONVENTION_ID}/catch-credentials/resolve/"
+# The retired v1 confirm path: tests assert that nothing calls it.
 CONFIRM_PATH: Final = "/api/catches/confirm/"
 PREVIEW_PATH: Final = "/api/catches/preview/"
 REQUESTS_PATH: Final = "/api/catches/requests/"
@@ -283,10 +281,6 @@ class Gameplay:
             return reply(200, self.fursuits_of(index))
         if (method, path) == ("POST", CREATE_PATH):
             return self.create_fursuit(index)
-        if (method, path) == ("POST", RESOLVE_PATH):
-            return self.resolve(index)
-        if (method, path) == ("POST", CONFIRM_PATH):
-            return self.confirm(index)
         if (method, path) == ("GET", HISTORY_PATH):
             return self.history(index)
         handled = self.request_route(method, path, index)
@@ -318,8 +312,7 @@ class Gameplay:
     def owner_action(
         self, method: str, fursuit_id: int, suffix: str, index: int
     ) -> httpx.Response | None:
-        leaking = self.broken == "not_owner" and (method, suffix) == ("GET", CREDENTIAL)
-        if self.owner_of(fursuit_id) != index and not leaking:
+        if self.owner_of(fursuit_id) != index:
             return not_found()  # before the body is parsed
         if (method, suffix) == ("PUT", CATCH_SESSION):
             active = self.body().get("is_active") is True
@@ -329,18 +322,6 @@ class Gameplay:
             self.sessions[fursuit_id] = active or self.broken == "stopped_session"
             expires = "2026-10-03T12:00:00Z" if active else None
             return reply(200, {"is_active": active, "expires_at": expires})
-        if (method, suffix) == ("GET", CREDENTIAL):
-            if fursuit_id in self.deactivated:
-                return not_found()
-            payload = (self.issued.get(fursuit_id) or [self.issue(fursuit_id)])[-1]
-            return reply(200, {"payload": payload})
-        if (method, suffix) == ("POST", ROTATE):
-            if fursuit_id in self.deactivated:
-                return not_found()
-            old = (self.issued.get(fursuit_id) or [self.issue(fursuit_id)])[-1]
-            if self.broken != "stale_credential":
-                self.revoked.add(old)
-            return reply(200, {"payload": self.issue(fursuit_id)})
         if (method, suffix) == ("PUT", ""):
             return self.set_activation(fursuit_id)
         return None
@@ -354,58 +335,6 @@ class Gameplay:
             self.deactivated.add(fursuit_id)
             self.sessions[fursuit_id] = False
         return reply(200, {**activation_body(fursuit_id), "is_active": active})
-
-    def resolve(self, index: int) -> httpx.Response:
-        if index not in self.state.enrollments:
-            return reply(403, {"detail": "SENTINEL not enrolled"})
-        payload = self.body().get("payload")
-        fursuit_id = self.fursuit_of.get(str(payload))
-        if fursuit_id is None or not self.live(fursuit_id, str(payload)):
-            return not_found()
-        fursuit = self.fursuit(fursuit_id)
-        return reply(
-            200,
-            {
-                "convention_id": CONVENTION_ID,
-                "fursuit": {
-                    "tailtag_id": fursuit["tailtag_id"],
-                    "name": fursuit["name"],
-                    "photo_url": fursuit["photo_url"],
-                },
-            },
-        )
-
-    def confirm(self, index: int) -> httpx.Response:
-        unavailable = failure(404, "catch_target_unavailable")
-        payload = str(self.body().get("payload"))
-        fursuit_id = self.fursuit_of.get(payload)
-        if fursuit_id is None:
-            return unavailable
-        available = self.live(fursuit_id, payload)
-        if self.broken == "retry" and not available:
-            return unavailable  # target checks wrongly before already-caught
-        for caught in self.catches:
-            if (caught.catcher, caught.fursuit_id) == (index, fursuit_id):
-                return reply(200, self.catch_body("already_caught", caught))
-        if index not in self.state.enrollments and self.broken != "ineligible_catcher":
-            return failure(403, "catcher_ineligible")
-        if index in self.inactive_enrollments and self.broken != "convention_mismatch":
-            return failure(409, "active_convention_mismatch")
-        if not available:
-            return unavailable
-        if self.owner_of(fursuit_id) == index and self.broken != "self_catch":
-            unknown = self.broken == "self_catch_unknown_code"
-            return failure(
-                409, "SENTINEL_UNKNOWN_CODE" if unknown else "self_catch_not_allowed"
-            )
-        caught = Catch(7000 + len(self.catches) + 1, index, fursuit_id)
-        self.catches.append(caught)
-        if self.broken == "catch":
-            return reply(200, self.catch_body("already_caught", caught))
-        return reply(201, self.catch_body("created", caught))
-
-    def catch_body(self, outcome: str, caught: Catch) -> dict[str, object]:
-        return {"outcome": outcome, "catch": self.catch_view(caught)}
 
     def catch_view(self, caught: Catch) -> dict[str, object]:
         return {

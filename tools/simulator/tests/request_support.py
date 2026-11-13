@@ -7,6 +7,7 @@ target checks. Faults sit on the HTTP boundary only.
 """
 
 import asyncio
+import heapq
 import json
 from collections.abc import Callable, Mapping
 from contextlib import AsyncExitStack, nullcontext
@@ -15,7 +16,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 import httpx
-from traffic_behavior_support import VirtualTime
 
 from tailtag_simulator.behavior import PopulationContext
 from tailtag_simulator.client import open_client
@@ -28,8 +28,68 @@ from tailtag_simulator.request_behavior import (
     simulate_request_population,
 )
 from tailtag_simulator.safety import SafetyRuntime
-from tailtag_simulator.traffic import TrafficRuntime
+from tailtag_simulator.traffic import Clock, TrafficRuntime
 from tailtag_simulator.traffic_config import resolve_request_traffic_config
+
+
+class VirtualTime:
+    """Wake concurrent sleepers at their own deadlines, rather than summing sleeps.
+
+    The driver yields ready HTTP/tasks before advancing to the next sleeping task.
+    No event-loop or global asyncio monkeypatch is used.
+    """
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.epoch = datetime(2026, 10, 3, 12, tzinfo=UTC).timestamp()
+        self.pending: list[tuple[float, int, asyncio.Future[None]]] = []
+        self.ordinal = 0
+        self.revision = 0
+
+    @property
+    def clock(self) -> Clock:
+        return Clock(
+            monotonic=lambda: self.now,
+            sleep=self.sleep,
+            wall_time=lambda: self.epoch + self.now,
+        )
+
+    async def sleep(self, seconds: float) -> None:
+        if seconds <= 0:
+            await asyncio.sleep(0)
+            return
+        self.ordinal += 1
+        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        heapq.heappush(self.pending, (self.now + seconds, self.ordinal, future))
+        self.revision += 1
+        try:
+            await future
+        finally:
+            self.revision += 1
+
+    async def drive(self) -> None:
+        while True:
+            # New sleepers and cancellations mean runnable request/cleanup chains
+            # still progress. Settle that activity before advancing server time.
+            revision = self.revision
+            idle = 0
+            while idle < 30:
+                await asyncio.sleep(0)
+                if self.revision != revision:
+                    revision = self.revision
+                    idle = 0
+                else:
+                    idle += 1
+            while self.pending and self.pending[0][2].done():
+                heapq.heappop(self.pending)
+            if not self.pending:
+                continue
+            self.now = max(self.now, self.pending[0][0])
+            while self.pending and self.pending[0][0] <= self.now:
+                _, _, future = heapq.heappop(self.pending)
+                if not future.done():
+                    future.set_result(None)
+
 
 CONVENTION = 4242
 PERSONAS = ("casual", "active", "heavy", "retry_prone")

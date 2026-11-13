@@ -1,6 +1,5 @@
-"""Finite public-API convention behavior, independent of orchestration channels."""
+"""Shared public fixture discovery and seeded actor plans for convention runs."""
 
-import asyncio
 import hashlib
 import random
 from collections.abc import Callable, Mapping
@@ -11,17 +10,13 @@ from tailtag_simulator.behavior_config import PERSONAS
 from tailtag_simulator.client import ApiClient
 from tailtag_simulator.gameplay import (
     IntegrityFailed,
-    arm_session,
     get_value,
     list_items,
     positive_number,
-    read_history,
     step,
-    stop_session,
     text_value,
 )
 from tailtag_simulator.population_reconciliation import PopulationExpectations
-from tailtag_simulator.reconciliation import Made
 
 
 @dataclass(frozen=True)
@@ -39,11 +34,6 @@ class PopulationRun:
     failure: str | None
     trace: tuple[tuple[str, str, str], ...]
 
-
-class PopulationCancelled(asyncio.CancelledError):
-    def __init__(self, population: PopulationRun) -> None:
-        super().__init__()
-        self.population = population
 
 
 @dataclass
@@ -228,217 +218,3 @@ async def prepare_population(
                 _Actor(label, persona, prefix, context.attendees[ordinal], plan)
             )
     return convention, targets, actors
-
-
-async def simulate_population(
-    context: PopulationContext, config: Mapping[str, object], seed: int
-) -> PopulationRun:
-    """Execute the resolved configuration; retain facts on any unexpected failure."""
-
-    def number(key: str) -> int:
-        return cast(int, config[key])
-
-    counters = (
-        "actors",
-        "actions",
-        "completed",
-        "created",
-        "already_caught",
-        "expected_rejections",
-        "retries",
-        "history_reads",
-        "exhausted",
-        "unused_budget",
-        "cycles",
-    )
-    summaries: dict[str, dict[str, int]] = {
-        persona: dict.fromkeys(counters, 0) for persona in PERSONAS
-    }
-    for persona, key in zip(
-        PERSONAS, (*PERSONAS[:4], "normal_owners", "popular_owners"), strict=True
-    ):
-        summaries[persona]["actors"] = number(key)
-    expectations = PopulationExpectations()
-    trace: list[tuple[str, str, str]] = []
-    convention = 0
-
-    def action(actor: str, persona: str, name: str, target: str = "-") -> None:
-        trace.append((actor, name, target))
-        summaries[persona]["actions"] += 1
-
-    def require(valid: bool) -> None:
-        if not valid:
-            raise IntegrityFailed("population", "valid", "shape")
-
-    async def history(actor: _Actor) -> None:
-        action(actor.label, actor.persona, "history")
-        rows = await read_history(actor.client, convention)
-        actual = {row.fursuit: Made(row.catch_id, row.caught_at) for row in rows}
-        wanted = {
-            target: made
-            for (label, target), made in expectations.made.items()
-            if label == actor.label
-        }
-        require(actual == wanted)
-        summaries[actor.persona]["history_reads"] += 1
-
-    async def visit(actor: _Actor, target: _Target, phase: str = "all") -> None:
-        summary = summaries[actor.persona]
-        if phase != "duplicates":
-            action(actor.label, actor.persona, "resolve", target.label)
-            await step(
-                "resolve",
-                actor.client.post(
-                    f"/api/conventions/{convention}/catch-credentials/resolve/",
-                    {"payload": target.payload},
-                ),
-                200,
-                shape=lambda b: (
-                    positive_number(b, "convention_id") == convention
-                    and text_value(b, "fursuit", "tailtag_id") == target.tailtag
-                ),
-            )
-        pair = (actor.label, target.id)
-        repeats = number(f"{actor.prefix}_repeats")
-        confirmations = (
-            range(1, repeats + 1)
-            if phase == "duplicates"
-            else range(1)
-            if phase == "first"
-            else range(repeats + 1)
-        )
-        for repeat in confirmations:
-            previous = expectations.made.get(pair)
-            action(
-                actor.label,
-                actor.persona,
-                "retry" if repeat else "confirm",
-                target.label,
-            )
-            expectations.attempts.add(pair)
-            if repeat:
-                summary["retries"] += 1
-            body = await step(
-                "confirm",
-                actor.client.post(
-                    "/api/catches/confirm/",
-                    {"payload": target.payload},
-                ),
-                200 if previous else 201,
-                "already_caught" if previous else "created",
-                shape=lambda b: (
-                    positive_number(b, "catch", "id") > 0
-                    and positive_number(b, "catch", "convention_id") == convention
-                    and text_value(b, "catch", "fursuit", "tailtag_id")
-                    == target.tailtag
-                    and bool(text_value(b, "catch", "caught_at"))
-                ),
-            )
-            made = Made(
-                positive_number(body, "catch", "id"),
-                text_value(body, "catch", "caught_at"),
-            )
-            if previous:
-                expectations.seen.setdefault(pair, []).append(made)
-                require(made == previous)
-                summary["already_caught"] += 1
-            else:
-                expectations.made[pair] = made
-                summary["created"] += 1
-        if phase != "first" or not repeats:
-            summary["completed"] += 1
-
-    try:
-        convention, targets, actors = await prepare_population(
-            context, config, seed, expectations, summaries, action
-        )
-        for cycle in range(number("cycles")):
-            for owner, client in enumerate(context.owners):
-                persona = (
-                    "normal_owner"
-                    if owner < number("normal_owners")
-                    else "popular_owner"
-                )
-                label = f"owner{owner}"
-                for target in targets:
-                    if target.owner != owner:
-                        continue
-                    activation = f"/api/conventions/{convention}/fursuit-activations/{target.id}/"
-                    action(label, persona, "activate", target.label)
-                    await step(
-                        "activate",
-                        client.put(activation, {"is_active": True}),
-                        200,
-                        shape=lambda b, target=target: (
-                            get_value(b, "is_active") is True
-                            and positive_number(b, "fursuit_id") == target.id
-                            and positive_number(b, "convention_id") == convention
-                        ),
-                    )
-                    action(label, persona, "arm_session", target.label)
-                    target.payload = await arm_session(client, activation)
-                    summaries[persona]["completed"] += 1
-            visits = (
-                [(actor, index) for actor in actors for index in range(len(actor.plan))]
-                if config["family"] == "post-event"
-                else [
-                    (actor, index)
-                    for index in range(max(len(a.plan) for a in actors))
-                    for actor in actors
-                    if index < len(actor.plan)
-                ]
-            )
-            phases = (
-                ("first", "duplicates") if config["family"] == "retry" else ("all",)
-            )
-            for phase in phases:
-                for actor, index in visits:
-                    repeats = number(f"{actor.prefix}_repeats")
-                    if phase == "duplicates" and not repeats:
-                        continue
-                    await visit(actor, actor.plan[index], phase)
-                    if phase == "first" and repeats:
-                        continue
-                    cadence = number(f"{actor.prefix}_history")
-                    final = index + 1 == len(actor.plan)
-                    if final or (cadence and (index + 1) % cadence == 0):
-                        await history(actor)
-                    if final:
-                        summaries[actor.persona]["cycles"] += 1
-            for owner, client in enumerate(context.owners):
-                persona = (
-                    "normal_owner"
-                    if owner < number("normal_owners")
-                    else "popular_owner"
-                )
-                for target in targets:
-                    if target.owner != owner:
-                        continue
-                    activation = f"/api/conventions/{convention}/fursuit-activations/{target.id}/"
-                    action(f"owner{owner}", persona, "stop_session", target.label)
-                    await stop_session(client, activation)
-                    if cycle + 1 < number("cycles") and config["activation_break"]:
-                        action(f"owner{owner}", persona, "deactivate", target.label)
-                        await step(
-                            "deactivate",
-                            client.put(activation, {"is_active": False}),
-                            200,
-                            shape=lambda b: get_value(b, "is_active") is False,
-                        )
-                summaries[persona]["cycles"] += 1
-    except asyncio.CancelledError:
-        raise PopulationCancelled(
-            PopulationRun(
-                expectations,
-                convention,
-                False,
-                summaries,
-                "FAIL_SIMULATION",
-                tuple(trace),
-            )
-        ) from None
-    except Exception:  # noqa: BLE001 - no external error or response details escape
-        return PopulationRun(
-            expectations, convention, False, summaries, "FAIL_SIMULATION", tuple(trace)
-        )
-    return PopulationRun(expectations, convention, True, summaries, None, tuple(trace))
