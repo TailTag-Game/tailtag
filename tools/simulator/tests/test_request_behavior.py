@@ -55,12 +55,14 @@ def test_the_same_seed_makes_the_same_choices() -> None:
     assert choices() == choices()
 
 
-def test_lost_submit_responses_converge_on_one_request() -> None:
+@pytest.mark.parametrize("share", [0, 1], ids=("manual", "automatic"))
+def test_lost_submit_responses_converge_on_one_request(share: int) -> None:
+    """A lost automatic approval leaves only `already_caught`; the list recovers it."""
     config = request_config(
         actors=2,
         failure={"operations": ["submit"]},
         casual_repeats=2,
-        review={"automatic_share": 0},
+        review={"automatic_share": share},
     )
     world = RequestWorld(config)
     world.lost_submits = 3

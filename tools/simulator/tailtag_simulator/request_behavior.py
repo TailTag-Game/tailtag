@@ -36,6 +36,7 @@ from tailtag_simulator.gameplay import (
     get_value,
     list_items,
     positive_number,
+    read_history,
     replace_tag,
     step,
     text_value,
@@ -94,6 +95,34 @@ class _CountedClient(ApiClient):
             )
 
         return await self.runtime.request(counted, operation="auxiliary")
+
+
+class _ReadClient(ApiClient):
+    """Meter catch history reads as `read`, with the configured effects."""
+
+    def __init__(
+        self, client: ApiClient, effects: TrafficEffects, rng: random.Random
+    ) -> None:
+        super().__init__(client._client)  # pyright: ignore[reportPrivateUsage]
+        self.original = client
+        self.effects = effects
+        self.rng = rng
+
+    async def _send(
+        self,
+        method: str,
+        path: str,
+        body: Mapping[str, object] | None = None,
+        *,
+        data: Mapping[str, str] | None = None,
+        files: Mapping[str, Upload] | None = None,
+    ) -> Reply:
+        async def send() -> Reply:
+            return await self.original._send(  # pyright: ignore[reportPrivateUsage]
+                method, path, body, data=data, files=files
+            )
+
+        return await self.effects.call("read", send, self.rng)
 
 
 def _stream(seed: int, *labels: str) -> random.Random:
@@ -400,7 +429,12 @@ async def simulate_request_population(
             await journey()
 
     async def read_requests(actor: _Actor) -> None:
-        """The player's request list names exactly the requests this actor made."""
+        """Read the player's request list and catch history; both must agree.
+
+        A lost response to an automatic approval leaves only the catch: the
+        retry answers `already_caught` with no request. The list then names
+        that approved request, and its request time must equal the catch time.
+        """
         action(actor.persona)
         reply = await effects.call(
             "read",
@@ -409,6 +443,19 @@ async def simulate_request_population(
         )
         body = await step("requests", _reply(reply), 200)
         rows = list_items(get_value(body, "results"))
+        for row in rows:
+            pair = (actor.label, positive_number(row, "fursuit", "id"))
+            made = expectations.made.get(pair)
+            if pair not in expectations.requests and made is not None:
+                require(
+                    get_value(row, "state") == "approved"
+                    and text_value(row, "requested_at") == made.caught_at
+                )
+                fact = RequestFact(
+                    positive_number(row, "id"), "approved", made.caught_at
+                )
+                expectations.requests[pair] = fact
+                labels[fact.id] = actor.label
         listed = {positive_number(row, "id") for row in rows}
         wanted = {
             fact.id
@@ -416,6 +463,24 @@ async def simulate_request_population(
             if label == actor.label
         }
         require(listed == wanted)
+        action(actor.persona)
+        history = await read_history(
+            _ReadClient(actor.client, effects, streams[actor.label]), convention
+        )
+        made_here = {
+            fursuit: made
+            for (label, fursuit), made in expectations.made.items()
+            if label == actor.label
+        }
+        for entry_row in history:
+            made = made_here.get(entry_row.fursuit)
+            if made is not None:
+                require(made == Made(entry_row.catch_id, entry_row.caught_at))
+            else:
+                # An owner can approve a pending request between the two reads.
+                fact = expectations.requests.get((actor.label, entry_row.fursuit))
+                require(fact is not None and fact.state == "pending")
+        require(set(made_here) <= {entry_row.fursuit for entry_row in history})
         summaries[actor.persona]["history_reads"] += 1
 
     async def entry(item: Entry) -> bool:

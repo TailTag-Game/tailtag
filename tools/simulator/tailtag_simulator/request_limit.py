@@ -24,7 +24,7 @@ from typing import Final, Literal
 
 import httpx
 
-from tailtag_simulator.client import ApiClient, Reply
+from tailtag_simulator.client import ApiClient, Reply, RequestFailed, TransportFailed
 from tailtag_simulator.fixtures import FixtureChannel, run_provisioned
 from tailtag_simulator.gameplay import (
     StepFailed,
@@ -56,6 +56,7 @@ NORMAL_REQUESTS: Final = 20
 NORMAL_SPACING_SECONDS: Final = 30
 LIMIT: Final = 30
 ABUSE_SPACING_SECONDS: Final = 2
+EXPIRY_MARGIN_SECONDS: Final = 5
 REQUESTS_PATH: Final = "/api/catches/requests/"
 INCOMING_PATH: Final = "/api/catches/incoming-requests/"
 
@@ -145,7 +146,10 @@ class _Limit:
         await self._at(start + LIMIT * ABUSE_SPACING_SECONDS)
         fursuit, payload = self.payloads[LIMIT]
         self.expectations.attempts.add(("attendee1", fursuit))
-        reply = await self.players[1].post(REQUESTS_PATH, {"payload": payload})
+        try:
+            reply = await self.players[1].post(REQUESTS_PATH, {"payload": payload})
+        except (TransportFailed, RequestFailed):
+            raise StepFailed("submit_limited", "429/rate_limited", "error") from None
         wait = positive_number(reply.body, "retry_after_seconds")
         await step(
             "submit_limited",
@@ -161,7 +165,8 @@ class _Limit:
     async def expiry(self) -> None:
         if self.deadline is None:
             raise StepFailed("deadline", "200/-", "200/shape")
-        await self._at(self.deadline + 1)
+        # A few seconds of margin absorb clock skew between host and server.
+        await self._at(self.deadline + EXPIRY_MARGIN_SECONDS)
         for client in self.players:
             await step(
                 "player_list",
@@ -178,12 +183,13 @@ class _Limit:
         fursuit = self.payloads[0][0]
         request = self.expectations.requests[("attendee0", fursuit)].id
         owner = int(self.expectations.target_owners[fursuit].removeprefix("owner"))
-        await step(
-            "approve_closed",
-            self.owners[owner].post(f"{INCOMING_PATH}{request}/approve/"),
-            409,
-            "review_window_closed",
-        )
+        reply = await self.owners[owner].post(f"{INCOMING_PATH}{request}/approve/")
+        # Cleanup can delete the row after the deadline. The contract treats
+        # 404 `request_not_found` like 409 `review_window_closed`.
+        if reply.status == 404:
+            await step("approve_closed", _ready(reply), 404, "request_not_found")
+        else:
+            await step("approve_closed", _ready(reply), 409, "review_window_closed")
 
     async def _at(self, moment: float) -> None:
         remaining = moment - self.wall()

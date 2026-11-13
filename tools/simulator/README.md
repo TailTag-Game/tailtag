@@ -399,7 +399,7 @@ Each new run needs the gate on in its target. A Staging run before the gate chan
 
 ### Owner setup and catchers
 
-Owners activate each suit, start its catch session, set `catch_approval_mode`, and read the reusable tag with `GET /api/fursuits/<id>/tag/`. Catchers call `POST /api/catches/preview/` and then `POST /api/catches/requests/`. A repeat returns `already_pending` or `already_caught`. With `duplicate_overlap`, two concurrent submissions must name the same request.
+Owners activate each suit, start its catch session, set `catch_approval_mode`, and read the reusable tag with `GET /api/fursuits/<id>/tag/`. Catchers call `POST /api/catches/preview/` and then `POST /api/catches/requests/`. A repeat returns `already_pending` or `already_caught`. With `duplicate_overlap`, two concurrent submissions must name the same request. After its last visit, each catcher reads its request list and its catch history once. Both must agree with what it observed. A lost response to an automatic approval leaves only `already_caught`, so the list read recovers that request. The `*_history` cadence keys have no effect in version 3.
 
 ### Owner review (convention v3)
 
