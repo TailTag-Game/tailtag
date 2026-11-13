@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Mapping
+from itertools import pairwise
 from typing import Any
 
 import pool_support
@@ -9,6 +10,7 @@ import pytest
 from fixture_support import FakeFixtureChannel
 from journey_support import JourneyWorld, not_onboarded, user_json
 from pool_support import POOL, RUN_ID, SECRET, FakeChannel, World
+from request_support import VirtualTime
 
 from tailtag_simulator.request_limit import (
     LIMIT,
@@ -24,8 +26,10 @@ world = pool_support.world
 class Inspection:
     """inspect-population-v2 data straight from the fake's stored state."""
 
-    def __init__(self, world: JourneyWorld) -> None:
+    def __init__(self, world: JourneyWorld, *, cleaned: bool = False) -> None:
         self.world = world
+        # Cleanup deleted every request row after the deadline.
+        self.cleaned = cleaned
         self.calls: list[dict[str, int]] = []
 
     async def inspect(
@@ -34,6 +38,8 @@ class Inspection:
         assert pool == POOL and run_id
         self.calls.append(dict(identities))
         gameplay = self.world.gameplay
+        if self.cleaned:
+            gameplay.rows.clear()
         return {
             "catches": [],
             "fursuits": [],
@@ -72,7 +78,9 @@ class Fixtures(FakeFixtureChannel):
         return result
 
 
-def run(rule: str | None = None) -> tuple[int, list[str], JourneyWorld, Fixtures]:
+def run(
+    rule: str | None = None, *, cleaned: bool = False
+) -> tuple[int, list[str], JourneyWorld, Fixtures]:
     world = JourneyWorld(
         users={i: user_json(i) for i in range(IDENTITIES)},
         profiles={i: not_onboarded() for i in range(IDENTITIES)},
@@ -84,23 +92,33 @@ def run(rule: str | None = None) -> tuple[int, list[str], JourneyWorld, Fixtures
     leases.slots[0].state = "quarantined"
     fixtures = Fixtures(world, leases)
     lines: list[str] = []
-    gameplay = world.gameplay
-    code = asyncio.run(
-        run_request_limit(
-            POOL,
-            prompt_secret=lambda: SECRET,
-            lease_channel=leases,
-            fixture_channel=fixtures,
-            inspection_channel=Inspection(world),
-            emit=lines.append,
-            clerk_transport=world.clerk_transport,
-            api_transport=world.api_transport,
-            clock=world.clock,
-            run_id=RUN_ID,
-            sleep=gameplay.advance,
-            wall=gameplay.clock,
-        )
-    )
+    # Deadline-based virtual sleeps: both players wait on their own schedules.
+    time = VirtualTime()
+    world.gameplay.clock_source = time.clock.wall_time
+    inspection = Inspection(world, cleaned=cleaned)
+
+    async def execute() -> int:
+        driver = asyncio.create_task(time.drive())
+        try:
+            return await run_request_limit(
+                POOL,
+                prompt_secret=lambda: SECRET,
+                lease_channel=leases,
+                fixture_channel=fixtures,
+                inspection_channel=inspection,
+                emit=lines.append,
+                clerk_transport=world.clerk_transport,
+                api_transport=world.api_transport,
+                clock=world.clock,
+                run_id=RUN_ID,
+                sleep=time.sleep,
+                wall=time.clock.wall_time,
+            )
+        finally:
+            driver.cancel()
+            await asyncio.gather(driver, return_exceptions=True)
+
+    code = asyncio.run(execute())
     return code, lines, world, fixtures
 
 
@@ -121,6 +139,10 @@ def test_normal_play_stays_under_the_limit_abuse_hits_it_and_requests_expire(
     # 20 normal requests, 30 before the limit, and 1 after the wait; all pending.
     assert len(rows) == NORMAL_REQUESTS + LIMIT + 1
     assert {row.state for row in rows} == {"pending"}
+    # Each player kept its own pace on the virtual clock.
+    for player, spacing in ((rows[0].player, 30), (rows[-1].player, 2)):
+        created = [row.created_at for row in rows if row.player == player][:20]
+        assert all(b - a >= spacing - 0.01 for a, b in pairwise(created))
     assert journey_world.gameplay.catches == []
     provision: dict[str, Any] = fixtures.calls_to("provision")[0]
     assert provision["fursuits_per_owner"] == 5 and len(provision["owners"]) == 8
@@ -157,3 +179,13 @@ def test_each_broken_rule_fails_its_own_journey(
     assert code != 0
     assert line in lines
     assert "retain" in fixtures.operations and "cleanup" not in fixtures.operations
+
+
+def test_rows_that_cleanup_deletes_after_the_deadline_do_not_fail_reconciliation(
+    world: World,
+) -> None:
+    """Daily cleanup can delete every request once the review deadline passes."""
+    del world
+    code, lines, _, _ = run(cleaned=True)
+
+    assert code == 0, lines

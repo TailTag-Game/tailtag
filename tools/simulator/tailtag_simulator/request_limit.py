@@ -24,13 +24,14 @@ from typing import Final, Literal
 
 import httpx
 
-from tailtag_simulator.client import ApiClient, Reply, RequestFailed, TransportFailed
+from tailtag_simulator.client import ApiClient, Reply
 from tailtag_simulator.fixtures import FixtureChannel, run_provisioned
 from tailtag_simulator.gameplay import (
     StepFailed,
     arm_request_session,
     get_value,
     list_items,
+    observe,
     positive_number,
     step,
     text_value,
@@ -80,6 +81,7 @@ class _Limit:
         self.payloads: list[tuple[int, str]] = []  # (fursuit id, payload)
         self.expectations = PopulationExpectations()
         self.deadline: float | None = None
+        self.deadline_passed = False
 
     async def arm(self) -> None:
         body = await step(
@@ -146,10 +148,11 @@ class _Limit:
         await self._at(start + LIMIT * ABUSE_SPACING_SECONDS)
         fursuit, payload = self.payloads[LIMIT]
         self.expectations.attempts.add(("attendee1", fursuit))
-        try:
-            reply = await self.players[1].post(REQUESTS_PATH, {"payload": payload})
-        except (TransportFailed, RequestFailed):
-            raise StepFailed("submit_limited", "429/rate_limited", "error") from None
+        reply = await observe(
+            "submit_limited",
+            self.players[1].post(REQUESTS_PATH, {"payload": payload}),
+            "429/rate_limited",
+        )
         wait = positive_number(reply.body, "retry_after_seconds")
         await step(
             "submit_limited",
@@ -167,6 +170,7 @@ class _Limit:
             raise StepFailed("deadline", "200/-", "200/shape")
         # A few seconds of margin absorb clock skew between host and server.
         await self._at(self.deadline + EXPIRY_MARGIN_SECONDS)
+        self.deadline_passed = True
         for client in self.players:
             await step(
                 "player_list",
@@ -180,10 +184,18 @@ class _Limit:
             200,
             shape=lambda b: list_items(get_value(b, "results")) == [],
         )
-        fursuit = self.payloads[0][0]
-        request = self.expectations.requests[("attendee0", fursuit)].id
+        # Probe with any request that was created; a failed journey may have
+        # created none of its own.
+        created = next(iter(self.expectations.requests.items()), None)
+        if created is None:
+            raise StepFailed("approve_closed", "409/review_window_closed", "-/none")
+        (_, fursuit), fact = created
         owner = int(self.expectations.target_owners[fursuit].removeprefix("owner"))
-        reply = await self.owners[owner].post(f"{INCOMING_PATH}{request}/approve/")
+        reply = await observe(
+            "approve_closed",
+            self.owners[owner].post(f"{INCOMING_PATH}{fact.id}/approve/"),
+            "409/review_window_closed",
+        )
         # Cleanup can delete the row after the deadline. The contract treats
         # 404 `request_not_found` like 409 `review_window_closed`.
         if reply.status == 404:
@@ -197,15 +209,22 @@ class _Limit:
             await self.sleep(remaining)
 
 
-async def _journey(name: str, work: Awaitable[None]) -> JourneyResult:
+async def _journey(
+    name: str, work: Awaitable[None], finished: list[JourneyResult]
+) -> JourneyResult:
+    """Run one journey; record its result in ``finished`` however it ends."""
     try:
         await work
     except StepFailed as failed:
-        return JourneyResult(name, failed.step, failed.expected, failed.observed)
-    except SafetyAborted:
-        # The other journey aborted the run; this one stopped without an answer.
-        return JourneyResult(name, "aborted", "-", "error")
-    return JourneyResult(name, None, None, None)
+        result = JourneyResult(name, failed.step, failed.expected, failed.observed)
+    except (SafetyAborted, asyncio.CancelledError):
+        # A safety abort stopped this journey without an answer.
+        finished.append(JourneyResult(name, "aborted", "-", "error"))
+        raise
+    else:
+        result = JourneyResult(name, None, None, None)
+    finished.append(result)
+    return result
 
 
 async def simulate_request_limit(
@@ -214,15 +233,21 @@ async def simulate_request_limit(
     *,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     wall: Callable[[], float] = time.time,
+    finished: list[JourneyResult] | None = None,
 ) -> tuple[tuple[JourneyResult, ...], _Limit]:
-    """Arm every suit, run both players at once, then check expiry."""
+    """Arm every suit, run both players at once, then check expiry.
+
+    ``finished`` collects each result as it ends, so a run that a safety abort
+    cancels can still report the journeys that finished first.
+    """
+    results: list[JourneyResult] = [] if finished is None else finished
     limit = _Limit(owners, players, sleep=sleep, wall=wall)
     await limit.arm()
     normal, abuse = await asyncio.gather(
-        _journey("normal_play", limit.normal_play()),
-        _journey("abuse_limit", limit.abuse_limit()),
+        _journey("normal_play", limit.normal_play(), results),
+        _journey("abuse_limit", limit.abuse_limit(), results),
     )
-    expiry = await _journey("expiry", limit.expiry())
+    expiry = await _journey("expiry", limit.expiry(), results)
     return (normal, abuse, expiry), limit
 
 
@@ -257,10 +282,21 @@ async def run_request_limit(
         origin: str, clients: tuple[ApiClient, ...], indexes: tuple[int, ...]
     ) -> Literal["pass", "journeys", "reconciliation"]:
         del origin
-        async with guarded_stage("simulation", report):
-            results, limit = await simulate_request_limit(
-                clients[:OWNERS], clients[OWNERS:], sleep=sleep, wall=wall
-            )
+        finished: list[JourneyResult] = []
+        try:
+            async with guarded_stage("simulation", report):
+                results, limit = await simulate_request_limit(
+                    clients[:OWNERS],
+                    clients[OWNERS:],
+                    sleep=sleep,
+                    wall=wall,
+                    finished=finished,
+                )
+        except BaseException:
+            # Report the journeys that ended before the abort, as journeys do.
+            for line in journey_lines(finished):
+                emit(line)
+            raise
         failed = sum(result.failed_step is not None for result in results)
         if report is not None:
             report.record_results(
@@ -295,6 +331,8 @@ async def run_request_limit(
                 run_id=run,
                 convention=limit.convention,
                 request_flow=True,
+                # Cleanup may delete every row once the deadline has passed.
+                requests_may_be_deleted=limit.deadline_passed,
             )
         if report is not None:
             report.record_results(

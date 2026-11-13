@@ -18,6 +18,7 @@ import re
 import struct
 import time
 import zlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Final, cast
@@ -48,6 +49,14 @@ from pool_support import (
 INDEXES: Final = 8  # slot 0 is quarantined; the run leases 1..7
 
 CATCH_SESSION: Final = "catch-session/"
+TAG_PREFIX: Final = "https://tailtag.app/t#"
+
+
+def tag_shaped(payload: str) -> bool:
+    """The printed tag format: the prefix and exactly 43 token characters."""
+    return payload.startswith(TAG_PREFIX) and len(payload) == len(TAG_PREFIX) + 43
+
+
 # The retired v1 confirm path: tests assert that nothing calls it.
 CONFIRM_PATH: Final = "/api/catches/confirm/"
 PREVIEW_PATH: Final = "/api/catches/preview/"
@@ -205,14 +214,17 @@ class Gameplay:
     rows: list[RequestRow] = field(default_factory=list[RequestRow])
     blocks: set[tuple[int, int]] = field(default_factory=set[tuple[int, int]])
     deadline: float | None = None  # wall time; None keeps the window open
+    # A virtual clock for concurrent tests; None uses the real clock.
+    clock_source: Callable[[], float] | None = None
 
     async def advance(self, seconds: float) -> None:
         """The journeys' injected sleep: server time moves, no real wait."""
         self.now += seconds
 
     def clock(self) -> float:
-        """Server wall time: the real clock plus every injected advance."""
-        return time.time() + self.now
+        """Server wall time: the injected source, else the real clock, plus advances."""
+        source = self.clock_source or time.time
+        return source() + self.now
 
     def window_open(self) -> bool:
         return self.deadline is None or self.clock() < self.deadline
@@ -255,9 +267,10 @@ class Gameplay:
         )
 
     def issue(self, fursuit_id: int) -> str:
+        """A reusable tag payload: the contract prefix and a 43-character token."""
         version = len(self.issued.setdefault(fursuit_id, [])) + 1
         text = f"SENTINEL-{fursuit_id}-{version}-".ljust(43, "x")[:43]
-        payload = f"tailtag:catch:v1:{text}"
+        payload = f"{TAG_PREFIX}{text}"
         self.issued[fursuit_id].append(payload)
         self.fursuit_of[payload] = fursuit_id
         return payload
@@ -481,7 +494,7 @@ class Gameplay:
 
     def preview(self, index: int) -> httpx.Response:
         payload = str(self.body().get("payload"))
-        fursuit_id = self.fursuit_of.get(payload)
+        fursuit_id = self.fursuit_of.get(payload) if tag_shaped(payload) else None
         if not self.eligible(index):
             return failure(403, "catcher_ineligible")
         known = fursuit_id is not None and (
@@ -496,7 +509,8 @@ class Gameplay:
     def submit(self, index: int) -> httpx.Response:
         unavailable = failure(404, "catch_target_unavailable")
         payload = str(self.body().get("payload"))
-        fursuit_id = self.fursuit_of.get(payload)
+        # A v1 or malformed payload is an unknown tag (contract response table).
+        fursuit_id = self.fursuit_of.get(payload) if tag_shaped(payload) else None
         if fursuit_id is None:
             return unavailable
         if not self.eligible(index):

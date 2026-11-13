@@ -55,6 +55,9 @@ V3_FAILURE_OPERATIONS = ("read", "preview", "submit")
 V3_DOMAIN_CASES = ("none", "replaced", "stopped", "expired")
 # inspect-population-v2 caps catches and requests at 120 per run.
 V3_MAXIMUM_REQUESTS = 120
+# The contract's per-player limit: 30 created requests in a rolling 10 minutes.
+# The load model plans no 429, so no attendee may plan more than that.
+V3_PER_PLAYER_REQUESTS = 30
 REVIEW_DEFAULTS: dict[str, object] = {
     "automatic_share": 0.25,
     "delay_min_seconds": 5,
@@ -85,10 +88,35 @@ def resolve_request_traffic_config(config: Mapping[str, object]) -> dict[str, ob
     high = _number(review["delay_max_seconds"], 0, 3600)
     if low > high or _number(review["poll_seconds"], 0, 60) == 0:
         raise _invalid()
-    if _planned_requests(result) > V3_MAXIMUM_REQUESTS:
+    if (
+        _planned_requests(result) > V3_MAXIMUM_REQUESTS
+        or _most_per_attendee(result) > V3_PER_PLAYER_REQUESTS
+    ):
         raise _invalid()
     result["review"] = review
     return result
+
+
+def _targets(config: Mapping[str, object]) -> int:
+    owners = cast(int, config["normal_owners"]) + cast(int, config["popular_owners"])
+    return (
+        1 if config["family"] == "hotspot" else owners * cast(int, config["fursuits"])
+    )
+
+
+def _most_per_attendee(config: Mapping[str, object]) -> int:
+    """The most distinct suits any one attendee plans to request."""
+    targets = _targets(config)
+    return max(
+        (
+            min(cast(int, config[f"{prefix}_budget"]), targets)
+            for persona, prefix in zip(
+                PERSONAS[:4], ("casual", "active", "heavy", "retry"), strict=True
+            )
+            if cast(int, config[persona]) > 0
+        ),
+        default=0,
+    )
 
 
 def _planned_requests(config: Mapping[str, object]) -> int:

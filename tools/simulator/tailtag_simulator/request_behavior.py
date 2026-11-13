@@ -307,9 +307,17 @@ async def simulate_request_population(
                 require(made.caught_at == fact.requested_at)
         if expectations.pairs.get(pair) == "unresolved":
             runtime.record("unresolved", -1)
-        expectations.pairs[pair] = (
-            "required" if outcome in ("approved", "already_caught") else "pending"
-        )
+        decided = expectations.requests.get(pair)
+        if not (
+            outcome == "already_pending"
+            and decided is not None
+            and decided.state != "pending"
+        ):
+            # A stale `already_pending` answered before an owner decision must
+            # not undo that decision.
+            expectations.pairs[pair] = (
+                "required" if outcome in ("approved", "already_caught") else "pending"
+            )
         summaries[actor.persona]["automatic" if outcome == "approved" else outcome] += 1
 
     async def preview(actor: _Actor, target: _Target, payload: str) -> None:
@@ -344,6 +352,14 @@ async def simulate_request_population(
     ) -> None:
         async def journey() -> None:
             nonlocal failed
+            pair = (actor.label, target.id)
+            known = expectations.requests.get(pair)
+            if known is not None and known.state == "declined":
+                # A later cycle never resubmits a declined pair: the cooldown
+                # would refuse it, and the load model plans no 429.
+                return
+            # Owners wait until this visit's submissions have all returned.
+            settled.discard(pair)
             owner = bootstrap.owners[target.owner]
             path = activation(target)
             case = failure["domain_case"]
@@ -356,7 +372,6 @@ async def simulate_request_population(
             if phase != "recover":
                 await preview(actor, target, payload)
             expired = case == "expired" and clock.wall_time() >= deadlines[target.id]
-            pair = (actor.label, target.id)
             expired_missing = (
                 expired
                 and failure["recover_existing"]
@@ -680,7 +695,10 @@ async def simulate_request_population(
         ]
         await run_schedule(config, seed, entry, runtime=runtime, clock=clock)
         drain.set()
+        draining_from = clock.monotonic()
         await asyncio.gather(*owners)
+        # Owner draining is workload too: keep it inside the measured window.
+        runtime.drain_seconds += max(0.0, clock.monotonic() - draining_from)
     except asyncio.CancelledError:
         runtime.stop("external")
         for task in owners:

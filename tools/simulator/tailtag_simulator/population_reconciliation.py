@@ -221,11 +221,14 @@ async def reconcile_population(
     run_id: str,
     convention: int,
     request_flow: bool = False,
+    requests_may_be_deleted: bool = False,
 ) -> PopulationReconciliationResult:
     """Compare persisted rows, confirm facts and every actor's complete public history.
 
     ``request_flow`` also compares the run's catch requests with the requests the
-    simulator observed, and catch credit with request state (#508).
+    simulator observed, and catch credit with request state (#508). After a
+    review deadline, ``requests_may_be_deleted`` lets cleanup remove expected
+    rows; credit without a request still fails.
     """
     found: list[PopulationDiscrepancy] = []
     integrity = False
@@ -340,7 +343,14 @@ async def reconcile_population(
         ):
             add(Check.INSPECT, pair[0], 1, 0, actual=False)
     if request_flow:
-        _compare_requests(expectations, request_rows, inspected.catches, role_of, add)
+        _compare_requests(
+            expectations,
+            request_rows,
+            inspected.catches,
+            role_of,
+            add,
+            requests_may_be_deleted=requests_may_be_deleted,
+        )
     for pair in expectations.made:
         if pair not in pairs:
             add(Check.MISSING, pair[0], 1, 0)
@@ -403,6 +413,8 @@ def _compare_requests(
     catches: Sequence[_Row],
     role_of: Mapping[int, str],
     add: _Add,
+    *,
+    requests_may_be_deleted: bool = False,
 ) -> None:
     """Request rows against observed facts; catch credit against request state."""
     by_pair: dict[tuple[str, int], list[_RequestRow]] = {}
@@ -432,7 +444,11 @@ def _compare_requests(
             )
             continue
         match = next((row for row in stored if row.id == fact.id), None)
-        if match is None or match.state != fact.state:
+        if (
+            match is None
+            or match.state != fact.state
+            or match.requested_at != fact.requested_at
+        ):
             add(RequestCheck.REQUEST_STATE, actor, 1, 0)
         approved = [row for row in stored if row.state == "approved"]
         credited = credits.get(pair, [])
@@ -441,8 +457,8 @@ def _compare_requests(
                 add(RequestCheck.REQUEST_CREDIT, actor, 1, len(credited))
         elif credited:
             add(RequestCheck.REQUEST_CREDIT, actor, 0, len(credited))
-    for pair, fact in expectations.requests.items():
-        if pair not in by_pair:
+    for pair in expectations.requests:
+        if pair not in by_pair and not requests_may_be_deleted:
             add(RequestCheck.REQUEST_STATE, pair[0], 1, 0)
     for pair, credited in credits.items():
         if pair not in by_pair and credited:

@@ -102,6 +102,24 @@ def _observed_code(body: object) -> str:
     return "-"
 
 
+async def observe(name: str, sending: Awaitable[Reply], expected: str) -> Reply:
+    """Await one request whose reply the caller checks; failures match `step`.
+
+    A step that needs the raw reply (a header, or one of two concurrent replies)
+    still turns a send failure into a journey failure, not a stopped run.
+    """
+    try:
+        return await sending
+    except (StepFailed, SafetyAborted):
+        raise
+    except TransportFailed:
+        raise StepFailed(name, expected, "error") from None
+    except RequestFailed:
+        raise IntegrityFailed(name, expected, "error") from None
+    except Exception:  # noqa: BLE001 - any send failure is "error", as in `step`
+        raise StepFailed(name, expected, "error") from None
+
+
 async def step(
     name: str,
     sending: Awaitable[Reply],

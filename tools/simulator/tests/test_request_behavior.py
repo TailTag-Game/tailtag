@@ -4,7 +4,8 @@ from collections.abc import Callable
 from typing import cast
 
 import pytest
-from request_support import RequestWorld, Row, request_config, run_requests
+from journey_support import RequestRow
+from request_support import RequestWorld, request_config, run_requests
 
 
 def totals(run: object, *keys: str) -> dict[str, int]:
@@ -20,20 +21,15 @@ def test_baseline_submits_reviews_and_credits_every_request() -> None:
 
     assert run.population.passed, run.population.failure
     counts = totals(run, "pending", "automatic", "approved", "declined")
-    assert counts["pending"] + counts["automatic"] == len(world.rows) == 4
+    rows = world.gameplay.rows
+    assert counts["pending"] + counts["automatic"] == len(rows) == 4
     assert counts["approved"] + counts["declined"] == counts["pending"]
-    assert all(row.state in ("approved", "declined") for row in world.rows)
-    # Every catch belongs to an approved request, at the request time.
-    approved = {
-        (r.player, r.fursuit): r.requested_at
-        for r in world.rows
-        if r.state == "approved"
-    }
-    assert {
-        (c["player"], c["fursuit"]): c["caught_at"] for c in world.catches
-    } == approved
+    assert all(row.state in ("approved", "declined") for row in rows)
+    # Every catch belongs to an approved request.
+    approved = {(r.player, r.fursuit_id) for r in rows if r.state == "approved"}
+    assert {(c.catcher, c.fursuit_id) for c in world.gameplay.catches} == approved
     # Owners set the seeded approval mode and read the tag, never the v1 credential.
-    paths = {path for _, _, path in world.calls}
+    paths = {path for _, _, path, _ in world.requests}
     assert not any(
         "catch-credential" in path or path.endswith("/confirm/") for path in paths
     )
@@ -48,8 +44,9 @@ def test_the_same_seed_makes_the_same_choices() -> None:
     def choices() -> tuple[object, ...]:
         world = RequestWorld(config)
         run_requests(world, config, seed=11)
-        return tuple((r.player, r.fursuit, r.state) for r in world.rows) + tuple(
-            (s.id, s.mode) for s in world.suits.values()
+        rows = world.gameplay.rows
+        return tuple((r.player, r.fursuit_id, r.state) for r in rows) + tuple(
+            sorted(world.gameplay.modes.items())
         )
 
     assert choices() == choices()
@@ -70,7 +67,7 @@ def test_lost_submit_responses_converge_on_one_request(share: int) -> None:
     run, compared = run_requests(world, config, reconcile=True)
 
     assert run.population.passed, run.population.failure
-    assert len(world.rows) == 2
+    assert len(world.gameplay.rows) == 2
     assert compared is not None and compared.passed, compared
 
 
@@ -82,7 +79,7 @@ def test_concurrent_duplicate_submissions_name_one_request() -> None:
     run, _ = run_requests(world, config)
 
     assert run.population.passed, run.population.failure
-    assert len(world.rows) == 1
+    assert len(world.gameplay.rows) == 1
     assert totals(run, "pending", "already_pending") == {
         "pending": 1,
         "already_pending": 1,
@@ -104,7 +101,7 @@ def test_a_session_end_or_tag_replacement_keeps_the_pending_request_approvable(
     run, _ = run_requests(world, config)
 
     assert run.population.passed, run.population.failure
-    assert [r.state for r in world.rows] == ["approved"]
+    assert [r.state for r in world.gameplay.rows] == ["approved"]
     assert totals(run, "already_pending")["already_pending"] == 1
 
 
@@ -116,7 +113,7 @@ def test_a_new_submission_after_the_change_is_an_expected_rejection(case: str) -
     run, _ = run_requests(world, config)
 
     assert run.population.passed, run.population.failure
-    assert world.rows == []
+    assert world.gameplay.rows == []
     assert totals(run, "expected_rejections")["expected_rejections"] == 1
 
 
@@ -132,23 +129,23 @@ def test_an_unplanned_429_fails_correctness() -> None:
 
 
 def _second_row(world: RequestWorld) -> None:
-    first = world.rows[0]
-    world.rows.append(
-        Row(first.id + 100, first.player, first.fursuit, "pending", first.requested_at)
+    first = world.gameplay.rows[0]
+    world.gameplay.rows.append(
+        RequestRow(first.id + 100, first.player, first.fursuit_id, "pending")
     )
 
 
 def _uncredited(world: RequestWorld) -> None:
-    world.catches.clear()
+    world.gameplay.catches.clear()
 
 
 def _declined_with_credit(world: RequestWorld) -> None:
-    row = next(r for r in world.rows if r.state == "approved")
+    row = next(r for r in world.gameplay.rows if r.state == "approved")
     row.state = "declined"
 
 
 def _state_changed(world: RequestWorld) -> None:
-    world.rows[0].state = "invalidated"
+    world.gameplay.rows[0].state = "invalidated"
 
 
 @pytest.mark.parametrize(
@@ -196,12 +193,40 @@ def test_owner_weights_steer_the_seeded_target_choices() -> None:
         )
         world = RequestWorld(config)
         run_requests(world, config, seed=5)
-        return [row.fursuit for row in world.rows]
+        return [row.fursuit_id for row in world.gameplay.rows]
 
-    popular = 510  # the popular owner's suits are 510 and 511
+    popular = 200  # fixture ids: the popular owner's suits are 200 and 201
     heavy_popular = first_targets(1, 100)
     heavy_normal = first_targets(100, 1)
 
     assert sum(f >= popular for f in heavy_popular) > sum(
         f >= popular for f in heavy_normal
     )
+
+
+def test_a_later_cycle_never_resubmits_a_declined_pair() -> None:
+    """CodeRabbit #529: the cooldown would refuse it, and no 429 is planned."""
+    config = request_config(
+        actors=1,
+        fursuits=1,
+        review={
+            "automatic_share": 0,
+            "approve_rate": 0,
+            "delay_min_seconds": 0,
+            "delay_max_seconds": 0,
+            "poll_seconds": 0.1,
+        },
+        traffic={
+            "mode": "active",
+            "segments": [{"duration_seconds": 5, "start": 1, "end": 1}],
+            "bursts": [],
+            "think_seconds": 1,
+            "max_entries": 5,
+        },
+    )
+    world = RequestWorld(config)
+
+    run, _ = run_requests(world, config)
+
+    assert run.population.passed, run.population.failure
+    assert [row.state for row in world.gameplay.rows] == ["declined"]

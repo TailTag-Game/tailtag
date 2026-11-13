@@ -32,10 +32,15 @@ uuid_text = reports._uuid
 REPORT_LIMIT = 1024 * 1024
 RECORD_LIMIT = 64 * 1024
 NAMES = (*OPERATIONS, "total")
-# Thresholds and baselines may name schema 5 or schema 6 operations (#508).
-# A report is compared only with records under its own comparable key.
-ALL_NAMES = (*dict.fromkeys((*OPERATIONS, *V6_OPERATIONS)), "total")
+# Thresholds and baselines name the operations of their key's scenario
+# version: schema 5 names for versions 1 and 2, schema 6 names for version 3.
 MEASURED_SCHEMAS = (5, 6)
+
+
+def key_names(key: Mapping[str, Any]) -> tuple[str, ...]:
+    """The operation names a comparable key's scenario version can report."""
+    operations = V6_OPERATIONS if key["scenario_version"] == 3 else OPERATIONS
+    return (*operations, "total")
 
 
 def report_names(report: Mapping[str, Any]) -> tuple[str, ...]:
@@ -143,13 +148,13 @@ def parse_thresholds(value: object) -> dict[str, Any]:
     )
     require(thresholds["schema_version"] == 1 and thresholds["kind"] == "thresholds")
     require(type(thresholds["schema_version"]) is int)
-    _key(thresholds["key"])
+    names = key_names(_key(thresholds["key"]))
     for name in closed_object(thresholds["minimum_samples"], {"p95", "p99"}).values():
         _limit(name)
     operations = thresholds["operations"]
     require(isinstance(operations, dict))
     for name, limits in cast(dict[str, Any], operations).items():
-        require(name in ALL_NAMES and isinstance(limits, dict))
+        require(name in names and isinstance(limits, dict))
         require(set(cast(dict[str, Any], limits)) <= set(LIMITS))
         for entry in cast(dict[str, Any], limits).values():
             _limit(entry)
@@ -178,7 +183,7 @@ def parse_baseline(value: object) -> dict[str, Any]:
     )
     require(baseline["schema_version"] == 1 and baseline["kind"] == "baseline")
     require(type(baseline["schema_version"]) is int)
-    _key(baseline["key"])
+    names = key_names(_key(baseline["key"]))
     report = closed_object(
         baseline["report"],
         {
@@ -209,7 +214,7 @@ def parse_baseline(value: object) -> dict[str, Any]:
     metrics = baseline["metrics"]
     require(isinstance(metrics, dict) and len(cast(dict[str, Any], metrics)) > 0)
     for name, row in cast(dict[str, Any], metrics).items():
-        require(name in ALL_NAMES)
+        require(name in names)
         fields = closed_object(
             row,
             {

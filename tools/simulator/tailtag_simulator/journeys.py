@@ -52,6 +52,9 @@ from tailtag_simulator.gameplay import (
     list_items as _items,
 )
 from tailtag_simulator.gameplay import (
+    observe as _observe,
+)
+from tailtag_simulator.gameplay import (
     positive_number as _number,
 )
 from tailtag_simulator.gameplay import (
@@ -459,7 +462,11 @@ async def _cooldown(run: _Run) -> None:
     payload = await _arm_suit(run, 1, 1)
     request = await _pending(run, Role.CATCHER0, catcher, fursuit, payload)
     await _decide(run, 1, request, "decline", {"block": False})
-    reply = await run.submit(Role.CATCHER0, catcher, fursuit, payload)
+    reply = await _observe(
+        "submit_cooled",
+        run.submit(Role.CATCHER0, catcher, fursuit, payload),
+        "429/cooldown_active",
+    )
     wait = _number(reply.body, "retry_after_seconds")
     await _step(
         "submit_cooled",
@@ -506,10 +513,22 @@ async def _retry(run: _Run) -> None:
 async def _duplicate(run: _Run) -> None:
     catcher, fursuit = run.context.catchers[2], await run.fursuit(0, 0)
     payload = await _arm_suit(run, 0, 0)
-    replies = await asyncio.gather(
-        run.submit(Role.CATCHER2, catcher, fursuit, payload),
-        run.submit(Role.CATCHER2, catcher, fursuit, payload),
+    # Both submissions finish before the journey judges either one.
+    outcomes = await asyncio.gather(
+        *(
+            _observe(
+                "submit_twice",
+                run.submit(Role.CATCHER2, catcher, fursuit, payload),
+                "200/already_pending",
+            )
+            for _ in range(2)
+        ),
+        return_exceptions=True,
     )
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException):
+            raise outcome
+    replies = cast(list[Reply], outcomes)
     first, second = sorted(replies, key=lambda reply: -reply.status)
     created = await _step(
         "submit",

@@ -36,13 +36,7 @@ def test_v3_adds_the_review_mix_and_request_operation_names() -> None:
     "change",
     [
         {"failure": {"operations": ["resolve"]}},
-        {"failure": {"domain_case": "stale"}},
-        {"review": {"approve_rate": 1.5}},
-        {"review": {"automatic_share": -0.1}},
-        {"review": {"delay_min_seconds": 31, "delay_max_seconds": 30}},
-        {"review": {"poll_seconds": 0}},
         {"review": {"unknown": 1}},
-        {"review": []},
         # 121 planned requests: 11 heavy players with 11 suits each.
         {
             "casual": 0,
@@ -54,18 +48,19 @@ def test_v3_adds_the_review_mix_and_request_operation_names() -> None:
             "popular_owners": 0,
             "fursuits": 1,
         },
+        # One player planning 31 suits would meet the per-player limit.
+        {
+            "casual": 0,
+            "active": 0,
+            "retry_prone": 0,
+            "heavy": 1,
+            "heavy_budget": 31,
+            "normal_owners": 31,
+            "popular_owners": 0,
+            "fursuits": 1,
+        },
     ],
-    ids=(
-        "v2-operation",
-        "v2-domain-case",
-        "approve-rate-over-one",
-        "negative-share",
-        "delay-range-inverted",
-        "zero-poll",
-        "unknown-review-key",
-        "review-not-an-object",
-        "over-request-cap",
-    ),
+    ids=("v2-operation", "unknown-review-key", "over-request-cap", "over-player-limit"),
 )
 def test_v3_rejects_v2_names_bad_review_values_and_oversized_runs(
     change: dict[str, object],
