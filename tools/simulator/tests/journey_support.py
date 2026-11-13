@@ -13,11 +13,13 @@ only changes what that journey observes; every other journey keeps its own state
 """
 
 import json
+import math
 import re
 import struct
 import time
 import zlib
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Final, cast
 
 import httpx
@@ -162,6 +164,7 @@ class RequestRow:
     state: str
     declined_at: float | None = None
     blocked: bool = False
+    created_at: float = 0.0
 
 
 @dataclass
@@ -203,14 +206,18 @@ class Gameplay:
     modes: dict[int, str] = field(default_factory=dict[int, str])
     rows: list[RequestRow] = field(default_factory=list[RequestRow])
     blocks: set[tuple[int, int]] = field(default_factory=set[tuple[int, int]])
+    deadline: float | None = None  # wall time; None keeps the window open
 
     async def advance(self, seconds: float) -> None:
         """The journeys' injected sleep: server time moves, no real wait."""
         self.now += seconds
 
     def clock(self) -> float:
-        """Server time: real elapsed time plus every injected advance."""
-        return time.monotonic() + self.now
+        """Server wall time: the real clock plus every injected advance."""
+        return time.time() + self.now
+
+    def window_open(self) -> bool:
+        return self.deadline is None or self.clock() < self.deadline
 
     def break_rule(self, name: str) -> None:
         self.broken = name
@@ -435,11 +442,17 @@ class Gameplay:
         if (method, path) == ("POST", REQUESTS_PATH):
             return self.submit(index)
         if (method, path) == ("GET", REQUESTS_PATH):
-            mine = [r for r in reversed(self.rows) if r.player == index]
+            mine = [
+                r
+                for r in reversed(self.rows)
+                if r.player == index and self.window_open()
+            ]
             return reply(200, {"results": [self.request_view(r) for r in mine]})
         if (method, path) == ("GET", INCOMING_PATH):
             mine = [
-                r for r in reversed(self.rows) if self.owner_of(r.fursuit_id) == index
+                r
+                for r in reversed(self.rows)
+                if self.owner_of(r.fursuit_id) == index and self.window_open()
             ]
             return reply(
                 200,
@@ -512,7 +525,9 @@ class Gameplay:
             "convention_id": CONVENTION_ID,
             "state": row.state,
             "requested_at": AT,
-            "review_deadline_at": "2026-10-06T04:00:00Z",
+            "review_deadline_at": "2026-10-06T04:00:00Z"
+            if self.deadline is None
+            else datetime.fromtimestamp(self.deadline, UTC).isoformat(),
         }
 
     def catch_for(self, index: int, fursuit_id: int) -> Catch | None:
@@ -614,7 +629,29 @@ class Gameplay:
                     "retry_after_seconds": 10,
                 },
             )
-        row = RequestRow(8000 + len(self.rows) + 1, index, fursuit_id, "pending")
+        recent = [
+            r.created_at
+            for r in self.rows
+            if r.player == index and r.created_at > self.clock() - 600
+        ]
+        if len(recent) >= 30 and self.broken != "abuse_limit":
+            wait = max(1, math.ceil(min(recent) + 600 - self.clock()))
+            return httpx.Response(
+                429,
+                headers={"Retry-After": str(wait)},
+                json={
+                    "code": "rate_limited",
+                    "detail": "Try again later.",
+                    "retry_after_seconds": wait,
+                },
+            )
+        row = RequestRow(
+            8000 + len(self.rows) + 1,
+            index,
+            fursuit_id,
+            "pending",
+            created_at=self.clock(),
+        )
         self.rows.append(row)
         if self.modes.get(fursuit_id) == "automatic" and self.broken != "automatic":
             caught = self.approve(row)
@@ -669,6 +706,8 @@ class Gameplay:
         )
         if row is None:
             return failure(404, "request_not_found")
+        if not self.window_open() and self.broken != "expiry":
+            return failure(409, "review_window_closed")
         changed = failure(409, "request_state_changed")
         if action == "approve":
             if row.state != "pending" and not (

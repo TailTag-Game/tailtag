@@ -245,6 +245,8 @@ class FakeFixtureChannel:
         raise FixtureFailed("FAIL_REQUEST")
 
     def _provision(self, args: dict[str, object]) -> dict[str, object]:
+        # Only the request-limit scenario sends the optional offset (#508).
+        self.review_deadline_offset = args.pop("review_deadline_offset_seconds", None)
         owners, catchers = args.get("owners"), args.get("catchers")
         extras = args.get("extras")
         per_owner, run_id = args.get("fursuits_per_owner"), args.get("run_id")

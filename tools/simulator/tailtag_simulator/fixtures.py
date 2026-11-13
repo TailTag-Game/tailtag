@@ -477,6 +477,7 @@ async def run_provisioned(
     safety: SafetyRuntime | None = None,
     reconcile_partial: Callable[[], Awaitable[None]] | None = None,
     renew_leases: bool = False,
+    review_deadline_offset_seconds: int | None = None,
     _renewal: _Renewal | None = None,
     simulate_and_reconcile: Callable[
         [str, tuple[ApiClient, ...], tuple[int, ...]],
@@ -529,6 +530,7 @@ async def run_provisioned(
                 simulate_and_reconcile=simulate_and_reconcile,
                 reconcile_partial=reconcile_partial,
                 renew_leases=renew_leases,
+                review_deadline_offset_seconds=review_deadline_offset_seconds,
             ),
             safety=runtime,
             target="staging",
@@ -640,6 +642,14 @@ async def run_provisioned(
                                 "catchers": list(indexes[owners:provisioned]),
                                 "fursuits_per_owner": fursuits_per_owner,
                                 "extras": list(indexes[provisioned:]),
+                                # Only the limit scenario moves the deadline (#508).
+                                **(
+                                    {}
+                                    if review_deadline_offset_seconds is None
+                                    else {
+                                        "review_deadline_offset_seconds": review_deadline_offset_seconds
+                                    }
+                                ),
                             },
                         )
             except SafetyAborted:
