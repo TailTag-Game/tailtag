@@ -36,7 +36,7 @@ CONFIG: dict[str, object] = {
 # Convention runs use scenario v3 (#508). Real-clock tests review at once.
 REQUEST_CONFIG: dict[str, object] = {
     **CONFIG,
-    "review": {"delay_min_seconds": 0, "delay_max_seconds": 0, "poll_seconds": 0.01},
+    "review": {"delay_min_seconds": 0, "delay_max_seconds": 0, "poll_seconds": 0.05},
 }
 
 
