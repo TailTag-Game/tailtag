@@ -910,3 +910,163 @@ def test_only_the_exact_request_shape_reaches_inspect(payload: object) -> None:
     seed_run()
 
     assert execute(payload) == {"result": "FAIL_REQUEST", "data": {}}
+
+
+# --- #508 AC22: the population read with catch requests -----------------------
+
+
+def _request_row(run: Run, player: str, owner: str, position: int, state: str) -> Any:
+    from catches.models import CatchRequest
+
+    fursuit = run.fursuits[owner][position]
+    activation = run.activations[fursuit.pk]
+    now = timezone.now()
+    times = {
+        "approved": {"approved_at": now},
+        "declined": {"declined_at": now},
+        "withdrawn": {"withdrawn_at": now},
+        "invalidated": {"invalidated_at": now},
+    }.get(state, {})
+    return CatchRequest.objects.create(
+        player=run.users[player],
+        fursuit=fursuit,
+        convention=run.convention,
+        activation=activation,
+        catch_session=create_catch_session(activation=activation),
+        state=state,
+        requested_at=now,
+        **times,
+    )
+
+
+def test_population_v2_reports_stored_request_states_and_writes_nothing() -> None:
+    """v2 adds each run request with its stored state, as pool indexes; v1 is unchanged."""
+    run = seed_run()
+    catch = run_catch(run, "outsider", "owner1", 1)
+    rows = [
+        (_request_row(run, "outsider", "owner0", 0, "pending"), 7),
+        (_request_row(run, "outsider", "owner0", 1, "invalidated"), 7),
+        (_request_row(run, "catcher0", "owner1", 0, "declined"), 8),
+    ]
+    before = world()
+    arguments = {"pool": POOL, "run_id": RUN_A, "identities": POPULATION_INDEXES}
+
+    v1 = execute(request("inspect-population-v1", arguments))
+    v2 = execute(request("inspect-population-v2", arguments))
+
+    expected = data([record(catch, catcher=7, owner=3)])
+    assert v1 == {"result": "PASS", "data": expected}
+    assert v2 == {
+        "result": "PASS",
+        "data": {
+            **expected,
+            "requests": [
+                {
+                    "id": row.pk,
+                    "player": player,
+                    "fursuit": row.fursuit_id,
+                    "run_convention": True,
+                    "state": row.state,
+                    "requested_at": row.requested_at.astimezone(dt.UTC)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                }
+                for row, player in rows
+            ],
+        },
+    }
+    assert world() == before
+
+
+@pytest.mark.parametrize(
+    ("catch_count", "request_count", "result"),
+    [
+        (inspection.V2_MAX_RECORDS, inspection.V2_MAX_RECORDS, "PASS"),
+        (inspection.V2_MAX_RECORDS, inspection.V2_MAX_RECORDS + 1, "FAIL_LIMIT"),
+        (inspection.V2_MAX_RECORDS + 1, 0, "FAIL_LIMIT"),
+    ],
+    ids=("at-both-limits", "requests-over", "catches-over"),
+)
+def test_population_v2_caps_records_and_fits_the_launcher_limit(
+    catch_count: int, request_count: int, result: str
+) -> None:
+    """The widest v2 answer fits the 64 KiB relay; one more catch or request is refused."""
+    from catches.models import CatchRequest
+
+    run = seed_run()
+    owner = run.users["owner0"]
+    bulk = Fursuit.objects.bulk_create(
+        [
+            Fursuit(id=WIDE_ID + n, owner=owner, name=f"Bulk {n}", photo_key=PHOTO_KEY)
+            for n in range(200)
+        ]
+    )
+    ledger_fursuit = run.fursuits["owner0"][0]
+    activation = run.activations[ledger_fursuit.pk]
+    session = create_catch_session(activation=activation)
+    catcher = run.users["outsider"]
+    Catch.objects.bulk_create(
+        [
+            Catch(
+                id=WIDE_ID + n,
+                catcher_user=catcher,
+                fursuit=fursuit,
+                convention=run.convention,
+                activation=activation,
+                catch_session=session,
+            )
+            for n, fursuit in enumerate([*bulk, ledger_fursuit][:catch_count])
+        ]
+    )
+    now = timezone.now()
+    targets = [*bulk, ledger_fursuit][:request_count]
+    CatchRequest.objects.bulk_create(
+        [
+            CatchRequest(
+                id=WIDE_ID + n,
+                player=catcher,
+                fursuit=fursuit,
+                convention=run.convention,
+                activation=activation,
+                catch_session=session,
+                state="invalidated",
+                requested_at=now,
+                invalidated_at=now,
+            )
+            for n, fursuit in enumerate(targets)
+        ]
+    )
+
+    response = execute(
+        request(
+            "inspect-population-v2",
+            {"pool": POOL, "run_id": RUN_A, "identities": POPULATION_INDEXES},
+        )
+    )
+
+    if result == "FAIL_LIMIT":
+        assert response == {"result": "FAIL_LIMIT", "data": {}}
+        return
+    assert response["result"] == "PASS"
+    payload = cast(dict[str, list[object]], response["data"])
+    assert [len(payload[key]) for key in ("catches", "fursuits", "requests")] == [
+        catch_count,
+        inspection.MAX_RECORDS,
+        request_count,
+    ]
+    relayed = json.dumps({**response, "instance": INSTANCE}, sort_keys=True) + "\n"
+    assert len(relayed.encode()) <= RELAY_LIMIT_BYTES
+
+
+@pytest.mark.parametrize("operation", ["inspect-population-v3", ["inspect"]])
+def test_only_named_inspection_operations_are_accepted(operation: object) -> None:
+    seed_run()
+    payload = request(
+        "inspect-population-v2",
+        {"pool": POOL, "run_id": RUN_A, "identities": POPULATION_INDEXES},
+    )
+
+    assert execute({**payload, "operation": operation}) == {
+        "result": "FAIL_REQUEST",
+        "data": {},
+    }

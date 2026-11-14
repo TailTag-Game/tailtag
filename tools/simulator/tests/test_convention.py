@@ -47,10 +47,12 @@ def test_population_orchestration_records_variable_actors_and_cleans_before_rele
 
     assert asyncio.run(exercise()) == 0
     value = read_report(run.report.path)
-    assert value["schema_version"] == 4
+    assert value["schema_version"] == 6
     assert value["outcome"] == value["correctness"] == "passed"
     assert value["results"]["behavior"]["items"]["casual"]["actors"] == 2
-    assert value["results"]["behavior"]["items"]["retry_prone"]["retries"] == 12
+    retry = value["results"]["behavior"]["items"]["retry_prone"]
+    # Each completed retry-prone visit repeats its submission twice.
+    assert retry["retries"] == 2 * retry["completed"] > 0
     assert run.inspection.calls == [
         {"owner0": 0, "owner1": 1, **{f"attendee{n}": n + 2 for n in range(6)}}
     ]
@@ -103,7 +105,9 @@ def test_failed_population_reconciles_when_usable_retains_and_releases(
         assert value["correctness"] == "failed"
         if fault in {"ambiguous-positive", "actor-and-inspection"}:
             assert value["results"]["behavior"]["failure"] == "FAIL_SIMULATION"
-            assert len(run.population.gameplay.catches) == 1
+            # Retries of the lost submission converged on one stored request.
+            lost = run.population.indexes[str(run.population.lost_actor)]
+            assert [r.player for r in run.population.gameplay.rows].count(lost) == 1
 
 
 @pytest.mark.parametrize(
@@ -128,7 +132,7 @@ def test_renewal_loss_or_interruption_awaits_worker_before_finalization(
         run.leases.fail.add("heartbeat")
     elif failure == "count":
         run.leases.reclaim_before_heartbeat = 1
-    path = "/v1/sign_in_tokens" if stage == "setup" else "/api/catches/confirm/"
+    path = "/v1/sign_in_tokens" if stage == "setup" else "/api/catches/requests/"
     blocked = BlockedHttp(
         run.world.clerk_transport if stage == "setup" else run.world.api_transport, path
     )
@@ -330,7 +334,7 @@ def test_successful_independent_renewal_repeats_while_public_response_is_pending
 ) -> None:
     del world
     run = rig(tmp_path)
-    blocked = BlockedHttp(run.world.api_transport, "/api/catches/confirm/")
+    blocked = BlockedHttp(run.world.api_transport, "/api/catches/requests/")
     fixtures_module = importlib.import_module("tailtag_simulator.fixtures")
     ticks = 0
 

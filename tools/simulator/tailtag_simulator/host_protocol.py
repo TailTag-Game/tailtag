@@ -9,7 +9,7 @@ from typing import cast
 
 from tailtag_simulator.pool import validate_pool_name
 from tailtag_simulator.safety import resolve_safety_policy
-from tailtag_simulator.traffic_config import resolve_traffic_config
+from tailtag_simulator.traffic_config import resolve_request_traffic_config
 
 MAX_FRAME_BYTES = 65536
 
@@ -104,12 +104,37 @@ _EXPIRATION_SAFETY = {
 }
 
 
+# The limit scenario waits for its review deadline (1200 s) inside the run (#508).
+_LIMIT_SAFETY = {
+    "seconds": 1800,
+    "final_seconds": 600,
+    "population": 50,
+    "in_flight": 10,
+}
+
+
+def _limit_shape(
+    launch: dict[str, object], config: dict[str, object], safety: dict[str, object]
+) -> None:
+    """Request limit: fixed ten identities, no randomness, pool-only configuration."""
+    if (
+        launch["scenario_version"] != 1
+        or launch["seed"] != 0
+        or set(config) != {"pool"}
+        or not isinstance(config["pool"], str)
+        or validate_pool_name(config["pool"]) != config["pool"]
+        or cast(int, safety["population"]) < 10
+        or not _within(safety, _LIMIT_SAFETY)
+    ):
+        raise _invalid()
+
+
 def _journeys_shape(
     launch: dict[str, object], config: dict[str, object], safety: dict[str, object]
 ) -> None:
     """Journeys smoke: fixed seven identities, no randomness, pool-only configuration."""
     if (
-        launch["scenario_version"] != 1
+        launch["scenario_version"] != 2
         or launch["seed"] != 0
         or set(config) != {"pool"}
         or not isinstance(config["pool"], str)
@@ -125,8 +150,8 @@ def _convention_shape(
 ) -> None:
     """Standard tier, or the expiration tier selected only by the closed shape."""
     if (
-        launch["scenario_version"] != 2
-        or resolve_traffic_config(config) != config
+        launch["scenario_version"] != 3
+        or resolve_request_traffic_config(config) != config
         or launch["scenario_id"] != "convention-" + cast(str, config["family"])
     ):
         raise _invalid()
@@ -189,6 +214,8 @@ def validate_manifest(value: object) -> dict[str, object]:
             raise _invalid()
         if launch["scenario_id"] == "journeys":
             _journeys_shape(launch, config, safety)
+        elif launch["scenario_id"] == "request-limit":
+            _limit_shape(launch, config, safety)
         else:
             _convention_shape(launch, config, safety)
         identity = _mapping(launch["backend_identity"])

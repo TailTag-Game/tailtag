@@ -101,6 +101,18 @@ def test_provision_and_status_return_fixed_shapes_without_identifying_data() -> 
         assert private not in text
 
 
+@pytest.mark.parametrize("offset", [None, 600])
+def test_provision_accepts_the_optional_review_deadline_offset(
+    offset: int | None,
+) -> None:
+    """#508 AC20: newer simulators send the offset; older ones omit it."""
+    lease_pool(POOL, RUN_A, 3)
+
+    provisioned = execute(provision_request(review_deadline_offset_seconds=offset))
+
+    assert provisioned == {"result": "PASS", "data": COUNTS}
+
+
 def test_cleanup_lifecycle_operations_return_fixed_shapes() -> None:
     """C-14: retain, retained, retained_counts and cleanup answer with codes, counts and listed runs only."""
     lease_pool(POOL, RUN_A, 4)

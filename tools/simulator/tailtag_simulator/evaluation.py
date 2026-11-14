@@ -18,7 +18,7 @@ from typing import Any, cast
 from tailtag_simulator import reports
 from tailtag_simulator.owner_only import create_private_file
 from tailtag_simulator.reports import ReportFailed, utc_now, validate_report
-from tailtag_simulator.traffic_metrics import OPERATIONS
+from tailtag_simulator.traffic_metrics import OPERATIONS, V6_OPERATIONS
 
 count = reports._count
 hex_digest = reports._hex
@@ -32,6 +32,23 @@ uuid_text = reports._uuid
 REPORT_LIMIT = 1024 * 1024
 RECORD_LIMIT = 64 * 1024
 NAMES = (*OPERATIONS, "total")
+# Thresholds and baselines name the operations of their key's scenario
+# version: schema 5 names for versions 1 and 2, schema 6 names for version 3.
+MEASURED_SCHEMAS = (5, 6)
+
+
+def key_names(key: Mapping[str, Any]) -> tuple[str, ...]:
+    """The operation names a comparable key's scenario version can report."""
+    operations = V6_OPERATIONS if key["scenario_version"] == 3 else OPERATIONS
+    return (*operations, "total")
+
+
+def report_names(report: Mapping[str, Any]) -> tuple[str, ...]:
+    """The operation names of one measured report, ``total`` last."""
+    attempts = cast(dict[str, Any], report["performance"]["attempts"]["value"])
+    return (*(name for name in attempts if name != "total"), "total")
+
+
 ERRORS = ("client_error", "server_error", "transport_error")
 LIMITS = ("p95_ms", "p99_ms", "error_rate", "timeout_rate")
 SATURATION = ("peak_cpu_percent", "lag_seconds", "steal_ticks_delta")
@@ -131,13 +148,13 @@ def parse_thresholds(value: object) -> dict[str, Any]:
     )
     require(thresholds["schema_version"] == 1 and thresholds["kind"] == "thresholds")
     require(type(thresholds["schema_version"]) is int)
-    _key(thresholds["key"])
+    names = key_names(_key(thresholds["key"]))
     for name in closed_object(thresholds["minimum_samples"], {"p95", "p99"}).values():
         _limit(name)
     operations = thresholds["operations"]
     require(isinstance(operations, dict))
     for name, limits in cast(dict[str, Any], operations).items():
-        require(name in NAMES and isinstance(limits, dict))
+        require(name in names and isinstance(limits, dict))
         require(set(cast(dict[str, Any], limits)) <= set(LIMITS))
         for entry in cast(dict[str, Any], limits).values():
             _limit(entry)
@@ -166,7 +183,7 @@ def parse_baseline(value: object) -> dict[str, Any]:
     )
     require(baseline["schema_version"] == 1 and baseline["kind"] == "baseline")
     require(type(baseline["schema_version"]) is int)
-    _key(baseline["key"])
+    names = key_names(_key(baseline["key"]))
     report = closed_object(
         baseline["report"],
         {
@@ -197,7 +214,7 @@ def parse_baseline(value: object) -> dict[str, Any]:
     metrics = baseline["metrics"]
     require(isinstance(metrics, dict) and len(cast(dict[str, Any], metrics)) > 0)
     for name, row in cast(dict[str, Any], metrics).items():
-        require(name in NAMES)
+        require(name in names)
         fields = closed_object(
             row,
             {
@@ -333,7 +350,7 @@ def _observed_rows(report: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
             "error_rate": _rate(attempts[name], ERRORS),
             "timeout_rate": _rate(attempts[name], ("timeout",)),
         }
-        for name in NAMES
+        for name in report_names(report)
     }
 
 
@@ -365,7 +382,7 @@ def _absolute(
         "p95_ms": thresholds["minimum_samples"]["p95"]["value"],
         "p99_ms": thresholds["minimum_samples"]["p99"]["value"],
     }
-    for name in NAMES:
+    for name in rows:
         for metric in LIMITS:
             entry = thresholds["operations"].get(name, {}).get(metric)
             if entry is None:
@@ -392,7 +409,7 @@ def _regression(
     checks: list[dict[str, Any]] = []
     settings = thresholds["regression"]
     delta = settings["minimum_delta_ms"]["value"]
-    for name in NAMES:
+    for name in rows:
         reference = baseline["metrics"].get(name)
         if reference is None:
             continue
@@ -511,7 +528,7 @@ def _evaluate(
 ) -> dict[str, Any]:
     data, loaded = _reading(report_path, REPORT_LIMIT)
     report = cast(dict[str, Any], validate_report(loaded))
-    require(report["schema_version"] in (4, 5))
+    require(report["schema_version"] in (4, *MEASURED_SCHEMAS))
     run_id = report["run_id"]
     evidence = (
         None
@@ -523,7 +540,7 @@ def _evaluate(
         if context is None
         else _context(_reading(context, RECORD_LIMIT)[1], run_id)
     )
-    measured = report["schema_version"] == 5
+    measured = report["schema_version"] in MEASURED_SCHEMAS
     performance = report["performance"]
     traffic = report["results"].get("traffic", {}).get("value")
     mode = performance["execution_mode"]["value"] if measured else None

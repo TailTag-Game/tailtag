@@ -23,9 +23,9 @@ from tailtag_simulator.limits import (
 from tailtag_simulator.owner_only import create_private_file
 from tailtag_simulator.safety import SafetyRuntime
 from tailtag_simulator.scenarios import (
-    JOURNEYS,
     ScenarioRejected,
     canonical,
+    journey_names,
     resolve_scenario,
 )
 from tailtag_simulator.targets import STAGING_ORIGIN
@@ -89,6 +89,15 @@ CHECKS = frozenset(
         "avatar",
     }
 )
+# Request-aware reconciliation checks: schema 6 only (#508).
+V6_CHECKS = frozenset({"request_state", "request_duplicate", "request_credit"})
+
+
+def checks_for(config: Mapping[str, Any]) -> frozenset[str]:
+    """The check names a convention report can carry; v3 configs have ``review``."""
+    return CHECKS | V6_CHECKS if "review" in config else CHECKS
+
+
 ROLES = frozenset(
     {"owner0", "owner1", "catcher0", "catcher1", "catcher2", "catcher3", "outsider"}
 )
@@ -240,6 +249,18 @@ def _target(value: object, config: Mapping[str, object]) -> None:
 def _population(scenario: str, config: dict[str, Any]) -> dict[str, object]:
     if scenario.startswith("convention-"):
         return reports_v2.population(config)
+    if scenario == "request-limit":
+        return {
+            "roles": {"owner": REQUEST_LIMIT_OWNERS, "player": REQUEST_LIMIT_PLAYERS},
+            "identities": REQUEST_LIMIT_OWNERS + REQUEST_LIMIT_PLAYERS,
+            "fixtures": {
+                "owners": REQUEST_LIMIT_OWNERS,
+                "fursuits_per_owner": REQUEST_LIMIT_FURSUITS,
+                "catchers": REQUEST_LIMIT_PLAYERS,
+                "outsiders": 0,
+                "fursuits": REQUEST_LIMIT_OWNERS * REQUEST_LIMIT_FURSUITS,
+            },
+        }
     owners = config.get("owners", 2 if scenario == "journeys" else 0)
     fursuits = config.get("fursuits", 2 if scenario == "journeys" else 0)
     catchers = config.get("catchers", 4 if scenario == "journeys" else 0)
@@ -266,7 +287,7 @@ def _population(scenario: str, config: dict[str, Any]) -> dict[str, object]:
 
 def _limits(scenario: str) -> dict[str, object]:
     pool = scenario != "smoke"
-    fixture = scenario in ("fixture-smoke", "journeys") or scenario.startswith(
+    fixture = scenario in ("fixture-smoke", *JOURNEY_SCENARIOS) or scenario.startswith(
         "convention-"
     )
     definitions = {
@@ -300,18 +321,35 @@ def _limits(scenario: str) -> dict[str, object]:
     }
 
 
-def _results(value: object, scenario: str) -> None:
+# Deterministic scenarios with pass/fail journeys and fixture cleanup.
+JOURNEY_SCENARIOS = ("journeys", "request-limit")
+REQUEST_LIMIT_OWNERS = 8
+REQUEST_LIMIT_FURSUITS = 5
+REQUEST_LIMIT_PLAYERS = 2
+REQUEST_LIMIT_ROLES = frozenset(
+    {f"owner{n}" for n in range(REQUEST_LIMIT_OWNERS)}
+    | {f"player{n}" for n in range(REQUEST_LIMIT_PLAYERS)}
+)
+
+
+def _journey_checks(scenario: str) -> frozenset[str]:
+    """The limit scenario also reports the request checks (#508)."""
+    return CHECKS | V6_CHECKS if scenario == "request-limit" else CHECKS
+
+
+def _results(value: object, scenario: str, version: int = 1) -> None:
+    allowed = journey_names(scenario, version)
+    checks_allowed = _journey_checks(scenario)
+    roles = REQUEST_LIMIT_ROLES if scenario == "request-limit" else ROLES
     result = _object(value, {"journeys", "checks", "cleanup"})
     journeys = _object(result["journeys"], {"items", "passed", "failed", "reason"})
     checks = _object(result["checks"], {"items", "count", "reason"})
     journey_items = cast(list[dict[str, Any]], journeys["items"])
-    _require(
-        isinstance(journeys["items"], list) and len(journey_items) <= len(JOURNEYS)
-    )
+    _require(isinstance(journeys["items"], list) and len(journey_items) <= len(allowed))
     names: list[str] = []
     for raw in journey_items:
         item = _object(raw, {"name", "status"})
-        _require(item["name"] in JOURNEYS and item["status"] in ("passed", "failed"))
+        _require(item["name"] in allowed and item["status"] in ("passed", "failed"))
         names.append(item["name"])
     _require(len(set(names)) == len(names))
     for status in ("passed", "failed"):
@@ -323,19 +361,19 @@ def _results(value: object, scenario: str) -> None:
     _require(
         isinstance(checks["items"], list)
         and len(check_items) <= 10000
-        and _count(checks["count"], len(CHECKS))
+        and _count(checks["count"], len(checks_allowed))
     )
     for raw in check_items:
         item = _object(raw, {"check", "journey", "role", "expected", "observed"})
         _require(
-            item["check"] in CHECKS
-            and (item["journey"] is None or item["journey"] in JOURNEYS)
-            and (item["role"] is None or item["role"] in ROLES)
+            item["check"] in checks_allowed
+            and (item["journey"] is None or item["journey"] in allowed)
+            and (item["role"] is None or item["role"] in roles)
             and _count(item["expected"])
             and _count(item["observed"])
         )
     _require(checks["count"] >= len({item["check"] for item in check_items}))
-    if scenario != "journeys":
+    if scenario not in JOURNEY_SCENARIOS:
         _require(
             journeys
             == {"items": [], "passed": 0, "failed": 0, "reason": "not_applicable"}
@@ -355,7 +393,7 @@ def _results(value: object, scenario: str) -> None:
         return all(_count(n) for n in _object(v, set(CLEANUP)).values())
 
     _measurement(result["cleanup"], cleanup)
-    if scenario not in ("fixture-smoke", "journeys"):
+    if scenario not in ("fixture-smoke", *JOURNEY_SCENARIOS):
         _require(result["cleanup"] == unavailable("not_applicable"))
 
 
@@ -374,7 +412,7 @@ def _validate_report(
             if type(candidate.get("schema_version")) is int:
                 if candidate["schema_version"] == 4:
                     return reports_v4.validate(candidate, admitted_scenario)
-                if candidate["schema_version"] == 5:
+                if candidate["schema_version"] in (5, 6):
                     return reports_v5.validate(candidate, admitted_scenario)
         report = _object(
             value,
@@ -416,7 +454,8 @@ def _validate_report(
         v2 = isinstance(scenario["id"], str) and scenario["id"].startswith(
             "convention-"
         )
-        v3 = v2 and scenario["version"] == 2
+        # Traffic evidence: scenario v2 (v1 catch path) and v3 (catch requests).
+        v3 = v2 and scenario["version"] in (2, 3)
         _require(report["schema_version"] == (3 if v3 else 2 if v2 else 1))
         _require(
             type(scenario["seed"]) is int
@@ -553,7 +592,7 @@ def _validate_report(
                 report["results"], config, successful=report["correctness"] == "passed"
             )
         else:
-            _results(report["results"], scenario["id"])
+            _results(report["results"], scenario["id"], scenario["version"])
         if report["correctness"] == "passed":
             _require(report["source"]["provenance"] == "clean")
             _require(report["target"]["starting"]["value"] is not None)
@@ -569,14 +608,13 @@ def _validate_report(
                     )
                 )
             )
-            if scenario["id"] == "journeys":
+            if scenario["id"] in JOURNEY_SCENARIOS:
+                names = journey_names(scenario["id"], scenario["version"])
                 _require(
                     report["results"]["journeys"]
                     == {
-                        "items": [
-                            {"name": name, "status": "passed"} for name in JOURNEYS
-                        ],
-                        "passed": len(JOURNEYS),
+                        "items": [{"name": name, "status": "passed"} for name in names],
+                        "passed": len(names),
                         "failed": 0,
                         "reason": None,
                     }
@@ -585,7 +623,7 @@ def _validate_report(
                     report["results"]["checks"]
                     == {
                         "items": [],
-                        "count": len(CHECKS),
+                        "count": len(_journey_checks(scenario["id"])),
                         "reason": None,
                     }
                 )
@@ -648,7 +686,7 @@ def _validate_report(
                 (v2 or not report["results"]["journeys"]["failed"])
                 and not report["results"]["checks"]["items"]
             )
-            if v2 or scenario["id"] in ("fixture-smoke", "journeys"):
+            if v2 or scenario["id"] in ("fixture-smoke", *JOURNEY_SCENARIOS):
                 _require(report["results"]["cleanup"]["value"] is not None)
         elif report["outcome"] in ("failed", "interrupted"):
             _require(report["failure"] is not None)
@@ -734,9 +772,9 @@ class RunReport:
             else ({"cleanup", "retention"} if scenario_id == "pool-smoke" else set())
         )
         v2 = scenario_id.startswith("convention-")
-        v5 = v2 and scenario_version == 2
+        v5 = v2 and scenario_version in (2, 3)
         self._value: dict[str, Any] = {
-            "schema_version": 5 if v5 else 4,
+            "schema_version": (6 if scenario_version == 3 else 5) if v5 else 4,
             "safety": SafetyRuntime(
                 {} if safety_policy is None else safety_policy
             ).snapshot(),
@@ -793,19 +831,19 @@ class RunReport:
                     "passed": 0,
                     "failed": 0,
                     "reason": "not_observed"
-                    if scenario_id == "journeys"
+                    if scenario_id in JOURNEY_SCENARIOS
                     else "not_applicable",
                 },
                 "checks": {
                     "items": [],
                     "count": 0,
                     "reason": "not_observed"
-                    if scenario_id == "journeys"
+                    if scenario_id in JOURNEY_SCENARIOS
                     else "not_applicable",
                 },
                 "cleanup": unavailable(
                     "not_observed"
-                    if scenario_id in ("fixture-smoke", "journeys")
+                    if scenario_id in ("fixture-smoke", *JOURNEY_SCENARIOS)
                     else "not_applicable"
                 ),
             },
@@ -848,7 +886,7 @@ class RunReport:
                 "checks": {"items": [], "count": 0, "reason": "not_observed"},
                 "cleanup": unavailable(),
             }
-        if v2 and scenario_version == 2:
+        if v5:
             self._value["profile"] = reports_v3.profile(
                 resolved["descriptor"], configuration
             )
@@ -893,7 +931,7 @@ class RunReport:
     def record_traffic(
         self, snapshot: Mapping[str, object], performance: Mapping[str, Any]
     ) -> None:
-        _require(self._value["schema_version"] == 5)
+        _require(self._value["schema_version"] in (5, 6))
         window = cast(float, snapshot["generation_seconds"]) + cast(
             float, snapshot["drain_seconds"]
         )
@@ -911,7 +949,7 @@ class RunReport:
         self._update_sections(results=results, performance=copy.deepcopy(measured))
 
     def record_execution_mode(self, mode: str) -> None:
-        _require(self._value["schema_version"] == 5)
+        _require(self._value["schema_version"] in (5, 6))
         self._update(
             "performance",
             {**self._value["performance"], "execution_mode": observed(mode)},

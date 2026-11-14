@@ -72,7 +72,7 @@ def test_channel_pins_envelope_and_target_failure_prohibits_another_launch(
         population = PopulationInspectionLauncherChannel(command)
         invoke = lambda: population.inspect(POOL, RUN, {"owner0": 1, "attendee0": 2})
         expected = {
-            "operation": "inspect-population-v1",
+            "operation": "inspect-population-v2",
             "arguments": {
                 "pool": POOL,
                 "run_id": RUN,

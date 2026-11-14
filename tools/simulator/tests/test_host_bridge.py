@@ -25,6 +25,7 @@ from test_host_protocol import (
 from tailtag_simulator import host_bridge
 from tailtag_simulator.host_bridge import BridgeServer, BridgeSession
 from tailtag_simulator.host_protocol import decode_frame, encode_frame
+from tailtag_simulator.safety import resolve_safety_policy
 
 INDEXES = [17, 23, 31, 37, 41, 43]
 ROLES = {
@@ -41,11 +42,12 @@ ACKS: dict[str, dict[str, object]] = {
     "heartbeat": {"extended": 6},
     "quarantine": {},
     "provision": {"convention": 1, "enrollment": 6, "fursuit": 8, "activation": 8},
-    "inspect-population-v1": {
+    "inspect-population-v2": {
         "catches": [],
         "fursuits": [{"id": 101, "owner": 17}],
         "fixture_photos_unchanged": True,
         "avatars": [],
+        "requests": [],
     },
     "cleanup": {
         "convention": 1,
@@ -99,7 +101,7 @@ def envelope(operation: str, **changes: object) -> dict[str, object]:
             extras=[],
             fursuits_per_owner=4,
         )
-    elif operation in {"inspect-population-v1", "inspect"}:
+    elif operation in {"inspect-population-v2", "inspect"}:
         arguments.update(pool="alpha", identities=dict(ROLES))
     elif operation in {"cleanup", "retain"}:
         arguments["pool"] = "alpha"
@@ -119,7 +121,7 @@ def envelope(operation: str, **changes: object) -> dict[str, object]:
 def channel_for(operation: str) -> str:
     if operation in {"allocate", "heartbeat", "quarantine", "release"}:
         return "pool"
-    if operation in {"inspect-population-v1", "inspect"}:
+    if operation in {"inspect-population-v2", "inspect"}:
         return "inspection"
     return "fixture"
 
@@ -220,14 +222,14 @@ def test_exact_lifecycle_releases_only_after_complete_acknowledged_recovery(
                 "result": "PASS",
                 "data": ACKS["provision"],
             }
-            inspection = envelope("inspect-population-v1")
+            inspection = envelope("inspect-population-v2")
             if recovery == "cleanup":
                 section(inspection, "arguments")["identities"] = dict(
                     reversed(list(ROLES.items()))
                 )
             assert await session.request("inspection", inspection) == {
                 "result": "PASS",
-                "data": ACKS["inspect-population-v1"],
+                "data": ACKS["inspect-population-v2"],
             }
             before = len(relay.calls)
             assert_rejected(await call(session, "release"))
@@ -274,7 +276,7 @@ def test_exact_lifecycle_releases_only_after_complete_acknowledged_recovery(
                 ("pool", envelope("allocate")),
                 ("pool", envelope("heartbeat")),
                 ("fixture", envelope("provision")),
-                ("inspection", envelope("inspect-population-v1")),
+                ("inspection", envelope("inspect-population-v2")),
             ]
         finally:
             session.close()
@@ -337,15 +339,15 @@ AUTHORITY_CASES = [
     ("allocated", "provision", "arguments", "catchers", [31, 37, 41, 99]),
     ("allocated", "provision", "arguments", "extras", [99]),
     ("allocated", "provision", "arguments", "fursuits_per_owner", 3),
-    ("allocated", "inspect-population-v1", "arguments", "identities", ROLES),
+    ("allocated", "inspect-population-v2", "arguments", "identities", ROLES),
     (
         "provisioned",
-        "inspect-population-v1",
+        "inspect-population-v2",
         "arguments",
         "identities",
         {**ROLES, "owner0": 31, "attendee0": 17},
     ),
-    ("provisioned", "inspect-population-v1", "pool", "operation", "inspect"),
+    ("provisioned", "inspect-population-v2", "pool", "operation", "inspect"),
     ("provisioned", "retain", "arguments", "reason", SENTINEL),
     ("provisioned", "retain", "arguments", "reason", "unfinished"),
     ("provisioned", "cleanup", "arguments", "pool", "other"),
@@ -527,7 +529,7 @@ def test_indeterminate_provision_cannot_be_replayed_or_released(outcome: str) ->
             before = len(relay.calls)
             for op in (
                 "provision",
-                "inspect-population-v1",
+                "inspect-population-v2",
                 "cleanup",
                 "retain",
                 "release",
@@ -550,8 +552,8 @@ BAD_ACKS: list[tuple[str, str, tuple[str, dict[str, object]]]] = [
     ("provisioned", "retain", ("PASS", {"quarantined": -1})),
     (
         "provisioned",
-        "inspect-population-v1",
-        ("PASS", {**ACKS["inspect-population-v1"], SENTINEL: 1}),
+        "inspect-population-v2",
+        ("PASS", {**ACKS["inspect-population-v2"], SENTINEL: 1}),
     ),
     ("allocated", "heartbeat", ("FAIL_" + SENTINEL, {SENTINEL: 1})),
 ]
@@ -575,7 +577,7 @@ def test_malformed_relay_acknowledgements_cannot_grant_authority_or_leak(
             if operation == "allocate":
                 assert_rejected(await call(session, "provision"))
             elif operation == "provision":
-                assert_rejected(await call(session, "inspect-population-v1"))
+                assert_rejected(await call(session, "inspect-population-v2"))
             elif operation in {"cleanup", "retain"}:
                 assert_rejected(await call(session, "release"))
             assert len(relay.calls) == before
@@ -600,7 +602,7 @@ def test_target_veto_or_terminal_entry_never_reopens_authority(
                 prohibited = (
                     "allocate",
                     "provision",
-                    "inspect-population-v1",
+                    "inspect-population-v2",
                     "release",
                 )
             elif source == "heartbeat":
@@ -683,10 +685,10 @@ def test_two_dispatch_ceiling_keeps_health_responsive_and_rejects_extra_work() -
         relay = Relay()
         session = BridgeSession(manifest(), relay.dispatch)
         await advance(session, "provisioned")
-        relay.held.update({"heartbeat", "inspect-population-v1"})
+        relay.held.update({"heartbeat", "inspect-population-v2"})
         tasks = [
             asyncio.create_task(call(session, op))
-            for op in ("heartbeat", "inspect-population-v1")
+            for op in ("heartbeat", "inspect-population-v2")
         ]
         try:
             await asyncio.wait_for(relay.started.wait(), 1)
@@ -1482,7 +1484,7 @@ def test_inspection_operations_are_not_interchangeable_between_scenarios() -> No
             await advance(convention, "provisioned")
             before = len(relay.calls), len(convention_relay.calls)
             assert_rejected(
-                await call(journeys, "inspect-population-v1", identities=JOURNEY_ROLES)
+                await call(journeys, "inspect-population-v2", identities=JOURNEY_ROLES)
             )
             assert_rejected(await call(convention, "inspect"))
             assert (len(relay.calls), len(convention_relay.calls)) == before
@@ -1587,6 +1589,58 @@ def test_heartbeats_never_extend_the_non_heartbeat_operation_cap() -> None:
             before = len(relay.calls)
             assert_rejected(await call(session, "inspect", identities=JOURNEY_ROLES))
             assert len(relay.calls) == before
+        finally:
+            session.close()
+
+    asyncio.run(execute())
+
+
+# -- #508: the request-limit partition and its deadline offset ---------------------
+
+LIMIT_INDEXES = [17, 23, 31, 37, 41, 43, 47, 53, 59, 61]
+LIMIT_PROVISION: dict[str, object] = {
+    "owners": LIMIT_INDEXES[:8],
+    "catchers": LIMIT_INDEXES[8:],
+    "extras": [],
+    "fursuits_per_owner": 5,
+    "review_deadline_offset_seconds": 1200,
+}
+LIMIT_ACK = {"convention": 1, "enrollment": 10, "fursuit": 40, "activation": 40}
+
+
+def limit_manifest() -> dict[str, object]:
+    return journeys_manifest(
+        scenario_id="request-limit",
+        scenario_version=1,
+        safety=resolve_safety_policy({"population": 10, "seconds": 1800}),
+    )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{}, {"review_deadline_offset_seconds": 600}, {"fursuits_per_owner": 4}],
+    ids=("fixed-partition", "other-offset", "other-fursuits"),
+)
+def test_limit_provision_carries_only_the_fixed_partition_and_offset(
+    change: dict[str, object],
+) -> None:
+    async def execute() -> None:
+        relay = Relay()
+        relay.answers.update(
+            allocate=("PASS", {"indexes": LIMIT_INDEXES}),
+            provision=("PASS", dict(LIMIT_ACK)),
+        )
+        session = BridgeSession(limit_manifest(), relay.dispatch)
+        try:
+            assert (await call(session, "allocate", count=10))["result"] == "PASS"
+            before = len(relay.calls)
+            reply = await call(session, "provision", **{**LIMIT_PROVISION, **change})
+            if not change:
+                assert reply == {"result": "PASS", "data": LIMIT_ACK}
+            else:
+                assert_rejected(reply)
+                assert len(relay.calls) == before
+                assert session.health() == {"run_id": RUN, "live": False}
         finally:
             session.close()
 

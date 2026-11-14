@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import cast
 
 from tailtag_simulator.baselines import PromotionFailed, promote, trend
-from tailtag_simulator.behavior_config import resolve_behavior_config
 from tailtag_simulator.cleanup import run_cleanup, run_retained
 from tailtag_simulator.convention import run_convention
 from tailtag_simulator.evaluation import (
@@ -44,13 +43,19 @@ from tailtag_simulator.population_reconciliation import (
 from tailtag_simulator.provenance import SourceRejected, execution_mode, load_source
 from tailtag_simulator.reconciliation import InspectionLauncherChannel
 from tailtag_simulator.reports import ReportFailed, RunReport, load_report
+from tailtag_simulator.request_limit import run_request_limit
 from tailtag_simulator.safety import SafetyRuntime, resolve_safety_policy
 from tailtag_simulator.scenarios import ScenarioRejected
 from tailtag_simulator.smoke import run_smoke
-from tailtag_simulator.traffic_config import resolve_traffic_config
+from tailtag_simulator.traffic_config import resolve_request_traffic_config
 
 # `task -s` keeps launcher stdout to the child's JSON result alone.
 LAUNCHER_COMMAND = ["task", "-s", "api-sim-pool-ssh"]
+# The only scenario versions a new run can use. Older versions stay in the
+# catalog for archived report validation (#508).
+RUNNABLE_VERSIONS = {"convention": 3, "journeys": 2, "request-limit": 1}
+# Commands that can run inside a host session.
+HOSTED = frozenset({"convention", "journeys", "request-limit"})
 FIXTURE_LAUNCHER_COMMAND = ["task", "-s", "api-sim-fixture-ssh"]
 INSPECTION_LAUNCHER_COMMAND = ["task", "-s", "api-sim-inspect-ssh"]
 
@@ -147,6 +152,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     journeys.add_argument("--host-manifest", type=Path)
     journeys.add_argument("--host-socket-dir", type=Path)
     journeys.add_argument("--stage-log", type=Path)
+    request_limit = commands.add_parser(
+        "request-limit", help="check the per-player limit and request expiry on Staging"
+    )
+    request_limit.add_argument("--host-manifest", type=Path)
+    request_limit.add_argument("--host-socket-dir", type=Path)
+    request_limit.add_argument("--stage-log", type=Path)
     convention = commands.add_parser(
         "convention", help="run a finite convention population on Staging"
     )
@@ -172,6 +183,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         pool_smoke,
         fixture_smoke,
         journeys,
+        request_limit,
         convention,
         cleanup,
     ):
@@ -209,9 +221,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--baselines-dir", type=Path, default=default_baselines
     )
     baseline_promote.add_argument("--initial-thresholds", action="store_true")
-    for execution in (smoke, pool_smoke, fixture_smoke, journeys, convention):
+    for execution in (
+        smoke,
+        pool_smoke,
+        fixture_smoke,
+        journeys,
+        request_limit,
+        convention,
+    ):
         execution.add_argument("--safety-config", type=Path)
-        execution.add_argument("--scenario-version", type=int, default=1)
+        execution.add_argument("--scenario-version", type=int, default=None)
         execution.add_argument("--seed", type=int, default=0)
         execution.add_argument(
             "--report-dir",
@@ -223,6 +242,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             ),
         )
     args = parser.parse_args(argv)
+    if getattr(args, "scenario_version", 0) is None:
+        # Only the newest version of each scenario can run (#508).
+        args.scenario_version = RUNNABLE_VERSIONS.get(args.command, 1)
     for name in ("httpx", "httpcore"):  # their INFO lines carry full request URLs
         logging.getLogger(name).setLevel(logging.WARNING)
         logging.getLogger(name).propagate = False
@@ -310,7 +332,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         return asyncio.run(_execute(args))
     except (OSError, ValueError):
-        if args.command not in {"convention", "journeys"} or not (
+        if args.command not in HOSTED or not (
             args.host_manifest or args.host_socket_dir or args.stage_log
         ):
             raise
@@ -365,10 +387,7 @@ async def _execute(args: argparse.Namespace) -> int:
     """Create durable evidence and establish provenance before executing a command."""
     supplied_host: dict[str, object] | None = None
     try:
-        if (
-            args.command in {"convention", "journeys"}
-            and args.host_manifest is not None
-        ):
+        if args.command in HOSTED and args.host_manifest is not None:
             with args.host_manifest.open("rb") as stream:
                 supplied_host = validate_manifest(decode_document(stream.read(65537)))
         if args.command == "convention" and args.unattended:
@@ -390,6 +409,7 @@ async def _execute(args: argparse.Namespace) -> int:
         "pool-smoke",
         "fixture-smoke",
         "journeys",
+        "request-limit",
         "convention",
     }:
         config = {"target": "staging", "base_url": None}
@@ -414,17 +434,21 @@ async def _execute(args: argparse.Namespace) -> int:
                 )
                 config["pool"] = args.pool
                 config["family"] = args.family
-                config = (
-                    resolve_traffic_config
-                    if args.scenario_version == 2
-                    else resolve_behavior_config
-                )(config)
+                if args.scenario_version != RUNNABLE_VERSIONS["convention"]:
+                    raise ScenarioRejected
+                config = resolve_request_traffic_config(config)
             except (ScenarioRejected, ValueError):
                 _emit("FAIL configuration")
                 return 1
+        if (
+            args.command in ("journeys", "request-limit")
+            and args.scenario_version != RUNNABLE_VERSIONS[args.command]
+        ):
+            _emit("FAIL configuration")
+            return 1
         host: dict[str, object] | None = None
         convention = args.command == "convention"
-        if args.command in {"convention", "journeys"} and (
+        if args.command in HOSTED and (
             args.host_manifest is not None
             or args.host_socket_dir is not None
             or args.stage_log is not None
@@ -433,7 +457,7 @@ async def _execute(args: argparse.Namespace) -> int:
                 if (
                     args.host_manifest is None
                     or args.host_socket_dir is None
-                    or args.scenario_version != (2 if convention else 1)
+                    or args.scenario_version != RUNNABLE_VERSIONS[args.command]
                     or not args.host_socket_dir.is_absolute()
                 ):
                     raise ValueError
@@ -446,7 +470,7 @@ async def _execute(args: argparse.Namespace) -> int:
                     or host["safety"] != policy
                     or host["seed"] != args.seed
                     or host["scenario_id"]
-                    != ("convention-" + args.family if convention else "journeys")
+                    != ("convention-" + args.family if convention else args.command)
                 ):
                     raise ValueError
                 source = load_source(REPOSITORY_ROOT)
@@ -508,7 +532,7 @@ async def _execute(args: argparse.Namespace) -> int:
             report.finish(130)
             raise
         report.record_source(source)
-        if args.command == "convention" and args.scenario_version == 2:
+        if args.command == "convention":
             report.record_execution_mode(execution_mode(REPOSITORY_ROOT))
         report.end("provenance", "passed")
         if report.write_failed:
@@ -606,6 +630,25 @@ async def _dispatch(
             prompt_secret=_prompt_secret,
             lease_channel=_launcher(),
             fixture_channel=_fixture_launcher(),
+            emit=_emit,
+            report=report,
+            safety=safety,
+        )
+    if args.command == "request-limit":
+        return await run_request_limit(
+            str(args.pool),
+            prompt_secret=_prompt_secret,
+            lease_channel=LauncherChannel(
+                channel_command("pool", LAUNCHER_COMMAND), cwd=REPOSITORY_ROOT
+            ),
+            fixture_channel=FixtureLauncherChannel(
+                channel_command("fixture", FIXTURE_LAUNCHER_COMMAND),
+                cwd=REPOSITORY_ROOT,
+            ),
+            inspection_channel=PopulationInspectionLauncherChannel(
+                channel_command("inspection", INSPECTION_LAUNCHER_COMMAND),
+                cwd=REPOSITORY_ROOT,
+            ),
             emit=_emit,
             report=report,
             safety=safety,

@@ -22,6 +22,7 @@ class Signal(StrEnum):
     CATCH_SESSION = "tailtag.conventions.catch_session"
     AUTHENTICATION_VERIFICATION = "tailtag.authentication.verification"
     REQUEST_CLEANUP = "tailtag.catches.request_cleanup"
+    REQUEST_DECISION = "tailtag.catches.request_decision"
 
 
 class Outcome(StrEnum):
@@ -38,6 +39,13 @@ class Outcome(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     DELETED = "deleted"
+    # Catch request state changes (#508).
+    APPROVED = "approved"
+    DECLINED = "declined"
+    DECLINE_UNDONE = "decline_undone"
+    RESTORED = "restored"
+    WITHDRAWN = "withdrawn"
+    INVALIDATED = "invalidated"
 
 
 class Reason(StrEnum):
@@ -86,6 +94,11 @@ class Reason(StrEnum):
     DECLINED = "declined"
     WITHDRAWN = "withdrawn"
     INVALIDATED = "invalidated"
+    # Catch request invalidation causes (#508). An operator invalidation of one
+    # request uses `operator` above.
+    ACTIVATION_REMOVED = "activation_removed"
+    ENROLLMENT_REMOVED = "enrollment_removed"
+    CONVENTION_CANCELLED = "convention_cancelled"
 
 
 def record_outcome(

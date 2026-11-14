@@ -1,6 +1,6 @@
 {
   "scenario_id": "convention-hotspot",
-  "scenario_version": 2,
+  "scenario_version": 3,
   "seed": 23002,
   "configuration": {
     "pool": "host228",

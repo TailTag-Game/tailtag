@@ -193,7 +193,7 @@ def validate(
         "convention-"
     )
     projection["schema_version"] = (
-        3 if convention and scenario["version"] == 2 else 2 if convention else 1
+        3 if convention and scenario["version"] in (2, 3) else 2 if convention else 1
     )
     if projection["outcome"] == "aborted":
         projection["outcome"] = "failed"

@@ -20,7 +20,7 @@ from test_reports_v3 import successful_report
 
 from tailtag_simulator.host_artifacts import admit_run, resolve_recovery
 from tailtag_simulator.reports import ReportFailed, validate_report
-from tailtag_simulator.traffic_config import resolve_traffic_config
+from tailtag_simulator.traffic_config import resolve_request_traffic_config
 
 RUN = "55555555-5555-4555-8555-555555555555"
 NEXT = "66666666-6666-4666-8666-666666666666"
@@ -32,7 +32,7 @@ def manifest(run_id: str = RUN) -> dict[str, Any]:
     value = launch_manifest()
     value["run_id"] = run_id
     value["seed"] = -42
-    value["configuration"] = resolve_traffic_config(CONFIG)
+    value["configuration"] = resolve_request_traffic_config(CONFIG)
     return value
 
 

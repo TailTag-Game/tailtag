@@ -1,0 +1,45 @@
+{
+  "id": "request-limit",
+  "version": 1,
+  "api_contract": "tailtag-public-v0",
+  "consumes_randomness": false,
+  "roles": [
+    "owner",
+    "player"
+  ],
+  "operations": [
+    "identity_preflight",
+    "retention_preflight",
+    "lease",
+    "token_setup",
+    "provision",
+    "normal_play",
+    "abuse_limit",
+    "expiry",
+    "reconciliation",
+    "identity_final",
+    "cleanup",
+    "retain_on_failure",
+    "release"
+  ],
+  "assumptions": [
+    "isolated_convention",
+    "request_flow",
+    "review_deadline_offset",
+    "owners_never_decide"
+  ],
+  "waits_seconds": [],
+  "configuration": {
+    "defaults": {
+      "target": "staging",
+      "base_url": null,
+      "pool": null
+    },
+    "parameters": {
+      "target": "target",
+      "base_url": "local_origin",
+      "pool": "pool"
+    }
+  },
+  "descriptor_digest": "d0550d6efe51e45304982f729b7a24421288ce43bd4d2267343a9b3508943124"
+}

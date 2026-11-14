@@ -27,9 +27,14 @@ BUCKET_COUNTS = {"offered", "admitted", "skipped", "completed"}
 
 
 def profile(descriptor: dict[str, Any], config: dict[str, Any]) -> dict[str, object]:
+    # Only v3 (catch request) configurations carry the review mix.
     return {
         "operations": descriptor["operations"],
-        **{k: config[k] for k in ("traffic", "failure", "retry")},
+        **{
+            k: config[k]
+            for k in ("traffic", "failure", "retry", "review")
+            if k in config
+        },
     }
 
 
@@ -59,12 +64,12 @@ def results(
     value: object, config: dict[str, Any], *, successful: bool, correct: bool
 ) -> None:
     from tailtag_simulator.reports import (
-        CHECKS,
         _count,  # pyright: ignore[reportPrivateUsage]
         _hex,  # pyright: ignore[reportPrivateUsage]
         _number,  # pyright: ignore[reportPrivateUsage]
         _object,  # pyright: ignore[reportPrivateUsage]
         _require,  # pyright: ignore[reportPrivateUsage]
+        checks_for,
     )
 
     result = _object(value, {"behavior", "checks", "cleanup", "traffic"})
@@ -75,7 +80,8 @@ def results(
     )
     if correct:
         _require(
-            result["checks"] == {"items": [], "count": len(CHECKS), "reason": None}
+            result["checks"]
+            == {"items": [], "count": len(checks_for(config)), "reason": None}
         )
     measurement = _object(result["traffic"], {"value", "reason"})
     if measurement["value"] is None:

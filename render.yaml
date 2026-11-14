@@ -18,6 +18,10 @@
 # on each `main` commit that changes `services/api`. The Staging cron job
 # deploys only by the promotion checklist step, at the promoted commit. A cron
 # job is its own Render service, so its identity needs its own pin (#507 G15).
+#
+# Both API services turn on CATCH_REQUESTS_ENABLED (#508). A Blueprint sync that
+# changes it deploys the latest `main` to Staging, so a controlled promotion
+# must follow before any Staging run counts.
 
 previews:
   generation: "off"
@@ -79,6 +83,10 @@ projects:
                 sync: false
               - key: SENTRY_TRACES_SAMPLE_RATE
                 value: "1.0"
+              # The catch request flow (#508). The gate retires the v1 catch
+              # path. Cleanup ignores the gate, so the cron job does not set it.
+              - key: CATCH_REQUESTS_ENABLED
+                value: "true"
           # Catch request cleanup (ADR 0013, #507). It needs only the database,
           # Sentry, and the variables that production settings require. Clerk
           # stays off. The hosts values are placeholders, because the job serves
@@ -196,6 +204,10 @@ projects:
                 sync: false
               - key: SENTRY_TRACES_SAMPLE_RATE
                 value: "1.0"
+              # The catch request flow (#508). The gate retires the v1 catch
+              # path. Cleanup ignores the gate, so the cron job does not set it.
+              - key: CATCH_REQUESTS_ENABLED
+                value: "true"
           # Catch request cleanup (ADR 0013, #507). It needs only the database,
           # Sentry, and the variables that production settings require. Clerk
           # stays off. The hosts values are placeholders, because the job serves

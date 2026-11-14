@@ -40,6 +40,11 @@ def configuration(*, attempts: int = 5000) -> dict[str, object]:
             "think_seconds": 0,
         },
         "limits": {"attempts": attempts},
+        "review": {
+            "delay_min_seconds": 0,
+            "delay_max_seconds": 0,
+            "poll_seconds": 0.01,
+        },
     }
 
 
@@ -48,7 +53,7 @@ def traffic_rig(root: Path, config: dict[str, object]) -> Rig:
     value.report = RunReport(
         root / "traffic",
         "convention-baseline",
-        scenario_version=2,
+        scenario_version=3,
         config=config,
         seed=-42,
         run_id=RUN_ID,
@@ -70,7 +75,7 @@ async def execute(
     return await run_convention(
         POOL,
         config=config,
-        scenario_version=2,
+        scenario_version=3,
         traffic_clock=Clock(),
         seed=-42,
         prompt_secret=lambda: SECRET,
@@ -100,7 +105,7 @@ def finalized(run: Rig) -> None:
 @pytest.mark.parametrize(
     "fault", [None, "inspection", "attempts", "unexpected-success"]
 )
-def test_v2_workload_evidence_drives_cleanup_or_retention_and_always_releases(
+def test_v3_workload_evidence_drives_cleanup_or_retention_and_always_releases(
     tmp_path: Path,
     world: pool_support.World,
     fault: str | None,
@@ -127,7 +132,7 @@ def test_v2_workload_evidence_drives_cleanup_or_retention_and_always_releases(
         response = await run.world.api_transport.handle_async_request(request)
         if (
             fault == "unexpected-success"
-            and request.url.path == "/api/catches/confirm/"
+            and request.url.path == "/api/catches/requests/"
         ):
             return httpx.Response(204)
         return response
@@ -143,8 +148,8 @@ def test_v2_workload_evidence_drives_cleanup_or_retention_and_always_releases(
 
     code = asyncio.run(exercise())
     value = read_report(run.report.path)
-    assert value["schema_version"] == 5
-    assert value["scenario"]["version"] == 2
+    assert value["schema_version"] == 6
+    assert value["scenario"]["version"] == 3
     traffic = value["results"]["traffic"]
     assert traffic["reason"] is None
     assert traffic["value"]["plan_digest"]
@@ -169,7 +174,7 @@ def test_v2_workload_evidence_drives_cleanup_or_retention_and_always_releases(
                     [
                         request
                         for request in run.population.requests
-                        if request[2] == "/api/catches/confirm/"
+                        if request[2] == "/api/catches/requests/"
                     ]
                 )
                 == 1
@@ -186,14 +191,14 @@ def test_v2_workload_evidence_drives_cleanup_or_retention_and_always_releases(
     finalized(run)
 
 
-def test_v2_cancelled_pending_real_confirmation_is_joined_before_retention_and_release(
+def test_v3_cancelled_pending_real_confirmation_is_joined_before_retention_and_release(
     tmp_path: Path,
     world: pool_support.World,
 ) -> None:
     del world
     config = configuration()
     run = traffic_rig(tmp_path, config)
-    blocked = BlockedHttp(run.world.api_transport, "/api/catches/confirm/")
+    blocked = BlockedHttp(run.world.api_transport, "/api/catches/requests/")
     original_inspect = run.inspection.inspect
 
     async def inspect(*args: Any, **kwargs: Any) -> Any:
@@ -249,7 +254,7 @@ def test_v2_cancelled_pending_real_confirmation_is_joined_before_retention_and_r
         '{"limits":{"attempts":0}}',
     ],
 )
-def test_v2_cli_rejects_invalid_nested_configuration_before_external_actions(
+def test_v3_cli_rejects_invalid_nested_configuration_before_external_actions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -275,7 +280,7 @@ def test_v2_cli_rejects_invalid_nested_configuration_before_external_actions(
                 "--family",
                 "baseline",
                 "--scenario-version",
-                "2",
+                "3",
                 "--config",
                 str(path),
                 "--report-dir",
@@ -291,7 +296,7 @@ def test_v2_cli_rejects_invalid_nested_configuration_before_external_actions(
     assert not (tmp_path / "reports").exists()
 
 
-def test_cli_explicit_v2_creates_schema3_before_source_failure(
+def test_cli_explicit_v3_creates_schema6_before_source_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -310,7 +315,7 @@ def test_cli_explicit_v2_creates_schema3_before_source_failure(
                 "--family",
                 "baseline",
                 "--scenario-version",
-                "2",
+                "3",
                 "--report-dir",
                 str(root),
             ]
@@ -322,12 +327,12 @@ def test_cli_explicit_v2_creates_schema3_before_source_failure(
     paths = list(root.rglob("*.json"))
     assert len(paths) == 1
     value = read_report(paths[0])
-    assert value["schema_version"] == 5
-    assert value["scenario"]["version"] == 2
+    assert value["schema_version"] == 6
+    assert value["scenario"]["version"] == 3
     assert value["failure"] == {"stage": "provenance", "code": "FAIL_PROVENANCE"}
 
 
-def test_successful_cli_v2_forwards_version_to_real_runner(
+def test_successful_cli_v3_forwards_version_to_real_runner(
     tmp_path: Path,
     world: pool_support.World,
     monkeypatch: pytest.MonkeyPatch,
@@ -422,7 +427,7 @@ def test_successful_cli_v2_forwards_version_to_real_runner(
                 "--family",
                 "baseline",
                 "--scenario-version",
-                "2",
+                "3",
                 "--config",
                 str(path),
                 "--report-dir",
@@ -434,8 +439,8 @@ def test_successful_cli_v2_forwards_version_to_real_runner(
     paths = list(root.rglob("*.json"))
     assert len(paths) == 1
     value = read_report(paths[0])
-    assert value["schema_version"] == 5
-    assert value["scenario"]["version"] == 2
+    assert value["schema_version"] == 6
+    assert value["scenario"]["version"] == 3
     assert value["outcome"] == value["correctness"] == "passed"
     assert value["results"]["traffic"]["value"]["offered"] == 6
     assert run.fixtures.operations == ["retained_counts", "provision", "cleanup"]

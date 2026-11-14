@@ -47,7 +47,96 @@ def _section(value: object, defaults: dict[str, object]) -> dict[str, object]:
     return deepcopy({**defaults, **supplied})
 
 
+# v2 names stay frozen: archived schema 5 reports re-resolve through them.
+V2_FAILURE_OPERATIONS = ("read", "resolve", "confirm")
+V2_DOMAIN_CASES = ("none", "stale", "stopped", "expired")
+# The catch request flow (#508): scenario version 3.
+V3_FAILURE_OPERATIONS = ("read", "preview", "submit")
+V3_DOMAIN_CASES = ("none", "replaced", "stopped", "expired")
+# inspect-population-v2 caps catches and requests at 120 per run.
+V3_MAXIMUM_REQUESTS = 120
+# The contract's per-player limit: 30 created requests in a rolling 10 minutes.
+# The load model plans no 429, so no attendee may plan more than that.
+V3_PER_PLAYER_REQUESTS = 30
+REVIEW_DEFAULTS: dict[str, object] = {
+    "automatic_share": 0.25,
+    "delay_min_seconds": 5,
+    "delay_max_seconds": 30,
+    "approve_rate": 0.85,
+    "poll_seconds": 2,
+}
+
+
 def resolve_traffic_config(config: Mapping[str, object]) -> dict[str, object]:
+    """Resolve a scenario version 2 configuration (the retired v1 catch path)."""
+    return _resolve(config, V2_FAILURE_OPERATIONS, V2_DOMAIN_CASES)
+
+
+def resolve_request_traffic_config(config: Mapping[str, object]) -> dict[str, object]:
+    """Resolve a scenario version 3 configuration (the catch request flow)."""
+    if not isinstance(config.get("review", {}), dict):
+        raise _invalid()
+    review = _section(config.get("review", {}), REVIEW_DEFAULTS)
+    result = _resolve(
+        {k: v for k, v in config.items() if k != "review"},
+        V3_FAILURE_OPERATIONS,
+        V3_DOMAIN_CASES,
+    )
+    for key in ("automatic_share", "approve_rate"):
+        _number(review[key], 0, 1)
+    low = _number(review["delay_min_seconds"], 0, 3600)
+    high = _number(review["delay_max_seconds"], 0, 3600)
+    if low > high or _number(review["poll_seconds"], 0, 60) == 0:
+        raise _invalid()
+    if (
+        _planned_requests(result) > V3_MAXIMUM_REQUESTS
+        or _most_per_attendee(result) > V3_PER_PLAYER_REQUESTS
+    ):
+        raise _invalid()
+    result["review"] = review
+    return result
+
+
+def _targets(config: Mapping[str, object]) -> int:
+    owners = cast(int, config["normal_owners"]) + cast(int, config["popular_owners"])
+    return (
+        1 if config["family"] == "hotspot" else owners * cast(int, config["fursuits"])
+    )
+
+
+def _most_per_attendee(config: Mapping[str, object]) -> int:
+    """The most distinct suits any one attendee plans to request."""
+    targets = _targets(config)
+    return max(
+        (
+            min(cast(int, config[f"{prefix}_budget"]), targets)
+            for persona, prefix in zip(
+                PERSONAS[:4], ("casual", "active", "heavy", "retry"), strict=True
+            )
+            if cast(int, config[persona]) > 0
+        ),
+        default=0,
+    )
+
+
+def _planned_requests(config: Mapping[str, object]) -> int:
+    owners = cast(int, config["normal_owners"]) + cast(int, config["popular_owners"])
+    targets = (
+        1 if config["family"] == "hotspot" else owners * cast(int, config["fursuits"])
+    )
+    return sum(
+        cast(int, config[persona]) * min(cast(int, config[f"{prefix}_budget"]), targets)
+        for persona, prefix in zip(
+            PERSONAS[:4], ("casual", "active", "heavy", "retry"), strict=True
+        )
+    )
+
+
+def _resolve(
+    config: Mapping[str, object],
+    failure_operations: tuple[str, ...],
+    domain_cases: tuple[str, ...],
+) -> dict[str, object]:
     nested = {"traffic", "failure", "retry", "limits"}
     result = resolve_behavior_config(
         {k: v for k, v in config.items() if k not in nested}
@@ -150,7 +239,7 @@ def resolve_traffic_config(config: Mapping[str, object]) -> dict[str, object]:
     failure = _section(
         config.get("failure", {}),
         {
-            "operations": ["read", "resolve", "confirm"],
+            "operations": list(failure_operations),
             "pre_send_delay_seconds": 0,
             "pre_send_failure_rate": 0.1 if family == "retry" else 0,
             "response_delay_seconds": 0,
@@ -166,9 +255,9 @@ def resolve_traffic_config(config: Mapping[str, object]) -> dict[str, object]:
     if not isinstance(operations, list):
         raise _invalid()
     ops = cast(list[object], operations)
-    if any(
-        type(op) is not str or op not in ("read", "resolve", "confirm") for op in ops
-    ) or len(set(cast(list[str], ops))) != len(ops):
+    if any(type(op) is not str or op not in failure_operations for op in ops) or len(
+        set(cast(list[str], ops))
+    ) != len(ops):
         raise _invalid()
     for key in ("pre_send_failure_rate", "lost_response_rate", "timeout_rate"):
         _number(failure[key], 0, 1)
@@ -187,7 +276,7 @@ def resolve_traffic_config(config: Mapping[str, object]) -> dict[str, object]:
     for key in ("duplicate_overlap", "recover_existing"):
         if type(failure[key]) is not bool:
             raise _invalid()
-    if failure["domain_case"] not in ("none", "stale", "stopped", "expired"):
+    if failure["domain_case"] not in domain_cases:
         raise _invalid()
     if failure["domain_case"] == "expired" and (
         duration <= 43200 or generation <= 43200

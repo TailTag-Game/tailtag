@@ -578,3 +578,39 @@ def test_cli_never_overwrites_an_existing_artifact(
     assert main(arguments + ["--out", str(out)]) == 1
     assert capsys.readouterr().out == "FAIL evaluation\n"
     assert out.read_text() == "SENTINEL-existing"
+
+
+@pytest.mark.parametrize(
+    ("version", "operation", "accepted"),
+    [
+        (2, "confirm", True),
+        (2, "submit", False),
+        (3, "submit", True),
+        (3, "confirm", False),
+    ],
+)
+def test_thresholds_name_only_their_scenario_versions_operations(
+    version: int, operation: str, accepted: bool
+) -> None:
+    """CodeRabbit #529: a v3 threshold on `confirm` would be silently skipped."""
+    from evaluation_support import limit, thresholds_file
+
+    from tailtag_simulator.evaluation import parse_thresholds
+    from tailtag_simulator.reports import ReportFailed
+
+    value = thresholds_file(
+        {
+            "scenario_id": "convention-baseline",
+            "scenario_version": version,
+            "descriptor_digest": "a" * 64,
+            "plan_digest": "b" * 64,
+            "environment": "staging",
+            "execution_context": "external_host:linux/amd64",
+        }
+    )
+    value["operations"][operation] = {"p95_ms": limit(100)}
+    if accepted:
+        assert parse_thresholds(value)["operations"][operation]
+    else:
+        with pytest.raises(ReportFailed):
+            parse_thresholds(value)

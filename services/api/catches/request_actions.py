@@ -13,6 +13,9 @@ actions", "Restore and undo rules", "Eligibility after submission", and
 
 A repeat of an action that already happened returns the current state. A
 different action that won first gives ``RequestStateChangedError``.
+
+Each state change records one ``tailtag.catches.request_decision`` outcome
+after commit (#508). A repeat or a refusal records nothing.
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ from catches.models import Catch, CatchBlock, CatchRequest, CatchRequestState
 from conventions.models import Convention, ConventionStatus
 from conventions.review_deadline import database_now, review_window_open
 from fursuits.models import Fursuit
+from observability.outcomes import Outcome, Reason, Signal, record_outcome
 from profiles.models import PlayerProfile
 
 UNDO_WINDOW = datetime.timedelta(seconds=10)
@@ -125,6 +129,7 @@ def approve(owner: User, request_id: int) -> ActionResult:
         except IntegrityError:
             # Another writer created the trio catch without the profile lock.
             raise RequestSupersededError from None
+        record_decision_on_commit(Outcome.APPROVED)
         return ActionResult(request, now, catch)
 
 
@@ -141,6 +146,9 @@ def decline(owner: User, request_id: int, *, block: bool) -> ActionResult:
             request.declined_at = now
             request.decline_blocked = block
             request.save(update_fields=["state", "declined_at", "decline_blocked"])
+            record_decision_on_commit(
+                Outcome.DECLINED, Reason.BLOCKED if block else None
+            )
         elif request.state == CatchRequestState.DECLINED.value:
             # A repeat. ``block: true`` adds the block and keeps the decline
             # time, so the cooldown does not move (#506 G11c).
@@ -173,6 +181,7 @@ def withdraw(player: User, request_id: int) -> ActionResult:
             request.state = CatchRequestState.WITHDRAWN
             request.withdrawn_at = now
             request.save(update_fields=["state", "withdrawn_at"])
+            record_decision_on_commit(Outcome.WITHDRAWN)
         elif request.state != CatchRequestState.WITHDRAWN.value:
             raise RequestStateChangedError(public_state(request.state))
         return ActionResult(request, now)
@@ -238,7 +247,15 @@ def _reopen(owner: User, request_id: int, *, undo: bool) -> ActionResult:
         request.declined_at = None
         request.decline_blocked = False
         request.save(update_fields=["state", "declined_at", "decline_blocked"])
+        record_decision_on_commit(Outcome.DECLINE_UNDONE if undo else Outcome.RESTORED)
         return ActionResult(request, now)
+
+
+def record_decision_on_commit(outcome: Outcome, reason: Reason | None = None) -> None:
+    """Record one request state change when the current transaction commits."""
+    transaction.on_commit(
+        lambda: record_outcome(Signal.REQUEST_DECISION, outcome, reason)
+    )
 
 
 def _find(user: User, request_id: int, party: _Party) -> _Target:
