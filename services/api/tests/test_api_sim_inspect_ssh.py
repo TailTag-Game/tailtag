@@ -358,3 +358,84 @@ def test_population_operation_survives_the_pinned_stdin_relay(
     assert code == 0
     assert json.loads(output)["data"] == EMPTY_DATA
     assert sent == [{**request, "identity": IDENTITY}]
+
+
+V2_REQUEST = {**CALLER_REQUEST, "operation": "inspect-population-v2"}
+CATCH_REQUEST: dict[str, object] = {
+    "id": 21,
+    "player": 8,
+    "fursuit": 34,
+    "run_convention": True,
+    "state": "pending",
+    "requested_at": "2026-11-14T19:41:53.769123Z",
+}
+V2_DATA: dict[str, object] = {
+    **DATA,
+    "requests": [
+        CATCH_REQUEST,
+        {**CATCH_REQUEST, "id": 22, "player": None, "state": "approved"},
+    ],
+}
+
+
+def _with_request(**changes: object) -> dict[str, object]:
+    return {
+        "result": "PASS",
+        "data": {**V2_DATA, "requests": [{**CATCH_REQUEST, **changes}]},
+    }
+
+
+def test_population_v2_relays_the_catch_requests(
+    launcher: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#508: the v2 reply keeps its requests through the relay."""
+    install_seams(
+        launcher,
+        monkeypatch,
+        lambda *_a, **_k: completed({"result": "PASS", "data": V2_DATA}),
+    )
+
+    code, output = invoke(launcher, V2_REQUEST)
+
+    assert code == 0
+    assert json.loads(output)["data"] == V2_DATA
+
+
+@pytest.mark.parametrize(
+    ("request_body", "reply"),
+    (
+        (V2_REQUEST, {"result": "PASS", "data": DATA}),
+        (CALLER_REQUEST, {"result": "PASS", "data": V2_DATA}),
+        (V2_REQUEST, _with_request(extra="private")),
+        (V2_REQUEST, _with_request(state="expired")),
+        (V2_REQUEST, _with_request(player="private")),
+        (V2_REQUEST, _with_request(requested_at="2026-11-14T19:41:53+00:00")),
+        (
+            V2_REQUEST,
+            {"result": "PASS", "data": {**V2_DATA, "requests": [CATCH_REQUEST] * 121}},
+        ),
+    ),
+    ids=(
+        "v2-without-requests",
+        "v1-with-requests",
+        "extra-request-key",
+        "unstored-state",
+        "string-player",
+        "requested-at-with-offset",
+        "over-the-cap",
+    ),
+)
+def test_population_v2_rejects_an_unexpected_request_shape(
+    launcher: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    request_body: dict[str, object],
+    reply: dict[str, object],
+) -> None:
+    """#508: each operation relays only its own closed data shape."""
+    install_seams(launcher, monkeypatch, lambda *_a, **_k: completed(reply))
+
+    code, output = invoke(launcher, request_body)
+
+    assert code != 0
+    assert json.loads(output) == FAILURE
+    assert "private" not in output
