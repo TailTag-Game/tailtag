@@ -48,7 +48,6 @@ from test_journeys import (
     BASE,
     C1,
     C2,
-    C3,
     C4,
     F1B,
     F2A,
@@ -82,7 +81,7 @@ Setup = Callable[[pytest.MonkeyPatch, JourneyWorld], None]
 PASSED: Final = [
     *BASE,
     *[f"PASS journey={name}" for name in NAMES],
-    "PASS journeys passed=13",
+    "PASS journeys passed=21",
 ]
 
 
@@ -136,10 +135,10 @@ def _write_a_duplicate_row(
 ) -> None:
     """The API answers `already_caught` correctly but also writes a second row."""
     gameplay = world.gameplay
-    original = gameplay.confirm
+    original = gameplay.submit
     written: list[Catch] = []
 
-    def confirm(index: int) -> httpx.Response:
+    def submit(index: int) -> httpx.Response:
         response = original(index)
         if index == C1 and response.status_code == 200 and not written:
             first = next(c for c in gameplay.catches if c.catcher == C1)
@@ -149,34 +148,36 @@ def _write_a_duplicate_row(
             gameplay.catches.append(written[0])
         return response
 
-    monkeypatch.setattr(gameplay, "confirm", confirm)
+    monkeypatch.setattr(gameplay, "submit", submit)
 
 
 def _report_another_catch_id(
     monkeypatch: pytest.MonkeyPatch, world: JourneyWorld
 ) -> None:
-    """The 201 names an id that is not the one the row was stored under."""
+    """catcher0's approval names an id that is not the one the row was stored under."""
     gameplay = world.gameplay
-    original = gameplay.confirm
+    original = gameplay.decide
 
-    def confirm(index: int) -> httpx.Response:
-        response = original(index)
-        if response.status_code != 201:
+    def decide(index: int, request_id: int, action: str) -> httpx.Response:
+        response = original(index, request_id, action)
+        if action != "approve" or gameplay.catches[-1].catcher != C1:
             return response
         body = json.loads(response.content)
         body["catch"]["id"] += 500
-        return httpx.Response(201, json=body)
+        return httpx.Response(200, json=body)
 
-    monkeypatch.setattr(gameplay, "confirm", confirm)
+    monkeypatch.setattr(gameplay, "decide", decide)
 
 
 def _lose_the_rows_before_reconciling(
     monkeypatch: pytest.MonkeyPatch, world: JourneyWorld
 ) -> None:
-    """Every journey passes, then the stored catches are gone when reconciliation reads."""
-    change_reconciliation_history(
-        monkeypatch, world.gameplay, before=lambda g: g.catches.clear()
-    )
+    """Every journey passes, then catcher0's stored catch is gone when reconciliation reads."""
+
+    def lose(g: Gameplay) -> None:
+        g.catches[:] = [c for c in g.catches if c.catcher != C1]
+
+    change_reconciliation_history(monkeypatch, world.gameplay, before=lose)
 
 
 def _history(monkeypatch: pytest.MonkeyPatch, world: JourneyWorld) -> None:
@@ -214,15 +215,9 @@ def _count(monkeypatch: pytest.MonkeyPatch, world: JourneyWorld) -> None:
 # -- FM8: every check fails on its own condition and on nothing else ---------------
 
 # A catch the broken rule lets through: journey -> the role that confirmed it.
-FORBIDDEN_PAIRS: Final = {
-    "stopped_session": "catcher1",
-    "stale_credential": "catcher1",
-    "deactivated": "catcher2",
-    "self_catch": "owner1",
-    "convention_mismatch": "catcher3",
-    "ineligible_catcher": "outsider",
-}
-CATCHER0: Final = "journey=catch role=catcher0"
+# Only an automatic suit turns a let-through request straight into a catch.
+FORBIDDEN_PAIRS: Final = {"deactivated": "catcher2"}
+CATCHER0: Final = "journey=pending_approve role=catcher0"
 
 # case -> (fault in the fake API, fault in the inspection data, the one check line)
 CASES: Final[dict[str, tuple[Setup | None, Callable[[Data], Data] | None, str]]] = {
@@ -349,8 +344,8 @@ def test_each_check_reports_exactly_its_discrepancy_and_fails_the_run(
 def test_a_catch_whose_response_was_wrong_is_at_most_one_row_not_missing(
     monkeypatch: pytest.MonkeyPatch, journey_world: JourneyWorld, rows_lost: bool
 ) -> None:
-    """`catch` answers 200 for the row it wrote: no `created`, so the pair is at most one."""
-    journey_world.gameplay.break_rule("catch")
+    """The approval's catch time is wrong: no `created`, so the pair is at most one."""
+    journey_world.gameplay.break_rule("pending_approve")
     if rows_lost:
         _lose_the_rows_before_reconciling(monkeypatch, journey_world)
     rig = make_rig(journey_world)
@@ -363,7 +358,7 @@ def test_a_catch_whose_response_was_wrong_is_at_most_one_row_not_missing(
     ] == [
         *BASE,
         "PASS journey=unauthenticated",
-        "FAIL journey=catch step=confirm expected=201/created observed=200/already_caught",
+        "FAIL journey=pending_approve step=approve expected=200/- observed=200/shape",
         "FAIL journeys failed=1",
         "PASS reconciliation checks=14",
         "RETAIN reason=journeys quarantined=7",
@@ -405,7 +400,7 @@ def test_discrepancies_are_ordered_by_check_then_journey_then_role(
     def persist(g: Gameplay) -> None:
         g.catches.extend(
             [
-                Catch(8001, C3, F1B),
+                Catch(8001, C4, F1B),
                 Catch(8002, O1, F2A),
                 Catch(8003, O2, F2A),
                 Catch(8004, C2, F2A),
@@ -443,14 +438,14 @@ def test_discrepancies_are_ordered_by_check_then_journey_then_role(
     ]
     # Named journeys come in journey order, which is not role order (owner1 < catcher1).
     assert [(j, r) for c, j, r in found if c == "unexpected" and j != "-"] == [
-        ("stale_credential", "catcher1"),
+        ("undo", "catcher1"),
         ("self_catch", "owner1"),
     ]
     # Catches no journey made are in lease role order: not the order they were stored
-    # and not alphabetical (owner0 comes before catcher2).
+    # and not alphabetical (owner0 comes before catcher3).
     assert [r for c, j, r in found if c == "unexpected" and j == "-"] == [
         "owner0",
-        "catcher2",
+        "catcher3",
     ]
     assert "FAIL reconciliation discrepancies=7" in run.lines
     assert_only_fixed_output(run)

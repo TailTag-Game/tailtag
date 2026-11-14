@@ -20,7 +20,7 @@ from typing import Any, cast
 from tailtag_simulator.evaluation import (
     BASELINE_SUFFIX,
     ERRORS,
-    NAMES,
+    MEASURED_SCHEMAS,
     RECORD_LIMIT,
     REPORT_LIMIT,
     THRESHOLDS_SUFFIX,
@@ -33,6 +33,7 @@ from tailtag_simulator.evaluation import (
     evaluate,
     parse_baseline,
     parse_thresholds,
+    report_names,
 )
 from tailtag_simulator.reports import ReportFailed, validate_report
 
@@ -75,7 +76,7 @@ def _metrics(report: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
             "timeout_rate": _rate(attempts[name], ("timeout",)),
             "throughput": throughput[name],
         }
-        for name in NAMES
+        for name in report_names(report)
     }
 
 
@@ -179,7 +180,7 @@ def _promote(
     if (
         key is None
         or key["environment"] != "staging"
-        or subject["schema_version"] != 5
+        or subject["schema_version"] not in MEASURED_SCHEMAS
         or subject["outcome"] != "passed"
         or subject["correctness"] != "passed"
         or not (
@@ -368,13 +369,13 @@ def _row(report: Mapping[str, Any], verdict: str | None, mark: str) -> str:
     source = sha[:12] if isinstance(sha, str) and sha else "-"
     metrics = "-"
     rates = "-"
-    if report["schema_version"] == 5:
+    if report["schema_version"] in MEASURED_SCHEMAS:
         performance = report["performance"]
         latency = performance["latency_percentiles"]["value"]
         attempts = performance["attempts"]["value"]
         metrics = " ".join(
             f"{name}:{_ms(latency[name]['p95']['value'])}/{_ms(latency[name]['p99']['value'])}"
-            for name in NAMES
+            for name in report_names(report)
             if latency[name]["samples"] > 0
         )
         error, timeout = (
@@ -408,7 +409,7 @@ def trend(directory: Path, *, baselines_dir: Path) -> list[str]:
                 companions.setdefault(str(document["run_id"]), []).append(document)
             else:
                 report = cast(dict[str, Any], validate_report(cast(object, value)))
-                if report["schema_version"] not in (4, 5):
+                if report["schema_version"] not in (4, *MEASURED_SCHEMAS):
                     raise ReportFailed
                 reports.setdefault(hashlib.sha256(data).hexdigest(), report)
         except (
@@ -435,7 +436,7 @@ def trend(directory: Path, *, baselines_dir: Path) -> list[str]:
             except (ReportFailed, KeyError, TypeError):
                 continue
         traffic = report["results"].get("traffic", {}).get("value")
-        measured = report["schema_version"] == 5
+        measured = report["schema_version"] in MEASURED_SCHEMAS
         mode = report["performance"]["execution_mode"]["value"] if measured else None
         key = _comparable_key(report, traffic, mode, host)
         if key is None:

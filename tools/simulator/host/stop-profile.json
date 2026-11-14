@@ -1,6 +1,6 @@
 {
   "scenario_id": "convention-baseline",
-  "scenario_version": 2,
+  "scenario_version": 3,
   "seed": 22802,
   "configuration": {
     "pool": "host228",

@@ -32,7 +32,7 @@ from .host_release import read_release
 from .reports import load_report
 from .safety import resolve_safety_policy
 from .targets import resolve_target, verify_target
-from .traffic_config import resolve_traffic_config
+from .traffic_config import resolve_request_traffic_config
 
 SSH_OPTIONS = [
     "-a",
@@ -84,10 +84,13 @@ async def _prepare(
         "schema_version": 1,
         "run_id": str(uuid.uuid4()),
         **wrapper,
-        # Journeys carry a pool-only configuration that validate_manifest closes.
+        # Journeys and the limit scenario carry a pool-only configuration that
+        # validate_manifest closes.
         "configuration": cast(dict[str, object], wrapper["configuration"])
-        if wrapper["scenario_id"] == "journeys"
-        else resolve_traffic_config(cast(dict[str, object], wrapper["configuration"])),
+        if wrapper["scenario_id"] in ("journeys", "request-limit")
+        else resolve_request_traffic_config(
+            cast(dict[str, object], wrapper["configuration"])
+        ),
         "safety": resolve_safety_policy(read_json(safety)),
         "backend_identity": {
             "source_sha": "0" * 40,
@@ -336,9 +339,9 @@ def _sync(path: Path) -> None:
 def _evaluate_collected(
     report: dict[str, object], partial: Path, run_id: str, baselines: Path
 ) -> str:
-    """Evaluate a verified convention schema-5 report; never fails the collection."""
+    """Evaluate a verified convention schema 5 or 6 report; never fails the collection."""
     scenario = cast(dict[str, Any], report["scenario"])
-    if report["schema_version"] != 5 or not str(scenario["id"]).startswith(
+    if report["schema_version"] not in (5, 6) or not str(scenario["id"]).startswith(
         "convention-"
     ):
         return "not_applicable"

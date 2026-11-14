@@ -22,10 +22,16 @@ from tailtag_simulator.client import (
 )
 from tailtag_simulator.limits import REQUEST_TIMEOUT_SECONDS
 from tailtag_simulator.traffic_config import (
+    resolve_request_traffic_config,
     resolve_traffic_config,
     traffic_bucket_count,
 )
-from tailtag_simulator.traffic_metrics import OPERATIONS, OperationMeter, classify_reply
+from tailtag_simulator.traffic_metrics import (
+    OPERATIONS,
+    V6_OPERATIONS,
+    OperationMeter,
+    classify_reply,
+)
 
 
 @dataclass(frozen=True)
@@ -63,9 +69,18 @@ _STOPS = ("attempts", "generation", "drain", "external", "correctness", "entries
 
 class TrafficRuntime:
     def __init__(
-        self, config: Mapping[str, object], *, clock: Clock = DEFAULT_CLOCK
+        self,
+        config: Mapping[str, object],
+        *,
+        clock: Clock = DEFAULT_CLOCK,
+        request_flow: bool = False,
     ) -> None:
-        self.config = resolve_traffic_config(config)
+        """``request_flow`` selects scenario version 3 and the schema 6 operations."""
+        self.request_flow = request_flow
+        self.operations = V6_OPERATIONS if request_flow else OPERATIONS
+        self.config = (
+            resolve_request_traffic_config if request_flow else resolve_traffic_config
+        )(config)
         self.clock = clock
         self.limits = cast(dict[str, object], self.config["limits"])
         self.traffic = cast(dict[str, object], self.config["traffic"])
@@ -93,7 +108,7 @@ class TrafficRuntime:
         self.drain_seconds = 0.0
         self.lag_seconds = 0.0
         self.buckets: list[dict[str, object]] = []
-        self.meter = OperationMeter()
+        self.meter = OperationMeter(self.operations)
 
     def bind_seed(self, seed: int) -> None:
         self.plan_digest = hashlib.sha256(
@@ -163,7 +178,7 @@ class TrafficRuntime:
         operation: str,
         injection: str = "none",
     ) -> Reply:
-        if operation not in OPERATIONS or injection not in _INJECTIONS:
+        if operation not in self.operations or injection not in _INJECTIONS:
             raise ValueError("invalid traffic operation")
         if self.stopped.is_set():
             raise TrafficStopped
@@ -317,7 +332,11 @@ async def run_schedule(
     runtime: TrafficRuntime,
     clock: Clock = DEFAULT_CLOCK,
 ) -> dict[str, object]:
-    resolved = resolve_traffic_config(config)
+    resolved = (
+        resolve_request_traffic_config
+        if runtime.request_flow
+        else resolve_traffic_config
+    )(config)
     traffic = cast(dict[str, object], resolved["traffic"])
     limits = cast(dict[str, object], resolved["limits"])
     segments = cast(list[dict[str, object]], traffic["segments"])

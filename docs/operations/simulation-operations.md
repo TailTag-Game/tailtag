@@ -67,11 +67,16 @@ window:
 
 If any of them has to happen, do not start a simulation until it has finished.
 
+### Catch request gate
+
+Every committed profile runs the catch request flow (#508). The flow needs `CATCH_REQUESTS_ENABLED` on in Staging. Before the gate change, keep the host on a simulator release from before #508. See [catch request flow](../../tools/simulator/README.md#catch-request-flow).
+
 ### Smoke
 
-Smoke runs the deterministic `journeys` v1 scenario through the host (seven
-identities, seed 0). It covers the canonical public journeys and their
-expected rejections, then reconciliation, cleanup and release.
+Smoke runs the deterministic `journeys` v2 scenario through the host (seven
+identities, seed 0). It covers the canonical public journeys on the catch
+request flow and their expected rejections, then reconciliation, cleanup and
+release.
 
 Run every workload in a
 [host operator session](simulation-host.md#host-operator-session). Inside the
@@ -129,13 +134,14 @@ target.
 | Profile | Seed | Identities | Assumption |
 | --- | ---: | ---: | --- |
 | `smoke-profile.json` | 0 | 7 | Canonical journeys only. Deterministic, with no randomness. |
-| `normal-profile.json` | 22801 | 20 | Unchanged #228 normal run: ten active actors for 300 s. Its key carries the committed baseline. |
+| `normal-profile.json` | 22801 | 20 | The #228 normal run on the catch request flow (convention v3): ten active actors for 300 s. Its v3 key has no baseline yet. #508 promotes the first one. |
 | `nightly-post-event-profile.json` | 23001 | 20 | Grouped collection after an event, as family-default bursts. |
 | `nightly-hotspot-profile.json` | 23002 | 20 | Two popular owners attract concentrated catches and overlapping duplicates. |
-| `nightly-retry-profile.json` | 23003 | 20 | Four retry-prone attendees revisit their catches. Every read, resolve and confirm attempt, from any actor, has a 10% injected pre-send failure and a 10% lost response. Five attempts per call keep a chance run failure near 1.6%; with three, about a third of runs would fail by chance. |
+| `nightly-retry-profile.json` | 23003 | 20 | Four retry-prone attendees revisit their catches. Every read, preview and submit attempt, from any actor, has a 10% injected pre-send failure and a 10% lost response. Five attempts per call keep a chance run failure near 1.6%; with three, about a third of runs would fail by chance. |
 | `nightly-soak-profile.json` | 23004 | 20 | Three finite cycles that revisit the same catch pairs. |
 | `weekend-profile.json` | 23010 | 50 | Every persona. Ten active actors for 300 s with 2 s think time. |
 | `expiration-profile.json` | 23020 | 2 | One owner and one casual attendee. Exercises the natural 12-hour catch-session expiry. A one-time proof only. |
+| `request-limit-profile.json` | 0 | 10 | The per-player limit and request expiry (#508). Use `request-limit-safety.json`, which allows 1800 s. A proof run only, not nightly. |
 
 **Setup time.** Identity setup is paced at 4 s per identity. That is about
 76 s for 20 identities and 196 s for 50, and it counts against safety

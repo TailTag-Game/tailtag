@@ -23,15 +23,6 @@ def complete_public_reply(
     if not response.content:
         return response
     body: Any = json.loads(response.content)
-    if request.url.path == "/api/catches/confirm/" and response.status_code in {
-        200,
-        201,
-    }:
-        body["catch"]["convention_id"] = CONVENTION_ID
-        fursuit = body["catch"]["fursuit"]
-        body["catch"]["fursuit"] = {
-            key: fursuit[key] for key in ("tailtag_id", "name", "photo_url")
-        }
     if request.url.path == "/api/catches/" and response.status_code == 200:
         for row in body["results"]:
             row["convention"] = {
@@ -59,6 +50,7 @@ class PopulationWorld:
         self.fault: str | None = None
         self.failed = False
         self.failure_at: int | None = None
+        self.lost_actor: str | None = None
         owners = int(str(config["normal_owners"])) + int(str(config["popular_owners"]))
         attendees = sum(int(str(config[name])) for name in ATTENDEE_PERSONAS)
         self.rebind(range(17, 17 + owners), range(31, 31 + attendees))
@@ -115,82 +107,22 @@ class PopulationWorld:
         actor = next(actor for actor, slot in self.indexes.items() if slot == index)
         body: dict[str, Any] = json.loads(request.content) if request.content else {}
         self.requests.append((actor, method, path, body))
-        # The canonical serializer rejects extra fields before the catch service
-        # runs, including the simulator's former convention ID.
-        if (
-            path == "/api/catches/confirm/"
-            and method == "POST"
-            and (set(body) != {"payload"} or not isinstance(body["payload"], str))
-        ):
-            return httpx.Response(
-                400, json={"payload": ["Invalid catch credential payload."]}
-            )
         if path == "/api/me/" and method == "GET":
             return httpx.Response(200, json={"id": self.id_offset + 1000 + index})
-        # Reactivation gives the next cycle a new credential, as the real API does.
-        if path.endswith("/catch-credential/") and method == "GET":
-            fursuit = int(path.split("/")[-3])
-            issued = self.gameplay.issued.get(fursuit, [])
-            if issued and issued[-1] in self.gameplay.revoked:
-                self.gameplay.issue(fursuit)
         response = self.gameplay.route(method, path, index)
         if response is None:
             return None
         response = complete_public_reply(self.gameplay, index, request, response)
-        if not self.failed and self.fault is not None:
-            if (
-                path.endswith("/catch-credentials/resolve/")
-                and self.fault == "wrong-target"
-            ):
-                changed = json.loads(response.content)
-                changed["fursuit"]["tailtag_id"] = (
-                    "00000000-0000-0000-0000-000000009999"
-                )
-                self.failed = True
-                self.failure_at = len(self.requests) - 1
-                return httpx.Response(200, json=changed)
-            if path == "/api/catches/confirm/":
-                if self.fault == "wrong-confirm-target":
-                    self.failed = True
-                    self.failure_at = len(self.requests) - 1
-                    changed = json.loads(response.content)
-                    changed["catch"]["fursuit"]["tailtag_id"] = (
-                        "00000000-0000-0000-0000-000000009999"
-                    )
-                    return httpx.Response(response.status_code, json=changed)
-                if self.fault == "ambiguous-positive":
-                    self.failed = True
-                    self.failure_at = len(self.requests) - 1
-                    raise httpx.ReadError("SENTINEL-secret-lost-response")
-                if self.fault == "wrong-status":
-                    self.failed = True
-                    self.failure_at = len(self.requests) - 1
-                    return httpx.Response(
-                        500,
-                        json={"code": "SENTINEL-private", "detail": "SENTINEL-private"},
-                    )
-                if self.fault == "nonconvergent" and response.status_code == 200:
-                    self.failed = True
-                    self.failure_at = len(self.requests) - 1
-                    changed = json.loads(response.content)
-                    changed["catch"]["id"] += 123
-                    return httpx.Response(200, json=changed)
-            if (
-                path == "/api/catches/"
-                and self.fault == "wrong-history"
-                and self.gameplay.catches
-            ):
-                self.failed = True
-                self.failure_at = len(self.requests) - 1
-                return httpx.Response(
-                    200,
-                    json={
-                        "catch_count": 0,
-                        "next": None,
-                        "previous": None,
-                        "results": [],
-                    },
-                )
+        if (
+            self.fault == "ambiguous-positive"
+            and (method, path) == ("POST", "/api/catches/requests/")
+            and self.lost_actor in (None, actor)
+        ):
+            # Every submission by one actor commits, then its response is lost,
+            # so retries exhaust without an answer (#508).
+            self.lost_actor = actor
+            self.failure_at = len(self.requests) - 1
+            raise httpx.ReadError("SENTINEL-secret-lost-response")
         return response
 
     async def inspect(
@@ -215,6 +147,17 @@ class PopulationWorld:
             "fursuits": [],
             "fixture_photos_unchanged": True,
             "avatars": [],
+            "requests": [
+                {
+                    "id": row.id,
+                    "player": row.player,
+                    "fursuit": row.fursuit_id,
+                    "run_convention": True,
+                    "state": row.state,
+                    "requested_at": "2026-10-03T12:00:00Z",
+                }
+                for row in self.gameplay.rows
+            ],
         }
 
     def owner_targets(self, owner: int) -> tuple[int, ...]:

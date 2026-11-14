@@ -9,7 +9,7 @@ Output lines are fixed by these tests (after the #220 target, RUN and setup line
 
     PASS journey=<name>
     FAIL journey=<name> step=<step> expected=<status>/<code> observed=<status>/<code>
-    PASS journeys passed=13 | FAIL journeys failed=<n>
+    PASS journeys passed=21 | FAIL journeys failed=<n>
     PASS reconciliation checks=14 | FAIL reconciliation ... (see test_reconciliation)
     PASS cleanup ... | RETAIN reason=<reason> quarantined=<n> (see test_run_lifecycle)
     PASS release
@@ -40,11 +40,10 @@ from journey_support import (
     AVATAR_PATH,
     CONFIRM_PATH,
     CREATE_PATH,
-    CREDENTIAL,
     HISTORY_PATH,
     JOURNEY_LEAKS,
-    RESOLVE_PATH,
-    ROTATE,
+    PREVIEW_PATH,
+    REQUESTS_PATH,
     VALID_A,
     VALID_B,
     JourneyWorld,
@@ -84,10 +83,18 @@ IMAGES: Final = JourneyImages(valid_a=VALID_A, valid_b=VALID_B)
 
 NAMES: Final = (
     "unauthenticated",
-    "catch",
+    "pending_approve",
+    "automatic",
+    "decline",
+    "decline_block",
+    "undo",
+    "restore",
+    "withdraw",
+    "cooldown",
     "retry",
+    "duplicate",
     "stopped_session",
-    "stale_credential",
+    "replaced_tag",
     "deactivated",
     "self_catch",
     "convention_mismatch",
@@ -128,8 +135,9 @@ ROLES: Final = (
     "outsider",
 )
 CODE = (
-    "(created|already_caught|catcher_ineligible|active_convention_mismatch"
-    "|self_catch_not_allowed|catch_target_unavailable"
+    "(pending|approved|already_pending|already_caught|catcher_ineligible"
+    "|self_catch_not_allowed|catch_target_unavailable|cooldown_active"
+    "|undo_expired|request_state_changed|fursuit_not_found"
     "|unsupported_format|invalid_image|too_many_pixels|-)"
 )
 FIXED_LINES = re.compile(
@@ -139,7 +147,7 @@ FIXED_LINES = re.compile(
     rf"|PASS journey=({'|'.join(NAMES)})"
     rf"|FAIL journey=({'|'.join(NAMES)}) step=[a-z_]+ expected=\d{{3}}/{CODE}"
     rf" observed=(\d{{3}}/({CODE[1:-1]}|other|shape)|error)"
-    r"|PASS journeys passed=13|FAIL journeys failed=\d+"
+    rf"|PASS journeys passed={len(NAMES)}|FAIL journeys failed=\d+"
     r"|PASS reconciliation checks=14"
     r"|FAIL reconciliation result=(FAIL_LEASE|FAIL_RUN_UNKNOWN|FAIL_LIMIT"
     r"|FAIL_REQUEST|FAIL_TARGET|FAIL_BOOTSTRAP|FAIL_LAUNCHER)"
@@ -209,6 +217,7 @@ def journeys(
             clock=world.clock,
             run_id=run_id,
             report=report,
+            sleep=world.gameplay.advance,
         )
     )
     return Run(code, lines)
@@ -255,7 +264,7 @@ def test_a_correct_api_passes_all_journeys_with_only_fixed_output(
         f"RUN run_id={run_id}",
         *BASE[2:],
         *[f"PASS journey={name}" for name in NAMES],
-        "PASS journeys passed=13",
+        f"PASS journeys passed={len(NAMES)}",
         "PASS reconciliation checks=14",
         CLEANUP_LINE,
         "PASS release",
@@ -292,57 +301,91 @@ BREAKS: dict[str, tuple[str, str, str, str, str]] = {
         "401/-",
         "200/-",
     ),
-    "catch": ("catch", "catch", "confirm", "201/created", "200/already_caught"),
-    "retry": (
-        "retry",
-        "retry",
-        "confirm_stopped",
-        "200/already_caught",
+    "pending_approve": (
+        "pending_approve",
+        "pending_approve",
+        "approve",
+        "200/-",
+        "200/shape",
+    ),
+    "automatic": ("automatic", "automatic", "submit", "201/approved", "201/pending"),
+    "decline": ("decline", "decline", "player_list", "200/-", "200/shape"),
+    # The real API checks the block before the cooldown, so a missing block
+    # shows up as the cooldown refusal.
+    "decline_block": (
+        "decline_block",
+        "decline_block",
+        "submit_blocked",
         "404/catch_target_unavailable",
+        "429/cooldown_active",
+    ),
+    "undo": ("undo", "undo", "undo", "200/-", "409/undo_expired"),
+    "restore": ("restore", "restore", "undo_expired", "409/undo_expired", "200/-"),
+    "withdraw": (
+        "withdraw",
+        "withdraw",
+        "approve_withdrawn",
+        "409/request_state_changed",
+        "200/-",
+    ),
+    "cooldown": (
+        "cooldown",
+        "cooldown",
+        "submit_cooled",
+        "429/cooldown_active",
+        "201/pending",
+    ),
+    "retry": ("retry", "retry", "submit_again", "200/already_pending", "201/pending"),
+    "duplicate": (
+        "duplicate",
+        "duplicate",
+        "submit_twice",
+        "200/already_pending",
+        "201/pending",
     ),
     "stopped_session": (
         "stopped_session",
         "stopped_session",
-        "confirm",
+        "submit_stopped",
         "404/catch_target_unavailable",
-        "201/created",
+        "201/pending",
     ),
-    "stale_credential": (
-        "stale_credential",
-        "stale_credential",
-        "confirm_old",
+    "replaced_tag": (
+        "replaced_tag",
+        "replaced_tag",
+        "preview_old",
         "404/catch_target_unavailable",
-        "201/created",
+        "200/-",
     ),
     "deactivated": (
         "deactivated",
         "deactivated",
-        "confirm",
+        "submit",
         "404/catch_target_unavailable",
-        "201/created",
+        "201/approved",
     ),
     "self_catch": (
         "self_catch",
         "self_catch",
-        "confirm",
+        "submit",
         "409/self_catch_not_allowed",
-        "201/created",
+        "201/pending",
     ),
     "convention_mismatch": (
         "convention_mismatch",
         "convention_mismatch",
-        "confirm",
-        "409/active_convention_mismatch",
-        "201/created",
+        "submit",
+        "403/catcher_ineligible",
+        "201/pending",
     ),
     "ineligible_catcher": (
         "ineligible_catcher",
         "ineligible_catcher",
-        "confirm",
+        "submit",
         "403/catcher_ineligible",
-        "201/created",
+        "201/pending",
     ),
-    "not_owner": ("not_owner", "not_owner", "credential", "404/-", "200/-"),
+    "not_owner": ("not_owner", "not_owner", "tag", "404/fursuit_not_found", "200/-"),
     "avatar": ("avatar", "avatar", "profile", "200/-", "200/shape"),
     "fursuit_photo": (
         "fursuit_photo",
@@ -364,7 +407,7 @@ BREAKS: dict[str, tuple[str, str, str, str, str]] = {
     "unknown-code": (
         "self_catch_unknown_code",
         "self_catch",
-        "confirm",
+        "submit",
         "409/self_catch_not_allowed",
         "409/other",
     ),
@@ -424,7 +467,7 @@ def test_integrity_abort_denies_further_convention_restore_workload(
     _, run = run_broken(journey_world, "convention_mismatch")
 
     assert any(
-        line.startswith("FAIL journey=convention_mismatch step=confirm ")
+        line.startswith("FAIL journey=convention_mismatch step=submit ")
         for line in run.lines
     )
     sent = [
@@ -444,23 +487,25 @@ def test_each_request_carries_the_identity_the_journey_assigns_and_nothing_privi
     rig, _ = happy
     world = rig.world
     requests = set(world.gameplay.requests)
+
+    def tag(fursuit: int, suffix: str = "tag/") -> str:
+        return f"/api/fursuits/{fursuit}/{suffix}"
+
     assert {
         ("PUT", path_for(F1A, "catch-session/"), O1),
-        ("GET", path_for(F1A, CREDENTIAL), O1),
-        ("POST", RESOLVE_PATH, C1),
-        ("POST", CONFIRM_PATH, C1),
+        ("GET", tag(F1A), O1),
+        ("PATCH", tag(F1B, ""), O1),
+        ("POST", PREVIEW_PATH, C1),
+        ("POST", REQUESTS_PATH, C1),
+        ("GET", REQUESTS_PATH, C1),
         ("GET", HISTORY_PATH, C1),
-        ("PUT", path_for(F1B, "catch-session/"), O1),
-        ("POST", CONFIRM_PATH, C2),
-        ("POST", path_for(F2A, ROTATE), O2),
-        ("PUT", path_for(F2B, ""), O2),
-        ("POST", CONFIRM_PATH, C3),
-        ("POST", CONFIRM_PATH, O2),
+        ("POST", tag(F1A, "tag/replace/"), O1),
+        ("PUT", path_for(F1B, ""), O1),
+        ("POST", REQUESTS_PATH, O2),
         ("DELETE", ACTIVE_PATH, C4),
         ("PUT", ACTIVE_PATH, C4),
-        ("POST", CONFIRM_PATH, C4),
-        ("POST", CONFIRM_PATH, OUTSIDER),
-        ("GET", path_for(F2A, CREDENTIAL), O1),
+        ("POST", REQUESTS_PATH, OUTSIDER),
+        ("GET", tag(F2A), O1),
         ("PUT", path_for(F2A, "catch-session/"), O1),
         ("PUT", AVATAR_PATH, C3),
         ("DELETE", AVATAR_PATH, C3),
@@ -472,11 +517,13 @@ def test_each_request_carries_the_identity_the_journey_assigns_and_nothing_privi
 
     # Only the two unauthenticated probes carry no identity.
     assert {(m, p) for m, p, i in requests if i is None} == {("GET", "/api/me/")}
-    # Owners control sessions and credentials; catchers resolve and read history.
-    assert who("GET", path_for(F1A, CREDENTIAL)) == {O1}
-    assert who("POST", RESOLVE_PATH) <= {C1, C2, C3, C4}
+    # Owners control sessions and tags; catchers preview, submit, and read history.
+    assert who("GET", tag(F1A)) == {O1}
+    assert who("POST", PREVIEW_PATH) <= {C1, C2, C3, C4}
     assert who("GET", HISTORY_PATH) == {O1, O2, C1, C2, C3, C4, OUTSIDER}
-    assert who("POST", CONFIRM_PATH) == {O2, C1, C2, C3, C4, OUTSIDER}
+    assert who("POST", REQUESTS_PATH) == {O2, C1, C2, C3, C4, OUTSIDER}
+    # The retired v1 catch path is never called.
+    assert not any("catch-credential" in p or p == CONFIRM_PATH for _, p, _ in requests)
     # No lease, fixture or Clerk admin call falls between provisioning and release,
     # except the one cleanup that follows reconciliation.
     log = world.log
@@ -488,7 +535,7 @@ def test_each_request_carries_the_identity_the_journey_assigns_and_nothing_privi
     # RECONCILIATION (#222) starts once the journeys have reported. Its only public
     # calls are one history read per role (catcher0's two journey reads precede its
     # own), and it calls `inspect` exactly once, between the journeys and the release.
-    finished = log.index(("emit", "PASS journeys passed=13"))
+    finished = log.index(("emit", f"PASS journeys passed={len(NAMES)}"))
     inspections = [at for at, entry in enumerate(log) if entry[0] == "inspection"]
     released = next(
         at
@@ -601,7 +648,7 @@ def test_cli_passes_the_pool_and_resolves_committed_fixture_image_inputs(
     (arguments,) = seen
     assert arguments["pool"] == POOL
     assert arguments["command"] == "journeys"
-    assert arguments["scenario_version"] == 1 and arguments["seed"] == 0
+    assert arguments["scenario_version"] == 2 and arguments["seed"] == 0
     assert INSPECTION_LAUNCHER_COMMAND[-1] == "api-sim-inspect-ssh"
     # Input loading and channels are created inside the execution coroutine now;
     # exercise the actual committed image input reader, while existing journey and

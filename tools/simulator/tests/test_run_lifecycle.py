@@ -123,7 +123,7 @@ def build(
     corrupt = None
     inspection_fail = None
     if scenario in ("journeys_fail", "both_fail"):
-        the_world.gameplay.break_rule("catch")
+        the_world.gameplay.break_rule("pending_approve")
     if scenario in ("reconcile_mismatch", "both_fail"):
         corrupt = edit(fixture_photos_unchanged=False)
     if scenario == "reconcile_error":
@@ -180,6 +180,7 @@ def build(
                 inspection_channel=FakeInspectionChannel(
                     the_world, corrupt=corrupt, fail=inspection_fail
                 ),
+                sleep=the_world.gameplay.advance,
                 **common,
             )
         else:
@@ -621,15 +622,15 @@ def test_durable_fixture_reports_record_actual_lifecycle_and_exclude_internal_id
             item["name"]
             for item in value["results"]["journeys"]["items"]
             if item["status"] == "failed"
-        } == {"catch"}
+        } == {"pending_approve"}
         assert rig.fixtures.calls_to("retain") == [
             {"pool": POOL, "run_id": RUN_ID, "reason": "journeys"}
         ]
     if case is None and kind == "journeys":
-        assert value["results"]["journeys"]["passed"] == 13
+        assert value["results"]["journeys"]["passed"] == 21
         assert value["results"]["journeys"]["failed"] == 0
         assert value["results"]["checks"]["count"] == 14
-        assert len(value["results"]["journeys"]["items"]) == 13
+        assert len(value["results"]["journeys"]["items"]) == 21
     if case is None:
         assert value["results"]["cleanup"]["reason"] is None
         assert "readmitted" in value["results"]["cleanup"]["value"]
@@ -754,8 +755,8 @@ def test_catalog_fault_cannot_skip_fixture_retention_or_release(
     fault: str,
 ) -> None:
     catalog = disposable_catalog(tmp_path, monkeypatch)
-    descriptor = (
-        catalog / f"{'journeys' if kind == 'journeys' else 'fixture-smoke'}-v1.json"
+    descriptor = catalog / (
+        "journeys-v2.json" if kind == "journeys" else "fixture-smoke-v1.json"
     )
     original = descriptor.read_bytes()
     report = report_for(tmp_path / "reports", kind)

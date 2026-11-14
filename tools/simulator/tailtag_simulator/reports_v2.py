@@ -16,6 +16,24 @@ COUNTERS = {
     "unused_budget",
     "cycles",
 }
+# Catch request flow counters, scenario v3 and report schema 6 (#508).
+V6_COUNTERS = {
+    "actors",
+    "actions",
+    "completed",
+    "pending",
+    "automatic",
+    "already_pending",
+    "already_caught",
+    "approved",
+    "declined",
+    "expected_rejections",
+    "retries",
+    "history_reads",
+    "exhausted",
+    "unused_budget",
+    "cycles",
+}
 
 
 def population(config: dict[str, Any]) -> dict[str, object]:
@@ -44,14 +62,16 @@ def population(config: dict[str, Any]) -> dict[str, object]:
 def results(value: object, config: dict[str, Any], *, successful: bool) -> None:
     # Local import avoids moving or duplicating the established privacy primitives.
     from tailtag_simulator.reports import (
-        CHECKS,
         CLEANUP,
         _count,  # pyright: ignore[reportPrivateUsage]
         _measurement,  # pyright: ignore[reportPrivateUsage]
         _object,  # pyright: ignore[reportPrivateUsage]
         _require,  # pyright: ignore[reportPrivateUsage]
+        checks_for,
     )
 
+    checks_allowed = checks_for(config)
+    counters = V6_COUNTERS if "review" in config else COUNTERS
     result = _object(value, {"behavior", "checks", "cleanup"})
     behavior = _object(result["behavior"], {"items", "failure", "reason"})
     _require(
@@ -67,7 +87,7 @@ def results(value: object, config: dict[str, Any], *, successful: bool) -> None:
         items = _object(behavior["items"], set(PERSONAS))
         roles = cast(dict[str, int], population(config)["roles"])
         for persona, raw in items.items():
-            item = _object(raw, COUNTERS)
+            item = _object(raw, counters)
             _require(all(_count(v) for v in item.values()))
             actors = roles[persona]
             _require(item["actors"] == actors)
@@ -128,7 +148,7 @@ def results(value: object, config: dict[str, Any], *, successful: bool) -> None:
     _require(
         isinstance(checks["items"], list)
         and len(cast(list[object], checks["items"])) <= 10000
-        and _count(checks["count"], len(CHECKS))
+        and _count(checks["count"], len(checks_allowed))
     )
     allowed = {
         f"owner{n}" for n in range(config["normal_owners"] + config["popular_owners"])
@@ -137,7 +157,7 @@ def results(value: object, config: dict[str, Any], *, successful: bool) -> None:
     for raw in cast(list[object], checks["items"]):
         item = _object(raw, {"check", "actor", "expected", "observed"})
         _require(
-            item["check"] in CHECKS
+            item["check"] in checks_allowed
             and (item["actor"] is None or item["actor"] in allowed)
             and _count(item["expected"])
             and _count(item["observed"])
@@ -149,7 +169,7 @@ def results(value: object, config: dict[str, Any], *, successful: bool) -> None:
     if checks["reason"] is not None:
         _require(checks["items"] == [] and checks["count"] == 0)
     if successful:
-        _require(checks == {"items": [], "count": len(CHECKS), "reason": None})
+        _require(checks == {"items": [], "count": len(checks_allowed), "reason": None})
     _measurement(
         result["cleanup"],
         lambda v: all(_count(n) for n in _object(v, set(CLEANUP)).values()),

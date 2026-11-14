@@ -1,0 +1,64 @@
+{
+  "id": "journeys",
+  "version": 2,
+  "api_contract": "tailtag-public-v0",
+  "consumes_randomness": false,
+  "roles": [
+    "owner",
+    "catcher",
+    "outsider"
+  ],
+  "operations": [
+    "identity_preflight",
+    "retention_preflight",
+    "lease",
+    "token_setup",
+    "provision",
+    "unauthenticated",
+    "pending_approve",
+    "automatic",
+    "decline",
+    "decline_block",
+    "undo",
+    "restore",
+    "withdraw",
+    "cooldown",
+    "retry",
+    "duplicate",
+    "stopped_session",
+    "replaced_tag",
+    "deactivated",
+    "self_catch",
+    "convention_mismatch",
+    "ineligible_catcher",
+    "not_owner",
+    "avatar",
+    "fursuit_photo",
+    "image_rejections",
+    "reconciliation",
+    "identity_final",
+    "cleanup",
+    "retain_on_failure",
+    "release"
+  ],
+  "assumptions": [
+    "isolated_convention",
+    "fixed_seven_identities",
+    "public_api_journeys",
+    "request_flow"
+  ],
+  "waits_seconds": [],
+  "configuration": {
+    "defaults": {
+      "target": "staging",
+      "base_url": null,
+      "pool": null
+    },
+    "parameters": {
+      "target": "target",
+      "base_url": "local_origin",
+      "pool": "pool"
+    }
+  },
+  "descriptor_digest": "c254856ad394dfb3e6510f28ff11739da8a37717b32b2449437477a56d80ff2f"
+}

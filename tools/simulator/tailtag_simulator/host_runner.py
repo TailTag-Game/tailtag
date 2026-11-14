@@ -299,17 +299,18 @@ async def supervise_run(
                 started = clock()
                 execution_end = started + cast(float, safety["seconds"])
                 configuration = cast(dict[str, object], manifest["configuration"])
+                # Only the newest scenario versions run (#508).
                 scenario_arguments = (
                     [
-                        "journeys",
+                        str(manifest["scenario_id"]),
                         "--pool",
                         str(configuration["pool"]),
                         "--scenario-version",
-                        "1",
+                        "2" if manifest["scenario_id"] == "journeys" else "1",
                         "--seed",
                         "0",
                     ]
-                    if manifest["scenario_id"] == "journeys"
+                    if manifest["scenario_id"] in ("journeys", "request-limit")
                     else [
                         "convention",
                         "--family",
@@ -317,7 +318,7 @@ async def supervise_run(
                         "--pool",
                         str(configuration["pool"]),
                         "--scenario-version",
-                        "2",
+                        "3",
                         "--seed",
                         str(manifest["seed"]),
                     ]

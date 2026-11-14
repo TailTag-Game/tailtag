@@ -17,6 +17,7 @@ from tailtag_simulator.host_protocol import (
     encode_frame,
     validate_manifest,
 )
+from tailtag_simulator.limits import REVIEW_DEADLINE_OFFSET_SECONDS
 from tailtag_simulator.pool import (
     INSTANCE_PIN,
     LAUNCHER_TIMEOUT_SECONDS,
@@ -140,9 +141,13 @@ class BridgeSession:
         config = _dict(self.manifest["configuration"])
         self._pool = config["pool"]
         self._journeys = self.manifest["scenario_id"] == "journeys"
+        self._limit = self.manifest["scenario_id"] == "request-limit"
         if self._journeys:
             # Fixed by journeys.py: 2 owners, 4 catchers and 1 outsider without fixture state.
             self._owners, self._extras, self._count, self._fursuits = 2, 1, 7, 2
+        elif self._limit:
+            # Fixed by request_limit.py: 8 owners with 5 suits each and 2 players.
+            self._owners, self._extras, self._count, self._fursuits = 8, 0, 10, 5
         else:
             self._owners = cast(int, config["normal_owners"]) + cast(
                 int, config["popular_owners"]
@@ -258,7 +263,7 @@ class BridgeSession:
             "pool"
             if op in {"allocate", "heartbeat", "quarantine", "release"}
             else "inspection"
-            if op in {"inspect-population-v1", "inspect"}
+            if op in {"inspect-population-v2", "inspect"}
             else "fixture"
         )
         keys: set[str] = {"operation", "arguments", "expected_identity"} | (
@@ -298,12 +303,16 @@ class BridgeSession:
                 extras=self._indexes[split:],
                 fursuits_per_owner=self._fursuits,
             )
+            if self._limit:
+                expected["review_deadline_offset_seconds"] = (
+                    REVIEW_DEADLINE_OFFSET_SECONDS
+                )
         elif op == "inspect" and self._journeys:
             names = ["owner0", "owner1", *(f"catcher{i}" for i in range(4)), "outsider"]
             expected.update(
                 pool=self._pool, identities=dict(zip(names, self._indexes, strict=True))
             )
-        elif op == "inspect-population-v1" and not self._journeys:
+        elif op == "inspect-population-v2" and not self._journeys:
             roles = {
                 ("owner" + str(i))
                 if i < self._owners
@@ -330,9 +339,11 @@ class BridgeSession:
             "extras",
             "identities",
         }
-        if self._journeys:
-            # The journeys partition is wholly fixed, so any deviation is authority.
+        if self._journeys or self._limit:
+            # These partitions are wholly fixed, so any deviation is authority.
             authority_keys.add("fursuits_per_owner")
+        if self._limit:
+            authority_keys.add("review_deadline_offset_seconds")
         if any(not _same(args[k], expected[k]) for k in authority_keys & set(expected)):
             self._veto = True
             raise ValueError
@@ -366,7 +377,7 @@ class BridgeSession:
             return False
         if op == "provision":
             return not self._terminal and op not in self._attempts
-        if op in {"inspect-population-v1", "inspect"}:
+        if op in {"inspect-population-v2", "inspect"}:
             return self._provisioned and not self._terminal
         if op == "heartbeat":
             return not self._terminal
@@ -446,8 +457,10 @@ class BridgeSession:
             )
         if op == "quarantine":
             return not data
-        if op in {"inspect-population-v1", "inspect"}:
+        if op == "inspect":
             return _inspection(data)
+        if op == "inspect-population-v2":
+            return _inspection(data, requests=True)
         shapes: dict[str, set[str]] = {
             "retained_counts": {"retained", "unfinished"},
             "heartbeat": {"extended"},
@@ -547,11 +560,19 @@ class BridgeSession:
             await asyncio.gather(*self._tasks, return_exceptions=True)
 
 
-def _inspection(data: dict[str, object]) -> bool:
-    if (
-        set(data) != {"catches", "fursuits", "fixture_photos_unchanged", "avatars"}
-        or type(data["fixture_photos_unchanged"]) is not bool
+_REQUEST_STATES = frozenset(
+    {"pending", "approved", "declined", "withdrawn", "invalidated"}
+)
+
+
+def _inspection(data: dict[str, object], *, requests: bool = False) -> bool:
+    """Closed relay data; v2 (``requests``) adds the run's catch requests (#508)."""
+    keys = {"catches", "fursuits", "fixture_photos_unchanged", "avatars"}
+    if set(data) != (keys | {"requests"} if requests else keys) or (
+        type(data["fixture_photos_unchanged"]) is not bool
     ):
+        return False
+    if requests and not _requests(data["requests"]):
         return False
     for key in ("catches", "fursuits", "avatars"):
         if not isinstance(data[key], list):
@@ -590,6 +611,37 @@ def _inspection(data: dict[str, object]) -> bool:
         stamp = item["caught_at"]
         if (
             not isinstance(stamp, str)
+            or re.fullmatch(
+                r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z",
+                stamp,
+            )
+            is None
+        ):
+            return False
+    return True
+
+
+def _requests(value: object) -> bool:
+    if not isinstance(value, list) or len(cast(list[object], value)) > 120:
+        return False
+    for raw in cast(list[object], value):
+        item = _dict(raw)
+        if set(item) != {
+            "id",
+            "player",
+            "fursuit",
+            "run_convention",
+            "state",
+            "requested_at",
+        }:
+            return False
+        stamp = item["requested_at"]
+        if (
+            not all(_integer(item[k]) for k in ("id", "fursuit"))
+            or not (item["player"] is None or _integer(item["player"]))
+            or type(item["run_convention"]) is not bool
+            or item["state"] not in _REQUEST_STATES
+            or not isinstance(stamp, str)
             or re.fullmatch(
                 r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z",
                 stamp,
