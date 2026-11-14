@@ -69,7 +69,7 @@ If any of them has to happen, do not start a simulation until it has finished.
 
 ### Catch request gate
 
-Every committed profile runs the catch request flow (#508). The flow needs `CATCH_REQUESTS_ENABLED` on in Staging. Before the gate change, keep the host on a simulator release from before #508. See [catch request flow](../../tools/simulator/README.md#catch-request-flow).
+Every committed profile runs the catch request flow (#508). The flow needs `CATCH_REQUESTS_ENABLED` on in Staging. `render.yaml` turns it on for the Development and Staging API services. If a Staging environment has the gate off, keep the host on a simulator release from before #508. See [catch request flow](../../tools/simulator/README.md#catch-request-flow).
 
 ### Smoke
 
