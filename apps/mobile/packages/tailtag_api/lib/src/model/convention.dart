@@ -29,6 +29,7 @@ class Convention extends _i1.ObjectParameterEncodable
   factory Convention.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -46,6 +47,8 @@ class Convention extends _i1.ObjectParameterEncodable
       },
       listKeys: {},
       context: r'Convention',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return Convention(
       id: _$values[r'id'].decodeSimpleInt(context: r'Convention.id'),
@@ -53,6 +56,7 @@ class Convention extends _i1.ObjectParameterEncodable
       status: _i4.ConventionStatusAllOfModel.fromSimple(
         _$values[r'status'],
         explode: explode,
+        isHeader: isHeader,
       ),
       startDate: _$values[r'start_date'].decodeSimpleDate(
         context: r'Convention.start_date',
@@ -186,64 +190,7 @@ class Convention extends _i1.ObjectParameterEncodable
   @_i3.override
   _i3.Object? toJson() => <_i3.String, _i3.Object?>{};
 
-  $$ConventionCopyWith<Convention> get copyWith => _ConventionCopyWith(this);
-
-  @_i3.override
-  _i3.bool operator ==(_i3.Object other) {
-    if (_i3.identical(this, other)) return true;
-    return other is Convention &&
-        other.id == this.id &&
-        other.name == this.name &&
-        other.status == this.status &&
-        other.startDate == this.startDate &&
-        other.endDate == this.endDate &&
-        other.timeZone == this.timeZone &&
-        other.reviewDeadlineAt == this.reviewDeadlineAt &&
-        other.reviewDeadlineLocalDate == this.reviewDeadlineLocalDate &&
-        other.reviewOpen == this.reviewOpen;
-  }
-
-  @_i3.override
-  _i3.int get hashCode {
-    return _i3.Object.hashAll([
-      id,
-      name,
-      status,
-      startDate,
-      endDate,
-      timeZone,
-      reviewDeadlineAt,
-      reviewDeadlineLocalDate,
-      reviewOpen,
-    ]);
-  }
-
-  _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
-
-  @_i3.override
-  _i3.Map<_i3.String, _i1.PropertyValue> parameterProperties({
-    _i3.bool allowEmpty = true,
-  }) {
-    return <_i3.String, _i1.PropertyValue>{};
-  }
-
-  @_i3.override
-  _i3.String uriEncode({
-    required _i3.bool allowEmpty,
-    required _i5.Encoding textEncoding,
-    _i3.bool useQueryComponent = false,
-    _i3.bool allowReserved = false,
-  }) {
-    throw _i1.EncodingException(
-      r'Cannot uriEncode Convention: complex types cannot be URI-encoded',
-    );
-  }
-}
-
-abstract class $$ConventionCopyWith<$Res> {
-  factory $$ConventionCopyWith(Convention value) = _ConventionCopyWith<$Res>;
-
-  $Res call({
+  Convention Function({
     _i3.int? id,
     _i3.String? name,
     _i4.ConventionStatusAllOfModel? status,
@@ -253,65 +200,20 @@ abstract class $$ConventionCopyWith<$Res> {
     _i3.DateTime? reviewDeadlineAt,
     _i1.Date? reviewDeadlineLocalDate,
     _i3.bool? reviewOpen,
-  });
-  _i3.int? get id;
-  _i3.String? get name;
-  _i4.ConventionStatusAllOfModel? get status;
-  _i1.Date? get startDate;
-  _i1.Date? get endDate;
-  _i3.String? get timeZone;
-  _i3.DateTime? get reviewDeadlineAt;
-  _i1.Date? get reviewDeadlineLocalDate;
-  _i3.bool? get reviewOpen;
-}
-
-class _ConventionCopyWith<$Res> implements $$ConventionCopyWith<$Res> {
-  _ConventionCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final Convention _value;
-
-  @_i3.override
-  _i3.int? get id => _value.id;
-
-  @_i3.override
-  _i3.String? get name => _value.name;
-
-  @_i3.override
-  _i4.ConventionStatusAllOfModel? get status => _value.status;
-
-  @_i3.override
-  _i1.Date? get startDate => _value.startDate;
-
-  @_i3.override
-  _i1.Date? get endDate => _value.endDate;
-
-  @_i3.override
-  _i3.String? get timeZone => _value.timeZone;
-
-  @_i3.override
-  _i3.DateTime? get reviewDeadlineAt => _value.reviewDeadlineAt;
-
-  @_i3.override
-  _i1.Date? get reviewDeadlineLocalDate => _value.reviewDeadlineLocalDate;
-
-  @_i3.override
-  _i3.bool? get reviewOpen => _value.reviewOpen;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? id = _sentinel,
-    _i3.Object? name = _sentinel,
-    _i3.Object? status = _sentinel,
-    _i3.Object? startDate = _sentinel,
-    _i3.Object? endDate = _sentinel,
-    _i3.Object? timeZone = _sentinel,
-    _i3.Object? reviewDeadlineAt = _sentinel,
-    _i3.Object? reviewDeadlineLocalDate = _sentinel,
-    _i3.Object? reviewOpen = _sentinel,
-  }) {
-    return (Convention(
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({
+      _i3.Object? id = _sentinel,
+      _i3.Object? name = _sentinel,
+      _i3.Object? status = _sentinel,
+      _i3.Object? startDate = _sentinel,
+      _i3.Object? endDate = _sentinel,
+      _i3.Object? timeZone = _sentinel,
+      _i3.Object? reviewDeadlineAt = _sentinel,
+      _i3.Object? reviewDeadlineLocalDate = _sentinel,
+      _i3.Object? reviewOpen = _sentinel,
+    }) => Convention(
       id: _i3.identical(id, _sentinel) ? this.id : (id as _i3.int?),
       name: _i3.identical(name, _sentinel) ? this.name : (name as _i3.String?),
       status: _i3.identical(status, _sentinel)
@@ -335,6 +237,57 @@ class _ConventionCopyWith<$Res> implements $$ConventionCopyWith<$Res> {
       reviewOpen: _i3.identical(reviewOpen, _sentinel)
           ? this.reviewOpen
           : (reviewOpen as _i3.bool?),
-    ) as $Res);
+    );
+  }
+
+  @_i3.override
+  _i3.bool operator ==(_i3.Object other) {
+    if (_i3.identical(this, other)) return true;
+    return other is Convention &&
+        other.id == this.id &&
+        other.name == this.name &&
+        other.status == this.status &&
+        other.startDate == this.startDate &&
+        other.endDate == this.endDate &&
+        other.timeZone == this.timeZone &&
+        other.reviewDeadlineAt == this.reviewDeadlineAt &&
+        other.reviewDeadlineLocalDate == this.reviewDeadlineLocalDate &&
+        other.reviewOpen == this.reviewOpen;
+  }
+
+  @_i3.override
+  _i3.int get hashCode {
+    return _i3.Object.hashAll([
+      this.id,
+      this.name,
+      this.status,
+      this.startDate,
+      this.endDate,
+      this.timeZone,
+      this.reviewDeadlineAt,
+      this.reviewDeadlineLocalDate,
+      this.reviewOpen,
+    ]);
+  }
+
+  _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
+
+  @_i3.override
+  _i3.Map<_i3.String, _i1.PropertyValue> parameterProperties({
+    _i3.bool allowEmpty = true,
+  }) {
+    return <_i3.String, _i1.PropertyValue>{};
+  }
+
+  @_i3.override
+  _i3.String uriEncode({
+    required _i3.bool allowEmpty,
+    required _i5.Encoding textEncoding,
+    _i3.bool useQueryComponent = false,
+    _i3.bool allowReserved = false,
+  }) {
+    throw _i1.EncodingException(
+      r'Cannot uriEncode Convention: complex types cannot be URI-encoded',
+    );
   }
 }

@@ -3,6 +3,7 @@
 
 /// TailTag API
 /// Version 0.1.0
+/// TailTag V0 API foundation.
 ///
 /// Security Schemes:
 /// - HTTP Bearer

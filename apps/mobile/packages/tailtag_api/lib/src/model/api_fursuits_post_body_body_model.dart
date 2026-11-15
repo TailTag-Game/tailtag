@@ -16,6 +16,7 @@ class ApiFursuitsPostBodyBodyModel extends _i1.ObjectParameterEncodable
   factory ApiFursuitsPostBodyBodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -23,6 +24,8 @@ class ApiFursuitsPostBodyBodyModel extends _i1.ObjectParameterEncodable
       expectedKeys: {r'name', r'photo'},
       listKeys: {},
       context: r'ApiFursuitsPostBodyBodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiFursuitsPostBodyBodyModel(
       name: _$values[r'name'].decodeSimpleString(
@@ -79,12 +82,21 @@ class ApiFursuitsPostBodyBodyModel extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.Object? toJson() => {
-    r'name': name,
-    r'photo': photo.toBytes().decodeToString(),
+    r'name': this.name,
+    r'photo': this.photo.toBytes().decodeToString(),
   };
 
-  $$ApiFursuitsPostBodyBodyModelCopyWith<ApiFursuitsPostBodyBodyModel>
-  get copyWith => _ApiFursuitsPostBodyBodyModelCopyWith(this);
+  ApiFursuitsPostBodyBodyModel Function({
+    _i3.String? name,
+    _i1.TonikFile? photo,
+  })
+  get copyWith {
+    return ({_i3.String? name, _i1.TonikFile? photo}) =>
+        ApiFursuitsPostBodyBodyModel(
+          name: name ?? this.name,
+          photo: photo ?? this.photo,
+        );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -96,7 +108,7 @@ class ApiFursuitsPostBodyBodyModel extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([name, photo]);
+    return _i3.Object.hashAll([this.name, this.photo]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -106,9 +118,9 @@ class ApiFursuitsPostBodyBodyModel extends _i1.ObjectParameterEncodable
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'name'] = _i1.PropertyValue.scalar(name);
+    _$result[r'name'] = _i1.PropertyValue.scalar(this.name);
     _$result[r'photo'] = _i1.PropertyValue.scalar(
-      photo.toBytes().decodeToString(),
+      this.photo.toBytes().decodeToString(),
     );
     return _$result;
   }
@@ -123,40 +135,5 @@ class ApiFursuitsPostBodyBodyModel extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiFursuitsPostBodyBodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiFursuitsPostBodyBodyModelCopyWith<$Res> {
-  factory $$ApiFursuitsPostBodyBodyModelCopyWith(
-    ApiFursuitsPostBodyBodyModel value,
-  ) = _ApiFursuitsPostBodyBodyModelCopyWith<$Res>;
-
-  $Res call({_i3.String? name, _i1.TonikFile? photo});
-  _i3.String get name;
-  _i1.TonikFile get photo;
-}
-
-class _ApiFursuitsPostBodyBodyModelCopyWith<$Res>
-    implements $$ApiFursuitsPostBodyBodyModelCopyWith<$Res> {
-  _ApiFursuitsPostBodyBodyModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ApiFursuitsPostBodyBodyModel _value;
-
-  @_i3.override
-  _i3.String get name => _value.name;
-
-  @_i3.override
-  _i1.TonikFile get photo => _value.photo;
-
-  @_i3.override
-  $Res call({_i3.Object? name = _sentinel, _i3.Object? photo = _sentinel}) {
-    return (ApiFursuitsPostBodyBodyModel(
-      name: _i3.identical(name, _sentinel) ? this.name : (name as _i3.String),
-      photo: _i3.identical(photo, _sentinel)
-          ? this.photo
-          : (photo as _i1.TonikFile),
-    ) as $Res);
   }
 }

@@ -92,6 +92,13 @@ final class ConventionFursuitCatchCredentialRotate
         return _i3.ConventionFursuitCatchCredentialRotateResponse200(
           body: _$body,
         );
+      case (200, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (400, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);
         final _$body =
@@ -100,6 +107,13 @@ final class ConventionFursuitCatchCredentialRotate
             );
         return _i3.ConventionFursuitCatchCredentialRotateResponse400(
           body: _$body,
+        );
+      case (400, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
         );
       case (401, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);
@@ -110,6 +124,13 @@ final class ConventionFursuitCatchCredentialRotate
         return _i3.ConventionFursuitCatchCredentialRotateResponse401(
           body: _$body,
         );
+      case (401, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (403, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);
         final _$body =
@@ -119,6 +140,13 @@ final class ConventionFursuitCatchCredentialRotate
         return _i3.ConventionFursuitCatchCredentialRotateResponse403(
           body: _$body,
         );
+      case (403, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (404, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);
         final _$body =
@@ -127,6 +155,13 @@ final class ConventionFursuitCatchCredentialRotate
             );
         return _i3.ConventionFursuitCatchCredentialRotateResponse404(
           body: _$body,
+        );
+      case (404, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
         );
       case (405, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);

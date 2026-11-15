@@ -27,7 +27,7 @@ class CatchIncomingRequestsUnblockResponse204
   }
 
   @_i2.override
-  _i2.int get hashCode => runtimeType.hashCode;
+  _i2.int get hashCode => this.runtimeType.hashCode;
 }
 
 @_i1.immutable
@@ -45,7 +45,7 @@ class CatchIncomingRequestsUnblockResponse401
   }
 
   @_i2.override
-  _i2.int get hashCode => body.hashCode;
+  _i2.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -63,7 +63,7 @@ class CatchIncomingRequestsUnblockResponse403
   }
 
   @_i2.override
-  _i2.int get hashCode => body.hashCode;
+  _i2.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -81,7 +81,7 @@ class CatchIncomingRequestsUnblockResponse404
   }
 
   @_i2.override
-  _i2.int get hashCode => body.hashCode;
+  _i2.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -99,7 +99,7 @@ class CatchIncomingRequestsUnblockResponse409
   }
 
   @_i2.override
-  _i2.int get hashCode => body.hashCode;
+  _i2.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -117,5 +117,5 @@ class CatchIncomingRequestsUnblockResponse500
   }
 
   @_i2.override
-  _i2.int get hashCode => body.hashCode;
+  _i2.int get hashCode => this.body.hashCode;
 }

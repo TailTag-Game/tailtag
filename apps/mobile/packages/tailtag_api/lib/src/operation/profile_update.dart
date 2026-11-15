@@ -112,6 +112,13 @@ final class ProfileUpdate extends _i1.HttpOperation<_i2.ProfileUpdateResponse> {
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
         final _$body = _i9.ApiProfilePut200BodyModel.fromJson(_$json);
         return _i2.ProfileUpdateResponse200(body: _$body);
+      case (200, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (400, _):
         return _i2.ProfileUpdateResponse400();
       case (401, _):

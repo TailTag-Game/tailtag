@@ -24,6 +24,7 @@ class ConventionEnrollment extends _i1.ObjectParameterEncodable
   factory ConventionEnrollment.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     throw _i1.SimpleDecodingException(
       r'Simple encoding not supported for ConventionEnrollment: contains complex types',
@@ -67,8 +68,32 @@ class ConventionEnrollment extends _i1.ObjectParameterEncodable
   @_i3.override
   _i3.Object? toJson() => <_i3.String, _i3.Object?>{};
 
-  $$ConventionEnrollmentCopyWith<ConventionEnrollment> get copyWith =>
-      _ConventionEnrollmentCopyWith(this);
+  ConventionEnrollment Function({
+    _i3.int? id,
+    _i4.ConventionEnrollmentConventionAllOfModel? convention,
+    _i3.bool? isActive,
+    _i3.DateTime? createdAt,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({
+      _i3.Object? id = _sentinel,
+      _i3.Object? convention = _sentinel,
+      _i3.Object? isActive = _sentinel,
+      _i3.Object? createdAt = _sentinel,
+    }) => ConventionEnrollment(
+      id: _i3.identical(id, _sentinel) ? this.id : (id as _i3.int?),
+      convention: _i3.identical(convention, _sentinel)
+          ? this.convention
+          : (convention as _i4.ConventionEnrollmentConventionAllOfModel?),
+      isActive: _i3.identical(isActive, _sentinel)
+          ? this.isActive
+          : (isActive as _i3.bool?),
+      createdAt: _i3.identical(createdAt, _sentinel)
+          ? this.createdAt
+          : (createdAt as _i3.DateTime?),
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -82,7 +107,12 @@ class ConventionEnrollment extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([id, convention, isActive, createdAt]);
+    return _i3.Object.hashAll([
+      this.id,
+      this.convention,
+      this.isActive,
+      this.createdAt,
+    ]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -104,64 +134,5 @@ class ConventionEnrollment extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode ConventionEnrollment: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ConventionEnrollmentCopyWith<$Res> {
-  factory $$ConventionEnrollmentCopyWith(ConventionEnrollment value) =
-      _ConventionEnrollmentCopyWith<$Res>;
-
-  $Res call({
-    _i3.int? id,
-    _i4.ConventionEnrollmentConventionAllOfModel? convention,
-    _i3.bool? isActive,
-    _i3.DateTime? createdAt,
-  });
-  _i3.int? get id;
-  _i4.ConventionEnrollmentConventionAllOfModel? get convention;
-  _i3.bool? get isActive;
-  _i3.DateTime? get createdAt;
-}
-
-class _ConventionEnrollmentCopyWith<$Res>
-    implements $$ConventionEnrollmentCopyWith<$Res> {
-  _ConventionEnrollmentCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ConventionEnrollment _value;
-
-  @_i3.override
-  _i3.int? get id => _value.id;
-
-  @_i3.override
-  _i4.ConventionEnrollmentConventionAllOfModel? get convention =>
-      _value.convention;
-
-  @_i3.override
-  _i3.bool? get isActive => _value.isActive;
-
-  @_i3.override
-  _i3.DateTime? get createdAt => _value.createdAt;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? id = _sentinel,
-    _i3.Object? convention = _sentinel,
-    _i3.Object? isActive = _sentinel,
-    _i3.Object? createdAt = _sentinel,
-  }) {
-    return (ConventionEnrollment(
-      id: _i3.identical(id, _sentinel) ? this.id : (id as _i3.int?),
-      convention: _i3.identical(convention, _sentinel)
-          ? this.convention
-          : (convention as _i4.ConventionEnrollmentConventionAllOfModel?),
-      isActive: _i3.identical(isActive, _sentinel)
-          ? this.isActive
-          : (isActive as _i3.bool?),
-      createdAt: _i3.identical(createdAt, _sentinel)
-          ? this.createdAt
-          : (createdAt as _i3.DateTime?),
-    ) as $Res);
   }
 }

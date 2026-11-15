@@ -22,6 +22,7 @@ class OwnerRequestSummary extends _i1.ObjectParameterEncodable
   factory OwnerRequestSummary.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     throw _i1.SimpleDecodingException(
       r'Simple encoding not supported for OwnerRequestSummary: contains complex types',
@@ -56,12 +57,23 @@ class OwnerRequestSummary extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.Object? toJson() => {
-    r'pending_count': pendingCount,
-    r'fursuits': fursuits.map((e) => e.toJson()).toList(),
+    r'pending_count': this.pendingCount,
+    r'fursuits': this.fursuits.map((e) => e.toJson()).toList(),
   };
 
-  $$OwnerRequestSummaryCopyWith<OwnerRequestSummary> get copyWith =>
-      _OwnerRequestSummaryCopyWith(this);
+  OwnerRequestSummary Function({
+    _i3.int? pendingCount,
+    _i3.List<_i4.OwnerRequestSummaryFursuitsArrayModel>? fursuits,
+  })
+  get copyWith {
+    return ({
+      _i3.int? pendingCount,
+      _i3.List<_i4.OwnerRequestSummaryFursuitsArrayModel>? fursuits,
+    }) => OwnerRequestSummary(
+      pendingCount: pendingCount ?? this.pendingCount,
+      fursuits: fursuits ?? this.fursuits,
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -75,7 +87,10 @@ class OwnerRequestSummary extends _i1.ObjectParameterEncodable
   @_i3.override
   _i3.int get hashCode {
     const deepEquals = _i5.DeepCollectionEquality();
-    return _i3.Object.hashAll([pendingCount, deepEquals.hash(fursuits)]);
+    return _i3.Object.hashAll([
+      this.pendingCount,
+      deepEquals.hash(this.fursuits),
+    ]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -97,48 +112,5 @@ class OwnerRequestSummary extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode OwnerRequestSummary: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$OwnerRequestSummaryCopyWith<$Res> {
-  factory $$OwnerRequestSummaryCopyWith(OwnerRequestSummary value) =
-      _OwnerRequestSummaryCopyWith<$Res>;
-
-  $Res call({
-    _i3.int? pendingCount,
-    _i3.List<_i4.OwnerRequestSummaryFursuitsArrayModel>? fursuits,
-  });
-  _i3.int get pendingCount;
-  _i3.List<_i4.OwnerRequestSummaryFursuitsArrayModel> get fursuits;
-}
-
-class _OwnerRequestSummaryCopyWith<$Res>
-    implements $$OwnerRequestSummaryCopyWith<$Res> {
-  _OwnerRequestSummaryCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final OwnerRequestSummary _value;
-
-  @_i3.override
-  _i3.int get pendingCount => _value.pendingCount;
-
-  @_i3.override
-  _i3.List<_i4.OwnerRequestSummaryFursuitsArrayModel> get fursuits =>
-      _value.fursuits;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? pendingCount = _sentinel,
-    _i3.Object? fursuits = _sentinel,
-  }) {
-    return (OwnerRequestSummary(
-      pendingCount: _i3.identical(pendingCount, _sentinel)
-          ? this.pendingCount
-          : (pendingCount as _i3.int),
-      fursuits: _i3.identical(fursuits, _sentinel)
-          ? this.fursuits
-          : (fursuits as _i3.List<_i4.OwnerRequestSummaryFursuitsArrayModel>),
-    ) as $Res);
   }
 }

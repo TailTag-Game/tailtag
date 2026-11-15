@@ -23,30 +23,32 @@ class _HttpClientAdapter {
   );
 
   _i2.Client get client {
-    if (_$isClosed) {
-      throw _$closedError;
+    if (this._$isClosed) {
+      throw this._$closedError;
     }
 
-    final cachedClient = _$client;
+    final cachedClient = this._$client;
     if (cachedClient != null) {
       return cachedClient;
     }
 
-    final configuredClient = serverConfig.client;
+    final configuredClient = this.serverConfig.client;
     final resolvedClient =
-        configuredClient ?? serverConfig.clientFactory?.call() ?? _i2.Client();
-    _$ownsClient = configuredClient == null;
-    return _$client = resolvedClient;
+        configuredClient ??
+        this.serverConfig.clientFactory?.call() ??
+        _i2.Client();
+    this._$ownsClient = configuredClient == null;
+    return this._$client = resolvedClient;
   }
 
   void close() {
-    if (_$isClosed) {
+    if (this._$isClosed) {
       return;
     }
 
-    _$isClosed = true;
-    if (_$ownsClient) {
-      _$client?.close();
+    this._$isClosed = true;
+    if (this._$ownsClient) {
+      this._$client?.close();
     }
   }
 }
@@ -61,9 +63,9 @@ sealed class Server {
 
   final _HttpClientAdapter _$httpClientAdapter;
 
-  _i2.Client get client => _$httpClientAdapter.client;
+  _i2.Client get client => this._$httpClientAdapter.client;
 
-  void close() => _$httpClientAdapter.close();
+  void close() => this._$httpClientAdapter.close();
 }
 
 /// Custom server with user-defined base URL

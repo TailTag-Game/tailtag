@@ -22,6 +22,7 @@ class ApiProfilePut200BodyModel extends _i1.ObjectParameterEncodable
   factory ApiProfilePut200BodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -35,6 +36,8 @@ class ApiProfilePut200BodyModel extends _i1.ObjectParameterEncodable
       },
       listKeys: {},
       context: r'ApiProfilePut200BodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiProfilePut200BodyModel(
       handle: _$values[r'handle'].decodeSimpleNullableString(
@@ -125,8 +128,39 @@ class ApiProfilePut200BodyModel extends _i1.ObjectParameterEncodable
   @_i3.override
   _i3.Object? toJson() => <_i3.String, _i3.Object?>{};
 
-  $$ApiProfilePut200BodyModelCopyWith<ApiProfilePut200BodyModel> get copyWith =>
-      _ApiProfilePut200BodyModelCopyWith(this);
+  ApiProfilePut200BodyModel Function({
+    _i3.String? handle,
+    _i3.String? displayName,
+    _i3.Uri? avatarUrl,
+    _i3.bool? onboardingComplete,
+    _i3.bool? isEnabled,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({
+      _i3.Object? handle = _sentinel,
+      _i3.Object? displayName = _sentinel,
+      _i3.Object? avatarUrl = _sentinel,
+      _i3.Object? onboardingComplete = _sentinel,
+      _i3.Object? isEnabled = _sentinel,
+    }) => ApiProfilePut200BodyModel(
+      handle: _i3.identical(handle, _sentinel)
+          ? this.handle
+          : (handle as _i3.String?),
+      displayName: _i3.identical(displayName, _sentinel)
+          ? this.displayName
+          : (displayName as _i3.String?),
+      avatarUrl: _i3.identical(avatarUrl, _sentinel)
+          ? this.avatarUrl
+          : (avatarUrl as _i3.Uri?),
+      onboardingComplete: _i3.identical(onboardingComplete, _sentinel)
+          ? this.onboardingComplete
+          : (onboardingComplete as _i3.bool?),
+      isEnabled: _i3.identical(isEnabled, _sentinel)
+          ? this.isEnabled
+          : (isEnabled as _i3.bool?),
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -142,11 +176,11 @@ class ApiProfilePut200BodyModel extends _i1.ObjectParameterEncodable
   @_i3.override
   _i3.int get hashCode {
     return _i3.Object.hashAll([
-      handle,
-      displayName,
-      avatarUrl,
-      onboardingComplete,
-      isEnabled,
+      this.handle,
+      this.displayName,
+      this.avatarUrl,
+      this.onboardingComplete,
+      this.isEnabled,
     ]);
   }
 
@@ -169,74 +203,5 @@ class ApiProfilePut200BodyModel extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiProfilePut200BodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiProfilePut200BodyModelCopyWith<$Res> {
-  factory $$ApiProfilePut200BodyModelCopyWith(ApiProfilePut200BodyModel value) =
-      _ApiProfilePut200BodyModelCopyWith<$Res>;
-
-  $Res call({
-    _i3.String? handle,
-    _i3.String? displayName,
-    _i3.Uri? avatarUrl,
-    _i3.bool? onboardingComplete,
-    _i3.bool? isEnabled,
-  });
-  _i3.String? get handle;
-  _i3.String? get displayName;
-  _i3.Uri? get avatarUrl;
-  _i3.bool? get onboardingComplete;
-  _i3.bool? get isEnabled;
-}
-
-class _ApiProfilePut200BodyModelCopyWith<$Res>
-    implements $$ApiProfilePut200BodyModelCopyWith<$Res> {
-  _ApiProfilePut200BodyModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ApiProfilePut200BodyModel _value;
-
-  @_i3.override
-  _i3.String? get handle => _value.handle;
-
-  @_i3.override
-  _i3.String? get displayName => _value.displayName;
-
-  @_i3.override
-  _i3.Uri? get avatarUrl => _value.avatarUrl;
-
-  @_i3.override
-  _i3.bool? get onboardingComplete => _value.onboardingComplete;
-
-  @_i3.override
-  _i3.bool? get isEnabled => _value.isEnabled;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? handle = _sentinel,
-    _i3.Object? displayName = _sentinel,
-    _i3.Object? avatarUrl = _sentinel,
-    _i3.Object? onboardingComplete = _sentinel,
-    _i3.Object? isEnabled = _sentinel,
-  }) {
-    return (ApiProfilePut200BodyModel(
-      handle: _i3.identical(handle, _sentinel)
-          ? this.handle
-          : (handle as _i3.String?),
-      displayName: _i3.identical(displayName, _sentinel)
-          ? this.displayName
-          : (displayName as _i3.String?),
-      avatarUrl: _i3.identical(avatarUrl, _sentinel)
-          ? this.avatarUrl
-          : (avatarUrl as _i3.Uri?),
-      onboardingComplete: _i3.identical(onboardingComplete, _sentinel)
-          ? this.onboardingComplete
-          : (onboardingComplete as _i3.bool?),
-      isEnabled: _i3.identical(isEnabled, _sentinel)
-          ? this.isEnabled
-          : (isEnabled as _i3.bool?),
-    ) as $Res);
   }
 }

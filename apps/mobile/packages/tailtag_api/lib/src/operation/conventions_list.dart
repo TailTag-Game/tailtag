@@ -57,6 +57,13 @@ final class ConventionsList
             .map(_i6.Convention.fromJson)
             .toList();
         return _i2.ConventionsListResponse200(body: _$body);
+      case (200, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (401, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
         final _$body = _i7.ApiConventionsGet401BodyModel.fromJson(_$json);

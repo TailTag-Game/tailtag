@@ -62,6 +62,13 @@ final class FursuitTagRetrieve
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
         final _$body = _i6.ApiFursuitsIdTagGet200BodyModel.fromJson(_$json);
         return _i2.FursuitTagRetrieveResponse200(body: _$body);
+      case (200, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (401, _):
         return _i2.FursuitTagRetrieveResponse401();
       case (403, _):
@@ -70,12 +77,26 @@ final class FursuitTagRetrieve
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
         final _$body = _i7.ApiFursuitsIdTagGet404BodyModel.fromJson(_$json);
         return _i2.FursuitTagRetrieveResponse404(body: _$body);
+      case (404, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (405, _):
         return _i2.FursuitTagRetrieveResponse405();
       case (409, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
         final _$body = _i8.ApiFursuitsIdTagGet409BodyModel.fromJson(_$json);
         return _i2.FursuitTagRetrieveResponse409(body: _$body);
+      case (409, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (500, _):
         return _i2.FursuitTagRetrieveResponse500();
       default:

@@ -19,6 +19,7 @@ class OwnerRequestPlayerModel extends _i1.ObjectParameterEncodable
   factory OwnerRequestPlayerModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -26,6 +27,8 @@ class OwnerRequestPlayerModel extends _i1.ObjectParameterEncodable
       expectedKeys: {r'display_name', r'handle'},
       listKeys: {},
       context: r'OwnerRequestPlayerModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return OwnerRequestPlayerModel(
       displayName: _$values[r'display_name'].decodeSimpleString(
@@ -75,10 +78,22 @@ class OwnerRequestPlayerModel extends _i1.ObjectParameterEncodable
   final _i3.String handle;
 
   @_i3.override
-  _i3.Object? toJson() => {r'display_name': displayName, r'handle': handle};
+  _i3.Object? toJson() => {
+    r'display_name': this.displayName,
+    r'handle': this.handle,
+  };
 
-  $$OwnerRequestPlayerModelCopyWith<OwnerRequestPlayerModel> get copyWith =>
-      _OwnerRequestPlayerModelCopyWith(this);
+  OwnerRequestPlayerModel Function({
+    _i3.String? displayName,
+    _i3.String? handle,
+  })
+  get copyWith {
+    return ({_i3.String? displayName, _i3.String? handle}) =>
+        OwnerRequestPlayerModel(
+          displayName: displayName ?? this.displayName,
+          handle: handle ?? this.handle,
+        );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -90,7 +105,7 @@ class OwnerRequestPlayerModel extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([displayName, handle]);
+    return _i3.Object.hashAll([this.displayName, this.handle]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -100,8 +115,8 @@ class OwnerRequestPlayerModel extends _i1.ObjectParameterEncodable
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'display_name'] = _i1.PropertyValue.scalar(displayName);
-    _$result[r'handle'] = _i1.PropertyValue.scalar(handle);
+    _$result[r'display_name'] = _i1.PropertyValue.scalar(this.displayName);
+    _$result[r'handle'] = _i1.PropertyValue.scalar(this.handle);
     return _$result;
   }
 
@@ -115,44 +130,5 @@ class OwnerRequestPlayerModel extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode OwnerRequestPlayerModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$OwnerRequestPlayerModelCopyWith<$Res> {
-  factory $$OwnerRequestPlayerModelCopyWith(OwnerRequestPlayerModel value) =
-      _OwnerRequestPlayerModelCopyWith<$Res>;
-
-  $Res call({_i3.String? displayName, _i3.String? handle});
-  _i3.String get displayName;
-  _i3.String get handle;
-}
-
-class _OwnerRequestPlayerModelCopyWith<$Res>
-    implements $$OwnerRequestPlayerModelCopyWith<$Res> {
-  _OwnerRequestPlayerModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final OwnerRequestPlayerModel _value;
-
-  @_i3.override
-  _i3.String get displayName => _value.displayName;
-
-  @_i3.override
-  _i3.String get handle => _value.handle;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? displayName = _sentinel,
-    _i3.Object? handle = _sentinel,
-  }) {
-    return (OwnerRequestPlayerModel(
-      displayName: _i3.identical(displayName, _sentinel)
-          ? this.displayName
-          : (displayName as _i3.String),
-      handle: _i3.identical(handle, _sentinel)
-          ? this.handle
-          : (handle as _i3.String),
-    ) as $Res);
   }
 }

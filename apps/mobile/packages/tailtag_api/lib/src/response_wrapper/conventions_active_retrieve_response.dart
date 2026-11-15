@@ -28,7 +28,7 @@ class ConventionsActiveRetrieveResponse200
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -46,5 +46,5 @@ class ConventionsActiveRetrieveResponse401
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }

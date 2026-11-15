@@ -24,6 +24,7 @@ class CatchHistoryResponseSchema extends _i1.ObjectParameterEncodable
   factory CatchHistoryResponseSchema.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     throw _i1.SimpleDecodingException(
       r'Simple encoding not supported for CatchHistoryResponseSchema: contains complex types',
@@ -70,14 +71,34 @@ class CatchHistoryResponseSchema extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.Object? toJson() => {
-    r'catch_count': catchCount,
-    r'next': next?.toString(),
-    r'previous': previous?.toString(),
-    r'results': results.map((e) => e.toJson()).toList(),
+    r'catch_count': this.catchCount,
+    r'next': this.next?.toString(),
+    r'previous': this.previous?.toString(),
+    r'results': this.results.map((e) => e.toJson()).toList(),
   };
 
-  $$CatchHistoryResponseSchemaCopyWith<CatchHistoryResponseSchema>
-  get copyWith => _CatchHistoryResponseSchemaCopyWith(this);
+  CatchHistoryResponseSchema Function({
+    _i3.int? catchCount,
+    _i3.Uri? next,
+    _i3.Uri? previous,
+    _i3.List<_i4.CatchHistoryResponseSchemaResultsArrayModel>? results,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({
+      _i3.int? catchCount,
+      _i3.Object? next = _sentinel,
+      _i3.Object? previous = _sentinel,
+      _i3.List<_i4.CatchHistoryResponseSchemaResultsArrayModel>? results,
+    }) => CatchHistoryResponseSchema(
+      catchCount: catchCount ?? this.catchCount,
+      next: _i3.identical(next, _sentinel) ? this.next : (next as _i3.Uri?),
+      previous: _i3.identical(previous, _sentinel)
+          ? this.previous
+          : (previous as _i3.Uri?),
+      results: results ?? this.results,
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -94,10 +115,10 @@ class CatchHistoryResponseSchema extends _i1.ObjectParameterEncodable
   _i3.int get hashCode {
     const deepEquals = _i5.DeepCollectionEquality();
     return _i3.Object.hashAll([
-      catchCount,
-      next,
-      previous,
-      deepEquals.hash(results),
+      this.catchCount,
+      this.next,
+      this.previous,
+      deepEquals.hash(this.results),
     ]);
   }
 
@@ -120,66 +141,5 @@ class CatchHistoryResponseSchema extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode CatchHistoryResponseSchema: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$CatchHistoryResponseSchemaCopyWith<$Res> {
-  factory $$CatchHistoryResponseSchemaCopyWith(
-    CatchHistoryResponseSchema value,
-  ) = _CatchHistoryResponseSchemaCopyWith<$Res>;
-
-  $Res call({
-    _i3.int? catchCount,
-    _i3.Uri? next,
-    _i3.Uri? previous,
-    _i3.List<_i4.CatchHistoryResponseSchemaResultsArrayModel>? results,
-  });
-  _i3.int get catchCount;
-  _i3.Uri? get next;
-  _i3.Uri? get previous;
-  _i3.List<_i4.CatchHistoryResponseSchemaResultsArrayModel> get results;
-}
-
-class _CatchHistoryResponseSchemaCopyWith<$Res>
-    implements $$CatchHistoryResponseSchemaCopyWith<$Res> {
-  _CatchHistoryResponseSchemaCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final CatchHistoryResponseSchema _value;
-
-  @_i3.override
-  _i3.int get catchCount => _value.catchCount;
-
-  @_i3.override
-  _i3.Uri? get next => _value.next;
-
-  @_i3.override
-  _i3.Uri? get previous => _value.previous;
-
-  @_i3.override
-  _i3.List<_i4.CatchHistoryResponseSchemaResultsArrayModel> get results =>
-      _value.results;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? catchCount = _sentinel,
-    _i3.Object? next = _sentinel,
-    _i3.Object? previous = _sentinel,
-    _i3.Object? results = _sentinel,
-  }) {
-    return (CatchHistoryResponseSchema(
-      catchCount: _i3.identical(catchCount, _sentinel)
-          ? this.catchCount
-          : (catchCount as _i3.int),
-      next: _i3.identical(next, _sentinel) ? this.next : (next as _i3.Uri?),
-      previous: _i3.identical(previous, _sentinel)
-          ? this.previous
-          : (previous as _i3.Uri?),
-      results: _i3.identical(results, _sentinel)
-          ? this.results
-          : (results
-                as _i3.List<_i4.CatchHistoryResponseSchemaResultsArrayModel>),
-    ) as $Res);
   }
 }

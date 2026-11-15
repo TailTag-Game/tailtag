@@ -28,7 +28,7 @@ class CatchIncomingRequestsSummaryResponse200
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -46,7 +46,7 @@ class CatchIncomingRequestsSummaryResponse400
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -64,7 +64,7 @@ class CatchIncomingRequestsSummaryResponse401
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -82,7 +82,7 @@ class CatchIncomingRequestsSummaryResponse403
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -100,7 +100,7 @@ class CatchIncomingRequestsSummaryResponse404
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -118,5 +118,5 @@ class CatchIncomingRequestsSummaryResponse500
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }

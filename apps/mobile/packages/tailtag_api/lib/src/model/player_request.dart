@@ -25,6 +25,7 @@ class PlayerRequest extends _i1.ObjectParameterEncodable
   factory PlayerRequest.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     throw _i1.SimpleDecodingException(
       r'Simple encoding not supported for PlayerRequest: contains complex types',
@@ -72,16 +73,39 @@ class PlayerRequest extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.Object? toJson() => {
-    r'id': id,
-    r'fursuit': fursuit.toJson(),
-    r'convention_id': conventionId,
-    r'state': state.toJson(),
-    r'requested_at': requestedAt.toTimeZonedIso8601String(),
-    r'review_deadline_at': reviewDeadlineAt.toTimeZonedIso8601String(),
+    r'id': this.id,
+    r'fursuit': this.fursuit.toJson(),
+    r'convention_id': this.conventionId,
+    r'state': this.state.toJson(),
+    r'requested_at': this.requestedAt.toTimeZonedIso8601String(),
+    r'review_deadline_at': this.reviewDeadlineAt.toTimeZonedIso8601String(),
   };
 
-  $$PlayerRequestCopyWith<PlayerRequest> get copyWith =>
-      _PlayerRequestCopyWith(this);
+  PlayerRequest Function({
+    _i3.int? id,
+    _i4.FursuitSummary? fursuit,
+    _i3.int? conventionId,
+    _i5.CatchRequestState? state,
+    _i3.DateTime? requestedAt,
+    _i3.DateTime? reviewDeadlineAt,
+  })
+  get copyWith {
+    return ({
+      _i3.int? id,
+      _i4.FursuitSummary? fursuit,
+      _i3.int? conventionId,
+      _i5.CatchRequestState? state,
+      _i3.DateTime? requestedAt,
+      _i3.DateTime? reviewDeadlineAt,
+    }) => PlayerRequest(
+      id: id ?? this.id,
+      fursuit: fursuit ?? this.fursuit,
+      conventionId: conventionId ?? this.conventionId,
+      state: state ?? this.state,
+      requestedAt: requestedAt ?? this.requestedAt,
+      reviewDeadlineAt: reviewDeadlineAt ?? this.reviewDeadlineAt,
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -98,12 +122,12 @@ class PlayerRequest extends _i1.ObjectParameterEncodable
   @_i3.override
   _i3.int get hashCode {
     return _i3.Object.hashAll([
-      id,
-      fursuit,
-      conventionId,
-      state,
-      requestedAt,
-      reviewDeadlineAt,
+      this.id,
+      this.fursuit,
+      this.conventionId,
+      this.state,
+      this.requestedAt,
+      this.reviewDeadlineAt,
     ]);
   }
 
@@ -126,80 +150,5 @@ class PlayerRequest extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode PlayerRequest: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$PlayerRequestCopyWith<$Res> {
-  factory $$PlayerRequestCopyWith(PlayerRequest value) =
-      _PlayerRequestCopyWith<$Res>;
-
-  $Res call({
-    _i3.int? id,
-    _i4.FursuitSummary? fursuit,
-    _i3.int? conventionId,
-    _i5.CatchRequestState? state,
-    _i3.DateTime? requestedAt,
-    _i3.DateTime? reviewDeadlineAt,
-  });
-  _i3.int get id;
-  _i4.FursuitSummary get fursuit;
-  _i3.int get conventionId;
-  _i5.CatchRequestState get state;
-  _i3.DateTime get requestedAt;
-  _i3.DateTime get reviewDeadlineAt;
-}
-
-class _PlayerRequestCopyWith<$Res> implements $$PlayerRequestCopyWith<$Res> {
-  _PlayerRequestCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final PlayerRequest _value;
-
-  @_i3.override
-  _i3.int get id => _value.id;
-
-  @_i3.override
-  _i4.FursuitSummary get fursuit => _value.fursuit;
-
-  @_i3.override
-  _i3.int get conventionId => _value.conventionId;
-
-  @_i3.override
-  _i5.CatchRequestState get state => _value.state;
-
-  @_i3.override
-  _i3.DateTime get requestedAt => _value.requestedAt;
-
-  @_i3.override
-  _i3.DateTime get reviewDeadlineAt => _value.reviewDeadlineAt;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? id = _sentinel,
-    _i3.Object? fursuit = _sentinel,
-    _i3.Object? conventionId = _sentinel,
-    _i3.Object? state = _sentinel,
-    _i3.Object? requestedAt = _sentinel,
-    _i3.Object? reviewDeadlineAt = _sentinel,
-  }) {
-    return (PlayerRequest(
-      id: _i3.identical(id, _sentinel) ? this.id : (id as _i3.int),
-      fursuit: _i3.identical(fursuit, _sentinel)
-          ? this.fursuit
-          : (fursuit as _i4.FursuitSummary),
-      conventionId: _i3.identical(conventionId, _sentinel)
-          ? this.conventionId
-          : (conventionId as _i3.int),
-      state: _i3.identical(state, _sentinel)
-          ? this.state
-          : (state as _i5.CatchRequestState),
-      requestedAt: _i3.identical(requestedAt, _sentinel)
-          ? this.requestedAt
-          : (requestedAt as _i3.DateTime),
-      reviewDeadlineAt: _i3.identical(reviewDeadlineAt, _sentinel)
-          ? this.reviewDeadlineAt
-          : (reviewDeadlineAt as _i3.DateTime),
-    ) as $Res);
   }
 }

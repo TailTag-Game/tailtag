@@ -19,6 +19,7 @@ class OwnerRequestSummaryFursuitsArrayModel extends _i1.ObjectParameterEncodable
   factory OwnerRequestSummaryFursuitsArrayModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -26,6 +27,8 @@ class OwnerRequestSummaryFursuitsArrayModel extends _i1.ObjectParameterEncodable
       expectedKeys: {r'fursuit_id', r'pending_count'},
       listKeys: {},
       context: r'OwnerRequestSummaryFursuitsArrayModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return OwnerRequestSummaryFursuitsArrayModel(
       fursuitId: _$values[r'fursuit_id'].decodeSimpleInt(
@@ -78,14 +81,21 @@ class OwnerRequestSummaryFursuitsArrayModel extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.Object? toJson() => {
-    r'fursuit_id': fursuitId,
-    r'pending_count': pendingCount,
+    r'fursuit_id': this.fursuitId,
+    r'pending_count': this.pendingCount,
   };
 
-  $$OwnerRequestSummaryFursuitsArrayModelCopyWith<
-    OwnerRequestSummaryFursuitsArrayModel
-  >
-  get copyWith => _OwnerRequestSummaryFursuitsArrayModelCopyWith(this);
+  OwnerRequestSummaryFursuitsArrayModel Function({
+    _i3.int? fursuitId,
+    _i3.int? pendingCount,
+  })
+  get copyWith {
+    return ({_i3.int? fursuitId, _i3.int? pendingCount}) =>
+        OwnerRequestSummaryFursuitsArrayModel(
+          fursuitId: fursuitId ?? this.fursuitId,
+          pendingCount: pendingCount ?? this.pendingCount,
+        );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -97,7 +107,7 @@ class OwnerRequestSummaryFursuitsArrayModel extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([fursuitId, pendingCount]);
+    return _i3.Object.hashAll([this.fursuitId, this.pendingCount]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -107,9 +117,11 @@ class OwnerRequestSummaryFursuitsArrayModel extends _i1.ObjectParameterEncodable
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'fursuit_id'] = _i1.PropertyValue.scalar(fursuitId.toString());
+    _$result[r'fursuit_id'] = _i1.PropertyValue.scalar(
+      this.fursuitId.toString(),
+    );
     _$result[r'pending_count'] = _i1.PropertyValue.scalar(
-      pendingCount.toString(),
+      this.pendingCount.toString(),
     );
     return _$result;
   }
@@ -124,45 +136,5 @@ class OwnerRequestSummaryFursuitsArrayModel extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode OwnerRequestSummaryFursuitsArrayModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$OwnerRequestSummaryFursuitsArrayModelCopyWith<$Res> {
-  factory $$OwnerRequestSummaryFursuitsArrayModelCopyWith(
-    OwnerRequestSummaryFursuitsArrayModel value,
-  ) = _OwnerRequestSummaryFursuitsArrayModelCopyWith<$Res>;
-
-  $Res call({_i3.int? fursuitId, _i3.int? pendingCount});
-  _i3.int get fursuitId;
-  _i3.int get pendingCount;
-}
-
-class _OwnerRequestSummaryFursuitsArrayModelCopyWith<$Res>
-    implements $$OwnerRequestSummaryFursuitsArrayModelCopyWith<$Res> {
-  _OwnerRequestSummaryFursuitsArrayModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final OwnerRequestSummaryFursuitsArrayModel _value;
-
-  @_i3.override
-  _i3.int get fursuitId => _value.fursuitId;
-
-  @_i3.override
-  _i3.int get pendingCount => _value.pendingCount;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? fursuitId = _sentinel,
-    _i3.Object? pendingCount = _sentinel,
-  }) {
-    return (OwnerRequestSummaryFursuitsArrayModel(
-      fursuitId: _i3.identical(fursuitId, _sentinel)
-          ? this.fursuitId
-          : (fursuitId as _i3.int),
-      pendingCount: _i3.identical(pendingCount, _sentinel)
-          ? this.pendingCount
-          : (pendingCount as _i3.int),
-    ) as $Res);
   }
 }

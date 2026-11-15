@@ -19,6 +19,7 @@ class ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModel
   factory ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -27,6 +28,8 @@ class ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModel
       listKeys: {},
       context:
           r'ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModel(
       payload: _$values[r'payload'].decodeSimpleString(
@@ -71,15 +74,17 @@ class ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModel
   final _i3.String payload;
 
   @_i3.override
-  _i3.Object? toJson() => {r'payload': payload};
+  _i3.Object? toJson() => {r'payload': this.payload};
 
-  $$ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModelCopyWith<
-    ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModel
-  >
-  get copyWith =>
-      _ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModelCopyWith(
-        this,
-      );
+  ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModel Function({
+    _i3.String? payload,
+  })
+  get copyWith {
+    return ({_i3.String? payload}) =>
+        ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModel(
+          payload: payload ?? this.payload,
+        );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -90,7 +95,7 @@ class ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModel
   }
 
   @_i3.override
-  _i3.int get hashCode => payload.hashCode;
+  _i3.int get hashCode => this.payload.hashCode;
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
 
@@ -99,7 +104,7 @@ class ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModel
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'payload'] = _i1.PropertyValue.scalar(payload);
+    _$result[r'payload'] = _i1.PropertyValue.scalar(this.payload);
     return _$result;
   }
 
@@ -113,48 +118,5 @@ class ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModel
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModelCopyWith<
-  $Res
-> {
-  factory $$ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModelCopyWith(
-    ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModel value,
-  ) =
-      _ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModelCopyWith<
-        $Res
-      >;
-
-  $Res call({_i3.String? payload});
-  _i3.String get payload;
-}
-
-class _ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModelCopyWith<
-  $Res
->
-    implements
-        $$ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModelCopyWith<
-          $Res
-        > {
-  _ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModelCopyWith(
-    this._value,
-  );
-
-  static const _sentinel = _i3.Object();
-
-  final ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModel
-  _value;
-
-  @_i3.override
-  _i3.String get payload => _value.payload;
-
-  @_i3.override
-  $Res call({_i3.Object? payload = _sentinel}) {
-    return (ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModel(
-      payload: _i3.identical(payload, _sentinel)
-          ? this.payload
-          : (payload as _i3.String),
-    ) as $Res);
   }
 }

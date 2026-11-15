@@ -29,7 +29,7 @@ class CatchRequestsWithdrawResponse200 extends CatchRequestsWithdrawResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -45,7 +45,7 @@ class CatchRequestsWithdrawResponse401 extends CatchRequestsWithdrawResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -61,7 +61,7 @@ class CatchRequestsWithdrawResponse403 extends CatchRequestsWithdrawResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -77,7 +77,7 @@ class CatchRequestsWithdrawResponse404 extends CatchRequestsWithdrawResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -93,7 +93,7 @@ class CatchRequestsWithdrawResponse409 extends CatchRequestsWithdrawResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -109,5 +109,5 @@ class CatchRequestsWithdrawResponse500 extends CatchRequestsWithdrawResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }

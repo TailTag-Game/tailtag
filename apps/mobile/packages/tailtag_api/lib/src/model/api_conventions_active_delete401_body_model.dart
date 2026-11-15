@@ -17,6 +17,7 @@ class ApiConventionsActiveDelete401BodyModel
   factory ApiConventionsActiveDelete401BodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -24,6 +25,8 @@ class ApiConventionsActiveDelete401BodyModel
       expectedKeys: {r'detail'},
       listKeys: {},
       context: r'ApiConventionsActiveDelete401BodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiConventionsActiveDelete401BodyModel(
       detail: _$values[r'detail'].decodeSimpleString(
@@ -64,12 +67,13 @@ class ApiConventionsActiveDelete401BodyModel
   final _i3.String detail;
 
   @_i3.override
-  _i3.Object? toJson() => {r'detail': detail};
+  _i3.Object? toJson() => {r'detail': this.detail};
 
-  $$ApiConventionsActiveDelete401BodyModelCopyWith<
-    ApiConventionsActiveDelete401BodyModel
-  >
-  get copyWith => _ApiConventionsActiveDelete401BodyModelCopyWith(this);
+  ApiConventionsActiveDelete401BodyModel Function({_i3.String? detail})
+  get copyWith {
+    return ({_i3.String? detail}) =>
+        ApiConventionsActiveDelete401BodyModel(detail: detail ?? this.detail);
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -79,7 +83,7 @@ class ApiConventionsActiveDelete401BodyModel
   }
 
   @_i3.override
-  _i3.int get hashCode => detail.hashCode;
+  _i3.int get hashCode => this.detail.hashCode;
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
 
@@ -88,7 +92,7 @@ class ApiConventionsActiveDelete401BodyModel
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'detail'] = _i1.PropertyValue.scalar(detail);
+    _$result[r'detail'] = _i1.PropertyValue.scalar(this.detail);
     return _$result;
   }
 
@@ -102,35 +106,5 @@ class ApiConventionsActiveDelete401BodyModel
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiConventionsActiveDelete401BodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiConventionsActiveDelete401BodyModelCopyWith<$Res> {
-  factory $$ApiConventionsActiveDelete401BodyModelCopyWith(
-    ApiConventionsActiveDelete401BodyModel value,
-  ) = _ApiConventionsActiveDelete401BodyModelCopyWith<$Res>;
-
-  $Res call({_i3.String? detail});
-  _i3.String get detail;
-}
-
-class _ApiConventionsActiveDelete401BodyModelCopyWith<$Res>
-    implements $$ApiConventionsActiveDelete401BodyModelCopyWith<$Res> {
-  _ApiConventionsActiveDelete401BodyModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ApiConventionsActiveDelete401BodyModel _value;
-
-  @_i3.override
-  _i3.String get detail => _value.detail;
-
-  @_i3.override
-  $Res call({_i3.Object? detail = _sentinel}) {
-    return (ApiConventionsActiveDelete401BodyModel(
-      detail: _i3.identical(detail, _sentinel)
-          ? this.detail
-          : (detail as _i3.String),
-    ) as $Res);
   }
 }

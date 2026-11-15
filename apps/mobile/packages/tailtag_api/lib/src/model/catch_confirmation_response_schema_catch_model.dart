@@ -24,6 +24,7 @@ class CatchConfirmationResponseSchemaCatchModel
   factory CatchConfirmationResponseSchemaCatchModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     throw _i1.SimpleDecodingException(
       r'Simple encoding not supported for CatchConfirmationResponseSchemaCatchModel: contains complex types',
@@ -72,10 +73,32 @@ class CatchConfirmationResponseSchemaCatchModel
     r'CatchConfirmationResponseSchemaCatchModel is read-only and cannot be encoded.',
   );
 
-  $$CatchConfirmationResponseSchemaCatchModelCopyWith<
-    CatchConfirmationResponseSchemaCatchModel
-  >
-  get copyWith => _CatchConfirmationResponseSchemaCatchModelCopyWith(this);
+  CatchConfirmationResponseSchemaCatchModel Function({
+    _i3.int? id,
+    _i3.DateTime? caughtAt,
+    _i3.int? conventionId,
+    _i4.CatchConfirmationResponseSchemaCatchFursuitModel? fursuit,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({
+      _i3.Object? id = _sentinel,
+      _i3.Object? caughtAt = _sentinel,
+      _i3.Object? conventionId = _sentinel,
+      _i3.Object? fursuit = _sentinel,
+    }) => CatchConfirmationResponseSchemaCatchModel(
+      id: _i3.identical(id, _sentinel) ? this.id : (id as _i3.int?),
+      caughtAt: _i3.identical(caughtAt, _sentinel)
+          ? this.caughtAt
+          : (caughtAt as _i3.DateTime?),
+      conventionId: _i3.identical(conventionId, _sentinel)
+          ? this.conventionId
+          : (conventionId as _i3.int?),
+      fursuit: _i3.identical(fursuit, _sentinel)
+          ? this.fursuit
+          : (fursuit as _i4.CatchConfirmationResponseSchemaCatchFursuitModel?),
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -89,7 +112,12 @@ class CatchConfirmationResponseSchemaCatchModel
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([id, caughtAt, conventionId, fursuit]);
+    return _i3.Object.hashAll([
+      this.id,
+      this.caughtAt,
+      this.conventionId,
+      this.fursuit,
+    ]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -111,65 +139,5 @@ class CatchConfirmationResponseSchemaCatchModel
     throw _i1.EncodingException(
       r'Cannot uriEncode CatchConfirmationResponseSchemaCatchModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$CatchConfirmationResponseSchemaCatchModelCopyWith<$Res> {
-  factory $$CatchConfirmationResponseSchemaCatchModelCopyWith(
-    CatchConfirmationResponseSchemaCatchModel value,
-  ) = _CatchConfirmationResponseSchemaCatchModelCopyWith<$Res>;
-
-  $Res call({
-    _i3.int? id,
-    _i3.DateTime? caughtAt,
-    _i3.int? conventionId,
-    _i4.CatchConfirmationResponseSchemaCatchFursuitModel? fursuit,
-  });
-  _i3.int? get id;
-  _i3.DateTime? get caughtAt;
-  _i3.int? get conventionId;
-  _i4.CatchConfirmationResponseSchemaCatchFursuitModel? get fursuit;
-}
-
-class _CatchConfirmationResponseSchemaCatchModelCopyWith<$Res>
-    implements $$CatchConfirmationResponseSchemaCatchModelCopyWith<$Res> {
-  _CatchConfirmationResponseSchemaCatchModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final CatchConfirmationResponseSchemaCatchModel _value;
-
-  @_i3.override
-  _i3.int? get id => _value.id;
-
-  @_i3.override
-  _i3.DateTime? get caughtAt => _value.caughtAt;
-
-  @_i3.override
-  _i3.int? get conventionId => _value.conventionId;
-
-  @_i3.override
-  _i4.CatchConfirmationResponseSchemaCatchFursuitModel? get fursuit =>
-      _value.fursuit;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? id = _sentinel,
-    _i3.Object? caughtAt = _sentinel,
-    _i3.Object? conventionId = _sentinel,
-    _i3.Object? fursuit = _sentinel,
-  }) {
-    return (CatchConfirmationResponseSchemaCatchModel(
-      id: _i3.identical(id, _sentinel) ? this.id : (id as _i3.int?),
-      caughtAt: _i3.identical(caughtAt, _sentinel)
-          ? this.caughtAt
-          : (caughtAt as _i3.DateTime?),
-      conventionId: _i3.identical(conventionId, _sentinel)
-          ? this.conventionId
-          : (conventionId as _i3.int?),
-      fursuit: _i3.identical(fursuit, _sentinel)
-          ? this.fursuit
-          : (fursuit as _i4.CatchConfirmationResponseSchemaCatchFursuitModel?),
-    ) as $Res);
   }
 }

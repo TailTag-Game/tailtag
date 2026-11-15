@@ -16,6 +16,7 @@ class ApiFursuitsIdPhotoPutBodyBodyModel extends _i1.ObjectParameterEncodable
   factory ApiFursuitsIdPhotoPutBodyBodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -23,6 +24,8 @@ class ApiFursuitsIdPhotoPutBodyBodyModel extends _i1.ObjectParameterEncodable
       expectedKeys: {r'photo'},
       listKeys: {},
       context: r'ApiFursuitsIdPhotoPutBodyBodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiFursuitsIdPhotoPutBodyBodyModel(
       photo: _i1.TonikFileBytes(
@@ -69,12 +72,13 @@ class ApiFursuitsIdPhotoPutBodyBodyModel extends _i1.ObjectParameterEncodable
   final _i1.TonikFile photo;
 
   @_i3.override
-  _i3.Object? toJson() => {r'photo': photo.toBytes().decodeToString()};
+  _i3.Object? toJson() => {r'photo': this.photo.toBytes().decodeToString()};
 
-  $$ApiFursuitsIdPhotoPutBodyBodyModelCopyWith<
-    ApiFursuitsIdPhotoPutBodyBodyModel
-  >
-  get copyWith => _ApiFursuitsIdPhotoPutBodyBodyModelCopyWith(this);
+  ApiFursuitsIdPhotoPutBodyBodyModel Function({_i1.TonikFile? photo})
+  get copyWith {
+    return ({_i1.TonikFile? photo}) =>
+        ApiFursuitsIdPhotoPutBodyBodyModel(photo: photo ?? this.photo);
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -84,7 +88,7 @@ class ApiFursuitsIdPhotoPutBodyBodyModel extends _i1.ObjectParameterEncodable
   }
 
   @_i3.override
-  _i3.int get hashCode => photo.hashCode;
+  _i3.int get hashCode => this.photo.hashCode;
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
 
@@ -94,7 +98,7 @@ class ApiFursuitsIdPhotoPutBodyBodyModel extends _i1.ObjectParameterEncodable
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
     _$result[r'photo'] = _i1.PropertyValue.scalar(
-      photo.toBytes().decodeToString(),
+      this.photo.toBytes().decodeToString(),
     );
     return _$result;
   }
@@ -109,35 +113,5 @@ class ApiFursuitsIdPhotoPutBodyBodyModel extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiFursuitsIdPhotoPutBodyBodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiFursuitsIdPhotoPutBodyBodyModelCopyWith<$Res> {
-  factory $$ApiFursuitsIdPhotoPutBodyBodyModelCopyWith(
-    ApiFursuitsIdPhotoPutBodyBodyModel value,
-  ) = _ApiFursuitsIdPhotoPutBodyBodyModelCopyWith<$Res>;
-
-  $Res call({_i1.TonikFile? photo});
-  _i1.TonikFile get photo;
-}
-
-class _ApiFursuitsIdPhotoPutBodyBodyModelCopyWith<$Res>
-    implements $$ApiFursuitsIdPhotoPutBodyBodyModelCopyWith<$Res> {
-  _ApiFursuitsIdPhotoPutBodyBodyModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ApiFursuitsIdPhotoPutBodyBodyModel _value;
-
-  @_i3.override
-  _i1.TonikFile get photo => _value.photo;
-
-  @_i3.override
-  $Res call({_i3.Object? photo = _sentinel}) {
-    return (ApiFursuitsIdPhotoPutBodyBodyModel(
-      photo: _i3.identical(photo, _sentinel)
-          ? this.photo
-          : (photo as _i1.TonikFile),
-    ) as $Res);
   }
 }

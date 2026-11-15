@@ -31,6 +31,9 @@ class SchemaApi {
     _i7.ApiSchemaParametersModel2? format,
     _i8.ApiSchemaParametersModel? lang,
     _i4.TonikCancellation? cancellation,
-  }) async =>
-      _schemaRetrieve(format: format, lang: lang, cancellation: cancellation);
+  }) async => this._schemaRetrieve(
+    format: format,
+    lang: lang,
+    cancellation: cancellation,
+  );
 }

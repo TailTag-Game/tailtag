@@ -19,6 +19,7 @@ class ApiFursuitsIdTagReplacePostBodyBodyModel
   factory ApiFursuitsIdTagReplacePostBodyBodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -26,6 +27,8 @@ class ApiFursuitsIdTagReplacePostBodyBodyModel
       expectedKeys: {r'expected_version'},
       listKeys: {},
       context: r'ApiFursuitsIdTagReplacePostBodyBodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiFursuitsIdTagReplacePostBodyBodyModel(
       expectedVersion: _$values[r'expected_version'].decodeSimpleInt(
@@ -66,12 +69,15 @@ class ApiFursuitsIdTagReplacePostBodyBodyModel
   final _i3.int expectedVersion;
 
   @_i3.override
-  _i3.Object? toJson() => {r'expected_version': expectedVersion};
+  _i3.Object? toJson() => {r'expected_version': this.expectedVersion};
 
-  $$ApiFursuitsIdTagReplacePostBodyBodyModelCopyWith<
-    ApiFursuitsIdTagReplacePostBodyBodyModel
-  >
-  get copyWith => _ApiFursuitsIdTagReplacePostBodyBodyModelCopyWith(this);
+  ApiFursuitsIdTagReplacePostBodyBodyModel Function({_i3.int? expectedVersion})
+  get copyWith {
+    return ({_i3.int? expectedVersion}) =>
+        ApiFursuitsIdTagReplacePostBodyBodyModel(
+          expectedVersion: expectedVersion ?? this.expectedVersion,
+        );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -81,7 +87,7 @@ class ApiFursuitsIdTagReplacePostBodyBodyModel
   }
 
   @_i3.override
-  _i3.int get hashCode => expectedVersion.hashCode;
+  _i3.int get hashCode => this.expectedVersion.hashCode;
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
 
@@ -91,7 +97,7 @@ class ApiFursuitsIdTagReplacePostBodyBodyModel
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
     _$result[r'expected_version'] = _i1.PropertyValue.scalar(
-      expectedVersion.toString(),
+      this.expectedVersion.toString(),
     );
     return _$result;
   }
@@ -106,35 +112,5 @@ class ApiFursuitsIdTagReplacePostBodyBodyModel
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiFursuitsIdTagReplacePostBodyBodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiFursuitsIdTagReplacePostBodyBodyModelCopyWith<$Res> {
-  factory $$ApiFursuitsIdTagReplacePostBodyBodyModelCopyWith(
-    ApiFursuitsIdTagReplacePostBodyBodyModel value,
-  ) = _ApiFursuitsIdTagReplacePostBodyBodyModelCopyWith<$Res>;
-
-  $Res call({_i3.int? expectedVersion});
-  _i3.int get expectedVersion;
-}
-
-class _ApiFursuitsIdTagReplacePostBodyBodyModelCopyWith<$Res>
-    implements $$ApiFursuitsIdTagReplacePostBodyBodyModelCopyWith<$Res> {
-  _ApiFursuitsIdTagReplacePostBodyBodyModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ApiFursuitsIdTagReplacePostBodyBodyModel _value;
-
-  @_i3.override
-  _i3.int get expectedVersion => _value.expectedVersion;
-
-  @_i3.override
-  $Res call({_i3.Object? expectedVersion = _sentinel}) {
-    return (ApiFursuitsIdTagReplacePostBodyBodyModel(
-      expectedVersion: _i3.identical(expectedVersion, _sentinel)
-          ? this.expectedVersion
-          : (expectedVersion as _i3.int),
-    ) as $Res);
   }
 }

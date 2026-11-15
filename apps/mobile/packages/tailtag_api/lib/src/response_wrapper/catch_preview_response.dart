@@ -37,7 +37,7 @@ class CatchPreviewResponse200 extends CatchPreviewResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -53,7 +53,7 @@ class CatchPreviewResponse400 extends CatchPreviewResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -69,7 +69,7 @@ class CatchPreviewResponse401 extends CatchPreviewResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -85,7 +85,7 @@ class CatchPreviewResponse403 extends CatchPreviewResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -101,7 +101,7 @@ class CatchPreviewResponse404 extends CatchPreviewResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -117,7 +117,7 @@ class CatchPreviewResponse409 extends CatchPreviewResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -133,5 +133,5 @@ class CatchPreviewResponse500 extends CatchPreviewResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }

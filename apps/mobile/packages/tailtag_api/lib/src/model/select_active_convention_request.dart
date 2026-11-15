@@ -17,6 +17,7 @@ class SelectActiveConventionRequest extends _i1.ObjectParameterEncodable
   factory SelectActiveConventionRequest.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -24,6 +25,8 @@ class SelectActiveConventionRequest extends _i1.ObjectParameterEncodable
       expectedKeys: {r'convention_id'},
       listKeys: {},
       context: r'SelectActiveConventionRequest',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return SelectActiveConventionRequest(
       conventionId: _$values[r'convention_id'].decodeSimpleInt(
@@ -62,10 +65,13 @@ class SelectActiveConventionRequest extends _i1.ObjectParameterEncodable
   final _i3.int conventionId;
 
   @_i3.override
-  _i3.Object? toJson() => {r'convention_id': conventionId};
+  _i3.Object? toJson() => {r'convention_id': this.conventionId};
 
-  $$SelectActiveConventionRequestCopyWith<SelectActiveConventionRequest>
-  get copyWith => _SelectActiveConventionRequestCopyWith(this);
+  SelectActiveConventionRequest Function({_i3.int? conventionId}) get copyWith {
+    return ({_i3.int? conventionId}) => SelectActiveConventionRequest(
+      conventionId: conventionId ?? this.conventionId,
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -75,7 +81,7 @@ class SelectActiveConventionRequest extends _i1.ObjectParameterEncodable
   }
 
   @_i3.override
-  _i3.int get hashCode => conventionId.hashCode;
+  _i3.int get hashCode => this.conventionId.hashCode;
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
 
@@ -85,7 +91,7 @@ class SelectActiveConventionRequest extends _i1.ObjectParameterEncodable
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
     _$result[r'convention_id'] = _i1.PropertyValue.scalar(
-      conventionId.toString(),
+      this.conventionId.toString(),
     );
     return _$result;
   }
@@ -100,35 +106,5 @@ class SelectActiveConventionRequest extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode SelectActiveConventionRequest: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$SelectActiveConventionRequestCopyWith<$Res> {
-  factory $$SelectActiveConventionRequestCopyWith(
-    SelectActiveConventionRequest value,
-  ) = _SelectActiveConventionRequestCopyWith<$Res>;
-
-  $Res call({_i3.int? conventionId});
-  _i3.int get conventionId;
-}
-
-class _SelectActiveConventionRequestCopyWith<$Res>
-    implements $$SelectActiveConventionRequestCopyWith<$Res> {
-  _SelectActiveConventionRequestCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final SelectActiveConventionRequest _value;
-
-  @_i3.override
-  _i3.int get conventionId => _value.conventionId;
-
-  @_i3.override
-  $Res call({_i3.Object? conventionId = _sentinel}) {
-    return (SelectActiveConventionRequest(
-      conventionId: _i3.identical(conventionId, _sentinel)
-          ? this.conventionId
-          : (conventionId as _i3.int),
-    ) as $Res);
   }
 }

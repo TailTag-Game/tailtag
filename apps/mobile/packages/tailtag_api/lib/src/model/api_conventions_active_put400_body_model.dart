@@ -17,6 +17,7 @@ class ApiConventionsActivePut400BodyModel extends _i1.ObjectParameterEncodable
   factory ApiConventionsActivePut400BodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -24,10 +25,13 @@ class ApiConventionsActivePut400BodyModel extends _i1.ObjectParameterEncodable
       expectedKeys: {r'convention_id'},
       listKeys: {r'convention_id'},
       context: r'ApiConventionsActivePut400BodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiConventionsActivePut400BodyModel(
       conventionId: _$values[r'convention_id'].decodeSimpleNullableStringList(
         context: r'ApiConventionsActivePut400BodyModel.convention_id',
+        isHeader: isHeader,
       ),
     );
   }
@@ -65,13 +69,21 @@ class ApiConventionsActivePut400BodyModel extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.Object? toJson() => {
-    if (conventionId != null) r'convention_id': conventionId,
+    if (this.conventionId != null) r'convention_id': this.conventionId,
   };
 
-  $$ApiConventionsActivePut400BodyModelCopyWith<
-    ApiConventionsActivePut400BodyModel
-  >
-  get copyWith => _ApiConventionsActivePut400BodyModelCopyWith(this);
+  ApiConventionsActivePut400BodyModel Function({
+    _i3.List<_i3.String>? conventionId,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({_i3.Object? conventionId = _sentinel}) =>
+        ApiConventionsActivePut400BodyModel(
+          conventionId: _i3.identical(conventionId, _sentinel)
+              ? this.conventionId
+              : (conventionId as _i3.List<_i3.String>?),
+        );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -84,7 +96,7 @@ class ApiConventionsActivePut400BodyModel extends _i1.ObjectParameterEncodable
   @_i3.override
   _i3.int get hashCode {
     const deepEquals = _i4.DeepCollectionEquality();
-    return deepEquals.hash(conventionId);
+    return deepEquals.hash(this.conventionId);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -94,8 +106,8 @@ class ApiConventionsActivePut400BodyModel extends _i1.ObjectParameterEncodable
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    if (conventionId != null) {
-      _$result[r'convention_id'] = _i1.PropertyValue.array(conventionId!);
+    if (this.conventionId != null) {
+      _$result[r'convention_id'] = _i1.PropertyValue.array(this.conventionId!);
     }
     return _$result;
   }
@@ -110,35 +122,5 @@ class ApiConventionsActivePut400BodyModel extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiConventionsActivePut400BodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiConventionsActivePut400BodyModelCopyWith<$Res> {
-  factory $$ApiConventionsActivePut400BodyModelCopyWith(
-    ApiConventionsActivePut400BodyModel value,
-  ) = _ApiConventionsActivePut400BodyModelCopyWith<$Res>;
-
-  $Res call({_i3.List<_i3.String>? conventionId});
-  _i3.List<_i3.String>? get conventionId;
-}
-
-class _ApiConventionsActivePut400BodyModelCopyWith<$Res>
-    implements $$ApiConventionsActivePut400BodyModelCopyWith<$Res> {
-  _ApiConventionsActivePut400BodyModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ApiConventionsActivePut400BodyModel _value;
-
-  @_i3.override
-  _i3.List<_i3.String>? get conventionId => _value.conventionId;
-
-  @_i3.override
-  $Res call({_i3.Object? conventionId = _sentinel}) {
-    return (ApiConventionsActivePut400BodyModel(
-      conventionId: _i3.identical(conventionId, _sentinel)
-          ? this.conventionId
-          : (conventionId as _i3.List<_i3.String>?),
-    ) as $Res);
   }
 }

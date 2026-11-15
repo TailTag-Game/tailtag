@@ -17,6 +17,7 @@ class CatchRequestNotFound extends _i1.ObjectParameterEncodable
   factory CatchRequestNotFound.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -24,6 +25,8 @@ class CatchRequestNotFound extends _i1.ObjectParameterEncodable
       expectedKeys: {r'code', r'detail'},
       listKeys: {},
       context: r'CatchRequestNotFound',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return CatchRequestNotFound(
       code: _$values[r'code'].decodeSimpleNullableString(
@@ -73,10 +76,22 @@ class CatchRequestNotFound extends _i1.ObjectParameterEncodable
   final _i3.String detail;
 
   @_i3.override
-  _i3.Object? toJson() => {if (code != null) r'code': code, r'detail': detail};
+  _i3.Object? toJson() => {
+    if (this.code != null) r'code': this.code,
+    r'detail': this.detail,
+  };
 
-  $$CatchRequestNotFoundCopyWith<CatchRequestNotFound> get copyWith =>
-      _CatchRequestNotFoundCopyWith(this);
+  CatchRequestNotFound Function({_i3.String? code, _i3.String? detail})
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({_i3.Object? code = _sentinel, _i3.String? detail}) =>
+        CatchRequestNotFound(
+          code: _i3.identical(code, _sentinel)
+              ? this.code
+              : (code as _i3.String?),
+          detail: detail ?? this.detail,
+        );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -88,7 +103,7 @@ class CatchRequestNotFound extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([code, detail]);
+    return _i3.Object.hashAll([this.code, this.detail]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -98,10 +113,10 @@ class CatchRequestNotFound extends _i1.ObjectParameterEncodable
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    if (code != null) {
-      _$result[r'code'] = _i1.PropertyValue.scalar(code!);
+    if (this.code != null) {
+      _$result[r'code'] = _i1.PropertyValue.scalar(this.code!);
     }
-    _$result[r'detail'] = _i1.PropertyValue.scalar(detail);
+    _$result[r'detail'] = _i1.PropertyValue.scalar(this.detail);
     return _$result;
   }
 
@@ -115,39 +130,5 @@ class CatchRequestNotFound extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode CatchRequestNotFound: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$CatchRequestNotFoundCopyWith<$Res> {
-  factory $$CatchRequestNotFoundCopyWith(CatchRequestNotFound value) =
-      _CatchRequestNotFoundCopyWith<$Res>;
-
-  $Res call({_i3.String? code, _i3.String? detail});
-  _i3.String? get code;
-  _i3.String get detail;
-}
-
-class _CatchRequestNotFoundCopyWith<$Res>
-    implements $$CatchRequestNotFoundCopyWith<$Res> {
-  _CatchRequestNotFoundCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final CatchRequestNotFound _value;
-
-  @_i3.override
-  _i3.String? get code => _value.code;
-
-  @_i3.override
-  _i3.String get detail => _value.detail;
-
-  @_i3.override
-  $Res call({_i3.Object? code = _sentinel, _i3.Object? detail = _sentinel}) {
-    return (CatchRequestNotFound(
-      code: _i3.identical(code, _sentinel) ? this.code : (code as _i3.String?),
-      detail: _i3.identical(detail, _sentinel)
-          ? this.detail
-          : (detail as _i3.String),
-    ) as $Res);
   }
 }

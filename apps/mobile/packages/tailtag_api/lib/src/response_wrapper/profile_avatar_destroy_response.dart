@@ -21,7 +21,7 @@ class ProfileAvatarDestroyResponse204 extends ProfileAvatarDestroyResponse {
   }
 
   @_i2.override
-  _i2.int get hashCode => runtimeType.hashCode;
+  _i2.int get hashCode => this.runtimeType.hashCode;
 }
 
 @_i1.immutable
@@ -35,7 +35,7 @@ class ProfileAvatarDestroyResponse401 extends ProfileAvatarDestroyResponse {
   }
 
   @_i2.override
-  _i2.int get hashCode => runtimeType.hashCode;
+  _i2.int get hashCode => this.runtimeType.hashCode;
 }
 
 @_i1.immutable
@@ -49,5 +49,5 @@ class ProfileAvatarDestroyResponse403 extends ProfileAvatarDestroyResponse {
   }
 
   @_i2.override
-  _i2.int get hashCode => runtimeType.hashCode;
+  _i2.int get hashCode => this.runtimeType.hashCode;
 }

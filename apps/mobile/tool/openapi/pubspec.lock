@@ -253,42 +253,42 @@ packages:
     dependency: "direct dev"
     description:
       name: tonik
-      sha256: b734419b6e29c9c43e9cd8a5d29c1ff3bee8c2fd86856aca3d715c0c26a1e669
+      sha256: e081d288cca3cb69c5fe6e68f293468ca21bd90157ddab0fc2110308b8e7df09
       url: "https://pub.dev"
     source: hosted
-    version: "0.10.0"
+    version: "0.11.1"
   tonik_core:
     dependency: transitive
     description:
       name: tonik_core
-      sha256: d0eb75f3fd95018ddffa871d28db4185c119847d692e4de6a8ed57dfc1d1c900
+      sha256: "42ceaa1809481451a513938adfd2f5db174d61fc3e52aa81e45c4915f5110bfd"
       url: "https://pub.dev"
     source: hosted
-    version: "0.10.0"
+    version: "0.11.1"
   tonik_generate:
     dependency: transitive
     description:
       name: tonik_generate
-      sha256: "279cf73a937f30e88056c0aa2cd1e369b23b695699327620db813daa94dc8cd3"
+      sha256: e4837d96511064fde8fc512fc5df84c1c62a357ddc46e3a831e61cd2a2d4c11f
       url: "https://pub.dev"
     source: hosted
-    version: "0.10.0"
+    version: "0.11.1"
   tonik_parse:
     dependency: transitive
     description:
       name: tonik_parse
-      sha256: "4f52e80081b81fa136e6a73082e6dba00395f58be994dac1175988ce908136c7"
+      sha256: a476c4686b6b3e987b214d733e230d26e0ef9856f940e6369a0aa4312ec3a685
       url: "https://pub.dev"
     source: hosted
-    version: "0.10.0"
+    version: "0.11.1"
   tonik_util:
     dependency: transitive
     description:
       name: tonik_util
-      sha256: c4bcfe66b546dd0108055f49b05708a4d7357131a73822b40c6cb8815c7c174a
+      sha256: e72ba8270ceb4f9971b61564e14c6ed379f1b8083192209f1295f0668084d3ef
       url: "https://pub.dev"
     source: hosted
-    version: "0.10.0"
+    version: "0.11.1"
   typed_data:
     dependency: transitive
     description:
@@ -313,5 +313,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.1.4"
+  yaml_edit:
+    dependency: transitive
+    description:
+      name: yaml_edit
+      sha256: "07c9e63ba42519745182b88ca12264a7ba2484d8239958778dfe4d44fe760488"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.2.4"
 sdks:
   dart: ">=3.13.1 <4.0.0"

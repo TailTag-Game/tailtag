@@ -6,4 +6,4 @@ environment:
   sdk: ^3.13.1
 
 dev_dependencies:
-  tonik: 0.10.0
+  tonik: 0.11.1
