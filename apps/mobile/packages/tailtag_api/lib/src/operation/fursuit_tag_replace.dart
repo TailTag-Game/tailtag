@@ -77,12 +77,26 @@ final class FursuitTagReplace
           _$json,
         );
         return _i2.FursuitTagReplaceResponse200(body: _$body);
+      case (200, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (400, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
         final _$body = _i9.ApiFursuitsIdTagReplacePost400BodyModel.fromJson(
           _$json,
         );
         return _i2.FursuitTagReplaceResponse400(body: _$body);
+      case (400, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (401, _):
         return _i2.FursuitTagReplaceResponse401();
       case (403, _):
@@ -93,6 +107,13 @@ final class FursuitTagReplace
           _$json,
         );
         return _i2.FursuitTagReplaceResponse404(body: _$body);
+      case (404, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (405, _):
         return _i2.FursuitTagReplaceResponse405();
       case (409, r'application/json'):
@@ -101,6 +122,13 @@ final class FursuitTagReplace
           _$json,
         );
         return _i2.FursuitTagReplaceResponse409(body: _$body);
+      case (409, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (500, _):
         return _i2.FursuitTagReplaceResponse500();
       default:

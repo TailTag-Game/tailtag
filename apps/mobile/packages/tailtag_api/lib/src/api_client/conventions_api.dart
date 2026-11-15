@@ -166,7 +166,7 @@ class ConventionsApi {
   /// - HTTP Bearer
   _i15.Future<_i16.TonikResult<_i17.ConventionsListResponse, _i18.Response>>
   conventionsList({_i16.TonikCancellation? cancellation}) async =>
-      _conventionsList(cancellation: cancellation);
+      this._conventionsList(cancellation: cancellation);
 
   /// Resolve an opaque catch credential to a safe current preview only. This is not catch authorization; future Wave 3 catch writes must submit and independently revalidate the original payload.
   ///
@@ -184,13 +184,13 @@ class ConventionsApi {
     _i20.ApiConventionsConventionIdCatchCredentialsResolvePostBodyBodyModel?
     body,
     _i16.TonikCancellation? cancellation,
-  }) async => _conventionFursuitCatchCredentialResolve(
+  }) async => this._conventionFursuitCatchCredentialResolve(
     body: body,
     conventionId: conventionId,
     cancellation: cancellation,
   );
 
-  /// Return existing owner selections in ascending fursuit_id order. is_active is the stored selection; is_eligible is computed from current upstream state. Operational participation requires both.
+  /// Return existing owner selections in ascending fursuit_id order. is_active is the stored selection; is_eligible is computed from current upstream state. Operational participation requires both. catch_session is the newest catch session of each activation, or null.
   ///
   /// Security:
   /// - HTTP Bearer
@@ -203,7 +203,7 @@ class ConventionsApi {
   conventionFursuitActivationsList({
     required _i15.int conventionId,
     _i16.TonikCancellation? cancellation,
-  }) async => _conventionFursuitActivationsList(
+  }) async => this._conventionFursuitActivationsList(
     conventionId: conventionId,
     cancellation: cancellation,
   );
@@ -224,7 +224,7 @@ class ConventionsApi {
     _i23.ApiConventionsConventionIdFursuitActivationsFursuitIdPutBodyBodyModel?
     body,
     _i16.TonikCancellation? cancellation,
-  }) async => _conventionFursuitActivationsSetState(
+  }) async => this._conventionFursuitActivationsSetState(
     body: body,
     conventionId: conventionId,
     fursuitId: fursuitId,
@@ -246,7 +246,7 @@ class ConventionsApi {
     required _i15.int conventionId,
     required _i15.int fursuitId,
     _i16.TonikCancellation? cancellation,
-  }) async => _conventionFursuitCatchCredentialGet(
+  }) async => this._conventionFursuitCatchCredentialGet(
     conventionId: conventionId,
     fursuitId: fursuitId,
     cancellation: cancellation,
@@ -267,7 +267,7 @@ class ConventionsApi {
     required _i15.int conventionId,
     required _i15.int fursuitId,
     _i16.TonikCancellation? cancellation,
-  }) async => _conventionFursuitCatchCredentialRotate(
+  }) async => this._conventionFursuitCatchCredentialRotate(
     conventionId: conventionId,
     fursuitId: fursuitId,
     cancellation: cancellation,
@@ -289,7 +289,7 @@ class ConventionsApi {
     required _i15.int conventionId,
     required _i15.int fursuitId,
     _i16.TonikCancellation? cancellation,
-  }) async => _conventionFursuitCatchSessionSetState(
+  }) async => this._conventionFursuitCatchSessionSetState(
     body: body,
     conventionId: conventionId,
     fursuitId: fursuitId,
@@ -305,7 +305,7 @@ class ConventionsApi {
   conventionsRetrieve({
     required _i15.int id,
     _i16.TonikCancellation? cancellation,
-  }) async => _conventionsRetrieve(id: id, cancellation: cancellation);
+  }) async => this._conventionsRetrieve(id: id, cancellation: cancellation);
 
   /// Get active convention
   /// Retrieve the authenticated player's currently selected active convention enrollment, if any.
@@ -316,7 +316,7 @@ class ConventionsApi {
     _i16.TonikResult<_i29.ConventionsActiveRetrieveResponse, _i18.Response>
   >
   conventionsActiveRetrieve({_i16.TonikCancellation? cancellation}) async =>
-      _conventionsActiveRetrieve(cancellation: cancellation);
+      this._conventionsActiveRetrieve(cancellation: cancellation);
 
   /// Select active convention
   /// Explicitly select an enrolled active convention as the player's active gameplay context.
@@ -329,7 +329,8 @@ class ConventionsApi {
   conventionsActiveUpdate({
     required _i31.ApiConventionsActivePutBodyRequestBody body,
     _i16.TonikCancellation? cancellation,
-  }) async => _conventionsActiveUpdate(body: body, cancellation: cancellation);
+  }) async =>
+      this._conventionsActiveUpdate(body: body, cancellation: cancellation);
 
   /// Clear active convention
   /// Clear the authenticated player's active convention selection.
@@ -340,7 +341,7 @@ class ConventionsApi {
     _i16.TonikResult<_i32.ConventionsActiveDestroyResponse, _i18.Response>
   >
   conventionsActiveDestroy({_i16.TonikCancellation? cancellation}) async =>
-      _conventionsActiveDestroy(cancellation: cancellation);
+      this._conventionsActiveDestroy(cancellation: cancellation);
 
   /// List convention enrollments
   /// Retrieve a list of all convention enrollments for the authenticated player.
@@ -351,7 +352,7 @@ class ConventionsApi {
     _i16.TonikResult<_i33.ConventionsEnrollmentsListResponse, _i18.Response>
   >
   conventionsEnrollmentsList({_i16.TonikCancellation? cancellation}) async =>
-      _conventionsEnrollmentsList(cancellation: cancellation);
+      this._conventionsEnrollmentsList(cancellation: cancellation);
 
   /// Enroll in convention
   /// Enroll the authenticated player into an active convention. Idempotent on retry.
@@ -364,6 +365,8 @@ class ConventionsApi {
   conventionsEnrollmentsCreate({
     required _i35.ApiConventionsEnrollmentsPostBodyRequestBody body,
     _i16.TonikCancellation? cancellation,
-  }) async =>
-      _conventionsEnrollmentsCreate(body: body, cancellation: cancellation);
+  }) async => this._conventionsEnrollmentsCreate(
+    body: body,
+    cancellation: cancellation,
+  );
 }

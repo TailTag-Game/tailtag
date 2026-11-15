@@ -24,6 +24,7 @@ class ConventionStatusAllOfModel
   factory ConventionStatusAllOfModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     return ConventionStatusAllOfModel(
       statusEnum: _i4.StatusEnum.fromSimple(value, explode: explode),
@@ -147,38 +148,15 @@ class ConventionStatusAllOfModel
   }
 
   @_i3.override
-  _i3.int get hashCode => statusEnum.hashCode;
+  _i3.int get hashCode => this.statusEnum.hashCode;
 
-  $$ConventionStatusAllOfModelCopyWith<ConventionStatusAllOfModel>
-  get copyWith => _ConventionStatusAllOfModelCopyWith(this);
-}
-
-abstract class $$ConventionStatusAllOfModelCopyWith<$Res> {
-  factory $$ConventionStatusAllOfModelCopyWith(
-    ConventionStatusAllOfModel value,
-  ) = _ConventionStatusAllOfModelCopyWith<$Res>;
-
-  $Res call({_i4.StatusEnum? statusEnum});
-  _i4.StatusEnum? get statusEnum;
-}
-
-class _ConventionStatusAllOfModelCopyWith<$Res>
-    implements $$ConventionStatusAllOfModelCopyWith<$Res> {
-  _ConventionStatusAllOfModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ConventionStatusAllOfModel _value;
-
-  @_i3.override
-  _i4.StatusEnum? get statusEnum => _value.statusEnum;
-
-  @_i3.override
-  $Res call({_i3.Object? statusEnum = _sentinel}) {
-    return (ConventionStatusAllOfModel(
+  ConventionStatusAllOfModel Function({_i4.StatusEnum? statusEnum})
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({_i3.Object? statusEnum = _sentinel}) => ConventionStatusAllOfModel(
       statusEnum: _i3.identical(statusEnum, _sentinel)
           ? this.statusEnum
           : (statusEnum as _i4.StatusEnum?),
-    ) as $Res);
+    );
   }
 }

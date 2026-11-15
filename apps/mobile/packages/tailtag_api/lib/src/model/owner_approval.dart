@@ -18,6 +18,7 @@ class OwnerApproval extends _i1.ObjectParameterEncodable
   factory OwnerApproval.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     throw _i1.SimpleDecodingException(
       r'Simple encoding not supported for OwnerApproval: contains complex types',
@@ -47,12 +48,18 @@ class OwnerApproval extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.Object? toJson() => {
-    r'request': request.toJson(),
-    r'catch': $catch.toJson(),
+    r'request': this.request.toJson(),
+    r'catch': this.$catch.toJson(),
   };
 
-  $$OwnerApprovalCopyWith<OwnerApproval> get copyWith =>
-      _OwnerApprovalCopyWith(this);
+  OwnerApproval Function({_i4.OwnerRequest? request, _i5.RequestCatch? $catch})
+  get copyWith {
+    return ({_i4.OwnerRequest? request, _i5.RequestCatch? $catch}) =>
+        OwnerApproval(
+          request: request ?? this.request,
+          $catch: $catch ?? this.$catch,
+        );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -64,7 +71,7 @@ class OwnerApproval extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([request, $catch]);
+    return _i3.Object.hashAll([this.request, this.$catch]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -86,40 +93,5 @@ class OwnerApproval extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode OwnerApproval: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$OwnerApprovalCopyWith<$Res> {
-  factory $$OwnerApprovalCopyWith(OwnerApproval value) =
-      _OwnerApprovalCopyWith<$Res>;
-
-  $Res call({_i4.OwnerRequest? request, _i5.RequestCatch? $catch});
-  _i4.OwnerRequest get request;
-  _i5.RequestCatch get $catch;
-}
-
-class _OwnerApprovalCopyWith<$Res> implements $$OwnerApprovalCopyWith<$Res> {
-  _OwnerApprovalCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final OwnerApproval _value;
-
-  @_i3.override
-  _i4.OwnerRequest get request => _value.request;
-
-  @_i3.override
-  _i5.RequestCatch get $catch => _value.$catch;
-
-  @_i3.override
-  $Res call({_i3.Object? request = _sentinel, _i3.Object? $catch = _sentinel}) {
-    return (OwnerApproval(
-      request: _i3.identical(request, _sentinel)
-          ? this.request
-          : (request as _i4.OwnerRequest),
-      $catch: _i3.identical($catch, _sentinel)
-          ? this.$catch
-          : ($catch as _i5.RequestCatch),
-    ) as $Res);
   }
 }

@@ -18,6 +18,7 @@ class ApiConventionsEnrollmentsPost400BodyModel
   factory ApiConventionsEnrollmentsPost400BodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -25,10 +26,13 @@ class ApiConventionsEnrollmentsPost400BodyModel
       expectedKeys: {r'convention_id'},
       listKeys: {r'convention_id'},
       context: r'ApiConventionsEnrollmentsPost400BodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiConventionsEnrollmentsPost400BodyModel(
       conventionId: _$values[r'convention_id'].decodeSimpleNullableStringList(
         context: r'ApiConventionsEnrollmentsPost400BodyModel.convention_id',
+        isHeader: isHeader,
       ),
     );
   }
@@ -66,13 +70,21 @@ class ApiConventionsEnrollmentsPost400BodyModel
 
   @_i3.override
   _i3.Object? toJson() => {
-    if (conventionId != null) r'convention_id': conventionId,
+    if (this.conventionId != null) r'convention_id': this.conventionId,
   };
 
-  $$ApiConventionsEnrollmentsPost400BodyModelCopyWith<
-    ApiConventionsEnrollmentsPost400BodyModel
-  >
-  get copyWith => _ApiConventionsEnrollmentsPost400BodyModelCopyWith(this);
+  ApiConventionsEnrollmentsPost400BodyModel Function({
+    _i3.List<_i3.String>? conventionId,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({_i3.Object? conventionId = _sentinel}) =>
+        ApiConventionsEnrollmentsPost400BodyModel(
+          conventionId: _i3.identical(conventionId, _sentinel)
+              ? this.conventionId
+              : (conventionId as _i3.List<_i3.String>?),
+        );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -85,7 +97,7 @@ class ApiConventionsEnrollmentsPost400BodyModel
   @_i3.override
   _i3.int get hashCode {
     const deepEquals = _i4.DeepCollectionEquality();
-    return deepEquals.hash(conventionId);
+    return deepEquals.hash(this.conventionId);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -95,8 +107,8 @@ class ApiConventionsEnrollmentsPost400BodyModel
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    if (conventionId != null) {
-      _$result[r'convention_id'] = _i1.PropertyValue.array(conventionId!);
+    if (this.conventionId != null) {
+      _$result[r'convention_id'] = _i1.PropertyValue.array(this.conventionId!);
     }
     return _$result;
   }
@@ -111,35 +123,5 @@ class ApiConventionsEnrollmentsPost400BodyModel
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiConventionsEnrollmentsPost400BodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiConventionsEnrollmentsPost400BodyModelCopyWith<$Res> {
-  factory $$ApiConventionsEnrollmentsPost400BodyModelCopyWith(
-    ApiConventionsEnrollmentsPost400BodyModel value,
-  ) = _ApiConventionsEnrollmentsPost400BodyModelCopyWith<$Res>;
-
-  $Res call({_i3.List<_i3.String>? conventionId});
-  _i3.List<_i3.String>? get conventionId;
-}
-
-class _ApiConventionsEnrollmentsPost400BodyModelCopyWith<$Res>
-    implements $$ApiConventionsEnrollmentsPost400BodyModelCopyWith<$Res> {
-  _ApiConventionsEnrollmentsPost400BodyModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ApiConventionsEnrollmentsPost400BodyModel _value;
-
-  @_i3.override
-  _i3.List<_i3.String>? get conventionId => _value.conventionId;
-
-  @_i3.override
-  $Res call({_i3.Object? conventionId = _sentinel}) {
-    return (ApiConventionsEnrollmentsPost400BodyModel(
-      conventionId: _i3.identical(conventionId, _sentinel)
-          ? this.conventionId
-          : (conventionId as _i3.List<_i3.String>?),
-    ) as $Res);
   }
 }

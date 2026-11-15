@@ -19,6 +19,7 @@ class ActiveConventionResponse extends _i1.ObjectParameterEncodable
   factory ActiveConventionResponse.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     throw _i1.SimpleDecodingException(
       r'Simple encoding not supported for ActiveConventionResponse: contains complex types',
@@ -48,10 +49,19 @@ class ActiveConventionResponse extends _i1.ObjectParameterEncodable
   final _i4.ActiveConventionResponseEnrollmentAllOfModel? enrollment;
 
   @_i3.override
-  _i3.Object? toJson() => {r'enrollment': enrollment?.toJson()};
+  _i3.Object? toJson() => {r'enrollment': this.enrollment?.toJson()};
 
-  $$ActiveConventionResponseCopyWith<ActiveConventionResponse> get copyWith =>
-      _ActiveConventionResponseCopyWith(this);
+  ActiveConventionResponse Function({
+    _i4.ActiveConventionResponseEnrollmentAllOfModel? enrollment,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({_i3.Object? enrollment = _sentinel}) => ActiveConventionResponse(
+      enrollment: _i3.identical(enrollment, _sentinel)
+          ? this.enrollment
+          : (enrollment as _i4.ActiveConventionResponseEnrollmentAllOfModel?),
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -61,16 +71,23 @@ class ActiveConventionResponse extends _i1.ObjectParameterEncodable
   }
 
   @_i3.override
-  _i3.int get hashCode => enrollment.hashCode;
+  _i3.int get hashCode => this.enrollment.hashCode;
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
 
   @_i3.override
   _i3.Map<_i3.String, _i1.PropertyValue> parameterProperties({
     _i3.bool allowEmpty = true,
-  }) => throw _i1.EncodingException(
-    r'parameterProperties not supported for ActiveConventionResponse: contains complex types',
-  );
+  }) {
+    final _$result = <_i3.String, _i1.PropertyValue>{};
+    if (this.enrollment != null) {
+      _$result[r'enrollment'] = _i1.encodeAnyValueToPropertyValue(
+        this.enrollment!.toJson(),
+        allowEmpty: allowEmpty,
+      );
+    }
+    return _$result;
+  }
 
   @_i3.override
   _i3.String uriEncode({
@@ -82,35 +99,5 @@ class ActiveConventionResponse extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode ActiveConventionResponse: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ActiveConventionResponseCopyWith<$Res> {
-  factory $$ActiveConventionResponseCopyWith(ActiveConventionResponse value) =
-      _ActiveConventionResponseCopyWith<$Res>;
-
-  $Res call({_i4.ActiveConventionResponseEnrollmentAllOfModel? enrollment});
-  _i4.ActiveConventionResponseEnrollmentAllOfModel? get enrollment;
-}
-
-class _ActiveConventionResponseCopyWith<$Res>
-    implements $$ActiveConventionResponseCopyWith<$Res> {
-  _ActiveConventionResponseCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ActiveConventionResponse _value;
-
-  @_i3.override
-  _i4.ActiveConventionResponseEnrollmentAllOfModel? get enrollment =>
-      _value.enrollment;
-
-  @_i3.override
-  $Res call({_i3.Object? enrollment = _sentinel}) {
-    return (ActiveConventionResponse(
-      enrollment: _i3.identical(enrollment, _sentinel)
-          ? this.enrollment
-          : (enrollment as _i4.ActiveConventionResponseEnrollmentAllOfModel?),
-    ) as $Res);
   }
 }

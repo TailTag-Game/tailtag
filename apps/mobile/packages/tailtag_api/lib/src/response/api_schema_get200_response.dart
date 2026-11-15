@@ -26,7 +26,7 @@ class ApiSchemaGet200ResponseVndOaiOpenapi extends ApiSchemaGet200Response {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -42,7 +42,7 @@ class ApiSchemaGet200ResponseYaml extends ApiSchemaGet200Response {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -59,7 +59,7 @@ class ApiSchemaGet200ResponseVndOaiOpenapiJson extends ApiSchemaGet200Response {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -75,5 +75,5 @@ class ApiSchemaGet200ResponseJson extends ApiSchemaGet200Response {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }

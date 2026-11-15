@@ -6,12 +6,17 @@ import "package:tailtag_mobile/app/debug/auth_proof_screen.dart";
 import "package:tailtag_mobile/app/entry/entry_controller.dart";
 import "package:tailtag_mobile/app/entry/entry_screens.dart";
 import "package:tailtag_mobile/app/entry/entry_stage.dart";
+import "package:tailtag_mobile/core/conventions/convention.dart";
 import "package:tailtag_mobile/features/account_access/access_flow_controller.dart";
 import "package:tailtag_mobile/features/account_access/account_access_screen.dart";
 import "package:tailtag_mobile/features/account_access/code_entry_screen.dart";
 import "package:tailtag_mobile/features/account_access/email_entry_screen.dart";
 import "package:tailtag_mobile/features/conventions/convention_home_screen.dart";
 import "package:tailtag_mobile/features/conventions/convention_picker_screen.dart";
+import "package:tailtag_mobile/features/fursuits/suit_detail_screen.dart";
+import "package:tailtag_mobile/features/fursuits/suit_list_screen.dart";
+import "package:tailtag_mobile/features/fursuits/suit_register_screen.dart";
+import "package:tailtag_mobile/features/fursuits/suits_controller.dart";
 import "package:tailtag_mobile/features/onboarding/onboarding_screen.dart";
 import "package:tailtag_mobile/features/passkeys/passkey_screen.dart";
 
@@ -66,6 +71,24 @@ abstract final class AppPaths {
 
   /// The debug-only Clerk proof screen, above the picker or the home.
   static const authProof = "/debug/auth";
+
+  /// The suit list, above the home.
+  static const suits = "/fursuits";
+
+  /// The register form, above the suit list.
+  static const registerSuit = "/fursuits/new";
+
+  /// The suit screen of suit [id], above the suit list.
+  static String suit(int id) => "/fursuits/$id";
+}
+
+/// Whether [location] is a suit screen. A suit ID must fit in an `int`.
+bool _isSuitPath(String location) {
+  if (location == AppPaths.suits || location == AppPaths.registerSuit) {
+    return true;
+  }
+  final match = RegExp(r"^/fursuits/([1-9][0-9]*)$").firstMatch(location);
+  return match != null && int.tryParse(match.group(1)!) != null;
 }
 
 /// The path of the screen that [stage] shows.
@@ -104,7 +127,11 @@ String? redirectFor(
           location == AppPaths.email ||
           (location == AppPaths.code && codeSent && !viaProvider) ||
           (location == AppPaths.providerCode && codeSent && viaProvider),
-    EntryConventionPicker() || EntryConventionHome() =>
+    EntryConventionHome() =>
+      location == home ||
+          _isSuitPath(location) ||
+          (kDebugMode && location == AppPaths.authProof),
+    EntryConventionPicker() =>
       location == home || (kDebugMode && location == AppPaths.authProof),
     _ => location == home,
   };
@@ -248,6 +275,43 @@ final routerProvider = Provider<GoRouter>((ref) {
               : null,
         ),
       ),
+      GoRoute(
+        path: AppPaths.suits,
+        builder: (context, state) => _SuitsRoute(
+          builder: (convention) => SuitListScreen(
+            convention: convention,
+            onOpenSuit: (id) => context.push(AppPaths.suit(id)),
+            onRegister: () => context.push(AppPaths.registerSuit),
+          ),
+        ),
+        routes: [
+          GoRoute(
+            path: "new",
+            builder: (context, state) => _SuitsRoute(
+              builder: (convention) => SuitRegisterScreen(
+                onCreated: (fursuit) {
+                  ref
+                      .read(suitsControllerProvider(convention.id).notifier)
+                      .created(fursuit);
+                  context.pushReplacement(AppPaths.suit(fursuit.id));
+                },
+                onOutcomeUnknown: () => ref
+                    .read(suitsControllerProvider(convention.id).notifier)
+                    .createOutcomeUnknown(),
+              ),
+            ),
+          ),
+          GoRoute(
+            path: ":id",
+            builder: (context, state) => _SuitsRoute(
+              builder: (convention) => SuitDetailScreen(
+                convention: convention,
+                fursuitId: int.parse(state.pathParameters["id"]!),
+              ),
+            ),
+          ),
+        ],
+      ),
       if (kDebugMode)
         GoRoute(
           path: AppPaths.authProof,
@@ -258,6 +322,22 @@ final routerProvider = Provider<GoRouter>((ref) {
   ref.onDispose(router.dispose);
   return router;
 });
+
+/// Gives a suit screen the selected convention of the home stage.
+class _SuitsRoute extends ConsumerWidget {
+  const new({required this.builder});
+
+  final Widget Function(Convention convention) builder;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final stage = ref.watch(entryControllerProvider);
+    if (stage is! EntryConventionHome) {
+      return const EntryLoadingScreen(label: EntryStrings.loadingAccount);
+    }
+    return builder(stage.enrollment.convention);
+  }
+}
 
 /// Gives the home screen the state of its stage.
 class _ConventionHomeRoute extends ConsumerWidget {
@@ -279,6 +359,7 @@ class _ConventionHomeRoute extends ConsumerWidget {
       apiAccess: stage.apiAccess,
       onChangeConvention: entry.openConventionPicker,
       onRefresh: entry.refreshHome,
+      onOpenSuits: () => context.push(AppPaths.suits),
       onManagePasskeys: entry.openPasskeys,
       onSignOut: entry.signOut,
       onOpenAuthProof: onOpenAuthProof,

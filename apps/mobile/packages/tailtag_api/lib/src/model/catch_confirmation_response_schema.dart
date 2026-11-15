@@ -20,6 +20,7 @@ class CatchConfirmationResponseSchema extends _i1.ObjectParameterEncodable
   factory CatchConfirmationResponseSchema.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     throw _i1.SimpleDecodingException(
       r'Simple encoding not supported for CatchConfirmationResponseSchema: contains complex types',
@@ -54,8 +55,24 @@ class CatchConfirmationResponseSchema extends _i1.ObjectParameterEncodable
   @_i3.override
   _i3.Object? toJson() => <_i3.String, _i3.Object?>{};
 
-  $$CatchConfirmationResponseSchemaCopyWith<CatchConfirmationResponseSchema>
-  get copyWith => _CatchConfirmationResponseSchemaCopyWith(this);
+  CatchConfirmationResponseSchema Function({
+    _i4.CatchConfirmationResponseSchemaOutcomeAllOfModel? outcome,
+    _i5.CatchConfirmationResponseSchemaCatchModel? $catch,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({
+      _i3.Object? outcome = _sentinel,
+      _i3.Object? $catch = _sentinel,
+    }) => CatchConfirmationResponseSchema(
+      outcome: _i3.identical(outcome, _sentinel)
+          ? this.outcome
+          : (outcome as _i4.CatchConfirmationResponseSchemaOutcomeAllOfModel?),
+      $catch: _i3.identical($catch, _sentinel)
+          ? this.$catch
+          : ($catch as _i5.CatchConfirmationResponseSchemaCatchModel?),
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -67,7 +84,7 @@ class CatchConfirmationResponseSchema extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([outcome, $catch]);
+    return _i3.Object.hashAll([this.outcome, this.$catch]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -89,46 +106,5 @@ class CatchConfirmationResponseSchema extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode CatchConfirmationResponseSchema: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$CatchConfirmationResponseSchemaCopyWith<$Res> {
-  factory $$CatchConfirmationResponseSchemaCopyWith(
-    CatchConfirmationResponseSchema value,
-  ) = _CatchConfirmationResponseSchemaCopyWith<$Res>;
-
-  $Res call({
-    _i4.CatchConfirmationResponseSchemaOutcomeAllOfModel? outcome,
-    _i5.CatchConfirmationResponseSchemaCatchModel? $catch,
-  });
-  _i4.CatchConfirmationResponseSchemaOutcomeAllOfModel? get outcome;
-  _i5.CatchConfirmationResponseSchemaCatchModel? get $catch;
-}
-
-class _CatchConfirmationResponseSchemaCopyWith<$Res>
-    implements $$CatchConfirmationResponseSchemaCopyWith<$Res> {
-  _CatchConfirmationResponseSchemaCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final CatchConfirmationResponseSchema _value;
-
-  @_i3.override
-  _i4.CatchConfirmationResponseSchemaOutcomeAllOfModel? get outcome =>
-      _value.outcome;
-
-  @_i3.override
-  _i5.CatchConfirmationResponseSchemaCatchModel? get $catch => _value.$catch;
-
-  @_i3.override
-  $Res call({_i3.Object? outcome = _sentinel, _i3.Object? $catch = _sentinel}) {
-    return (CatchConfirmationResponseSchema(
-      outcome: _i3.identical(outcome, _sentinel)
-          ? this.outcome
-          : (outcome as _i4.CatchConfirmationResponseSchemaOutcomeAllOfModel?),
-      $catch: _i3.identical($catch, _sentinel)
-          ? this.$catch
-          : ($catch as _i5.CatchConfirmationResponseSchemaCatchModel?),
-    ) as $Res);
   }
 }

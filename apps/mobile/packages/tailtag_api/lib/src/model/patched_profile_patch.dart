@@ -16,6 +16,7 @@ class PatchedProfilePatch extends _i1.ObjectParameterEncodable
   factory PatchedProfilePatch.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -23,6 +24,8 @@ class PatchedProfilePatch extends _i1.ObjectParameterEncodable
       expectedKeys: {r'handle', r'display_name'},
       listKeys: {},
       context: r'PatchedProfilePatch',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return PatchedProfilePatch(
       handle: _$values[r'handle'].decodeSimpleNullableString(
@@ -73,12 +76,25 @@ class PatchedProfilePatch extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.Object? toJson() => {
-    if (handle != null) r'handle': handle,
-    if (displayName != null) r'display_name': displayName,
+    if (this.handle != null) r'handle': this.handle,
+    if (this.displayName != null) r'display_name': this.displayName,
   };
 
-  $$PatchedProfilePatchCopyWith<PatchedProfilePatch> get copyWith =>
-      _PatchedProfilePatchCopyWith(this);
+  PatchedProfilePatch Function({_i3.String? handle, _i3.String? displayName})
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({
+      _i3.Object? handle = _sentinel,
+      _i3.Object? displayName = _sentinel,
+    }) => PatchedProfilePatch(
+      handle: _i3.identical(handle, _sentinel)
+          ? this.handle
+          : (handle as _i3.String?),
+      displayName: _i3.identical(displayName, _sentinel)
+          ? this.displayName
+          : (displayName as _i3.String?),
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -90,7 +106,7 @@ class PatchedProfilePatch extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([handle, displayName]);
+    return _i3.Object.hashAll([this.handle, this.displayName]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -100,11 +116,11 @@ class PatchedProfilePatch extends _i1.ObjectParameterEncodable
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    if (handle != null) {
-      _$result[r'handle'] = _i1.PropertyValue.scalar(handle!);
+    if (this.handle != null) {
+      _$result[r'handle'] = _i1.PropertyValue.scalar(this.handle!);
     }
-    if (displayName != null) {
-      _$result[r'display_name'] = _i1.PropertyValue.scalar(displayName!);
+    if (this.displayName != null) {
+      _$result[r'display_name'] = _i1.PropertyValue.scalar(this.displayName!);
     }
     return _$result;
   }
@@ -119,44 +135,5 @@ class PatchedProfilePatch extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode PatchedProfilePatch: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$PatchedProfilePatchCopyWith<$Res> {
-  factory $$PatchedProfilePatchCopyWith(PatchedProfilePatch value) =
-      _PatchedProfilePatchCopyWith<$Res>;
-
-  $Res call({_i3.String? handle, _i3.String? displayName});
-  _i3.String? get handle;
-  _i3.String? get displayName;
-}
-
-class _PatchedProfilePatchCopyWith<$Res>
-    implements $$PatchedProfilePatchCopyWith<$Res> {
-  _PatchedProfilePatchCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final PatchedProfilePatch _value;
-
-  @_i3.override
-  _i3.String? get handle => _value.handle;
-
-  @_i3.override
-  _i3.String? get displayName => _value.displayName;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? handle = _sentinel,
-    _i3.Object? displayName = _sentinel,
-  }) {
-    return (PatchedProfilePatch(
-      handle: _i3.identical(handle, _sentinel)
-          ? this.handle
-          : (handle as _i3.String?),
-      displayName: _i3.identical(displayName, _sentinel)
-          ? this.displayName
-          : (displayName as _i3.String?),
-    ) as $Res);
   }
 }

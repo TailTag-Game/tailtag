@@ -27,6 +27,7 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200Bod
   factory ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -42,6 +43,8 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200Bod
       },
       listKeys: {},
       context: r'ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModel(
       fursuitId: _$values[r'fursuit_id'].decodeSimpleInt(
@@ -169,75 +172,8 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200Bod
   @_i3.override
   _i3.Object? toJson() => <_i3.String, _i3.Object?>{};
 
-  $$ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModelCopyWith<
-    ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModel
-  >
-  get copyWith =>
-      _ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModelCopyWith(
-        this,
-      );
-
-  @_i3.override
-  _i3.bool operator ==(_i3.Object other) {
-    if (_i3.identical(this, other)) return true;
-    return other
-            is ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModel &&
-        other.fursuitId == this.fursuitId &&
-        other.conventionId == this.conventionId &&
-        other.isActive == this.isActive &&
-        other.startedAt == this.startedAt &&
-        other.expiresAt == this.expiresAt &&
-        other.endedAt == this.endedAt &&
-        other.endReason == this.endReason;
-  }
-
-  @_i3.override
-  _i3.int get hashCode {
-    return _i3.Object.hashAll([
-      fursuitId,
-      conventionId,
-      isActive,
-      startedAt,
-      expiresAt,
-      endedAt,
-      endReason,
-    ]);
-  }
-
-  _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
-
-  @_i3.override
-  _i3.Map<_i3.String, _i1.PropertyValue> parameterProperties({
-    _i3.bool allowEmpty = true,
-  }) {
-    return <_i3.String, _i1.PropertyValue>{};
-  }
-
-  @_i3.override
-  _i3.String uriEncode({
-    required _i3.bool allowEmpty,
-    required _i5.Encoding textEncoding,
-    _i3.bool useQueryComponent = false,
-    _i3.bool allowReserved = false,
-  }) {
-    throw _i1.EncodingException(
-      r'Cannot uriEncode ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModel: complex types cannot be URI-encoded',
-    );
-  }
-}
-
-abstract class $$ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModelCopyWith<
-  $Res
-> {
-  factory $$ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModelCopyWith(
-    ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModel
-    value,
-  ) =
-      _ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModelCopyWith<
-        $Res
-      >;
-
-  $Res call({
+  ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModel
+  Function({
     _i3.int? fursuitId,
     _i3.int? conventionId,
     _i3.bool? isActive,
@@ -246,66 +182,18 @@ abstract class $$ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessi
     _i3.DateTime? endedAt,
     _i4.ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyEndReasonModel?
     endReason,
-  });
-  _i3.int? get fursuitId;
-  _i3.int? get conventionId;
-  _i3.bool? get isActive;
-  _i3.DateTime? get startedAt;
-  _i3.DateTime? get expiresAt;
-  _i3.DateTime? get endedAt;
-  _i4.ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyEndReasonModel?
-  get endReason;
-}
-
-class _ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModelCopyWith<
-  $Res
->
-    implements
-        $$ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModelCopyWith<
-          $Res
-        > {
-  _ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModelCopyWith(
-    this._value,
-  );
-
-  static const _sentinel = _i3.Object();
-
-  final ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModel
-  _value;
-
-  @_i3.override
-  _i3.int? get fursuitId => _value.fursuitId;
-
-  @_i3.override
-  _i3.int? get conventionId => _value.conventionId;
-
-  @_i3.override
-  _i3.bool? get isActive => _value.isActive;
-
-  @_i3.override
-  _i3.DateTime? get startedAt => _value.startedAt;
-
-  @_i3.override
-  _i3.DateTime? get expiresAt => _value.expiresAt;
-
-  @_i3.override
-  _i3.DateTime? get endedAt => _value.endedAt;
-
-  @_i3.override
-  _i4.ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyEndReasonModel?
-  get endReason => _value.endReason;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? fursuitId = _sentinel,
-    _i3.Object? conventionId = _sentinel,
-    _i3.Object? isActive = _sentinel,
-    _i3.Object? startedAt = _sentinel,
-    _i3.Object? expiresAt = _sentinel,
-    _i3.Object? endedAt = _sentinel,
-    _i3.Object? endReason = _sentinel,
-  }) {
-    return (ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModel(
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({
+      _i3.Object? fursuitId = _sentinel,
+      _i3.Object? conventionId = _sentinel,
+      _i3.Object? isActive = _sentinel,
+      _i3.Object? startedAt = _sentinel,
+      _i3.Object? expiresAt = _sentinel,
+      _i3.Object? endedAt = _sentinel,
+      _i3.Object? endReason = _sentinel,
+    }) => ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModel(
       fursuitId: _i3.identical(fursuitId, _sentinel)
           ? this.fursuitId
           : (fursuitId as _i3.int?),
@@ -328,6 +216,54 @@ class _ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200Bo
           ? this.endReason
           : (endReason
                 as _i4.ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyEndReasonModel?),
-    ) as $Res);
+    );
+  }
+
+  @_i3.override
+  _i3.bool operator ==(_i3.Object other) {
+    if (_i3.identical(this, other)) return true;
+    return other
+            is ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModel &&
+        other.fursuitId == this.fursuitId &&
+        other.conventionId == this.conventionId &&
+        other.isActive == this.isActive &&
+        other.startedAt == this.startedAt &&
+        other.expiresAt == this.expiresAt &&
+        other.endedAt == this.endedAt &&
+        other.endReason == this.endReason;
+  }
+
+  @_i3.override
+  _i3.int get hashCode {
+    return _i3.Object.hashAll([
+      this.fursuitId,
+      this.conventionId,
+      this.isActive,
+      this.startedAt,
+      this.expiresAt,
+      this.endedAt,
+      this.endReason,
+    ]);
+  }
+
+  _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
+
+  @_i3.override
+  _i3.Map<_i3.String, _i1.PropertyValue> parameterProperties({
+    _i3.bool allowEmpty = true,
+  }) {
+    return <_i3.String, _i1.PropertyValue>{};
+  }
+
+  @_i3.override
+  _i3.String uriEncode({
+    required _i3.bool allowEmpty,
+    required _i5.Encoding textEncoding,
+    _i3.bool useQueryComponent = false,
+    _i3.bool allowReserved = false,
+  }) {
+    throw _i1.EncodingException(
+      r'Cannot uriEncode ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPut200BodyModel: complex types cannot be URI-encoded',
+    );
   }
 }

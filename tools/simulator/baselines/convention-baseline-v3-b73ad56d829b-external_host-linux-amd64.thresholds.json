@@ -1,0 +1,138 @@
+{
+ "key": {
+  "descriptor_digest": "f7aadf5057a86e919023f686c0489161414eb1c3515b43fa79cf388659f80db7",
+  "environment": "staging",
+  "execution_context": "external_host:linux/amd64",
+  "plan_digest": "b73ad56d829b698102d6c645b418573f7f0bc2eeaa834f9a4b84c189b53d964f",
+  "scenario_id": "convention-baseline",
+  "scenario_version": 3
+ },
+ "kind": "thresholds",
+ "minimum_samples": {
+  "p95": {
+   "assumption": "Proposed: minimum samples for a meaningful p95.",
+   "value": 200
+  },
+  "p99": {
+   "assumption": "Proposed: minimum samples for a meaningful p99.",
+   "value": 1000
+  }
+ },
+ "operations": {
+  "preview": {
+   "error_rate": {
+    "assumption": "Proposed: the greater of 2x the baseline rate and 0.01; maintainer to review.",
+    "value": 0.01
+   },
+   "p95_ms": {
+    "assumption": "Proposed: 2x the baseline p95, rounded up to 1 ms; maintainer to review.",
+    "value": 1196
+   },
+   "p99_ms": {
+    "assumption": "Proposed: 2x the baseline p99, rounded up to 1 ms; maintainer to review.",
+    "value": 1583
+   },
+   "timeout_rate": {
+    "assumption": "Proposed: the greater of 2x the baseline rate and 0.01; maintainer to review.",
+    "value": 0.01
+   }
+  },
+  "read": {
+   "error_rate": {
+    "assumption": "Proposed: the greater of 2x the baseline rate and 0.01; maintainer to review.",
+    "value": 0.01
+   },
+   "p95_ms": {
+    "assumption": "Proposed: 2x the baseline p95, rounded up to 1 ms; maintainer to review.",
+    "value": 997
+   },
+   "p99_ms": {
+    "assumption": "Proposed: 2x the baseline p99, rounded up to 1 ms; maintainer to review.",
+    "value": 1389
+   },
+   "timeout_rate": {
+    "assumption": "Proposed: the greater of 2x the baseline rate and 0.01; maintainer to review.",
+    "value": 0.01
+   }
+  },
+  "review": {
+   "error_rate": {
+    "assumption": "Proposed: the greater of 2x the baseline rate and 0.01; maintainer to review.",
+    "value": 0.01
+   },
+   "p95_ms": {
+    "assumption": "Proposed: 2x the baseline p95, rounded up to 1 ms; maintainer to review.",
+    "value": 1374
+   },
+   "timeout_rate": {
+    "assumption": "Proposed: the greater of 2x the baseline rate and 0.01; maintainer to review.",
+    "value": 0.01
+   }
+  },
+  "submit": {
+   "error_rate": {
+    "assumption": "Proposed: the greater of 2x the baseline rate and 0.01; maintainer to review.",
+    "value": 0.01
+   },
+   "p95_ms": {
+    "assumption": "Proposed: 2x the baseline p95, rounded up to 1 ms; maintainer to review.",
+    "value": 1396
+   },
+   "p99_ms": {
+    "assumption": "Proposed: 2x the baseline p99, rounded up to 1 ms; maintainer to review.",
+    "value": 1971
+   },
+   "timeout_rate": {
+    "assumption": "Proposed: the greater of 2x the baseline rate and 0.01; maintainer to review.",
+    "value": 0.01
+   }
+  },
+  "total": {
+   "error_rate": {
+    "assumption": "Proposed: the greater of 2x the baseline rate and 0.01; maintainer to review.",
+    "value": 0.01
+   },
+   "p95_ms": {
+    "assumption": "Proposed: 2x the baseline p95, rounded up to 1 ms; maintainer to review.",
+    "value": 1208
+   },
+   "p99_ms": {
+    "assumption": "Proposed: 2x the baseline p99, rounded up to 1 ms; maintainer to review.",
+    "value": 1613
+   },
+   "timeout_rate": {
+    "assumption": "Proposed: the greater of 2x the baseline rate and 0.01; maintainer to review.",
+    "value": 0.01
+   }
+  }
+ },
+ "regression": {
+  "minimum_delta_ms": {
+   "assumption": "Proposed: ignore regressions smaller than 20 ms.",
+   "value": 20
+  },
+  "p95_percent": {
+   "assumption": "Proposed: p95 may rise 25% over the baseline.",
+   "value": 25
+  },
+  "p99_percent": {
+   "assumption": "Proposed: p99 may rise 50% over the baseline.",
+   "value": 50
+  }
+ },
+ "saturation": {
+  "lag_seconds": {
+   "assumption": "Proposed: generator lag above 1 s is saturation.",
+   "value": 1.0
+  },
+  "peak_cpu_percent": {
+   "assumption": "Proposed: 80% of 2 vCPUs in Docker CPUPerc units.",
+   "value": 160
+  },
+  "steal_ticks_delta": {
+   "assumption": "Proposed: CPU steal above 1500 USER_HZ ticks is saturation.",
+   "value": 1500
+  }
+ },
+ "schema_version": 1
+}

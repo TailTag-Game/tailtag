@@ -15,6 +15,7 @@ from conventions.models import (
     ConventionEnrollment,
     ConventionStatus,
     FursuitActivation,
+    FursuitCatchSession,
 )
 from conventions.review_deadline import (
     apply_review_schedule,
@@ -114,6 +115,46 @@ def list_owned_fursuit_activations(
         .select_related("fursuit", "convention")
         .order_by("fursuit_id", "id")
     )
+
+
+@dataclass(frozen=True)
+class OwnedFursuitActivationView:
+    """One owner activation with its computed eligibility and newest session."""
+
+    activation: FursuitActivation
+    is_eligible: bool
+    latest_session: FursuitCatchSession | None
+
+
+def list_owned_fursuit_activation_views(
+    user: User, *, convention: Convention
+) -> list[OwnedFursuitActivationView]:
+    """Return the owner list with a fixed number of queries.
+
+    Every row shares one owner and one convention, so the owner and
+    convention parts of ``is_fursuit_activation_eligible`` are read once.
+    """
+    from conventions.catch_sessions import latest_fursuit_catch_sessions
+
+    activations = list(list_owned_fursuit_activations(user, convention=convention))
+    if not activations:
+        return []
+    owner_ready = (
+        is_participation_eligible(user)
+        and ConventionEnrollment.objects.filter(
+            user_id=user.pk, convention_id=convention.pk
+        ).exists()
+        and convention.is_playable
+    )
+    sessions = latest_fursuit_catch_sessions([row.pk for row in activations])
+    return [
+        OwnedFursuitActivationView(
+            activation=row,
+            is_eligible=owner_ready and row.fursuit.is_enabled,
+            latest_session=sessions.get(row.pk),
+        )
+        for row in activations
+    ]
 
 
 def is_fursuit_activation_eligible(activation: FursuitActivation) -> bool:

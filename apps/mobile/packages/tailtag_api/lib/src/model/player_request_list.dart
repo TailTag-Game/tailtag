@@ -18,6 +18,7 @@ class PlayerRequestList extends _i1.ObjectParameterEncodable
   factory PlayerRequestList.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     throw _i1.SimpleDecodingException(
       r'Simple encoding not supported for PlayerRequestList: contains complex types',
@@ -46,10 +47,15 @@ class PlayerRequestList extends _i1.ObjectParameterEncodable
   final _i3.List<_i4.PlayerRequest> results;
 
   @_i3.override
-  _i3.Object? toJson() => {r'results': results.map((e) => e.toJson()).toList()};
+  _i3.Object? toJson() => {
+    r'results': this.results.map((e) => e.toJson()).toList(),
+  };
 
-  $$PlayerRequestListCopyWith<PlayerRequestList> get copyWith =>
-      _PlayerRequestListCopyWith(this);
+  PlayerRequestList Function({_i3.List<_i4.PlayerRequest>? results})
+  get copyWith {
+    return ({_i3.List<_i4.PlayerRequest>? results}) =>
+        PlayerRequestList(results: results ?? this.results);
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -62,7 +68,7 @@ class PlayerRequestList extends _i1.ObjectParameterEncodable
   @_i3.override
   _i3.int get hashCode {
     const deepEquals = _i5.DeepCollectionEquality();
-    return deepEquals.hash(results);
+    return deepEquals.hash(this.results);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -84,34 +90,5 @@ class PlayerRequestList extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode PlayerRequestList: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$PlayerRequestListCopyWith<$Res> {
-  factory $$PlayerRequestListCopyWith(PlayerRequestList value) =
-      _PlayerRequestListCopyWith<$Res>;
-
-  $Res call({_i3.List<_i4.PlayerRequest>? results});
-  _i3.List<_i4.PlayerRequest> get results;
-}
-
-class _PlayerRequestListCopyWith<$Res>
-    implements $$PlayerRequestListCopyWith<$Res> {
-  _PlayerRequestListCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final PlayerRequestList _value;
-
-  @_i3.override
-  _i3.List<_i4.PlayerRequest> get results => _value.results;
-
-  @_i3.override
-  $Res call({_i3.Object? results = _sentinel}) {
-    return (PlayerRequestList(
-      results: _i3.identical(results, _sentinel)
-          ? this.results
-          : (results as _i3.List<_i4.PlayerRequest>),
-    ) as $Res);
   }
 }

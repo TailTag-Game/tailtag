@@ -16,6 +16,7 @@ class CatchRequestDecline extends _i1.ObjectParameterEncodable
   factory CatchRequestDecline.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -23,6 +24,8 @@ class CatchRequestDecline extends _i1.ObjectParameterEncodable
       expectedKeys: {r'block'},
       listKeys: {},
       context: r'CatchRequestDecline',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return CatchRequestDecline(
       block: _$values[r'block'].decodeSimpleBool(
@@ -62,10 +65,12 @@ class CatchRequestDecline extends _i1.ObjectParameterEncodable
   final _i3.bool block;
 
   @_i3.override
-  _i3.Object? toJson() => {r'block': block};
+  _i3.Object? toJson() => {r'block': this.block};
 
-  $$CatchRequestDeclineCopyWith<CatchRequestDecline> get copyWith =>
-      _CatchRequestDeclineCopyWith(this);
+  CatchRequestDecline Function({_i3.bool? block}) get copyWith {
+    return ({_i3.bool? block}) =>
+        CatchRequestDecline(block: block ?? this.block);
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -74,7 +79,7 @@ class CatchRequestDecline extends _i1.ObjectParameterEncodable
   }
 
   @_i3.override
-  _i3.int get hashCode => block.hashCode;
+  _i3.int get hashCode => this.block.hashCode;
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
 
@@ -83,7 +88,7 @@ class CatchRequestDecline extends _i1.ObjectParameterEncodable
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'block'] = _i1.PropertyValue.scalar(block.toString());
+    _$result[r'block'] = _i1.PropertyValue.scalar(this.block.toString());
     return _$result;
   }
 
@@ -97,32 +102,5 @@ class CatchRequestDecline extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode CatchRequestDecline: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$CatchRequestDeclineCopyWith<$Res> {
-  factory $$CatchRequestDeclineCopyWith(CatchRequestDecline value) =
-      _CatchRequestDeclineCopyWith<$Res>;
-
-  $Res call({_i3.bool? block});
-  _i3.bool get block;
-}
-
-class _CatchRequestDeclineCopyWith<$Res>
-    implements $$CatchRequestDeclineCopyWith<$Res> {
-  _CatchRequestDeclineCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final CatchRequestDecline _value;
-
-  @_i3.override
-  _i3.bool get block => _value.block;
-
-  @_i3.override
-  $Res call({_i3.Object? block = _sentinel}) {
-    return (CatchRequestDecline(
-      block: _i3.identical(block, _sentinel) ? this.block : (block as _i3.bool),
-    ) as $Res);
   }
 }

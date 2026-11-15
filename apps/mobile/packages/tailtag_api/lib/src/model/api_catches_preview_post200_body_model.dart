@@ -21,6 +21,7 @@ class ApiCatchesPreviewPost200BodyModel extends _i1.ObjectParameterEncodable
   factory ApiCatchesPreviewPost200BodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     throw _i1.SimpleDecodingException(
       r'Simple encoding not supported for ApiCatchesPreviewPost200BodyModel: contains complex types',
@@ -54,12 +55,23 @@ class ApiCatchesPreviewPost200BodyModel extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.Object? toJson() => {
-    r'fursuit': fursuit.toJson(),
-    r'convention_id': conventionId,
+    r'fursuit': this.fursuit.toJson(),
+    r'convention_id': this.conventionId,
   };
 
-  $$ApiCatchesPreviewPost200BodyModelCopyWith<ApiCatchesPreviewPost200BodyModel>
-  get copyWith => _ApiCatchesPreviewPost200BodyModelCopyWith(this);
+  ApiCatchesPreviewPost200BodyModel Function({
+    _i4.ApiCatchesPreviewPost200BodyFursuitModel? fursuit,
+    _i3.int? conventionId,
+  })
+  get copyWith {
+    return ({
+      _i4.ApiCatchesPreviewPost200BodyFursuitModel? fursuit,
+      _i3.int? conventionId,
+    }) => ApiCatchesPreviewPost200BodyModel(
+      fursuit: fursuit ?? this.fursuit,
+      conventionId: conventionId ?? this.conventionId,
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -71,7 +83,7 @@ class ApiCatchesPreviewPost200BodyModel extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([fursuit, conventionId]);
+    return _i3.Object.hashAll([this.fursuit, this.conventionId]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -93,48 +105,5 @@ class ApiCatchesPreviewPost200BodyModel extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiCatchesPreviewPost200BodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiCatchesPreviewPost200BodyModelCopyWith<$Res> {
-  factory $$ApiCatchesPreviewPost200BodyModelCopyWith(
-    ApiCatchesPreviewPost200BodyModel value,
-  ) = _ApiCatchesPreviewPost200BodyModelCopyWith<$Res>;
-
-  $Res call({
-    _i4.ApiCatchesPreviewPost200BodyFursuitModel? fursuit,
-    _i3.int? conventionId,
-  });
-  _i4.ApiCatchesPreviewPost200BodyFursuitModel get fursuit;
-  _i3.int get conventionId;
-}
-
-class _ApiCatchesPreviewPost200BodyModelCopyWith<$Res>
-    implements $$ApiCatchesPreviewPost200BodyModelCopyWith<$Res> {
-  _ApiCatchesPreviewPost200BodyModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ApiCatchesPreviewPost200BodyModel _value;
-
-  @_i3.override
-  _i4.ApiCatchesPreviewPost200BodyFursuitModel get fursuit => _value.fursuit;
-
-  @_i3.override
-  _i3.int get conventionId => _value.conventionId;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? fursuit = _sentinel,
-    _i3.Object? conventionId = _sentinel,
-  }) {
-    return (ApiCatchesPreviewPost200BodyModel(
-      fursuit: _i3.identical(fursuit, _sentinel)
-          ? this.fursuit
-          : (fursuit as _i4.ApiCatchesPreviewPost200BodyFursuitModel),
-      conventionId: _i3.identical(conventionId, _sentinel)
-          ? this.conventionId
-          : (conventionId as _i3.int),
-    ) as $Res);
   }
 }

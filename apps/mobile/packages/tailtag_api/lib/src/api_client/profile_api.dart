@@ -64,7 +64,7 @@ class ProfileApi {
   /// - HTTP Bearer
   _i7.Future<_i8.TonikResult<_i9.ProfileRetrieveResponse, _i10.Response>>
   profileRetrieve({_i8.TonikCancellation? cancellation}) async =>
-      _profileRetrieve(cancellation: cancellation);
+      this._profileRetrieve(cancellation: cancellation);
 
   /// Completely replace handle and display_name while preserving the independently managed avatar state.
   ///
@@ -74,7 +74,7 @@ class ProfileApi {
   profileUpdate({
     required _i12.ApiProfilePutBodyRequestBody body,
     _i8.TonikCancellation? cancellation,
-  }) async => _profileUpdate(body: body, cancellation: cancellation);
+  }) async => this._profileUpdate(body: body, cancellation: cancellation);
 
   /// Read or mutate the authenticated user's private player profile.
   ///
@@ -84,7 +84,8 @@ class ProfileApi {
   profilePartialUpdate({
     _i14.ApiProfilePatchBodyRequestBody? body,
     _i8.TonikCancellation? cancellation,
-  }) async => _profilePartialUpdate(body: body, cancellation: cancellation);
+  }) async =>
+      this._profilePartialUpdate(body: body, cancellation: cancellation);
 
   /// Replace the independently managed avatar using multipart/form-data.
   ///
@@ -94,7 +95,7 @@ class ProfileApi {
   profileAvatarUpdate({
     required _i16.AvatarPut body,
     _i8.TonikCancellation? cancellation,
-  }) async => _profileAvatarUpdate(body: body, cancellation: cancellation);
+  }) async => this._profileAvatarUpdate(body: body, cancellation: cancellation);
 
   /// Mutate the authenticated user's independently managed avatar.
   ///
@@ -102,5 +103,5 @@ class ProfileApi {
   /// - HTTP Bearer
   _i7.Future<_i8.TonikResult<_i17.ProfileAvatarDestroyResponse, _i10.Response>>
   profileAvatarDestroy({_i8.TonikCancellation? cancellation}) async =>
-      _profileAvatarDestroy(cancellation: cancellation);
+      this._profileAvatarDestroy(cancellation: cancellation);
 }

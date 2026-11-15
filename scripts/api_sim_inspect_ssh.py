@@ -36,6 +36,15 @@ _CATCH_KEYS: Final = (
     _CATCH_INTEGERS | _CATCH_OPTIONAL_INTEGERS | _CATCH_BOOLEANS | {"caught_at"}
 )
 _FURSUIT_KEYS: Final = frozenset({"id", "owner"})
+# inspect-population-v2 adds the run's catch requests, capped at 120 (#508).
+_V2_OPERATION: Final = "inspect-population-v2"
+_V2_MAX_REQUESTS: Final = 120
+_REQUEST_ENTRY_KEYS: Final = frozenset(
+    {"id", "player", "fursuit", "run_convention", "state", "requested_at"}
+)
+_REQUEST_STATES: Final = frozenset(
+    {"pending", "approved", "declined", "withdrawn", "invalidated"}
+)
 _CAUGHT_AT: Final = re.compile(
     r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z"
 )
@@ -136,7 +145,33 @@ def _data_is_valid(data: Mapping[str, object]) -> bool:
     )
 
 
-def _validated_output(raw: str) -> dict[str, object]:
+def _request_is_valid(entry: Mapping[str, object]) -> bool:
+    requested_at = entry["requested_at"]
+    return (
+        _integer(entry["id"])
+        and _integer(entry["fursuit"])
+        and (entry["player"] is None or _integer(entry["player"]))
+        and type(entry["run_convention"]) is bool
+        and entry["state"] in _REQUEST_STATES
+        and isinstance(requested_at, str)
+        and _CAUGHT_AT.fullmatch(requested_at) is not None
+    )
+
+
+def _requests_are_valid(value: object) -> bool:
+    entries = _objects(value)
+    return (
+        entries is not None
+        and len(entries) <= _V2_MAX_REQUESTS
+        and all(
+            frozenset(entry) == _REQUEST_ENTRY_KEYS and _request_is_valid(entry)
+            for entry in entries
+        )
+    )
+
+
+def _validated_output(raw: str, *, requests: bool = False) -> dict[str, object]:
+    """Accept one fixed shape: the v1 data keys, plus ``requests`` for v2 only."""
     value = _json_loads(raw)
     if not isinstance(value, dict):
         raise TypeError
@@ -150,8 +185,10 @@ def _validated_output(raw: str) -> dict[str, object]:
         not typed_data
         if result in _FAILURES
         else result == "PASS"
-        and frozenset(typed_data) == _DATA_KEYS
+        and frozenset(typed_data)
+        == (_DATA_KEYS | {"requests"} if requests else _DATA_KEYS)
         and _data_is_valid(typed_data)
+        and (not requests or _requests_are_valid(typed_data["requests"]))
     )
     if not valid:
         raise ValueError
@@ -159,8 +196,12 @@ def _validated_output(raw: str) -> dict[str, object]:
 
 
 def _execute(request: dict[str, object]) -> dict[str, object]:
+    requests = request["operation"] == _V2_OPERATION
     return _render_relay.execute(
-        request, _BOOTSTRAP, _validated_output, timeout=_SSH_TIMEOUT_SECONDS
+        request,
+        _BOOTSTRAP,
+        lambda raw: _validated_output(raw, requests=requests),
+        timeout=_SSH_TIMEOUT_SECONDS,
     )
 
 

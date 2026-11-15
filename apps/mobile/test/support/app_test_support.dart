@@ -11,6 +11,9 @@ import "package:tailtag_mobile/app/router.dart";
 import "package:tailtag_mobile/core/auth/auth_providers.dart";
 import "package:tailtag_mobile/core/conventions/convention_providers.dart";
 import "package:tailtag_mobile/core/conventions/convention_repository.dart";
+import "package:tailtag_mobile/core/fursuits/fursuit_providers.dart";
+import "package:tailtag_mobile/core/fursuits/fursuit_repository.dart";
+import "package:tailtag_mobile/core/fursuits/photo_source.dart";
 import "package:tailtag_mobile/core/session/current_user_providers.dart";
 import "package:tailtag_mobile/core/session/current_user_repository.dart";
 import "package:tailtag_mobile/core/session/player_profile_providers.dart";
@@ -156,6 +159,8 @@ final class ScriptedNetwork extends http.BaseClient {
   final List<ConventionReply> _conventions = [];
   final List<ConventionReply> _enrollments = [];
   final List<ConventionReply> _writes = [];
+  final Map<String, List<ConventionReply>> _suitReplies = {};
+  final List<Completer<http.StreamedResponse>> _heldSuits = [];
   final List<Completer<http.StreamedResponse>> _heldConventions = [];
   final List<Completer<http.StreamedResponse>> _held = [];
   final List<Completer<http.StreamedResponse>> _heldProfiles = [];
@@ -181,6 +186,21 @@ final class ScriptedNetwork extends http.BaseClient {
 
   /// The number of held convention requests whose abort trigger fired.
   int conventionAborts = 0;
+
+  /// Each suit request as `METHOD path` and its body text, in order. Suit
+  /// requests are those under `/api/fursuits/` and the participation
+  /// routes under `/api/conventions/{id}/fursuit-activations/`.
+  final List<({String request, String body})> suitRequests = [];
+
+  /// Queues [reply] for the next suit [request], such as
+  /// `GET /api/fursuits/`. With no queued reply, a list read answers `[]`
+  /// and any other suit request answers 500.
+  void enqueueSuit(String request, ConventionReply reply) =>
+      (_suitReplies[request] ??= []).add(reply);
+
+  /// Answers held suit request [index] with [reply].
+  void releaseSuit(int index, ConventionReply reply) =>
+      _heldSuits[index].complete(_replyWith(reply.status, reply.body));
 
   /// The number of requests sent to [request], such as
   /// `GET /api/profile/`.
@@ -220,6 +240,10 @@ final class ScriptedNetwork extends http.BaseClient {
     log.add("${request.method} ${request.url.path}");
     if (request.url.path == "/api/profile/") {
       return await _sendProfile(request);
+    }
+    if (request.url.path.startsWith("/api/fursuits/") ||
+        request.url.path.contains("/fursuit-activations/")) {
+      return await _sendSuit(request);
     }
     if (request.url.path.startsWith("/api/conventions/")) {
       return await _sendConvention(request);
@@ -296,6 +320,27 @@ final class ScriptedNetwork extends http.BaseClient {
     return await held.future;
   }
 
+  Future<http.StreamedResponse> _sendSuit(http.BaseRequest request) async {
+    final bytes = await request.finalize().toBytes();
+    final key = "${request.method} ${request.url.path}";
+    suitRequests.add((request: key, body: latin1.decode(bytes)));
+    final queue = _suitReplies[key];
+    final reply = queue != null && queue.isNotEmpty
+        ? queue.removeAt(0)
+        : request.method == "GET" && request.url.path.endsWith("s/")
+        ? ConventionReply.list(const [])
+        : const ConventionReply(status: 500);
+    if (reply.fails) {
+      throw http.ClientException("connection broke", request.url);
+    }
+    if (!reply.held) {
+      return _replyWith(reply.status, reply.body);
+    }
+    final held = Completer<http.StreamedResponse>();
+    _heldSuits.add(held);
+    return await held.future;
+  }
+
   static http.StreamedResponse _reply(int status) =>
       _replyWith(status, status == 200 ? '{"id": 42}' : "{}");
 
@@ -347,6 +392,7 @@ Future<AppHarness> pumpApp(
   WidgetTester tester, {
   required FakeAuthSession session,
   ScriptedNetwork? network,
+  PhotoSource? photoSource,
 }) async {
   final net = network ?? ScriptedNetwork();
   final transport = createTestTransport(net, tokenProvider: session);
@@ -362,6 +408,9 @@ Future<AppHarness> pumpApp(
       conventionRepositoryProvider.overrideWithValue(
         ConventionRepository(transport),
       ),
+      fursuitRepositoryProvider.overrideWithValue(FursuitRepository(transport)),
+      if (photoSource != null)
+        photoSourceProvider.overrideWithValue(photoSource),
     ],
   );
   addTearDown(container.dispose);

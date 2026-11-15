@@ -67,22 +67,39 @@ def test_fursuit_activation_openapi_is_exact_closed_authenticated_and_documents_
         schema, get["responses"]["200"]["content"]["application/json"]["schema"]
     )
     item_schema = _dereference(schema, list_schema["items"])
-    for shape in (response_schema, item_schema):
+    activation_keys = {
+        "fursuit_id",
+        "convention_id",
+        "is_active",
+        "is_eligible",
+        "activated_at",
+        "deactivated_at",
+    }
+    for shape, keys in (
+        (response_schema, activation_keys),
+        (item_schema, activation_keys | {"catch_session"}),
+    ):
         assert shape.get("additionalProperties") is False
-        assert set(shape["properties"]) == {
-            "fursuit_id",
-            "convention_id",
-            "is_active",
-            "is_eligible",
-            "activated_at",
-            "deactivated_at",
-        }
+        assert set(shape["properties"]) == keys
         assert set(shape["required"]) == set(shape["properties"])
         assert shape["properties"]["activated_at"]["format"] == "date-time"
         assert shape["properties"]["deactivated_at"]["format"] == "date-time"
         assert shape["properties"]["deactivated_at"].get("nullable") is True
         assert shape["properties"]["is_active"]["type"] == "boolean"
         assert shape["properties"]["is_eligible"]["type"] == "boolean"
+    catch_session = _dereference(schema, item_schema["properties"]["catch_session"])
+    assert catch_session.get("nullable") is True
+    assert catch_session.get("additionalProperties") is False
+    assert set(catch_session["properties"]) == {
+        "fursuit_id",
+        "convention_id",
+        "is_active",
+        "started_at",
+        "expires_at",
+        "ended_at",
+        "end_reason",
+    }
+    assert set(catch_session["required"]) == set(catch_session["properties"])
     list_description = get.get("description", "").lower()
     assert "ascending" in list_description and "fursuit_id" in list_description
     put_description = put.get("description", "").lower()

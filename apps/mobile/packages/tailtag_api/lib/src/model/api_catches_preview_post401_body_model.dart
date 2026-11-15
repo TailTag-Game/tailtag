@@ -16,6 +16,7 @@ class ApiCatchesPreviewPost401BodyModel extends _i1.ObjectParameterEncodable
   factory ApiCatchesPreviewPost401BodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -23,6 +24,8 @@ class ApiCatchesPreviewPost401BodyModel extends _i1.ObjectParameterEncodable
       expectedKeys: {r'detail'},
       listKeys: {},
       context: r'ApiCatchesPreviewPost401BodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiCatchesPreviewPost401BodyModel(
       detail: _$values[r'detail'].decodeSimpleString(
@@ -61,10 +64,13 @@ class ApiCatchesPreviewPost401BodyModel extends _i1.ObjectParameterEncodable
   final _i3.String detail;
 
   @_i3.override
-  _i3.Object? toJson() => {r'detail': detail};
+  _i3.Object? toJson() => {r'detail': this.detail};
 
-  $$ApiCatchesPreviewPost401BodyModelCopyWith<ApiCatchesPreviewPost401BodyModel>
-  get copyWith => _ApiCatchesPreviewPost401BodyModelCopyWith(this);
+  ApiCatchesPreviewPost401BodyModel Function({_i3.String? detail})
+  get copyWith {
+    return ({_i3.String? detail}) =>
+        ApiCatchesPreviewPost401BodyModel(detail: detail ?? this.detail);
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -74,7 +80,7 @@ class ApiCatchesPreviewPost401BodyModel extends _i1.ObjectParameterEncodable
   }
 
   @_i3.override
-  _i3.int get hashCode => detail.hashCode;
+  _i3.int get hashCode => this.detail.hashCode;
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
 
@@ -83,7 +89,7 @@ class ApiCatchesPreviewPost401BodyModel extends _i1.ObjectParameterEncodable
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'detail'] = _i1.PropertyValue.scalar(detail);
+    _$result[r'detail'] = _i1.PropertyValue.scalar(this.detail);
     return _$result;
   }
 
@@ -97,35 +103,5 @@ class ApiCatchesPreviewPost401BodyModel extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiCatchesPreviewPost401BodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiCatchesPreviewPost401BodyModelCopyWith<$Res> {
-  factory $$ApiCatchesPreviewPost401BodyModelCopyWith(
-    ApiCatchesPreviewPost401BodyModel value,
-  ) = _ApiCatchesPreviewPost401BodyModelCopyWith<$Res>;
-
-  $Res call({_i3.String? detail});
-  _i3.String get detail;
-}
-
-class _ApiCatchesPreviewPost401BodyModelCopyWith<$Res>
-    implements $$ApiCatchesPreviewPost401BodyModelCopyWith<$Res> {
-  _ApiCatchesPreviewPost401BodyModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ApiCatchesPreviewPost401BodyModel _value;
-
-  @_i3.override
-  _i3.String get detail => _value.detail;
-
-  @_i3.override
-  $Res call({_i3.Object? detail = _sentinel}) {
-    return (ApiCatchesPreviewPost401BodyModel(
-      detail: _i3.identical(detail, _sentinel)
-          ? this.detail
-          : (detail as _i3.String),
-    ) as $Res);
   }
 }

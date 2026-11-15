@@ -25,6 +25,7 @@ class ApiFursuitsIdTagReplacePost409BodyModel
   factory ApiFursuitsIdTagReplacePost409BodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     throw _i1.SimpleDecodingException(
       r'Simple encoding not supported for ApiFursuitsIdTagReplacePost409BodyModel: contains complex types',
@@ -68,15 +69,30 @@ class ApiFursuitsIdTagReplacePost409BodyModel
 
   @_i3.override
   _i3.Object? toJson() => {
-    r'code': code.toJson(),
-    r'detail': detail,
-    if (current != null) r'current': current?.toJson(),
+    r'code': this.code.toJson(),
+    r'detail': this.detail,
+    if (this.current != null) r'current': this.current?.toJson(),
   };
 
-  $$ApiFursuitsIdTagReplacePost409BodyModelCopyWith<
-    ApiFursuitsIdTagReplacePost409BodyModel
-  >
-  get copyWith => _ApiFursuitsIdTagReplacePost409BodyModelCopyWith(this);
+  ApiFursuitsIdTagReplacePost409BodyModel Function({
+    _i4.ApiFursuitsIdTagReplacePost409BodyCodeModel? code,
+    _i3.String? detail,
+    _i5.ApiFursuitsIdTagReplacePost409BodyCurrentModel? current,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({
+      _i4.ApiFursuitsIdTagReplacePost409BodyCodeModel? code,
+      _i3.String? detail,
+      _i3.Object? current = _sentinel,
+    }) => ApiFursuitsIdTagReplacePost409BodyModel(
+      code: code ?? this.code,
+      detail: detail ?? this.detail,
+      current: _i3.identical(current, _sentinel)
+          ? this.current
+          : (current as _i5.ApiFursuitsIdTagReplacePost409BodyCurrentModel?),
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -89,7 +105,7 @@ class ApiFursuitsIdTagReplacePost409BodyModel
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([code, detail, current]);
+    return _i3.Object.hashAll([this.code, this.detail, this.current]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -111,58 +127,5 @@ class ApiFursuitsIdTagReplacePost409BodyModel
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiFursuitsIdTagReplacePost409BodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiFursuitsIdTagReplacePost409BodyModelCopyWith<$Res> {
-  factory $$ApiFursuitsIdTagReplacePost409BodyModelCopyWith(
-    ApiFursuitsIdTagReplacePost409BodyModel value,
-  ) = _ApiFursuitsIdTagReplacePost409BodyModelCopyWith<$Res>;
-
-  $Res call({
-    _i4.ApiFursuitsIdTagReplacePost409BodyCodeModel? code,
-    _i3.String? detail,
-    _i5.ApiFursuitsIdTagReplacePost409BodyCurrentModel? current,
-  });
-  _i4.ApiFursuitsIdTagReplacePost409BodyCodeModel get code;
-  _i3.String get detail;
-  _i5.ApiFursuitsIdTagReplacePost409BodyCurrentModel? get current;
-}
-
-class _ApiFursuitsIdTagReplacePost409BodyModelCopyWith<$Res>
-    implements $$ApiFursuitsIdTagReplacePost409BodyModelCopyWith<$Res> {
-  _ApiFursuitsIdTagReplacePost409BodyModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ApiFursuitsIdTagReplacePost409BodyModel _value;
-
-  @_i3.override
-  _i4.ApiFursuitsIdTagReplacePost409BodyCodeModel get code => _value.code;
-
-  @_i3.override
-  _i3.String get detail => _value.detail;
-
-  @_i3.override
-  _i5.ApiFursuitsIdTagReplacePost409BodyCurrentModel? get current =>
-      _value.current;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? code = _sentinel,
-    _i3.Object? detail = _sentinel,
-    _i3.Object? current = _sentinel,
-  }) {
-    return (ApiFursuitsIdTagReplacePost409BodyModel(
-      code: _i3.identical(code, _sentinel)
-          ? this.code
-          : (code as _i4.ApiFursuitsIdTagReplacePost409BodyCodeModel),
-      detail: _i3.identical(detail, _sentinel)
-          ? this.detail
-          : (detail as _i3.String),
-      current: _i3.identical(current, _sentinel)
-          ? this.current
-          : (current as _i5.ApiFursuitsIdTagReplacePost409BodyCurrentModel?),
-    ) as $Res);
   }
 }

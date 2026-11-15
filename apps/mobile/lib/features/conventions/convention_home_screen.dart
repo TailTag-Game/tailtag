@@ -23,6 +23,7 @@ class ConventionHomeScreen extends StatelessWidget {
     required this.apiAccess,
     required this.onChangeConvention,
     required this.onRefresh,
+    required this.onOpenSuits,
     required this.onManagePasskeys,
     required this.onSignOut,
     required this.onOpenAuthProof,
@@ -46,6 +47,9 @@ class ConventionHomeScreen extends StatelessWidget {
 
   /// Reads the server state again.
   final VoidCallback onRefresh;
+
+  /// Opens the suit list.
+  final VoidCallback onOpenSuits;
 
   /// Opens the passkey screen.
   final VoidCallback onManagePasskeys;
@@ -101,6 +105,12 @@ class ConventionHomeScreen extends StatelessWidget {
                     ],
                   ),
                 ),
+              ),
+              TailTagButton(
+                key: const Key("convention-my-suits"),
+                label: ConventionStrings.mySuits,
+                variant: TailTagButtonVariant.secondary,
+                onPressed: onOpenSuits,
               ),
               TailTagButton(
                 key: const Key("convention-change"),

@@ -18,6 +18,7 @@ class ApiCatchesGet404BodyModel extends _i1.ObjectParameterEncodable
   factory ApiCatchesGet404BodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -25,6 +26,8 @@ class ApiCatchesGet404BodyModel extends _i1.ObjectParameterEncodable
       expectedKeys: {r'code', r'detail'},
       listKeys: {},
       context: r'ApiCatchesGet404BodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiCatchesGet404BodyModel(
       code: _i4.ApiCatchesGet404BodyCodeModel.fromSimple(
@@ -74,10 +77,19 @@ class ApiCatchesGet404BodyModel extends _i1.ObjectParameterEncodable
   final _i3.String detail;
 
   @_i3.override
-  _i3.Object? toJson() => {r'code': code.toJson(), r'detail': detail};
+  _i3.Object? toJson() => {r'code': this.code.toJson(), r'detail': this.detail};
 
-  $$ApiCatchesGet404BodyModelCopyWith<ApiCatchesGet404BodyModel> get copyWith =>
-      _ApiCatchesGet404BodyModelCopyWith(this);
+  ApiCatchesGet404BodyModel Function({
+    _i4.ApiCatchesGet404BodyCodeModel? code,
+    _i3.String? detail,
+  })
+  get copyWith {
+    return ({_i4.ApiCatchesGet404BodyCodeModel? code, _i3.String? detail}) =>
+        ApiCatchesGet404BodyModel(
+          code: code ?? this.code,
+          detail: detail ?? this.detail,
+        );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -89,7 +101,7 @@ class ApiCatchesGet404BodyModel extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([code, detail]);
+    return _i3.Object.hashAll([this.code, this.detail]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -99,8 +111,8 @@ class ApiCatchesGet404BodyModel extends _i1.ObjectParameterEncodable
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'code'] = _i1.PropertyValue.scalar(code.toJson());
-    _$result[r'detail'] = _i1.PropertyValue.scalar(detail);
+    _$result[r'code'] = _i1.PropertyValue.scalar(this.code.toJson());
+    _$result[r'detail'] = _i1.PropertyValue.scalar(this.detail);
     return _$result;
   }
 
@@ -114,41 +126,5 @@ class ApiCatchesGet404BodyModel extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiCatchesGet404BodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiCatchesGet404BodyModelCopyWith<$Res> {
-  factory $$ApiCatchesGet404BodyModelCopyWith(ApiCatchesGet404BodyModel value) =
-      _ApiCatchesGet404BodyModelCopyWith<$Res>;
-
-  $Res call({_i4.ApiCatchesGet404BodyCodeModel? code, _i3.String? detail});
-  _i4.ApiCatchesGet404BodyCodeModel get code;
-  _i3.String get detail;
-}
-
-class _ApiCatchesGet404BodyModelCopyWith<$Res>
-    implements $$ApiCatchesGet404BodyModelCopyWith<$Res> {
-  _ApiCatchesGet404BodyModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ApiCatchesGet404BodyModel _value;
-
-  @_i3.override
-  _i4.ApiCatchesGet404BodyCodeModel get code => _value.code;
-
-  @_i3.override
-  _i3.String get detail => _value.detail;
-
-  @_i3.override
-  $Res call({_i3.Object? code = _sentinel, _i3.Object? detail = _sentinel}) {
-    return (ApiCatchesGet404BodyModel(
-      code: _i3.identical(code, _sentinel)
-          ? this.code
-          : (code as _i4.ApiCatchesGet404BodyCodeModel),
-      detail: _i3.identical(detail, _sentinel)
-          ? this.detail
-          : (detail as _i3.String),
-    ) as $Res);
   }
 }

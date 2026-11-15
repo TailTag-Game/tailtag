@@ -44,6 +44,7 @@ final class ApiTransport {
     me = MeApi(server);
     profile = ProfileApi(server);
     conventions = ConventionsApi(server);
+    fursuits = FursuitsApi(server);
   }
 
   final Duration _jsonTimeout;
@@ -59,6 +60,9 @@ final class ApiTransport {
   /// The generated `/api/conventions/` operations.
   late final ConventionsApi conventions;
 
+  /// The generated `/api/fursuits/` operations.
+  late final FursuitsApi fursuits;
+
   /// Runs [call] with an abort handle and returns the generated response
   /// wrapper of a 2xx response, or throws an [ApiFailure].
   ///
@@ -69,7 +73,8 @@ final class ApiTransport {
   ///
   /// A 2xx body must hold every key in [requiredKeys]. The generated decoder
   /// reads a missing key and a JSON null as the same null, so an operation
-  /// that gives null a meaning names that key here.
+  /// that gives null a meaning names that key here. For an array body, each
+  /// item must hold every key in [requiredItemKeys] in the same way.
   Future<R> execute<R extends Object>({
     required String operationId,
     required Future<TonikResult<R, http.Response>> Function(
@@ -79,6 +84,7 @@ final class ApiTransport {
     ApiCancellation? cancellation,
     bool multipart = false,
     List<String> requiredKeys = const [],
+    List<String> requiredItemKeys = const [],
   }) async {
     final stopwatch = Stopwatch()..start();
     final record = _CallRecord();
@@ -127,7 +133,7 @@ final class ApiTransport {
     // method ever reports a diagnostic.
     unawaited(
       runZoned(
-        () => _settle(call, token, requiredKeys),
+        () => _settle(call, token, requiredKeys, requiredItemKeys),
         zoneValues: {_recordKey: record},
       ).then((settled) {
         if (!outcome.isCompleted) {
@@ -169,6 +175,7 @@ final class ApiTransport {
     call,
     TonikCancellation token,
     List<String> requiredKeys,
+    List<String> requiredItemKeys,
   ) async {
     final TonikResult<R, http.Response> result;
     try {
@@ -180,7 +187,8 @@ final class ApiTransport {
     switch (result) {
       case TonikSuccess<R, http.Response>(:final value, :final response):
         if (_isSuccess(response.statusCode)) {
-          if (!_hasKeys(response, requiredKeys)) {
+          if (!_hasKeys(response, requiredKeys) ||
+              !_itemsHaveKeys(response, requiredItemKeys)) {
             return _Failed<R>(
               const ApiUnexpectedFailure(),
               response.statusCode,
@@ -219,6 +227,22 @@ bool _hasKeys(http.Response response, List<String> keys) {
     return false;
   }
   return body is Map<String, Object?> && keys.every(body.containsKey);
+}
+
+bool _itemsHaveKeys(http.Response response, List<String> keys) {
+  if (keys.isEmpty) {
+    return true;
+  }
+  final Object? body;
+  try {
+    body = jsonDecode(utf8.decode(response.bodyBytes));
+  } on FormatException {
+    return false;
+  }
+  return body is List<Object?> &&
+      body.every(
+        (item) => item is Map<String, Object?> && keys.every(item.containsKey),
+      );
 }
 
 /// A failure with no usable response: the transport, or the request itself.

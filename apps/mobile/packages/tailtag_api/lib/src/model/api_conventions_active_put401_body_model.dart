@@ -16,6 +16,7 @@ class ApiConventionsActivePut401BodyModel extends _i1.ObjectParameterEncodable
   factory ApiConventionsActivePut401BodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -23,6 +24,8 @@ class ApiConventionsActivePut401BodyModel extends _i1.ObjectParameterEncodable
       expectedKeys: {r'detail'},
       listKeys: {},
       context: r'ApiConventionsActivePut401BodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiConventionsActivePut401BodyModel(
       detail: _$values[r'detail'].decodeSimpleString(
@@ -63,12 +66,13 @@ class ApiConventionsActivePut401BodyModel extends _i1.ObjectParameterEncodable
   final _i3.String detail;
 
   @_i3.override
-  _i3.Object? toJson() => {r'detail': detail};
+  _i3.Object? toJson() => {r'detail': this.detail};
 
-  $$ApiConventionsActivePut401BodyModelCopyWith<
-    ApiConventionsActivePut401BodyModel
-  >
-  get copyWith => _ApiConventionsActivePut401BodyModelCopyWith(this);
+  ApiConventionsActivePut401BodyModel Function({_i3.String? detail})
+  get copyWith {
+    return ({_i3.String? detail}) =>
+        ApiConventionsActivePut401BodyModel(detail: detail ?? this.detail);
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -78,7 +82,7 @@ class ApiConventionsActivePut401BodyModel extends _i1.ObjectParameterEncodable
   }
 
   @_i3.override
-  _i3.int get hashCode => detail.hashCode;
+  _i3.int get hashCode => this.detail.hashCode;
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
 
@@ -87,7 +91,7 @@ class ApiConventionsActivePut401BodyModel extends _i1.ObjectParameterEncodable
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'detail'] = _i1.PropertyValue.scalar(detail);
+    _$result[r'detail'] = _i1.PropertyValue.scalar(this.detail);
     return _$result;
   }
 
@@ -101,35 +105,5 @@ class ApiConventionsActivePut401BodyModel extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiConventionsActivePut401BodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiConventionsActivePut401BodyModelCopyWith<$Res> {
-  factory $$ApiConventionsActivePut401BodyModelCopyWith(
-    ApiConventionsActivePut401BodyModel value,
-  ) = _ApiConventionsActivePut401BodyModelCopyWith<$Res>;
-
-  $Res call({_i3.String? detail});
-  _i3.String get detail;
-}
-
-class _ApiConventionsActivePut401BodyModelCopyWith<$Res>
-    implements $$ApiConventionsActivePut401BodyModelCopyWith<$Res> {
-  _ApiConventionsActivePut401BodyModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ApiConventionsActivePut401BodyModel _value;
-
-  @_i3.override
-  _i3.String get detail => _value.detail;
-
-  @_i3.override
-  $Res call({_i3.Object? detail = _sentinel}) {
-    return (ApiConventionsActivePut401BodyModel(
-      detail: _i3.identical(detail, _sentinel)
-          ? this.detail
-          : (detail as _i3.String),
-    ) as $Res);
   }
 }

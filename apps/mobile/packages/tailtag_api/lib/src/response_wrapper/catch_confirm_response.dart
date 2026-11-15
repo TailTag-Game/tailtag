@@ -37,7 +37,7 @@ class CatchConfirmResponse200 extends CatchConfirmResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -53,7 +53,7 @@ class CatchConfirmResponse201 extends CatchConfirmResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -69,7 +69,7 @@ class CatchConfirmResponse400 extends CatchConfirmResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -85,7 +85,7 @@ class CatchConfirmResponse401 extends CatchConfirmResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -101,7 +101,7 @@ class CatchConfirmResponse403 extends CatchConfirmResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -117,7 +117,7 @@ class CatchConfirmResponse404 extends CatchConfirmResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -133,7 +133,7 @@ class CatchConfirmResponse409 extends CatchConfirmResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -149,5 +149,5 @@ class CatchConfirmResponse500 extends CatchConfirmResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }

@@ -20,6 +20,7 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModel
   factory ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -27,10 +28,13 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModel
       expectedKeys: {r'is_active'},
       listKeys: {r'is_active'},
       context: r'ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModel(
       isActive: _$values[r'is_active'].decodeSimpleStringList(
         context: r'ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModel.is_active',
+        isHeader: isHeader,
       ),
     );
   }
@@ -69,15 +73,16 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModel
   final _i3.List<_i3.String> isActive;
 
   @_i3.override
-  _i3.Object? toJson() => {r'is_active': isActive};
+  _i3.Object? toJson() => {r'is_active': this.isActive};
 
-  $$ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModelCopyWith<
-    ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModel
-  >
-  get copyWith =>
-      _ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModelCopyWith(
-        this,
-      );
+  ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModel
+  Function({_i3.List<_i3.String>? isActive})
+  get copyWith {
+    return ({_i3.List<_i3.String>? isActive}) =>
+        ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModel(
+          isActive: isActive ?? this.isActive,
+        );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -91,7 +96,7 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModel
   @_i3.override
   _i3.int get hashCode {
     const deepEquals = _i4.DeepCollectionEquality();
-    return deepEquals.hash(isActive);
+    return deepEquals.hash(this.isActive);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -101,7 +106,7 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModel
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'is_active'] = _i1.PropertyValue.array(isActive);
+    _$result[r'is_active'] = _i1.PropertyValue.array(this.isActive);
     return _$result;
   }
 
@@ -115,48 +120,5 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModel
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModelCopyWith<
-  $Res
-> {
-  factory $$ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModelCopyWith(
-    ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModel value,
-  ) =
-      _ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModelCopyWith<
-        $Res
-      >;
-
-  $Res call({_i3.List<_i3.String>? isActive});
-  _i3.List<_i3.String> get isActive;
-}
-
-class _ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModelCopyWith<
-  $Res
->
-    implements
-        $$ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModelCopyWith<
-          $Res
-        > {
-  _ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModelCopyWith(
-    this._value,
-  );
-
-  static const _sentinel = _i3.Object();
-
-  final ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModel
-  _value;
-
-  @_i3.override
-  _i3.List<_i3.String> get isActive => _value.isActive;
-
-  @_i3.override
-  $Res call({_i3.Object? isActive = _sentinel}) {
-    return (ApiConventionsConventionIdFursuitActivationsFursuitIdPut400BodyModel(
-      isActive: _i3.identical(isActive, _sentinel)
-          ? this.isActive
-          : (isActive as _i3.List<_i3.String>),
-    ) as $Res);
   }
 }

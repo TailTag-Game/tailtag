@@ -19,6 +19,7 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBo
   factory ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -26,6 +27,8 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBo
       expectedKeys: {r'is_active'},
       listKeys: {},
       context: r'ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBodyModel(
       isActive: _$values[r'is_active'].decodeSimpleBool(
@@ -68,15 +71,16 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBo
   final _i3.bool isActive;
 
   @_i3.override
-  _i3.Object? toJson() => {r'is_active': isActive};
+  _i3.Object? toJson() => {r'is_active': this.isActive};
 
-  $$ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBodyModelCopyWith<
-    ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBodyModel
-  >
-  get copyWith =>
-      _ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBodyModelCopyWith(
-        this,
-      );
+  ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBodyModel
+  Function({_i3.bool? isActive})
+  get copyWith {
+    return ({_i3.bool? isActive}) =>
+        ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBodyModel(
+          isActive: isActive ?? this.isActive,
+        );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -87,7 +91,7 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBo
   }
 
   @_i3.override
-  _i3.int get hashCode => isActive.hashCode;
+  _i3.int get hashCode => this.isActive.hashCode;
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
 
@@ -96,7 +100,7 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBo
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'is_active'] = _i1.PropertyValue.scalar(isActive.toString());
+    _$result[r'is_active'] = _i1.PropertyValue.scalar(this.isActive.toString());
     return _$result;
   }
 
@@ -110,49 +114,5 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBo
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBodyModelCopyWith<
-  $Res
-> {
-  factory $$ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBodyModelCopyWith(
-    ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBodyModel
-    value,
-  ) =
-      _ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBodyModelCopyWith<
-        $Res
-      >;
-
-  $Res call({_i3.bool? isActive});
-  _i3.bool get isActive;
-}
-
-class _ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBodyModelCopyWith<
-  $Res
->
-    implements
-        $$ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBodyModelCopyWith<
-          $Res
-        > {
-  _ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBodyModelCopyWith(
-    this._value,
-  );
-
-  static const _sentinel = _i3.Object();
-
-  final ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBodyModel
-  _value;
-
-  @_i3.override
-  _i3.bool get isActive => _value.isActive;
-
-  @_i3.override
-  $Res call({_i3.Object? isActive = _sentinel}) {
-    return (ApiConventionsConventionIdFursuitActivationsFursuitIdCatchSessionPutBodyBodyModel(
-      isActive: _i3.identical(isActive, _sentinel)
-          ? this.isActive
-          : (isActive as _i3.bool),
-    ) as $Res);
   }
 }

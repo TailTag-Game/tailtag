@@ -24,7 +24,7 @@ abstract base class HttpOperation<T> {
     late final _HttpPreparedRequest prepared;
     try {
       request = prepare();
-      final baseUri = _i1.Uri.parse(baseUrl);
+      final baseUri = _i1.Uri.parse(this.baseUrl);
       final pathResult = request.path;
       final newPath = baseUri.path.endsWith('/')
           ? '${baseUri.path.substring(0, baseUri.path.length - 1)}/${pathResult.join('/')}'
@@ -72,7 +72,7 @@ abstract base class HttpOperation<T> {
     late final _HttpPreparedRequest prepared;
     try {
       request = await prepare();
-      final baseUri = _i1.Uri.parse(baseUrl);
+      final baseUri = _i1.Uri.parse(this.baseUrl);
       final pathResult = request.path;
       final newPath = baseUri.path.endsWith('/')
           ? '${baseUri.path.substring(0, baseUri.path.length - 1)}/${pathResult.join('/')}'
@@ -120,7 +120,7 @@ abstract base class HttpOperation<T> {
     late final _HttpPreparedRequest prepared;
     try {
       request = prepare();
-      final baseUri = _i1.Uri.parse(baseUrl);
+      final baseUri = _i1.Uri.parse(this.baseUrl);
       final pathResult = request.path;
       final newPath = baseUri.path.endsWith('/')
           ? '${baseUri.path.substring(0, baseUri.path.length - 1)}/${pathResult.join('/')}'
@@ -167,7 +167,7 @@ abstract base class HttpOperation<T> {
     late final _HttpPreparedRequest prepared;
     try {
       request = await prepare();
-      final baseUri = _i1.Uri.parse(baseUrl);
+      final baseUri = _i1.Uri.parse(this.baseUrl);
       final pathResult = request.path;
       final newPath = baseUri.path.endsWith('/')
           ? '${baseUri.path.substring(0, baseUri.path.length - 1)}/${pathResult.join('/')}'
@@ -225,7 +225,7 @@ abstract base class HttpOperation<T> {
 
     final _i2.Client resolvedClient;
     try {
-      resolvedClient = clientAccessor();
+      resolvedClient = this.clientAccessor();
     } on _i1.Object catch (exception, stackTrace) {
       return _HttpDispatchResult<V>(
         _i4.TonikError<V, _i2.Response>(
@@ -255,7 +255,6 @@ abstract base class HttpOperation<T> {
           prepared.uri,
           abortTrigger: cancellation?.whenCancelled,
         );
-        multipartRequest.fields.addAll(const <_i1.String, _i1.String>{});
         multipartRequest.files.addAll(data);
         request = multipartRequest;
       } else {

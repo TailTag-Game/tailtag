@@ -13,13 +13,19 @@ class AvatarPut extends _i1.ObjectParameterEncodable
     implements _i1.UriEncodable {
   const AvatarPut({required this.avatar});
 
-  factory AvatarPut.fromSimple(_i3.String? value, {required _i3.bool explode}) {
+  factory AvatarPut.fromSimple(
+    _i3.String? value, {
+    required _i3.bool explode,
+    _i3.bool isHeader = false,
+  }) {
     final _$values = value.decodeObject(
       explode: explode,
       explodeSeparator: ',',
       expectedKeys: {r'avatar'},
       listKeys: {},
       context: r'AvatarPut',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return AvatarPut(
       avatar: _i1.TonikFileBytes(
@@ -55,9 +61,12 @@ class AvatarPut extends _i1.ObjectParameterEncodable
   final _i1.TonikFile avatar;
 
   @_i3.override
-  _i3.Object? toJson() => {r'avatar': avatar.toBytes().decodeToString()};
+  _i3.Object? toJson() => {r'avatar': this.avatar.toBytes().decodeToString()};
 
-  $$AvatarPutCopyWith<AvatarPut> get copyWith => _AvatarPutCopyWith(this);
+  AvatarPut Function({_i1.TonikFile? avatar}) get copyWith {
+    return ({_i1.TonikFile? avatar}) =>
+        AvatarPut(avatar: avatar ?? this.avatar);
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -66,7 +75,7 @@ class AvatarPut extends _i1.ObjectParameterEncodable
   }
 
   @_i3.override
-  _i3.int get hashCode => avatar.hashCode;
+  _i3.int get hashCode => this.avatar.hashCode;
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
 
@@ -76,7 +85,7 @@ class AvatarPut extends _i1.ObjectParameterEncodable
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
     _$result[r'avatar'] = _i1.PropertyValue.scalar(
-      avatar.toBytes().decodeToString(),
+      this.avatar.toBytes().decodeToString(),
     );
     return _$result;
   }
@@ -91,32 +100,5 @@ class AvatarPut extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode AvatarPut: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$AvatarPutCopyWith<$Res> {
-  factory $$AvatarPutCopyWith(AvatarPut value) = _AvatarPutCopyWith<$Res>;
-
-  $Res call({_i1.TonikFile? avatar});
-  _i1.TonikFile get avatar;
-}
-
-class _AvatarPutCopyWith<$Res> implements $$AvatarPutCopyWith<$Res> {
-  _AvatarPutCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final AvatarPut _value;
-
-  @_i3.override
-  _i1.TonikFile get avatar => _value.avatar;
-
-  @_i3.override
-  $Res call({_i3.Object? avatar = _sentinel}) {
-    return (AvatarPut(
-      avatar: _i3.identical(avatar, _sentinel)
-          ? this.avatar
-          : (avatar as _i1.TonikFile),
-    ) as $Res);
   }
 }
