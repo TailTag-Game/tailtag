@@ -393,49 +393,53 @@ class _RenameSheetState extends State<_RenameSheet> {
   Widget build(BuildContext context) {
     return PopScope(
       canPop: !_saving,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          TokenSpacing.xl,
-          0,
-          TokenSpacing.xl,
-          TokenSpacing.xl + MediaQuery.viewInsetsOf(context).bottom,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          spacing: TokenSpacing.lg,
-          children: [
-            ValueListenableBuilder(
-              valueListenable: _name,
-              builder: (context, value, _) => TextField(
-                key: const Key("rename-field"),
-                controller: _name,
-                enabled: !_saving,
-                autofocus: true,
-                maxLength: 50,
-                textCapitalization: TextCapitalization.words,
-                textInputAction: TextInputAction.done,
-                decoration: InputDecoration(
-                  labelText: FursuitStrings.nameLabel,
-                  errorText: _error,
+      // The sheet scrolls, so the field and the button stay reachable at a
+      // large text scale with the keyboard open.
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            TokenSpacing.xl,
+            0,
+            TokenSpacing.xl,
+            TokenSpacing.xl + MediaQuery.viewInsetsOf(context).bottom,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            spacing: TokenSpacing.lg,
+            children: [
+              ValueListenableBuilder(
+                valueListenable: _name,
+                builder: (context, value, _) => TextField(
+                  key: const Key("rename-field"),
+                  controller: _name,
+                  enabled: !_saving,
+                  autofocus: true,
+                  maxLength: 50,
+                  textCapitalization: TextCapitalization.words,
+                  textInputAction: TextInputAction.done,
+                  decoration: InputDecoration(
+                    labelText: FursuitStrings.nameLabel,
+                    errorText: _error,
+                  ),
+                  onSubmitted: value.text.trim().isEmpty || _saving
+                      ? null
+                      : (_) => unawaited(_save()),
                 ),
-                onSubmitted: value.text.trim().isEmpty || _saving
-                    ? null
-                    : (_) => unawaited(_save()),
               ),
-            ),
-            ValueListenableBuilder(
-              valueListenable: _name,
-              builder: (context, value, _) => TailTagButton(
-                key: const Key("rename-save"),
-                label: FursuitStrings.save,
-                loading: _saving,
-                onPressed: value.text.trim().isEmpty || _saving
-                    ? null
-                    : () => unawaited(_save()),
+              ValueListenableBuilder(
+                valueListenable: _name,
+                builder: (context, value, _) => TailTagButton(
+                  key: const Key("rename-save"),
+                  label: FursuitStrings.save,
+                  loading: _saving,
+                  onPressed: value.text.trim().isEmpty || _saving
+                      ? null
+                      : () => unawaited(_save()),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

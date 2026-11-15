@@ -4,6 +4,7 @@ import "package:tailtag_mobile/app/router.dart";
 import "package:tailtag_mobile/core/auth/auth_state.dart";
 import "package:tailtag_mobile/core/fursuits/fursuit.dart";
 import "package:tailtag_mobile/core/fursuits/photo_source.dart";
+import "package:tailtag_mobile/core/session/foreground_signal.dart";
 import "package:tailtag_mobile/features/fursuits/fursuit_strings.dart";
 
 import "../../support/app_test_support.dart";
@@ -346,6 +347,42 @@ void main() {
       );
     });
 
+    testWidgets("a read that starts during a session write cannot bring "
+        "back the state from before it", (tester) async {
+      final live = _activation(session: _sessionJson(active: true));
+      final app = await _openSuit(
+        tester,
+        activation: [_activation()],
+        later: [
+          (_session, ConventionReply.stalled),
+          (_activations, ConventionReply.stalled),
+          (_activations, _rows([live])),
+        ],
+      );
+      // The session write waits. A foreground return then starts a read,
+      // whose answer also waits.
+      await app.tap("suit-session");
+      app.container.read(foregroundSignalProvider.notifier).fire();
+      await app.settle();
+
+      app.network.releaseSuit(
+        0,
+        ConventionReply(body: _sessionJson(active: true)),
+      );
+      await app.settle();
+      // The read answers with the state from before the write.
+      app.network.releaseSuit(1, _rows([_activation()]));
+      await app.settle();
+
+      expect(_switchValue(tester, "suit-session"), isTrue);
+      expect(find.text(FursuitStrings.badgeCatchable), findsOneWidget);
+
+      // The live session leaves a 12-hour expiry timer. Disposing the
+      // container cancels it before the test checks for pending timers.
+      await tester.pumpWidget(const SizedBox());
+      app.container.dispose();
+    });
+
     testWidgets("a lost session response keeps the switch, reads again, "
         "and never resends", (tester) async {
       final app = await _openSuit(
@@ -406,6 +443,28 @@ void main() {
       expect(patch.body, '{"name":"Bravo"}');
       expect(find.text(FursuitStrings.nameSaved), findsOneWidget);
       expect(tester.widget<Text>(_key("suit-name")).data, "Bravo");
+    });
+
+    testWidgets("the rename sheet scrolls to its button at 200% text scale "
+        "with the keyboard open", (tester) async {
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final app = await _openSuit(
+        tester,
+        later: [(_rename, ConventionReply(body: _fursuit(name: "Bravo")))],
+      );
+      await app.tap("suit-change-name");
+      // A short phone screen with the keyboard taking half of it.
+      tester.view
+        ..physicalSize = const Size(1080, 1500)
+        ..viewInsets = const FakeViewPadding(bottom: 750);
+      addTearDown(tester.view.resetViewInsets);
+      await app.settle();
+
+      expect(tester.takeException(), isNull);
+      await tester.ensureVisible(_key("rename-save"));
+      await app.tap("rename-save");
+      expect(_count(app, _rename), 1);
     });
 
     testWidgets("a lost rename response keeps the typed name, reads again, "

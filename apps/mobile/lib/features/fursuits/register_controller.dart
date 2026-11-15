@@ -94,7 +94,12 @@ final class RegisterController extends Notifier<RegisterState> {
       }
     } on ApiFailure catch (failure) {
       if (ref.mounted && scope.isActive) {
-        state = await _afterFailure(scope, photo, failure);
+        final next = await _afterFailure(scope, photo, failure);
+        // The failure path can wait for a session check, so the scope can
+        // close before it ends.
+        if (ref.mounted && scope.isActive) {
+          state = next;
+        }
       }
     }
   }

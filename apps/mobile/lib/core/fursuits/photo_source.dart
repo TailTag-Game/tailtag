@@ -70,6 +70,10 @@ final class ImagePickerPhotoSource implements PhotoSource {
     if (file == null) {
       return null;
     }
-    return PickedPhoto(bytes: await file.readAsBytes(), name: file.name);
+    try {
+      return PickedPhoto(bytes: await file.readAsBytes(), name: file.name);
+    } on Exception {
+      throw const PhotoPickFailed();
+    }
   }
 }

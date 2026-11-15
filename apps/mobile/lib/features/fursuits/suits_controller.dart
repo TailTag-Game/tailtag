@@ -332,7 +332,8 @@ final class SuitsController extends Notifier<SuitsState> {
     bool live() => ref.mounted && scope.isActive;
     // A read that runs now can carry a state from before this write, so
     // its result is dropped.
-    _lastRead++;
+    final readWasRunning = state.reading;
+    final mark = ++_lastRead;
     state = state._copy(
       reading: false,
       clearBanner: true,
@@ -347,8 +348,20 @@ final class SuitsController extends Notifier<SuitsState> {
       if (!live()) {
         return const SuitWriteFailed();
       }
+      // A read that overlapped the write can carry the state from before
+      // it, so its result is dropped. The write's own response applies,
+      // and a new read brings back what the dropped read would have
+      // shown, including the expiry timer.
+      final overlapped = readWasRunning || _lastRead != mark;
+      if (overlapped) {
+        _lastRead++;
+        state = state._copy(reading: false);
+      }
       finish();
       apply();
+      if (overlapped && kind != SuitWrite.participation) {
+        unawaited(read());
+      }
       return const SuitWriteDone();
     } on ApiFailure catch (failure) {
       if (!live()) {

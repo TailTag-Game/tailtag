@@ -82,11 +82,14 @@ abstract final class AppPaths {
   static String suit(int id) => "/fursuits/$id";
 }
 
-/// Whether [location] is a suit screen.
-bool _isSuitPath(String location) =>
-    location == AppPaths.suits ||
-    location == AppPaths.registerSuit ||
-    RegExp(r"^/fursuits/[1-9][0-9]*$").hasMatch(location);
+/// Whether [location] is a suit screen. A suit ID must fit in an `int`.
+bool _isSuitPath(String location) {
+  if (location == AppPaths.suits || location == AppPaths.registerSuit) {
+    return true;
+  }
+  final match = RegExp(r"^/fursuits/([1-9][0-9]*)$").firstMatch(location);
+  return match != null && int.tryParse(match.group(1)!) != null;
+}
 
 /// The path of the screen that [stage] shows.
 String pathForStage(EntryStage stage) => switch (stage) {
