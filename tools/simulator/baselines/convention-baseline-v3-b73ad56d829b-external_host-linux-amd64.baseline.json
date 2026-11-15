@@ -1,0 +1,102 @@
+{
+ "key": {
+  "descriptor_digest": "f7aadf5057a86e919023f686c0489161414eb1c3515b43fa79cf388659f80db7",
+  "environment": "staging",
+  "execution_context": "external_host:linux/amd64",
+  "plan_digest": "b73ad56d829b698102d6c645b418573f7f0bc2eeaa834f9a4b84c189b53d964f",
+  "scenario_id": "convention-baseline",
+  "scenario_version": 3
+ },
+ "kind": "baseline",
+ "metrics": {
+  "auxiliary": {
+   "error_rate": 0.0,
+   "max": 115.661,
+   "p50": 49.269,
+   "p95": 100.179,
+   "p99": 115.661,
+   "samples": 64,
+   "throughput": 0.21187960046394622,
+   "timeout_rate": 0.0
+  },
+  "decide": {
+   "error_rate": 0.0,
+   "max": 1299.377,
+   "p50": 401.99,
+   "p95": 1101.613,
+   "p99": 1299.377,
+   "samples": 23,
+   "throughput": 0.07614423141673067,
+   "timeout_rate": 0.0
+  },
+  "preview": {
+   "error_rate": 0.0,
+   "max": 1137.102,
+   "p50": 290.196,
+   "p95": 597.599,
+   "p99": 791.28,
+   "samples": 1941,
+   "throughput": 6.425911007820619,
+   "timeout_rate": 0.0
+  },
+  "read": {
+   "error_rate": 0.0,
+   "max": 2382.872,
+   "p50": 211.319,
+   "p95": 498.448,
+   "p99": 694.006,
+   "samples": 2074,
+   "throughput": 6.866223302534757,
+   "timeout_rate": 0.0
+  },
+  "review": {
+   "error_rate": 0.0,
+   "max": 1004.568,
+   "p50": 301.956,
+   "p95": 686.596,
+   "p99": 794.531,
+   "samples": 508,
+   "throughput": 1.6817943286825732,
+   "timeout_rate": 0.0
+  },
+  "submit": {
+   "error_rate": 0.0,
+   "max": 1388.612,
+   "p50": 318.804,
+   "p95": 697.712,
+   "p99": 985.179,
+   "samples": 1941,
+   "throughput": 6.425911007820619,
+   "timeout_rate": 0.0
+  },
+  "total": {
+   "error_rate": 0.0,
+   "max": 2382.872,
+   "p50": 293.861,
+   "p95": 603.633,
+   "p99": 806.303,
+   "samples": 6551,
+   "throughput": 21.687863478739246,
+   "timeout_rate": 0.0
+  }
+ },
+ "rationale": "First catch request flow baseline (#508). Render Staging run 146750de in Virginia, backend 150fbe5, simulator 6a2c776. Convention v3 is a new comparable key, so no earlier baseline applies.",
+ "report": {
+  "backend": {
+   "deployment_id": null,
+   "environment": "staging",
+   "source_sha": "150fbe570699e6fb3a40d6c79994149b4cc5a0aa"
+  },
+  "dependency_lock_sha256": "c218b2fb441f1016746c100f4b28899b0422585980e934cad5abd76a277dba9f",
+  "execution": {
+   "image_id": "sha256:7fe5e8262c89bfe5af85f29ec8cbb822d8472e57e1025d521e7da1a3edc8c9c6",
+   "platform": "linux/amd64"
+  },
+  "run_id": "146750de-ea87-4b9e-a99a-bb292487fa12",
+  "sha256": "59d49bad8d0ff4baeaa3622edc1e05f9738bfa59edd812056e01d87fa6870bfe",
+  "simulator_sha": "6a2c7769492c3244286a8435475aafcf97a4aaf7",
+  "started_at": "2026-11-14T21:21:11.290899Z"
+ },
+ "schema_version": 1,
+ "supersedes": null
+}
