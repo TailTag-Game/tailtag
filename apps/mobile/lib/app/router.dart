@@ -1,5 +1,3 @@
-import "dart:async";
-
 import "package:flutter/foundation.dart";
 import "package:flutter/material.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
@@ -289,11 +287,9 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => _SuitsRoute(
               builder: (convention) => SuitRegisterScreen(
                 onCreated: (fursuit) {
-                  unawaited(
-                    ref
-                        .read(suitsControllerProvider(convention.id).notifier)
-                        .read(),
-                  );
+                  ref
+                      .read(suitsControllerProvider(convention.id).notifier)
+                      .created(fursuit);
                   context.pushReplacement(AppPaths.suit(fursuit.id));
                 },
                 onOutcomeUnknown: () => ref

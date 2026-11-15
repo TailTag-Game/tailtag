@@ -141,8 +141,9 @@ void main() {
       final network = ScriptedNetwork([200])
         ..enqueueSuit(_list, _rows(const []))
         ..enqueueSuit(_create, ConventionReply(status: 201, body: _fursuit()))
-        ..enqueueSuit(_list, _rows([_fursuit()]))
-        ..enqueueSuit(_list, _rows([_fursuit()]));
+        // The suit screen's read waits, so the test sees the screen before
+        // the server state arrives.
+        ..enqueueSuit(_list, ConventionReply.stalled);
       final app = await _openSuits(tester, network, photoSource: photos);
       expect(_key("suits-empty"), findsOneWidget);
 
@@ -165,8 +166,15 @@ void main() {
       expect(create.body, contains("Alpha"));
       expect(create.body, contains('filename="suit.jpg"'));
       expect(_top(app), AppPaths.suit(5));
-      expect(_key("suit-name"), findsOneWidget);
+      // The saved suit shows at once. "Not found" never shows while the
+      // read runs.
+      expect(tester.widget<Text>(_key("suit-name")).data, "Alpha");
+      expect(_key("suit-missing"), findsNothing);
       expect(tester.testTextInput.isVisible, isFalse);
+
+      network.releaseSuit(0, _rows([_fursuit()]));
+      await app.settle();
+      expect(tester.widget<Text>(_key("suit-name")).data, "Alpha");
     });
 
     testWidgets("a server field error shows under its field and keeps the "

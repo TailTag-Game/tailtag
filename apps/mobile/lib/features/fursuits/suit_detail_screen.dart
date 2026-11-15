@@ -153,7 +153,9 @@ class _SuitDetailScreenState extends ConsumerState<SuitDetailScreen> {
             children: [
               if (suitsBanner(state, _controller.read) case final banner?)
                 _inset(banner),
-              if (fursuit == null && state.reading && state.fursuits == null)
+              // A suit that is not in the list yet can arrive with the read
+              // that runs. The screen says "not found" only after the read.
+              if (fursuit == null && state.reading)
                 const SuitsLoading()
               else if (fursuit == null && state.fursuits != null)
                 _inset(

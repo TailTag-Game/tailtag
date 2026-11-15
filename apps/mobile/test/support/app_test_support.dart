@@ -160,6 +160,7 @@ final class ScriptedNetwork extends http.BaseClient {
   final List<ConventionReply> _enrollments = [];
   final List<ConventionReply> _writes = [];
   final Map<String, List<ConventionReply>> _suitReplies = {};
+  final List<Completer<http.StreamedResponse>> _heldSuits = [];
   final List<Completer<http.StreamedResponse>> _heldConventions = [];
   final List<Completer<http.StreamedResponse>> _held = [];
   final List<Completer<http.StreamedResponse>> _heldProfiles = [];
@@ -196,6 +197,10 @@ final class ScriptedNetwork extends http.BaseClient {
   /// and any other suit request answers 500.
   void enqueueSuit(String request, ConventionReply reply) =>
       (_suitReplies[request] ??= []).add(reply);
+
+  /// Answers held suit request [index] with [reply].
+  void releaseSuit(int index, ConventionReply reply) =>
+      _heldSuits[index].complete(_replyWith(reply.status, reply.body));
 
   /// The number of requests sent to [request], such as
   /// `GET /api/profile/`.
@@ -328,7 +333,12 @@ final class ScriptedNetwork extends http.BaseClient {
     if (reply.fails) {
       throw http.ClientException("connection broke", request.url);
     }
-    return _replyWith(reply.status, reply.body);
+    if (!reply.held) {
+      return _replyWith(reply.status, reply.body);
+    }
+    final held = Completer<http.StreamedResponse>();
+    _heldSuits.add(held);
+    return await held.future;
   }
 
   static http.StreamedResponse _reply(int status) =>

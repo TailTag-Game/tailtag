@@ -293,6 +293,15 @@ final class SuitsController extends Notifier<SuitsState> {
         return () => _replace(fursuit);
       }, field: "photo");
 
+  /// Adds a suit that the server just created, so its screen can show it
+  /// at once. The suit screen reads the server state when it opens.
+  void created(Fursuit fursuit) {
+    final others = (state.fursuits ?? const <Fursuit>[]).where(
+      (item) => item.id != fursuit.id,
+    );
+    state = state._copy(fursuits: [...others, fursuit]);
+  }
+
   /// Shows that a create elsewhere had no definite answer, and reads again.
   void createOutcomeUnknown() {
     state = state._copy(banner: SuitsBanner.unknownOutcome);
