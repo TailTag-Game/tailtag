@@ -31,17 +31,29 @@ claims.
 3. Reviewers check the rationale, the backend and simulator identity, and the
    assumption text on every threshold, and confirm that the archived report
    matches the recorded hash. A thresholds file needs latency limits for the
-   workload operations that matter (`resolve`, `confirm`, `read`). Without
-   them, `acceptable` rests only on the saturation checks.
+   workload operations that matter. These are `resolve`, `confirm`, and `read`
+   for convention v2, and `preview`, `submit`, `review`, and `read` for
+   convention v3. Without them, `acceptable` rests only on the saturation
+   checks.
 4. Promotion takes effect only when the pull request merges. Git history shows
    who promoted what.
 
 No run, evaluation or trend command writes here. A passing run never replaces a
 baseline. To retire a baseline, delete its file in a reviewed pull request.
 
+## Catch request baseline
+
+The convention v3 normal profile baseline (`b73ad56d829b`) comes from Render
+Staging run `146750de` in Virginia, backend `150fbe5` (#508 AC38). It is the
+first baseline for the catch request flow. Its thresholds are the proposed
+defaults from that run. The `decide` and `auxiliary` operations have too few
+samples for a latency limit. The
+[Staging proof](../../../docs/specs/2026-11-14-catch-approval-simulation-staging-proof.md)
+records the run.
+
 ## Render and Railway-era baselines
 
-The normal profile baseline (`dac260032cf2`) comes from Render Staging run
+The v2 normal profile baseline (`dac260032cf2`) comes from Render Staging run
 `2e17d592` in Virginia, backend `2706490` (#411 AC14). Its thresholds are the
 proposed defaults from that run.
 
