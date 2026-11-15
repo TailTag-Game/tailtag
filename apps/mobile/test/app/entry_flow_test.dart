@@ -488,6 +488,13 @@ void main() {
       (stage: ready, from: AppPaths.conventionPicker, sent: false, to: "/"),
       (stage: picker, from: AppPaths.home, sent: false, to: "/conventions"),
       (stage: picker, from: AppPaths.authProof, sent: false, to: null),
+      (stage: ready, from: AppPaths.suits, sent: false, to: null),
+      (stage: ready, from: AppPaths.registerSuit, sent: false, to: null),
+      (stage: ready, from: AppPaths.suit(12), sent: false, to: null),
+      (stage: ready, from: "/fursuits/0", sent: false, to: "/"),
+      (stage: ready, from: "/fursuits/12/tag", sent: false, to: "/"),
+      (stage: picker, from: AppPaths.suits, sent: false, to: "/conventions"),
+      (stage: signedOut, from: AppPaths.suit(12), sent: false, to: "/access"),
     ];
 
     for (final c in cases) {

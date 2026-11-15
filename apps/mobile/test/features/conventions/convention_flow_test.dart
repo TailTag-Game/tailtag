@@ -259,6 +259,7 @@ void main() {
             label: "the home",
             open: _onHome,
             tab: [
+              "convention-my-suits",
               _change,
               "convention-refresh",
               _passkeys,
@@ -267,6 +268,7 @@ void main() {
             ],
             spoken: [
               contains("Current Con"),
+              "My suits",
               "Change convention",
               "Refresh",
               "Manage passkeys",
