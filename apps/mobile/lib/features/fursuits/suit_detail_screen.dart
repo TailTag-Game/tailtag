@@ -411,6 +411,7 @@ class _RenameSheetState extends State<_RenameSheet> {
                 enabled: !_saving,
                 autofocus: true,
                 maxLength: 50,
+                textCapitalization: TextCapitalization.words,
                 textInputAction: TextInputAction.done,
                 decoration: InputDecoration(
                   labelText: FursuitStrings.nameLabel,

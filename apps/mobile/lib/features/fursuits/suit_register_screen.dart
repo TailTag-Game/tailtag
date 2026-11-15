@@ -47,7 +47,28 @@ class _SuitRegisterScreenState extends ConsumerState<SuitRegisterScreen> {
     super.dispose();
   }
 
+  /// Closes the keyboard. A sheet, the picker, and the next screen must not
+  /// open over it.
+  ///
+  /// It unfocuses the focused field itself. Unfocusing the screen's scope
+  /// would keep the field in the scope's focus history, so the field would
+  /// take focus back, and the keyboard would open again, when the sheet
+  /// closes or the screen changes.
+  void _closeKeyboard() => FocusManager.instance.primaryFocus?.unfocus();
+
+  bool _canSave(RegisterState state) =>
+      _name.text.trim().isNotEmpty &&
+      state.photo != null &&
+      !state.saving &&
+      state.created == null;
+
+  void _save() {
+    _closeKeyboard();
+    unawaited(ref.read(registerControllerProvider.notifier).save(_name.text));
+  }
+
   Future<void> _pickPhoto() async {
+    _closeKeyboard();
     final outcome = await pickSuitPhoto(context, ref.read(photoSourceProvider));
     if (!mounted) {
       return;
@@ -95,11 +116,20 @@ class _SuitRegisterScreenState extends ConsumerState<SuitRegisterScreen> {
                 controller: _name,
                 enabled: !state.saving,
                 maxLength: 50,
+                textCapitalization: TextCapitalization.words,
                 textInputAction: TextInputAction.done,
                 decoration: InputDecoration(
                   labelText: FursuitStrings.nameLabel,
                   errorText: state.nameError,
                 ),
+                // "Done" saves when the form is complete. Otherwise it only
+                // closes the keyboard.
+                onSubmitted: (_) {
+                  if (_canSave(ref.read(registerControllerProvider))) {
+                    _save();
+                  }
+                },
+                onTapOutside: (_) => _closeKeyboard(),
               ),
               Text(FursuitStrings.photoLabel, style: textTheme.titleSmall),
               if (photo != null)
@@ -141,17 +171,7 @@ class _SuitRegisterScreenState extends ConsumerState<SuitRegisterScreen> {
                   key: const Key("register-save"),
                   label: FursuitStrings.save,
                   loading: state.saving,
-                  onPressed:
-                      value.text.trim().isEmpty ||
-                          photo == null ||
-                          state.saving ||
-                          state.created != null
-                      ? null
-                      : () => unawaited(
-                          ref
-                              .read(registerControllerProvider.notifier)
-                              .save(_name.text),
-                        ),
+                  onPressed: _canSave(state) ? _save : null,
                 ),
               ),
             ],

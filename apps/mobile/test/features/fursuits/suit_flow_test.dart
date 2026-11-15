@@ -148,9 +148,14 @@ void main() {
 
       await app.tap("suits-register");
       await tester.enterText(_key("register-name"), "Alpha");
+      expect(tester.testTextInput.isVisible, isTrue);
       await app.tap("register-photo");
+      // The keyboard closes before the photo sheet opens.
+      expect(tester.testTextInput.isVisible, isFalse);
       await app.tap("photo-choose");
       expect(photos.calls, [PhotoOrigin.library]);
+      // Focus does not return to the name field when the sheet closes.
+      expect(tester.testTextInput.isVisible, isFalse);
       await app.tap("register-save");
 
       final create = network.suitRequests.singleWhere(
@@ -161,6 +166,7 @@ void main() {
       expect(create.body, contains('filename="suit.jpg"'));
       expect(_top(app), AppPaths.suit(5));
       expect(_key("suit-name"), findsOneWidget);
+      expect(tester.testTextInput.isVisible, isFalse);
     });
 
     testWidgets("a server field error shows under its field and keeps the "
@@ -176,11 +182,15 @@ void main() {
         );
       final app = await _openSuits(tester, network, photoSource: photos);
       await app.tap("suits-register");
-      await tester.enterText(_key("register-name"), "Alpha");
       await app.tap("register-photo");
       await app.tap("photo-choose");
-      await app.tap("register-save");
+      await tester.enterText(_key("register-name"), "Alpha");
+      // "Done" on the keyboard saves a complete form and closes the keyboard.
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await app.settle();
 
+      expect(_count(app, _create), 1);
+      expect(tester.testTextInput.isVisible, isFalse);
       expect(find.text("Enter a name of 1–50 characters."), findsOneWidget);
       expect(find.text("Alpha"), findsOneWidget);
       expect(_key("register-photo-preview"), findsOneWidget);
