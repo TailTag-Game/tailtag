@@ -24,6 +24,7 @@ class ApiFursuitsIdTagGet409BodyCurrentModel
   factory ApiFursuitsIdTagGet409BodyCurrentModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -31,6 +32,8 @@ class ApiFursuitsIdTagGet409BodyCurrentModel
       expectedKeys: {r'fursuit_id', r'state', r'tag_version'},
       listKeys: {},
       context: r'ApiFursuitsIdTagGet409BodyCurrentModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiFursuitsIdTagGet409BodyCurrentModel(
       fursuitId: _$values[r'fursuit_id'].decodeSimpleInt(
@@ -96,15 +99,27 @@ class ApiFursuitsIdTagGet409BodyCurrentModel
 
   @_i3.override
   _i3.Object? toJson() => {
-    r'fursuit_id': fursuitId,
-    r'state': state.toJson(),
-    r'tag_version': tagVersion,
+    r'fursuit_id': this.fursuitId,
+    r'state': this.state.toJson(),
+    r'tag_version': this.tagVersion,
   };
 
-  $$ApiFursuitsIdTagGet409BodyCurrentModelCopyWith<
-    ApiFursuitsIdTagGet409BodyCurrentModel
-  >
-  get copyWith => _ApiFursuitsIdTagGet409BodyCurrentModelCopyWith(this);
+  ApiFursuitsIdTagGet409BodyCurrentModel Function({
+    _i3.int? fursuitId,
+    _i4.ApiFursuitsIdTagGet409BodyCurrentStateModel? state,
+    _i3.int? tagVersion,
+  })
+  get copyWith {
+    return ({
+      _i3.int? fursuitId,
+      _i4.ApiFursuitsIdTagGet409BodyCurrentStateModel? state,
+      _i3.int? tagVersion,
+    }) => ApiFursuitsIdTagGet409BodyCurrentModel(
+      fursuitId: fursuitId ?? this.fursuitId,
+      state: state ?? this.state,
+      tagVersion: tagVersion ?? this.tagVersion,
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -117,7 +132,7 @@ class ApiFursuitsIdTagGet409BodyCurrentModel
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([fursuitId, state, tagVersion]);
+    return _i3.Object.hashAll([this.fursuitId, this.state, this.tagVersion]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -127,9 +142,13 @@ class ApiFursuitsIdTagGet409BodyCurrentModel
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'fursuit_id'] = _i1.PropertyValue.scalar(fursuitId.toString());
-    _$result[r'state'] = _i1.PropertyValue.scalar(state.toJson());
-    _$result[r'tag_version'] = _i1.PropertyValue.scalar(tagVersion.toString());
+    _$result[r'fursuit_id'] = _i1.PropertyValue.scalar(
+      this.fursuitId.toString(),
+    );
+    _$result[r'state'] = _i1.PropertyValue.scalar(this.state.toJson());
+    _$result[r'tag_version'] = _i1.PropertyValue.scalar(
+      this.tagVersion.toString(),
+    );
     return _$result;
   }
 
@@ -143,57 +162,5 @@ class ApiFursuitsIdTagGet409BodyCurrentModel
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiFursuitsIdTagGet409BodyCurrentModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiFursuitsIdTagGet409BodyCurrentModelCopyWith<$Res> {
-  factory $$ApiFursuitsIdTagGet409BodyCurrentModelCopyWith(
-    ApiFursuitsIdTagGet409BodyCurrentModel value,
-  ) = _ApiFursuitsIdTagGet409BodyCurrentModelCopyWith<$Res>;
-
-  $Res call({
-    _i3.int? fursuitId,
-    _i4.ApiFursuitsIdTagGet409BodyCurrentStateModel? state,
-    _i3.int? tagVersion,
-  });
-  _i3.int get fursuitId;
-  _i4.ApiFursuitsIdTagGet409BodyCurrentStateModel get state;
-  _i3.int get tagVersion;
-}
-
-class _ApiFursuitsIdTagGet409BodyCurrentModelCopyWith<$Res>
-    implements $$ApiFursuitsIdTagGet409BodyCurrentModelCopyWith<$Res> {
-  _ApiFursuitsIdTagGet409BodyCurrentModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ApiFursuitsIdTagGet409BodyCurrentModel _value;
-
-  @_i3.override
-  _i3.int get fursuitId => _value.fursuitId;
-
-  @_i3.override
-  _i4.ApiFursuitsIdTagGet409BodyCurrentStateModel get state => _value.state;
-
-  @_i3.override
-  _i3.int get tagVersion => _value.tagVersion;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? fursuitId = _sentinel,
-    _i3.Object? state = _sentinel,
-    _i3.Object? tagVersion = _sentinel,
-  }) {
-    return (ApiFursuitsIdTagGet409BodyCurrentModel(
-      fursuitId: _i3.identical(fursuitId, _sentinel)
-          ? this.fursuitId
-          : (fursuitId as _i3.int),
-      state: _i3.identical(state, _sentinel)
-          ? this.state
-          : (state as _i4.ApiFursuitsIdTagGet409BodyCurrentStateModel),
-      tagVersion: _i3.identical(tagVersion, _sentinel)
-          ? this.tagVersion
-          : (tagVersion as _i3.int),
-    ) as $Res);
   }
 }

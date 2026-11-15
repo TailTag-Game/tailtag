@@ -25,7 +25,7 @@ class ProfileAvatarUpdateResponse200 extends ProfileAvatarUpdateResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -39,7 +39,7 @@ class ProfileAvatarUpdateResponse400 extends ProfileAvatarUpdateResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => runtimeType.hashCode;
+  _i3.int get hashCode => this.runtimeType.hashCode;
 }
 
 @_i1.immutable
@@ -53,7 +53,7 @@ class ProfileAvatarUpdateResponse401 extends ProfileAvatarUpdateResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => runtimeType.hashCode;
+  _i3.int get hashCode => this.runtimeType.hashCode;
 }
 
 @_i1.immutable
@@ -67,5 +67,5 @@ class ProfileAvatarUpdateResponse403 extends ProfileAvatarUpdateResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => runtimeType.hashCode;
+  _i3.int get hashCode => this.runtimeType.hashCode;
 }

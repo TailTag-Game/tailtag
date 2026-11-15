@@ -4,9 +4,10 @@
 
 import 'dart:core' as _i2;
 
+import 'package:collection/collection.dart' as _i4;
 import 'package:meta/meta.dart' as _i1;
 import 'package:tailtag_api/src/model/api_conventions_enrollments_get401_body_model.dart'
-    as _i4;
+    as _i5;
 import 'package:tailtag_api/src/model/convention_enrollment.dart' as _i3;
 
 sealed class ConventionsEnrollmentsListResponse {
@@ -23,12 +24,16 @@ class ConventionsEnrollmentsListResponse200
   @_i2.override
   _i2.bool operator ==(_i2.Object other) {
     if (_i2.identical(this, other)) return true;
+    const _$deepEquals = _i4.DeepCollectionEquality();
     return other is ConventionsEnrollmentsListResponse200 &&
-        other.body == this.body;
+        _$deepEquals.equals(other.body, this.body);
   }
 
   @_i2.override
-  _i2.int get hashCode => body.hashCode;
+  _i2.int get hashCode {
+    const deepEquals = _i4.DeepCollectionEquality();
+    return deepEquals.hash(this.body);
+  }
 }
 
 @_i1.immutable
@@ -36,7 +41,7 @@ class ConventionsEnrollmentsListResponse401
     extends ConventionsEnrollmentsListResponse {
   const ConventionsEnrollmentsListResponse401({required this.body});
 
-  final _i4.ApiConventionsEnrollmentsGet401BodyModel body;
+  final _i5.ApiConventionsEnrollmentsGet401BodyModel body;
 
   @_i2.override
   _i2.bool operator ==(_i2.Object other) {
@@ -46,5 +51,5 @@ class ConventionsEnrollmentsListResponse401
   }
 
   @_i2.override
-  _i2.int get hashCode => body.hashCode;
+  _i2.int get hashCode => this.body.hashCode;
 }

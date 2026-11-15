@@ -26,6 +26,7 @@ class CatchHistoryResponseSchemaResultsArrayModel
   factory CatchHistoryResponseSchemaResultsArrayModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     throw _i1.SimpleDecodingException(
       r'Simple encoding not supported for CatchHistoryResponseSchemaResultsArrayModel: contains complex types',
@@ -74,14 +75,32 @@ class CatchHistoryResponseSchemaResultsArrayModel
 
   @_i3.override
   _i3.Object? toJson() => {
-    r'fursuit': fursuit.toJson(),
-    r'convention': convention.toJson(),
+    r'fursuit': this.fursuit.toJson(),
+    r'convention': this.convention.toJson(),
   };
 
-  $$CatchHistoryResponseSchemaResultsArrayModelCopyWith<
-    CatchHistoryResponseSchemaResultsArrayModel
-  >
-  get copyWith => _CatchHistoryResponseSchemaResultsArrayModelCopyWith(this);
+  CatchHistoryResponseSchemaResultsArrayModel Function({
+    _i3.int? id,
+    _i4.CatchHistoryResponseSchemaResultsArrayFursuitModel? fursuit,
+    _i5.CatchHistoryResponseSchemaResultsArrayConventionModel? convention,
+    _i3.DateTime? caughtAt,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({
+      _i3.Object? id = _sentinel,
+      _i4.CatchHistoryResponseSchemaResultsArrayFursuitModel? fursuit,
+      _i5.CatchHistoryResponseSchemaResultsArrayConventionModel? convention,
+      _i3.Object? caughtAt = _sentinel,
+    }) => CatchHistoryResponseSchemaResultsArrayModel(
+      id: _i3.identical(id, _sentinel) ? this.id : (id as _i3.int?),
+      fursuit: fursuit ?? this.fursuit,
+      convention: convention ?? this.convention,
+      caughtAt: _i3.identical(caughtAt, _sentinel)
+          ? this.caughtAt
+          : (caughtAt as _i3.DateTime?),
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -95,7 +114,12 @@ class CatchHistoryResponseSchemaResultsArrayModel
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([id, fursuit, convention, caughtAt]);
+    return _i3.Object.hashAll([
+      this.id,
+      this.fursuit,
+      this.convention,
+      this.caughtAt,
+    ]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -117,67 +141,5 @@ class CatchHistoryResponseSchemaResultsArrayModel
     throw _i1.EncodingException(
       r'Cannot uriEncode CatchHistoryResponseSchemaResultsArrayModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$CatchHistoryResponseSchemaResultsArrayModelCopyWith<$Res> {
-  factory $$CatchHistoryResponseSchemaResultsArrayModelCopyWith(
-    CatchHistoryResponseSchemaResultsArrayModel value,
-  ) = _CatchHistoryResponseSchemaResultsArrayModelCopyWith<$Res>;
-
-  $Res call({
-    _i3.int? id,
-    _i4.CatchHistoryResponseSchemaResultsArrayFursuitModel? fursuit,
-    _i5.CatchHistoryResponseSchemaResultsArrayConventionModel? convention,
-    _i3.DateTime? caughtAt,
-  });
-  _i3.int? get id;
-  _i4.CatchHistoryResponseSchemaResultsArrayFursuitModel get fursuit;
-  _i5.CatchHistoryResponseSchemaResultsArrayConventionModel get convention;
-  _i3.DateTime? get caughtAt;
-}
-
-class _CatchHistoryResponseSchemaResultsArrayModelCopyWith<$Res>
-    implements $$CatchHistoryResponseSchemaResultsArrayModelCopyWith<$Res> {
-  _CatchHistoryResponseSchemaResultsArrayModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final CatchHistoryResponseSchemaResultsArrayModel _value;
-
-  @_i3.override
-  _i3.int? get id => _value.id;
-
-  @_i3.override
-  _i4.CatchHistoryResponseSchemaResultsArrayFursuitModel get fursuit =>
-      _value.fursuit;
-
-  @_i3.override
-  _i5.CatchHistoryResponseSchemaResultsArrayConventionModel get convention =>
-      _value.convention;
-
-  @_i3.override
-  _i3.DateTime? get caughtAt => _value.caughtAt;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? id = _sentinel,
-    _i3.Object? fursuit = _sentinel,
-    _i3.Object? convention = _sentinel,
-    _i3.Object? caughtAt = _sentinel,
-  }) {
-    return (CatchHistoryResponseSchemaResultsArrayModel(
-      id: _i3.identical(id, _sentinel) ? this.id : (id as _i3.int?),
-      fursuit: _i3.identical(fursuit, _sentinel)
-          ? this.fursuit
-          : (fursuit as _i4.CatchHistoryResponseSchemaResultsArrayFursuitModel),
-      convention: _i3.identical(convention, _sentinel)
-          ? this.convention
-          : (convention
-                as _i5.CatchHistoryResponseSchemaResultsArrayConventionModel),
-      caughtAt: _i3.identical(caughtAt, _sentinel)
-          ? this.caughtAt
-          : (caughtAt as _i3.DateTime?),
-    ) as $Res);
   }
 }

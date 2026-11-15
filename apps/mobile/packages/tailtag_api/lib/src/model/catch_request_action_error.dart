@@ -22,6 +22,7 @@ class CatchRequestActionError extends _i1.ObjectParameterEncodable
   factory CatchRequestActionError.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -29,6 +30,8 @@ class CatchRequestActionError extends _i1.ObjectParameterEncodable
       expectedKeys: {r'code', r'detail', r'state'},
       listKeys: {},
       context: r'CatchRequestActionError',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return CatchRequestActionError(
       code: _$values[r'code'].decodeSimpleString(
@@ -96,13 +99,30 @@ class CatchRequestActionError extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.Object? toJson() => {
-    r'code': code,
-    r'detail': detail,
-    if (state != null) r'state': state?.toJson(),
+    r'code': this.code,
+    r'detail': this.detail,
+    if (this.state != null) r'state': this.state?.toJson(),
   };
 
-  $$CatchRequestActionErrorCopyWith<CatchRequestActionError> get copyWith =>
-      _CatchRequestActionErrorCopyWith(this);
+  CatchRequestActionError Function({
+    _i3.String? code,
+    _i3.String? detail,
+    _i4.CatchRequestState? state,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({
+      _i3.String? code,
+      _i3.String? detail,
+      _i3.Object? state = _sentinel,
+    }) => CatchRequestActionError(
+      code: code ?? this.code,
+      detail: detail ?? this.detail,
+      state: _i3.identical(state, _sentinel)
+          ? this.state
+          : (state as _i4.CatchRequestState?),
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -115,7 +135,7 @@ class CatchRequestActionError extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([code, detail, state]);
+    return _i3.Object.hashAll([this.code, this.detail, this.state]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -125,10 +145,10 @@ class CatchRequestActionError extends _i1.ObjectParameterEncodable
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'code'] = _i1.PropertyValue.scalar(code);
-    _$result[r'detail'] = _i1.PropertyValue.scalar(detail);
-    if (state != null) {
-      _$result[r'state'] = _i1.PropertyValue.scalar(state!.toJson());
+    _$result[r'code'] = _i1.PropertyValue.scalar(this.code);
+    _$result[r'detail'] = _i1.PropertyValue.scalar(this.detail);
+    if (this.state != null) {
+      _$result[r'state'] = _i1.PropertyValue.scalar(this.state!.toJson());
     }
     return _$result;
   }
@@ -143,54 +163,5 @@ class CatchRequestActionError extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode CatchRequestActionError: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$CatchRequestActionErrorCopyWith<$Res> {
-  factory $$CatchRequestActionErrorCopyWith(CatchRequestActionError value) =
-      _CatchRequestActionErrorCopyWith<$Res>;
-
-  $Res call({
-    _i3.String? code,
-    _i3.String? detail,
-    _i4.CatchRequestState? state,
-  });
-  _i3.String get code;
-  _i3.String get detail;
-  _i4.CatchRequestState? get state;
-}
-
-class _CatchRequestActionErrorCopyWith<$Res>
-    implements $$CatchRequestActionErrorCopyWith<$Res> {
-  _CatchRequestActionErrorCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final CatchRequestActionError _value;
-
-  @_i3.override
-  _i3.String get code => _value.code;
-
-  @_i3.override
-  _i3.String get detail => _value.detail;
-
-  @_i3.override
-  _i4.CatchRequestState? get state => _value.state;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? code = _sentinel,
-    _i3.Object? detail = _sentinel,
-    _i3.Object? state = _sentinel,
-  }) {
-    return (CatchRequestActionError(
-      code: _i3.identical(code, _sentinel) ? this.code : (code as _i3.String),
-      detail: _i3.identical(detail, _sentinel)
-          ? this.detail
-          : (detail as _i3.String),
-      state: _i3.identical(state, _sentinel)
-          ? this.state
-          : (state as _i4.CatchRequestState?),
-    ) as $Res);
   }
 }

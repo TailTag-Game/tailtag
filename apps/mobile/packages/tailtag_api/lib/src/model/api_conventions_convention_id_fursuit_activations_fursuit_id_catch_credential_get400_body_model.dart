@@ -19,6 +19,7 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400
   factory ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400BodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -26,6 +27,8 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400
       expectedKeys: {r'detail'},
       listKeys: {},
       context: r'ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400BodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400BodyModel(
       detail: _$values[r'detail'].decodeSimpleString(
@@ -68,15 +71,16 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400
   final _i3.String detail;
 
   @_i3.override
-  _i3.Object? toJson() => {r'detail': detail};
+  _i3.Object? toJson() => {r'detail': this.detail};
 
-  $$ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400BodyModelCopyWith<
-    ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400BodyModel
-  >
-  get copyWith =>
-      _ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400BodyModelCopyWith(
-        this,
-      );
+  ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400BodyModel
+  Function({_i3.String? detail})
+  get copyWith {
+    return ({_i3.String? detail}) =>
+        ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400BodyModel(
+          detail: detail ?? this.detail,
+        );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -87,7 +91,7 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400
   }
 
   @_i3.override
-  _i3.int get hashCode => detail.hashCode;
+  _i3.int get hashCode => this.detail.hashCode;
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
 
@@ -96,7 +100,7 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'detail'] = _i1.PropertyValue.scalar(detail);
+    _$result[r'detail'] = _i1.PropertyValue.scalar(this.detail);
     return _$result;
   }
 
@@ -110,49 +114,5 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400BodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400BodyModelCopyWith<
-  $Res
-> {
-  factory $$ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400BodyModelCopyWith(
-    ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400BodyModel
-    value,
-  ) =
-      _ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400BodyModelCopyWith<
-        $Res
-      >;
-
-  $Res call({_i3.String? detail});
-  _i3.String get detail;
-}
-
-class _ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400BodyModelCopyWith<
-  $Res
->
-    implements
-        $$ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400BodyModelCopyWith<
-          $Res
-        > {
-  _ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400BodyModelCopyWith(
-    this._value,
-  );
-
-  static const _sentinel = _i3.Object();
-
-  final ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400BodyModel
-  _value;
-
-  @_i3.override
-  _i3.String get detail => _value.detail;
-
-  @_i3.override
-  $Res call({_i3.Object? detail = _sentinel}) {
-    return (ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialGet400BodyModel(
-      detail: _i3.identical(detail, _sentinel)
-          ? this.detail
-          : (detail as _i3.String),
-    ) as $Res);
   }
 }

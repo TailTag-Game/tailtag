@@ -55,6 +55,13 @@ final class FursuitsList extends _i1.HttpOperation<_i2.FursuitsListResponse> {
             .map(_i6.ApiFursuitsGet200BodyArrayModel.fromJson)
             .toList();
         return _i2.FursuitsListResponse200(body: _$body);
+      case (200, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (401, _):
         return _i2.FursuitsListResponse401();
       case (405, _):

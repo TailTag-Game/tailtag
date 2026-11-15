@@ -17,9 +17,14 @@ class ConventionEnrollmentConventionAllOfModel
   factory ConventionEnrollmentConventionAllOfModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     return ConventionEnrollmentConventionAllOfModel(
-      convention: _i4.Convention.fromSimple(value, explode: explode),
+      convention: _i4.Convention.fromSimple(
+        value,
+        explode: explode,
+        isHeader: isHeader,
+      ),
     );
   }
 
@@ -140,40 +145,18 @@ class ConventionEnrollmentConventionAllOfModel
   }
 
   @_i3.override
-  _i3.int get hashCode => convention.hashCode;
+  _i3.int get hashCode => this.convention.hashCode;
 
-  $$ConventionEnrollmentConventionAllOfModelCopyWith<
-    ConventionEnrollmentConventionAllOfModel
-  >
-  get copyWith => _ConventionEnrollmentConventionAllOfModelCopyWith(this);
-}
-
-abstract class $$ConventionEnrollmentConventionAllOfModelCopyWith<$Res> {
-  factory $$ConventionEnrollmentConventionAllOfModelCopyWith(
-    ConventionEnrollmentConventionAllOfModel value,
-  ) = _ConventionEnrollmentConventionAllOfModelCopyWith<$Res>;
-
-  $Res call({_i4.Convention? convention});
-  _i4.Convention? get convention;
-}
-
-class _ConventionEnrollmentConventionAllOfModelCopyWith<$Res>
-    implements $$ConventionEnrollmentConventionAllOfModelCopyWith<$Res> {
-  _ConventionEnrollmentConventionAllOfModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ConventionEnrollmentConventionAllOfModel _value;
-
-  @_i3.override
-  _i4.Convention? get convention => _value.convention;
-
-  @_i3.override
-  $Res call({_i3.Object? convention = _sentinel}) {
-    return (ConventionEnrollmentConventionAllOfModel(
-      convention: _i3.identical(convention, _sentinel)
-          ? this.convention
-          : (convention as _i4.Convention?),
-    ) as $Res);
+  ConventionEnrollmentConventionAllOfModel Function({
+    _i4.Convention? convention,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({_i3.Object? convention = _sentinel}) =>
+        ConventionEnrollmentConventionAllOfModel(
+          convention: _i3.identical(convention, _sentinel)
+              ? this.convention
+              : (convention as _i4.Convention?),
+        );
   }
 }

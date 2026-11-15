@@ -23,6 +23,7 @@ class RequestCatch extends _i1.ObjectParameterEncodable
   factory RequestCatch.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     throw _i1.SimpleDecodingException(
       r'Simple encoding not supported for RequestCatch: contains complex types',
@@ -67,15 +68,35 @@ class RequestCatch extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.Object? toJson() => {
-    r'id': id,
-    r'caught_at': caughtAt.toTimeZonedIso8601String(),
-    r'approved_at': approvedAt.toTimeZonedIso8601String(),
-    r'convention_id': conventionId,
-    r'fursuit': fursuit.toJson(),
+    r'id': this.id,
+    r'caught_at': this.caughtAt.toTimeZonedIso8601String(),
+    r'approved_at': this.approvedAt.toTimeZonedIso8601String(),
+    r'convention_id': this.conventionId,
+    r'fursuit': this.fursuit.toJson(),
   };
 
-  $$RequestCatchCopyWith<RequestCatch> get copyWith =>
-      _RequestCatchCopyWith(this);
+  RequestCatch Function({
+    _i3.int? id,
+    _i3.DateTime? caughtAt,
+    _i3.DateTime? approvedAt,
+    _i3.int? conventionId,
+    _i4.RequestCatchFursuitModel? fursuit,
+  })
+  get copyWith {
+    return ({
+      _i3.int? id,
+      _i3.DateTime? caughtAt,
+      _i3.DateTime? approvedAt,
+      _i3.int? conventionId,
+      _i4.RequestCatchFursuitModel? fursuit,
+    }) => RequestCatch(
+      id: id ?? this.id,
+      caughtAt: caughtAt ?? this.caughtAt,
+      approvedAt: approvedAt ?? this.approvedAt,
+      conventionId: conventionId ?? this.conventionId,
+      fursuit: fursuit ?? this.fursuit,
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -91,11 +112,11 @@ class RequestCatch extends _i1.ObjectParameterEncodable
   @_i3.override
   _i3.int get hashCode {
     return _i3.Object.hashAll([
-      id,
-      caughtAt,
-      approvedAt,
-      conventionId,
-      fursuit,
+      this.id,
+      this.caughtAt,
+      this.approvedAt,
+      this.conventionId,
+      this.fursuit,
     ]);
   }
 
@@ -118,71 +139,5 @@ class RequestCatch extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode RequestCatch: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$RequestCatchCopyWith<$Res> {
-  factory $$RequestCatchCopyWith(RequestCatch value) =
-      _RequestCatchCopyWith<$Res>;
-
-  $Res call({
-    _i3.int? id,
-    _i3.DateTime? caughtAt,
-    _i3.DateTime? approvedAt,
-    _i3.int? conventionId,
-    _i4.RequestCatchFursuitModel? fursuit,
-  });
-  _i3.int get id;
-  _i3.DateTime get caughtAt;
-  _i3.DateTime get approvedAt;
-  _i3.int get conventionId;
-  _i4.RequestCatchFursuitModel get fursuit;
-}
-
-class _RequestCatchCopyWith<$Res> implements $$RequestCatchCopyWith<$Res> {
-  _RequestCatchCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final RequestCatch _value;
-
-  @_i3.override
-  _i3.int get id => _value.id;
-
-  @_i3.override
-  _i3.DateTime get caughtAt => _value.caughtAt;
-
-  @_i3.override
-  _i3.DateTime get approvedAt => _value.approvedAt;
-
-  @_i3.override
-  _i3.int get conventionId => _value.conventionId;
-
-  @_i3.override
-  _i4.RequestCatchFursuitModel get fursuit => _value.fursuit;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? id = _sentinel,
-    _i3.Object? caughtAt = _sentinel,
-    _i3.Object? approvedAt = _sentinel,
-    _i3.Object? conventionId = _sentinel,
-    _i3.Object? fursuit = _sentinel,
-  }) {
-    return (RequestCatch(
-      id: _i3.identical(id, _sentinel) ? this.id : (id as _i3.int),
-      caughtAt: _i3.identical(caughtAt, _sentinel)
-          ? this.caughtAt
-          : (caughtAt as _i3.DateTime),
-      approvedAt: _i3.identical(approvedAt, _sentinel)
-          ? this.approvedAt
-          : (approvedAt as _i3.DateTime),
-      conventionId: _i3.identical(conventionId, _sentinel)
-          ? this.conventionId
-          : (conventionId as _i3.int),
-      fursuit: _i3.identical(fursuit, _sentinel)
-          ? this.fursuit
-          : (fursuit as _i4.RequestCatchFursuitModel),
-    ) as $Res);
   }
 }

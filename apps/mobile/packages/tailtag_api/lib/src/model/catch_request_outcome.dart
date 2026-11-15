@@ -25,13 +25,15 @@ enum CatchRequestOutcome
   factory CatchRequestOutcome.fromJson(_i2.dynamic value) {
     if (value is! _i2.String) {
       throw _i1.JsonDecodingException(
-        r'Expected String for CatchRequestOutcome, got ${value.runtimeType}',
+        r'Expected String for CatchRequestOutcome, got '
+        '${value.runtimeType}',
       );
     }
     return values.firstWhere(
       (e) => e._$rawValue == value,
       orElse: () => throw _i1.JsonDecodingException(
-        r'No matching CatchRequestOutcome for value: $value',
+        r'No matching CatchRequestOutcome for value: '
+        '$value',
       ),
     );
   }
@@ -59,7 +61,7 @@ enum CatchRequestOutcome
   final _i2.String _$rawValue;
 
   @_i2.override
-  _i2.String toJson() => _$rawValue;
+  _i2.String toJson() => this._$rawValue;
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.simple;
 
@@ -68,7 +70,7 @@ enum CatchRequestOutcome
     required _i2.bool explode,
     required _i2.bool allowEmpty,
     _i2.bool literal = false,
-  }) => _$rawValue.toSimple(
+  }) => this._$rawValue.toSimple(
     explode: explode,
     allowEmpty: allowEmpty,
     literal: literal,
@@ -83,7 +85,7 @@ enum CatchRequestOutcome
     _i2.bool useQueryComponent = false,
     _i2.bool allowReserved = false,
     _i2.Map<_i2.String, _i1.FormFieldEncoding> fieldEncodings = const {},
-  }) => _$rawValue.toForm(
+  }) => this._$rawValue.toForm(
     paramName,
     explode: explode,
     allowEmpty: allowEmpty,
@@ -96,7 +98,7 @@ enum CatchRequestOutcome
   _i2.String toLabel({
     required _i2.bool explode,
     required _i2.bool allowEmpty,
-  }) => _$rawValue.toLabel(explode: explode, allowEmpty: allowEmpty);
+  }) => this._$rawValue.toLabel(explode: explode, allowEmpty: allowEmpty);
 
   @_i2.override
   _i2.String uriEncode({
@@ -104,7 +106,7 @@ enum CatchRequestOutcome
     required _i3.Encoding textEncoding,
     _i2.bool useQueryComponent = false,
     _i2.bool allowReserved = false,
-  }) => _$rawValue.uriEncode(
+  }) => this._$rawValue.uriEncode(
     allowEmpty: allowEmpty,
     textEncoding: textEncoding,
     useQueryComponent: useQueryComponent,
@@ -116,6 +118,9 @@ enum CatchRequestOutcome
     _i2.String paramName, {
     required _i2.bool explode,
     required _i2.bool allowEmpty,
-  }) =>
-      _$rawValue.toMatrix(paramName, explode: explode, allowEmpty: allowEmpty);
+  }) => this._$rawValue.toMatrix(
+    paramName,
+    explode: explode,
+    allowEmpty: allowEmpty,
+  );
 }

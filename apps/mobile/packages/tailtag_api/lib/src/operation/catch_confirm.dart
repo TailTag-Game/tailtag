@@ -70,30 +70,79 @@ final class CatchConfirm extends _i2.HttpOperation<_i3.CatchConfirmResponse> {
         final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);
         final _$body = _i8.CatchConfirmationResponseSchema.fromJson(_$json);
         return _i3.CatchConfirmResponse200(body: _$body);
+      case (200, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (201, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);
         final _$body = _i8.CatchConfirmationResponseSchema.fromJson(_$json);
         return _i3.CatchConfirmResponse201(body: _$body);
+      case (201, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (400, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);
         final _$body = _i9.ApiCatchesConfirmPost400BodyModel.fromJson(_$json);
         return _i3.CatchConfirmResponse400(body: _$body);
+      case (400, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (401, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);
         final _$body = _i10.ApiCatchesConfirmPost401BodyModel.fromJson(_$json);
         return _i3.CatchConfirmResponse401(body: _$body);
+      case (401, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (403, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);
         final _$body = _i11.ApiCatchesConfirmPost403BodyModel.fromJson(_$json);
         return _i3.CatchConfirmResponse403(body: _$body);
+      case (403, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (404, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);
         final _$body = _i12.ApiCatchesConfirmPost404BodyModel.fromJson(_$json);
         return _i3.CatchConfirmResponse404(body: _$body);
+      case (404, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (409, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);
         final _$body = _i13.ApiCatchesConfirmPost409BodyModel.fromJson(_$json);
         return _i3.CatchConfirmResponse409(body: _$body);
+      case (409, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (500, r'application/json'):
         final _$json = _i4.decodeResponseJson<_i1.Object?>(response.bodyBytes);
         final _$body = _i14.ApiCatchesConfirmPost500BodyModel.fromJson(_$json);

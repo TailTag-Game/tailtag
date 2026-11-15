@@ -24,6 +24,7 @@ class ApiFursuitsIdPatch200BodyModel extends _i1.ObjectParameterEncodable
   factory ApiFursuitsIdPatch200BodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -38,6 +39,8 @@ class ApiFursuitsIdPatch200BodyModel extends _i1.ObjectParameterEncodable
       },
       listKeys: {},
       context: r'ApiFursuitsIdPatch200BodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiFursuitsIdPatch200BodyModel(
       id: _$values[r'id'].decodeSimpleInt(
@@ -141,12 +144,42 @@ class ApiFursuitsIdPatch200BodyModel extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.Object? toJson() => {
-    r'name': name,
-    r'catch_approval_mode': catchApprovalMode.toJson(),
+    r'name': this.name,
+    r'catch_approval_mode': this.catchApprovalMode.toJson(),
   };
 
-  $$ApiFursuitsIdPatch200BodyModelCopyWith<ApiFursuitsIdPatch200BodyModel>
-  get copyWith => _ApiFursuitsIdPatch200BodyModelCopyWith(this);
+  ApiFursuitsIdPatch200BodyModel Function({
+    _i3.int? id,
+    _i3.String? tailtagId,
+    _i3.String? name,
+    _i3.Uri? photoUrl,
+    _i3.bool? isEnabled,
+    _i4.CatchApprovalMode? catchApprovalMode,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({
+      _i3.Object? id = _sentinel,
+      _i3.Object? tailtagId = _sentinel,
+      _i3.String? name,
+      _i3.Object? photoUrl = _sentinel,
+      _i3.Object? isEnabled = _sentinel,
+      _i4.CatchApprovalMode? catchApprovalMode,
+    }) => ApiFursuitsIdPatch200BodyModel(
+      id: _i3.identical(id, _sentinel) ? this.id : (id as _i3.int?),
+      tailtagId: _i3.identical(tailtagId, _sentinel)
+          ? this.tailtagId
+          : (tailtagId as _i3.String?),
+      name: name ?? this.name,
+      photoUrl: _i3.identical(photoUrl, _sentinel)
+          ? this.photoUrl
+          : (photoUrl as _i3.Uri?),
+      isEnabled: _i3.identical(isEnabled, _sentinel)
+          ? this.isEnabled
+          : (isEnabled as _i3.bool?),
+      catchApprovalMode: catchApprovalMode ?? this.catchApprovalMode,
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -163,12 +196,12 @@ class ApiFursuitsIdPatch200BodyModel extends _i1.ObjectParameterEncodable
   @_i3.override
   _i3.int get hashCode {
     return _i3.Object.hashAll([
-      id,
-      tailtagId,
-      name,
-      photoUrl,
-      isEnabled,
-      catchApprovalMode,
+      this.id,
+      this.tailtagId,
+      this.name,
+      this.photoUrl,
+      this.isEnabled,
+      this.catchApprovalMode,
     ]);
   }
 
@@ -179,9 +212,9 @@ class ApiFursuitsIdPatch200BodyModel extends _i1.ObjectParameterEncodable
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'name'] = _i1.PropertyValue.scalar(name);
+    _$result[r'name'] = _i1.PropertyValue.scalar(this.name);
     _$result[r'catch_approval_mode'] = _i1.PropertyValue.scalar(
-      catchApprovalMode.toJson(),
+      this.catchApprovalMode.toJson(),
     );
     return _$result;
   }
@@ -196,80 +229,5 @@ class ApiFursuitsIdPatch200BodyModel extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiFursuitsIdPatch200BodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiFursuitsIdPatch200BodyModelCopyWith<$Res> {
-  factory $$ApiFursuitsIdPatch200BodyModelCopyWith(
-    ApiFursuitsIdPatch200BodyModel value,
-  ) = _ApiFursuitsIdPatch200BodyModelCopyWith<$Res>;
-
-  $Res call({
-    _i3.int? id,
-    _i3.String? tailtagId,
-    _i3.String? name,
-    _i3.Uri? photoUrl,
-    _i3.bool? isEnabled,
-    _i4.CatchApprovalMode? catchApprovalMode,
-  });
-  _i3.int? get id;
-  _i3.String? get tailtagId;
-  _i3.String get name;
-  _i3.Uri? get photoUrl;
-  _i3.bool? get isEnabled;
-  _i4.CatchApprovalMode get catchApprovalMode;
-}
-
-class _ApiFursuitsIdPatch200BodyModelCopyWith<$Res>
-    implements $$ApiFursuitsIdPatch200BodyModelCopyWith<$Res> {
-  _ApiFursuitsIdPatch200BodyModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ApiFursuitsIdPatch200BodyModel _value;
-
-  @_i3.override
-  _i3.int? get id => _value.id;
-
-  @_i3.override
-  _i3.String? get tailtagId => _value.tailtagId;
-
-  @_i3.override
-  _i3.String get name => _value.name;
-
-  @_i3.override
-  _i3.Uri? get photoUrl => _value.photoUrl;
-
-  @_i3.override
-  _i3.bool? get isEnabled => _value.isEnabled;
-
-  @_i3.override
-  _i4.CatchApprovalMode get catchApprovalMode => _value.catchApprovalMode;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? id = _sentinel,
-    _i3.Object? tailtagId = _sentinel,
-    _i3.Object? name = _sentinel,
-    _i3.Object? photoUrl = _sentinel,
-    _i3.Object? isEnabled = _sentinel,
-    _i3.Object? catchApprovalMode = _sentinel,
-  }) {
-    return (ApiFursuitsIdPatch200BodyModel(
-      id: _i3.identical(id, _sentinel) ? this.id : (id as _i3.int?),
-      tailtagId: _i3.identical(tailtagId, _sentinel)
-          ? this.tailtagId
-          : (tailtagId as _i3.String?),
-      name: _i3.identical(name, _sentinel) ? this.name : (name as _i3.String),
-      photoUrl: _i3.identical(photoUrl, _sentinel)
-          ? this.photoUrl
-          : (photoUrl as _i3.Uri?),
-      isEnabled: _i3.identical(isEnabled, _sentinel)
-          ? this.isEnabled
-          : (isEnabled as _i3.bool?),
-      catchApprovalMode: _i3.identical(catchApprovalMode, _sentinel)
-          ? this.catchApprovalMode
-          : (catchApprovalMode as _i4.CatchApprovalMode),
-    ) as $Res);
   }
 }

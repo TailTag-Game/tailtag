@@ -23,5 +23,5 @@ class MeApi {
   /// - HTTP Bearer
   _i3.Future<_i4.TonikResult<_i5.MeRetrieveResponse, _i6.Response>> meRetrieve({
     _i4.TonikCancellation? cancellation,
-  }) async => _meRetrieve(cancellation: cancellation);
+  }) async => this._meRetrieve(cancellation: cancellation);
 }

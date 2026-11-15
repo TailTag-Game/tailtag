@@ -20,6 +20,7 @@ class CatchHistoryResponseSchemaResultsArrayConventionModel
   factory CatchHistoryResponseSchemaResultsArrayConventionModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -27,6 +28,8 @@ class CatchHistoryResponseSchemaResultsArrayConventionModel
       expectedKeys: {r'id', r'name'},
       listKeys: {},
       context: r'CatchHistoryResponseSchemaResultsArrayConventionModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return CatchHistoryResponseSchemaResultsArrayConventionModel(
       id: _$values[r'id'].decodeSimpleInt(
@@ -82,11 +85,20 @@ class CatchHistoryResponseSchemaResultsArrayConventionModel
   @_i3.override
   _i3.Object? toJson() => <_i3.String, _i3.Object?>{};
 
-  $$CatchHistoryResponseSchemaResultsArrayConventionModelCopyWith<
-    CatchHistoryResponseSchemaResultsArrayConventionModel
-  >
-  get copyWith =>
-      _CatchHistoryResponseSchemaResultsArrayConventionModelCopyWith(this);
+  CatchHistoryResponseSchemaResultsArrayConventionModel Function({
+    _i3.int? id,
+    _i3.String? name,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({_i3.Object? id = _sentinel, _i3.Object? name = _sentinel}) =>
+        CatchHistoryResponseSchemaResultsArrayConventionModel(
+          id: _i3.identical(id, _sentinel) ? this.id : (id as _i3.int?),
+          name: _i3.identical(name, _sentinel)
+              ? this.name
+              : (name as _i3.String?),
+        );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -98,7 +110,7 @@ class CatchHistoryResponseSchemaResultsArrayConventionModel
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([id, name]);
+    return _i3.Object.hashAll([this.id, this.name]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -120,41 +132,5 @@ class CatchHistoryResponseSchemaResultsArrayConventionModel
     throw _i1.EncodingException(
       r'Cannot uriEncode CatchHistoryResponseSchemaResultsArrayConventionModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$CatchHistoryResponseSchemaResultsArrayConventionModelCopyWith<
-  $Res
-> {
-  factory $$CatchHistoryResponseSchemaResultsArrayConventionModelCopyWith(
-    CatchHistoryResponseSchemaResultsArrayConventionModel value,
-  ) = _CatchHistoryResponseSchemaResultsArrayConventionModelCopyWith<$Res>;
-
-  $Res call({_i3.int? id, _i3.String? name});
-  _i3.int? get id;
-  _i3.String? get name;
-}
-
-class _CatchHistoryResponseSchemaResultsArrayConventionModelCopyWith<$Res>
-    implements
-        $$CatchHistoryResponseSchemaResultsArrayConventionModelCopyWith<$Res> {
-  _CatchHistoryResponseSchemaResultsArrayConventionModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final CatchHistoryResponseSchemaResultsArrayConventionModel _value;
-
-  @_i3.override
-  _i3.int? get id => _value.id;
-
-  @_i3.override
-  _i3.String? get name => _value.name;
-
-  @_i3.override
-  $Res call({_i3.Object? id = _sentinel, _i3.Object? name = _sentinel}) {
-    return (CatchHistoryResponseSchemaResultsArrayConventionModel(
-      id: _i3.identical(id, _sentinel) ? this.id : (id as _i3.int?),
-      name: _i3.identical(name, _sentinel) ? this.name : (name as _i3.String?),
-    ) as $Res);
   }
 }

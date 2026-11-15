@@ -40,7 +40,7 @@ class ConventionFursuitCatchCredentialResolveResponse200
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -61,7 +61,7 @@ class ConventionFursuitCatchCredentialResolveResponse400
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -82,7 +82,7 @@ class ConventionFursuitCatchCredentialResolveResponse401
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -103,7 +103,7 @@ class ConventionFursuitCatchCredentialResolveResponse403
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -124,7 +124,7 @@ class ConventionFursuitCatchCredentialResolveResponse404
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -145,5 +145,5 @@ class ConventionFursuitCatchCredentialResolveResponse405
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }

@@ -19,11 +19,13 @@ class $RawActiveConventionResponseEnrollmentAllOfModel
   factory $RawActiveConventionResponseEnrollmentAllOfModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     return $RawActiveConventionResponseEnrollmentAllOfModel(
       conventionEnrollment: _i4.ConventionEnrollment.fromSimple(
         value,
         explode: explode,
+        isHeader: isHeader,
       ),
     );
   }
@@ -55,13 +57,13 @@ class $RawActiveConventionResponseEnrollmentAllOfModel
   @_i3.override
   _i3.Object? toJson() {
     final _$map = <_i3.String, _i3.Object?>{};
-    final _$conventionEnrollmentJson = conventionEnrollment.toJson();
+    final _$conventionEnrollmentJson = this.conventionEnrollment.toJson();
     if (_$conventionEnrollmentJson is! _i3.Map<_i3.String, _i3.Object?>) {
       throw _i1.EncodingException(
         'Expected conventionEnrollment.toJson() to return Map<String, Object?>, got ${_$conventionEnrollmentJson.runtimeType}',
       );
     }
-    _$map.addAll(_$conventionEnrollmentJson);
+    _i1.mergeJsonObject(_$map, _$conventionEnrollmentJson);
     return _$map;
   }
 
@@ -70,7 +72,7 @@ class $RawActiveConventionResponseEnrollmentAllOfModel
   }) {
     final _$mergedProperties = <_i3.String, _i1.PropertyValue>{};
     _$mergedProperties.addAll(
-      conventionEnrollment.parameterProperties(allowEmpty: allowEmpty),
+      this.conventionEnrollment.parameterProperties(allowEmpty: allowEmpty),
     );
     return _$mergedProperties;
   }
@@ -186,46 +188,17 @@ class $RawActiveConventionResponseEnrollmentAllOfModel
   }
 
   @_i3.override
-  _i3.int get hashCode => conventionEnrollment.hashCode;
+  _i3.int get hashCode => this.conventionEnrollment.hashCode;
 
-  $$$RawActiveConventionResponseEnrollmentAllOfModelCopyWith<
-    $RawActiveConventionResponseEnrollmentAllOfModel
-  >
-  get copyWith =>
-      _$RawActiveConventionResponseEnrollmentAllOfModelCopyWith(this);
-}
-
-abstract class $$$RawActiveConventionResponseEnrollmentAllOfModelCopyWith<
-  $Res
-> {
-  factory $$$RawActiveConventionResponseEnrollmentAllOfModelCopyWith(
-    $RawActiveConventionResponseEnrollmentAllOfModel value,
-  ) = _$RawActiveConventionResponseEnrollmentAllOfModelCopyWith<$Res>;
-
-  $Res call({_i4.ConventionEnrollment? conventionEnrollment});
-  _i4.ConventionEnrollment get conventionEnrollment;
-}
-
-class _$RawActiveConventionResponseEnrollmentAllOfModelCopyWith<$Res>
-    implements
-        $$$RawActiveConventionResponseEnrollmentAllOfModelCopyWith<$Res> {
-  _$RawActiveConventionResponseEnrollmentAllOfModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final $RawActiveConventionResponseEnrollmentAllOfModel _value;
-
-  @_i3.override
-  _i4.ConventionEnrollment get conventionEnrollment =>
-      _value.conventionEnrollment;
-
-  @_i3.override
-  $Res call({_i3.Object? conventionEnrollment = _sentinel}) {
-    return ($RawActiveConventionResponseEnrollmentAllOfModel(
-      conventionEnrollment: _i3.identical(conventionEnrollment, _sentinel)
-          ? this.conventionEnrollment
-          : (conventionEnrollment as _i4.ConventionEnrollment),
-    ) as $Res);
+  $RawActiveConventionResponseEnrollmentAllOfModel Function({
+    _i4.ConventionEnrollment? conventionEnrollment,
+  })
+  get copyWith {
+    return ({_i4.ConventionEnrollment? conventionEnrollment}) =>
+        $RawActiveConventionResponseEnrollmentAllOfModel(
+          conventionEnrollment:
+              conventionEnrollment ?? this.conventionEnrollment,
+        );
   }
 }
 

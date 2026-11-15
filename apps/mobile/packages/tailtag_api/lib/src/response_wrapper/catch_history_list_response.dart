@@ -33,7 +33,7 @@ class CatchHistoryListResponse200 extends CatchHistoryListResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -49,7 +49,7 @@ class CatchHistoryListResponse400 extends CatchHistoryListResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -65,7 +65,7 @@ class CatchHistoryListResponse401 extends CatchHistoryListResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -81,7 +81,7 @@ class CatchHistoryListResponse404 extends CatchHistoryListResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -97,5 +97,5 @@ class CatchHistoryListResponse500 extends CatchHistoryListResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }

@@ -79,7 +79,7 @@ class FursuitsApi {
   /// - HTTP Bearer
   _i9.Future<_i10.TonikResult<_i11.FursuitsListResponse, _i12.Response>>
   fursuitsList({_i10.TonikCancellation? cancellation}) async =>
-      _fursuitsList(cancellation: cancellation);
+      this._fursuitsList(cancellation: cancellation);
 
   /// List owned records or create one required-photo record.
   ///
@@ -89,7 +89,7 @@ class FursuitsApi {
   fursuitsCreate({
     _i14.ApiFursuitsPostBodyBodyModel? body,
     _i10.TonikCancellation? cancellation,
-  }) async => _fursuitsCreate(body: body, cancellation: cancellation);
+  }) async => this._fursuitsCreate(body: body, cancellation: cancellation);
 
   /// Retrieve a private player record, or change its name or approval mode.
   ///
@@ -99,7 +99,7 @@ class FursuitsApi {
   fursuitsRetrieve({
     required _i9.int id,
     _i10.TonikCancellation? cancellation,
-  }) async => _fursuitsRetrieve(id: id, cancellation: cancellation);
+  }) async => this._fursuitsRetrieve(id: id, cancellation: cancellation);
 
   /// Retrieve a private player record, or change its name or approval mode.
   ///
@@ -110,7 +110,8 @@ class FursuitsApi {
     required _i17.ApiFursuitsIdPatchBodyBodyModel body,
     required _i9.int id,
     _i10.TonikCancellation? cancellation,
-  }) async => _fursuitsUpdate(body: body, id: id, cancellation: cancellation);
+  }) async =>
+      this._fursuitsUpdate(body: body, id: id, cancellation: cancellation);
 
   /// Replace the required photo of a private player record.
   ///
@@ -121,8 +122,11 @@ class FursuitsApi {
     required _i9.int id,
     _i19.ApiFursuitsIdPhotoPutBodyBodyModel? body,
     _i10.TonikCancellation? cancellation,
-  }) async =>
-      _fursuitsReplacePhoto(body: body, id: id, cancellation: cancellation);
+  }) async => this._fursuitsReplacePhoto(
+    body: body,
+    id: id,
+    cancellation: cancellation,
+  );
 
   /// Return the current reusable tag for an owned suit. The first read creates the first tag. After an operator revocation, the read returns state revoked and no payload, and never creates a replacement.
   ///
@@ -132,7 +136,7 @@ class FursuitsApi {
   fursuitTagRetrieve({
     required _i9.int id,
     _i10.TonikCancellation? cancellation,
-  }) async => _fursuitTagRetrieve(id: id, cancellation: cancellation);
+  }) async => this._fursuitTagRetrieve(id: id, cancellation: cancellation);
 
   /// Replace the tag when expected_version matches the current tag_version. Old copies stop working. A stale version returns tag_version_conflict and changes nothing. After a lost response, read the tag again and never replace again automatically.
   ///
@@ -144,5 +148,5 @@ class FursuitsApi {
     required _i9.int id,
     _i10.TonikCancellation? cancellation,
   }) async =>
-      _fursuitTagReplace(body: body, id: id, cancellation: cancellation);
+      this._fursuitTagReplace(body: body, id: id, cancellation: cancellation);
 }

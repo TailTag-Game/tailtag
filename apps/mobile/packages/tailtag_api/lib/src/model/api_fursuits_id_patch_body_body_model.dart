@@ -18,6 +18,7 @@ class ApiFursuitsIdPatchBodyBodyModel extends _i1.ObjectParameterEncodable
   factory ApiFursuitsIdPatchBodyBodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -25,6 +26,8 @@ class ApiFursuitsIdPatchBodyBodyModel extends _i1.ObjectParameterEncodable
       expectedKeys: {r'name', r'catch_approval_mode'},
       listKeys: {},
       context: r'ApiFursuitsIdPatchBodyBodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiFursuitsIdPatchBodyBodyModel(
       name: _$values[r'name'].decodeSimpleNullableString(
@@ -81,13 +84,27 @@ class ApiFursuitsIdPatchBodyBodyModel extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.Object? toJson() => {
-    if (name != null) r'name': name,
-    if (catchApprovalMode != null)
-      r'catch_approval_mode': catchApprovalMode?.toJson(),
+    if (this.name != null) r'name': this.name,
+    if (this.catchApprovalMode != null)
+      r'catch_approval_mode': this.catchApprovalMode?.toJson(),
   };
 
-  $$ApiFursuitsIdPatchBodyBodyModelCopyWith<ApiFursuitsIdPatchBodyBodyModel>
-  get copyWith => _ApiFursuitsIdPatchBodyBodyModelCopyWith(this);
+  ApiFursuitsIdPatchBodyBodyModel Function({
+    _i3.String? name,
+    _i4.CatchApprovalMode? catchApprovalMode,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({
+      _i3.Object? name = _sentinel,
+      _i3.Object? catchApprovalMode = _sentinel,
+    }) => ApiFursuitsIdPatchBodyBodyModel(
+      name: _i3.identical(name, _sentinel) ? this.name : (name as _i3.String?),
+      catchApprovalMode: _i3.identical(catchApprovalMode, _sentinel)
+          ? this.catchApprovalMode
+          : (catchApprovalMode as _i4.CatchApprovalMode?),
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -99,7 +116,7 @@ class ApiFursuitsIdPatchBodyBodyModel extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([name, catchApprovalMode]);
+    return _i3.Object.hashAll([this.name, this.catchApprovalMode]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -109,12 +126,12 @@ class ApiFursuitsIdPatchBodyBodyModel extends _i1.ObjectParameterEncodable
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    if (name != null) {
-      _$result[r'name'] = _i1.PropertyValue.scalar(name!);
+    if (this.name != null) {
+      _$result[r'name'] = _i1.PropertyValue.scalar(this.name!);
     }
-    if (catchApprovalMode != null) {
+    if (this.catchApprovalMode != null) {
       _$result[r'catch_approval_mode'] = _i1.PropertyValue.scalar(
-        catchApprovalMode!.toJson(),
+        this.catchApprovalMode!.toJson(),
       );
     }
     return _$result;
@@ -130,43 +147,5 @@ class ApiFursuitsIdPatchBodyBodyModel extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiFursuitsIdPatchBodyBodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiFursuitsIdPatchBodyBodyModelCopyWith<$Res> {
-  factory $$ApiFursuitsIdPatchBodyBodyModelCopyWith(
-    ApiFursuitsIdPatchBodyBodyModel value,
-  ) = _ApiFursuitsIdPatchBodyBodyModelCopyWith<$Res>;
-
-  $Res call({_i3.String? name, _i4.CatchApprovalMode? catchApprovalMode});
-  _i3.String? get name;
-  _i4.CatchApprovalMode? get catchApprovalMode;
-}
-
-class _ApiFursuitsIdPatchBodyBodyModelCopyWith<$Res>
-    implements $$ApiFursuitsIdPatchBodyBodyModelCopyWith<$Res> {
-  _ApiFursuitsIdPatchBodyBodyModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ApiFursuitsIdPatchBodyBodyModel _value;
-
-  @_i3.override
-  _i3.String? get name => _value.name;
-
-  @_i3.override
-  _i4.CatchApprovalMode? get catchApprovalMode => _value.catchApprovalMode;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? name = _sentinel,
-    _i3.Object? catchApprovalMode = _sentinel,
-  }) {
-    return (ApiFursuitsIdPatchBodyBodyModel(
-      name: _i3.identical(name, _sentinel) ? this.name : (name as _i3.String?),
-      catchApprovalMode: _i3.identical(catchApprovalMode, _sentinel)
-          ? this.catchApprovalMode
-          : (catchApprovalMode as _i4.CatchApprovalMode?),
-    ) as $Res);
   }
 }

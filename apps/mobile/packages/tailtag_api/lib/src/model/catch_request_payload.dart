@@ -16,6 +16,7 @@ class CatchRequestPayload extends _i1.ObjectParameterEncodable
   factory CatchRequestPayload.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -23,6 +24,8 @@ class CatchRequestPayload extends _i1.ObjectParameterEncodable
       expectedKeys: {r'payload'},
       listKeys: {},
       context: r'CatchRequestPayload',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return CatchRequestPayload(
       payload: _$values[r'payload'].decodeSimpleString(
@@ -62,10 +65,12 @@ class CatchRequestPayload extends _i1.ObjectParameterEncodable
   final _i3.String payload;
 
   @_i3.override
-  _i3.Object? toJson() => {r'payload': payload};
+  _i3.Object? toJson() => {r'payload': this.payload};
 
-  $$CatchRequestPayloadCopyWith<CatchRequestPayload> get copyWith =>
-      _CatchRequestPayloadCopyWith(this);
+  CatchRequestPayload Function({_i3.String? payload}) get copyWith {
+    return ({_i3.String? payload}) =>
+        CatchRequestPayload(payload: payload ?? this.payload);
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -74,7 +79,7 @@ class CatchRequestPayload extends _i1.ObjectParameterEncodable
   }
 
   @_i3.override
-  _i3.int get hashCode => payload.hashCode;
+  _i3.int get hashCode => this.payload.hashCode;
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
 
@@ -83,7 +88,7 @@ class CatchRequestPayload extends _i1.ObjectParameterEncodable
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'payload'] = _i1.PropertyValue.scalar(payload);
+    _$result[r'payload'] = _i1.PropertyValue.scalar(this.payload);
     return _$result;
   }
 
@@ -97,34 +102,5 @@ class CatchRequestPayload extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode CatchRequestPayload: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$CatchRequestPayloadCopyWith<$Res> {
-  factory $$CatchRequestPayloadCopyWith(CatchRequestPayload value) =
-      _CatchRequestPayloadCopyWith<$Res>;
-
-  $Res call({_i3.String? payload});
-  _i3.String get payload;
-}
-
-class _CatchRequestPayloadCopyWith<$Res>
-    implements $$CatchRequestPayloadCopyWith<$Res> {
-  _CatchRequestPayloadCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final CatchRequestPayload _value;
-
-  @_i3.override
-  _i3.String get payload => _value.payload;
-
-  @_i3.override
-  $Res call({_i3.Object? payload = _sentinel}) {
-    return (CatchRequestPayload(
-      payload: _i3.identical(payload, _sentinel)
-          ? this.payload
-          : (payload as _i3.String),
-    ) as $Res);
   }
 }

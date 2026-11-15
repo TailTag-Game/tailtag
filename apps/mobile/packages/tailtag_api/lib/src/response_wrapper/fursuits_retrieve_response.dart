@@ -25,7 +25,7 @@ class FursuitsRetrieveResponse200 extends FursuitsRetrieveResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -39,7 +39,7 @@ class FursuitsRetrieveResponse401 extends FursuitsRetrieveResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => runtimeType.hashCode;
+  _i3.int get hashCode => this.runtimeType.hashCode;
 }
 
 @_i1.immutable
@@ -53,7 +53,7 @@ class FursuitsRetrieveResponse404 extends FursuitsRetrieveResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => runtimeType.hashCode;
+  _i3.int get hashCode => this.runtimeType.hashCode;
 }
 
 @_i1.immutable
@@ -67,7 +67,7 @@ class FursuitsRetrieveResponse405 extends FursuitsRetrieveResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => runtimeType.hashCode;
+  _i3.int get hashCode => this.runtimeType.hashCode;
 }
 
 @_i1.immutable
@@ -81,5 +81,5 @@ class FursuitsRetrieveResponse500 extends FursuitsRetrieveResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => runtimeType.hashCode;
+  _i3.int get hashCode => this.runtimeType.hashCode;
 }

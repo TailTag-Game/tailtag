@@ -16,6 +16,7 @@ class ApiMeGet200BodyModel extends _i1.ObjectParameterEncodable
   factory ApiMeGet200BodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -23,6 +24,8 @@ class ApiMeGet200BodyModel extends _i1.ObjectParameterEncodable
       expectedKeys: {r'id'},
       listKeys: {},
       context: r'ApiMeGet200BodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiMeGet200BodyModel(
       id: _$values[r'id'].decodeSimpleInt(context: r'ApiMeGet200BodyModel.id'),
@@ -55,10 +58,11 @@ class ApiMeGet200BodyModel extends _i1.ObjectParameterEncodable
   final _i3.int id;
 
   @_i3.override
-  _i3.Object? toJson() => {r'id': id};
+  _i3.Object? toJson() => {r'id': this.id};
 
-  $$ApiMeGet200BodyModelCopyWith<ApiMeGet200BodyModel> get copyWith =>
-      _ApiMeGet200BodyModelCopyWith(this);
+  ApiMeGet200BodyModel Function({_i3.int? id}) get copyWith {
+    return ({_i3.int? id}) => ApiMeGet200BodyModel(id: id ?? this.id);
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -67,7 +71,7 @@ class ApiMeGet200BodyModel extends _i1.ObjectParameterEncodable
   }
 
   @_i3.override
-  _i3.int get hashCode => id.hashCode;
+  _i3.int get hashCode => this.id.hashCode;
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
 
@@ -76,7 +80,7 @@ class ApiMeGet200BodyModel extends _i1.ObjectParameterEncodable
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'id'] = _i1.PropertyValue.scalar(id.toString());
+    _$result[r'id'] = _i1.PropertyValue.scalar(this.id.toString());
     return _$result;
   }
 
@@ -90,32 +94,5 @@ class ApiMeGet200BodyModel extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiMeGet200BodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiMeGet200BodyModelCopyWith<$Res> {
-  factory $$ApiMeGet200BodyModelCopyWith(ApiMeGet200BodyModel value) =
-      _ApiMeGet200BodyModelCopyWith<$Res>;
-
-  $Res call({_i3.int? id});
-  _i3.int get id;
-}
-
-class _ApiMeGet200BodyModelCopyWith<$Res>
-    implements $$ApiMeGet200BodyModelCopyWith<$Res> {
-  _ApiMeGet200BodyModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ApiMeGet200BodyModel _value;
-
-  @_i3.override
-  _i3.int get id => _value.id;
-
-  @_i3.override
-  $Res call({_i3.Object? id = _sentinel}) {
-    return (ApiMeGet200BodyModel(
-      id: _i3.identical(id, _sentinel) ? this.id : (id as _i3.int),
-    ) as $Res);
   }
 }

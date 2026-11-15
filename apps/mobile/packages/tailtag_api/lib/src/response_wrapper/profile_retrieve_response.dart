@@ -25,7 +25,7 @@ class ProfileRetrieveResponse200 extends ProfileRetrieveResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -39,7 +39,7 @@ class ProfileRetrieveResponse401 extends ProfileRetrieveResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => runtimeType.hashCode;
+  _i3.int get hashCode => this.runtimeType.hashCode;
 }
 
 @_i1.immutable
@@ -53,5 +53,5 @@ class ProfileRetrieveResponse403 extends ProfileRetrieveResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => runtimeType.hashCode;
+  _i3.int get hashCode => this.runtimeType.hashCode;
 }

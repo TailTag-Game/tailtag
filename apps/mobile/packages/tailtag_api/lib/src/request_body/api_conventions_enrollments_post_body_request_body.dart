@@ -27,7 +27,7 @@ class ApiConventionsEnrollmentsPostBodyRequestBodyJson
   }
 
   @_i3.override
-  _i3.int get hashCode => value.hashCode;
+  _i3.int get hashCode => this.value.hashCode;
 }
 
 @_i1.immutable
@@ -48,7 +48,7 @@ class ApiConventionsEnrollmentsPostBodyRequestBodyXWwwFormUrlencoded
   }
 
   @_i3.override
-  _i3.int get hashCode => value.hashCode;
+  _i3.int get hashCode => this.value.hashCode;
 }
 
 @_i1.immutable
@@ -66,5 +66,5 @@ class ApiConventionsEnrollmentsPostBodyRequestBodyFormData
   }
 
   @_i3.override
-  _i3.int get hashCode => value.hashCode;
+  _i3.int get hashCode => this.value.hashCode;
 }

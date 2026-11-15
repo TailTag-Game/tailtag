@@ -17,6 +17,7 @@ class ApiCatchesPreviewPost400BodyModel extends _i1.ObjectParameterEncodable
   factory ApiCatchesPreviewPost400BodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -24,10 +25,13 @@ class ApiCatchesPreviewPost400BodyModel extends _i1.ObjectParameterEncodable
       expectedKeys: {r'payload'},
       listKeys: {r'payload'},
       context: r'ApiCatchesPreviewPost400BodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiCatchesPreviewPost400BodyModel(
       payload: _$values[r'payload'].decodeSimpleStringList(
         context: r'ApiCatchesPreviewPost400BodyModel.payload',
+        isHeader: isHeader,
       ),
     );
   }
@@ -62,10 +66,13 @@ class ApiCatchesPreviewPost400BodyModel extends _i1.ObjectParameterEncodable
   final _i3.List<_i3.String> payload;
 
   @_i3.override
-  _i3.Object? toJson() => {r'payload': payload};
+  _i3.Object? toJson() => {r'payload': this.payload};
 
-  $$ApiCatchesPreviewPost400BodyModelCopyWith<ApiCatchesPreviewPost400BodyModel>
-  get copyWith => _ApiCatchesPreviewPost400BodyModelCopyWith(this);
+  ApiCatchesPreviewPost400BodyModel Function({_i3.List<_i3.String>? payload})
+  get copyWith {
+    return ({_i3.List<_i3.String>? payload}) =>
+        ApiCatchesPreviewPost400BodyModel(payload: payload ?? this.payload);
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -78,7 +85,7 @@ class ApiCatchesPreviewPost400BodyModel extends _i1.ObjectParameterEncodable
   @_i3.override
   _i3.int get hashCode {
     const deepEquals = _i4.DeepCollectionEquality();
-    return deepEquals.hash(payload);
+    return deepEquals.hash(this.payload);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -88,7 +95,7 @@ class ApiCatchesPreviewPost400BodyModel extends _i1.ObjectParameterEncodable
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'payload'] = _i1.PropertyValue.array(payload);
+    _$result[r'payload'] = _i1.PropertyValue.array(this.payload);
     return _$result;
   }
 
@@ -102,35 +109,5 @@ class ApiCatchesPreviewPost400BodyModel extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiCatchesPreviewPost400BodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiCatchesPreviewPost400BodyModelCopyWith<$Res> {
-  factory $$ApiCatchesPreviewPost400BodyModelCopyWith(
-    ApiCatchesPreviewPost400BodyModel value,
-  ) = _ApiCatchesPreviewPost400BodyModelCopyWith<$Res>;
-
-  $Res call({_i3.List<_i3.String>? payload});
-  _i3.List<_i3.String> get payload;
-}
-
-class _ApiCatchesPreviewPost400BodyModelCopyWith<$Res>
-    implements $$ApiCatchesPreviewPost400BodyModelCopyWith<$Res> {
-  _ApiCatchesPreviewPost400BodyModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ApiCatchesPreviewPost400BodyModel _value;
-
-  @_i3.override
-  _i3.List<_i3.String> get payload => _value.payload;
-
-  @_i3.override
-  $Res call({_i3.Object? payload = _sentinel}) {
-    return (ApiCatchesPreviewPost400BodyModel(
-      payload: _i3.identical(payload, _sentinel)
-          ? this.payload
-          : (payload as _i3.List<_i3.String>),
-    ) as $Res);
   }
 }

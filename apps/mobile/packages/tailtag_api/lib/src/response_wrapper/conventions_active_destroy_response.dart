@@ -26,7 +26,7 @@ class ConventionsActiveDestroyResponse204
   }
 
   @_i2.override
-  _i2.int get hashCode => runtimeType.hashCode;
+  _i2.int get hashCode => this.runtimeType.hashCode;
 }
 
 @_i1.immutable
@@ -44,7 +44,7 @@ class ConventionsActiveDestroyResponse401
   }
 
   @_i2.override
-  _i2.int get hashCode => body.hashCode;
+  _i2.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -62,5 +62,5 @@ class ConventionsActiveDestroyResponse403
   }
 
   @_i2.override
-  _i2.int get hashCode => body.hashCode;
+  _i2.int get hashCode => this.body.hashCode;
 }

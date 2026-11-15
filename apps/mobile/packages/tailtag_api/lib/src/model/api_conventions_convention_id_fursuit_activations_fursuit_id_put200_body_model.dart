@@ -24,6 +24,7 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModel
   factory ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -38,6 +39,8 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModel
       },
       listKeys: {},
       context: r'ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModel(
       fursuitId: _$values[r'fursuit_id'].decodeSimpleInt(
@@ -144,13 +147,45 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModel
   @_i3.override
   _i3.Object? toJson() => <_i3.String, _i3.Object?>{};
 
-  $$ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModelCopyWith<
-    ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModel
-  >
-  get copyWith =>
-      _ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModelCopyWith(
-        this,
-      );
+  ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModel
+  Function({
+    _i3.int? fursuitId,
+    _i3.int? conventionId,
+    _i3.bool? isActive,
+    _i3.bool? isEligible,
+    _i3.DateTime? activatedAt,
+    _i3.DateTime? deactivatedAt,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({
+      _i3.Object? fursuitId = _sentinel,
+      _i3.Object? conventionId = _sentinel,
+      _i3.Object? isActive = _sentinel,
+      _i3.Object? isEligible = _sentinel,
+      _i3.Object? activatedAt = _sentinel,
+      _i3.Object? deactivatedAt = _sentinel,
+    }) => ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModel(
+      fursuitId: _i3.identical(fursuitId, _sentinel)
+          ? this.fursuitId
+          : (fursuitId as _i3.int?),
+      conventionId: _i3.identical(conventionId, _sentinel)
+          ? this.conventionId
+          : (conventionId as _i3.int?),
+      isActive: _i3.identical(isActive, _sentinel)
+          ? this.isActive
+          : (isActive as _i3.bool?),
+      isEligible: _i3.identical(isEligible, _sentinel)
+          ? this.isEligible
+          : (isEligible as _i3.bool?),
+      activatedAt: _i3.identical(activatedAt, _sentinel)
+          ? this.activatedAt
+          : (activatedAt as _i3.DateTime?),
+      deactivatedAt: _i3.identical(deactivatedAt, _sentinel)
+          ? this.deactivatedAt
+          : (deactivatedAt as _i3.DateTime?),
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -168,12 +203,12 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModel
   @_i3.override
   _i3.int get hashCode {
     return _i3.Object.hashAll([
-      fursuitId,
-      conventionId,
-      isActive,
-      isEligible,
-      activatedAt,
-      deactivatedAt,
+      this.fursuitId,
+      this.conventionId,
+      this.isActive,
+      this.isEligible,
+      this.activatedAt,
+      this.deactivatedAt,
     ]);
   }
 
@@ -196,97 +231,5 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModel
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModelCopyWith<
-  $Res
-> {
-  factory $$ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModelCopyWith(
-    ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModel value,
-  ) =
-      _ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModelCopyWith<
-        $Res
-      >;
-
-  $Res call({
-    _i3.int? fursuitId,
-    _i3.int? conventionId,
-    _i3.bool? isActive,
-    _i3.bool? isEligible,
-    _i3.DateTime? activatedAt,
-    _i3.DateTime? deactivatedAt,
-  });
-  _i3.int? get fursuitId;
-  _i3.int? get conventionId;
-  _i3.bool? get isActive;
-  _i3.bool? get isEligible;
-  _i3.DateTime? get activatedAt;
-  _i3.DateTime? get deactivatedAt;
-}
-
-class _ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModelCopyWith<
-  $Res
->
-    implements
-        $$ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModelCopyWith<
-          $Res
-        > {
-  _ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModelCopyWith(
-    this._value,
-  );
-
-  static const _sentinel = _i3.Object();
-
-  final ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModel
-  _value;
-
-  @_i3.override
-  _i3.int? get fursuitId => _value.fursuitId;
-
-  @_i3.override
-  _i3.int? get conventionId => _value.conventionId;
-
-  @_i3.override
-  _i3.bool? get isActive => _value.isActive;
-
-  @_i3.override
-  _i3.bool? get isEligible => _value.isEligible;
-
-  @_i3.override
-  _i3.DateTime? get activatedAt => _value.activatedAt;
-
-  @_i3.override
-  _i3.DateTime? get deactivatedAt => _value.deactivatedAt;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? fursuitId = _sentinel,
-    _i3.Object? conventionId = _sentinel,
-    _i3.Object? isActive = _sentinel,
-    _i3.Object? isEligible = _sentinel,
-    _i3.Object? activatedAt = _sentinel,
-    _i3.Object? deactivatedAt = _sentinel,
-  }) {
-    return (ApiConventionsConventionIdFursuitActivationsFursuitIdPut200BodyModel(
-      fursuitId: _i3.identical(fursuitId, _sentinel)
-          ? this.fursuitId
-          : (fursuitId as _i3.int?),
-      conventionId: _i3.identical(conventionId, _sentinel)
-          ? this.conventionId
-          : (conventionId as _i3.int?),
-      isActive: _i3.identical(isActive, _sentinel)
-          ? this.isActive
-          : (isActive as _i3.bool?),
-      isEligible: _i3.identical(isEligible, _sentinel)
-          ? this.isEligible
-          : (isEligible as _i3.bool?),
-      activatedAt: _i3.identical(activatedAt, _sentinel)
-          ? this.activatedAt
-          : (activatedAt as _i3.DateTime?),
-      deactivatedAt: _i3.identical(deactivatedAt, _sentinel)
-          ? this.deactivatedAt
-          : (deactivatedAt as _i3.DateTime?),
-    ) as $Res);
   }
 }

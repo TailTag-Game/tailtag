@@ -28,49 +28,23 @@ class ApiCatchesRequestsPost429Response {
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([body, retryAfter]);
+    return _i3.Object.hashAll([this.body, this.retryAfter]);
   }
 
-  $$ApiCatchesRequestsPost429ResponseCopyWith<ApiCatchesRequestsPost429Response>
-  get copyWith => _ApiCatchesRequestsPost429ResponseCopyWith(this);
-}
-
-abstract class $$ApiCatchesRequestsPost429ResponseCopyWith<$Res> {
-  factory $$ApiCatchesRequestsPost429ResponseCopyWith(
-    ApiCatchesRequestsPost429Response value,
-  ) = _ApiCatchesRequestsPost429ResponseCopyWith<$Res>;
-
-  $Res call({_i2.CatchRequestRefusal? body, _i3.int? retryAfter});
-  _i2.CatchRequestRefusal get body;
-  _i3.int? get retryAfter;
-}
-
-class _ApiCatchesRequestsPost429ResponseCopyWith<$Res>
-    implements $$ApiCatchesRequestsPost429ResponseCopyWith<$Res> {
-  _ApiCatchesRequestsPost429ResponseCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ApiCatchesRequestsPost429Response _value;
-
-  @_i3.override
-  _i2.CatchRequestRefusal get body => _value.body;
-
-  @_i3.override
-  _i3.int? get retryAfter => _value.retryAfter;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? body = _sentinel,
-    _i3.Object? retryAfter = _sentinel,
-  }) {
-    return (ApiCatchesRequestsPost429Response(
-      body: _i3.identical(body, _sentinel)
-          ? this.body
-          : (body as _i2.CatchRequestRefusal),
+  ApiCatchesRequestsPost429Response Function({
+    _i2.CatchRequestRefusal? body,
+    _i3.int? retryAfter,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({
+      _i2.CatchRequestRefusal? body,
+      _i3.Object? retryAfter = _sentinel,
+    }) => ApiCatchesRequestsPost429Response(
+      body: body ?? this.body,
       retryAfter: _i3.identical(retryAfter, _sentinel)
           ? this.retryAfter
           : (retryAfter as _i3.int?),
-    ) as $Res);
+    );
   }
 }

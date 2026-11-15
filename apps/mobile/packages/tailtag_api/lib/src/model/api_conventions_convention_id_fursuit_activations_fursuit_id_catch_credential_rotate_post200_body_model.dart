@@ -19,6 +19,7 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotate
   factory ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotatePost200BodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -26,6 +27,8 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotate
       expectedKeys: {r'payload'},
       listKeys: {},
       context: r'ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotatePost200BodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotatePost200BodyModel(
       payload: _$values[r'payload'].decodeSimpleString(
@@ -68,15 +71,16 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotate
   final _i3.String payload;
 
   @_i3.override
-  _i3.Object? toJson() => {r'payload': payload};
+  _i3.Object? toJson() => {r'payload': this.payload};
 
-  $$ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotatePost200BodyModelCopyWith<
-    ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotatePost200BodyModel
-  >
-  get copyWith =>
-      _ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotatePost200BodyModelCopyWith(
-        this,
-      );
+  ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotatePost200BodyModel
+  Function({_i3.String? payload})
+  get copyWith {
+    return ({_i3.String? payload}) =>
+        ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotatePost200BodyModel(
+          payload: payload ?? this.payload,
+        );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -87,7 +91,7 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotate
   }
 
   @_i3.override
-  _i3.int get hashCode => payload.hashCode;
+  _i3.int get hashCode => this.payload.hashCode;
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
 
@@ -96,7 +100,7 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotate
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'payload'] = _i1.PropertyValue.scalar(payload);
+    _$result[r'payload'] = _i1.PropertyValue.scalar(this.payload);
     return _$result;
   }
 
@@ -110,49 +114,5 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotate
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotatePost200BodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotatePost200BodyModelCopyWith<
-  $Res
-> {
-  factory $$ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotatePost200BodyModelCopyWith(
-    ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotatePost200BodyModel
-    value,
-  ) =
-      _ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotatePost200BodyModelCopyWith<
-        $Res
-      >;
-
-  $Res call({_i3.String? payload});
-  _i3.String get payload;
-}
-
-class _ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotatePost200BodyModelCopyWith<
-  $Res
->
-    implements
-        $$ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotatePost200BodyModelCopyWith<
-          $Res
-        > {
-  _ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotatePost200BodyModelCopyWith(
-    this._value,
-  );
-
-  static const _sentinel = _i3.Object();
-
-  final ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotatePost200BodyModel
-  _value;
-
-  @_i3.override
-  _i3.String get payload => _value.payload;
-
-  @_i3.override
-  $Res call({_i3.Object? payload = _sentinel}) {
-    return (ApiConventionsConventionIdFursuitActivationsFursuitIdCatchCredentialRotatePost200BodyModel(
-      payload: _i3.identical(payload, _sentinel)
-          ? this.payload
-          : (payload as _i3.String),
-    ) as $Res);
   }
 }

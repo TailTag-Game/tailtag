@@ -21,6 +21,7 @@ class CatchConfirmationResponseSchemaCatchFursuitModel
   factory CatchConfirmationResponseSchemaCatchFursuitModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -28,6 +29,8 @@ class CatchConfirmationResponseSchemaCatchFursuitModel
       expectedKeys: {r'tailtag_id', r'name', r'photo_url'},
       listKeys: {},
       context: r'CatchConfirmationResponseSchemaCatchFursuitModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return CatchConfirmationResponseSchemaCatchFursuitModel(
       tailtagId: _$values[r'tailtag_id'].decodeSimpleString(
@@ -96,11 +99,27 @@ class CatchConfirmationResponseSchemaCatchFursuitModel
     r'CatchConfirmationResponseSchemaCatchFursuitModel is read-only and cannot be encoded.',
   );
 
-  $$CatchConfirmationResponseSchemaCatchFursuitModelCopyWith<
-    CatchConfirmationResponseSchemaCatchFursuitModel
-  >
-  get copyWith =>
-      _CatchConfirmationResponseSchemaCatchFursuitModelCopyWith(this);
+  CatchConfirmationResponseSchemaCatchFursuitModel Function({
+    _i3.String? tailtagId,
+    _i3.String? name,
+    _i3.Uri? photoUrl,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({
+      _i3.Object? tailtagId = _sentinel,
+      _i3.Object? name = _sentinel,
+      _i3.Object? photoUrl = _sentinel,
+    }) => CatchConfirmationResponseSchemaCatchFursuitModel(
+      tailtagId: _i3.identical(tailtagId, _sentinel)
+          ? this.tailtagId
+          : (tailtagId as _i3.String?),
+      name: _i3.identical(name, _sentinel) ? this.name : (name as _i3.String?),
+      photoUrl: _i3.identical(photoUrl, _sentinel)
+          ? this.photoUrl
+          : (photoUrl as _i3.Uri?),
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -113,7 +132,7 @@ class CatchConfirmationResponseSchemaCatchFursuitModel
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([tailtagId, name, photoUrl]);
+    return _i3.Object.hashAll([this.tailtagId, this.name, this.photoUrl]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -135,54 +154,5 @@ class CatchConfirmationResponseSchemaCatchFursuitModel
     throw _i1.EncodingException(
       r'Cannot uriEncode CatchConfirmationResponseSchemaCatchFursuitModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$CatchConfirmationResponseSchemaCatchFursuitModelCopyWith<
-  $Res
-> {
-  factory $$CatchConfirmationResponseSchemaCatchFursuitModelCopyWith(
-    CatchConfirmationResponseSchemaCatchFursuitModel value,
-  ) = _CatchConfirmationResponseSchemaCatchFursuitModelCopyWith<$Res>;
-
-  $Res call({_i3.String? tailtagId, _i3.String? name, _i3.Uri? photoUrl});
-  _i3.String? get tailtagId;
-  _i3.String? get name;
-  _i3.Uri? get photoUrl;
-}
-
-class _CatchConfirmationResponseSchemaCatchFursuitModelCopyWith<$Res>
-    implements
-        $$CatchConfirmationResponseSchemaCatchFursuitModelCopyWith<$Res> {
-  _CatchConfirmationResponseSchemaCatchFursuitModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final CatchConfirmationResponseSchemaCatchFursuitModel _value;
-
-  @_i3.override
-  _i3.String? get tailtagId => _value.tailtagId;
-
-  @_i3.override
-  _i3.String? get name => _value.name;
-
-  @_i3.override
-  _i3.Uri? get photoUrl => _value.photoUrl;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? tailtagId = _sentinel,
-    _i3.Object? name = _sentinel,
-    _i3.Object? photoUrl = _sentinel,
-  }) {
-    return (CatchConfirmationResponseSchemaCatchFursuitModel(
-      tailtagId: _i3.identical(tailtagId, _sentinel)
-          ? this.tailtagId
-          : (tailtagId as _i3.String?),
-      name: _i3.identical(name, _sentinel) ? this.name : (name as _i3.String?),
-      photoUrl: _i3.identical(photoUrl, _sentinel)
-          ? this.photoUrl
-          : (photoUrl as _i3.Uri?),
-    ) as $Res);
   }
 }

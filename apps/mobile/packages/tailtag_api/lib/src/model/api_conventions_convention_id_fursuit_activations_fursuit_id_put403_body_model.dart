@@ -19,6 +19,7 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModel
   factory ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -26,6 +27,8 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModel
       expectedKeys: {r'detail'},
       listKeys: {},
       context: r'ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModel(
       detail: _$values[r'detail'].decodeSimpleString(
@@ -68,15 +71,16 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModel
   final _i3.String detail;
 
   @_i3.override
-  _i3.Object? toJson() => {r'detail': detail};
+  _i3.Object? toJson() => {r'detail': this.detail};
 
-  $$ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModelCopyWith<
-    ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModel
-  >
-  get copyWith =>
-      _ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModelCopyWith(
-        this,
-      );
+  ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModel
+  Function({_i3.String? detail})
+  get copyWith {
+    return ({_i3.String? detail}) =>
+        ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModel(
+          detail: detail ?? this.detail,
+        );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -87,7 +91,7 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModel
   }
 
   @_i3.override
-  _i3.int get hashCode => detail.hashCode;
+  _i3.int get hashCode => this.detail.hashCode;
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
 
@@ -96,7 +100,7 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModel
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'detail'] = _i1.PropertyValue.scalar(detail);
+    _$result[r'detail'] = _i1.PropertyValue.scalar(this.detail);
     return _$result;
   }
 
@@ -110,48 +114,5 @@ class ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModel
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModelCopyWith<
-  $Res
-> {
-  factory $$ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModelCopyWith(
-    ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModel value,
-  ) =
-      _ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModelCopyWith<
-        $Res
-      >;
-
-  $Res call({_i3.String? detail});
-  _i3.String get detail;
-}
-
-class _ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModelCopyWith<
-  $Res
->
-    implements
-        $$ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModelCopyWith<
-          $Res
-        > {
-  _ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModelCopyWith(
-    this._value,
-  );
-
-  static const _sentinel = _i3.Object();
-
-  final ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModel
-  _value;
-
-  @_i3.override
-  _i3.String get detail => _value.detail;
-
-  @_i3.override
-  $Res call({_i3.Object? detail = _sentinel}) {
-    return (ApiConventionsConventionIdFursuitActivationsFursuitIdPut403BodyModel(
-      detail: _i3.identical(detail, _sentinel)
-          ? this.detail
-          : (detail as _i3.String),
-    ) as $Res);
   }
 }

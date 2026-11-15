@@ -28,7 +28,7 @@ class ConventionFursuitCatchSessionSetStateResponse200
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -43,7 +43,7 @@ class ConventionFursuitCatchSessionSetStateResponse400
   }
 
   @_i3.override
-  _i3.int get hashCode => runtimeType.hashCode;
+  _i3.int get hashCode => this.runtimeType.hashCode;
 }
 
 @_i1.immutable
@@ -58,7 +58,7 @@ class ConventionFursuitCatchSessionSetStateResponse401
   }
 
   @_i3.override
-  _i3.int get hashCode => runtimeType.hashCode;
+  _i3.int get hashCode => this.runtimeType.hashCode;
 }
 
 @_i1.immutable
@@ -73,7 +73,7 @@ class ConventionFursuitCatchSessionSetStateResponse403
   }
 
   @_i3.override
-  _i3.int get hashCode => runtimeType.hashCode;
+  _i3.int get hashCode => this.runtimeType.hashCode;
 }
 
 @_i1.immutable
@@ -88,7 +88,7 @@ class ConventionFursuitCatchSessionSetStateResponse404
   }
 
   @_i3.override
-  _i3.int get hashCode => runtimeType.hashCode;
+  _i3.int get hashCode => this.runtimeType.hashCode;
 }
 
 @_i1.immutable
@@ -103,5 +103,5 @@ class ConventionFursuitCatchSessionSetStateResponse405
   }
 
   @_i3.override
-  _i3.int get hashCode => runtimeType.hashCode;
+  _i3.int get hashCode => this.runtimeType.hashCode;
 }

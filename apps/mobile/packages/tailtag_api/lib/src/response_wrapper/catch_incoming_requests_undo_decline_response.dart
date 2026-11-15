@@ -31,7 +31,7 @@ class CatchIncomingRequestsUndoDeclineResponse200
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -49,7 +49,7 @@ class CatchIncomingRequestsUndoDeclineResponse401
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -67,7 +67,7 @@ class CatchIncomingRequestsUndoDeclineResponse403
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -85,7 +85,7 @@ class CatchIncomingRequestsUndoDeclineResponse404
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -103,7 +103,7 @@ class CatchIncomingRequestsUndoDeclineResponse409
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -121,5 +121,5 @@ class CatchIncomingRequestsUndoDeclineResponse500
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }

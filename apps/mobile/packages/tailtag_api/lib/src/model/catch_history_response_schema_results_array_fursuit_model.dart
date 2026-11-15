@@ -21,6 +21,7 @@ class CatchHistoryResponseSchemaResultsArrayFursuitModel
   factory CatchHistoryResponseSchemaResultsArrayFursuitModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -28,6 +29,8 @@ class CatchHistoryResponseSchemaResultsArrayFursuitModel
       expectedKeys: {r'id', r'name', r'photo_url'},
       listKeys: {},
       context: r'CatchHistoryResponseSchemaResultsArrayFursuitModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return CatchHistoryResponseSchemaResultsArrayFursuitModel(
       id: _$values[r'id'].decodeSimpleInt(
@@ -97,11 +100,25 @@ class CatchHistoryResponseSchemaResultsArrayFursuitModel
   @_i3.override
   _i3.Object? toJson() => <_i3.String, _i3.Object?>{};
 
-  $$CatchHistoryResponseSchemaResultsArrayFursuitModelCopyWith<
-    CatchHistoryResponseSchemaResultsArrayFursuitModel
-  >
-  get copyWith =>
-      _CatchHistoryResponseSchemaResultsArrayFursuitModelCopyWith(this);
+  CatchHistoryResponseSchemaResultsArrayFursuitModel Function({
+    _i3.int? id,
+    _i3.String? name,
+    _i3.Uri? photoUrl,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({
+      _i3.Object? id = _sentinel,
+      _i3.Object? name = _sentinel,
+      _i3.Object? photoUrl = _sentinel,
+    }) => CatchHistoryResponseSchemaResultsArrayFursuitModel(
+      id: _i3.identical(id, _sentinel) ? this.id : (id as _i3.int?),
+      name: _i3.identical(name, _sentinel) ? this.name : (name as _i3.String?),
+      photoUrl: _i3.identical(photoUrl, _sentinel)
+          ? this.photoUrl
+          : (photoUrl as _i3.Uri?),
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -114,7 +131,7 @@ class CatchHistoryResponseSchemaResultsArrayFursuitModel
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([id, name, photoUrl]);
+    return _i3.Object.hashAll([this.id, this.name, this.photoUrl]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -136,52 +153,5 @@ class CatchHistoryResponseSchemaResultsArrayFursuitModel
     throw _i1.EncodingException(
       r'Cannot uriEncode CatchHistoryResponseSchemaResultsArrayFursuitModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$CatchHistoryResponseSchemaResultsArrayFursuitModelCopyWith<
-  $Res
-> {
-  factory $$CatchHistoryResponseSchemaResultsArrayFursuitModelCopyWith(
-    CatchHistoryResponseSchemaResultsArrayFursuitModel value,
-  ) = _CatchHistoryResponseSchemaResultsArrayFursuitModelCopyWith<$Res>;
-
-  $Res call({_i3.int? id, _i3.String? name, _i3.Uri? photoUrl});
-  _i3.int? get id;
-  _i3.String? get name;
-  _i3.Uri? get photoUrl;
-}
-
-class _CatchHistoryResponseSchemaResultsArrayFursuitModelCopyWith<$Res>
-    implements
-        $$CatchHistoryResponseSchemaResultsArrayFursuitModelCopyWith<$Res> {
-  _CatchHistoryResponseSchemaResultsArrayFursuitModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final CatchHistoryResponseSchemaResultsArrayFursuitModel _value;
-
-  @_i3.override
-  _i3.int? get id => _value.id;
-
-  @_i3.override
-  _i3.String? get name => _value.name;
-
-  @_i3.override
-  _i3.Uri? get photoUrl => _value.photoUrl;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? id = _sentinel,
-    _i3.Object? name = _sentinel,
-    _i3.Object? photoUrl = _sentinel,
-  }) {
-    return (CatchHistoryResponseSchemaResultsArrayFursuitModel(
-      id: _i3.identical(id, _sentinel) ? this.id : (id as _i3.int?),
-      name: _i3.identical(name, _sentinel) ? this.name : (name as _i3.String?),
-      photoUrl: _i3.identical(photoUrl, _sentinel)
-          ? this.photoUrl
-          : (photoUrl as _i3.Uri?),
-    ) as $Res);
   }
 }

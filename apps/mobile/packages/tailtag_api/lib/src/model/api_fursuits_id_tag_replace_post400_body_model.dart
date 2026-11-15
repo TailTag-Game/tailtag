@@ -20,6 +20,7 @@ class ApiFursuitsIdTagReplacePost400BodyModel
   factory ApiFursuitsIdTagReplacePost400BodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -27,10 +28,13 @@ class ApiFursuitsIdTagReplacePost400BodyModel
       expectedKeys: {r'expected_version'},
       listKeys: {r'expected_version'},
       context: r'ApiFursuitsIdTagReplacePost400BodyModel',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ApiFursuitsIdTagReplacePost400BodyModel(
       expectedVersion: _$values[r'expected_version'].decodeSimpleStringList(
         context: r'ApiFursuitsIdTagReplacePost400BodyModel.expected_version',
+        isHeader: isHeader,
       ),
     );
   }
@@ -67,12 +71,17 @@ class ApiFursuitsIdTagReplacePost400BodyModel
   final _i3.List<_i3.String> expectedVersion;
 
   @_i3.override
-  _i3.Object? toJson() => {r'expected_version': expectedVersion};
+  _i3.Object? toJson() => {r'expected_version': this.expectedVersion};
 
-  $$ApiFursuitsIdTagReplacePost400BodyModelCopyWith<
-    ApiFursuitsIdTagReplacePost400BodyModel
-  >
-  get copyWith => _ApiFursuitsIdTagReplacePost400BodyModelCopyWith(this);
+  ApiFursuitsIdTagReplacePost400BodyModel Function({
+    _i3.List<_i3.String>? expectedVersion,
+  })
+  get copyWith {
+    return ({_i3.List<_i3.String>? expectedVersion}) =>
+        ApiFursuitsIdTagReplacePost400BodyModel(
+          expectedVersion: expectedVersion ?? this.expectedVersion,
+        );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -85,7 +94,7 @@ class ApiFursuitsIdTagReplacePost400BodyModel
   @_i3.override
   _i3.int get hashCode {
     const deepEquals = _i4.DeepCollectionEquality();
-    return deepEquals.hash(expectedVersion);
+    return deepEquals.hash(this.expectedVersion);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -95,7 +104,9 @@ class ApiFursuitsIdTagReplacePost400BodyModel
     _i3.bool allowEmpty = true,
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
-    _$result[r'expected_version'] = _i1.PropertyValue.array(expectedVersion);
+    _$result[r'expected_version'] = _i1.PropertyValue.array(
+      this.expectedVersion,
+    );
     return _$result;
   }
 
@@ -109,35 +120,5 @@ class ApiFursuitsIdTagReplacePost400BodyModel
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiFursuitsIdTagReplacePost400BodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiFursuitsIdTagReplacePost400BodyModelCopyWith<$Res> {
-  factory $$ApiFursuitsIdTagReplacePost400BodyModelCopyWith(
-    ApiFursuitsIdTagReplacePost400BodyModel value,
-  ) = _ApiFursuitsIdTagReplacePost400BodyModelCopyWith<$Res>;
-
-  $Res call({_i3.List<_i3.String>? expectedVersion});
-  _i3.List<_i3.String> get expectedVersion;
-}
-
-class _ApiFursuitsIdTagReplacePost400BodyModelCopyWith<$Res>
-    implements $$ApiFursuitsIdTagReplacePost400BodyModelCopyWith<$Res> {
-  _ApiFursuitsIdTagReplacePost400BodyModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ApiFursuitsIdTagReplacePost400BodyModel _value;
-
-  @_i3.override
-  _i3.List<_i3.String> get expectedVersion => _value.expectedVersion;
-
-  @_i3.override
-  $Res call({_i3.Object? expectedVersion = _sentinel}) {
-    return (ApiFursuitsIdTagReplacePost400BodyModel(
-      expectedVersion: _i3.identical(expectedVersion, _sentinel)
-          ? this.expectedVersion
-          : (expectedVersion as _i3.List<_i3.String>),
-    ) as $Res);
   }
 }

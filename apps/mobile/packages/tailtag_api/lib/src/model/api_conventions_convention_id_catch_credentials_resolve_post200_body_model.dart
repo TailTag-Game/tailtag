@@ -22,6 +22,7 @@ class ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModel
   factory ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     throw _i1.SimpleDecodingException(
       r'Simple encoding not supported for ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModel: contains complex types',
@@ -63,13 +64,26 @@ class ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModel
   @_i3.override
   _i3.Object? toJson() => <_i3.String, _i3.Object?>{};
 
-  $$ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModelCopyWith<
-    ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModel
-  >
-  get copyWith =>
-      _ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModelCopyWith(
-        this,
-      );
+  ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModel Function({
+    _i3.int? conventionId,
+    _i4.ApiConventionsConventionIdCatchCredentialsResolvePost200BodyFursuitModel?
+    fursuit,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({
+      _i3.Object? conventionId = _sentinel,
+      _i3.Object? fursuit = _sentinel,
+    }) => ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModel(
+      conventionId: _i3.identical(conventionId, _sentinel)
+          ? this.conventionId
+          : (conventionId as _i3.int?),
+      fursuit: _i3.identical(fursuit, _sentinel)
+          ? this.fursuit
+          : (fursuit
+                as _i4.ApiConventionsConventionIdCatchCredentialsResolvePost200BodyFursuitModel?),
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -82,7 +96,7 @@ class ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModel
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([conventionId, fursuit]);
+    return _i3.Object.hashAll([this.conventionId, this.fursuit]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -104,65 +118,5 @@ class ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModel
     throw _i1.EncodingException(
       r'Cannot uriEncode ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModel: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModelCopyWith<
-  $Res
-> {
-  factory $$ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModelCopyWith(
-    ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModel value,
-  ) =
-      _ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModelCopyWith<
-        $Res
-      >;
-
-  $Res call({
-    _i3.int? conventionId,
-    _i4.ApiConventionsConventionIdCatchCredentialsResolvePost200BodyFursuitModel?
-    fursuit,
-  });
-  _i3.int? get conventionId;
-  _i4.ApiConventionsConventionIdCatchCredentialsResolvePost200BodyFursuitModel?
-  get fursuit;
-}
-
-class _ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModelCopyWith<
-  $Res
->
-    implements
-        $$ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModelCopyWith<
-          $Res
-        > {
-  _ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModelCopyWith(
-    this._value,
-  );
-
-  static const _sentinel = _i3.Object();
-
-  final ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModel
-  _value;
-
-  @_i3.override
-  _i3.int? get conventionId => _value.conventionId;
-
-  @_i3.override
-  _i4.ApiConventionsConventionIdCatchCredentialsResolvePost200BodyFursuitModel?
-  get fursuit => _value.fursuit;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? conventionId = _sentinel,
-    _i3.Object? fursuit = _sentinel,
-  }) {
-    return (ApiConventionsConventionIdCatchCredentialsResolvePost200BodyModel(
-      conventionId: _i3.identical(conventionId, _sentinel)
-          ? this.conventionId
-          : (conventionId as _i3.int?),
-      fursuit: _i3.identical(fursuit, _sentinel)
-          ? this.fursuit
-          : (fursuit
-                as _i4.ApiConventionsConventionIdCatchCredentialsResolvePost200BodyFursuitModel?),
-    ) as $Res);
   }
 }

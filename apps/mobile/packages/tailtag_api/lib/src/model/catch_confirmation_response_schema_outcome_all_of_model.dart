@@ -17,6 +17,7 @@ class CatchConfirmationResponseSchemaOutcomeAllOfModel
   factory CatchConfirmationResponseSchemaOutcomeAllOfModel.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     return CatchConfirmationResponseSchemaOutcomeAllOfModel(
       outcomeEnum: _i4.OutcomeEnum.fromSimple(value, explode: explode),
@@ -142,44 +143,18 @@ class CatchConfirmationResponseSchemaOutcomeAllOfModel
   }
 
   @_i3.override
-  _i3.int get hashCode => outcomeEnum.hashCode;
+  _i3.int get hashCode => this.outcomeEnum.hashCode;
 
-  $$CatchConfirmationResponseSchemaOutcomeAllOfModelCopyWith<
-    CatchConfirmationResponseSchemaOutcomeAllOfModel
-  >
-  get copyWith =>
-      _CatchConfirmationResponseSchemaOutcomeAllOfModelCopyWith(this);
-}
-
-abstract class $$CatchConfirmationResponseSchemaOutcomeAllOfModelCopyWith<
-  $Res
-> {
-  factory $$CatchConfirmationResponseSchemaOutcomeAllOfModelCopyWith(
-    CatchConfirmationResponseSchemaOutcomeAllOfModel value,
-  ) = _CatchConfirmationResponseSchemaOutcomeAllOfModelCopyWith<$Res>;
-
-  $Res call({_i4.OutcomeEnum? outcomeEnum});
-  _i4.OutcomeEnum? get outcomeEnum;
-}
-
-class _CatchConfirmationResponseSchemaOutcomeAllOfModelCopyWith<$Res>
-    implements
-        $$CatchConfirmationResponseSchemaOutcomeAllOfModelCopyWith<$Res> {
-  _CatchConfirmationResponseSchemaOutcomeAllOfModelCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final CatchConfirmationResponseSchemaOutcomeAllOfModel _value;
-
-  @_i3.override
-  _i4.OutcomeEnum? get outcomeEnum => _value.outcomeEnum;
-
-  @_i3.override
-  $Res call({_i3.Object? outcomeEnum = _sentinel}) {
-    return (CatchConfirmationResponseSchemaOutcomeAllOfModel(
-      outcomeEnum: _i3.identical(outcomeEnum, _sentinel)
-          ? this.outcomeEnum
-          : (outcomeEnum as _i4.OutcomeEnum?),
-    ) as $Res);
+  CatchConfirmationResponseSchemaOutcomeAllOfModel Function({
+    _i4.OutcomeEnum? outcomeEnum,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({_i3.Object? outcomeEnum = _sentinel}) =>
+        CatchConfirmationResponseSchemaOutcomeAllOfModel(
+          outcomeEnum: _i3.identical(outcomeEnum, _sentinel)
+              ? this.outcomeEnum
+              : (outcomeEnum as _i4.OutcomeEnum?),
+        );
   }
 }

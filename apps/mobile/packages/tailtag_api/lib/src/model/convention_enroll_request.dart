@@ -20,6 +20,7 @@ class ConventionEnrollRequest extends _i1.ObjectParameterEncodable
   factory ConventionEnrollRequest.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     final _$values = value.decodeObject(
       explode: explode,
@@ -27,6 +28,8 @@ class ConventionEnrollRequest extends _i1.ObjectParameterEncodable
       expectedKeys: {r'convention_id', r'set_active'},
       listKeys: {},
       context: r'ConventionEnrollRequest',
+      isHeader: isHeader,
+      percentDecodeKeys: false,
     );
     return ConventionEnrollRequest(
       conventionId: _$values[r'convention_id'].decodeSimpleInt(
@@ -85,12 +88,21 @@ class ConventionEnrollRequest extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.Object? toJson() => {
-    r'convention_id': conventionId,
-    if (setActive != null) r'set_active': setActive,
+    r'convention_id': this.conventionId,
+    if (this.setActive != null) r'set_active': this.setActive,
   };
 
-  $$ConventionEnrollRequestCopyWith<ConventionEnrollRequest> get copyWith =>
-      _ConventionEnrollRequestCopyWith(this);
+  ConventionEnrollRequest Function({_i3.int? conventionId, _i3.bool? setActive})
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({_i3.int? conventionId, _i3.Object? setActive = _sentinel}) =>
+        ConventionEnrollRequest(
+          conventionId: conventionId ?? this.conventionId,
+          setActive: _i3.identical(setActive, _sentinel)
+              ? this.setActive
+              : (setActive as _i3.bool?),
+        );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -102,7 +114,7 @@ class ConventionEnrollRequest extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([conventionId, setActive]);
+    return _i3.Object.hashAll([this.conventionId, this.setActive]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -113,10 +125,12 @@ class ConventionEnrollRequest extends _i1.ObjectParameterEncodable
   }) {
     final _$result = <_i3.String, _i1.PropertyValue>{};
     _$result[r'convention_id'] = _i1.PropertyValue.scalar(
-      conventionId.toString(),
+      this.conventionId.toString(),
     );
-    if (setActive != null) {
-      _$result[r'set_active'] = _i1.PropertyValue.scalar(setActive!.toString());
+    if (this.setActive != null) {
+      _$result[r'set_active'] = _i1.PropertyValue.scalar(
+        this.setActive!.toString(),
+      );
     }
     return _$result;
   }
@@ -131,44 +145,5 @@ class ConventionEnrollRequest extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode ConventionEnrollRequest: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$ConventionEnrollRequestCopyWith<$Res> {
-  factory $$ConventionEnrollRequestCopyWith(ConventionEnrollRequest value) =
-      _ConventionEnrollRequestCopyWith<$Res>;
-
-  $Res call({_i3.int? conventionId, _i3.bool? setActive});
-  _i3.int get conventionId;
-  _i3.bool? get setActive;
-}
-
-class _ConventionEnrollRequestCopyWith<$Res>
-    implements $$ConventionEnrollRequestCopyWith<$Res> {
-  _ConventionEnrollRequestCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final ConventionEnrollRequest _value;
-
-  @_i3.override
-  _i3.int get conventionId => _value.conventionId;
-
-  @_i3.override
-  _i3.bool? get setActive => _value.setActive;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? conventionId = _sentinel,
-    _i3.Object? setActive = _sentinel,
-  }) {
-    return (ConventionEnrollRequest(
-      conventionId: _i3.identical(conventionId, _sentinel)
-          ? this.conventionId
-          : (conventionId as _i3.int),
-      setActive: _i3.identical(setActive, _sentinel)
-          ? this.setActive
-          : (setActive as _i3.bool?),
-    ) as $Res);
   }
 }

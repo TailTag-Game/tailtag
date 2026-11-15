@@ -28,7 +28,7 @@ class ConventionsRetrieveResponse200 extends ConventionsRetrieveResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -44,7 +44,7 @@ class ConventionsRetrieveResponse401 extends ConventionsRetrieveResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }
 
 @_i1.immutable
@@ -60,5 +60,5 @@ class ConventionsRetrieveResponse404 extends ConventionsRetrieveResponse {
   }
 
   @_i3.override
-  _i3.int get hashCode => body.hashCode;
+  _i3.int get hashCode => this.body.hashCode;
 }

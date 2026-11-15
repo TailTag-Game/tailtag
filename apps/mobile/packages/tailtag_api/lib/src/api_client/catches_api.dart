@@ -145,7 +145,7 @@ class CatchesApi {
     _i15.int page = _i2.CatchHistoryList.pageDefault,
     _i15.int pageSize = _i2.CatchHistoryList.pageSizeDefault,
     _i16.TonikCancellation? cancellation,
-  }) async => _catchHistoryList(
+  }) async => this._catchHistoryList(
     conventionId: conventionId,
     page: page,
     pageSize: pageSize,
@@ -161,7 +161,7 @@ class CatchesApi {
   catchConfirm({
     required _i20.CatchConfirmationRequestSchema body,
     _i16.TonikCancellation? cancellation,
-  }) async => _catchConfirm(body: body, cancellation: cancellation);
+  }) async => this._catchConfirm(body: body, cancellation: cancellation);
 
   /// List requests on the caller's suits, newest first, for conventions whose review window is open.
   ///
@@ -174,7 +174,7 @@ class CatchesApi {
     _i15.int? conventionId,
     _i15.int? fursuitId,
     _i16.TonikCancellation? cancellation,
-  }) async => _catchIncomingRequestsList(
+  }) async => this._catchIncomingRequestsList(
     conventionId: conventionId,
     fursuitId: fursuitId,
     cancellation: cancellation,
@@ -190,7 +190,8 @@ class CatchesApi {
   catchIncomingRequestsApprove({
     required _i15.int id,
     _i16.TonikCancellation? cancellation,
-  }) async => _catchIncomingRequestsApprove(id: id, cancellation: cancellation);
+  }) async =>
+      this._catchIncomingRequestsApprove(id: id, cancellation: cancellation);
 
   /// Remove the block for this request's player, suit, and convention. The cooldown stays. No block in place also returns 204.
   ///
@@ -202,7 +203,8 @@ class CatchesApi {
   catchIncomingRequestsUnblock({
     required _i15.int id,
     _i16.TonikCancellation? cancellation,
-  }) async => _catchIncomingRequestsUnblock(id: id, cancellation: cancellation);
+  }) async =>
+      this._catchIncomingRequestsUnblock(id: id, cancellation: cancellation);
 
   /// Decline a pending request. No reason is needed. With block true, the player is also blocked for this suit at this convention.
   ///
@@ -215,7 +217,7 @@ class CatchesApi {
     required _i25.CatchRequestDecline body,
     required _i15.int id,
     _i16.TonikCancellation? cancellation,
-  }) async => _catchIncomingRequestsDecline(
+  }) async => this._catchIncomingRequestsDecline(
     body: body,
     id: id,
     cancellation: cancellation,
@@ -231,7 +233,8 @@ class CatchesApi {
   catchIncomingRequestsRestore({
     required _i15.int id,
     _i16.TonikCancellation? cancellation,
-  }) async => _catchIncomingRequestsRestore(id: id, cancellation: cancellation);
+  }) async =>
+      this._catchIncomingRequestsRestore(id: id, cancellation: cancellation);
 
   /// Undo an ordinary decline within 10 seconds. The request returns to pending, and the decline no longer counts.
   ///
@@ -246,8 +249,10 @@ class CatchesApi {
   catchIncomingRequestsUndoDecline({
     required _i15.int id,
     _i16.TonikCancellation? cancellation,
-  }) async =>
-      _catchIncomingRequestsUndoDecline(id: id, cancellation: cancellation);
+  }) async => this._catchIncomingRequestsUndoDecline(
+    id: id,
+    cancellation: cancellation,
+  );
 
   /// Count pending requests on the caller's suits in open windows.
   ///
@@ -259,7 +264,7 @@ class CatchesApi {
   catchIncomingRequestsSummary({
     _i15.int? conventionId,
     _i16.TonikCancellation? cancellation,
-  }) async => _catchIncomingRequestsSummary(
+  }) async => this._catchIncomingRequestsSummary(
     conventionId: conventionId,
     cancellation: cancellation,
   );
@@ -272,7 +277,7 @@ class CatchesApi {
   catchPreview({
     required _i30.ApiCatchesPreviewPostBodyBodyModel body,
     _i16.TonikCancellation? cancellation,
-  }) async => _catchPreview(body: body, cancellation: cancellation);
+  }) async => this._catchPreview(body: body, cancellation: cancellation);
 
   /// List the caller's catch requests, newest first, for conventions whose review window is open. A closed window hides its requests.
   ///
@@ -282,7 +287,7 @@ class CatchesApi {
   catchRequestsList({
     _i15.int? conventionId,
     _i16.TonikCancellation? cancellation,
-  }) async => _catchRequestsList(
+  }) async => this._catchRequestsList(
     conventionId: conventionId,
     cancellation: cancellation,
   );
@@ -295,7 +300,7 @@ class CatchesApi {
   catchRequestsCreate({
     required _i33.CatchRequestPayload body,
     _i16.TonikCancellation? cancellation,
-  }) async => _catchRequestsCreate(body: body, cancellation: cancellation);
+  }) async => this._catchRequestsCreate(body: body, cancellation: cancellation);
 
   /// Withdraw the caller's pending request. A withdrawal does not count as a decline and does not reset a cooldown.
   ///
@@ -307,5 +312,5 @@ class CatchesApi {
   catchRequestsWithdraw({
     required _i15.int id,
     _i16.TonikCancellation? cancellation,
-  }) async => _catchRequestsWithdraw(id: id, cancellation: cancellation);
+  }) async => this._catchRequestsWithdraw(id: id, cancellation: cancellation);
 }

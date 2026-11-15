@@ -82,6 +82,13 @@ final class FursuitsCreate
         final _$json = _i4.decodeResponseJson<_i3.Object?>(response.bodyBytes);
         final _$body = _i9.ApiFursuitsPost201BodyModel.fromJson(_$json);
         return _i2.FursuitsCreateResponse201(body: _$body);
+      case (201, _):
+        final _$content = response.headers['content-type'] ?? 'not specified';
+        final _$matched = _$mediaType ?? 'none';
+        final _$status = response.statusCode;
+        throw _i4.ResponseDecodingException(
+          'Unexpected content type: ${_$content} (matched as: ${_$matched}) for status code: ${_$status}',
+        );
       case (400, _):
         return _i2.FursuitsCreateResponse400();
       case (401, _):

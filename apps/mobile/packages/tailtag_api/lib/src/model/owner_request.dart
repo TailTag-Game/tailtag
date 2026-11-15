@@ -31,6 +31,7 @@ class OwnerRequest extends _i1.ObjectParameterEncodable
   factory OwnerRequest.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     throw _i1.SimpleDecodingException(
       r'Simple encoding not supported for OwnerRequest: contains complex types',
@@ -102,21 +103,63 @@ class OwnerRequest extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.Object? toJson() => {
-    r'id': id,
-    r'fursuit': fursuit.toJson(),
-    r'convention_id': conventionId,
-    r'player': player.toJson(),
-    r'state': state.toJson(),
-    r'requested_at': requestedAt.toTimeZonedIso8601String(),
-    r'undo_available_until': undoAvailableUntil?.toTimeZonedIso8601String(),
-    r'prior_decline_count': priorDeclineCount,
-    r'player_blocked': playerBlocked,
-    r'approval_paused': approvalPaused,
-    r'review_deadline_at': reviewDeadlineAt.toTimeZonedIso8601String(),
+    r'id': this.id,
+    r'fursuit': this.fursuit.toJson(),
+    r'convention_id': this.conventionId,
+    r'player': this.player.toJson(),
+    r'state': this.state.toJson(),
+    r'requested_at': this.requestedAt.toTimeZonedIso8601String(),
+    r'undo_available_until': this.undoAvailableUntil
+        ?.toTimeZonedIso8601String(),
+    r'prior_decline_count': this.priorDeclineCount,
+    r'player_blocked': this.playerBlocked,
+    r'approval_paused': this.approvalPaused,
+    r'review_deadline_at': this.reviewDeadlineAt.toTimeZonedIso8601String(),
   };
 
-  $$OwnerRequestCopyWith<OwnerRequest> get copyWith =>
-      _OwnerRequestCopyWith(this);
+  OwnerRequest Function({
+    _i3.int? id,
+    _i4.FursuitSummary? fursuit,
+    _i3.int? conventionId,
+    _i5.OwnerRequestPlayerModel? player,
+    _i6.CatchRequestState? state,
+    _i3.DateTime? requestedAt,
+    _i3.DateTime? undoAvailableUntil,
+    _i3.int? priorDeclineCount,
+    _i3.bool? playerBlocked,
+    _i3.bool? approvalPaused,
+    _i3.DateTime? reviewDeadlineAt,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({
+      _i3.int? id,
+      _i4.FursuitSummary? fursuit,
+      _i3.int? conventionId,
+      _i5.OwnerRequestPlayerModel? player,
+      _i6.CatchRequestState? state,
+      _i3.DateTime? requestedAt,
+      _i3.Object? undoAvailableUntil = _sentinel,
+      _i3.int? priorDeclineCount,
+      _i3.bool? playerBlocked,
+      _i3.bool? approvalPaused,
+      _i3.DateTime? reviewDeadlineAt,
+    }) => OwnerRequest(
+      id: id ?? this.id,
+      fursuit: fursuit ?? this.fursuit,
+      conventionId: conventionId ?? this.conventionId,
+      player: player ?? this.player,
+      state: state ?? this.state,
+      requestedAt: requestedAt ?? this.requestedAt,
+      undoAvailableUntil: _i3.identical(undoAvailableUntil, _sentinel)
+          ? this.undoAvailableUntil
+          : (undoAvailableUntil as _i3.DateTime?),
+      priorDeclineCount: priorDeclineCount ?? this.priorDeclineCount,
+      playerBlocked: playerBlocked ?? this.playerBlocked,
+      approvalPaused: approvalPaused ?? this.approvalPaused,
+      reviewDeadlineAt: reviewDeadlineAt ?? this.reviewDeadlineAt,
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -138,17 +181,17 @@ class OwnerRequest extends _i1.ObjectParameterEncodable
   @_i3.override
   _i3.int get hashCode {
     return _i3.Object.hashAll([
-      id,
-      fursuit,
-      conventionId,
-      player,
-      state,
-      requestedAt,
-      undoAvailableUntil,
-      priorDeclineCount,
-      playerBlocked,
-      approvalPaused,
-      reviewDeadlineAt,
+      this.id,
+      this.fursuit,
+      this.conventionId,
+      this.player,
+      this.state,
+      this.requestedAt,
+      this.undoAvailableUntil,
+      this.priorDeclineCount,
+      this.playerBlocked,
+      this.approvalPaused,
+      this.reviewDeadlineAt,
     ]);
   }
 
@@ -171,125 +214,5 @@ class OwnerRequest extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode OwnerRequest: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$OwnerRequestCopyWith<$Res> {
-  factory $$OwnerRequestCopyWith(OwnerRequest value) =
-      _OwnerRequestCopyWith<$Res>;
-
-  $Res call({
-    _i3.int? id,
-    _i4.FursuitSummary? fursuit,
-    _i3.int? conventionId,
-    _i5.OwnerRequestPlayerModel? player,
-    _i6.CatchRequestState? state,
-    _i3.DateTime? requestedAt,
-    _i3.DateTime? undoAvailableUntil,
-    _i3.int? priorDeclineCount,
-    _i3.bool? playerBlocked,
-    _i3.bool? approvalPaused,
-    _i3.DateTime? reviewDeadlineAt,
-  });
-  _i3.int get id;
-  _i4.FursuitSummary get fursuit;
-  _i3.int get conventionId;
-  _i5.OwnerRequestPlayerModel get player;
-  _i6.CatchRequestState get state;
-  _i3.DateTime get requestedAt;
-  _i3.DateTime? get undoAvailableUntil;
-  _i3.int get priorDeclineCount;
-  _i3.bool get playerBlocked;
-  _i3.bool get approvalPaused;
-  _i3.DateTime get reviewDeadlineAt;
-}
-
-class _OwnerRequestCopyWith<$Res> implements $$OwnerRequestCopyWith<$Res> {
-  _OwnerRequestCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final OwnerRequest _value;
-
-  @_i3.override
-  _i3.int get id => _value.id;
-
-  @_i3.override
-  _i4.FursuitSummary get fursuit => _value.fursuit;
-
-  @_i3.override
-  _i3.int get conventionId => _value.conventionId;
-
-  @_i3.override
-  _i5.OwnerRequestPlayerModel get player => _value.player;
-
-  @_i3.override
-  _i6.CatchRequestState get state => _value.state;
-
-  @_i3.override
-  _i3.DateTime get requestedAt => _value.requestedAt;
-
-  @_i3.override
-  _i3.DateTime? get undoAvailableUntil => _value.undoAvailableUntil;
-
-  @_i3.override
-  _i3.int get priorDeclineCount => _value.priorDeclineCount;
-
-  @_i3.override
-  _i3.bool get playerBlocked => _value.playerBlocked;
-
-  @_i3.override
-  _i3.bool get approvalPaused => _value.approvalPaused;
-
-  @_i3.override
-  _i3.DateTime get reviewDeadlineAt => _value.reviewDeadlineAt;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? id = _sentinel,
-    _i3.Object? fursuit = _sentinel,
-    _i3.Object? conventionId = _sentinel,
-    _i3.Object? player = _sentinel,
-    _i3.Object? state = _sentinel,
-    _i3.Object? requestedAt = _sentinel,
-    _i3.Object? undoAvailableUntil = _sentinel,
-    _i3.Object? priorDeclineCount = _sentinel,
-    _i3.Object? playerBlocked = _sentinel,
-    _i3.Object? approvalPaused = _sentinel,
-    _i3.Object? reviewDeadlineAt = _sentinel,
-  }) {
-    return (OwnerRequest(
-      id: _i3.identical(id, _sentinel) ? this.id : (id as _i3.int),
-      fursuit: _i3.identical(fursuit, _sentinel)
-          ? this.fursuit
-          : (fursuit as _i4.FursuitSummary),
-      conventionId: _i3.identical(conventionId, _sentinel)
-          ? this.conventionId
-          : (conventionId as _i3.int),
-      player: _i3.identical(player, _sentinel)
-          ? this.player
-          : (player as _i5.OwnerRequestPlayerModel),
-      state: _i3.identical(state, _sentinel)
-          ? this.state
-          : (state as _i6.CatchRequestState),
-      requestedAt: _i3.identical(requestedAt, _sentinel)
-          ? this.requestedAt
-          : (requestedAt as _i3.DateTime),
-      undoAvailableUntil: _i3.identical(undoAvailableUntil, _sentinel)
-          ? this.undoAvailableUntil
-          : (undoAvailableUntil as _i3.DateTime?),
-      priorDeclineCount: _i3.identical(priorDeclineCount, _sentinel)
-          ? this.priorDeclineCount
-          : (priorDeclineCount as _i3.int),
-      playerBlocked: _i3.identical(playerBlocked, _sentinel)
-          ? this.playerBlocked
-          : (playerBlocked as _i3.bool),
-      approvalPaused: _i3.identical(approvalPaused, _sentinel)
-          ? this.approvalPaused
-          : (approvalPaused as _i3.bool),
-      reviewDeadlineAt: _i3.identical(reviewDeadlineAt, _sentinel)
-          ? this.reviewDeadlineAt
-          : (reviewDeadlineAt as _i3.DateTime),
-    ) as $Res);
   }
 }

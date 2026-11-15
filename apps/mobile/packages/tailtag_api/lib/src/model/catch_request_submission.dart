@@ -23,6 +23,7 @@ class CatchRequestSubmission extends _i1.ObjectParameterEncodable
   factory CatchRequestSubmission.fromSimple(
     _i3.String? value, {
     required _i3.bool explode,
+    _i3.bool isHeader = false,
   }) {
     throw _i1.SimpleDecodingException(
       r'Simple encoding not supported for CatchRequestSubmission: contains complex types',
@@ -59,13 +60,32 @@ class CatchRequestSubmission extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.Object? toJson() => {
-    r'outcome': outcome.toJson(),
-    r'request': request?.toJson(),
-    r'catch': $catch?.toJson(),
+    r'outcome': this.outcome.toJson(),
+    r'request': this.request?.toJson(),
+    r'catch': this.$catch?.toJson(),
   };
 
-  $$CatchRequestSubmissionCopyWith<CatchRequestSubmission> get copyWith =>
-      _CatchRequestSubmissionCopyWith(this);
+  CatchRequestSubmission Function({
+    _i4.CatchRequestOutcome? outcome,
+    _i5.PlayerRequest? request,
+    _i6.RequestCatch? $catch,
+  })
+  get copyWith {
+    const _i3.Object _sentinel = _i3.Object();
+    return ({
+      _i4.CatchRequestOutcome? outcome,
+      _i3.Object? request = _sentinel,
+      _i3.Object? $catch = _sentinel,
+    }) => CatchRequestSubmission(
+      outcome: outcome ?? this.outcome,
+      request: _i3.identical(request, _sentinel)
+          ? this.request
+          : (request as _i5.PlayerRequest?),
+      $catch: _i3.identical($catch, _sentinel)
+          ? this.$catch
+          : ($catch as _i6.RequestCatch?),
+    );
+  }
 
   @_i3.override
   _i3.bool operator ==(_i3.Object other) {
@@ -78,7 +98,7 @@ class CatchRequestSubmission extends _i1.ObjectParameterEncodable
 
   @_i3.override
   _i3.int get hashCode {
-    return _i3.Object.hashAll([outcome, request, $catch]);
+    return _i3.Object.hashAll([this.outcome, this.request, this.$catch]);
   }
 
   _i1.EncodingShape get currentEncodingShape => _i1.EncodingShape.complex;
@@ -100,56 +120,5 @@ class CatchRequestSubmission extends _i1.ObjectParameterEncodable
     throw _i1.EncodingException(
       r'Cannot uriEncode CatchRequestSubmission: complex types cannot be URI-encoded',
     );
-  }
-}
-
-abstract class $$CatchRequestSubmissionCopyWith<$Res> {
-  factory $$CatchRequestSubmissionCopyWith(CatchRequestSubmission value) =
-      _CatchRequestSubmissionCopyWith<$Res>;
-
-  $Res call({
-    _i4.CatchRequestOutcome? outcome,
-    _i5.PlayerRequest? request,
-    _i6.RequestCatch? $catch,
-  });
-  _i4.CatchRequestOutcome get outcome;
-  _i5.PlayerRequest? get request;
-  _i6.RequestCatch? get $catch;
-}
-
-class _CatchRequestSubmissionCopyWith<$Res>
-    implements $$CatchRequestSubmissionCopyWith<$Res> {
-  _CatchRequestSubmissionCopyWith(this._value);
-
-  static const _sentinel = _i3.Object();
-
-  final CatchRequestSubmission _value;
-
-  @_i3.override
-  _i4.CatchRequestOutcome get outcome => _value.outcome;
-
-  @_i3.override
-  _i5.PlayerRequest? get request => _value.request;
-
-  @_i3.override
-  _i6.RequestCatch? get $catch => _value.$catch;
-
-  @_i3.override
-  $Res call({
-    _i3.Object? outcome = _sentinel,
-    _i3.Object? request = _sentinel,
-    _i3.Object? $catch = _sentinel,
-  }) {
-    return (CatchRequestSubmission(
-      outcome: _i3.identical(outcome, _sentinel)
-          ? this.outcome
-          : (outcome as _i4.CatchRequestOutcome),
-      request: _i3.identical(request, _sentinel)
-          ? this.request
-          : (request as _i5.PlayerRequest?),
-      $catch: _i3.identical($catch, _sentinel)
-          ? this.$catch
-          : ($catch as _i6.RequestCatch?),
-    ) as $Res);
   }
 }
