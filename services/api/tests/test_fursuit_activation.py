@@ -187,7 +187,7 @@ def test_list_is_owner_scoped_exact_ascending_and_never_synthesizes_relationship
     )
     response = scenario.client.get(activation_list_path(scenario.convention.pk))
     assert response.status_code == 200
-    data = [assert_activation_data(item) for item in response.json()]
+    data = [assert_activation_data(item, list_item=True) for item in response.json()]
     assert [item["fursuit_id"] for item in data] == sorted(
         [scenario.fursuit.pk, second.pk]
     )
@@ -222,7 +222,7 @@ def test_list_projects_current_eligibility_without_rewriting_active_selection(
         Fursuit.objects.filter(pk=scenario.fursuit.pk).update(is_enabled=False)
     response = scenario.client.get(activation_list_path(scenario.convention.pk))
     assert response.status_code == 200
-    data = assert_activation_data(response.json()[0])
+    data = assert_activation_data(response.json()[0], list_item=True)
     assert data["is_active"] is True and data["is_eligible"] is False
     activation.refresh_from_db()
     assert activation.is_active is True and activation.deactivated_at is None
@@ -240,7 +240,7 @@ def test_list_computes_ineligible_for_every_profile_predicate_shape(
     _make_profile_ineligible(scenario, profile_shape)
     response = scenario.client.get(activation_list_path(scenario.convention.pk))
     assert response.status_code == 200
-    data = assert_activation_data(response.json()[0])
+    data = assert_activation_data(response.json()[0], list_item=True)
     assert data["fursuit_id"] == scenario.fursuit.pk
     assert data["convention_id"] == scenario.convention.pk
     assert data["is_active"] is True and data["is_eligible"] is False

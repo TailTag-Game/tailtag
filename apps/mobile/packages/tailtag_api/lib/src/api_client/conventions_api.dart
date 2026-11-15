@@ -190,7 +190,7 @@ class ConventionsApi {
     cancellation: cancellation,
   );
 
-  /// Return existing owner selections in ascending fursuit_id order. is_active is the stored selection; is_eligible is computed from current upstream state. Operational participation requires both.
+  /// Return existing owner selections in ascending fursuit_id order. is_active is the stored selection; is_eligible is computed from current upstream state. Operational participation requires both. catch_session is the newest catch session of each activation, or null.
   ///
   /// Security:
   /// - HTTP Bearer

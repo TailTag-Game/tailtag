@@ -17,8 +17,14 @@ from media import service as media_service
 
 from .catch_credential_protocol import CATCH_CREDENTIAL_PAYLOAD_PATTERN
 from .catch_sessions import FursuitCatchSessionState
-from .models import Convention, ConventionEnrollment, FursuitActivation
+from .models import (
+    Convention,
+    ConventionEnrollment,
+    FursuitActivation,
+    FursuitCatchSessionEndReason,
+)
 from .review_deadline import review_deadline_local_date, review_window_open
+from .services import OwnedFursuitActivationView
 
 FURSUIT_CATCH_SESSION_RESPONSE_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -86,6 +92,27 @@ FURSUIT_ACTIVATION_RESPONSE_SCHEMA: dict[str, object] = {
         "is_eligible",
         "activated_at",
         "deactivated_at",
+    ],
+}
+
+FURSUIT_ACTIVATION_LIST_ITEM_SCHEMA: dict[str, object] = {
+    **FURSUIT_ACTIVATION_RESPONSE_SCHEMA,
+    "properties": {
+        **cast(dict[str, object], FURSUIT_ACTIVATION_RESPONSE_SCHEMA["properties"]),
+        "catch_session": {
+            **FURSUIT_CATCH_SESSION_RESPONSE_SCHEMA,
+            "nullable": True,
+            "description": (
+                "The newest catch session of this activation, or null when it has "
+                "none. is_active is true only for a live session of an operational "
+                "activation. An unfinalized session past expires_at reads as "
+                "ended_at = expires_at and end_reason expired. The read writes nothing."
+            ),
+        },
+    },
+    "required": [
+        *cast(list[str], FURSUIT_ACTIVATION_RESPONSE_SCHEMA["required"]),
+        "catch_session",
     ],
 }
 
@@ -344,6 +371,10 @@ class FursuitCatchSessionResponseData(TypedDict):
     end_reason: str | None
 
 
+class FursuitActivationListItemData(FursuitActivationResponseData):
+    catch_session: FursuitCatchSessionResponseData | None
+
+
 class FursuitCatchCredentialResponseData(TypedDict):
     payload: str
 
@@ -445,6 +476,40 @@ def fursuit_catch_session_response_data(
         else None,
         "end_reason": session.end_reason,
     }
+
+
+def fursuit_activation_list_item_data(
+    view: OwnedFursuitActivationView, *, now: datetime.datetime
+) -> FursuitActivationListItemData:
+    """Project one owner list row with its newest session, without writes."""
+    activation = view.activation
+    base = fursuit_activation_response_data(activation, is_eligible=view.is_eligible)
+    session = view.latest_session
+    if session is None:
+        return {**base, "catch_session": None}
+    ended_at = session.ended_at
+    end_reason = session.end_reason
+    is_active = False
+    if ended_at is None and now >= session.expires_at:
+        ended_at, end_reason = session.expires_at, FursuitCatchSessionEndReason.EXPIRED
+    elif ended_at is None:
+        is_active = activation.is_active and view.is_eligible
+    return {
+        **base,
+        "catch_session": {
+            "fursuit_id": activation.fursuit_id,
+            "convention_id": activation.convention_id,
+            "is_active": is_active,
+            "started_at": _utc_timestamp(session.started_at),
+            "expires_at": _utc_timestamp(session.expires_at),
+            "ended_at": None if ended_at is None else _utc_timestamp(ended_at),
+            "end_reason": None if end_reason is None else str(end_reason),
+        },
+    }
+
+
+def _utc_timestamp(value: datetime.datetime) -> str:
+    return value.astimezone(datetime.UTC).isoformat().replace("+00:00", "Z")
 
 
 def fursuit_catch_credential_response_data(

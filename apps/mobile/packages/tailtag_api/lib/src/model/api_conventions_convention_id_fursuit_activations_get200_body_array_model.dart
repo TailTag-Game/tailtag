@@ -2,10 +2,12 @@
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 
-import 'dart:convert' as _i4;
+import 'dart:convert' as _i5;
 import 'dart:core' as _i3;
 
 import 'package:meta/meta.dart' as _i2;
+import 'package:tailtag_api/src/model/api_conventions_convention_id_fursuit_activations_get200_body_array_catch_session_model.dart'
+    as _i4;
 import 'package:tonik_util/tonik_util.dart' as _i1;
 
 @_i2.immutable
@@ -13,6 +15,7 @@ class ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel
     extends _i1.ObjectParameterEncodable
     implements _i1.UriEncodable {
   const ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel({
+    required this.catchSession,
     this.fursuitId,
     this.conventionId,
     this.isActive,
@@ -25,40 +28,8 @@ class ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel
     _i3.String? value, {
     required _i3.bool explode,
   }) {
-    final _$values = value.decodeObject(
-      explode: explode,
-      explodeSeparator: ',',
-      expectedKeys: {
-        r'fursuit_id',
-        r'convention_id',
-        r'is_active',
-        r'is_eligible',
-        r'activated_at',
-        r'deactivated_at',
-      },
-      listKeys: {},
-      context:
-          r'ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel',
-    );
-    return ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel(
-      fursuitId: _$values[r'fursuit_id'].decodeSimpleInt(
-        context: r'ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel.fursuit_id',
-      ),
-      conventionId: _$values[r'convention_id'].decodeSimpleInt(
-        context: r'ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel.convention_id',
-      ),
-      isActive: _$values[r'is_active'].decodeSimpleBool(
-        context: r'ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel.is_active',
-      ),
-      isEligible: _$values[r'is_eligible'].decodeSimpleBool(
-        context: r'ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel.is_eligible',
-      ),
-      activatedAt: _$values[r'activated_at'].decodeSimpleDateTime(
-        context: r'ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel.activated_at',
-      ),
-      deactivatedAt: _$values[r'deactivated_at'].decodeSimpleNullableDateTime(
-        context: r'ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel.deactivated_at',
-      ),
+    throw _i1.SimpleDecodingException(
+      r'Simple encoding not supported for ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel: contains complex types',
     );
   }
 
@@ -88,6 +59,11 @@ class ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel
       deactivatedAt: _$map[r'deactivated_at'].decodeJsonNullableDateTime(
         context: r'ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel.deactivated_at',
       ),
+      catchSession: _$map[r'catch_session'] == null
+          ? null
+          : _i4.ApiConventionsConventionIdFursuitActivationsGet200BodyArrayCatchSessionModel.fromJson(
+              _$map[r'catch_session'],
+            ),
     );
   }
 
@@ -95,40 +71,8 @@ class ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel
     _i3.String? value, {
     required _i3.bool explode,
   }) {
-    final _$values = value.decodeObject(
-      explode: explode,
-      explodeSeparator: '&',
-      expectedKeys: {
-        r'fursuit_id',
-        r'convention_id',
-        r'is_active',
-        r'is_eligible',
-        r'activated_at',
-        r'deactivated_at',
-      },
-      listKeys: {},
-      context:
-          r'ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel',
-    );
-    return ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel(
-      fursuitId: _$values[r'fursuit_id'].decodeFormInt(
-        context: r'ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel.fursuit_id',
-      ),
-      conventionId: _$values[r'convention_id'].decodeFormInt(
-        context: r'ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel.convention_id',
-      ),
-      isActive: _$values[r'is_active'].decodeFormBool(
-        context: r'ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel.is_active',
-      ),
-      isEligible: _$values[r'is_eligible'].decodeFormBool(
-        context: r'ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel.is_eligible',
-      ),
-      activatedAt: _$values[r'activated_at'].decodeFormDateTime(
-        context: r'ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel.activated_at',
-      ),
-      deactivatedAt: _$values[r'deactivated_at'].decodeFormNullableDateTime(
-        context: r'ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel.deactivated_at',
-      ),
+    throw _i1.FormDecodingException(
+      r'Form encoding not supported for ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel: contains complex types',
     );
   }
 
@@ -144,8 +88,12 @@ class ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel
 
   final _i3.DateTime? deactivatedAt;
 
+  /// The newest catch session of this activation, or null when it has none. is_active is true only for a live session of an operational activation. An unfinalized session past expires_at reads as ended_at = expires_at and end_reason expired. The read writes nothing.
+  final _i4.ApiConventionsConventionIdFursuitActivationsGet200BodyArrayCatchSessionModel?
+  catchSession;
+
   @_i3.override
-  _i3.Object? toJson() => <_i3.String, _i3.Object?>{};
+  _i3.Object? toJson() => {r'catch_session': catchSession?.toJson()};
 
   $$ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModelCopyWith<
     ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel
@@ -165,7 +113,8 @@ class ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel
         other.isActive == this.isActive &&
         other.isEligible == this.isEligible &&
         other.activatedAt == this.activatedAt &&
-        other.deactivatedAt == this.deactivatedAt;
+        other.deactivatedAt == this.deactivatedAt &&
+        other.catchSession == this.catchSession;
   }
 
   @_i3.override
@@ -177,6 +126,7 @@ class ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel
       isEligible,
       activatedAt,
       deactivatedAt,
+      catchSession,
     ]);
   }
 
@@ -185,14 +135,14 @@ class ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel
   @_i3.override
   _i3.Map<_i3.String, _i1.PropertyValue> parameterProperties({
     _i3.bool allowEmpty = true,
-  }) {
-    return <_i3.String, _i1.PropertyValue>{};
-  }
+  }) => throw _i1.EncodingException(
+    r'parameterProperties not supported for ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel: contains complex types',
+  );
 
   @_i3.override
   _i3.String uriEncode({
     required _i3.bool allowEmpty,
-    required _i4.Encoding textEncoding,
+    required _i5.Encoding textEncoding,
     _i3.bool useQueryComponent = false,
     _i3.bool allowReserved = false,
   }) {
@@ -219,6 +169,8 @@ abstract class $$ApiConventionsConventionIdFursuitActivationsGet200BodyArrayMode
     _i3.bool? isEligible,
     _i3.DateTime? activatedAt,
     _i3.DateTime? deactivatedAt,
+    _i4.ApiConventionsConventionIdFursuitActivationsGet200BodyArrayCatchSessionModel?
+    catchSession,
   });
   _i3.int? get fursuitId;
   _i3.int? get conventionId;
@@ -226,6 +178,8 @@ abstract class $$ApiConventionsConventionIdFursuitActivationsGet200BodyArrayMode
   _i3.bool? get isEligible;
   _i3.DateTime? get activatedAt;
   _i3.DateTime? get deactivatedAt;
+  _i4.ApiConventionsConventionIdFursuitActivationsGet200BodyArrayCatchSessionModel?
+  get catchSession;
 }
 
 class _ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModelCopyWith<
@@ -262,6 +216,10 @@ class _ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModelCopyWith<
   _i3.DateTime? get deactivatedAt => _value.deactivatedAt;
 
   @_i3.override
+  _i4.ApiConventionsConventionIdFursuitActivationsGet200BodyArrayCatchSessionModel?
+  get catchSession => _value.catchSession;
+
+  @_i3.override
   $Res call({
     _i3.Object? fursuitId = _sentinel,
     _i3.Object? conventionId = _sentinel,
@@ -269,6 +227,7 @@ class _ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModelCopyWith<
     _i3.Object? isEligible = _sentinel,
     _i3.Object? activatedAt = _sentinel,
     _i3.Object? deactivatedAt = _sentinel,
+    _i3.Object? catchSession = _sentinel,
   }) {
     return (ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModel(
       fursuitId: _i3.identical(fursuitId, _sentinel)
@@ -289,6 +248,10 @@ class _ApiConventionsConventionIdFursuitActivationsGet200BodyArrayModelCopyWith<
       deactivatedAt: _i3.identical(deactivatedAt, _sentinel)
           ? this.deactivatedAt
           : (deactivatedAt as _i3.DateTime?),
+      catchSession: _i3.identical(catchSession, _sentinel)
+          ? this.catchSession
+          : (catchSession
+                as _i4.ApiConventionsConventionIdFursuitActivationsGet200BodyArrayCatchSessionModel?),
     ) as $Res);
   }
 }

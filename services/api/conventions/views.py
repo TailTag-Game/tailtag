@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 from django.core.exceptions import PermissionDenied
+from django.utils import timezone
 from drf_spectacular.utils import (  # pyright: ignore[reportUnknownVariableType]
     OpenApiResponse,
     extend_schema,  # pyright: ignore[reportUnknownVariableType]
@@ -35,6 +36,7 @@ from .models import (
     FursuitActivation,
 )
 from .serializers import (
+    FURSUIT_ACTIVATION_LIST_ITEM_SCHEMA,
     FURSUIT_ACTIVATION_REQUEST_SCHEMA,
     FURSUIT_ACTIVATION_RESPONSE_SCHEMA,
     FURSUIT_CATCH_CREDENTIAL_RESOLUTION_REQUEST_SCHEMA,
@@ -50,6 +52,7 @@ from .serializers import (
     FursuitCatchCredentialResolutionRequestSerializer,
     SelectActiveConventionRequestSerializer,
     enrollment_response_data,
+    fursuit_activation_list_item_data,
     fursuit_activation_response_data,
     fursuit_catch_credential_resolution_response_data,
     fursuit_catch_credential_response_data,
@@ -145,7 +148,7 @@ _METHOD_405 = OpenApiResponse(
 )
 _FURSUIT_ACTIVATION_LIST_SCHEMA: dict[str, object] = {
     "type": "array",
-    "items": FURSUIT_ACTIVATION_RESPONSE_SCHEMA,
+    "items": FURSUIT_ACTIVATION_LIST_ITEM_SCHEMA,
 }
 _FURSUIT_CATCH_SESSION_OPENAPI_OPERATION: dict[str, object] = {
     "operationId": "convention_fursuit_catch_session_set_state",
@@ -449,7 +452,8 @@ class FursuitActivationListView(_FursuitActivationAPIView):
         description=(
             "Return existing owner selections in ascending fursuit_id order. "
             "is_active is the stored selection; is_eligible is computed from "
-            "current upstream state. Operational participation requires both."
+            "current upstream state. Operational participation requires both. "
+            "catch_session is the newest catch session of each activation, or null."
         ),
         responses={
             200: OpenApiResponse(response=_FURSUIT_ACTIVATION_LIST_SCHEMA),
@@ -460,17 +464,12 @@ class FursuitActivationListView(_FursuitActivationAPIView):
     )
     def get(self, request: Request, convention_id: int) -> Response:
         convention = _convention_or_404(convention_id)
-        activations = services.list_owned_fursuit_activations(
+        views = services.list_owned_fursuit_activation_views(
             _user(request), convention=convention
         )
+        now = timezone.now()
         return Response(
-            [
-                fursuit_activation_response_data(
-                    activation,
-                    is_eligible=services.is_fursuit_activation_eligible(activation),
-                )
-                for activation in activations
-            ]
+            [fursuit_activation_list_item_data(view, now=now) for view in views]
         )
 
 

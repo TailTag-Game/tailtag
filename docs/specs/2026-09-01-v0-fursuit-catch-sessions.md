@@ -264,6 +264,14 @@ media types follow #117 and become the same sanitized field-level HTTP `400`,
 not DRF's default `415`. Unsupported methods return HTTP `405`. There are no
 separate POST, PATCH, or DELETE start/stop routes and no GET route in V0.
 
+Amendment (#509, 2026-11-14): the owner activation list,
+`GET /api/conventions/{convention_id}/fursuit-activations/`, now returns a
+nullable `catch_session` field for each activation. It holds the newest session
+in the canonical representation below, or null. A session past `expires_at`
+that no operation has finalized reads as ended at `expires_at` with
+`end_reason` `expired`. The read writes nothing. There is still no session GET
+route.
+
 Every successful transition or retry returns HTTP `200` and the canonical
 representation.
 
