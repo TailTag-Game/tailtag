@@ -15,15 +15,15 @@ workspace:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_riverpod: ^3.4.3
-  go_router: ^18.0.1
+  flutter_riverpod: ^3.5.0
+  go_router: ^18.1.4
   http: ^1.6.0
   image_picker: ^1.2.4
   tailtag_api:
     path: packages/tailtag_api
   tailtag_clerk:
     path: packages/tailtag_clerk
-  tonik_util: ^0.10.0
+  tonik_util: ^0.11.1
 
 dev_dependencies:
   flutter_test:
