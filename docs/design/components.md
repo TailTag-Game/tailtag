@@ -213,9 +213,9 @@ A convention name can have up to 255 characters. The app shows it but does not e
 
 ### Confirmation
 
-- A confirmation [dialog](#dialog) shows only before these two actions. Both revoke the QR credential for good.
-  - Credential rotation (F7)
-  - Fursuit deactivation at a convention (F5). Deactivation also ends the catch session.
+- A confirmation [dialog](#dialog) shows only before these two actions.
+  - Credential rotation (F7). It makes the old QR code stop working for good.
+  - Fursuit deactivation at a convention (F5). It ends the catch session, so players cannot catch the fursuit there until the owner turns it on again.
 - The confirm button uses the destructive [button](#button) variant.
 - Other actions run at once and show a [snackbar](#snackbar). For example, ending a catch session runs at once, because the player can start it again.
 - Dialogs are for decisions. Bottom sheets are for choices and short forms.
