@@ -89,6 +89,20 @@ def get_effective_fursuit_catch_session_for_activation(
     return session
 
 
+def latest_fursuit_catch_sessions(
+    activation_ids: list[int],
+) -> dict[int, FursuitCatchSession]:
+    """Return each activation's newest session, ended or not, in one query."""
+    if not activation_ids:
+        return {}
+    sessions = (
+        FursuitCatchSession.objects.filter(activation_id__in=activation_ids)
+        .order_by("activation_id", "-started_at", "-id")
+        .distinct("activation_id")
+    )
+    return {session.activation_id: session for session in sessions}
+
+
 def unended_fursuit_catch_sessions(
     *, activation_id: int
 ) -> QuerySet[FursuitCatchSession]:

@@ -1121,7 +1121,8 @@ paths:
       operationId: convention_fursuit_activations_list
       description: Return existing owner selections in ascending fursuit_id order.
         is_active is the stored selection; is_eligible is computed from current upstream
-        state. Operational participation requires both.
+        state. Operational participation requires both. catch_session is the newest
+        catch session of each activation, or null.
       parameters:
       - in: path
         name: convention_id
@@ -1163,6 +1164,57 @@ paths:
                       format: date-time
                       nullable: true
                       readOnly: true
+                    catch_session:
+                      type: object
+                      additionalProperties: false
+                      properties:
+                        fursuit_id:
+                          type: integer
+                          readOnly: true
+                        convention_id:
+                          type: integer
+                          readOnly: true
+                        is_active:
+                          type: boolean
+                          readOnly: true
+                        started_at:
+                          type: string
+                          format: date-time
+                          nullable: true
+                          readOnly: true
+                        expires_at:
+                          type: string
+                          format: date-time
+                          nullable: true
+                          readOnly: true
+                        ended_at:
+                          type: string
+                          format: date-time
+                          nullable: true
+                          readOnly: true
+                        end_reason:
+                          type: string
+                          nullable: true
+                          enum:
+                          - owner
+                          - operator
+                          - eligibility_lost
+                          - expired
+                          readOnly: true
+                      required:
+                      - fursuit_id
+                      - convention_id
+                      - is_active
+                      - started_at
+                      - expires_at
+                      - ended_at
+                      - end_reason
+                      nullable: true
+                      description: The newest catch session of this activation, or
+                        null when it has none. is_active is true only for a live session
+                        of an operational activation. An unfinalized session past
+                        expires_at reads as ended_at = expires_at and end_reason expired.
+                        The read writes nothing.
                   required:
                   - fursuit_id
                   - convention_id
@@ -1170,6 +1222,7 @@ paths:
                   - is_eligible
                   - activated_at
                   - deactivated_at
+                  - catch_session
           description: ''
         '401':
           content:

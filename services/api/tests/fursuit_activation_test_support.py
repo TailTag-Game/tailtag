@@ -100,10 +100,8 @@ def activation_detail_path(convention_id: int, fursuit_id: int) -> str:
     return f"{activation_list_path(convention_id)}{fursuit_id}/"
 
 
-def assert_activation_data(data: object) -> dict[str, object]:
-    assert isinstance(data, dict)
-    result = cast(dict[str, object], data)
-    assert set(result) == {
+ACTIVATION_KEYS = frozenset(
+    {
         "fursuit_id",
         "convention_id",
         "is_active",
@@ -111,6 +109,17 @@ def assert_activation_data(data: object) -> dict[str, object]:
         "activated_at",
         "deactivated_at",
     }
+)
+
+
+def assert_activation_data(
+    data: object, *, list_item: bool = False
+) -> dict[str, object]:
+    """Assert one activation; list items also carry a nullable catch_session."""
+    assert isinstance(data, dict)
+    result = cast(dict[str, object], data)
+    expected = ACTIVATION_KEYS | {"catch_session"} if list_item else ACTIVATION_KEYS
+    assert set(result) == expected
     assert isinstance(result["fursuit_id"], int)
     assert isinstance(result["convention_id"], int)
     assert isinstance(result["is_active"], bool)

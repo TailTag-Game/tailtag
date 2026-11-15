@@ -950,6 +950,6 @@ def test_activation_committed_before_lifecycle_update_stays_active_but_becomes_i
     assert activation_row.is_active
     response = scenario.client.get(activation_list_path(scenario.convention.pk))
     assert response.status_code == 200
-    data = assert_activation_data(response.json()[0])
+    data = assert_activation_data(response.json()[0], list_item=True)
     assert data["is_active"] is True
     assert data["is_eligible"] is False
