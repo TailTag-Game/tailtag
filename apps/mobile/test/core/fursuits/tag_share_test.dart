@@ -1,4 +1,5 @@
 import "dart:io";
+import "dart:typed_data";
 
 import "package:flutter_test/flutter_test.dart";
 import "package:tailtag_mobile/core/fursuits/tag_share.dart";
@@ -25,5 +26,20 @@ void main() {
     expect(androidCopy.existsSync(), isFalse);
     expect(tempCopy.existsSync(), isFalse);
     expect(other.existsSync(), isTrue);
+  });
+
+  test("a share that is no longer current removes its file and opens no "
+      "sheet", () async {
+    final root = await Directory.systemTemp.createTemp("tag_share_test");
+    addTearDown(() => root.delete(recursive: true));
+
+    // The plugin is not available in a unit test, so reaching it would
+    // throw. A stale share returns before it.
+    await SharePlusTagShare(root: root).share(
+      TagImage(bytes: Uint8List.fromList([1, 2, 3]), width: 1, height: 1),
+      isCurrent: () => false,
+    );
+
+    expect(Directory("${root.path}/tailtag_tag").existsSync(), isFalse);
   });
 }

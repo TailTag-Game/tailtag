@@ -60,7 +60,9 @@ final class TagScreenState {
     this.failure,
   });
 
-  /// The tag, or null before the first successful read.
+  /// The tag, or null before the first successful read. It is also null
+  /// while an unconfirmed replacement is checked, because the shown QR code
+  /// can already be dead.
   final FursuitTag? tag;
 
   /// Whether a read runs.
@@ -86,8 +88,9 @@ final class TagScreenState {
     TagBanner? banner,
     ApiFailure? failure,
     bool clearBanner = false,
+    bool clearTag = false,
   }) => TagScreenState(
-    tag: tag ?? this.tag,
+    tag: clearTag ? null : tag ?? this.tag,
     reading: reading ?? this.reading,
     replacing: replacing ?? this.replacing,
     sharing: sharing ?? this.sharing,
@@ -218,19 +221,32 @@ final class TagController extends Notifier<TagScreenState> {
   /// Makes the tag image with [render] and opens the share sheet at
   /// [origin].
   Future<void> share(Future<TagImage> Function() render, {Rect? origin}) async {
-    if (state.tag?.state != TagState.current || state.sharing) {
+    final tag = state.tag;
+    if (tag?.state != TagState.current || state.sharing) {
       return;
     }
     final scope = ref.read(playerScopeProvider);
     bool live() => ref.mounted && scope.isActive;
+    // The image shows the tag from before the render. A read that changed
+    // the tag meanwhile makes it outdated.
+    bool current() =>
+        live() &&
+        state.tag?.state == TagState.current &&
+        state.tag?.version == tag?.version;
     state = state._copy(sharing: true, clearBanner: true);
     try {
       final image = await render();
-      // A player who signed out while the image rendered shares nothing.
-      if (!live()) {
+      // A player who signed out, or a tag that changed while the image
+      // rendered, shares nothing.
+      if (!current()) {
+        if (live()) {
+          state = state._copy(sharing: false);
+        }
         return;
       }
-      await ref.read(tagShareProvider).share(image, origin: origin);
+      await ref
+          .read(tagShareProvider)
+          .share(image, origin: origin, isCurrent: current);
       if (live()) {
         state = state._copy(sharing: false);
       }
@@ -276,10 +292,12 @@ final class TagController extends Notifier<TagScreenState> {
           ApiTimeoutFailure() ||
           ApiServerFailure():
         _check = (sent: sent, conflict: false);
+        state = state._copy(clearTag: true);
         unawaited(read());
         return TagReplaceResult.checking;
       case ApiConflictFailure(code: "tag_version_conflict"):
         _check = (sent: sent, conflict: true);
+        state = state._copy(clearTag: true);
         unawaited(read());
         return TagReplaceResult.checking;
       case ApiConflictFailure(code: "fursuit_disabled"):
@@ -310,20 +328,20 @@ final class TagController extends Notifier<TagScreenState> {
     switch (failure) {
       case ApiCancelledFailure():
         return;
-      case ApiNotFoundFailure():
-        show(TagBanner.unavailable);
-      case ApiConflictFailure(code: "fursuit_disabled"):
-        show(TagBanner.suitDisabled);
-      case ApiPermissionFailure():
-        show(TagBanner.readFailed, failure);
       case ApiUnauthenticatedFailure():
         if (await _sessionStaysActive(scope) && live()) {
           show(TagBanner.apiAccess);
         } else if (live()) {
           state = state._copy(reading: false);
         }
+      // Any other failure of the read after an unconfirmed replacement
+      // offers the read-only retry (AC19).
       case ApiFailure() when _check != null:
         show(TagBanner.checkFailed);
+      case ApiNotFoundFailure():
+        show(TagBanner.unavailable);
+      case ApiConflictFailure(code: "fursuit_disabled"):
+        show(TagBanner.suitDisabled);
       case ApiFailure():
         show(TagBanner.readFailed, failure);
     }

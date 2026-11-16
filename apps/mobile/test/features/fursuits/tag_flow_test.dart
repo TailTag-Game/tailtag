@@ -1,3 +1,4 @@
+import "dart:async";
 import "dart:convert";
 
 import "package:barcode_widget/barcode_widget.dart";
@@ -206,6 +207,38 @@ void main() {
     });
   });
 
+  testWidgets("a failed suit list read on the tag screen offers Try again", (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 5400);
+    addTearDown(tester.view.resetPhysicalSize);
+    final network = ScriptedNetwork([200])
+      ..enqueueSuit(_list, const ConventionReply(status: 500))
+      ..enqueueSuit(_list, ConventionReply.list([_fursuit()]))
+      ..enqueueSuit(_readTag, _tag(1));
+    final app = await pumpApp(
+      tester,
+      session: FakeAuthSession(initial: const AuthSignedIn()),
+      network: network,
+    );
+    // The tag screen opens with no suit list read before it.
+    unawaited(app.container.read(routerProvider).push(AppPaths.suitTag(5)));
+    await app.settle();
+    expect(find.byKey(const Key("suits-banner")), findsOneWidget);
+    expect(_qrPayload(tester), isNull);
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const Key("suits-banner")),
+        matching: find.text("Try again"),
+      ),
+    );
+    await app.settle();
+
+    expect(find.byKey(const Key("suits-banner")), findsNothing);
+    expect(_qrPayload(tester), fakePayload);
+  });
+
   testWidgets("a refused read shows the generic error", (tester) async {
     await _openTag(tester, _error(403, "permission_denied"));
 
@@ -395,28 +428,37 @@ void main() {
       });
     }
 
-    testWidgets("a failed check after a lost response offers Try again, "
-        "which only reads and then resolves the check", (tester) async {
-      final app = await _openTag(
-        tester,
-        _tag(1),
-        later: [
-          (_replaceTag, ConventionReply.brokenConnection),
-          (_readTag, ConventionReply.brokenConnection),
-          (_readTag, _tag(2)),
-        ],
-      );
+    for (final failed in [
+      ConventionReply.brokenConnection,
+      _error(409, "fursuit_disabled"),
+    ]) {
+      testWidgets("a failed check (${failed.status}) after a lost response "
+          "hides the old code and offers Try again, which only reads and then "
+          "resolves the check", (tester) async {
+        final app = await _openTag(
+          tester,
+          _tag(1),
+          later: [
+            (_replaceTag, ConventionReply.brokenConnection),
+            (_readTag, failed),
+            (_readTag, _tag(2)),
+          ],
+        );
 
-      await _confirmReplace(app);
-      expect(find.text(FursuitStrings.tagCheckFailed), findsOneWidget);
+        await _confirmReplace(app);
+        expect(find.text(FursuitStrings.tagCheckFailed), findsOneWidget);
+        // The server may have replaced the tag, so the old code is gone.
+        expect(_qrPayload(tester), isNull);
+        expect(find.text(FursuitStrings.shareTagImage), findsNothing);
 
-      await tester.tap(find.text("Try again"));
-      await app.settle();
+        await tester.tap(find.text("Try again"));
+        await app.settle();
 
-      expect(_count(app, _replaceTag), 1);
-      expect(find.text(FursuitStrings.tagChanged), findsOneWidget);
-      expect(find.text(FursuitStrings.tagVersion(2)), findsWidgets);
-    });
+        expect(_count(app, _replaceTag), 1);
+        expect(find.text(FursuitStrings.tagChanged), findsOneWidget);
+        expect(find.text(FursuitStrings.tagVersion(2)), findsWidgets);
+      });
+    }
 
     testWidgets("another refusal shows a banner, keeps the tag, and claims no "
         "success", (tester) async {

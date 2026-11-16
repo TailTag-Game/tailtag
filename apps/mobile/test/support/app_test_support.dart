@@ -457,7 +457,11 @@ final class FakeTagShare implements TagShare {
   Exception? failNext;
 
   @override
-  Future<void> share(TagImage image, {Rect? origin}) async {
+  Future<void> share(
+    TagImage image, {
+    Rect? origin,
+    bool Function()? isCurrent,
+  }) async {
     final error = failNext;
     failNext = null;
     if (error != null) {

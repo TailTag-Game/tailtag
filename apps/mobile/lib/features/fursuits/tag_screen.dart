@@ -60,6 +60,15 @@ class _TagScreenState extends ConsumerState<TagScreen> {
   NotifierProvider<SuitsController, SuitsState> get _suits =>
       suitsControllerProvider(widget.convention.id);
 
+  /// Pull to refresh reads the tag, and the suit list too when it is
+  /// missing.
+  Future<void> _refresh() async {
+    await Future.wait([
+      _controller.read(),
+      if (ref.read(_suits).fursuits == null) ref.read(_suits.notifier).read(),
+    ]);
+  }
+
   void _snack(String text) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -111,7 +120,7 @@ class _TagScreenState extends ConsumerState<TagScreen> {
           children: [
             Positioned.fill(
               child: RefreshIndicator(
-                onRefresh: _controller.read,
+                onRefresh: _refresh,
                 child: ListView(
                   key: const Key("tag-screen"),
                   physics: const AlwaysScrollableScrollPhysics(),
@@ -154,8 +163,13 @@ class _TagScreenState extends ConsumerState<TagScreen> {
   ) {
     final tag = state.tag;
     if (fursuit == null) {
-      if (suits.fursuits == null || suits.reading) {
+      if (suits.reading) {
         return const [SuitsLoading()];
+      }
+      if (suits.fursuits == null) {
+        // The suit list read failed, so its banner offers the retry.
+        final banner = suitsBanner(suits, ref.read(_suits.notifier).read);
+        return [if (banner != null) banner else const SuitsLoading()];
       }
       return [
         Text(
@@ -369,6 +383,8 @@ class _ReplaceDialogState extends State<_ReplaceDialog> {
     return PopScope(
       canPop: !_sending,
       child: AlertDialog(
+        // At 200% text in landscape the warning must still scroll.
+        scrollable: true,
         title: const Text(FursuitStrings.replaceTitle),
         content: const Text(FursuitStrings.replaceBody),
         actions: [

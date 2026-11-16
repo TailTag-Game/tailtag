@@ -43,7 +43,14 @@ const String tagImageMimeType = "image/png";
 abstract interface class TagShare {
   /// Writes [image] to a file and opens the share sheet for it. The sheet
   /// points at [origin] on a tablet. It returns when the sheet closes.
-  Future<void> share(TagImage image, {Rect? origin});
+  ///
+  /// If [isCurrent] returns false once the file is written, for example
+  /// after a sign-out, it deletes the file and opens no sheet.
+  Future<void> share(
+    TagImage image, {
+    Rect? origin,
+    bool Function()? isCurrent,
+  });
 
   /// Deletes every tag image file that the app or the share plugin left.
   Future<void> clear();
@@ -73,11 +80,21 @@ final class SharePlusTagShare implements TagShare {
   ];
 
   @override
-  Future<void> share(TagImage image, {Rect? origin}) async {
+  Future<void> share(
+    TagImage image, {
+    Rect? origin,
+    bool Function()? isCurrent,
+  }) async {
     await clear();
     final folder = await _folder.create(recursive: true);
     final file = File("${folder.path}/${image.fileName}");
     await file.writeAsBytes(image.bytes, flush: true);
+    // A cleanup for a new player can run while the file is written. A
+    // stale share removes its file and stops before the share sheet.
+    if (!(isCurrent?.call() ?? true)) {
+      await clear();
+      return;
+    }
     await SharePlus.instance.share(
       ShareParams(
         files: [XFile(file.path, mimeType: image.mimeType)],
