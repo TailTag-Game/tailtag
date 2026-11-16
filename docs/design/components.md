@@ -68,7 +68,7 @@ The components share one look, called "Con badge". A con badge is the name badge
 
 - Players use TailTag in crowded convention halls, hotel lobbies, and dim event rooms.
 - They often hold the phone in one hand and look at it for a few seconds at a time.
-- A fursuiter can use the app in fursuit paws, with limited vision through the head. Fursuiters use the activation, catch session, and QR credential flows (F5 to F7).
+- A fursuiter can use the app in fursuit paws, with limited vision through the head. Fursuiters use the activation, catch session, and tag flows (F5 to F7).
 
 So controls are large, states show from a distance, and color is never the only signal.
 
@@ -98,7 +98,7 @@ These flows are the known consumers of the V0 components. Each component names i
 | F4 | Fursuits | Creates and edits a fursuit, and adds its photo. | `GET` and `POST /api/fursuits/`. `GET` and `PATCH /api/fursuits/{id}/`. `PUT /api/fursuits/{id}/photo/` |
 | F5 | Activation | Turns a fursuit on or off for a convention. | `GET /api/conventions/{convention_id}/fursuit-activations/`. `PUT /api/conventions/{convention_id}/fursuit-activations/{fursuit_id}/` |
 | F6 | Catch session | Marks a fursuit as out and catchable, or not. | `PUT /api/conventions/{convention_id}/fursuit-activations/{fursuit_id}/catch-session/` |
-| F7 | QR credential | Shows the fursuit QR code, and rotates it to a new code. | `GET .../fursuit-activations/{fursuit_id}/catch-credential/`. `POST .../catch-credential/rotate/` |
+| F7 | Tag | Shows the fursuit tag as a QR code, shares a tag image to print, and replaces the tag. | `GET /api/fursuits/{fursuit_id}/tag/`. `POST /api/fursuits/{fursuit_id}/tag/replace/` |
 | F8 | Catch | Scans a QR code, sees a preview of the fursuit, and confirms the catch. | `POST /api/conventions/{convention_id}/catch-credentials/resolve/`. `POST /api/catches/confirm/` |
 | F9 | Catch history | Sees the fursuits that the player caught, and filters them by convention. | `GET /api/catches/`, with an optional `convention_id` |
 
@@ -109,7 +109,7 @@ The V0 inventory has these components and no others.
 | Component | Flutter widget | TailTag widget | Flows |
 |-----------|----------------|----------------|-------|
 | [Button](#button) | `FilledButton`, `TextButton` | Yes: variants and loading state | F1 to F8 |
-| [Icon button](#icon-button) | `IconButton` | No | F2, F4, F7 |
+| [Icon button](#icon-button) | `IconButton` | No | F2, F4 |
 | [Text field](#text-field) | `TextFormField` | No | F1, F2, F4 |
 | [Card](#card) | `Card` | No | F3, F4, F7, F8 |
 | [List row](#list-row) | `ListTile` | No | F2 to F5, F9 |
@@ -132,7 +132,7 @@ These parts are not shared components. The feature that uses them owns them, bec
 
 | Part | Owner flow | Reason |
 |------|------------|--------|
-| QR code display | F7 | One consumer. It needs a QR drawing package. |
+| QR code display | F7 | One consumer. It draws the code with `barcode_widget`. |
 | QR scanner view | F8 | One consumer. It needs a camera package and camera permission screens. |
 | Photo picker field | F2, F4 | It needs a photo package. The feature builds it from an [avatar](#avatar), a [button](#button), and a [bottom sheet](#bottom-sheet). |
 | Google button | F1 | One consumer. Google's [branding guidelines](https://developers.google.com/identity/branding-guidelines) set its logo, text, colors, and padding, so it does not follow the [button](#button) colors. It keeps the pill shape and `size.minTarget`. |
@@ -214,7 +214,7 @@ A convention name can have up to 255 characters. The app shows it but does not e
 ### Confirmation
 
 - A confirmation [dialog](#dialog) shows only before these two actions.
-  - Credential rotation (F7). It makes the old QR code stop working for good.
+  - Tag replacement (F7). It makes every printed and saved copy of the old tag stop working for good.
   - Fursuit deactivation at a convention (F5). It ends the catch session, so players cannot catch the fursuit there until the owner turns it on again.
 - The confirm button uses the destructive [button](#button) variant.
 - Other actions run at once and show a [snackbar](#snackbar). For example, ending a catch session runs at once, because the player can start it again.
@@ -339,7 +339,7 @@ The TailTag widget `TailTagButton` builds every variant and the loading state. I
 
 Use an icon button for a common action when an icon is clear without text, such as share or more.
 
-Flows: F7 share the QR code, F2 and F4 edit the photo, and the top app bar actions in every flow.
+Flows: F2 and F4 edit the photo, and the top app bar actions in every flow.
 
 #### Do not use
 
@@ -354,7 +354,7 @@ Flows: F7 share the QR code, F2 and F4 edit the photo, and the top app bar actio
 
 - One Material icon, in the Outlined style.
 - The `tooltip` is required. It gives the screen reader label and the long-press hint.
-- The tooltip text is a short verb phrase, for example "Share QR code".
+- The tooltip text is a short verb phrase, for example "Edit photo".
 
 #### Variants
 
@@ -762,7 +762,7 @@ Filter only. V0 has no assist, input, or suggestion chips.
 
 Use a dialog for a decision that the player must make before the app continues. In V0 this is only the confirmation before an action that cannot be undone. See [Confirmation](#confirmation).
 
-Flows: F5 deactivation, F7 credential rotation.
+Flows: F5 deactivation, F7 tag replacement.
 
 #### Do not use
 
@@ -776,9 +776,9 @@ Flows: F5 deactivation, F7 credential rotation.
 
 #### Content limits
 
-- Title: one question that names the action, for example "Rotate this QR code?".
+- Title: one question that names the action, for example "Replace this tag?".
 - Body: at most two sentences. They say what happens, for example "Players can no longer catch with the old code."
-- Actions: two buttons. The secondary button "Cancel" comes first. The confirm button comes second and uses a verb, for example "Rotate code".
+- Actions: two buttons. The secondary button "Cancel" comes first. The confirm button comes second and uses a verb, for example "Replace tag".
 
 #### Variants
 
@@ -876,7 +876,7 @@ Flows: F2 and F4 the photo choices (take photo, choose photo, remove photo), F3 
 
 Use a snackbar for a short message after an action succeeds.
 
-Flows: F2 "Profile saved", F4 "Fursuit saved", F6 "Catch session ended", F7 "QR code rotated", F8 "Catch confirmed".
+Flows: F2 "Profile saved", F4 "Fursuit saved", F6 "Catch session ended", F7 "Tag replaced. Print the new one.", F8 "Catch confirmed".
 
 #### Do not use
 

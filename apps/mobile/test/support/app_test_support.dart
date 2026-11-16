@@ -14,6 +14,7 @@ import "package:tailtag_mobile/core/conventions/convention_repository.dart";
 import "package:tailtag_mobile/core/fursuits/fursuit_providers.dart";
 import "package:tailtag_mobile/core/fursuits/fursuit_repository.dart";
 import "package:tailtag_mobile/core/fursuits/photo_source.dart";
+import "package:tailtag_mobile/core/fursuits/tag_share.dart";
 import "package:tailtag_mobile/core/session/current_user_providers.dart";
 import "package:tailtag_mobile/core/session/current_user_repository.dart";
 import "package:tailtag_mobile/core/session/player_profile_providers.dart";
@@ -393,6 +394,7 @@ Future<AppHarness> pumpApp(
   required FakeAuthSession session,
   ScriptedNetwork? network,
   PhotoSource? photoSource,
+  TagShare? tagShare,
 }) async {
   final net = network ?? ScriptedNetwork();
   final transport = createTestTransport(net, tokenProvider: session);
@@ -411,6 +413,8 @@ Future<AppHarness> pumpApp(
       fursuitRepositoryProvider.overrideWithValue(FursuitRepository(transport)),
       if (photoSource != null)
         photoSourceProvider.overrideWithValue(photoSource),
+      // The share sheet and its files are faked in every app test.
+      tagShareProvider.overrideWithValue(tagShare ?? FakeTagShare()),
     ],
   );
   addTearDown(container.dispose);
@@ -436,4 +440,41 @@ void fakePlatformViews() {
     () =>
         messenger.setMockMethodCallHandler(SystemChannels.platform_views, null),
   );
+}
+
+/// The share sheet, faked at the plugin boundary. It records the file facts
+/// of each image it receives, and each cleanup. It keeps no image bytes, so
+/// no QR image outlives the test.
+final class FakeTagShare implements TagShare {
+  /// Each share: the file name, the pixel size, and the MIME type.
+  final List<({String fileName, int width, int height, String mimeType})>
+  shares = [];
+
+  /// The number of cleanups.
+  int clears = 0;
+
+  /// The error that the next share throws, or null.
+  Exception? failNext;
+
+  @override
+  Future<void> share(
+    TagImage image, {
+    Rect? origin,
+    bool Function()? isCurrent,
+  }) async {
+    final error = failNext;
+    failNext = null;
+    if (error != null) {
+      throw error;
+    }
+    shares.add((
+      fileName: image.fileName,
+      width: image.width,
+      height: image.height,
+      mimeType: image.mimeType,
+    ));
+  }
+
+  @override
+  Future<void> clear() async => clears++;
 }

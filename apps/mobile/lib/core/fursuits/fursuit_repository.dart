@@ -212,6 +212,78 @@ final class FursuitRepository {
     };
   }
 
+  /// The tag of suit [id]. The first read of a suit that never had a tag
+  /// makes the server create one.
+  Future<FursuitTag> readTag(int id, {ApiCancellation? cancellation}) async {
+    final response = await _transport.execute(
+      operationId: "fursuitTagRetrieve",
+      cancellation: cancellation,
+      call: (token) =>
+          _transport.fursuits.fursuitTagRetrieve(id: id, cancellation: token),
+    );
+    return switch (response) {
+      api.FursuitTagRetrieveResponse200(:final body) => _tag(
+        body.fursuitId,
+        body.state.name,
+        body.tagVersion,
+        body.payload,
+      ),
+      api.FursuitTagRetrieveResponse() => throw const ApiUnexpectedFailure(),
+    };
+  }
+
+  /// Replaces the tag of suit [id] if its version is still
+  /// [expectedVersion]. The caller never repeats it on its own.
+  Future<FursuitTag> replaceTag(
+    int id, {
+    required int expectedVersion,
+    ApiCancellation? cancellation,
+  }) async {
+    final response = await _transport.execute(
+      operationId: "fursuitTagReplace",
+      cancellation: cancellation,
+      call: (token) => _transport.fursuits.fursuitTagReplace(
+        id: id,
+        body: api.ApiFursuitsIdTagReplacePostBodyBodyModel(
+          expectedVersion: expectedVersion,
+        ),
+        cancellation: token,
+      ),
+    );
+    return switch (response) {
+      api.FursuitTagReplaceResponse200(:final body) => _tag(
+        body.fursuitId,
+        body.state.name,
+        body.tagVersion,
+        body.payload,
+      ),
+      api.FursuitTagReplaceResponse() => throw const ApiUnexpectedFailure(),
+    };
+  }
+
+  /// A current tag must carry a payload, and a revoked one must not.
+  static FursuitTag _tag(
+    int fursuitId,
+    String state,
+    int version,
+    String? payload,
+  ) {
+    final tagState = switch (state) {
+      "current" => TagState.current,
+      "revoked" => TagState.revoked,
+      _ => throw const ApiUnexpectedFailure(),
+    };
+    if ((tagState == TagState.current) != (payload != null)) {
+      throw const ApiUnexpectedFailure();
+    }
+    return FursuitTag(
+      fursuitId: fursuitId,
+      state: tagState,
+      version: version,
+      payload: payload,
+    );
+  }
+
   /// The generated model makes most fields optional. A response without one
   /// cannot show a real suit, so it fails closed.
   static Fursuit _fursuit(int? id, String name, Uri? photoUrl, bool? enabled) {

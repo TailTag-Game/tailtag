@@ -15,19 +15,26 @@ import "package:tailtag_mobile/features/fursuits/suit_widgets.dart";
 import "package:tailtag_mobile/features/fursuits/suits_controller.dart";
 
 /// One suit: its photo and name, then its participation and catch session
-/// at the selected convention.
+/// at the selected convention, then the row that opens its tag.
 ///
-/// Later tasks add the tag part (#510) and the approval parts (#512) below
-/// the convention section.
+/// A later task adds the approval parts (#512).
 class SuitDetailScreen extends ConsumerStatefulWidget {
   /// Creates the screen for suit [fursuitId] at [convention].
-  const new({required this.convention, required this.fursuitId, super.key});
+  const new({
+    required this.convention,
+    required this.fursuitId,
+    required this.onOpenTag,
+    super.key,
+  });
 
   /// The selected convention.
   final Convention convention;
 
   /// The suit's server ID.
   final int fursuitId;
+
+  /// Opens the tag screen of the suit.
+  final VoidCallback onOpenTag;
 
   @override
   ConsumerState<SuitDetailScreen> createState() => _SuitDetailScreenState();
@@ -296,6 +303,28 @@ class _SuitDetailScreenState extends ConsumerState<SuitDetailScreen> {
             style: textTheme.bodyMedium,
           ),
         ),
+      const SizedBox(height: TokenSpacing.xl),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: TokenSpacing.xl),
+        child: Semantics(
+          header: true,
+          child: Text(FursuitStrings.tagSection, style: textTheme.titleMedium),
+        ),
+      ),
+      // The tag read creates the first tag, so this screen never reads it.
+      ListTile(
+        key: const Key("suit-show-tag"),
+        contentPadding: const EdgeInsets.symmetric(horizontal: TokenSpacing.xl),
+        enabled: fursuit.isEnabled,
+        title: const Text(FursuitStrings.showTag),
+        subtitle: Text(
+          fursuit.isEnabled
+              ? FursuitStrings.showTagHelp
+              : FursuitStrings.suitDisabled,
+        ),
+        trailing: const Icon(Icons.chevron_right_outlined),
+        onTap: widget.onOpenTag,
+      ),
     ];
   }
 

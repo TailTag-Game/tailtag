@@ -2,6 +2,7 @@ import "package:flutter_riverpod/flutter_riverpod.dart";
 import "package:tailtag_mobile/core/api/api_providers.dart";
 import "package:tailtag_mobile/core/fursuits/fursuit_repository.dart";
 import "package:tailtag_mobile/core/fursuits/photo_source.dart";
+import "package:tailtag_mobile/core/fursuits/tag_share.dart";
 
 /// The repository for the player's suits.
 final fursuitRepositoryProvider = Provider<FursuitRepository>(
@@ -12,3 +13,6 @@ final fursuitRepositoryProvider = Provider<FursuitRepository>(
 final photoSourceProvider = Provider<PhotoSource>(
   (ref) => const ImagePickerPhotoSource(),
 );
+
+/// The system share sheet for tag images. Tests override it with a fake.
+final tagShareProvider = Provider<TagShare>((ref) => SharePlusTagShare());

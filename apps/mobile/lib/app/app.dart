@@ -1,7 +1,11 @@
+import "dart:async";
+
 import "package:flutter/material.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 import "package:tailtag_mobile/app/router.dart";
+import "package:tailtag_mobile/core/fursuits/fursuit_providers.dart";
 import "package:tailtag_mobile/core/session/foreground_signal.dart";
+import "package:tailtag_mobile/core/session/player_scope.dart";
 import "package:tailtag_mobile/core/ui/tailtag_theme.dart";
 
 /// Root application widget for TailTag.
@@ -24,6 +28,11 @@ class _TailTagAppState extends ConsumerState<TailTagApp> {
     _lifecycle = AppLifecycleListener(
       onShow: () => ref.read(foregroundSignalProvider.notifier).fire(),
     );
+    // A tag image holds a QR code. Any left from an earlier run or an
+    // earlier player goes at start, on sign-out, and on an account change.
+    final share = ref.read(tagShareProvider);
+    unawaited(share.clear());
+    ref.listenManual(playerScopeProvider, (_, _) => unawaited(share.clear()));
   }
 
   @override

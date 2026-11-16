@@ -509,10 +509,13 @@ void main() {
       ) async {
         await _openSuit(tester, fursuit: c.fursuit, activation: [c.activation]);
 
-        expect(find.text(c.reason), findsOneWidget);
         final blocked = c.activation.contains('"is_active": false')
             ? "suit-participation"
             : "suit-session";
+        expect(
+          find.descendant(of: _key(blocked), matching: find.text(c.reason)),
+          findsOneWidget,
+        );
         expect(_switchEnabled(tester, blocked), isFalse);
       });
     }

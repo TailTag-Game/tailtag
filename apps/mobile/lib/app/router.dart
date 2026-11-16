@@ -17,6 +17,7 @@ import "package:tailtag_mobile/features/fursuits/suit_detail_screen.dart";
 import "package:tailtag_mobile/features/fursuits/suit_list_screen.dart";
 import "package:tailtag_mobile/features/fursuits/suit_register_screen.dart";
 import "package:tailtag_mobile/features/fursuits/suits_controller.dart";
+import "package:tailtag_mobile/features/fursuits/tag_screen.dart";
 import "package:tailtag_mobile/features/onboarding/onboarding_screen.dart";
 import "package:tailtag_mobile/features/passkeys/passkey_screen.dart";
 
@@ -80,14 +81,19 @@ abstract final class AppPaths {
 
   /// The suit screen of suit [id], above the suit list.
   static String suit(int id) => "/fursuits/$id";
+
+  /// The tag screen of suit [id], above its suit screen.
+  static String suitTag(int id) => "/fursuits/$id/tag";
 }
 
-/// Whether [location] is a suit screen. A suit ID must fit in an `int`.
+/// Whether [location] is a suit screen or a suit's tag screen. A suit ID
+/// must fit in an `int`.
 bool _isSuitPath(String location) {
   if (location == AppPaths.suits || location == AppPaths.registerSuit) {
     return true;
   }
-  final match = RegExp(r"^/fursuits/([1-9][0-9]*)$").firstMatch(location);
+  final match = RegExp(r"^/fursuits/([1-9][0-9]*)(/tag)?$")
+      .firstMatch(location);
   return match != null && int.tryParse(match.group(1)!) != null;
 }
 
@@ -303,12 +309,27 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: ":id",
-            builder: (context, state) => _SuitsRoute(
-              builder: (convention) => SuitDetailScreen(
-                convention: convention,
-                fursuitId: int.parse(state.pathParameters["id"]!),
+            builder: (context, state) {
+              final id = int.parse(state.pathParameters["id"]!);
+              return _SuitsRoute(
+                builder: (convention) => SuitDetailScreen(
+                  convention: convention,
+                  fursuitId: id,
+                  onOpenTag: () => context.push(AppPaths.suitTag(id)),
+                ),
+              );
+            },
+            routes: [
+              GoRoute(
+                path: "tag",
+                builder: (context, state) => _SuitsRoute(
+                  builder: (convention) => TagScreen(
+                    convention: convention,
+                    fursuitId: int.parse(state.pathParameters["id"]!),
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
         ],
       ),
