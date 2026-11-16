@@ -45,6 +45,15 @@ void main() {
           '"catch_approval_mode": "manual"}]',
         ).listFursuits(),
       ),
+      (
+        // A current tag with no payload would show an empty code.
+        label: "a current tag with no payload",
+        read: () => _answering(
+          200,
+          '{"fursuit_id": 5, "state": "current", "tag_version": 1, '
+          '"payload": null}',
+        ).readTag(5),
+      ),
     ];
     for (final c in cases) {
       test(c.label, () async {

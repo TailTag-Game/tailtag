@@ -150,6 +150,98 @@ abstract final class FursuitStrings {
   /// The snackbar after a photo change.
   static const photoSaved = "Photo saved";
 
+  /// The tag section title on the suit screen.
+  static const tagSection = "TailTag";
+
+  /// The row that opens the tag screen.
+  static const showTag = "Show tag";
+
+  /// The subtitle of the "Show tag" row.
+  static const showTagHelp = "Print it once. It works at every convention.";
+
+  /// The explanation on the tag screen.
+  static String tagExplain(String name) =>
+      "This tag works at every convention. Players can catch $name only "
+      "while it is out for catching.";
+
+  /// The tag screen status line of a catchable suit.
+  static String outForCatchingAt(String convention) =>
+      "Out for catching at $convention";
+
+  /// The tag screen status line of a suit that is not catchable.
+  static String notOutForCatchingAt(String convention) =>
+      "Not out for catching at $convention";
+
+  /// The share button on the tag screen.
+  static const shareTagImage = "Share tag image";
+
+  /// The print size note next to the share button.
+  static const printActualSize =
+      "Print at actual size: 4 × 3 in (102 × 76 mm).";
+
+  /// The replace button and the confirm button of its dialog.
+  static const replaceTag = "Replace tag";
+
+  /// The replace dialog title.
+  static const replaceTitle = "Replace this tag?";
+
+  /// The replace dialog body.
+  static const replaceBody =
+      "All printed and saved copies of the old tag stop working. Your catch "
+      "session keeps running.";
+
+  /// The snackbar after a replacement.
+  static const tagReplaced = "Tag replaced. Print the new one.";
+
+  /// The banner when a lost response hid a replacement that went through.
+  static const tagChanged =
+      "We couldn't confirm the replacement, but your tag has changed. This is "
+      "your current tag. Old copies no longer work.";
+
+  /// The banner when a lost response hid a replacement that did not go
+  /// through.
+  static const tagNotReplaced =
+      "Your tag wasn't replaced. Your current tag still works.";
+
+  /// The banner when the server refused a replacement of a changed tag.
+  static const tagConflict =
+      "This tag changed since you opened it. This is the current tag.";
+
+  /// The banner when the read after a lost response failed.
+  static const tagCheckFailed = "We couldn't check your tag.";
+
+  /// The revoked tag message.
+  static String tagRevoked(String name) =>
+      "TailTag staff turned off this tag. Old copies no longer work. Get a "
+      "new tag so players can catch $name.";
+
+  /// The button that replaces a revoked tag.
+  static const getNewTag = "Get new tag";
+
+  /// The snackbar after a new tag replaced a revoked one.
+  static const newTagReady = "New tag ready";
+
+  /// The banner when the server has no tag operations.
+  static const tagsUnavailable = "Tags aren't available right now";
+
+  /// The banner when the tag image could not be made or shared.
+  static const shareFailed = "The tag image could not be shared. Try again.";
+
+  /// The screen reader label of the QR code. It never holds the payload.
+  static String qrLabel(String name) => "TailTag QR code for $name";
+
+  /// The text wordmark on the printed badge, until the logo exists (#432).
+  static const wordmark = "TailTag";
+
+  /// The instruction on the printed badge.
+  static const scanWithApp = "Scan with the TailTag app";
+
+  /// The label under the scale line on the printed badge.
+  static const scaleLine = "50 mm";
+
+  /// The tag version marker on the screen and the badge.
+  static String tagVersion(int version) => "Tag $version";
+
   /// A time of [value] in device local time. A time on another day also
   /// shows the date.
   static String time(BuildContext context, DateTime value, DateTime now) {

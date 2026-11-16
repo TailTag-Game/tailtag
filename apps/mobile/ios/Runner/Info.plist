@@ -10,6 +10,8 @@
 	<string>TailTag uses the camera when you take a photo of your suit.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>TailTag opens your photos when you choose a photo of your suit.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>TailTag saves your tag image to your photos when you choose Save Image.</string>
 	<key>CFBundleDisplayName</key>
 	<string>TailTag</string>
 	<key>CFBundleExecutable</key>

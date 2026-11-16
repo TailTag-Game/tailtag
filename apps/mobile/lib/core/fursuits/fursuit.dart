@@ -111,3 +111,43 @@ final class PickedPhoto {
   /// The file name that the picker gave.
   final String name;
 }
+
+/// Whether a suit's tag works.
+enum TagState {
+  /// The tag works, and the server returned its payload.
+  current,
+
+  /// TailTag staff revoked the tag. The server returns no payload.
+  revoked,
+}
+
+/// The one tag of a suit, as the owner tag read returns it.
+///
+/// The payload is secret to the owner. It lives in memory only, and
+/// [toString] never shows it.
+final class FursuitTag {
+  /// Creates a tag.
+  const new({
+    required this.fursuitId,
+    required this.state,
+    required this.version,
+    required this.payload,
+  });
+
+  /// The suit's server ID.
+  final int fursuitId;
+
+  /// Whether the tag works.
+  final TagState state;
+
+  /// The server's `tag_version`. Each creation, replacement, and
+  /// revocation raises it by one.
+  final int version;
+
+  /// The printed string, or null when [state] is [TagState.revoked].
+  final String? payload;
+
+  @override
+  String toString() =>
+      "FursuitTag(fursuit: $fursuitId, ${state.name}, version: $version)";
+}
