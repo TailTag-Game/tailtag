@@ -45,6 +45,7 @@ final class ApiTransport {
     profile = ProfileApi(server);
     conventions = ConventionsApi(server);
     fursuits = FursuitsApi(server);
+    catches = CatchesApi(server);
   }
 
   final Duration _jsonTimeout;
@@ -62,6 +63,9 @@ final class ApiTransport {
 
   /// The generated `/api/fursuits/` operations.
   late final FursuitsApi fursuits;
+
+  /// The generated `/api/catches/` operations.
+  late final CatchesApi catches;
 
   /// Runs [call] with an abort handle and returns the generated response
   /// wrapper of a 2xx response, or throws an [ApiFailure].
@@ -281,14 +285,25 @@ ApiFailure _failureForResponse(http.Response response) {
     403 => ApiPermissionFailure(statusCode: status, code: body.code),
     404 => ApiNotFoundFailure(statusCode: status, code: body.code),
     409 => ApiConflictFailure(statusCode: status, code: body.code),
+    429 => ApiRateLimitedFailure(
+      statusCode: status,
+      code: body.code,
+      retryAfterSeconds:
+          body.retryAfterSeconds ??
+          _positiveSeconds(int.tryParse(response.headers["retry-after"] ?? "")),
+    ),
     >= 500 && < 600 => ApiServerFailure(statusCode: status, code: body.code),
     _ => ApiUnexpectedFailure(statusCode: status, code: body.code),
   };
 }
 
-/// The two parts of a DRF error body TailTag uses; `detail` is dropped.
+/// [value] when it is a positive number of seconds, else null.
+int? _positiveSeconds(Object? value) =>
+    value is int && value > 0 ? value : null;
+
+/// The parts of a DRF error body TailTag uses; `detail` is dropped.
 final class _ErrorBody {
-  const new({this.code, this.fieldErrors = const {}});
+  const new({this.code, this.fieldErrors = const {}, this.retryAfterSeconds});
 
   factory parse(List<int> bytes) {
     final Object? decoded;
@@ -313,11 +328,15 @@ final class _ErrorBody {
     return _ErrorBody(
       code: code is String ? code : null,
       fieldErrors: fieldErrors,
+      retryAfterSeconds: _positiveSeconds(decoded["retry_after_seconds"]),
     );
   }
 
   final String? code;
   final Map<String, List<String>> fieldErrors;
+
+  /// The `retry_after_seconds` of a 429 body, when it is positive.
+  final int? retryAfterSeconds;
 }
 
 sealed class _Settled<R extends Object> {

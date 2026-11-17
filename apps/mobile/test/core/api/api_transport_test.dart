@@ -143,6 +143,55 @@ void main() {
       });
     }
 
+    // A 429 keeps only the code and the wait: the body value first, then
+    // the Retry-After header. A wait that is not positive is no wait.
+    final waits =
+        <({String label, String body, Map<String, String> headers, int? wait})>[
+          (
+            label: "the body wait wins over the header",
+            body: '{"code": "cooldown_active", "retry_after_seconds": 40}',
+            headers: {"retry-after": "99"},
+            wait: 40,
+          ),
+          (
+            label: "the header fills a body without a wait",
+            body: '{"code": "rate_limited"}',
+            headers: {"retry-after": "7"},
+            wait: 7,
+          ),
+          (
+            label: "a zero body wait falls back to the header",
+            body: '{"code": "cooldown_active", "retry_after_seconds": 0}',
+            headers: {"retry-after": "5"},
+            wait: 5,
+          ),
+          (
+            label: "no usable wait",
+            body: '{"detail": "$_secret"}',
+            headers: {"retry-after": "soon"},
+            wait: null,
+          ),
+        ];
+    for (final c in waits) {
+      test("429: ${c.label}", () async {
+        final inner = FakeHttpClient.respond(
+          429,
+          body: c.body,
+          headers: c.headers,
+        );
+
+        await expectLater(
+          _me(createTestTransport(inner)),
+          throwsA(
+            isA<ApiRateLimitedFailure>()
+                .having((f) => f.statusCode, "statusCode", 429)
+                .having((f) => f.retryAfterSeconds, "wait", c.wait)
+                .having((f) => f.toString(), "text", isNot(contains(_secret))),
+          ),
+        );
+      });
+    }
+
     test(
       "302 is unexpected and the redirect target is never requested",
       () async {

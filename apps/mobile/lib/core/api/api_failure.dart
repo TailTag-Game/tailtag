@@ -24,6 +24,9 @@ enum ApiFailureCategory {
   /// HTTP 400.
   validation,
 
+  /// HTTP 429.
+  rateLimited,
+
   /// HTTP 5xx.
   server,
 
@@ -135,6 +138,20 @@ final class ApiValidationFailure extends ApiFailure {
 
   @override
   ApiFailureCategory get category => ApiFailureCategory.validation;
+}
+
+/// HTTP 429, with the wait that the server asked for.
+final class ApiRateLimitedFailure extends ApiFailure {
+  /// Creates the failure.
+  const new({super.statusCode, super.code, this.retryAfterSeconds});
+
+  /// The positive number of seconds to wait, from the body's
+  /// `retry_after_seconds` or else the `Retry-After` header. Null when the
+  /// response carried neither.
+  final int? retryAfterSeconds;
+
+  @override
+  ApiFailureCategory get category => ApiFailureCategory.rateLimited;
 }
 
 /// HTTP 5xx.

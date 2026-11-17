@@ -33,6 +33,25 @@ final class ConventionRepository {
     };
   }
 
+  /// One convention by [id], in any status.
+  Future<Convention> readConvention(
+    int id, {
+    ApiCancellation? cancellation,
+  }) async {
+    final response = await _transport.execute(
+      operationId: "conventionsRetrieve",
+      cancellation: cancellation,
+      call: (token) => _transport.conventions.conventionsRetrieve(
+        id: id,
+        cancellation: token,
+      ),
+    );
+    return switch (response) {
+      api.ConventionsRetrieveResponse200(:final body) => _convention(body),
+      api.ConventionsRetrieveResponse() => throw const ApiUnexpectedFailure(),
+    };
+  }
+
   /// The player's enrollments in every convention status.
   Future<List<ConventionEnrollment>> listEnrollments({
     ApiCancellation? cancellation,
@@ -151,6 +170,11 @@ final class ConventionRepository {
       status: _status(status),
       startDate: start.toDateTime(),
       endDate: end.toDateTime(),
+      timeZone: wire?.timeZone,
+      reviewDeadlineAt: wire?.reviewDeadlineAt,
+      reviewDeadlineLocalDate: wire?.reviewDeadlineLocalDate?.toDateTime(),
+      // A missing flag fails closed: catching stays off.
+      reviewOpen: wire?.reviewOpen ?? false,
     );
   }
 
