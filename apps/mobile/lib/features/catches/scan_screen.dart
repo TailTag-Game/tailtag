@@ -124,9 +124,16 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
 
   Future<void> _readAccess() async {
     final access = await _permission.status();
-    if (mounted) {
-      setState(() => _access = access);
+    if (!mounted) {
+      return;
     }
+    // After a refusal Android can still report a permission that it would
+    // ask for again. The screen keeps the Settings path then, and leaves it
+    // only when the camera is allowed (#511 AC8).
+    if (_access == CameraAccess.denied && access == CameraAccess.undecided) {
+      return;
+    }
+    setState(() => _access = access);
   }
 
   Future<void> _turnOnCamera() async {

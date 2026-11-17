@@ -231,8 +231,8 @@ final class ScriptedNetwork extends http.BaseClient {
       (_catchReplies[request] ??= []).add(reply);
 
   /// Answers held catch request [index] with [reply].
-  void releaseCatch(int index, ConventionReply reply) =>
-      _heldCatches[index].complete(_replyWith(reply.status, reply.body));
+  void releaseCatch(int index, ConventionReply reply) => _heldCatches[index]
+      .complete(_replyWith(reply.status, reply.body, reply.headers));
 
   /// The number of catch requests sent to [request], without the query.
   int catchCount(String request) => catchRequests

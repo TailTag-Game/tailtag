@@ -26,11 +26,11 @@ String _previewBody({int conventionId = 10}) =>
     '"name": "Alpha", "photo_url": "https://media.test/5.jpg"}, '
     '"convention_id": $conventionId}';
 
-String _request({String state = "pending"}) =>
+String _request({String state = "pending", int conventionId = 10}) =>
     '{"id": 31, "fursuit": {"id": 5, '
     '"tailtag_id": "00000000-0000-4000-8000-000000000005", '
     '"name": "Alpha", "photo_url": "https://media.test/5.jpg"}, '
-    '"convention_id": 10, "state": "$state", '
+    '"convention_id": $conventionId, "state": "$state", '
     '"requested_at": "2026-11-09T15:00:00Z", '
     '"review_deadline_at": "2026-11-13T05:00:00Z"}';
 
@@ -163,6 +163,26 @@ void main() {
       await app.settle();
 
       expect(_key("fake-camera"), findsOneWidget);
+    });
+
+    testWidgets("a refusal keeps the Settings path when Android still "
+        "reports a permission it would ask for again", (tester) async {
+      final camera = FakeCameraPermission(access: CameraAccess.undecided)
+        ..promptAnswer = CameraAccess.denied;
+      final app = await _openScanner(tester, camera: camera);
+
+      await app.tap("scan-turn-on-camera");
+      expect(find.text(CatchStrings.cameraDenied), findsOneWidget);
+
+      // Android reports the refused permission as one it can ask for.
+      camera.access = CameraAccess.undecided;
+      tester.binding
+        ..handleAppLifecycleStateChanged(AppLifecycleState.inactive)
+        ..handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await app.settle();
+
+      expect(find.text(CatchStrings.cameraDenied), findsOneWidget);
+      expect(find.text(CatchStrings.cameraIntro), findsNothing);
     });
 
     testWidgets("the camera stops in the background and starts on return, "
@@ -432,6 +452,34 @@ void main() {
     await app.tap("scan-close");
     expect(_top(app), AppPaths.home);
     expect(find.text("Other Con"), findsOneWidget);
+  });
+
+  testWidgets("a submission that the server placed at another convention "
+      "says the convention changed", (tester) async {
+    final scanners = FakeQrScanners();
+    final network = _network()
+      ..enqueueCatch(_preview, ConventionReply(body: _previewBody()))
+      ..enqueueCatch(
+        _submit,
+        ConventionReply(
+          status: 201,
+          body:
+              '{"outcome": "pending", '
+              '"request": ${_request(conventionId: 11)}, "catch": null}',
+        ),
+      );
+    final app = await _openScanner(
+      tester,
+      network: network,
+      scanners: scanners,
+    );
+    final reads = network.count(_selection);
+    await _read(app, scanners, _payload);
+
+    await app.tap("scan-confirm");
+
+    expect(_result(tester), CatchStrings.conventionChanged);
+    expect(network.count(_selection), reads + 1);
   });
 
   testWidgets("a wait counts down, and Try again sends the same submission "
