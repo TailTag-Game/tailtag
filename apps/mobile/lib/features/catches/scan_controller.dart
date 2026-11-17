@@ -259,8 +259,8 @@ final class ScanController extends Notifier<ScanState> {
       // The server uses its own selected convention for the submission.
       // If that changed after the preview, the result belongs to another
       // convention, so the screen says so instead of claiming it here.
-      final request = submission.request;
-      if (request != null && request.conventionId != conventionId) {
+      final placedAt = submission.conventionId;
+      if (placedAt != null && placedAt != conventionId) {
         _payload = null;
         _show(ScanResult.conventionChanged);
         return;

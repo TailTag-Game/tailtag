@@ -140,13 +140,21 @@ enum CatchSubmitOutcome {
 @immutable
 final class CatchSubmission {
   /// Creates an answer.
-  const new({required this.outcome, this.request});
+  const new({required this.outcome, this.request, this.catchConventionId});
 
   /// What the submission did.
   final CatchSubmitOutcome outcome;
 
   /// The request, when the answer carries one.
   final PlayerCatchRequest? request;
+
+  /// The convention of the catch, when the answer carries one. An
+  /// `already_caught` answer has a catch and no request.
+  final int? catchConventionId;
+
+  /// The convention that the server used for this submission, or null when
+  /// the answer names none.
+  int? get conventionId => request?.conventionId ?? catchConventionId;
 }
 
 /// One completed catch in the private collection.

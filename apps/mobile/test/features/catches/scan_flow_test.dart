@@ -454,32 +454,42 @@ void main() {
     expect(find.text("Other Con"), findsOneWidget);
   });
 
-  testWidgets("a submission that the server placed at another convention "
-      "says the convention changed", (tester) async {
-    final scanners = FakeQrScanners();
-    final network = _network()
-      ..enqueueCatch(_preview, ConventionReply(body: _previewBody()))
-      ..enqueueCatch(
-        _submit,
-        ConventionReply(
-          status: 201,
-          body:
-              '{"outcome": "pending", '
-              '"request": ${_request(conventionId: 11)}, "catch": null}',
-        ),
-      );
-    final app = await _openScanner(
-      tester,
-      network: network,
-      scanners: scanners,
-    );
-    final reads = network.count(_selection);
-    await _read(app, scanners, _payload);
+  group("a submission that the server placed at another convention says "
+      "the convention changed", () {
+    const caughtElsewhere =
+        '{"id": 77, "caught_at": "2026-11-09T15:00:00Z", '
+        '"approved_at": "2026-11-09T15:00:00Z", "convention_id": 11, '
+        '"fursuit": {"id": 5, '
+        '"tailtag_id": "00000000-0000-4000-8000-000000000005", '
+        '"name": "Alpha", "photo_url": "https://media.test/5.jpg"}}';
+    final cases = <String, String>{
+      "a new request":
+          '{"outcome": "pending", '
+          '"request": ${_request(conventionId: 11)}, "catch": null}',
+      "an earlier catch, which has no request":
+          '{"outcome": '
+          '"already_caught", "request": null, "catch": $caughtElsewhere}',
+    };
+    for (final MapEntry(key: label, value: body) in cases.entries) {
+      testWidgets(label, (tester) async {
+        final scanners = FakeQrScanners();
+        final network = _network()
+          ..enqueueCatch(_preview, ConventionReply(body: _previewBody()))
+          ..enqueueCatch(_submit, ConventionReply(body: body));
+        final app = await _openScanner(
+          tester,
+          network: network,
+          scanners: scanners,
+        );
+        final reads = network.count(_selection);
+        await _read(app, scanners, _payload);
 
-    await app.tap("scan-confirm");
+        await app.tap("scan-confirm");
 
-    expect(_result(tester), CatchStrings.conventionChanged);
-    expect(network.count(_selection), reads + 1);
+        expect(_result(tester), CatchStrings.conventionChanged);
+        expect(network.count(_selection), reads + 1);
+      });
+    }
   });
 
   testWidgets("a wait counts down, and Try again sends the same submission "

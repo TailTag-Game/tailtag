@@ -77,6 +77,7 @@ final class CatchRepository {
         null => null,
         final request => _request(request),
       },
+      catchConventionId: body.$catch?.conventionId,
     );
   }
 
