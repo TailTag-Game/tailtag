@@ -6,7 +6,9 @@ plugins {
 
 android {
     namespace = "app.tailtag"
-    compileSdk = flutter.compileSdkVersion
+    // permission_handler_android 14.1 needs compileSdk 37 or later (#511).
+    // The target SDK stays on the Flutter default.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

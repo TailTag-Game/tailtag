@@ -95,7 +95,7 @@ Future<AppHarness> _openSuits(
     photoSource: photoSource,
   );
   expect(app.path, AppPaths.home);
-  await app.tap("convention-my-suits");
+  await app.tap("nav-suits");
   expect(_top(app), AppPaths.suits);
   return app;
 }
@@ -622,7 +622,7 @@ void main() {
       expect(app.path, AppPaths.access);
       app.session.emit(const AuthSignedIn());
       await app.settle();
-      await app.tap("convention-my-suits");
+      await app.tap("nav-suits");
 
       expect(find.text("Bravo"), findsOneWidget);
       expect(find.text("Alpha"), findsNothing);

@@ -258,17 +258,23 @@ void main() {
           (
             label: "the home",
             open: _onHome,
+            // The scan button is off because the review window is closed,
+            // so focus skips it. The bar comes after the content.
             tab: [
-              "convention-my-suits",
               _change,
               "convention-refresh",
               _passkeys,
               _signOut,
               "entry-auth-proof",
+              "nav-home",
+              "nav-catches",
+              "nav-requests",
+              "nav-suits",
             ],
             spoken: [
               contains("Current Con"),
-              "My suits",
+              "Scan a TailTag",
+              "Catching isn't open at Current Con right now.",
               "Change convention",
               "Refresh",
               "Manage passkeys",

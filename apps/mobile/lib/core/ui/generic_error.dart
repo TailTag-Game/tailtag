@@ -40,7 +40,9 @@ GenericError? genericErrorFor(ApiFailure failure) {
   return switch (failure) {
     ApiConnectivityFailure() => GenericError.noConnection,
     ApiTimeoutFailure() => GenericError.timeout,
-    ApiServerFailure() || ApiUnexpectedFailure() => GenericError.unknown,
+    ApiServerFailure() ||
+    ApiUnexpectedFailure() ||
+    ApiRateLimitedFailure() => GenericError.unknown,
     ApiCancelledFailure() ||
     ApiUnauthenticatedFailure() ||
     ApiPermissionFailure() ||

@@ -1,3 +1,5 @@
+import "dart:async";
+
 import "package:flutter/foundation.dart";
 import "package:flutter/material.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
@@ -11,6 +13,12 @@ import "package:tailtag_mobile/features/account_access/access_flow_controller.da
 import "package:tailtag_mobile/features/account_access/account_access_screen.dart";
 import "package:tailtag_mobile/features/account_access/code_entry_screen.dart";
 import "package:tailtag_mobile/features/account_access/email_entry_screen.dart";
+import "package:tailtag_mobile/features/catches/catch_strings.dart";
+import "package:tailtag_mobile/features/catches/catches_controller.dart";
+import "package:tailtag_mobile/features/catches/catches_screen.dart";
+import "package:tailtag_mobile/features/catches/requests_controller.dart";
+import "package:tailtag_mobile/features/catches/requests_screen.dart";
+import "package:tailtag_mobile/features/catches/scan_screen.dart";
 import "package:tailtag_mobile/features/conventions/convention_home_screen.dart";
 import "package:tailtag_mobile/features/conventions/convention_picker_screen.dart";
 import "package:tailtag_mobile/features/fursuits/suit_detail_screen.dart";
@@ -82,9 +90,26 @@ abstract final class AppPaths {
   /// The suit screen of suit [id], above the suit list.
   static String suit(int id) => "/fursuits/$id";
 
-  /// The tag screen of suit [id], above its suit screen.
+  /// The tag screen of suit [id], full screen above the bar.
   static String suitTag(int id) => "/fursuits/$id/tag";
+
+  /// The scanner, full screen above the bar.
+  static const scan = "/scan";
+
+  /// The collection section.
+  static const catches = "/catches";
+
+  /// The request list section.
+  static const requests = "/requests";
 }
+
+/// The bar sections of the convention home stage, in bar order (#511 G2).
+const List<String> _sectionPaths = [
+  AppPaths.home,
+  AppPaths.catches,
+  AppPaths.requests,
+  AppPaths.suits,
+];
 
 /// Whether [location] is a suit screen or a suit's tag screen. A suit ID
 /// must fit in an `int`.
@@ -136,6 +161,9 @@ String? redirectFor(
     EntryConventionHome() =>
       location == home ||
           _isSuitPath(location) ||
+          location == AppPaths.scan ||
+          location == AppPaths.catches ||
+          location == AppPaths.requests ||
           (kDebugMode && location == AppPaths.authProof),
     EntryConventionPicker() =>
       location == home || (kDebugMode && location == AppPaths.authProof),
@@ -161,7 +189,9 @@ final routerProvider = Provider<GoRouter>((ref) {
     ..listen(entryControllerProvider, (_, next) => refresh.value = next)
     ..onDispose(refresh.dispose);
 
+  final rootKey = GlobalKey<NavigatorState>();
   final router = GoRouter(
+    navigatorKey: rootKey,
     initialLocation: pathForStage(refresh.value),
     refreshListenable: refresh,
     redirect: (context, state) {
@@ -273,65 +303,127 @@ final routerProvider = Provider<GoRouter>((ref) {
           );
         },
       ),
-      GoRoute(
-        path: AppPaths.home,
-        builder: (context, state) => _ConventionHomeRoute(
-          onOpenAuthProof: kDebugMode
-              ? () => context.push(AppPaths.authProof)
-              : null,
-        ),
-      ),
-      GoRoute(
-        path: AppPaths.suits,
-        builder: (context, state) => _SuitsRoute(
-          builder: (convention) => SuitListScreen(
-            convention: convention,
-            onOpenSuit: (id) => context.push(AppPaths.suit(id)),
-            onRegister: () => context.push(AppPaths.registerSuit),
-          ),
-        ),
-        routes: [
-          GoRoute(
-            path: "new",
-            builder: (context, state) => _SuitsRoute(
-              builder: (convention) => SuitRegisterScreen(
-                onCreated: (fursuit) {
-                  ref
-                      .read(suitsControllerProvider(convention.id).notifier)
-                      .created(fursuit);
-                  context.pushReplacement(AppPaths.suit(fursuit.id));
-                },
-                onOutcomeUnknown: () => ref
-                    .read(suitsControllerProvider(convention.id).notifier)
-                    .createOutcomeUnknown(),
-              ),
-            ),
-          ),
-          GoRoute(
-            path: ":id",
-            builder: (context, state) {
-              final id = int.parse(state.pathParameters["id"]!);
-              return _SuitsRoute(
-                builder: (convention) => SuitDetailScreen(
-                  convention: convention,
-                  fursuitId: id,
-                  onOpenTag: () => context.push(AppPaths.suitTag(id)),
-                ),
-              );
-            },
+      // The convention home stage: four sections with a bottom navigation
+      // bar. Each section keeps its own stack (#511 AC1, AC2).
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, shell) => _HomeShell(shell: shell),
+        branches: [
+          StatefulShellBranch(
             routes: [
               GoRoute(
-                path: "tag",
+                path: AppPaths.home,
+                builder: (context, state) => _ConventionHomeRoute(
+                  onOpenAuthProof: kDebugMode
+                      ? () => context.push(AppPaths.authProof)
+                      : null,
+                ),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppPaths.catches,
                 builder: (context, state) => _SuitsRoute(
-                  builder: (convention) => TagScreen(
+                  builder: (convention) =>
+                      CatchesScreen(convention: convention),
+                ),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppPaths.requests,
+                builder: (context, state) => _SuitsRoute(
+                  builder: (convention) => RequestsScreen(
                     convention: convention,
-                    fursuitId: int.parse(state.pathParameters["id"]!),
+                    onReloadHome: ref
+                        .read(entryControllerProvider.notifier)
+                        .refreshHome,
                   ),
                 ),
               ),
             ],
           ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppPaths.suits,
+                builder: (context, state) => _SuitsRoute(
+                  builder: (convention) => SuitListScreen(
+                    convention: convention,
+                    onOpenSuit: (id) => context.push(AppPaths.suit(id)),
+                    onRegister: () => context.push(AppPaths.registerSuit),
+                  ),
+                ),
+                routes: [
+                  GoRoute(
+                    path: "new",
+                    builder: (context, state) => _SuitsRoute(
+                      builder: (convention) => SuitRegisterScreen(
+                        onCreated: (fursuit) {
+                          ref
+                              .read(
+                                suitsControllerProvider(convention.id).notifier,
+                              )
+                              .created(fursuit);
+                          context.pushReplacement(AppPaths.suit(fursuit.id));
+                        },
+                        onOutcomeUnknown: () => ref
+                            .read(
+                              suitsControllerProvider(convention.id).notifier,
+                            )
+                            .createOutcomeUnknown(),
+                      ),
+                    ),
+                  ),
+                  GoRoute(
+                    path: ":id",
+                    builder: (context, state) {
+                      final id = int.parse(state.pathParameters["id"]!);
+                      return _SuitsRoute(
+                        builder: (convention) => SuitDetailScreen(
+                          convention: convention,
+                          fursuitId: id,
+                          onOpenTag: () => context.push(AppPaths.suitTag(id)),
+                        ),
+                      );
+                    },
+                    routes: [
+                      // The large QR code needs the whole screen (#511 G15).
+                      GoRoute(
+                        path: "tag",
+                        parentNavigatorKey: rootKey,
+                        builder: (context, state) => _SuitsRoute(
+                          builder: (convention) => TagScreen(
+                            convention: convention,
+                            fursuitId: int.parse(state.pathParameters["id"]!),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
         ],
+      ),
+      // The scanner needs the whole screen (#511 G15).
+      GoRoute(
+        path: AppPaths.scan,
+        builder: (context, state) => _SuitsRoute(
+          builder: (convention) => ScanScreen(
+            convention: convention,
+            onOpenRequests: () => context.go(AppPaths.requests),
+            onOpenCatches: () => context.go(AppPaths.catches),
+            onReloadHome: ref
+                .read(entryControllerProvider.notifier)
+                .refreshHome,
+            onClose: () => context.go(AppPaths.home),
+          ),
+        ),
       ),
       if (kDebugMode)
         GoRoute(
@@ -343,6 +435,76 @@ final routerProvider = Provider<GoRouter>((ref) {
   ref.onDispose(router.dispose);
   return router;
 });
+
+/// The bar of the convention home stage and the shown section.
+class _HomeShell extends ConsumerWidget {
+  const new({required this.shell});
+
+  final StatefulNavigationShell shell;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Scaffold(
+      body: shell,
+      bottomNavigationBar: NavigationBar(
+        key: const Key("home-bar"),
+        selectedIndex: shell.currentIndex,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        onDestinationSelected: (index) {
+          shell.goBranch(index, initialLocation: index == shell.currentIndex);
+          _readOnOpen(ref, _sectionPaths[index]);
+        },
+        destinations: const [
+          NavigationDestination(
+            key: Key("nav-home"),
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: CatchStrings.navHome,
+          ),
+          NavigationDestination(
+            key: Key("nav-catches"),
+            icon: Icon(Icons.collections_bookmark_outlined),
+            selectedIcon: Icon(Icons.collections_bookmark),
+            label: CatchStrings.navCatches,
+          ),
+          NavigationDestination(
+            key: Key("nav-requests"),
+            icon: Icon(Icons.outbox_outlined),
+            selectedIcon: Icon(Icons.outbox),
+            label: CatchStrings.navRequests,
+          ),
+          NavigationDestination(
+            key: Key("nav-suits"),
+            icon: Icon(Icons.pets_outlined),
+            selectedIcon: Icon(Icons.pets),
+            label: CatchStrings.navSuits,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// A section that stays alive in the bar reads again each time it opens
+  /// (#511 AC25, AC29). A new section reads when its screen starts.
+  void _readOnOpen(WidgetRef ref, String path) {
+    final stage = ref.read(entryControllerProvider);
+    if (stage is! EntryConventionHome) {
+      return;
+    }
+    final conventionId = stage.enrollment.convention.id;
+    switch (path) {
+      case AppPaths.catches:
+        final provider = catchesControllerProvider(conventionId);
+        if (ref.read(provider.exists)) {
+          unawaited(ref.read(provider.notifier).read());
+        }
+      case AppPaths.requests:
+        if (ref.read(requestsControllerProvider.exists)) {
+          unawaited(ref.read(requestsControllerProvider.notifier).read());
+        }
+    }
+  }
+}
 
 /// Gives a suit screen the selected convention of the home stage.
 class _SuitsRoute extends ConsumerWidget {
@@ -380,7 +542,7 @@ class _ConventionHomeRoute extends ConsumerWidget {
       apiAccess: stage.apiAccess,
       onChangeConvention: entry.openConventionPicker,
       onRefresh: entry.refreshHome,
-      onOpenSuits: () => context.push(AppPaths.suits),
+      onScan: () => context.push(AppPaths.scan),
       onManagePasskeys: entry.openPasskeys,
       onSignOut: entry.signOut,
       onOpenAuthProof: onOpenAuthProof,

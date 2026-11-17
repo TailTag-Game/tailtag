@@ -36,9 +36,6 @@ abstract final class ConventionStrings {
   /// The action that opens the picker from the home.
   static const changeConvention = "Change convention";
 
-  /// The home button that opens the suit list.
-  static const mySuits = "My suits";
-
   /// The action that reads again.
   static const refresh = "Refresh";
 

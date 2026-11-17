@@ -99,8 +99,9 @@ These flows are the known consumers of the V0 components. Each component names i
 | F5 | Activation | Turns a fursuit on or off for a convention. | `GET /api/conventions/{convention_id}/fursuit-activations/`. `PUT /api/conventions/{convention_id}/fursuit-activations/{fursuit_id}/` |
 | F6 | Catch session | Marks a fursuit as out and catchable, or not. | `PUT /api/conventions/{convention_id}/fursuit-activations/{fursuit_id}/catch-session/` |
 | F7 | Tag | Shows the fursuit tag as a QR code, shares a tag image to print, and replaces the tag. | `GET /api/fursuits/{fursuit_id}/tag/`. `POST /api/fursuits/{fursuit_id}/tag/replace/` |
-| F8 | Catch | Scans a QR code, sees a preview of the fursuit, and confirms the catch. | `POST /api/conventions/{convention_id}/catch-credentials/resolve/`. `POST /api/catches/confirm/` |
+| F8 | Catch | Scans a TailTag, sees a preview of the fursuit, and confirms a catch attempt. The owner approves it, or automatic approval makes the catch. | `POST /api/catches/preview/`. `POST /api/catches/requests/` |
 | F9 | Catch history | Sees the fursuits that the player caught, and filters them by convention. | `GET /api/catches/`, with an optional `convention_id` |
+| F10 | Catch requests | Follows the player's own catch requests in every open review window, and withdraws a pending one. | `GET /api/catches/requests/`. `POST /api/catches/requests/{id}/withdraw/` |
 
 ## Inventory
 
@@ -108,23 +109,23 @@ The V0 inventory has these components and no others.
 
 | Component | Flutter widget | TailTag widget | Flows |
 |-----------|----------------|----------------|-------|
-| [Button](#button) | `FilledButton`, `TextButton` | Yes: variants and loading state | F1 to F8 |
+| [Button](#button) | `FilledButton`, `TextButton` | Yes: variants and loading state | F1 to F8, F10 |
 | [Icon button](#icon-button) | `IconButton` | No | F2, F4 |
 | [Text field](#text-field) | `TextFormField` | No | F1, F2, F4 |
 | [Card](#card) | `Card` | No | F3, F4, F7, F8 |
-| [List row](#list-row) | `ListTile` | No | F2 to F5, F9 |
-| [Avatar](#avatar) | `ClipOval`, `ClipRRect`, and `Image.network` | Yes | F2, F4, F8, F9 |
-| [Badge](#badge) | `Chip` | Yes | F3, F5, F6, F8 |
+| [List row](#list-row) | `ListTile` | No | F2 to F5, F9, F10 |
+| [Avatar](#avatar) | `ClipOval`, `ClipRRect`, and `Image.network` | Yes | F2, F4, F8 to F10 |
+| [Badge](#badge) | `Chip` | Yes | F3, F5, F6, F8, F10 |
 | [Chip](#chip) | `FilterChip` | No | F9 |
-| [Dialog](#dialog) | `AlertDialog` | No | F5, F7 |
+| [Dialog](#dialog) | `AlertDialog` | No | F5, F7, F10 |
 | [Bottom sheet](#bottom-sheet) | `showModalBottomSheet` | No | F2, F3, F4 |
-| [Snackbar](#snackbar) | `SnackBar` | No | F2, F4, F6, F7, F8 |
+| [Snackbar](#snackbar) | `SnackBar` | No | F2, F4, F6, F7, F10 |
 | [Switch](#switch) | `SwitchListTile` | No | F5, F6 |
-| [Loading indicator](#loading-indicator) | `CircularProgressIndicator`, `RefreshIndicator` | No | F1 to F9 |
-| [Empty state](#empty-state) | None | Yes | F3, F4, F5, F9 |
-| [Status banner](#status-banner) | None | Yes | F1 to F9 |
-| [Top app bar](#top-app-bar) | `AppBar` | No | F1 to F9 |
-| [Bottom navigation bar](#bottom-navigation-bar) | `NavigationBar` | No | F1 to F9 |
+| [Loading indicator](#loading-indicator) | `CircularProgressIndicator`, `RefreshIndicator` | No | F1 to F10 |
+| [Empty state](#empty-state) | None | Yes | F3, F4, F5, F9, F10 |
+| [Status banner](#status-banner) | None | Yes | F1 to F10 |
+| [Top app bar](#top-app-bar) | `AppBar` | No | F1 to F10 |
+| [Bottom navigation bar](#bottom-navigation-bar) | `NavigationBar` | No | F3 to F10 |
 
 ### Feature-owned parts
 
@@ -133,7 +134,7 @@ These parts are not shared components. The feature that uses them owns them, bec
 | Part | Owner flow | Reason |
 |------|------------|--------|
 | QR code display | F7 | One consumer. It draws the code with `barcode_widget`. |
-| QR scanner view | F8 | One consumer. It needs a camera package and camera permission screens. |
+| QR scanner view | F8 | One consumer. It reads codes with `mobile_scanner` and asks for the camera with `permission_handler`. It has its own camera permission screens. |
 | Photo picker field | F2, F4 | It needs a photo package. The feature builds it from an [avatar](#avatar), a [button](#button), and a [bottom sheet](#bottom-sheet). |
 | Google button | F1 | One consumer. Google's [branding guidelines](https://developers.google.com/identity/branding-guidelines) set its logo, text, colors, and padding, so it does not follow the [button](#button) colors. It keeps the pill shape and `size.minTarget`. |
 | Apple button | F1 | One consumer, on iOS only. The system `ASAuthorizationAppleIDButton` draws it in a platform view, so Apple's [guidelines](https://developer.apple.com/design/human-interface-guidelines/sign-in-with-apple) set its logo, text, and colors. It keeps the pill shape and `size.minTarget`, scaled by the text scale. |
@@ -251,7 +252,7 @@ If a token value changes, update this table with the README contrast table.
 
 ### Pull to refresh
 
-- Lists that show server data use pull to refresh: conventions (F3), fursuits (F4), activations (F5), and catch history (F9).
+- Lists that show server data use pull to refresh: conventions (F3), fursuits (F4), activations (F5), catch history (F9), and catch requests (F10).
 - The widget is `RefreshIndicator`, not `RefreshIndicator.adaptive`.
 - Pull to refresh is never the only way to reload. A screen also reloads when it opens, and an error banner has a "Try again" action. This gives a way to reload without a drag gesture.
 
@@ -263,7 +264,7 @@ If a token value changes, update this table with the README contrast table.
 
 Use a button for an action that the player starts, such as save, enroll, or confirm a catch.
 
-Flows: F1 sign-in, F2 save profile, F3 enroll, F4 save fursuit, F5 and F7 confirm in a dialog, F8 confirm a catch.
+Flows: F1 sign-in, F2 save profile, F3 enroll, F4 save fursuit, F5, F7, and F10 confirm in a dialog, F8 confirm a catch.
 
 #### Do not use
 
@@ -517,7 +518,7 @@ Elevated only.
 
 Use a list row for one item in a list, or for one setting or value.
 
-Flows: F2 profile values, F3 conventions, F4 fursuits, F5 activations, F9 catch history.
+Flows: F2 profile values, F3 conventions, F4 fursuits, F5 activations, F9 catch history, F10 catch requests.
 
 #### Do not use
 
@@ -580,7 +581,7 @@ Flows: F2 profile values, F3 conventions, F4 fursuits, F5 activations, F9 catch 
 
 Use an avatar for the image of a player or a fursuit. It also shows the [image placeholder](README.md#image-placeholders) when there is no image.
 
-Flows: F2 the player avatar, F4 the fursuit photo, F8 the catch preview, F9 the fursuits in catch history.
+Flows: F2 the player avatar, F4 the fursuit photo, F8 the catch preview, F9 the fursuits in catch history, F10 the fursuits in catch requests.
 
 #### Do not use
 
@@ -643,7 +644,7 @@ The widget takes an image URL, a name, and a kind: player or fursuit.
 
 Use a badge for a short label that shows the state of an item. A badge has no action.
 
-Flows: F3 the active convention, F5 the activation state of a fursuit, F6 a fursuit that is out, F8 a fursuit that the player already caught.
+Flows: F3 the active convention, F5 the activation state of a fursuit, F6 a fursuit that is out, F10 the state of a catch request.
 
 #### Do not use
 
@@ -876,7 +877,7 @@ Flows: F2 and F4 the photo choices (take photo, choose photo, remove photo), F3 
 
 Use a snackbar for a short message after an action succeeds.
 
-Flows: F2 "Profile saved", F4 "Fursuit saved", F6 "Catch session ended", F7 "Tag replaced. Print the new one.", F8 "Catch confirmed".
+Flows: F2 "Profile saved", F4 "Fursuit saved", F6 "Catch session ended", F7 "Tag replaced. Print the new one.", F10 "Catch withdrawn."
 
 #### Do not use
 
@@ -1102,7 +1103,7 @@ One.
 
 Use a status banner for a message that must stay on screen until the problem is fixed or the player acts.
 
-Flows: every flow, for the [generic error text](#generic-error-text). F8 also uses it for a fursuit that is not out, and for a fursuit that the player already caught.
+Flows: every flow, for the [generic error text](#generic-error-text). F8 also uses it for a refusal or a wait after a scan. F10 uses it when a withdrawal does not land.
 
 #### Do not use
 
@@ -1128,7 +1129,7 @@ A TailTag widget. It is a rounded block at the top of the content area, below th
 | Variant | Background | Text and icon | Icon | Example |
 |---------|------------|---------------|------|---------|
 | Error | `color.scheme.errorContainer` | `color.scheme.onErrorContainer` | `Icons.error_outline` | The generic error text |
-| Warning | `color.status.warningContainer` | `color.status.onWarningContainer` | `Icons.warning_amber_outlined` | "This fursuit is not out right now." (F8) |
+| Warning | `color.status.warningContainer` | `color.status.onWarningContainer` | `Icons.warning_amber_outlined` | "This TailTag can't be caught right now." (F8) |
 | Neutral | `color.scheme.surfaceContainerHighest` | `color.scheme.onSurfaceVariant` | `Icons.info_outlined` | "You already caught this fursuit." (F8) |
 
 #### States
@@ -1219,7 +1220,7 @@ Small only.
 
 #### Use
 
-Use a bottom navigation bar to move between the top-level sections of the app. This file sets the rules for the bar. It does not name the sections. Navigation design names them later.
+Use a bottom navigation bar to move between the top-level sections of the app. The convention home stage has four sections, in this order: "Home", "Catches" (F9), "Requests" (F10), and "Suits" (F4 to F7). The scanner (F8) and the tag screen (F7) open full screen above the bar. A change to the sections follows the [change process](#source-of-truth-and-changes).
 
 Flows: every flow that has a top-level section.
 

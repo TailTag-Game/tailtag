@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>NSCameraUsageDescription</key>
-	<string>TailTag uses the camera when you take a photo of your suit.</string>
+	<string>TailTag uses the camera to scan TailTags and to take photos of your suit.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>TailTag opens your photos when you choose a photo of your suit.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

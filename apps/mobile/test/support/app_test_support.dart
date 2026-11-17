@@ -9,6 +9,10 @@ import "package:http/http.dart" as http;
 import "package:tailtag_mobile/app/app.dart";
 import "package:tailtag_mobile/app/router.dart";
 import "package:tailtag_mobile/core/auth/auth_providers.dart";
+import "package:tailtag_mobile/core/catches/camera_permission.dart";
+import "package:tailtag_mobile/core/catches/catch_providers.dart";
+import "package:tailtag_mobile/core/catches/catch_repository.dart";
+import "package:tailtag_mobile/core/catches/qr_scanner.dart";
 import "package:tailtag_mobile/core/conventions/convention_providers.dart";
 import "package:tailtag_mobile/core/conventions/convention_repository.dart";
 import "package:tailtag_mobile/core/fursuits/fursuit_providers.dart";
@@ -74,18 +78,28 @@ final class ProfileReply {
   final bool held;
 }
 
-/// A `Convention` in the server's response shape.
+/// A `Convention` in the server's response shape. With [reviewOpen] it has
+/// a time zone and an open review window that closes at [deadlineAt], the
+/// start of the local day [deadlineDate].
 String conventionJson({
   int id = 10,
   String name = "Test Con",
   String status = "active",
   String start = "2026-11-08",
   String end = "2026-11-10",
-}) =>
-    '{"id": $id, "name": "$name", "status": "$status", '
-    '"start_date": "$start", "end_date": "$end", '
-    '"time_zone": null, "review_deadline_at": null, '
-    '"review_deadline_local_date": null, "review_open": false}';
+  bool reviewOpen = false,
+  String deadlineAt = "2026-11-13T05:00:00Z",
+  String deadlineDate = "2026-11-13",
+}) => reviewOpen
+    ? '{"id": $id, "name": "$name", "status": "$status", '
+          '"start_date": "$start", "end_date": "$end", '
+          '"time_zone": "America/New_York", '
+          '"review_deadline_at": "$deadlineAt", '
+          '"review_deadline_local_date": "$deadlineDate", "review_open": true}'
+    : '{"id": $id, "name": "$name", "status": "$status", '
+          '"start_date": "$start", "end_date": "$end", '
+          '"time_zone": null, "review_deadline_at": null, '
+          '"review_deadline_local_date": null, "review_open": false}';
 
 /// A `ConventionEnrollment` in the server's response shape.
 String enrollmentJson({int id = 7, String? convention, bool selected = true}) =>
@@ -100,6 +114,7 @@ final class ConventionReply {
     this.body = "{}",
     this.fails = false,
     this.held = false,
+    this.headers = const {},
   });
 
   /// An array answer of [items].
@@ -121,6 +136,9 @@ final class ConventionReply {
   final String body;
   final bool fails;
   final bool held;
+
+  /// Extra response headers, such as `retry-after`.
+  final Map<String, String> headers;
 }
 
 /// A network for the entry reads, whose answers the test controls.
@@ -161,6 +179,8 @@ final class ScriptedNetwork extends http.BaseClient {
   final List<ConventionReply> _enrollments = [];
   final List<ConventionReply> _writes = [];
   final Map<String, List<ConventionReply>> _suitReplies = {};
+  final Map<String, List<ConventionReply>> _catchReplies = {};
+  final List<Completer<http.StreamedResponse>> _heldCatches = [];
   final List<Completer<http.StreamedResponse>> _heldSuits = [];
   final List<Completer<http.StreamedResponse>> _heldConventions = [];
   final List<Completer<http.StreamedResponse>> _held = [];
@@ -198,6 +218,26 @@ final class ScriptedNetwork extends http.BaseClient {
   /// and any other suit request answers 500.
   void enqueueSuit(String request, ConventionReply reply) =>
       (_suitReplies[request] ??= []).add(reply);
+
+  /// Each catch request under `/api/catches/` and each single convention
+  /// read, as `METHOD path?query` and its body text, in order.
+  final List<({String request, String body})> catchRequests = [];
+
+  /// Queues [reply] for the next catch [request], such as
+  /// `POST /api/catches/requests/` or `GET /api/conventions/12/`. With no
+  /// queued reply, a list read answers an empty list, a single convention
+  /// read answers 404, and any other request answers 500.
+  void enqueueCatch(String request, ConventionReply reply) =>
+      (_catchReplies[request] ??= []).add(reply);
+
+  /// Answers held catch request [index] with [reply].
+  void releaseCatch(int index, ConventionReply reply) => _heldCatches[index]
+      .complete(_replyWith(reply.status, reply.body, reply.headers));
+
+  /// The number of catch requests sent to [request], without the query.
+  int catchCount(String request) => catchRequests
+      .where((item) => item.request.split("?").first == request)
+      .length;
 
   /// Answers held suit request [index] with [reply].
   void releaseSuit(int index, ConventionReply reply) =>
@@ -241,6 +281,10 @@ final class ScriptedNetwork extends http.BaseClient {
     log.add("${request.method} ${request.url.path}");
     if (request.url.path == "/api/profile/") {
       return await _sendProfile(request);
+    }
+    if (request.url.path.startsWith("/api/catches/") ||
+        RegExp(r"^/api/conventions/[0-9]+/$").hasMatch(request.url.path)) {
+      return await _sendCatch(request);
     }
     if (request.url.path.startsWith("/api/fursuits/") ||
         request.url.path.contains("/fursuit-activations/")) {
@@ -342,15 +386,55 @@ final class ScriptedNetwork extends http.BaseClient {
     return await held.future;
   }
 
+  Future<http.StreamedResponse> _sendCatch(http.BaseRequest request) async {
+    final bytes = await request.finalize().toBytes();
+    final path = request.url.path;
+    final key = "${request.method} $path";
+    final query = request.url.query;
+    catchRequests.add((
+      request: query.isEmpty ? key : "$key?$query",
+      body: utf8.decode(bytes),
+    ));
+    final queue = _catchReplies[key];
+    final ConventionReply reply;
+    if (queue != null && queue.isNotEmpty) {
+      reply = queue.removeAt(0);
+    } else if (key == "GET /api/catches/requests/") {
+      reply = const ConventionReply(body: '{"results": []}');
+    } else if (key == "GET /api/catches/") {
+      reply = const ConventionReply(
+        body:
+            '{"catch_count": 0, "next": null, "previous": null, '
+            '"results": []}',
+      );
+    } else if (path.startsWith("/api/conventions/")) {
+      reply = const ConventionReply(status: 404, body: '{"detail": "x"}');
+    } else {
+      reply = const ConventionReply(status: 500);
+    }
+    if (reply.fails) {
+      throw http.ClientException("connection broke", request.url);
+    }
+    if (!reply.held) {
+      return _replyWith(reply.status, reply.body, reply.headers);
+    }
+    final held = Completer<http.StreamedResponse>();
+    _heldCatches.add(held);
+    return await held.future;
+  }
+
   static http.StreamedResponse _reply(int status) =>
       _replyWith(status, status == 200 ? '{"id": 42}' : "{}");
 
-  static http.StreamedResponse _replyWith(int status, String body) =>
-      http.StreamedResponse(
-        Stream.value(utf8.encode(body)),
-        status,
-        headers: {"content-type": "application/json"},
-      );
+  static http.StreamedResponse _replyWith(
+    int status,
+    String body, [
+    Map<String, String> headers = const {},
+  ]) => http.StreamedResponse(
+    Stream.value(utf8.encode(body)),
+    status,
+    headers: {"content-type": "application/json", ...headers},
+  );
 }
 
 /// The running app over [session] and [network], with its container.
@@ -381,9 +465,13 @@ final class AppHarness {
     await tester.pump(const Duration(seconds: 1));
   }
 
-  /// Taps the widget with [key] and settles.
+  /// Scrolls the widget with [key] into view, taps it, and settles. The
+  /// bottom navigation bar can cover a control low on a small test screen.
   Future<void> tap(String key) async {
-    await tester.tap(find.byKey(Key(key)));
+    final target = find.byKey(Key(key));
+    await tester.ensureVisible(target);
+    await tester.pump();
+    await tester.tap(target);
     await settle();
   }
 }
@@ -395,6 +483,8 @@ Future<AppHarness> pumpApp(
   ScriptedNetwork? network,
   PhotoSource? photoSource,
   TagShare? tagShare,
+  FakeQrScanners? scanners,
+  FakeCameraPermission? camera,
 }) async {
   final net = network ?? ScriptedNetwork();
   final transport = createTestTransport(net, tokenProvider: session);
@@ -411,6 +501,14 @@ Future<AppHarness> pumpApp(
         ConventionRepository(transport),
       ),
       fursuitRepositoryProvider.overrideWithValue(FursuitRepository(transport)),
+      catchRepositoryProvider.overrideWithValue(CatchRepository(transport)),
+      // The camera and its permission are faked in every app test.
+      qrScannerFactoryProvider.overrideWithValue(
+        (scanners ?? FakeQrScanners()).create,
+      ),
+      cameraPermissionProvider.overrideWithValue(
+        camera ?? FakeCameraPermission(),
+      ),
       if (photoSource != null)
         photoSourceProvider.overrideWithValue(photoSource),
       // The share sheet and its files are faked in every app test.
@@ -477,4 +575,104 @@ final class FakeTagShare implements TagShare {
 
   @override
   Future<void> clear() async => clears++;
+}
+
+/// The camera sessions of the scanner, faked at the plugin boundary. A test
+/// reads a code with [read].
+final class FakeQrScanners {
+  /// Every session made so far, oldest first.
+  final List<FakeQrScanner> sessions = [];
+
+  /// Makes a session.
+  QrScanner create() {
+    final session = FakeQrScanner();
+    sessions.add(session);
+    return session;
+  }
+
+  /// The newest session whose view shows.
+  FakeQrScanner get live => sessions.lastWhere((session) => session.shown);
+
+  /// Reads [raw] through the newest shown session.
+  void read(String raw) => live.read(raw);
+}
+
+/// One fake camera session. Its view is an empty box.
+final class FakeQrScanner implements QrScanner {
+  ValueChanged<String>? _onCode;
+  VoidCallback? _onError;
+
+  /// Whether the view was built.
+  bool shown = false;
+
+  /// Whether the session was freed.
+  bool disposed = false;
+
+  /// The number of flashlight toggles.
+  int torchToggles = 0;
+
+  /// Reports [raw] as a read QR code.
+  void read(String raw) => _onCode?.call(raw);
+
+  /// Reports a camera or reader failure.
+  void fail() => _onError?.call();
+
+  @override
+  Widget buildView({
+    required ValueChanged<String> onCode,
+    required VoidCallback onError,
+  }) {
+    shown = true;
+    _onCode = onCode;
+    _onError = onError;
+    return const SizedBox.expand(key: Key("fake-camera"));
+  }
+
+  /// The number of camera stops.
+  int stops = 0;
+
+  /// The number of camera starts after a stop.
+  int starts = 0;
+
+  @override
+  Future<void> toggleTorch() async => torchToggles++;
+
+  @override
+  Future<void> stop() async => stops++;
+
+  @override
+  Future<void> start() async => starts++;
+
+  @override
+  Future<void> dispose() async => disposed = true;
+}
+
+/// The camera permission, faked at the plugin boundary.
+final class FakeCameraPermission implements CameraPermission {
+  /// Creates a permission with the [access] that a status read returns.
+  new({this.access = CameraAccess.granted});
+
+  /// What a status read returns.
+  CameraAccess access;
+
+  /// What the system prompt returns.
+  CameraAccess promptAnswer = CameraAccess.granted;
+
+  /// The number of system prompts.
+  int prompts = 0;
+
+  /// The number of times Settings opened.
+  int settingsOpened = 0;
+
+  @override
+  Future<CameraAccess> status() async => access;
+
+  @override
+  Future<CameraAccess> request() async {
+    prompts++;
+    return access = promptAnswer;
+  }
+
+  @override
+  Future<void> openSettings() async => settingsOpened++;
 }

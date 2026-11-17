@@ -8,6 +8,7 @@ import "package:tailtag_mobile/core/ui/ui_strings.dart";
 import "package:tailtag_mobile/core/ui/widgets/status_badge.dart";
 import "package:tailtag_mobile/core/ui/widgets/status_banner.dart";
 import "package:tailtag_mobile/core/ui/widgets/tailtag_button.dart";
+import "package:tailtag_mobile/features/catches/catch_strings.dart";
 import "package:tailtag_mobile/features/conventions/convention_strings.dart";
 
 /// The minimal home of the selected convention.
@@ -23,7 +24,7 @@ class ConventionHomeScreen extends StatelessWidget {
     required this.apiAccess,
     required this.onChangeConvention,
     required this.onRefresh,
-    required this.onOpenSuits,
+    required this.onScan,
     required this.onManagePasskeys,
     required this.onSignOut,
     required this.onOpenAuthProof,
@@ -48,8 +49,8 @@ class ConventionHomeScreen extends StatelessWidget {
   /// Reads the server state again.
   final VoidCallback onRefresh;
 
-  /// Opens the suit list.
-  final VoidCallback onOpenSuits;
+  /// Opens the scanner.
+  final VoidCallback onScan;
 
   /// Opens the passkey screen.
   final VoidCallback onManagePasskeys;
@@ -107,14 +108,21 @@ class ConventionHomeScreen extends StatelessWidget {
                 ),
               ),
               TailTagButton(
-                key: const Key("convention-my-suits"),
-                label: ConventionStrings.mySuits,
-                variant: TailTagButtonVariant.secondary,
-                onPressed: onOpenSuits,
+                key: const Key("convention-scan"),
+                label: CatchStrings.scanTag,
+                icon: Icons.qr_code_scanner,
+                onPressed: convention.catchingOpen ? onScan : null,
               ),
+              if (!convention.catchingOpen)
+                Text(
+                  CatchStrings.scanClosed(convention.name),
+                  key: const Key("convention-scan-closed"),
+                  style: textTheme.bodyMedium,
+                ),
               TailTagButton(
                 key: const Key("convention-change"),
                 label: ConventionStrings.changeConvention,
+                variant: TailTagButtonVariant.secondary,
                 onPressed: onChangeConvention,
               ),
               TailTagButton(

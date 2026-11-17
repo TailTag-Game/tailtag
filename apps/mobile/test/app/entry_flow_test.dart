@@ -503,6 +503,12 @@ void main() {
       (stage: ready, from: "/fursuits/${"9" * 30}", sent: false, to: "/"),
       (stage: picker, from: AppPaths.suits, sent: false, to: "/conventions"),
       (stage: signedOut, from: AppPaths.suit(12), sent: false, to: "/access"),
+      (stage: ready, from: AppPaths.scan, sent: false, to: null),
+      (stage: ready, from: AppPaths.catches, sent: false, to: null),
+      (stage: ready, from: AppPaths.requests, sent: false, to: null),
+      (stage: picker, from: AppPaths.scan, sent: false, to: "/conventions"),
+      (stage: picker, from: AppPaths.catches, sent: false, to: "/conventions"),
+      (stage: signedOut, from: AppPaths.requests, sent: false, to: "/access"),
     ];
 
     for (final c in cases) {
@@ -568,7 +574,10 @@ void main() {
       final epoch = app.container.read(playerScopeProvider).epoch;
       app.session.gate = Completer<void>();
 
-      await tester.tap(find.byKey(const Key("entry-sign-out")));
+      final signOut = find.byKey(const Key("entry-sign-out"));
+      await tester.ensureVisible(signOut);
+      await tester.pump();
+      await tester.tap(signOut);
       await tester.pump();
 
       expect(_landing, findsNothing);

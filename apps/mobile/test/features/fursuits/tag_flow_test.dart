@@ -102,7 +102,7 @@ Future<AppHarness> _openSuit(
     network: network,
     tagShare: share,
   );
-  await app.tap("convention-my-suits");
+  await app.tap("nav-suits");
   await app.tap("suit-row-5");
   expect(_top(app), AppPaths.suit(5));
   return app;
