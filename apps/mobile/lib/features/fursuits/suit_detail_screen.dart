@@ -13,17 +13,20 @@ import "package:tailtag_mobile/features/fursuits/photo_picker.dart";
 import "package:tailtag_mobile/features/fursuits/suit_status.dart";
 import "package:tailtag_mobile/features/fursuits/suit_widgets.dart";
 import "package:tailtag_mobile/features/fursuits/suits_controller.dart";
+import "package:tailtag_mobile/features/reviews/pending_summary_controller.dart";
+import "package:tailtag_mobile/features/reviews/review_entries.dart";
+import "package:tailtag_mobile/features/reviews/review_strings.dart";
 
 /// One suit: its photo and name, then its participation and catch session
-/// at the selected convention, then the row that opens its tag.
-///
-/// A later task adds the approval parts (#512).
+/// at the selected convention, then its catch approval parts (#512), then
+/// the row that opens its tag.
 class SuitDetailScreen extends ConsumerStatefulWidget {
   /// Creates the screen for suit [fursuitId] at [convention].
   const new({
     required this.convention,
     required this.fursuitId,
     required this.onOpenTag,
+    required this.onOpenReview,
     super.key,
   });
 
@@ -35,6 +38,9 @@ class SuitDetailScreen extends ConsumerStatefulWidget {
 
   /// Opens the tag screen of the suit.
   final VoidCallback onOpenTag;
+
+  /// Opens the review screen of the suit (#512 AC5).
+  final VoidCallback onOpenReview;
 
   @override
   ConsumerState<SuitDetailScreen> createState() => _SuitDetailScreenState();
@@ -60,6 +66,9 @@ class _SuitDetailScreenState extends ConsumerState<SuitDetailScreen> {
     scheduleMicrotask(() {
       if (mounted) {
         unawaited(_controller.read());
+        // The counts decide whether the approval parts show, so this screen
+        // reads them even while they are hidden (#512 AC30).
+        unawaited(ref.read(pendingSummaryProvider.notifier).read());
       }
     });
   }
@@ -94,6 +103,13 @@ class _SuitDetailScreenState extends ConsumerState<SuitDetailScreen> {
     if (done && !next && mounted) {
       _snack(FursuitStrings.sessionStopped);
     }
+  }
+
+  Future<void> _setApproval(bool automatic) async {
+    await _controller.setApprovalMode(
+      widget.fursuitId,
+      automatic ? CatchApprovalMode.automatic : CatchApprovalMode.manual,
+    );
   }
 
   Future<void> _changePhoto() async {
@@ -152,7 +168,12 @@ class _SuitDetailScreenState extends ConsumerState<SuitDetailScreen> {
       ),
       body: SafeArea(
         child: RefreshIndicator(
-          onRefresh: _controller.read,
+          // The counts decide whether the approval parts show, so a pull
+          // to refresh reads them too (#512 AC30).
+          onRefresh: () => Future.wait([
+            _controller.read(),
+            ref.read(pendingSummaryProvider.notifier).read(),
+          ]),
           child: ListView(
             key: const Key("suit-detail"),
             physics: const AlwaysScrollableScrollPhysics(),
@@ -303,6 +324,36 @@ class _SuitDetailScreenState extends ConsumerState<SuitDetailScreen> {
             style: textTheme.bodyMedium,
           ),
         ),
+      // The approval parts hide while the server has no catch review
+      // (#512 AC27).
+      if (reviewAvailable(ref)) ...[
+        const SizedBox(height: TokenSpacing.xl),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: TokenSpacing.xl),
+          child: Semantics(
+            header: true,
+            child: Text(
+              ReviewStrings.approvalSection,
+              style: textTheme.titleMedium,
+            ),
+          ),
+        ),
+        // The server accepts a mode change for a disabled suit too, so the
+        // switch stays enabled (#512 AC7).
+        SwitchListTile(
+          key: const Key("suit-approval"),
+          value: fursuit.approvalMode == CatchApprovalMode.automatic,
+          onChanged: busy ? null : (next) => unawaited(_setApproval(next)),
+          title: const Text(ReviewStrings.automatic),
+          subtitle: switchSubtitle(
+            pending: write == SuitWrite.approval,
+            text: fursuit.approvalMode == CatchApprovalMode.automatic
+                ? ReviewStrings.automaticHelp
+                : ReviewStrings.manualHelp,
+          ),
+        ),
+        ReviewEntry.suit(fursuitId: fursuit.id, onOpen: widget.onOpenReview),
+      ],
       const SizedBox(height: TokenSpacing.xl),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: TokenSpacing.xl),

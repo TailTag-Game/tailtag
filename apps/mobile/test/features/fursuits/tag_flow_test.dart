@@ -82,7 +82,7 @@ Future<AppHarness> _openSuit(
   List<(String, ConventionReply)> later = const [],
   FakeTagShare? share,
 }) async {
-  tester.view.physicalSize = const Size(1200, 5400);
+  tester.view.physicalSize = const Size(1200, 7200);
   addTearDown(tester.view.resetPhysicalSize);
   final network = ScriptedNetwork([200]);
   for (var i = 0; i < 6; i++) {

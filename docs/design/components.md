@@ -102,6 +102,7 @@ These flows are the known consumers of the V0 components. Each component names i
 | F8 | Catch | Scans a TailTag, sees a preview of the fursuit, and confirms a catch attempt. The owner approves it, or automatic approval makes the catch. | `POST /api/catches/preview/`. `POST /api/catches/requests/` |
 | F9 | Catch history | Sees the fursuits that the player caught, and filters them by convention. | `GET /api/catches/`, with an optional `convention_id` |
 | F10 | Catch requests | Follows the player's own catch requests in every open review window, and withdraws a pending one. | `GET /api/catches/requests/`. `POST /api/catches/requests/{id}/withdraw/` |
+| F11 | Catch review | Reviews catch requests on the player's own suits in every open review window. Approves, declines, declines and blocks, undoes a decline, restores a decline, and removes a block. Sets the approval mode of a suit. | `GET /api/catches/incoming-requests/`. `GET /api/catches/incoming-requests/summary/`. `POST /api/catches/incoming-requests/{id}/approve/`, `decline/`, `undo-decline/`, and `restore/`. `DELETE /api/catches/incoming-requests/{id}/block/`. `PATCH /api/fursuits/{id}/` for the approval mode |
 
 ## Inventory
 
@@ -109,23 +110,23 @@ The V0 inventory has these components and no others.
 
 | Component | Flutter widget | TailTag widget | Flows |
 |-----------|----------------|----------------|-------|
-| [Button](#button) | `FilledButton`, `TextButton` | Yes: variants and loading state | F1 to F8, F10 |
+| [Button](#button) | `FilledButton`, `TextButton` | Yes: variants and loading state | F1 to F8, F10, F11 |
 | [Icon button](#icon-button) | `IconButton` | No | F2, F4 |
 | [Text field](#text-field) | `TextFormField` | No | F1, F2, F4 |
-| [Card](#card) | `Card` | No | F3, F4, F7, F8 |
-| [List row](#list-row) | `ListTile` | No | F2 to F5, F9, F10 |
-| [Avatar](#avatar) | `ClipOval`, `ClipRRect`, and `Image.network` | Yes | F2, F4, F8 to F10 |
-| [Badge](#badge) | `Chip` | Yes | F3, F5, F6, F8, F10 |
+| [Card](#card) | `Card` | No | F3, F4, F7, F8, F11 |
+| [List row](#list-row) | `ListTile` | No | F2 to F5, F9 to F11 |
+| [Avatar](#avatar) | `ClipOval`, `ClipRRect`, and `Image.network` | Yes | F2, F4, F8 to F11 |
+| [Badge](#badge) | `Chip` | Yes | F3, F5, F6, F8, F10, F11 |
 | [Chip](#chip) | `FilterChip` | No | F9 |
 | [Dialog](#dialog) | `AlertDialog` | No | F5, F7, F10 |
-| [Bottom sheet](#bottom-sheet) | `showModalBottomSheet` | No | F2, F3, F4 |
-| [Snackbar](#snackbar) | `SnackBar` | No | F2, F4, F6, F7, F10 |
-| [Switch](#switch) | `SwitchListTile` | No | F5, F6 |
-| [Loading indicator](#loading-indicator) | `CircularProgressIndicator`, `RefreshIndicator` | No | F1 to F10 |
-| [Empty state](#empty-state) | None | Yes | F3, F4, F5, F9, F10 |
-| [Status banner](#status-banner) | None | Yes | F1 to F10 |
-| [Top app bar](#top-app-bar) | `AppBar` | No | F1 to F10 |
-| [Bottom navigation bar](#bottom-navigation-bar) | `NavigationBar` | No | F3 to F10 |
+| [Bottom sheet](#bottom-sheet) | `showModalBottomSheet` | No | F2, F3, F4, F11 |
+| [Snackbar](#snackbar) | `SnackBar` | No | F2, F4, F6, F7, F10, F11 |
+| [Switch](#switch) | `SwitchListTile` | No | F5, F6, F11 |
+| [Loading indicator](#loading-indicator) | `CircularProgressIndicator`, `RefreshIndicator` | No | F1 to F11 |
+| [Empty state](#empty-state) | None | Yes | F3, F4, F5, F9 to F11 |
+| [Status banner](#status-banner) | None | Yes | F1 to F11 |
+| [Top app bar](#top-app-bar) | `AppBar` | No | F1 to F11 |
+| [Bottom navigation bar](#bottom-navigation-bar) | `NavigationBar` | No | F3 to F11 |
 
 ### Feature-owned parts
 
@@ -252,7 +253,7 @@ If a token value changes, update this table with the README contrast table.
 
 ### Pull to refresh
 
-- Lists that show server data use pull to refresh: conventions (F3), fursuits (F4), activations (F5), catch history (F9), and catch requests (F10).
+- Lists that show server data use pull to refresh: conventions (F3), fursuits (F4), activations (F5), catch history (F9), catch requests (F10), and requests to review (F11).
 - The widget is `RefreshIndicator`, not `RefreshIndicator.adaptive`.
 - Pull to refresh is never the only way to reload. A screen also reloads when it opens, and an error banner has a "Try again" action. This gives a way to reload without a drag gesture.
 
@@ -264,7 +265,7 @@ If a token value changes, update this table with the README contrast table.
 
 Use a button for an action that the player starts, such as save, enroll, or confirm a catch.
 
-Flows: F1 sign-in, F2 save profile, F3 enroll, F4 save fursuit, F5, F7, and F10 confirm in a dialog, F8 confirm a catch.
+Flows: F1 sign-in, F2 save profile, F3 enroll, F4 save fursuit, F5, F7, and F10 confirm in a dialog, F8 confirm a catch, F11 approve, decline, restore, and remove a block.
 
 #### Do not use
 
@@ -460,7 +461,7 @@ Each field except the last uses the "next" keyboard action. The last field uses 
 
 Use a card to group content about one thing, such as one fursuit or one convention, on a screen with other content.
 
-Flows: F3 the active convention summary, F4 the fursuit detail header, F7 the frame around the QR code, F8 the fursuit preview before a catch.
+Flows: F3 the active convention summary, F4 the fursuit detail header, F7 the frame around the QR code, F8 the fursuit preview before a catch, F11 the count of requests to review on the convention home.
 
 #### Do not use
 
@@ -518,7 +519,7 @@ Elevated only.
 
 Use a list row for one item in a list, or for one setting or value.
 
-Flows: F2 profile values, F3 conventions, F4 fursuits, F5 activations, F9 catch history, F10 catch requests.
+Flows: F2 profile values, F3 conventions, F4 fursuits, F5 activations, F9 catch history, F10 catch requests, F11 requests to review.
 
 #### Do not use
 
@@ -581,7 +582,7 @@ Flows: F2 profile values, F3 conventions, F4 fursuits, F5 activations, F9 catch 
 
 Use an avatar for the image of a player or a fursuit. It also shows the [image placeholder](README.md#image-placeholders) when there is no image.
 
-Flows: F2 the player avatar, F4 the fursuit photo, F8 the catch preview, F9 the fursuits in catch history, F10 the fursuits in catch requests.
+Flows: F2 the player avatar, F4 the fursuit photo, F8 the catch preview, F9 the fursuits in catch history, F10 the fursuits in catch requests, F11 the fursuits in requests to review.
 
 #### Do not use
 
@@ -644,7 +645,7 @@ The widget takes an image URL, a name, and a kind: player or fursuit.
 
 Use a badge for a short label that shows the state of an item. A badge has no action.
 
-Flows: F3 the active convention, F5 the activation state of a fursuit, F6 a fursuit that is out, F10 the state of a catch request.
+Flows: F3 the active convention, F5 the activation state of a fursuit, F6 a fursuit that is out, F10 the state of a catch request, F11 the state of a request to review and a blocked player.
 
 #### Do not use
 
@@ -819,7 +820,7 @@ After success, the dialog closes and a snackbar confirms the action.
 
 Use a bottom sheet for a choice from a short list or for a short form.
 
-Flows: F2 and F4 the photo choices (take photo, choose photo, remove photo), F3 pick the active convention.
+Flows: F2 and F4 the photo choices (take photo, choose photo, remove photo), F3 pick the active convention, F11 decline or decline and block.
 
 #### Do not use
 
@@ -877,7 +878,7 @@ Flows: F2 and F4 the photo choices (take photo, choose photo, remove photo), F3 
 
 Use a snackbar for a short message after an action succeeds.
 
-Flows: F2 "Profile saved", F4 "Fursuit saved", F6 "Catch session ended", F7 "Tag replaced. Print the new one.", F10 "Catch withdrawn."
+Flows: F2 "Profile saved", F4 "Fursuit saved", F6 "Catch session ended. Requests already sent stay for you to review.", F7 "Tag replaced. Print the new one.", F10 "Catch withdrawn.", F11 "Catch approved." and "Catch declined." with "Undo".
 
 #### Do not use
 
@@ -891,7 +892,8 @@ Flows: F2 "Profile saved", F4 "Fursuit saved", F6 "Catch session ended", F7 "Tag
 #### Content limits
 
 - One short sentence, for example "Catch confirmed".
-- No action in V0. No icon.
+- No action in V0, with one exception: the F11 "Catch declined." snackbar has an "Undo" action. It sets `persist: false`, because Flutter keeps a snackbar with an action open by default. It closes 10 seconds after the app sent the decline. Restore on the request row has no 10-second limit. It works until the review deadline.
+- No icon.
 - One snackbar at a time. A new one replaces the old one.
 
 #### Variants
@@ -913,7 +915,7 @@ One. A snackbar uses no status color, so its text carries the whole meaning.
 
 - Flutter announces the snackbar text to the screen reader.
 - 200% text scale: the text wraps and the snackbar grows taller.
-- Touch target: not applicable. A V0 snackbar has no action.
+- Touch target: the F11 "Undo" action is at least `size.minTarget` high. Other V0 snackbars have no action.
 - Focus: not applicable. The snackbar does not take focus.
 
 #### Tokens
@@ -929,7 +931,7 @@ One. A snackbar uses no status color, so its text carries the whole meaning.
 
 Use a switch for an on or off setting that changes at once on the server.
 
-Flows: F5 a fursuit is active at a convention, F6 a fursuit is out for catching.
+Flows: F5 a fursuit is active at a convention, F6 a fursuit is out for catching, F11 a fursuit approves catches automatically.
 
 #### Do not use
 
@@ -1042,7 +1044,7 @@ Flows: every flow.
 
 Use an empty state when a list loads with no items.
 
-Flows: F3 no conventions are open, F4 the player has no fursuits, F5 no fursuit is active at the convention, F9 the player has no catches.
+Flows: F3 no conventions are open, F4 the player has no fursuits, F5 no fursuit is active at the convention, F9 the player has no catches, F11 no requests to review.
 
 #### Do not use
 
@@ -1103,7 +1105,7 @@ One.
 
 Use a status banner for a message that must stay on screen until the problem is fixed or the player acts.
 
-Flows: every flow, for the [generic error text](#generic-error-text). F8 also uses it for a refusal or a wait after a scan. F10 uses it when a withdrawal does not land.
+Flows: every flow, for the [generic error text](#generic-error-text). F8 also uses it for a refusal or a wait after a scan. F10 uses it when a withdrawal does not land. F11 uses it when a review action does not land.
 
 #### Do not use
 
@@ -1220,7 +1222,7 @@ Small only.
 
 #### Use
 
-Use a bottom navigation bar to move between the top-level sections of the app. The convention home stage has four sections, in this order: "Home", "Catches" (F9), "Requests" (F10), and "Suits" (F4 to F7). The scanner (F8) and the tag screen (F7) open full screen above the bar. A change to the sections follows the [change process](#source-of-truth-and-changes).
+Use a bottom navigation bar to move between the top-level sections of the app. The convention home stage has four sections, in this order: "Home", "Catches" (F9), "Requests" (F10), and "Suits" (F4 to F7, F11). The scanner (F8) and the tag screen (F7) open full screen above the bar. A change to the sections follows the [change process](#source-of-truth-and-changes).
 
 Flows: every flow that has a top-level section.
 

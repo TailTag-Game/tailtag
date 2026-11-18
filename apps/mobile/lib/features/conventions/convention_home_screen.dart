@@ -25,6 +25,7 @@ class ConventionHomeScreen extends StatelessWidget {
     required this.onChangeConvention,
     required this.onRefresh,
     required this.onScan,
+    required this.reviewEntry,
     required this.onManagePasskeys,
     required this.onSignOut,
     required this.onOpenAuthProof,
@@ -51,6 +52,10 @@ class ConventionHomeScreen extends StatelessWidget {
 
   /// Opens the scanner.
   final VoidCallback onScan;
+
+  /// The row that opens owner catch review. It shows only while requests
+  /// wait (#512 AC3).
+  final Widget reviewEntry;
 
   /// Opens the passkey screen.
   final VoidCallback onManagePasskeys;
@@ -107,18 +112,29 @@ class ConventionHomeScreen extends StatelessWidget {
                   ),
                 ),
               ),
-              TailTagButton(
-                key: const Key("convention-scan"),
-                label: CatchStrings.scanTag,
-                icon: Icons.qr_code_scanner,
-                onPressed: convention.catchingOpen ? onScan : null,
+              // The review entry adds its own space only when it shows, so a
+              // hidden entry leaves no gap.
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TailTagButton(
+                    key: const Key("convention-scan"),
+                    label: CatchStrings.scanTag,
+                    icon: Icons.qr_code_scanner,
+                    onPressed: convention.catchingOpen ? onScan : null,
+                  ),
+                  if (!convention.catchingOpen)
+                    Padding(
+                      padding: const EdgeInsets.only(top: TokenSpacing.lg),
+                      child: Text(
+                        CatchStrings.scanClosed(convention.name),
+                        key: const Key("convention-scan-closed"),
+                        style: textTheme.bodyMedium,
+                      ),
+                    ),
+                  reviewEntry,
+                ],
               ),
-              if (!convention.catchingOpen)
-                Text(
-                  CatchStrings.scanClosed(convention.name),
-                  key: const Key("convention-scan-closed"),
-                  style: textTheme.bodyMedium,
-                ),
               TailTagButton(
                 key: const Key("convention-change"),
                 label: ConventionStrings.changeConvention,

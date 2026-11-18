@@ -514,7 +514,11 @@ void main() {
         expect(app.network.conventionWrites, hasLength(1));
         expect(app.network.conventionWrites.single.request, c.request);
         expect(app.network.conventionWrites.single.body, c.body);
-        expect(app.network.log.last, c.request, reason: "no read follows");
+        expect(
+          app.network.logWithoutReview.last,
+          c.request,
+          reason: "no read follows",
+        );
         expect(_text(c.row == 1 ? "Fresh Con" : "Joined Con"), findsOneWidget);
       });
     }
@@ -806,12 +810,12 @@ void main() {
         writes: [ConventionReply.brokenConnection],
       );
       await _enterAndWait(app, 1);
-      final before = app.network.log.length;
+      final before = app.network.logWithoutReview.length;
 
       await tester.fling(_text("Fresh Con"), const Offset(0, 500), 1000);
       await app.settle();
 
-      expect(app.network.log.length, before);
+      expect(app.network.logWithoutReview.length, before);
       expect(_text(ConventionStrings.unknownOutcome), findsOneWidget);
     });
 
@@ -852,13 +856,13 @@ void main() {
   group("Change convention", () {
     testWidgets("Close returns at once with no read", (tester) async {
       final app = await _onPickerFromHome(tester);
-      final before = app.network.log.length;
+      final before = app.network.logWithoutReview.length;
 
       await app.tap(_closeKey);
 
       expect(app.path, AppPaths.home);
       expect(_text("Current Con"), findsOneWidget);
-      expect(app.network.log.length, before);
+      expect(app.network.logWithoutReview.length, before);
     });
 
     testWidgets("Close during a read drops the late lists", (tester) async {
@@ -937,7 +941,7 @@ void main() {
           ),
         );
 
-        expect(app.network.log, [_getMe, _getProfile, _getActive]);
+        expect(app.network.logWithoutReview, [_getMe, _getProfile, _getActive]);
         expect(_text("Test Con"), findsOneWidget);
         expect(_text("Nov 8, 2026 to Nov 10, 2026"), findsOneWidget);
         expect(_text(c.label), findsOneWidget);
@@ -1011,17 +1015,20 @@ void main() {
       tester,
     ) async {
       final app = await _onHome(tester);
-      final before = app.network.log.length;
+      final before = app.network.logWithoutReview.length;
 
       tester.binding
         ..handleAppLifecycleStateChanged(AppLifecycleState.inactive)
         ..handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await app.settle();
-      expect(app.network.log.length, before);
+      expect(app.network.logWithoutReview.length, before);
 
       await _foreground(app);
 
-      expect(app.network.log.sublist(before), [_getProfile, _getActive]);
+      expect(app.network.logWithoutReview.sublist(before), [
+        _getProfile,
+        _getActive,
+      ]);
       expect(app.network.conventionWrites, isEmpty);
       expect(app.path, AppPaths.home);
     });
@@ -1033,11 +1040,11 @@ void main() {
         tester,
         ScriptedNetwork([200], [ProfileReply.disabled, ProfileReply.disabled]),
       );
-      final before = app.network.log.length;
+      final before = app.network.logWithoutReview.length;
 
       await _foreground(app);
 
-      expect(app.network.log.sublist(before), [_getProfile]);
+      expect(app.network.logWithoutReview.sublist(before), [_getProfile]);
       expect(app.path, AppPaths.accountUnavailable);
     });
 
@@ -1051,12 +1058,12 @@ void main() {
           ConventionReply.list([_joined]),
         ],
       );
-      final before = app.network.log.length;
+      final before = app.network.logWithoutReview.length;
 
       await _foreground(app);
 
-      expect(app.network.log.sublist(before).first, _getProfile);
-      expect(app.network.log.sublist(before).skip(1).toSet(), {
+      expect(app.network.logWithoutReview.sublist(before).first, _getProfile);
+      expect(app.network.logWithoutReview.sublist(before).skip(1).toSet(), {
         _getConventions,
         _getEnrollments,
       });
@@ -1066,21 +1073,21 @@ void main() {
 
     testWidgets("does nothing on the identity-failed stage", (tester) async {
       final app = await _pump(tester, ScriptedNetwork([500]));
-      final before = app.network.log.length;
+      final before = app.network.logWithoutReview.length;
 
       await _foreground(app);
 
-      expect(app.network.log.length, before);
+      expect(app.network.logWithoutReview.length, before);
     });
 
     testWidgets("does nothing on the passkey screen", (tester) async {
       final app = await _onHome(tester);
       await app.tap(_passkeys);
-      final before = app.network.log.length;
+      final before = app.network.logWithoutReview.length;
 
       await _foreground(app);
 
-      expect(app.network.log.length, before);
+      expect(app.network.logWithoutReview.length, before);
       expect(app.path, AppPaths.passkeys);
     });
 

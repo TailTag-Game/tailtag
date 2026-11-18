@@ -5,7 +5,8 @@ import "package:tailtag_mobile/core/api/api_transport.dart";
 import "package:tailtag_mobile/core/catches/catch_models.dart";
 
 /// Previews and submits catch attempts, reads the player's own requests,
-/// withdraws a request, and reads the private collection.
+/// withdraws a request, reads the private collection, and reads and acts
+/// on the requests on the owner's suits.
 ///
 /// Wire types stay inside this class: callers get TailTag models or an
 /// [ApiFailure]. The server owns every rule and keeps its own order. The
@@ -143,6 +144,183 @@ final class CatchRepository {
     );
   }
 
+  /// The requests on the owner's suits in every open review window, in
+  /// server order. It is filtered to [fursuitId] when that is not null.
+  Future<List<OwnerCatchRequest>> listIncoming({
+    int? fursuitId,
+    ApiCancellation? cancellation,
+  }) async {
+    final response = await _transport.execute(
+      operationId: "catchIncomingRequestsList",
+      cancellation: cancellation,
+      call: (token) => _transport.catches.catchIncomingRequestsList(
+        fursuitId: fursuitId,
+        cancellation: token,
+      ),
+    );
+    return switch (response) {
+      api.CatchIncomingRequestsListResponse200(:final body) => [
+        for (final item in body.results) _ownerRequest(item),
+      ],
+      api.CatchIncomingRequestsListResponse() =>
+        throw const ApiUnexpectedFailure(),
+    };
+  }
+
+  /// The pending counts on the owner's suits in every open review window.
+  Future<PendingSummary> pendingSummary({ApiCancellation? cancellation}) async {
+    final response = await _transport.execute(
+      operationId: "catchIncomingRequestsSummary",
+      cancellation: cancellation,
+      call: (token) =>
+          _transport.catches.catchIncomingRequestsSummary(cancellation: token),
+    );
+    return switch (response) {
+      api.CatchIncomingRequestsSummaryResponse200(:final body) =>
+        PendingSummary(
+          pendingCount: body.pendingCount,
+          byFursuit: {
+            for (final item in body.fursuits) item.fursuitId: item.pendingCount,
+          },
+        ),
+      api.CatchIncomingRequestsSummaryResponse() =>
+        throw const ApiUnexpectedFailure(),
+    };
+  }
+
+  /// Approves request [id]. A repeat returns the same result.
+  Future<OwnerCatchRequest> approve(
+    int id, {
+    ApiCancellation? cancellation,
+  }) async {
+    final response = await _transport.execute(
+      operationId: "catchIncomingRequestsApprove",
+      cancellation: cancellation,
+      call: (token) => _transport.catches.catchIncomingRequestsApprove(
+        id: id,
+        cancellation: token,
+      ),
+    );
+    return switch (response) {
+      api.CatchIncomingRequestsApproveResponse200(:final body) => _ownerRequest(
+        body.request,
+      ),
+      api.CatchIncomingRequestsApproveResponse() =>
+        throw const ApiUnexpectedFailure(),
+    };
+  }
+
+  /// Declines request [id], and blocks the player for the suit and
+  /// convention when [block] is true.
+  Future<OwnerCatchRequest> decline(
+    int id, {
+    required bool block,
+    ApiCancellation? cancellation,
+  }) async {
+    final response = await _transport.execute(
+      operationId: "catchIncomingRequestsDecline",
+      cancellation: cancellation,
+      call: (token) => _transport.catches.catchIncomingRequestsDecline(
+        id: id,
+        body: api.CatchRequestDecline(block: block),
+        cancellation: token,
+      ),
+    );
+    return switch (response) {
+      api.CatchIncomingRequestsDeclineResponse200(:final body) => _ownerRequest(
+        body,
+      ),
+      api.CatchIncomingRequestsDeclineResponse() =>
+        throw const ApiUnexpectedFailure(),
+    };
+  }
+
+  /// Undoes the ordinary decline of request [id].
+  Future<OwnerCatchRequest> undoDecline(
+    int id, {
+    ApiCancellation? cancellation,
+  }) async {
+    final response = await _transport.execute(
+      operationId: "catchIncomingRequestsUndoDecline",
+      cancellation: cancellation,
+      call: (token) => _transport.catches.catchIncomingRequestsUndoDecline(
+        id: id,
+        cancellation: token,
+      ),
+    );
+    return switch (response) {
+      api.CatchIncomingRequestsUndoDeclineResponse200(:final body) =>
+        _ownerRequest(body),
+      api.CatchIncomingRequestsUndoDeclineResponse() =>
+        throw const ApiUnexpectedFailure(),
+    };
+  }
+
+  /// Returns declined request [id] to pending.
+  Future<OwnerCatchRequest> restore(
+    int id, {
+    ApiCancellation? cancellation,
+  }) async {
+    final response = await _transport.execute(
+      operationId: "catchIncomingRequestsRestore",
+      cancellation: cancellation,
+      call: (token) => _transport.catches.catchIncomingRequestsRestore(
+        id: id,
+        cancellation: token,
+      ),
+    );
+    return switch (response) {
+      api.CatchIncomingRequestsRestoreResponse200(:final body) => _ownerRequest(
+        body,
+      ),
+      api.CatchIncomingRequestsRestoreResponse() =>
+        throw const ApiUnexpectedFailure(),
+    };
+  }
+
+  /// Removes the block of request [id]'s player, suit, and convention. No
+  /// block in place also succeeds.
+  Future<void> unblock(int id, {ApiCancellation? cancellation}) async {
+    await _transport.execute(
+      operationId: "catchIncomingRequestsUnblock",
+      cancellation: cancellation,
+      call: (token) => _transport.catches.catchIncomingRequestsUnblock(
+        id: id,
+        cancellation: token,
+      ),
+    );
+  }
+
+  static CatchRequestState _state(api.CatchRequestState wire) => switch (wire) {
+    api.CatchRequestState.pending => CatchRequestState.pending,
+    api.CatchRequestState.approved => CatchRequestState.approved,
+    api.CatchRequestState.declined => CatchRequestState.declined,
+    api.CatchRequestState.withdrawn => CatchRequestState.withdrawn,
+    api.CatchRequestState.unavailable => CatchRequestState.unavailable,
+  };
+
+  static OwnerCatchRequest _ownerRequest(api.OwnerRequest wire) =>
+      OwnerCatchRequest(
+        id: wire.id,
+        fursuit: CatchFursuit(
+          id: wire.fursuit.id,
+          name: wire.fursuit.name,
+          photoUrl: wire.fursuit.photoUrl,
+        ),
+        conventionId: wire.conventionId,
+        player: RequestPlayer(
+          displayName: wire.player.displayName,
+          handle: wire.player.handle,
+        ),
+        state: _state(wire.state),
+        requestedAt: wire.requestedAt,
+        undoAvailableUntil: wire.undoAvailableUntil,
+        priorDeclineCount: wire.priorDeclineCount,
+        playerBlocked: wire.playerBlocked,
+        approvalPaused: wire.approvalPaused,
+        reviewDeadlineAt: wire.reviewDeadlineAt,
+      );
+
   static PlayerCatchRequest _request(api.PlayerRequest wire) =>
       PlayerCatchRequest(
         id: wire.id,
@@ -152,13 +330,7 @@ final class CatchRepository {
           photoUrl: wire.fursuit.photoUrl,
         ),
         conventionId: wire.conventionId,
-        state: switch (wire.state) {
-          api.CatchRequestState.pending => CatchRequestState.pending,
-          api.CatchRequestState.approved => CatchRequestState.approved,
-          api.CatchRequestState.declined => CatchRequestState.declined,
-          api.CatchRequestState.withdrawn => CatchRequestState.withdrawn,
-          api.CatchRequestState.unavailable => CatchRequestState.unavailable,
-        },
+        state: _state(wire.state),
         requestedAt: wire.requestedAt,
         reviewDeadlineAt: wire.reviewDeadlineAt,
       );

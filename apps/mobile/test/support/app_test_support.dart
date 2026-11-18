@@ -225,14 +225,29 @@ final class ScriptedNetwork extends http.BaseClient {
 
   /// Queues [reply] for the next catch [request], such as
   /// `POST /api/catches/requests/` or `GET /api/conventions/12/`. With no
-  /// queued reply, a list read answers an empty list, a single convention
-  /// read answers 404, and any other request answers 500.
+  /// queued reply, a list read answers an empty list, the pending summary
+  /// answers no pending requests, a single convention read answers 404, and
+  /// any other request answers 500.
   void enqueueCatch(String request, ConventionReply reply) =>
       (_catchReplies[request] ??= []).add(reply);
 
   /// Answers held catch request [index] with [reply].
   void releaseCatch(int index, ConventionReply reply) => _heldCatches[index]
       .complete(_replyWith(reply.status, reply.body, reply.headers));
+
+  /// Whether [request] is the pending summary read. The home and the suit
+  /// screens send it on their own (#512), so tests about other traffic
+  /// leave it out. Every other review request stays visible.
+  static bool _isReviewRead(String request) =>
+      request.split("?").first == "GET /api/catches/incoming-requests/summary/";
+
+  /// [log] without the pending summary reads.
+  List<String> get logWithoutReview =>
+      log.where((item) => !_isReviewRead(item)).toList();
+
+  /// [catchRequests] without the pending summary reads.
+  List<({String request, String body})> get catchRequestsWithoutReview =>
+      catchRequests.where((item) => !_isReviewRead(item.request)).toList();
 
   /// The number of catch requests sent to [request], without the query.
   int catchCount(String request) => catchRequests
@@ -399,8 +414,13 @@ final class ScriptedNetwork extends http.BaseClient {
     final ConventionReply reply;
     if (queue != null && queue.isNotEmpty) {
       reply = queue.removeAt(0);
-    } else if (key == "GET /api/catches/requests/") {
+    } else if (key == "GET /api/catches/requests/" ||
+        key == "GET /api/catches/incoming-requests/") {
       reply = const ConventionReply(body: '{"results": []}');
+    } else if (key == "GET /api/catches/incoming-requests/summary/") {
+      reply = const ConventionReply(
+        body: '{"pending_count": 0, "fursuits": []}',
+      );
     } else if (key == "GET /api/catches/") {
       reply = const ConventionReply(
         body:
