@@ -24,6 +24,7 @@ import "package:tailtag_mobile/core/session/current_user_repository.dart";
 import "package:tailtag_mobile/core/session/player_profile_providers.dart";
 import "package:tailtag_mobile/core/session/player_profile_repository.dart";
 import "package:tailtag_mobile/core/ui/delayed_visibility.dart";
+import "package:tailtag_mobile/core/ui/tokens.dart";
 
 import "api_test_support.dart";
 import "auth_test_support.dart";
@@ -695,4 +696,20 @@ final class FakeCameraPermission implements CameraPermission {
 
   @override
   Future<void> openSettings() async => settingsOpened++;
+}
+
+/// Checks that [control] is at least `size.minTarget` high and that each of
+/// [texts] draws fully inside it. At a large text scale, a control that
+/// clips its text fails here even when the guideline checks pass.
+void expectHoldsText(WidgetTester tester, Finder control, List<Finder> texts) {
+  final box = tester.getRect(control);
+  expect(box.height, greaterThanOrEqualTo(TokenSize.minTarget));
+  for (final text in texts) {
+    final rect = tester.getRect(text);
+    expect(
+      rect.top >= box.top - 0.5 && rect.bottom <= box.bottom + 0.5,
+      isTrue,
+      reason: "$text draws outside $control",
+    );
+  }
 }

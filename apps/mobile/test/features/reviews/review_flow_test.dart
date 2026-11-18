@@ -73,6 +73,7 @@ Future<AppHarness> _openReview(
   List<ConventionReply> lists, {
   int pending = 2,
   void Function(ScriptedNetwork network)? setUp,
+  Future<void> Function(AppHarness app)? onHome,
 }) async {
   tester.view.physicalSize = const Size(1200, 7200);
   addTearDown(tester.view.resetPhysicalSize);
@@ -101,6 +102,7 @@ Future<AppHarness> _openReview(
     network: network,
   );
   expect(find.text(ReviewStrings.toReview(pending)), findsOneWidget);
+  await onHome?.call(app);
   await app.tap("home-review");
   expect(app.path, AppPaths.review);
   return app;
@@ -632,6 +634,60 @@ void main() {
 
     expect(app.network.catchCount(_action(2, "undo-decline")), 0);
     await tester.pump(const Duration(seconds: 11));
+  });
+
+  testWidgets("the home row and the decline sheet stay usable at 200% text "
+      "scale", (tester) async {
+    final semantics = tester.ensureSemantics();
+    tester.platformDispatcher.textScaleFactorTestValue = 2;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    Future<void> meetsGuidelines() async {
+      expect(tester.takeException(), isNull);
+      for (final guideline in [
+        androidTapTargetGuideline,
+        iOSTapTargetGuideline,
+        textContrastGuideline,
+        labeledTapTargetGuideline,
+      ]) {
+        await expectLater(tester, meetsGuideline(guideline));
+      }
+    }
+
+    final app = await _openReview(
+      tester,
+      [
+        _rows([_owner(id: 2)]),
+      ],
+      onHome: (_) async {
+        expectHoldsText(tester, _key("home-review"), [
+          find.text(ReviewStrings.toReview(2)),
+        ]);
+        await meetsGuidelines();
+      },
+    );
+
+    await app.tap("review-decline-2");
+    expectHoldsText(tester, _key("review-decline-plain"), [
+      find.text(ReviewStrings.decline).last,
+    ]);
+    expectHoldsText(tester, _key("review-decline-block"), [
+      find.text(ReviewStrings.declineAndBlock),
+      find.text(ReviewStrings.blockHelp("Alpha", "Test Con")),
+    ]);
+    await meetsGuidelines();
+    expect(
+      tester.semantics.simulatedAccessibilityTraversal().map(
+        (node) => node.getSemanticsData().label,
+      ),
+      containsAllInOrder([
+        contains(ReviewStrings.decline),
+        allOf(
+          contains(ReviewStrings.declineAndBlock),
+          contains(ReviewStrings.blockHelp("Alpha", "Test Con")),
+        ),
+      ]),
+    );
+    semantics.dispose();
   });
 
   testWidgets("the review screen stays usable at 200% text scale, and each "
