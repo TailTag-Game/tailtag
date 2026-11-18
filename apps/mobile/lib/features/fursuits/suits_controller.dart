@@ -43,6 +43,9 @@ enum SuitWrite {
 
   /// A new photo.
   photo,
+
+  /// A new approval mode (#512).
+  approval,
 }
 
 /// What the suit list and the suit screen show. It lives in memory only.
@@ -279,6 +282,22 @@ final class SuitsController extends Notifier<SuitsState> {
             );
         return () => _replace(fursuit);
       }, field: "name");
+
+  /// Sets the approval mode of suit [fursuitId]. A change applies only to
+  /// new requests, so pending requests stay pending.
+  Future<SuitWriteResult> setApprovalMode(
+    int fursuitId,
+    CatchApprovalMode mode,
+  ) => _write(fursuitId, SuitWrite.approval, (scope) async {
+    final fursuit = await ref
+        .read(fursuitRepositoryProvider)
+        .setApprovalMode(
+          fursuitId,
+          mode: mode,
+          cancellation: scope.cancellation,
+        );
+    return () => _replace(fursuit);
+  });
 
   /// Replaces the photo of suit [fursuitId].
   Future<SuitWriteResult> replacePhoto(int fursuitId, PickedPhoto photo) =>

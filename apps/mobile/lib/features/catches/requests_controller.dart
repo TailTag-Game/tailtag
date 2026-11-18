@@ -8,9 +8,9 @@ import "package:tailtag_mobile/core/auth/auth_state.dart";
 import "package:tailtag_mobile/core/catches/catch_models.dart";
 import "package:tailtag_mobile/core/catches/catch_providers.dart";
 import "package:tailtag_mobile/core/conventions/convention.dart";
-import "package:tailtag_mobile/core/conventions/convention_providers.dart";
 import "package:tailtag_mobile/core/session/foreground_signal.dart";
 import "package:tailtag_mobile/core/session/player_scope.dart";
+import "package:tailtag_mobile/features/catches/convention_headers.dart";
 
 /// The message at the top of the request list.
 enum RequestsBanner {
@@ -131,41 +131,20 @@ final class RequestsController extends Notifier<RequestsState> {
     bool live() => ref.mounted && scope.isActive && id == _lastRead;
     state = state._copy(reading: true);
     try {
-      final conventionsRepository = ref.read(conventionRepositoryProvider);
       final requests = await ref
           .read(catchRepositoryProvider)
           .listRequests(cancellation: scope.cancellation);
       if (!live()) {
         return;
       }
-      final enrollments = await conventionsRepository.listEnrollments(
-        cancellation: scope.cancellation,
+      final conventions = await readHeaderConventions(
+        ref,
+        scope,
+        requests.map((request) => request.conventionId),
+        live: live,
       );
-      if (!live()) {
+      if (conventions == null) {
         return;
-      }
-      final conventions = <int, Convention>{
-        for (final enrollment in enrollments)
-          enrollment.convention.id: enrollment.convention,
-      };
-      // A request can belong to a convention that the player left. Its
-      // header reads that convention, and a failed read keeps the generic
-      // header (#511 AC22).
-      final missing = {
-        for (final request in requests)
-          if (!conventions.containsKey(request.conventionId))
-            request.conventionId,
-      };
-      for (final conventionId in missing) {
-        try {
-          conventions[conventionId] = await conventionsRepository
-              .readConvention(conventionId, cancellation: scope.cancellation);
-        } on ApiFailure {
-          // The header falls back to "Another convention".
-        }
-        if (!live()) {
-          return;
-        }
       }
       state = RequestsState(
         requests: requests,

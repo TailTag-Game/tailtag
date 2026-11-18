@@ -13,6 +13,7 @@ import "package:tailtag_mobile/features/fursuits/fursuit_strings.dart";
 import "package:tailtag_mobile/features/fursuits/suit_status.dart";
 import "package:tailtag_mobile/features/fursuits/suit_widgets.dart";
 import "package:tailtag_mobile/features/fursuits/suits_controller.dart";
+import "package:tailtag_mobile/features/reviews/review_entries.dart";
 
 /// The player's suits, each with its badge at the selected convention.
 class SuitListScreen extends ConsumerStatefulWidget {
@@ -21,6 +22,7 @@ class SuitListScreen extends ConsumerStatefulWidget {
     required this.convention,
     required this.onOpenSuit,
     required this.onRegister,
+    required this.onOpenReview,
     super.key,
   });
 
@@ -32,6 +34,9 @@ class SuitListScreen extends ConsumerStatefulWidget {
 
   /// Opens the register form.
   final VoidCallback onRegister;
+
+  /// Opens the review screen of every suit (#512 AC4).
+  final VoidCallback onOpenReview;
 
   @override
   ConsumerState<SuitListScreen> createState() => _SuitListScreenState();
@@ -109,6 +114,7 @@ class _SuitListScreenState extends ConsumerState<SuitListScreen> {
                   ),
                 )
               else if (fursuits != null) ...[
+                ReviewEntry.suitList(onOpen: widget.onOpenReview),
                 for (final fursuit in fursuits)
                   _SuitRow(
                     fursuit: fursuit,

@@ -1,3 +1,12 @@
+/// Whether the owner reviews each catch of a suit (#505, #512).
+enum CatchApprovalMode {
+  /// The owner approves or declines each request. The server default.
+  manual,
+
+  /// The server approves new requests at once.
+  automatic,
+}
+
 /// A suit that the signed-in player owns, as the server reports it.
 final class Fursuit {
   /// Creates a suit.
@@ -6,6 +15,7 @@ final class Fursuit {
     required this.name,
     required this.photoUrl,
     required this.isEnabled,
+    required this.approvalMode,
   });
 
   /// The server ID.
@@ -19,6 +29,9 @@ final class Fursuit {
 
   /// False when TailTag staff disabled the suit.
   final bool isEnabled;
+
+  /// Whether the owner reviews each new catch.
+  final CatchApprovalMode approvalMode;
 }
 
 /// Why a catch session ended, as the server reports it.

@@ -121,6 +121,96 @@ final class PlayerCatchRequest {
   );
 }
 
+/// The player who sent a request on one of the owner's suits.
+@immutable
+final class RequestPlayer {
+  /// Creates a player.
+  const new({required this.displayName, required this.handle});
+
+  /// The display name.
+  final String displayName;
+
+  /// The unique handle, without "@".
+  final String handle;
+}
+
+/// One request on one of the owner's suits (#512).
+@immutable
+final class OwnerCatchRequest {
+  /// Creates a request.
+  const new({
+    required this.id,
+    required this.fursuit,
+    required this.conventionId,
+    required this.player,
+    required this.state,
+    required this.requestedAt,
+    required this.undoAvailableUntil,
+    required this.priorDeclineCount,
+    required this.playerBlocked,
+    required this.approvalPaused,
+    required this.reviewDeadlineAt,
+  });
+
+  /// The server ID.
+  final int id;
+
+  /// The suit.
+  final CatchFursuit fursuit;
+
+  /// The convention of the request.
+  final int conventionId;
+
+  /// The player who sent it.
+  final RequestPlayer player;
+
+  /// The current state.
+  final CatchRequestState state;
+
+  /// The server time of the submission.
+  final DateTime requestedAt;
+
+  /// The server's undo limit for an ordinary decline. The app never times
+  /// undo with it, because the device clock can be wrong (#512 G4).
+  final DateTime? undoAvailableUntil;
+
+  /// The counted declines on earlier requests of the same player, suit,
+  /// and convention.
+  final int priorDeclineCount;
+
+  /// Whether the player is blocked for this suit and convention.
+  final bool playerBlocked;
+
+  /// Whether the server refuses approval for now.
+  final bool approvalPaused;
+
+  /// When the convention's review window closes.
+  final DateTime reviewDeadlineAt;
+
+  /// The key of the player, suit, and convention. Handles are unique.
+  ({String handle, int fursuitId, int conventionId}) get trio => (
+    handle: player.handle,
+    fursuitId: fursuit.id,
+    conventionId: conventionId,
+  );
+}
+
+/// The pending requests on the owner's suits in every open review window.
+@immutable
+final class PendingSummary {
+  /// Creates a summary.
+  const new({required this.pendingCount, required this.byFursuit});
+
+  /// All pending requests, including paused ones.
+  final int pendingCount;
+
+  /// The pending count of each suit. A suit with none is left out.
+  final Map<int, int> byFursuit;
+
+  /// The pending count of suit [fursuitId].
+  int forFursuit(int fursuitId) => byFursuit[fursuitId] ?? 0;
+}
+
 /// What a submission did.
 enum CatchSubmitOutcome {
   /// A new request waits for the owner.

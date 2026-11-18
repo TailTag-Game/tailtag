@@ -200,7 +200,7 @@ void main() {
         );
 
         expect(app.path, c.path);
-        expect(app.network.log, [
+        expect(app.network.logWithoutReview, [
           "GET /api/me/",
           "GET /api/profile/",
           if (c.path == AppPaths.home) "GET /api/conventions/active/",

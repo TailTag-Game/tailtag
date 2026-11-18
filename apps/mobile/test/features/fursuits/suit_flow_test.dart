@@ -6,6 +6,7 @@ import "package:tailtag_mobile/core/fursuits/fursuit.dart";
 import "package:tailtag_mobile/core/fursuits/photo_source.dart";
 import "package:tailtag_mobile/core/session/foreground_signal.dart";
 import "package:tailtag_mobile/features/fursuits/fursuit_strings.dart";
+import "package:tailtag_mobile/features/reviews/review_strings.dart";
 
 import "../../support/app_test_support.dart";
 import "../../support/auth_test_support.dart";
@@ -17,10 +18,17 @@ const _participation = "PUT /api/conventions/10/fursuit-activations/5/";
 const _session = "PUT /api/conventions/10/fursuit-activations/5/catch-session/";
 const _rename = "PATCH /api/fursuits/5/";
 
-String _fursuit({int id = 5, String name = "Alpha", bool enabled = true}) =>
+String _fursuit({
+  int id = 5,
+  String name = "Alpha",
+  bool enabled = true,
+  String mode = "manual",
+}) =>
     '{"id": $id, "tailtag_id": "00000000-0000-4000-8000-00000000000$id", '
     '"name": "$name", "photo_url": "https://media.test/$id.jpg", '
-    '"is_enabled": $enabled, "catch_approval_mode": "manual"}';
+    '"is_enabled": $enabled, "catch_approval_mode": "$mode"}';
+
+const _summary = "GET /api/catches/incoming-requests/summary/";
 
 String _sessionJson({
   required bool active,
@@ -106,6 +114,7 @@ Future<AppHarness> _openSuit(
   String fursuit = "",
   List<String> activation = const [],
   List<(String, ConventionReply)> later = const [],
+  List<ConventionReply> summaries = const [],
 }) async {
   final suits = _rows([if (fursuit.isEmpty) _fursuit() else fursuit]);
   // The list reads on open, and the suit screen reads again on open. Later
@@ -118,6 +127,9 @@ Future<AppHarness> _openSuit(
   }
   for (final (request, reply) in later) {
     network.enqueueSuit(request, reply);
+  }
+  for (final reply in summaries) {
+    network.enqueueCatch(_summary, reply);
   }
   final app = await _openSuits(tester, network);
   await app.tap("suit-row-5");
@@ -484,6 +496,72 @@ void main() {
       expect(find.text(FursuitStrings.writeUnknownOutcome), findsWidgets);
       expect(_count(app, _rename), 1);
       expect(_count(app, _list), reads + 1);
+    });
+  });
+
+  group("catch approval", () {
+    testWidgets("the approval switch sends only the mode and shows its new "
+        "help, and the requests row opens this suit's requests", (
+      tester,
+    ) async {
+      const counts = ConventionReply(
+        body:
+            '{"pending_count": 3, "fursuits": [{"fursuit_id": 5, '
+            '"pending_count": 2}, {"fursuit_id": 6, "pending_count": 1}]}',
+      );
+      final app = await _openSuit(
+        tester,
+        later: [(_rename, ConventionReply(body: _fursuit(mode: "automatic")))],
+        summaries: List.filled(6, counts),
+      );
+      expect(find.text(ReviewStrings.manualHelp), findsOneWidget);
+      expect(find.text(ReviewStrings.waiting(2)), findsOneWidget);
+
+      await app.tap("suit-approval");
+
+      final patch = app.network.suitRequests.singleWhere(
+        (item) => item.request == _rename,
+      );
+      expect(patch.body, '{"catch_approval_mode":"automatic"}');
+      expect(_switchValue(tester, "suit-approval"), isTrue);
+      expect(find.text(ReviewStrings.automaticHelp), findsOneWidget);
+
+      await app.tap("suit-review");
+
+      expect(_top(app), AppPaths.review);
+      expect(
+        app.network.catchRequests.map((item) => item.request),
+        contains("GET /api/catches/incoming-requests/?fursuit_id=5"),
+      );
+    });
+
+    testWidgets("a lost approval response keeps the switch, reads again, and "
+        "never resends", (tester) async {
+      final app = await _openSuit(
+        tester,
+        later: [(_rename, ConventionReply.brokenConnection)],
+      );
+      final reads = _count(app, _list);
+
+      await app.tap("suit-approval");
+
+      expect(_switchValue(tester, "suit-approval"), isFalse);
+      expect(_count(app, _rename), 1);
+      expect(_count(app, _list), reads + 1);
+      expect(_key("suits-banner"), findsOneWidget);
+    });
+
+    testWidgets("with catch review off, the approval parts and the review "
+        "rows hide", (tester) async {
+      const off = ConventionReply(status: 404, body: '{"detail": "x"}');
+      final app = await _openSuit(tester, summaries: List.filled(6, off));
+
+      expect(_key("suit-approval"), findsNothing);
+      expect(_key("suit-review"), findsNothing);
+      await tester.pageBack();
+      await app.settle();
+      expect(_key("suits-review"), findsNothing);
+      expect(_key("suit-row-5"), findsOneWidget);
     });
   });
 

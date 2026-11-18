@@ -36,7 +36,13 @@ final class FursuitRepository {
     return switch (response) {
       api.FursuitsListResponse200(:final body) => [
         for (final item in body)
-          _fursuit(item.id, item.name, item.photoUrl, item.isEnabled),
+          _fursuit(
+            item.id,
+            item.name,
+            item.photoUrl,
+            item.isEnabled,
+            item.catchApprovalMode,
+          ),
       ],
       // The transport throws for every non-2xx status before this point.
       api.FursuitsListResponse() => throw const ApiUnexpectedFailure(),
@@ -67,6 +73,7 @@ final class FursuitRepository {
         body.name,
         body.photoUrl,
         body.isEnabled,
+        body.catchApprovalMode,
       ),
       api.FursuitsCreateResponse() => throw const ApiUnexpectedFailure(),
     };
@@ -93,6 +100,39 @@ final class FursuitRepository {
         body.name,
         body.photoUrl,
         body.isEnabled,
+        body.catchApprovalMode,
+      ),
+      api.FursuitsUpdateResponse() => throw const ApiUnexpectedFailure(),
+    };
+  }
+
+  /// Sets the approval mode of suit [id]. It sends only the mode (#512 AC6).
+  Future<Fursuit> setApprovalMode(
+    int id, {
+    required CatchApprovalMode mode,
+    ApiCancellation? cancellation,
+  }) async {
+    final response = await _transport.execute(
+      operationId: "fursuitsUpdate",
+      cancellation: cancellation,
+      call: (token) => _transport.fursuits.fursuitsUpdate(
+        id: id,
+        body: api.ApiFursuitsIdPatchBodyBodyModel(
+          catchApprovalMode: switch (mode) {
+            CatchApprovalMode.manual => api.CatchApprovalMode.manual,
+            CatchApprovalMode.automatic => api.CatchApprovalMode.automatic,
+          },
+        ),
+        cancellation: token,
+      ),
+    );
+    return switch (response) {
+      api.FursuitsUpdateResponse200(:final body) => _fursuit(
+        body.id,
+        body.name,
+        body.photoUrl,
+        body.isEnabled,
+        body.catchApprovalMode,
       ),
       api.FursuitsUpdateResponse() => throw const ApiUnexpectedFailure(),
     };
@@ -122,6 +162,7 @@ final class FursuitRepository {
         body.name,
         body.photoUrl,
         body.isEnabled,
+        body.catchApprovalMode,
       ),
       api.FursuitsReplacePhotoResponse() => throw const ApiUnexpectedFailure(),
     };
@@ -286,11 +327,26 @@ final class FursuitRepository {
 
   /// The generated model makes most fields optional. A response without one
   /// cannot show a real suit, so it fails closed.
-  static Fursuit _fursuit(int? id, String name, Uri? photoUrl, bool? enabled) {
+  static Fursuit _fursuit(
+    int? id,
+    String name,
+    Uri? photoUrl,
+    bool? enabled,
+    api.CatchApprovalMode mode,
+  ) {
     if (id == null || photoUrl == null || enabled == null) {
       throw const ApiUnexpectedFailure();
     }
-    return Fursuit(id: id, name: name, photoUrl: photoUrl, isEnabled: enabled);
+    return Fursuit(
+      id: id,
+      name: name,
+      photoUrl: photoUrl,
+      isEnabled: enabled,
+      approvalMode: switch (mode) {
+        api.CatchApprovalMode.manual => CatchApprovalMode.manual,
+        api.CatchApprovalMode.automatic => CatchApprovalMode.automatic,
+      },
+    );
   }
 
   static FursuitActivation _activation(_ActivationItem item) {

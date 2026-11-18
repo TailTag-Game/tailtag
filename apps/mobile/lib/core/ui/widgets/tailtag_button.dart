@@ -36,6 +36,7 @@ class TailTagButton extends StatelessWidget {
     this.variant = TailTagButtonVariant.primary,
     this.icon,
     this.loading = false,
+    this.semanticsLabel,
     super.key,
   });
 
@@ -53,6 +54,11 @@ class TailTagButton extends StatelessWidget {
 
   /// Whether the action is running.
   final bool loading;
+
+  /// What the screen reader reads in place of [label], or null to read
+  /// [label]. Use it when several buttons share a label, such as
+  /// "Approve catch from Sam".
+  final String? semanticsLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -109,7 +115,7 @@ class TailTagButton extends StatelessWidget {
   }
 
   Widget _content(Color color) {
-    Widget label = Text(this.label);
+    Widget label = Text(this.label, semanticsLabel: semanticsLabel);
     if (icon != null) {
       label = Row(
         mainAxisSize: MainAxisSize.min,

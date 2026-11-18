@@ -142,7 +142,8 @@ abstract final class FursuitStrings {
   static const deactivateConfirm = "Stop";
 
   /// The snackbar after the owner stopped a session.
-  static const sessionStopped = "Catch session ended";
+  static const sessionStopped =
+      "Catch session ended. Requests already sent stay for you to review.";
 
   /// The snackbar after a name change.
   static const nameSaved = "Name saved";

@@ -238,7 +238,7 @@ void main() {
     await _read(app, scanners, "tailtag:catch:v1:${"Z" * 43}");
 
     expect(find.text(CatchStrings.notATag), findsOneWidget);
-    expect(app.network.catchRequests, isEmpty);
+    expect(app.network.catchRequestsWithoutReview, isEmpty);
   });
 
   testWidgets("a TailTag shows a preview, and confirm sends one submission "
@@ -256,7 +256,7 @@ void main() {
     await _read(app, scanners, _payload);
 
     expect(network.catchCount(_preview), 1);
-    expect(jsonDecode(network.catchRequests.single.body), {
+    expect(jsonDecode(network.catchRequestsWithoutReview.single.body), {
       "payload": _payload,
     });
     expect(find.text("Alpha"), findsOneWidget);
@@ -267,7 +267,9 @@ void main() {
     await app.tap("scan-confirm");
 
     expect(network.catchCount(_submit), 1);
-    expect(jsonDecode(network.catchRequests.last.body), {"payload": _payload});
+    expect(jsonDecode(network.catchRequestsWithoutReview.last.body), {
+      "payload": _payload,
+    });
     // The local deadline date is Nov 13, so the last review day is Nov 12.
     expect(_result(tester), CatchStrings.sent("Alpha", "Thu, Nov 12"));
     final shown = tester
@@ -558,7 +560,7 @@ void main() {
     await app.tap("scan-retry");
     expect(network.catchCount(_submit), 2);
     expect(
-      network.catchRequests
+      network.catchRequestsWithoutReview
           .where((item) => item.request == _submit)
           .map((item) => jsonDecode(item.body)),
       everyElement({"payload": _payload}),

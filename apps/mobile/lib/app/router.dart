@@ -28,6 +28,9 @@ import "package:tailtag_mobile/features/fursuits/suits_controller.dart";
 import "package:tailtag_mobile/features/fursuits/tag_screen.dart";
 import "package:tailtag_mobile/features/onboarding/onboarding_screen.dart";
 import "package:tailtag_mobile/features/passkeys/passkey_screen.dart";
+import "package:tailtag_mobile/features/reviews/pending_summary_controller.dart";
+import "package:tailtag_mobile/features/reviews/review_entries.dart";
+import "package:tailtag_mobile/features/reviews/review_screen.dart";
 
 /// The route paths of the entry stages and the account-access flow.
 abstract final class AppPaths {
@@ -90,6 +93,12 @@ abstract final class AppPaths {
   /// The suit screen of suit [id], above the suit list.
   static String suit(int id) => "/fursuits/$id";
 
+  /// The review screen of every suit, above the suit list (#512 AC1).
+  static const review = "/fursuits/review";
+
+  /// The review screen of suit [id] only.
+  static String reviewSuit(int id) => "$review?fursuit=$id";
+
   /// The tag screen of suit [id], full screen above the bar.
   static String suitTag(int id) => "/fursuits/$id/tag";
 
@@ -114,7 +123,9 @@ const List<String> _sectionPaths = [
 /// Whether [location] is a suit screen or a suit's tag screen. A suit ID
 /// must fit in an `int`.
 bool _isSuitPath(String location) {
-  if (location == AppPaths.suits || location == AppPaths.registerSuit) {
+  if (location == AppPaths.suits ||
+      location == AppPaths.registerSuit ||
+      location == AppPaths.review) {
     return true;
   }
   final match = RegExp(r"^/fursuits/([1-9][0-9]*)(/tag)?$")
@@ -355,9 +366,25 @@ final routerProvider = Provider<GoRouter>((ref) {
                     convention: convention,
                     onOpenSuit: (id) => context.push(AppPaths.suit(id)),
                     onRegister: () => context.push(AppPaths.registerSuit),
+                    onOpenReview: () => context.push(AppPaths.review),
                   ),
                 ),
                 routes: [
+                  // Before ":id", so "review" never reads as a suit ID.
+                  GoRoute(
+                    path: "review",
+                    builder: (context, state) => _SuitsRoute(
+                      builder: (convention) => ReviewScreen(
+                        convention: convention,
+                        fursuitId: int.tryParse(
+                          state.uri.queryParameters["fursuit"] ?? "",
+                        ),
+                        onReloadHome: ref
+                            .read(entryControllerProvider.notifier)
+                            .refreshHome,
+                      ),
+                    ),
+                  ),
                   GoRoute(
                     path: "new",
                     builder: (context, state) => _SuitsRoute(
@@ -387,6 +414,8 @@ final routerProvider = Provider<GoRouter>((ref) {
                           convention: convention,
                           fursuitId: id,
                           onOpenTag: () => context.push(AppPaths.suitTag(id)),
+                          onOpenReview: () =>
+                              context.push(AppPaths.reviewSuit(id)),
                         ),
                       );
                     },
@@ -493,6 +522,10 @@ class _HomeShell extends ConsumerWidget {
     }
     final conventionId = stage.enrollment.convention.id;
     switch (path) {
+      case AppPaths.home || AppPaths.suits:
+        if (ref.read(pendingSummaryProvider.exists)) {
+          unawaited(ref.read(pendingSummaryProvider.notifier).read());
+        }
       case AppPaths.catches:
         final provider = catchesControllerProvider(conventionId);
         if (ref.read(provider.exists)) {
@@ -543,6 +576,10 @@ class _ConventionHomeRoute extends ConsumerWidget {
       onChangeConvention: entry.openConventionPicker,
       onRefresh: entry.refreshHome,
       onScan: () => context.push(AppPaths.scan),
+      reviewEntry: ReviewEntry.home(
+        onOpen: () => context.go(AppPaths.review),
+        onIneligible: entry.refreshHome,
+      ),
       onManagePasskeys: entry.openPasskeys,
       onSignOut: entry.signOut,
       onOpenAuthProof: onOpenAuthProof,
