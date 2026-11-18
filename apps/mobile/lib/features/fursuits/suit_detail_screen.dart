@@ -168,7 +168,12 @@ class _SuitDetailScreenState extends ConsumerState<SuitDetailScreen> {
       ),
       body: SafeArea(
         child: RefreshIndicator(
-          onRefresh: _controller.read,
+          // The counts decide whether the approval parts show, so a pull
+          // to refresh reads them too (#512 AC30).
+          onRefresh: () => Future.wait([
+            _controller.read(),
+            ref.read(pendingSummaryProvider.notifier).read(),
+          ]),
           child: ListView(
             key: const Key("suit-detail"),
             physics: const AlwaysScrollableScrollPhysics(),

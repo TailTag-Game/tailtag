@@ -205,6 +205,29 @@ void main() {
     expect(app.network.catchCount(_list), 2);
   });
 
+  testWidgets("an action that ends after the owner left the screen still "
+      "reads the list again and refreshes the counts", (tester) async {
+    final app = await _openReview(
+      tester,
+      [
+        _rows([_owner(id: 2)]),
+        _rows([_owner(id: 2, state: "approved")]),
+      ],
+      setUp: (network) =>
+          network.enqueueCatch(_action(2, "approve"), ConventionReply.stalled),
+    );
+    await app.tap("review-approve-2");
+    final summaries = app.network.catchCount(_summary);
+
+    await tester.pageBack();
+    await app.settle();
+    app.network.releaseCatch(0, _approval(_owner(id: 2, state: "approved")));
+    await app.settle();
+
+    expect(app.network.catchCount(_list), 2);
+    expect(app.network.catchCount(_summary), greaterThan(summaries));
+  });
+
   group("a refused or unknown action reads the list again and never "
       "repeats", () {
     final cases =

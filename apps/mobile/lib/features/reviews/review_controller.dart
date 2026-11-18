@@ -277,6 +277,11 @@ final class ReviewController extends Notifier<ReviewState> {
       acting: (id: id, action: action),
       clearBanner: true,
     );
+    // The owner can leave the screen while the action runs. The controller
+    // stays alive until the answer arrives and, after a success, until the
+    // read that follows ends. That read also refreshes the pending counts.
+    final link = ref.keepAlive();
+    var closeNow = true;
     try {
       final updated = await send(
         ref.read(catchRepositoryProvider),
@@ -295,7 +300,8 @@ final class ReviewController extends Notifier<ReviewState> {
                   if (item.id == updated.id) updated else item,
               ],
       );
-      unawaited(read());
+      closeNow = false;
+      unawaited(read().whenComplete(link.close));
       return true;
     } on ApiFailure catch (failure) {
       if (!live()) {
@@ -304,6 +310,10 @@ final class ReviewController extends Notifier<ReviewState> {
       state = state._copy(clearActing: true);
       await _afterFailedAction(scope, action, failure);
       return false;
+    } finally {
+      if (closeNow) {
+        link.close();
+      }
     }
   }
 

@@ -551,6 +551,18 @@ void main() {
       expect(_key("suits-banner"), findsOneWidget);
     });
 
+    testWidgets("a pull to refresh reads the counts again, so the approval "
+        "parts come back when catch review turns on", (tester) async {
+      const off = ConventionReply(status: 404, body: '{"detail": "x"}');
+      final app = await _openSuit(tester, summaries: List.filled(4, off));
+      expect(_key("suit-approval"), findsNothing);
+
+      await tester.fling(_key("suit-name"), const Offset(0, 500), 1000);
+      await app.settle();
+
+      expect(_key("suit-approval"), findsOneWidget);
+    });
+
     testWidgets("with catch review off, the approval parts and the review "
         "rows hide", (tester) async {
       const off = ConventionReply(status: 404, body: '{"detail": "x"}');

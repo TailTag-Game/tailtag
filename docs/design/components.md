@@ -892,7 +892,7 @@ Flows: F2 "Profile saved", F4 "Fursuit saved", F6 "Catch session ended. Requests
 #### Content limits
 
 - One short sentence, for example "Catch confirmed".
-- No action in V0, with one exception: the F11 "Catch declined." snackbar has an "Undo" action. It sets `persist: false`, because Flutter keeps a snackbar with an action open by default. It closes 10 seconds after the app sent the decline. Restore on the request row is the path with no time limit.
+- No action in V0, with one exception: the F11 "Catch declined." snackbar has an "Undo" action. It sets `persist: false`, because Flutter keeps a snackbar with an action open by default. It closes 10 seconds after the app sent the decline. Restore on the request row has no 10-second limit. It works until the review deadline.
 - No icon.
 - One snackbar at a time. A new one replaces the old one.
 
