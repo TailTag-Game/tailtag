@@ -697,6 +697,60 @@ void main() {
     });
   });
 
+  group("catch approval at 200% text scale", () {
+    testWidgets("the approval section and the requests row stay usable", (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final app = await _openSuit(tester, activation: [_activation()]);
+
+      // The suit screen builds its rows lazily, so the test scrolls them in.
+      await tester.scrollUntilVisible(
+        _key("suit-review"),
+        300,
+        scrollable: find.descendant(
+          of: _key("suit-detail"),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      await app.settle();
+
+      expect(tester.takeException(), isNull);
+      expectHoldsText(tester, _key("suit-approval"), [
+        find.text(ReviewStrings.automatic),
+        find.text(ReviewStrings.manualHelp),
+      ]);
+      expectHoldsText(tester, _key("suit-review"), [
+        find.text(ReviewStrings.suitRequests),
+        find.text(ReviewStrings.waiting(0)),
+      ]);
+      for (final guideline in [
+        androidTapTargetGuideline,
+        iOSTapTargetGuideline,
+        textContrastGuideline,
+        labeledTapTargetGuideline,
+      ]) {
+        await expectLater(tester, meetsGuideline(guideline));
+      }
+      expect(
+        tester.semantics.simulatedAccessibilityTraversal().map(
+          (node) => node.getSemanticsData().label,
+        ),
+        containsAllInOrder([
+          contains(ReviewStrings.approvalSection),
+          allOf(
+            contains(ReviewStrings.automatic),
+            contains(ReviewStrings.manualHelp),
+          ),
+          contains(ReviewStrings.suitRequests),
+        ]),
+      );
+      semantics.dispose();
+    });
+  });
+
   group("session isolation", () {
     testWidgets("an account change shows no suit of the previous player", (
       tester,
