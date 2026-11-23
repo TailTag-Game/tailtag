@@ -4,6 +4,8 @@ Use this checklist to prove the player journey on physical Android and iOS devic
 
 The first record is [mobile-journey-evidence-2026-11.md](mobile-journey-evidence-2026-11.md).
 
+The reusable TailTag and catch review journey has its own [checklist](catch-journey-checklist.md).
+
 ## Terms
 
 - A pass is one full run of this checklist on one frozen commit.
