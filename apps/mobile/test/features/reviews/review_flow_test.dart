@@ -769,4 +769,30 @@ void main() {
     );
     semantics.dispose();
   });
+
+  testWidgets("reopening the Home review action reapplies Received after "
+      "switching to Sent", (tester) async {
+    final app = await _openReview(
+      tester,
+      [
+        _rows([_owner(id: 2)]),
+        _rows([_owner(id: 2)]),
+      ],
+      setUp: (network) => network.enqueueCatch(
+        "GET /api/catches/requests/",
+        const ConventionReply(body: '{"results": []}'),
+      ),
+    );
+
+    expect(_key("review-row-2"), findsOneWidget);
+
+    await app.tap("requests-tab-sent");
+    expect(_key("requests-empty"), findsOneWidget);
+
+    await app.tap("nav-home");
+    await app.tap("home-review");
+
+    expect(_key("review-row-2"), findsOneWidget);
+    expect(_key("requests-empty"), findsNothing);
+  });
 }

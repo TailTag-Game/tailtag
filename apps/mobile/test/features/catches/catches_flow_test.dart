@@ -200,4 +200,36 @@ void main() {
     expect(find.byKey(const Key("catches-single-column")), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets("the collection loads the next page lazily only when scrolling "
+      "near the end", (tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final firstPage = [for (var i = 1; i <= 20; i++) _catch(i)];
+    final app = await _openCatches(tester, [
+      _page(firstPage, next: true),
+      _page([_catch(21)]),
+    ], physicalSize: const Size(400, 800));
+
+    expect(_queries(app), hasLength(1));
+    expect(find.text("Suit 1"), findsOneWidget);
+    expect(find.text("Suit 20"), findsNothing);
+
+    await tester.scrollUntilVisible(
+      find.text("Suit 20"),
+      400,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const Key("catches-list")),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await app.settle();
+
+    expect(_queries(app), [
+      allOf(contains("convention_id=10"), contains("page=1")),
+      allOf(contains("convention_id=10"), contains("page=2")),
+    ]);
+  });
 }

@@ -74,127 +74,143 @@ class _CatchesScreenState extends ConsumerState<CatchesScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text(CatchStrings.navCatches)),
       body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: controller.read,
-          child: ListView(
-            key: const Key("catches-list"),
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.symmetric(vertical: TokenSpacing.lg),
-            children: [
-              _Chips(
-                conventions: state.conventions,
-                filter: state.filter,
-                onSelect: (filter) => unawaited(controller.select(filter)),
-              ),
-              if (failure != null)
-                Padding(
-                  padding: const EdgeInsets.all(TokenSpacing.xl),
-                  child: StatusBanner(
-                    key: const Key("catches-banner"),
-                    tone: StatusTone.error,
-                    message: (genericErrorFor(failure) ?? GenericError.unknown)
-                        .message,
-                    actionLabel: UiStrings.tryAgain,
-                    actionLoading: state.reading,
-                    onAction: () => unawaited(controller.read()),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final textScale = MediaQuery.textScalerOf(context).scale(1);
+            final twoColumns =
+                constraints.maxWidth >= _minTwoColumnWidth &&
+                textScale <= StatusBadge.maxBesideTitleTextScale;
+            VoidCallback? onShownFor(int index, int count) =>
+                // The last card asks for the next page once it builds near the
+                // viewport. After a failure only "Try again" reads again, so a
+                // broken connection never starts a request loop.
+                index == count - 1 && state.hasNext && failure == null
+                ? () => unawaited(controller.loadMore())
+                : null;
+            return RefreshIndicator(
+              onRefresh: controller.read,
+              child: CustomScrollView(
+                key: const Key("catches-list"),
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                  SliverPadding(
+                    padding: const EdgeInsets.only(top: TokenSpacing.lg),
+                    sliver: SliverToBoxAdapter(
+                      child: _Chips(
+                        conventions: state.conventions,
+                        filter: state.filter,
+                        onSelect: (filter) =>
+                            unawaited(controller.select(filter)),
+                      ),
+                    ),
                   ),
-                ),
-              if (catches == null && state.reading)
-                const _Loading()
-              else if (catches != null && catches.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.all(TokenSpacing.xl),
-                  child: EmptyState(
-                    key: const Key("catches-empty"),
-                    icon: Icons.catching_pokemon_outlined,
-                    title: CatchStrings.catchesEmpty,
-                    body: CatchStrings.catchesEmptyBody,
-                    action: widget.convention.catchingOpen
-                        ? TailTagButton(
-                            key: const Key("catches-empty-scan"),
-                            label: CatchStrings.scanTag,
-                            icon: Icons.qr_code_scanner,
-                            onPressed: widget.onScan,
-                          )
-                        : null,
-                  ),
-                )
-              else if (catches != null) ...[
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final textScale = MediaQuery.textScalerOf(context).scale(1);
-                    final twoColumns =
-                        constraints.maxWidth >= _minTwoColumnWidth &&
-                        textScale <= StatusBadge.maxBesideTitleTextScale;
-                    VoidCallback? onShownFor(int index) =>
-                        // The last card asks for the next page once it builds.
-                        // After a failure only "Try again" reads again, so a
-                        // broken connection never starts a request loop.
-                        index == catches.length - 1 &&
-                            state.hasNext &&
-                            failure == null
-                        ? () => unawaited(controller.loadMore())
-                        : null;
-                    if (!twoColumns) {
-                      return Padding(
+                  if (failure != null)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.all(TokenSpacing.xl),
+                        child: StatusBanner(
+                          key: const Key("catches-banner"),
+                          tone: StatusTone.error,
+                          message:
+                              (genericErrorFor(failure) ?? GenericError.unknown)
+                                  .message,
+                          actionLabel: UiStrings.tryAgain,
+                          actionLoading: state.reading,
+                          onAction: () => unawaited(controller.read()),
+                        ),
+                      ),
+                    ),
+                  if (catches == null && state.reading)
+                    const SliverToBoxAdapter(child: _Loading())
+                  else if (catches != null && catches.isEmpty)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.all(TokenSpacing.xl),
+                        child: EmptyState(
+                          key: const Key("catches-empty"),
+                          icon: Icons.catching_pokemon_outlined,
+                          title: CatchStrings.catchesEmpty,
+                          body: CatchStrings.catchesEmptyBody,
+                          action: widget.convention.catchingOpen
+                              ? TailTagButton(
+                                  key: const Key("catches-empty-scan"),
+                                  label: CatchStrings.scanTag,
+                                  icon: Icons.qr_code_scanner,
+                                  onPressed: widget.onScan,
+                                )
+                              : null,
+                        ),
+                      ),
+                    )
+                  else if (catches != null) ...[
+                    if (!twoColumns)
+                      SliverPadding(
                         key: const Key("catches-single-column"),
                         padding: const EdgeInsets.symmetric(
                           horizontal: TokenSpacing.lg,
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          spacing: TokenSpacing.md,
-                          children: [
-                            for (final (index, caught) in catches.indexed)
-                              _CatchCard(
-                                caught: caught,
-                                showConvention: state.filter == null,
-                                onShown: onShownFor(index),
-                              ),
-                          ],
+                        sliver: SliverList.separated(
+                          itemCount: catches.length,
+                          separatorBuilder: (context, index) =>
+                              const SizedBox(height: TokenSpacing.md),
+                          itemBuilder: (context, index) => _CatchCard(
+                            caught: catches[index],
+                            showConvention: state.filter == null,
+                            onShown: onShownFor(index, catches.length),
+                          ),
                         ),
-                      );
-                    }
-                    return Padding(
-                      key: const Key("catches-grid"),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: TokenSpacing.lg,
-                      ),
-                      child: Column(
-                        spacing: TokenSpacing.md,
-                        children: [
-                          for (var i = 0; i < catches.length; i += 2)
-                            Row(
+                      )
+                    else
+                      SliverPadding(
+                        key: const Key("catches-grid"),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: TokenSpacing.lg,
+                        ),
+                        sliver: SliverList.separated(
+                          itemCount: (catches.length + 1) ~/ 2,
+                          separatorBuilder: (context, index) =>
+                              const SizedBox(height: TokenSpacing.md),
+                          itemBuilder: (context, rowIndex) {
+                            final first = rowIndex * 2;
+                            final second = first + 1;
+                            return Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               spacing: TokenSpacing.md,
                               children: [
                                 Expanded(
                                   child: _CatchCard(
-                                    caught: catches[i],
+                                    caught: catches[first],
                                     showConvention: state.filter == null,
-                                    onShown: onShownFor(i),
+                                    onShown: onShownFor(first, catches.length),
                                   ),
                                 ),
                                 Expanded(
-                                  child: i + 1 < catches.length
+                                  child: second < catches.length
                                       ? _CatchCard(
-                                          caught: catches[i + 1],
+                                          caught: catches[second],
                                           showConvention: state.filter == null,
-                                          onShown: onShownFor(i + 1),
+                                          onShown: onShownFor(
+                                            second,
+                                            catches.length,
+                                          ),
                                         )
                                       : const SizedBox.shrink(),
                                 ),
                               ],
-                            ),
-                        ],
+                            );
+                          },
+                        ),
                       ),
-                    );
-                  },
-                ),
-                if (state.loadingMore) const _Loading(),
-              ],
-            ],
-          ),
+                    if (state.loadingMore)
+                      const SliverToBoxAdapter(child: _Loading()),
+                  ],
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: TokenSpacing.lg),
+                  ),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );

@@ -36,6 +36,7 @@ class RequestsScreen extends ConsumerStatefulWidget {
     required this.convention,
     required this.onReloadHome,
     required this.onScan,
+    required this.onSelectTab,
     this.requestedTab,
     super.key,
   });
@@ -48,6 +49,10 @@ class RequestsScreen extends ConsumerStatefulWidget {
 
   /// Opens the scanner from the Sent empty state.
   final VoidCallback onScan;
+
+  /// Synchronizes the route URI when the player switches segments manually so
+  /// direct entries from Home or Scanner can reapply their target tab later.
+  final ValueChanged<RequestsTab> onSelectTab;
 
   /// Explicit target tab from a route query parameter, or null for the smart
   /// default.
@@ -148,8 +153,11 @@ class _RequestsScreenState extends ConsumerState<RequestsScreen> {
                 ),
               ],
               selected: {active},
-              onSelectionChanged: (next) =>
-                  setState(() => _selectedTab = next.first),
+              onSelectionChanged: (next) {
+                final tab = next.first;
+                setState(() => _selectedTab = tab);
+                widget.onSelectTab(tab);
+              },
             ),
           )
         : null;

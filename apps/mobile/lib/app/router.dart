@@ -374,6 +374,11 @@ final routerProvider = Provider<GoRouter>((ref) {
                     builder: (convention) => RequestsScreen(
                       convention: convention,
                       requestedTab: requestedTab,
+                      onSelectTab: (tab) => context.go(
+                        tab == RequestsTab.received
+                            ? AppPaths.requestsReceived
+                            : AppPaths.requestsSent,
+                      ),
                       onScan: () => context.push(AppPaths.scan),
                       onReloadHome: ref
                           .read(entryControllerProvider.notifier)

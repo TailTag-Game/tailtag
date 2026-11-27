@@ -546,7 +546,15 @@ ThemeData buildTailTagTheme() {
     segmentedButtonTheme: SegmentedButtonThemeData(
       style: ButtonStyle(
         shape: const WidgetStatePropertyAll(stadium),
-        minimumSize: buttonMinimumSize,
+        // SegmentedButton forwards padding (not minimumSize) to its internal
+        // segment buttons. Vertical spacing.lg keeps painted segments at or
+        // above size.minTarget while allowing height to grow with text scale.
+        padding: const WidgetStatePropertyAll(
+          EdgeInsets.symmetric(
+            horizontal: TokenSpacing.lg,
+            vertical: TokenSpacing.lg,
+          ),
+        ),
         textStyle: const WidgetStatePropertyAll(TokenTypography.labelLarge),
         backgroundColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.disabled)) {
