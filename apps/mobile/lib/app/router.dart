@@ -5,6 +5,7 @@ import "package:flutter/material.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 import "package:go_router/go_router.dart";
 import "package:tailtag_mobile/app/debug/auth_proof_screen.dart";
+import "package:tailtag_mobile/app/entry/account_menu.dart";
 import "package:tailtag_mobile/app/entry/entry_controller.dart";
 import "package:tailtag_mobile/app/entry/entry_screens.dart";
 import "package:tailtag_mobile/app/entry/entry_stage.dart";
@@ -21,6 +22,7 @@ import "package:tailtag_mobile/features/catches/requests_screen.dart";
 import "package:tailtag_mobile/features/catches/scan_screen.dart";
 import "package:tailtag_mobile/features/conventions/convention_home_screen.dart";
 import "package:tailtag_mobile/features/conventions/convention_picker_screen.dart";
+import "package:tailtag_mobile/features/conventions/show_tag_sheet.dart";
 import "package:tailtag_mobile/features/fursuits/suit_detail_screen.dart";
 import "package:tailtag_mobile/features/fursuits/suit_list_screen.dart";
 import "package:tailtag_mobile/features/fursuits/suit_register_screen.dart";
@@ -29,6 +31,7 @@ import "package:tailtag_mobile/features/fursuits/tag_screen.dart";
 import "package:tailtag_mobile/features/onboarding/onboarding_screen.dart";
 import "package:tailtag_mobile/features/passkeys/passkey_screen.dart";
 import "package:tailtag_mobile/features/reviews/pending_summary_controller.dart";
+import "package:tailtag_mobile/features/reviews/review_controller.dart";
 import "package:tailtag_mobile/features/reviews/review_entries.dart";
 import "package:tailtag_mobile/features/reviews/review_screen.dart";
 
@@ -110,6 +113,12 @@ abstract final class AppPaths {
 
   /// The request list section.
   static const requests = "/requests";
+
+  /// The Requests section opened directly to Received.
+  static const requestsReceived = "/requests?tab=received";
+
+  /// The Requests section opened directly to Sent.
+  static const requestsSent = "/requests?tab=sent";
 }
 
 /// The bar sections of the convention home stage, in bar order (#511 G2).
@@ -286,8 +295,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           final entry = ref.read(entryControllerProvider.notifier);
           return OnboardingScreen(
             onResolved: entry.acceptProfile,
-            onManagePasskeys: entry.openPasskeys,
-            onSignOut: entry.signOut,
+            accountMenuBuilder: ({required canLeave}) => AccountMenuButton(
+              onManagePasskeys: canLeave ? entry.openPasskeys : null,
+              onSignOut: entry.signOut,
+            ),
           );
         },
       ),
@@ -300,17 +311,21 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final entry = ref.read(entryControllerProvider.notifier);
           final stage = ref.read(entryControllerProvider);
+          final profile = stage is EntryConventionPicker ? stage.profile : null;
           return ConventionPickerScreen(
             onEntered: entry.acceptSelection,
             onIneligible: entry.acceptIneligibleProfile,
             onClose: stage is EntryConventionPicker && stage.current != null
                 ? entry.closeConventionPicker
                 : null,
-            onManagePasskeys: entry.openPasskeys,
-            onSignOut: entry.signOut,
-            onOpenAuthProof: kDebugMode
-                ? () => context.push(AppPaths.authProof)
-                : null,
+            accountMenuBuilder: ({required canLeave}) => AccountMenuButton(
+              profile: profile,
+              onManagePasskeys: canLeave ? entry.openPasskeys : null,
+              onSignOut: entry.signOut,
+              onOpenAuthProof: kDebugMode
+                  ? () => context.push(AppPaths.authProof)
+                  : null,
+            ),
           );
         },
       ),
@@ -336,8 +351,10 @@ final routerProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: AppPaths.catches,
                 builder: (context, state) => _SuitsRoute(
-                  builder: (convention) =>
-                      CatchesScreen(convention: convention),
+                  builder: (convention) => CatchesScreen(
+                    convention: convention,
+                    onScan: () => context.push(AppPaths.scan),
+                  ),
                 ),
               ),
             ],
@@ -346,14 +363,24 @@ final routerProvider = Provider<GoRouter>((ref) {
             routes: [
               GoRoute(
                 path: AppPaths.requests,
-                builder: (context, state) => _SuitsRoute(
-                  builder: (convention) => RequestsScreen(
-                    convention: convention,
-                    onReloadHome: ref
-                        .read(entryControllerProvider.notifier)
-                        .refreshHome,
-                  ),
-                ),
+                builder: (context, state) {
+                  final requestedTab =
+                      switch (state.uri.queryParameters["tab"]) {
+                        "received" => RequestsTab.received,
+                        "sent" => RequestsTab.sent,
+                        _ => null,
+                      };
+                  return _SuitsRoute(
+                    builder: (convention) => RequestsScreen(
+                      convention: convention,
+                      requestedTab: requestedTab,
+                      onScan: () => context.push(AppPaths.scan),
+                      onReloadHome: ref
+                          .read(entryControllerProvider.notifier)
+                          .refreshHome,
+                    ),
+                  );
+                },
               ),
             ],
           ),
@@ -365,8 +392,8 @@ final routerProvider = Provider<GoRouter>((ref) {
                   builder: (convention) => SuitListScreen(
                     convention: convention,
                     onOpenSuit: (id) => context.push(AppPaths.suit(id)),
+                    onOpenTag: (id) => context.push(AppPaths.suitTag(id)),
                     onRegister: () => context.push(AppPaths.registerSuit),
-                    onOpenReview: () => context.push(AppPaths.review),
                   ),
                 ),
                 routes: [
@@ -424,12 +451,16 @@ final routerProvider = Provider<GoRouter>((ref) {
                       GoRoute(
                         path: "tag",
                         parentNavigatorKey: rootKey,
-                        builder: (context, state) => _SuitsRoute(
-                          builder: (convention) => TagScreen(
-                            convention: convention,
-                            fursuitId: int.parse(state.pathParameters["id"]!),
-                          ),
-                        ),
+                        builder: (context, state) {
+                          final id = int.parse(state.pathParameters["id"]!);
+                          return _SuitsRoute(
+                            builder: (convention) => TagScreen(
+                              convention: convention,
+                              fursuitId: id,
+                              onManageSuit: () => context.go(AppPaths.suit(id)),
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -445,7 +476,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => _SuitsRoute(
           builder: (convention) => ScanScreen(
             convention: convention,
-            onOpenRequests: () => context.go(AppPaths.requests),
+            onOpenRequests: () => context.go(AppPaths.requestsSent),
             onOpenCatches: () => context.go(AppPaths.catches),
             onReloadHome: ref
                 .read(entryControllerProvider.notifier)
@@ -473,42 +504,58 @@ class _HomeShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final pendingState = ref.watch(pendingSummaryProvider);
+    final pendingCount = pendingState.summary?.pendingCount ?? 0;
+    final showBadge = pendingState.available && pendingCount > 0;
     return Scaffold(
-      body: shell,
-      bottomNavigationBar: NavigationBar(
-        key: const Key("home-bar"),
-        selectedIndex: shell.currentIndex,
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        onDestinationSelected: (index) {
-          shell.goBranch(index, initialLocation: index == shell.currentIndex);
-          _readOnOpen(ref, _sectionPaths[index]);
-        },
-        destinations: const [
-          NavigationDestination(
-            key: Key("nav-home"),
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: CatchStrings.navHome,
-          ),
-          NavigationDestination(
-            key: Key("nav-catches"),
-            icon: Icon(Icons.collections_bookmark_outlined),
-            selectedIcon: Icon(Icons.collections_bookmark),
-            label: CatchStrings.navCatches,
-          ),
-          NavigationDestination(
-            key: Key("nav-requests"),
-            icon: Icon(Icons.outbox_outlined),
-            selectedIcon: Icon(Icons.outbox),
-            label: CatchStrings.navRequests,
-          ),
-          NavigationDestination(
-            key: Key("nav-suits"),
-            icon: Icon(Icons.pets_outlined),
-            selectedIcon: Icon(Icons.pets),
-            label: CatchStrings.navSuits,
-          ),
-        ],
+      body: FocusTraversalGroup(child: shell),
+      bottomNavigationBar: FocusTraversalGroup(
+        child: NavigationBar(
+          key: const Key("home-bar"),
+          selectedIndex: shell.currentIndex,
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+          onDestinationSelected: (index) {
+            shell.goBranch(index, initialLocation: index == shell.currentIndex);
+            _readOnOpen(ref, _sectionPaths[index]);
+          },
+          destinations: [
+            const NavigationDestination(
+              key: Key("nav-home"),
+              icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home),
+              label: CatchStrings.navHome,
+            ),
+            const NavigationDestination(
+              key: Key("nav-catches"),
+              icon: Icon(Icons.collections_bookmark_outlined),
+              selectedIcon: Icon(Icons.collections_bookmark),
+              label: CatchStrings.navCatches,
+            ),
+            NavigationDestination(
+              key: const Key("nav-requests"),
+              icon: Badge.count(
+                key: const Key("nav-requests-badge"),
+                count: pendingCount,
+                maxCount: 99,
+                isLabelVisible: showBadge,
+                child: const Icon(Icons.inbox_outlined),
+              ),
+              selectedIcon: Badge.count(
+                count: pendingCount,
+                maxCount: 99,
+                isLabelVisible: showBadge,
+                child: const Icon(Icons.inbox),
+              ),
+              label: CatchStrings.navRequests,
+            ),
+            const NavigationDestination(
+              key: Key("nav-suits"),
+              icon: Icon(Icons.pets_outlined),
+              selectedIcon: Icon(Icons.pets),
+              label: CatchStrings.navSuits,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -532,8 +579,15 @@ class _HomeShell extends ConsumerWidget {
           unawaited(ref.read(provider.notifier).read());
         }
       case AppPaths.requests:
+        if (ref.read(pendingSummaryProvider.exists)) {
+          unawaited(ref.read(pendingSummaryProvider.notifier).read());
+        }
         if (ref.read(requestsControllerProvider.exists)) {
           unawaited(ref.read(requestsControllerProvider.notifier).read());
+        }
+        final review = reviewControllerProvider(null);
+        if (ref.read(review.exists)) {
+          unawaited(ref.read(review.notifier).read());
         }
     }
   }
@@ -576,13 +630,24 @@ class _ConventionHomeRoute extends ConsumerWidget {
       onChangeConvention: entry.openConventionPicker,
       onRefresh: entry.refreshHome,
       onScan: () => context.push(AppPaths.scan),
+      onShowMyTag: () => unawaited(
+        showMyTailTagSheet(
+          context,
+          convention: stage.enrollment.convention,
+          onOpenTag: (id) => context.push(AppPaths.suitTag(id)),
+          onRegister: () => context.push(AppPaths.registerSuit),
+        ),
+      ),
       reviewEntry: ReviewEntry.home(
-        onOpen: () => context.go(AppPaths.review),
+        onOpen: () => context.go(AppPaths.requestsReceived),
         onIneligible: entry.refreshHome,
       ),
-      onManagePasskeys: entry.openPasskeys,
-      onSignOut: entry.signOut,
-      onOpenAuthProof: onOpenAuthProof,
+      accountMenu: AccountMenuButton(
+        profile: stage.profile,
+        onManagePasskeys: entry.openPasskeys,
+        onSignOut: entry.signOut,
+        onOpenAuthProof: onOpenAuthProof,
+      ),
     );
   }
 }

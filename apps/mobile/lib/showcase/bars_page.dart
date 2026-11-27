@@ -67,6 +67,29 @@ class BarsPage extends StatelessWidget {
             ),
           ],
         ),
+        ShowcaseSection(
+          title: "Count badge",
+          children: [
+            ShowcaseExample(
+              label: "Numeric count over a navigation icon, capped at 99+",
+              child: Wrap(
+                spacing: TokenSpacing.xl,
+                children: [
+                  Badge.count(
+                    count: 3,
+                    maxCount: 99,
+                    child: const Icon(Icons.inbox_outlined),
+                  ),
+                  Badge.count(
+                    count: 120,
+                    maxCount: 99,
+                    child: const Icon(Icons.inbox_outlined),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }

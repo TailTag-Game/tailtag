@@ -1,5 +1,6 @@
 import "package:flutter/material.dart";
 import "package:flutter_test/flutter_test.dart";
+import "package:tailtag_mobile/app/router.dart";
 import "package:tailtag_mobile/core/auth/auth_state.dart";
 import "package:tailtag_mobile/features/catches/catch_strings.dart";
 
@@ -37,11 +38,13 @@ List<String> _queries(AppHarness app) => [
 /// The app on the Catches section, enrolled in conventions 10 and 11.
 Future<AppHarness> _openCatches(
   WidgetTester tester,
-  List<ConventionReply> pages,
-) async {
-  tester.view.physicalSize = const Size(1200, 7200);
+  List<ConventionReply> pages, {
+  bool reviewOpen = true,
+  Size physicalSize = const Size(1200, 7200),
+}) async {
+  tester.view.physicalSize = physicalSize;
   addTearDown(tester.view.resetPhysicalSize);
-  final selected = conventionJson(reviewOpen: true);
+  final selected = conventionJson(reviewOpen: reviewOpen);
   final network = ScriptedNetwork.withConventions(
     [200],
     const [],
@@ -131,10 +134,70 @@ void main() {
     expect(find.textContaining("Test Con\n"), findsOneWidget);
   });
 
-  testWidgets("an empty collection says how to catch a suit", (tester) async {
-    await _openCatches(tester, [_page(const [])]);
+  testWidgets("an empty collection says how to catch a suit and opens the "
+      "scanner when catching is open", (tester) async {
+    final app = await _openCatches(tester, [_page(const [])]);
 
     expect(find.text(CatchStrings.catchesEmpty), findsOneWidget);
     expect(find.text(CatchStrings.catchesEmptyBody), findsOneWidget);
+    expect(find.byKey(const Key("catches-empty-scan")), findsOneWidget);
+
+    await app.tap("catches-empty-scan");
+    final top = app.container
+        .read(routerProvider)
+        .routerDelegate
+        .currentConfiguration
+        .last
+        .matchedLocation;
+    expect(top, AppPaths.scan);
+  });
+
+  testWidgets("an empty collection hides the scan button when catching is "
+      "closed", (tester) async {
+    await _openCatches(tester, [_page(const [])], reviewOpen: false);
+
+    expect(find.text(CatchStrings.catchesEmpty), findsOneWidget);
+    expect(find.byKey(const Key("catches-empty-scan")), findsNothing);
+  });
+
+  testWidgets("the collection uses a 2-column grid at normal width and "
+      "collapses to 1 column at 200% text scale", (tester) async {
+    await _openCatches(tester, [
+      _page([_catch(1), _catch(2), _catch(3)]),
+    ]);
+
+    expect(find.byKey(const Key("catches-grid")), findsOneWidget);
+    expect(find.byKey(const Key("catches-chips-scroll")), findsOneWidget);
+
+    tester.platformDispatcher.textScaleFactorTestValue = 2;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    final semantics = tester.ensureSemantics();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key("catches-single-column")), findsOneWidget);
+    expect(find.byKey(const Key("catches-chips-scroll")), findsNothing);
+    expect(tester.takeException(), isNull);
+    for (final guideline in [
+      androidTapTargetGuideline,
+      iOSTapTargetGuideline,
+      labeledTapTargetGuideline,
+      textContrastGuideline,
+    ]) {
+      await expectLater(tester, meetsGuideline(guideline));
+    }
+    semantics.dispose();
+  });
+
+  testWidgets("the collection collapses to 1 column below 340 pt width", (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await _openCatches(tester, [
+      _page([_catch(1), _catch(2)]),
+    ], physicalSize: const Size(320, 800));
+
+    expect(find.byKey(const Key("catches-single-column")), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

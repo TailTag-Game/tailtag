@@ -135,6 +135,15 @@ abstract final class CatchStrings {
 
   // Request list.
 
+  /// The incoming review segment label.
+  static const requestsReceived = "Received";
+
+  /// The incoming review segment label with a pending count.
+  static String requestsReceivedCount(int count) => "Received ($count)";
+
+  /// The outgoing requests segment label.
+  static const requestsSent = "Sent";
+
   /// The empty request list.
   static const requestsEmpty = "No catch requests yet.";
 

@@ -232,6 +232,7 @@ void main() {
     await _openRequests(tester, [_requests(const [])]);
 
     expect(find.text(CatchStrings.requestsEmpty), findsOneWidget);
+    expect(_key("requests-empty-scan"), findsOneWidget);
   });
 
   testWidgets("a server with the catch flow off says requests are not "

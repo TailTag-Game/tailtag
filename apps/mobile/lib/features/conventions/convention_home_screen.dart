@@ -1,3 +1,5 @@
+import "dart:async";
+
 import "package:flutter/material.dart";
 import "package:tailtag_mobile/core/api/api_failure.dart";
 import "package:tailtag_mobile/core/conventions/convention.dart";
@@ -11,10 +13,7 @@ import "package:tailtag_mobile/core/ui/widgets/tailtag_button.dart";
 import "package:tailtag_mobile/features/catches/catch_strings.dart";
 import "package:tailtag_mobile/features/conventions/convention_strings.dart";
 
-/// The minimal home of the selected convention.
-///
-/// It shows only real server values. Gameplay controls join it when they
-/// work.
+/// The gameplay home of the selected convention.
 class ConventionHomeScreen extends StatelessWidget {
   /// Creates the screen for [enrollment].
   const new({
@@ -25,10 +24,9 @@ class ConventionHomeScreen extends StatelessWidget {
     required this.onChangeConvention,
     required this.onRefresh,
     required this.onScan,
+    required this.onShowMyTag,
     required this.reviewEntry,
-    required this.onManagePasskeys,
-    required this.onSignOut,
-    required this.onOpenAuthProof,
+    required this.accountMenu,
     super.key,
   });
 
@@ -48,126 +46,144 @@ class ConventionHomeScreen extends StatelessWidget {
   final VoidCallback onChangeConvention;
 
   /// Reads the server state again.
-  final VoidCallback onRefresh;
+  final Future<void> Function() onRefresh;
 
   /// Opens the scanner.
   final VoidCallback onScan;
 
-  /// The row that opens owner catch review. It shows only while requests
+  /// Opens the suit selector sheet to show a TailTag.
+  final VoidCallback onShowMyTag;
+
+  /// The card that opens owner catch review. It shows only while requests
   /// wait (#512 AC3).
   final Widget reviewEntry;
 
-  /// Opens the passkey screen.
-  final VoidCallback onManagePasskeys;
-
-  /// Signs out.
-  final VoidCallback onSignOut;
-
-  /// Opens the debug proof screen, or null outside debug builds.
-  final VoidCallback? onOpenAuthProof;
+  /// The account menu action in the top app bar.
+  final Widget accountMenu;
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final convention = enrollment.convention;
     return Scaffold(
-      appBar: AppBar(title: const Text(ConventionStrings.appName)),
+      appBar: AppBar(
+        title: const Text(ConventionStrings.appName),
+        actions: [accountMenu],
+      ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(TokenSpacing.xl),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            spacing: TokenSpacing.lg,
-            children: [
-              ?_banner(convention),
-              Card(
-                key: const Key("convention-home"),
-                margin: EdgeInsets.zero,
-                child: Padding(
-                  padding: const EdgeInsets.all(TokenSpacing.lg),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    spacing: TokenSpacing.md,
-                    children: [
-                      Text(
-                        convention.name,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: textTheme.titleLarge,
-                      ),
-                      Text(
-                        ConventionStrings.dates(context, convention),
-                        style: textTheme.bodyMedium,
-                      ),
-                      Align(
-                        alignment: AlignmentDirectional.centerStart,
-                        child: StatusBadge(
-                          tone: ConventionStrings.statusTone(convention.status),
-                          label: ConventionStrings.statusLabel(
-                            convention.status,
+        child: RefreshIndicator(
+          onRefresh: onRefresh,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(TokenSpacing.xl),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              spacing: TokenSpacing.lg,
+              children: [
+                ?_banner(convention),
+                Card(
+                  key: const Key("convention-home"),
+                  margin: EdgeInsets.zero,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      TokenSpacing.lg,
+                      TokenSpacing.lg,
+                      TokenSpacing.lg,
+                      TokenSpacing.sm,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      spacing: TokenSpacing.md,
+                      children: [
+                        Text(
+                          convention.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: textTheme.titleLarge,
+                        ),
+                        Text(
+                          ConventionStrings.dates(context, convention),
+                          style: textTheme.bodyMedium,
+                        ),
+                        Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: StatusBadge(
+                            tone: ConventionStrings.statusTone(
+                              convention.status,
+                            ),
+                            label: ConventionStrings.statusLabel(
+                              convention.status,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              // The review entry adds its own space only when it shows, so a
-              // hidden entry leaves no gap.
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TailTagButton(
-                    key: const Key("convention-scan"),
-                    label: CatchStrings.scanTag,
-                    icon: Icons.qr_code_scanner,
-                    onPressed: convention.catchingOpen ? onScan : null,
-                  ),
-                  if (!convention.catchingOpen)
-                    Padding(
-                      padding: const EdgeInsets.only(top: TokenSpacing.lg),
-                      child: Text(
-                        CatchStrings.scanClosed(convention.name),
-                        key: const Key("convention-scan-closed"),
-                        style: textTheme.bodyMedium,
-                      ),
+                        const Divider(height: 1),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Align(
+                                alignment: AlignmentDirectional.centerStart,
+                                child: TailTagButton(
+                                  key: const Key("convention-change"),
+                                  label: ConventionStrings.changeConvention,
+                                  variant: TailTagButtonVariant.secondaryText,
+                                  onPressed: onChangeConvention,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              key: const Key("convention-refresh"),
+                              tooltip: ConventionStrings.refresh,
+                              onPressed: refreshing
+                                  ? null
+                                  : () => unawaited(onRefresh()),
+                              icon: refreshing
+                                  ? const SizedBox.square(
+                                      dimension: TokenSize.iconSmall,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.refresh_outlined),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                  reviewEntry,
-                ],
-              ),
-              TailTagButton(
-                key: const Key("convention-change"),
-                label: ConventionStrings.changeConvention,
-                variant: TailTagButtonVariant.secondary,
-                onPressed: onChangeConvention,
-              ),
-              TailTagButton(
-                key: const Key("convention-refresh"),
-                label: ConventionStrings.refresh,
-                variant: TailTagButtonVariant.secondary,
-                loading: refreshing,
-                onPressed: onRefresh,
-              ),
-              TailTagButton(
-                key: const Key("entry-manage-passkeys"),
-                label: ConventionStrings.managePasskeys,
-                variant: TailTagButtonVariant.secondary,
-                onPressed: onManagePasskeys,
-              ),
-              TailTagButton(
-                key: const Key("entry-sign-out"),
-                label: ConventionStrings.signOut,
-                variant: TailTagButtonVariant.secondary,
-                onPressed: onSignOut,
-              ),
-              if (onOpenAuthProof != null)
-                TailTagButton(
-                  key: const Key("entry-auth-proof"),
-                  label: ConventionStrings.authProof,
-                  variant: TailTagButtonVariant.secondary,
-                  onPressed: onOpenAuthProof,
+                  ),
                 ),
-            ],
+                // Gameplay actions stay together with zero empty gap when the
+                // review card is hidden.
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TailTagButton(
+                      key: const Key("convention-scan"),
+                      label: CatchStrings.scanTag,
+                      icon: Icons.qr_code_scanner,
+                      onPressed: convention.catchingOpen ? onScan : null,
+                    ),
+                    if (!convention.catchingOpen)
+                      Padding(
+                        padding: const EdgeInsets.only(top: TokenSpacing.sm),
+                        child: Text(
+                          CatchStrings.scanClosed(convention.name),
+                          key: const Key("convention-scan-closed"),
+                          style: textTheme.bodyMedium,
+                        ),
+                      ),
+                    const SizedBox(height: TokenSpacing.md),
+                    TailTagButton(
+                      key: const Key("convention-show-tag"),
+                      label: ConventionStrings.showMyTag,
+                      icon: Icons.qr_code_2,
+                      variant: TailTagButtonVariant.secondary,
+                      onPressed: onShowMyTag,
+                    ),
+                    reviewEntry,
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -187,7 +203,7 @@ class ConventionHomeScreen extends StatelessWidget {
             : (genericErrorFor(failure) ?? GenericError.unknown).message,
         actionLabel: UiStrings.tryAgain,
         actionLoading: refreshing,
-        onAction: onRefresh,
+        onAction: () => unawaited(onRefresh()),
       );
     }
     if (convention.isOpen) {

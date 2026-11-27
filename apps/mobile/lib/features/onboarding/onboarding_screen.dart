@@ -17,19 +17,15 @@ class OnboardingScreen extends ConsumerStatefulWidget {
   /// Creates the screen.
   const new({
     required this.onResolved,
-    required this.onManagePasskeys,
-    required this.onSignOut,
+    required this.accountMenuBuilder,
     super.key,
   });
 
   /// Reports a server profile that decides the next stage.
   final void Function(PlayerScope scope, PlayerProfile profile) onResolved;
 
-  /// Opens the passkey screen.
-  final VoidCallback onManagePasskeys;
-
-  /// Signs out.
-  final VoidCallback onSignOut;
+  /// Builds the top app bar account menu, gating passkeys on `canLeave`.
+  final Widget Function({required bool canLeave}) accountMenuBuilder;
 
   @override
   ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -78,7 +74,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final banner = state.banner;
     final idle = state.pending == null;
     return Scaffold(
-      appBar: AppBar(title: const Text(OnboardingStrings.title)),
+      appBar: AppBar(
+        title: const Text(OnboardingStrings.title),
+        actions: [widget.accountMenuBuilder(canLeave: state.canLeave)],
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(TokenSpacing.xl),
@@ -142,18 +141,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                   label: OnboardingStrings.submit,
                   loading: state.pending == OnboardingPending.save,
                   onPressed: state.canContinue ? _submit : null,
-                ),
-                TailTagButton(
-                  key: const Key("entry-manage-passkeys"),
-                  label: OnboardingStrings.managePasskeys,
-                  variant: TailTagButtonVariant.secondary,
-                  onPressed: state.canLeave ? widget.onManagePasskeys : null,
-                ),
-                TailTagButton(
-                  key: const Key("entry-sign-out"),
-                  label: OnboardingStrings.signOut,
-                  variant: TailTagButtonVariant.secondary,
-                  onPressed: widget.onSignOut,
                 ),
               ],
             ),

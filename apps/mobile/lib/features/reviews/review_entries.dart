@@ -85,13 +85,18 @@ class _ReviewEntryState extends ConsumerState<ReviewEntry> {
         if (count == 0) {
           return const SizedBox.shrink();
         }
+        final scheme = Theme.of(context).colorScheme;
         return Padding(
           padding: const EdgeInsets.only(top: TokenSpacing.lg),
           child: Card(
             margin: EdgeInsets.zero,
             child: ListTile(
               key: const Key("home-review"),
-              leading: const Icon(Icons.inbox_outlined),
+              leading: CircleAvatar(
+                backgroundColor: scheme.primaryContainer,
+                foregroundColor: scheme.onPrimaryContainer,
+                child: const Icon(Icons.inbox_outlined),
+              ),
               title: Text(ReviewStrings.toReview(count)),
               trailing: const Icon(Icons.chevron_right_outlined),
               onTap: widget.onOpen,
@@ -115,7 +120,7 @@ class _ReviewEntryState extends ConsumerState<ReviewEntry> {
         return ListTile(
           key: const Key("suit-review"),
           contentPadding: const EdgeInsets.symmetric(
-            horizontal: TokenSpacing.xl,
+            horizontal: TokenSpacing.lg,
           ),
           title: const Text(ReviewStrings.suitRequests),
           subtitle: Text(ReviewStrings.waiting(summary?.forFursuit(id) ?? 0)),

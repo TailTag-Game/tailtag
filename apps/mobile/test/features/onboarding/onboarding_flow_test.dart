@@ -486,9 +486,12 @@ void main() {
 
       await tester.tap(_key(_continue));
       await tester.pump();
+      await tester.tap(_key("account-menu"));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
 
-      expect(_buttonEnabled(tester, _passkeys), isFalse);
-      expect(_buttonEnabled(tester, _signOut), isTrue);
+      expect(tester.widget<ListTile>(_key(_passkeys)).enabled, isFalse);
+      expect(tester.widget<ListTile>(_key(_signOut)).enabled, isTrue);
       app.network.releaseProfile(0, ProfileReply.complete);
       await app.settle();
     });
@@ -502,12 +505,18 @@ void main() {
         ],
       );
       await _submit(app);
-      expect(_buttonEnabled(tester, _passkeys), isTrue);
+      await app.tap("account-menu");
+      expect(tester.widget<ListTile>(_key(_passkeys)).enabled, isTrue);
+      await tester.binding.handlePopRoute();
+      await app.settle();
 
       await tester.tap(_tryAgain);
       await tester.pump();
+      await tester.tap(_key("account-menu"));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
 
-      expect(_buttonEnabled(tester, _passkeys), isFalse);
+      expect(tester.widget<ListTile>(_key(_passkeys)).enabled, isFalse);
       expect(_field(tester, _handle).enabled, isFalse);
       app.network.releaseProfile(0, ProfileReply.incomplete);
       await app.settle();
@@ -519,6 +528,7 @@ void main() {
       final app = await _onForm(tester);
       await _fill(tester);
 
+      await app.tap("account-menu");
       await app.tap(_passkeys);
       expect(app.path, AppPaths.passkeys);
 
@@ -541,6 +551,7 @@ void main() {
       await tester.tap(_key(_continue));
       await tester.pump();
 
+      await app.tap("account-menu");
       await app.tap(_signOut);
 
       expect(app.path, AppPaths.access);

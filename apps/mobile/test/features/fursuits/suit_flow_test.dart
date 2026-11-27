@@ -445,6 +445,7 @@ void main() {
         later: [(_rename, ConventionReply(body: _fursuit(name: "Bravo")))],
       );
 
+      await app.tap("suit-edit-menu");
       await app.tap("suit-change-name");
       await tester.enterText(_key("rename-field"), "Bravo");
       await app.tap("rename-save");
@@ -465,6 +466,7 @@ void main() {
         tester,
         later: [(_rename, ConventionReply(body: _fursuit(name: "Bravo")))],
       );
+      await app.tap("suit-edit-menu");
       await app.tap("suit-change-name");
       // A short phone screen with the keyboard taking half of it.
       tester.view
@@ -487,6 +489,7 @@ void main() {
       );
       final reads = _count(app, _list);
 
+      await app.tap("suit-edit-menu");
       await app.tap("suit-change-name");
       await tester.enterText(_key("rename-field"), "Bravo");
       await app.tap("rename-save");
@@ -554,7 +557,7 @@ void main() {
     testWidgets("a pull to refresh reads the counts again, so the approval "
         "parts come back when catch review turns on", (tester) async {
       const off = ConventionReply(status: 404, body: '{"detail": "x"}');
-      final app = await _openSuit(tester, summaries: List.filled(4, off));
+      final app = await _openSuit(tester, summaries: List.filled(3, off));
       expect(_key("suit-approval"), findsNothing);
 
       await tester.fling(_key("suit-name"), const Offset(0, 500), 1000);
@@ -686,8 +689,7 @@ void main() {
           (node) => node.getSemanticsData().label,
         ),
         containsAllInOrder([
-          contains(FursuitStrings.changeName),
-          contains(FursuitStrings.changePhoto),
+          contains(FursuitStrings.showTailTag),
           contains("At Test Con"),
           contains("Participating at Test Con"),
           contains(FursuitStrings.outForCatching),

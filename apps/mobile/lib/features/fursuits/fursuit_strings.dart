@@ -30,6 +30,24 @@ abstract final class FursuitStrings {
   /// The name button on the suit screen.
   static const changeName = "Change name";
 
+  /// The edit overflow menu tooltip on the suit screen.
+  static const editSuit = "Edit suit";
+
+  /// The overflow menu tooltip on the tag screen.
+  static const moreOptions = "More options";
+
+  /// The primary action on the suit screen that opens the TailTag display.
+  static const showTailTag = "Show TailTag";
+
+  /// The warning status badge label on the tag screen when not catchable.
+  static const notOutForCatchingBadge = "Not out for catching";
+
+  /// The banner action on the tag screen to manage a suit that is not out.
+  static const manageSuit = "Manage suit";
+
+  /// The subtitle of the Replace tag row in the tag overflow sheet.
+  static const replaceTagWarning = "Old printed and saved tags stop working.";
+
   /// The library choice of the photo sheet.
   static const choosePhoto = "Choose photo";
 

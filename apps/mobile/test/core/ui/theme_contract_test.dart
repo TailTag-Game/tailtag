@@ -175,6 +175,28 @@ void main() {
       ),
       equals((_scheme.primary, StrokeCap.round)),
     ),
+    "segmented buttons are stadium pills with solid primary selection": (
+      () => (
+        _at(theme.segmentedButtonTheme.style?.shape),
+        _at(theme.segmentedButtonTheme.style?.backgroundColor, {
+          WidgetState.selected,
+        }),
+        _at(theme.segmentedButtonTheme.style?.foregroundColor, {
+          WidgetState.selected,
+        }),
+        _at(theme.segmentedButtonTheme.style?.side, {WidgetState.focused}),
+      ),
+      equals((
+        const StadiumBorder(),
+        _scheme.primary,
+        _scheme.onPrimary,
+        focusRing,
+      )),
+    ),
+    "count badges use high-contrast error colors": (
+      () => (theme.badgeTheme.backgroundColor, theme.badgeTheme.textColor),
+      equals((_scheme.error, _scheme.onError)),
+    ),
   };
 
   for (final MapEntry(key: name, value: (actual, matcher)) in cases.entries) {

@@ -36,6 +36,9 @@ abstract final class ConventionStrings {
   /// The action that opens the picker from the home.
   static const changeConvention = "Change convention";
 
+  /// The action on home that opens the player's TailTag sheet.
+  static const showMyTag = "Show my TailTag";
+
   /// The action that reads again.
   static const refresh = "Refresh";
 

@@ -1,5 +1,6 @@
 import "package:flutter/material.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
+import "package:tailtag_mobile/app/entry/account_menu.dart";
 import "package:tailtag_mobile/app/entry/entry_controller.dart";
 import "package:tailtag_mobile/app/entry/entry_stage.dart";
 import "package:tailtag_mobile/core/ui/delayed_visibility.dart";
@@ -14,6 +15,9 @@ import "package:tailtag_mobile/core/ui/widgets/tailtag_button.dart";
 abstract final class EntryStrings {
   /// The app name.
   static const appName = "TailTag";
+
+  /// The account menu tooltip.
+  static const account = "Account";
 
   /// The restoring label.
   static const restoring = "Loading your session";
@@ -105,16 +109,21 @@ class _EntryMessageScreen extends StatelessWidget {
     required this.message,
     this.tone = StatusTone.error,
     this.actions = const [],
+    this.appBarActions = const [],
   });
 
   final String message;
   final StatusTone tone;
   final List<Widget> actions;
+  final List<Widget> appBarActions;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text(EntryStrings.appName)),
+      appBar: AppBar(
+        title: const Text(EntryStrings.appName),
+        actions: appBarActions,
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(TokenSpacing.xl),
@@ -207,6 +216,12 @@ class IdentityFailedScreen extends ConsumerWidget {
         : (genericErrorFor(failure) ?? GenericError.unknown).message;
     return _EntryMessageScreen(
       message: message,
+      appBarActions: [
+        AccountMenuButton(
+          onManagePasskeys: controller.openPasskeys,
+          onSignOut: controller.signOut,
+        ),
+      ],
       actions: [
         TailTagButton(
           key: const Key("entry-retry-identity"),
@@ -214,15 +229,9 @@ class IdentityFailedScreen extends ConsumerWidget {
           onPressed: controller.retryIdentity,
         ),
         TailTagButton(
-          key: const Key("entry-manage-passkeys"),
-          label: EntryStrings.managePasskeys,
-          variant: TailTagButtonVariant.secondary,
-          onPressed: controller.openPasskeys,
-        ),
-        TailTagButton(
-          key: const Key("entry-sign-out"),
+          key: const Key("entry-sign-out-fallback"),
           label: EntryStrings.signOut,
-          variant: TailTagButtonVariant.secondary,
+          variant: TailTagButtonVariant.secondaryText,
           onPressed: controller.signOut,
         ),
       ],
@@ -245,6 +254,12 @@ class AccountUnavailableScreen extends ConsumerWidget {
           ? EntryStrings.apiAccess
           : EntryStrings.accountUnavailable,
       tone: apiAccess ? StatusTone.error : StatusTone.warning,
+      appBarActions: [
+        AccountMenuButton(
+          onManagePasskeys: controller.openPasskeys,
+          onSignOut: controller.signOut,
+        ),
+      ],
       actions: [
         TailTagButton(
           key: const Key("entry-refresh"),
@@ -252,15 +267,9 @@ class AccountUnavailableScreen extends ConsumerWidget {
           onPressed: controller.refreshProfile,
         ),
         TailTagButton(
-          key: const Key("entry-manage-passkeys"),
-          label: EntryStrings.managePasskeys,
-          variant: TailTagButtonVariant.secondary,
-          onPressed: controller.openPasskeys,
-        ),
-        TailTagButton(
-          key: const Key("entry-sign-out"),
+          key: const Key("entry-sign-out-fallback"),
           label: EntryStrings.signOut,
-          variant: TailTagButtonVariant.secondary,
+          variant: TailTagButtonVariant.secondaryText,
           onPressed: controller.signOut,
         ),
       ],

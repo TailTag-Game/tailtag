@@ -111,6 +111,49 @@ class _SuitRegisterScreenState extends ConsumerState<SuitRegisterScreen> {
             spacing: TokenSpacing.lg,
             children: [
               ?_banner(state),
+              Center(
+                child: photo != null
+                    ? ClipOval(
+                        child: Image.memory(
+                          Uint8List.fromList(photo.bytes),
+                          key: const Key("register-photo-preview"),
+                          width: TokenSize.avatarLarge,
+                          height: TokenSize.avatarLarge,
+                          fit: BoxFit.cover,
+                          excludeFromSemantics: true,
+                          errorBuilder: (context, error, stackTrace) =>
+                              TailTagAvatar(
+                                name: _name.text,
+                                kind: AvatarKind.fursuit,
+                                size: AvatarSize.large,
+                              ),
+                        ),
+                      )
+                    : ValueListenableBuilder(
+                        valueListenable: _name,
+                        builder: (context, value, _) => TailTagAvatar(
+                          name: value.text,
+                          kind: AvatarKind.fursuit,
+                          size: AvatarSize.large,
+                        ),
+                      ),
+              ),
+              TailTagButton(
+                key: const Key("register-photo"),
+                label: photo == null
+                    ? FursuitStrings.addPhoto
+                    : FursuitStrings.changePhoto,
+                icon: Icons.photo_camera_outlined,
+                variant: TailTagButtonVariant.secondary,
+                onPressed: state.saving ? null : () => unawaited(_pickPhoto()),
+              ),
+              if (photoMessage != null)
+                Text(
+                  photoMessage,
+                  key: const Key("register-photo-message"),
+                  textAlign: TextAlign.center,
+                  style: textTheme.bodySmall?.copyWith(color: scheme.error),
+                ),
               TextField(
                 key: const Key("register-name"),
                 controller: _name,
@@ -131,40 +174,6 @@ class _SuitRegisterScreenState extends ConsumerState<SuitRegisterScreen> {
                 },
                 onTapOutside: (_) => _closeKeyboard(),
               ),
-              Text(FursuitStrings.photoLabel, style: textTheme.titleSmall),
-              if (photo != null)
-                Center(
-                  child: ClipOval(
-                    child: Image.memory(
-                      Uint8List.fromList(photo.bytes),
-                      key: const Key("register-photo-preview"),
-                      width: TokenSize.avatarLarge,
-                      height: TokenSize.avatarLarge,
-                      fit: BoxFit.cover,
-                      excludeFromSemantics: true,
-                      errorBuilder: (context, error, stackTrace) =>
-                          TailTagAvatar(
-                            name: _name.text,
-                            kind: AvatarKind.fursuit,
-                            size: AvatarSize.large,
-                          ),
-                    ),
-                  ),
-                ),
-              TailTagButton(
-                key: const Key("register-photo"),
-                label: photo == null
-                    ? FursuitStrings.addPhoto
-                    : FursuitStrings.changePhoto,
-                variant: TailTagButtonVariant.secondary,
-                onPressed: state.saving ? null : () => unawaited(_pickPhoto()),
-              ),
-              if (photoMessage != null)
-                Text(
-                  photoMessage,
-                  key: const Key("register-photo-message"),
-                  style: textTheme.bodySmall?.copyWith(color: scheme.error),
-                ),
               ValueListenableBuilder(
                 valueListenable: _name,
                 builder: (context, value, _) => TailTagButton(

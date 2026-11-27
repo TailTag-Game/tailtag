@@ -50,6 +50,7 @@ Future<AppHarness> _onPasskeys(
   void Function(FakeAuthSession session)? setUp,
 }) async {
   final app = await _signedIn(tester, setUp: setUp);
+  await app.tap("account-menu");
   await app.tap("entry-manage-passkeys");
   expect(app.path, AppPaths.passkeys);
   return app;
@@ -68,6 +69,7 @@ void main() {
       final app = await _signedIn(tester);
       final epoch = app.container.read(playerScopeProvider).epoch;
 
+      await app.tap("account-menu");
       await app.tap("entry-manage-passkeys");
       expect(app.path, AppPaths.passkeys);
       expect(app.container.read(playerScopeProvider).epoch, epoch + 1);
@@ -101,6 +103,7 @@ void main() {
       );
       expect(app.path, AppPaths.identityFailed);
 
+      await app.tap("account-menu");
       await app.tap("entry-manage-passkeys");
       expect(app.path, AppPaths.passkeys);
 

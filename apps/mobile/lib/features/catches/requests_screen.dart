@@ -16,12 +16,29 @@ import "package:tailtag_mobile/core/ui/widgets/tailtag_avatar.dart";
 import "package:tailtag_mobile/core/ui/widgets/tailtag_button.dart";
 import "package:tailtag_mobile/features/catches/catch_strings.dart";
 import "package:tailtag_mobile/features/catches/requests_controller.dart";
+import "package:tailtag_mobile/features/reviews/pending_summary_controller.dart";
+import "package:tailtag_mobile/features/reviews/review_screen.dart";
 
-/// The player's own catch requests in every open review window, grouped by
-/// convention with the selected convention first (#511 AC22 to AC27).
+/// Which side of the consolidated Requests hub is active.
+enum RequestsTab {
+  /// Incoming catch requests on the player's fursuits.
+  received,
+
+  /// Outgoing catch requests the player submitted.
+  sent,
+}
+
+/// Consolidated catch requests hub: incoming owner reviews (`Received`) and
+/// the player's own outgoing catch requests (`Sent`).
 class RequestsScreen extends ConsumerStatefulWidget {
-  /// Creates the list for the selected [convention].
-  const new({required this.convention, required this.onReloadHome, super.key});
+  /// Creates the consolidated requests screen for [convention].
+  const new({
+    required this.convention,
+    required this.onReloadHome,
+    required this.onScan,
+    this.requestedTab,
+    super.key,
+  });
 
   /// The selected convention of the home.
   final Convention convention;
@@ -29,20 +46,50 @@ class RequestsScreen extends ConsumerStatefulWidget {
   /// Reads the home state again.
   final VoidCallback onReloadHome;
 
+  /// Opens the scanner from the Sent empty state.
+  final VoidCallback onScan;
+
+  /// Explicit target tab from a route query parameter, or null for the smart
+  /// default.
+  final RequestsTab? requestedTab;
+
   @override
   ConsumerState<RequestsScreen> createState() => _RequestsScreenState();
 }
 
 class _RequestsScreenState extends ConsumerState<RequestsScreen> {
+  RequestsTab? _selectedTab;
+
   @override
   void initState() {
     super.initState();
+    _selectedTab = widget.requestedTab;
     // A provider cannot change while a widget builds, so the read waits.
     scheduleMicrotask(() {
       if (mounted) {
         unawaited(ref.read(requestsControllerProvider.notifier).read());
+        unawaited(ref.read(pendingSummaryProvider.notifier).read());
       }
     });
+  }
+
+  @override
+  void didUpdateWidget(RequestsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.requestedTab != null &&
+        widget.requestedTab != oldWidget.requestedTab) {
+      _selectedTab = widget.requestedTab;
+    }
+  }
+
+  RequestsTab _activeTab({required bool canReview, required int pendingCount}) {
+    if (!canReview) {
+      return RequestsTab.sent;
+    }
+    if (_selectedTab != null) {
+      return _selectedTab!;
+    }
+    return pendingCount > 0 ? RequestsTab.received : RequestsTab.sent;
   }
 
   Future<void> _withdraw(PlayerCatchRequest request) async {
@@ -67,69 +114,128 @@ class _RequestsScreenState extends ConsumerState<RequestsScreen> {
         widget.onReloadHome();
       }
     });
-    final state = ref.watch(requestsControllerProvider);
-    final controller = ref.read(requestsControllerProvider.notifier);
-    final requests = state.requests;
+    final pendingState = ref.watch(pendingSummaryProvider);
+    final canReview = pendingState.available;
+    final pendingCount = pendingState.summary?.pendingCount ?? 0;
+    final active = _activeTab(canReview: canReview, pendingCount: pendingCount);
+    final switcher = canReview
+        ? Padding(
+            padding: const EdgeInsets.fromLTRB(
+              TokenSpacing.xl,
+              0,
+              TokenSpacing.xl,
+              TokenSpacing.lg,
+            ),
+            child: SegmentedButton<RequestsTab>(
+              key: const Key("requests-segment"),
+              showSelectedIcon: false,
+              segments: [
+                ButtonSegment(
+                  value: RequestsTab.received,
+                  label: Text(
+                    pendingCount > 0
+                        ? CatchStrings.requestsReceivedCount(pendingCount)
+                        : CatchStrings.requestsReceived,
+                    key: const Key("requests-tab-received"),
+                  ),
+                ),
+                const ButtonSegment(
+                  value: RequestsTab.sent,
+                  label: Text(
+                    CatchStrings.requestsSent,
+                    key: Key("requests-tab-sent"),
+                  ),
+                ),
+              ],
+              selected: {active},
+              onSelectionChanged: (next) =>
+                  setState(() => _selectedTab = next.first),
+            ),
+          )
+        : null;
+
     return Scaffold(
       appBar: AppBar(title: const Text(CatchStrings.navRequests)),
       body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: controller.read,
-          child: ListView(
-            key: const Key("requests-list"),
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.symmetric(vertical: TokenSpacing.lg),
-            children: [
-              if (_banner(state, controller.read) case final banner?)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    TokenSpacing.xl,
-                    0,
-                    TokenSpacing.xl,
-                    TokenSpacing.lg,
+        child: active == RequestsTab.received
+            ? ReviewListView(
+                convention: widget.convention,
+                onReloadHome: widget.onReloadHome,
+                header: switcher,
+              )
+            : _sentList(switcher),
+      ),
+    );
+  }
+
+  Widget _sentList(Widget? header) {
+    final state = ref.watch(requestsControllerProvider);
+    final controller = ref.read(requestsControllerProvider.notifier);
+    final requests = state.requests;
+    return RefreshIndicator(
+      onRefresh: controller.read,
+      child: ListView(
+        key: const Key("requests-list"),
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(vertical: TokenSpacing.lg),
+        children: [
+          ?header,
+          if (_banner(state, controller.read) case final banner?)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                TokenSpacing.xl,
+                0,
+                TokenSpacing.xl,
+                TokenSpacing.lg,
+              ),
+              child: banner,
+            ),
+          if (requests == null && state.reading)
+            const DelayedVisibility(
+              child: Padding(
+                padding: EdgeInsets.all(TokenSpacing.xl),
+                child: Center(
+                  child: CircularProgressIndicator(
+                    semanticsLabel: UiStrings.loading,
                   ),
-                  child: banner,
                 ),
-              if (requests == null && state.reading)
-                const DelayedVisibility(
-                  child: Padding(
-                    padding: EdgeInsets.all(TokenSpacing.xl),
-                    child: Center(
-                      child: CircularProgressIndicator(
-                        semanticsLabel: UiStrings.loading,
-                      ),
-                    ),
-                  ),
-                )
-              else if (requests != null && requests.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(TokenSpacing.xl),
-                  child: EmptyState(
-                    key: Key("requests-empty"),
-                    icon: Icons.outbox_outlined,
-                    title: CatchStrings.requestsEmpty,
-                    body: CatchStrings.requestsEmptyBody,
-                  ),
-                )
-              else if (requests != null)
-                for (final group in _groups(requests)) ...[
-                  _GroupHeader(
-                    conventionId: group.conventionId,
-                    convention: state.conventions[group.conventionId],
-                    deadlineAt: group.requests.first.reviewDeadlineAt,
-                  ),
-                  for (final request in group.requests)
-                    _RequestRow(
-                      request: request,
-                      withdrawing: state.withdrawing == request.id,
-                      onWithdraw: state.withdrawing == null
-                          ? () => unawaited(_withdraw(request))
-                          : null,
-                    ),
-                ],
+              ),
+            )
+          else if (requests != null && requests.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(TokenSpacing.xl),
+              child: EmptyState(
+                key: const Key("requests-empty"),
+                icon: Icons.inbox_outlined,
+                title: CatchStrings.requestsEmpty,
+                body: CatchStrings.requestsEmptyBody,
+                action: widget.convention.catchingOpen
+                    ? TailTagButton(
+                        key: const Key("requests-empty-scan"),
+                        label: CatchStrings.scanTag,
+                        icon: Icons.qr_code_scanner,
+                        onPressed: widget.onScan,
+                      )
+                    : null,
+              ),
+            )
+          else if (requests != null)
+            for (final group in _groups(requests)) ...[
+              _GroupHeader(
+                conventionId: group.conventionId,
+                convention: state.conventions[group.conventionId],
+                deadlineAt: group.requests.first.reviewDeadlineAt,
+              ),
+              for (final request in group.requests)
+                _RequestRow(
+                  request: request,
+                  withdrawing: state.withdrawing == request.id,
+                  onWithdraw: state.withdrawing == null
+                      ? () => unawaited(_withdraw(request))
+                      : null,
+                ),
             ],
-          ),
-        ),
+        ],
       ),
     );
   }
@@ -290,52 +396,68 @@ class _RequestRow extends StatelessWidget {
       label: CatchStrings.stateLabel(request.state),
     );
     final name = request.fursuit.name;
-    return Column(
-      key: Key("request-row-${request.id}"),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // One semantics node joins the name, the time, and the state.
-        MergeSemantics(
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: TokenSpacing.xl,
-            ),
-            leading: TailTagAvatar(
-              name: name,
-              kind: AvatarKind.fursuit,
-              imageUrl: request.fursuit.photoUrl.toString(),
-            ),
-            title: Text(name, maxLines: 2, overflow: TextOverflow.ellipsis),
-            subtitle: StatusBadge.rowSubtitle(
-              context,
-              badge,
-              subtitle: Text(
-                CatchStrings.instant(context, request.requestedAt),
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: TokenSpacing.xl,
+        vertical: TokenSpacing.xs,
+      ),
+      child: Card(
+        key: Key("request-row-${request.id}"),
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: TokenSpacing.xs),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // One semantics node joins the name, the time, and the state.
+              MergeSemantics(
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: TokenSpacing.lg,
+                  ),
+                  leading: TailTagAvatar(
+                    name: name,
+                    kind: AvatarKind.fursuit,
+                    imageUrl: request.fursuit.photoUrl.toString(),
+                  ),
+                  title: Text(
+                    name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: StatusBadge.rowSubtitle(
+                    context,
+                    badge,
+                    subtitle: Text(
+                      CatchStrings.instant(context, request.requestedAt),
+                    ),
+                  ),
+                  trailing: StatusBadge.rowTrailing(context, badge),
+                ),
               ),
-            ),
-            trailing: StatusBadge.rowTrailing(context, badge),
+              if (request.state == CatchRequestState.pending)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    TokenSpacing.lg,
+                    0,
+                    TokenSpacing.lg,
+                    TokenSpacing.sm,
+                  ),
+                  child: Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: TailTagButton(
+                      key: Key("request-withdraw-${request.id}"),
+                      label: CatchStrings.withdraw,
+                      variant: TailTagButtonVariant.secondary,
+                      loading: withdrawing,
+                      onPressed: onWithdraw,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
-        if (request.state == CatchRequestState.pending)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              TokenSpacing.xl,
-              0,
-              TokenSpacing.xl,
-              TokenSpacing.md,
-            ),
-            child: Align(
-              alignment: AlignmentDirectional.centerEnd,
-              child: TailTagButton(
-                key: Key("request-withdraw-${request.id}"),
-                label: CatchStrings.withdraw,
-                variant: TailTagButtonVariant.secondary,
-                loading: withdrawing,
-                onPressed: onWithdraw,
-              ),
-            ),
-          ),
-      ],
+      ),
     );
   }
 }

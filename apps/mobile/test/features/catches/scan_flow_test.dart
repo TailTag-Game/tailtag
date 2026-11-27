@@ -272,6 +272,15 @@ void main() {
     });
     // The local deadline date is Nov 13, so the last review day is Nov 12.
     expect(_result(tester), CatchStrings.sent("Alpha", "Thu, Nov 12"));
+    expect(_key("scan-result-badge"), findsOneWidget);
+    expect(
+      tester.widget<TailTagButton>(_key("scan-again")).variant,
+      TailTagButtonVariant.primary,
+    );
+    expect(
+      tester.widget<TailTagButton>(_key("scan-see-requests")).variant,
+      TailTagButtonVariant.secondary,
+    );
     final shown = tester
         .widgetList<Text>(find.byType(Text))
         .map((text) => text.data ?? "");
@@ -619,31 +628,52 @@ void main() {
     expect(network.catchCount(_submit), 0);
   });
 
-  testWidgets("the preview and the result stay usable at 200% text scale", (
-    tester,
-  ) async {
+  testWidgets("the live camera, preview, and result stay usable at 200% text "
+      "scale", (tester) async {
     tester.platformDispatcher.textScaleFactorTestValue = 2;
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    final semantics = tester.ensureSemantics();
     final scanners = FakeQrScanners();
     final network = _network()
       ..enqueueCatch(_preview, ConventionReply(body: _previewBody()))
-      ..enqueueCatch(_submit, _submission(201, "pending"));
+      ..enqueueCatch(_submit, _submission(201, "approved"));
     final app = await _openScanner(
       tester,
       network: network,
       scanners: scanners,
     );
 
-    await _read(app, scanners, _payload);
     expect(tester.takeException(), isNull);
-    await app.tap("scan-confirm");
-    expect(tester.takeException(), isNull);
+    expect(_key("scan-torch"), findsOneWidget);
     for (final guideline in [
       androidTapTargetGuideline,
       iOSTapTargetGuideline,
       labeledTapTargetGuideline,
+      textContrastGuideline,
     ]) {
       await expectLater(tester, meetsGuideline(guideline));
     }
+
+    await _read(app, scanners, _payload);
+    expect(tester.takeException(), isNull);
+    await app.tap("scan-confirm");
+    expect(tester.takeException(), isNull);
+    expect(
+      tester.widget<TailTagButton>(_key("scan-again")).variant,
+      TailTagButtonVariant.primary,
+    );
+    expect(
+      tester.widget<TailTagButton>(_key("scan-see-catches")).variant,
+      TailTagButtonVariant.secondary,
+    );
+    for (final guideline in [
+      androidTapTargetGuideline,
+      iOSTapTargetGuideline,
+      labeledTapTargetGuideline,
+      textContrastGuideline,
+    ]) {
+      await expectLater(tester, meetsGuideline(guideline));
+    }
+    semantics.dispose();
   });
 }

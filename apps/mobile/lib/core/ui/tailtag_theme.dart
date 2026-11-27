@@ -543,5 +543,45 @@ ThemeData buildTailTagTheme() {
         );
       }),
     ),
+    segmentedButtonTheme: SegmentedButtonThemeData(
+      style: ButtonStyle(
+        shape: const WidgetStatePropertyAll(stadium),
+        minimumSize: buttonMinimumSize,
+        textStyle: const WidgetStatePropertyAll(TokenTypography.labelLarge),
+        backgroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) {
+            return scheme.onSurface.withValues(alpha: 0.12);
+          }
+          if (states.contains(WidgetState.selected)) {
+            return scheme.primary;
+          }
+          return scheme.surfaceContainerLowest;
+        }),
+        foregroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) {
+            return scheme.onSurface.withValues(alpha: 0.38);
+          }
+          if (states.contains(WidgetState.selected)) {
+            return scheme.onPrimary;
+          }
+          return scheme.onSurfaceVariant;
+        }),
+        side: WidgetStateBorderSide.resolveWith((states) {
+          if (states.contains(WidgetState.focused) &&
+              !states.contains(WidgetState.disabled)) {
+            return focusRingSide(scheme.primary);
+          }
+          if (states.contains(WidgetState.disabled)) {
+            return BorderSide(color: scheme.onSurface.withValues(alpha: 0.12));
+          }
+          return outline;
+        }),
+      ),
+    ),
+    badgeTheme: BadgeThemeData(
+      backgroundColor: scheme.error,
+      textColor: scheme.onError,
+      textStyle: TokenTypography.labelSmall,
+    ),
   );
 }

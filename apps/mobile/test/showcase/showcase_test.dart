@@ -134,7 +134,7 @@ void main() {
         .map((section) => section.title)
         .toList();
     final inventory = _inventory();
-    expect(inventory, hasLength(17));
+    expect(inventory, hasLength(19));
     expect(sections..sort(), inventory..sort());
   });
 
