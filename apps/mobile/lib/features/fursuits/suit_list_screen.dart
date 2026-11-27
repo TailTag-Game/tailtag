@@ -13,16 +13,16 @@ import "package:tailtag_mobile/features/fursuits/fursuit_strings.dart";
 import "package:tailtag_mobile/features/fursuits/suit_status.dart";
 import "package:tailtag_mobile/features/fursuits/suit_widgets.dart";
 import "package:tailtag_mobile/features/fursuits/suits_controller.dart";
-import "package:tailtag_mobile/features/reviews/review_entries.dart";
 
-/// The player's suits, each with its badge at the selected convention.
+/// The player's suits, each with its badge and direct TailTag shortcut at the
+/// selected convention.
 class SuitListScreen extends ConsumerStatefulWidget {
   /// Creates the screen for [convention].
   const new({
     required this.convention,
     required this.onOpenSuit,
+    required this.onOpenTag,
     required this.onRegister,
-    required this.onOpenReview,
     super.key,
   });
 
@@ -32,11 +32,11 @@ class SuitListScreen extends ConsumerStatefulWidget {
   /// Opens the suit screen of a suit.
   final ValueChanged<int> onOpenSuit;
 
+  /// Opens the TailTag screen of a suit directly.
+  final ValueChanged<int> onOpenTag;
+
   /// Opens the register form.
   final VoidCallback onRegister;
-
-  /// Opens the review screen of every suit (#512 AC4).
-  final VoidCallback onOpenReview;
 
   @override
   ConsumerState<SuitListScreen> createState() => _SuitListScreenState();
@@ -76,8 +76,20 @@ class _SuitListScreenState extends ConsumerState<SuitListScreen> {
     final state = ref.watch(provider);
     final controller = ref.read(provider.notifier);
     final fursuits = state.fursuits;
+    final hasSuits = fursuits != null && fursuits.isNotEmpty;
     return Scaffold(
-      appBar: AppBar(title: const Text(FursuitStrings.mySuits)),
+      appBar: AppBar(
+        title: const Text(FursuitStrings.mySuits),
+        actions: [
+          if (hasSuits)
+            IconButton(
+              key: const Key("suits-register"),
+              icon: const Icon(Icons.add),
+              tooltip: FursuitStrings.registerSuit,
+              onPressed: widget.onRegister,
+            ),
+        ],
+      ),
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: controller.read,
@@ -113,24 +125,16 @@ class _SuitListScreenState extends ConsumerState<SuitListScreen> {
                     ),
                   ),
                 )
-              else if (fursuits != null) ...[
-                ReviewEntry.suitList(onOpen: widget.onOpenReview),
+              else if (fursuits != null)
                 for (final fursuit in fursuits)
-                  _SuitRow(
+                  _SuitCard(
                     fursuit: fursuit,
                     badge: badgeFor(state.activations[fursuit.id]),
                     onTap: () => widget.onOpenSuit(fursuit.id),
+                    onOpenTag: fursuit.isEnabled
+                        ? () => widget.onOpenTag(fursuit.id)
+                        : null,
                   ),
-                Padding(
-                  padding: const EdgeInsets.all(TokenSpacing.xl),
-                  child: TailTagButton(
-                    key: const Key("suits-register"),
-                    label: FursuitStrings.registerSuit,
-                    variant: TailTagButtonVariant.secondary,
-                    onPressed: widget.onRegister,
-                  ),
-                ),
-              ],
             ],
           ),
         ),
@@ -139,30 +143,87 @@ class _SuitListScreenState extends ConsumerState<SuitListScreen> {
   }
 }
 
-class _SuitRow extends StatelessWidget {
-  const new({required this.fursuit, required this.badge, required this.onTap});
+class _SuitCard extends StatelessWidget {
+  const new({
+    required this.fursuit,
+    required this.badge,
+    required this.onTap,
+    required this.onOpenTag,
+  });
 
   final Fursuit fursuit;
   final SuitBadge badge;
   final VoidCallback onTap;
+  final VoidCallback? onOpenTag;
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
     final statusBadge = suitBadge(badge);
-    // One semantics node joins the name and the badge text.
-    return MergeSemantics(
-      child: ListTile(
-        key: Key("suit-row-${fursuit.id}"),
-        contentPadding: const EdgeInsets.symmetric(horizontal: TokenSpacing.xl),
-        leading: TailTagAvatar(
-          name: fursuit.name,
-          kind: AvatarKind.fursuit,
-          imageUrl: fursuit.photoUrl.toString(),
+    final largeText =
+        MediaQuery.textScalerOf(context).scale(1) >
+        StatusBadge.maxBesideTitleTextScale;
+    final qrButton = onOpenTag == null
+        ? null
+        : IconButton(
+            key: Key("suit-qr-${fursuit.id}"),
+            icon: const Icon(Icons.qr_code_2),
+            tooltip: FursuitStrings.showTag,
+            onPressed: onOpenTag,
+          );
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: TokenSpacing.xl,
+        vertical: TokenSpacing.xs,
+      ),
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: InkWell(
+          key: Key("suit-row-${fursuit.id}"),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(TokenSpacing.lg),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              spacing: TokenSpacing.sm,
+              children: [
+                Row(
+                  children: [
+                    TailTagAvatar(
+                      name: fursuit.name,
+                      kind: AvatarKind.fursuit,
+                      imageUrl: fursuit.photoUrl.toString(),
+                    ),
+                    const SizedBox(width: TokenSpacing.md),
+                    Expanded(
+                      child: MergeSemantics(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          spacing: TokenSpacing.xs,
+                          children: [
+                            Text(
+                              fursuit.name,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: textTheme.titleMedium,
+                            ),
+                            statusBadge,
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (!largeText && qrButton != null) qrButton,
+                  ],
+                ),
+                if (largeText && qrButton != null)
+                  Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: qrButton,
+                  ),
+              ],
+            ),
+          ),
         ),
-        title: Text(fursuit.name, maxLines: 2, overflow: TextOverflow.ellipsis),
-        subtitle: StatusBadge.rowSubtitle(context, statusBadge),
-        trailing: StatusBadge.rowTrailing(context, statusBadge),
-        onTap: onTap,
       ),
     );
   }

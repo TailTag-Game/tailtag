@@ -187,15 +187,17 @@ class PasskeyScreen extends ConsumerWidget {
         title: Text(PasskeyStrings.removeTitle(passkey.name)),
         content: const Text(PasskeyStrings.removeBody),
         actions: [
-          TextButton(
+          TailTagButton(
             key: const Key("passkeys-remove-cancel"),
+            label: PasskeyStrings.cancel,
+            variant: TailTagButtonVariant.secondaryText,
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text(PasskeyStrings.cancel),
           ),
-          TextButton(
+          TailTagButton(
             key: const Key("passkeys-remove-confirm"),
+            label: PasskeyStrings.removeConfirm,
+            variant: TailTagButtonVariant.destructive,
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text(PasskeyStrings.removeConfirm),
           ),
         ],
       ),

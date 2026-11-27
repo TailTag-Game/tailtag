@@ -154,6 +154,26 @@ class _SuitDetailScreenState extends ConsumerState<SuitDetailScreen> {
     }
   }
 
+  Future<void> _openEditMenu(Fursuit fursuit) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      useSafeArea: true,
+      builder: (sheetContext) => _SuitEditSheet(
+        conventionId: widget.convention.id,
+        fursuitId: fursuit.id,
+        onChangeName: () {
+          Navigator.of(sheetContext).pop();
+          unawaited(_changeName(fursuit));
+        },
+        onChangePhoto: () {
+          Navigator.of(sheetContext).pop();
+          unawaited(_changePhoto());
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(suitsControllerProvider(widget.convention.id));
@@ -165,6 +185,15 @@ class _SuitDetailScreenState extends ConsumerState<SuitDetailScreen> {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
+        actions: [
+          if (fursuit != null)
+            IconButton(
+              key: const Key("suit-edit-menu"),
+              icon: Icon(Icons.adaptive.more),
+              tooltip: FursuitStrings.editSuit,
+              onPressed: () => unawaited(_openEditMenu(fursuit)),
+            ),
+        ],
       ),
       body: SafeArea(
         child: RefreshIndicator(
@@ -241,141 +270,171 @@ class _SuitDetailScreenState extends ConsumerState<SuitDetailScreen> {
               fursuit.name,
               key: const Key("suit-name"),
               textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
               style: textTheme.titleLarge,
             ),
             Align(child: suitBadge(badgeFor(activation))),
+            const SizedBox(height: TokenSpacing.xs),
+            // The tag read creates the first tag, so this screen never reads
+            // it.
             TailTagButton(
-              key: const Key("suit-change-name"),
-              label: FursuitStrings.changeName,
-              variant: TailTagButtonVariant.secondary,
-              loading: write == SuitWrite.name,
-              onPressed: busy ? null : () => unawaited(_changeName(fursuit)),
+              key: const Key("suit-show-tag"),
+              label: FursuitStrings.showTailTag,
+              icon: Icons.qr_code_2,
+              onPressed: fursuit.isEnabled ? widget.onOpenTag : null,
             ),
-            TailTagButton(
-              key: const Key("suit-change-photo"),
-              label: FursuitStrings.changePhoto,
-              variant: TailTagButtonVariant.secondary,
-              loading: write == SuitWrite.photo,
-              onPressed: busy ? null : () => unawaited(_changePhoto()),
-            ),
+            if (!fursuit.isEnabled)
+              Text(
+                FursuitStrings.suitDisabled,
+                key: const Key("suit-show-tag-disabled"),
+                textAlign: TextAlign.center,
+                style: textTheme.bodyMedium,
+              ),
           ],
         ),
       ),
-      const SizedBox(height: TokenSpacing.xl),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: TokenSpacing.xl),
-        child: Semantics(
-          header: true,
-          child: Text(
-            FursuitStrings.atConvention(convention.name),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: textTheme.titleMedium,
-          ),
-        ),
-      ),
-      SwitchListTile(
-        key: const Key("suit-participation"),
-        value: participating,
-        onChanged: busy || participationReason != null
-            ? null
-            : (next) => unawaited(_toggleParticipation(next)),
-        title: Text(FursuitStrings.participatingAt(convention.name)),
-        subtitle: switchSubtitle(
-          pending: write == SuitWrite.participation,
-          text: participationReason == null
-              ? FursuitStrings.participationHelp
-              : disabledReasonText(participationReason),
-        ),
-      ),
-      SwitchListTile(
-        key: const Key("suit-session"),
-        value: catchable,
-        onChanged: busy || sessionReason != null
-            ? null
-            : (next) => unawaited(_toggleSession(next)),
-        title: const Text(FursuitStrings.outForCatching),
-        subtitle: switchSubtitle(
-          pending: write == SuitWrite.session,
-          text: switch ((sessionReason, catchable, session)) {
-            (final DisabledReason reason, _, _) => disabledReasonText(reason),
-            (null, true, final CatchSession live) => FursuitStrings.outUntil(
-              FursuitStrings.time(context, live.expiresAt, now),
+      _inset(
+        Card(
+          margin: EdgeInsets.zero,
+          semanticContainer: false,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: TokenSpacing.sm),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    TokenSpacing.lg,
+                    TokenSpacing.sm,
+                    TokenSpacing.lg,
+                    TokenSpacing.xs,
+                  ),
+                  child: Semantics(
+                    header: true,
+                    child: Text(
+                      FursuitStrings.atConvention(convention.name),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.titleMedium,
+                    ),
+                  ),
+                ),
+                SwitchListTile(
+                  key: const Key("suit-participation"),
+                  value: participating,
+                  onChanged: busy || participationReason != null
+                      ? null
+                      : (next) => unawaited(_toggleParticipation(next)),
+                  title: Text(FursuitStrings.participatingAt(convention.name)),
+                  subtitle: switchSubtitle(
+                    pending: write == SuitWrite.participation,
+                    text: participationReason == null
+                        ? FursuitStrings.participationHelp
+                        : disabledReasonText(participationReason),
+                  ),
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  key: const Key("suit-session"),
+                  value: catchable,
+                  onChanged: busy || sessionReason != null
+                      ? null
+                      : (next) => unawaited(_toggleSession(next)),
+                  title: const Text(FursuitStrings.outForCatching),
+                  subtitle: switchSubtitle(
+                    pending: write == SuitWrite.session,
+                    text: switch ((sessionReason, catchable, session)) {
+                      (final DisabledReason reason, _, _) => disabledReasonText(
+                        reason,
+                      ),
+                      (null, true, final CatchSession live) =>
+                        FursuitStrings.outUntil(
+                          FursuitStrings.time(context, live.expiresAt, now),
+                        ),
+                      _ => FursuitStrings.sessionHelp,
+                    },
+                  ),
+                ),
+                if (note != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      TokenSpacing.lg,
+                      TokenSpacing.xs,
+                      TokenSpacing.lg,
+                      TokenSpacing.sm,
+                    ),
+                    child: Text(
+                      switch (note.kind) {
+                        SessionNoteKind.timedOut =>
+                          FursuitStrings.sessionTimedOut(
+                            FursuitStrings.time(context, note.at, now),
+                          ),
+                        SessionNoteKind.staffEnded =>
+                          FursuitStrings.sessionStaffEnded(
+                            FursuitStrings.time(context, note.at, now),
+                          ),
+                      },
+                      key: const Key("suit-session-note"),
+                      style: textTheme.bodyMedium,
+                    ),
+                  ),
+              ],
             ),
-            _ => FursuitStrings.sessionHelp,
-          },
-        ),
-      ),
-      if (note != null)
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: TokenSpacing.xl),
-          child: Text(
-            switch (note.kind) {
-              SessionNoteKind.timedOut => FursuitStrings.sessionTimedOut(
-                FursuitStrings.time(context, note.at, now),
-              ),
-              SessionNoteKind.staffEnded => FursuitStrings.sessionStaffEnded(
-                FursuitStrings.time(context, note.at, now),
-              ),
-            },
-            key: const Key("suit-session-note"),
-            style: textTheme.bodyMedium,
           ),
         ),
+      ),
       // The approval parts hide while the server has no catch review
       // (#512 AC27).
-      if (reviewAvailable(ref)) ...[
-        const SizedBox(height: TokenSpacing.xl),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: TokenSpacing.xl),
-          child: Semantics(
-            header: true,
-            child: Text(
-              ReviewStrings.approvalSection,
-              style: textTheme.titleMedium,
+      if (reviewAvailable(ref))
+        _inset(
+          Card(
+            margin: EdgeInsets.zero,
+            semanticContainer: false,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: TokenSpacing.sm),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      TokenSpacing.lg,
+                      TokenSpacing.sm,
+                      TokenSpacing.lg,
+                      TokenSpacing.xs,
+                    ),
+                    child: Semantics(
+                      header: true,
+                      child: Text(
+                        ReviewStrings.approvalSection,
+                        style: textTheme.titleMedium,
+                      ),
+                    ),
+                  ),
+                  // The server accepts a mode change for a disabled suit too,
+                  // so the switch stays enabled (#512 AC7).
+                  SwitchListTile(
+                    key: const Key("suit-approval"),
+                    value: fursuit.approvalMode == CatchApprovalMode.automatic,
+                    onChanged: busy
+                        ? null
+                        : (next) => unawaited(_setApproval(next)),
+                    title: const Text(ReviewStrings.automatic),
+                    subtitle: switchSubtitle(
+                      pending: write == SuitWrite.approval,
+                      text: fursuit.approvalMode == CatchApprovalMode.automatic
+                          ? ReviewStrings.automaticHelp
+                          : ReviewStrings.manualHelp,
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  ReviewEntry.suit(
+                    fursuitId: fursuit.id,
+                    onOpen: widget.onOpenReview,
+                  ),
+                ],
+              ),
             ),
           ),
         ),
-        // The server accepts a mode change for a disabled suit too, so the
-        // switch stays enabled (#512 AC7).
-        SwitchListTile(
-          key: const Key("suit-approval"),
-          value: fursuit.approvalMode == CatchApprovalMode.automatic,
-          onChanged: busy ? null : (next) => unawaited(_setApproval(next)),
-          title: const Text(ReviewStrings.automatic),
-          subtitle: switchSubtitle(
-            pending: write == SuitWrite.approval,
-            text: fursuit.approvalMode == CatchApprovalMode.automatic
-                ? ReviewStrings.automaticHelp
-                : ReviewStrings.manualHelp,
-          ),
-        ),
-        ReviewEntry.suit(fursuitId: fursuit.id, onOpen: widget.onOpenReview),
-      ],
-      const SizedBox(height: TokenSpacing.xl),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: TokenSpacing.xl),
-        child: Semantics(
-          header: true,
-          child: Text(FursuitStrings.tagSection, style: textTheme.titleMedium),
-        ),
-      ),
-      // The tag read creates the first tag, so this screen never reads it.
-      ListTile(
-        key: const Key("suit-show-tag"),
-        contentPadding: const EdgeInsets.symmetric(horizontal: TokenSpacing.xl),
-        enabled: fursuit.isEnabled,
-        title: const Text(FursuitStrings.showTag),
-        subtitle: Text(
-          fursuit.isEnabled
-              ? FursuitStrings.showTagHelp
-              : FursuitStrings.suitDisabled,
-        ),
-        trailing: const Icon(Icons.chevron_right_outlined),
-        onTap: widget.onOpenTag,
-      ),
     ];
   }
 
@@ -388,6 +447,58 @@ class _SuitDetailScreenState extends ConsumerState<SuitDetailScreen> {
     ),
     child: child,
   );
+}
+
+class _SuitEditSheet extends ConsumerWidget {
+  const new({
+    required this.conventionId,
+    required this.fursuitId,
+    required this.onChangeName,
+    required this.onChangePhoto,
+  });
+
+  final int conventionId;
+  final int fursuitId;
+  final VoidCallback onChangeName;
+  final VoidCallback onChangePhoto;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final write = ref
+        .watch(suitsControllerProvider(conventionId))
+        .writes[fursuitId];
+    final busy = write != null;
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(
+          TokenSpacing.sm,
+          0,
+          TokenSpacing.sm,
+          TokenSpacing.lg,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ListTile(
+              key: const Key("suit-change-name"),
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text(FursuitStrings.changeName),
+              enabled: !busy,
+              onTap: busy ? null : onChangeName,
+            ),
+            ListTile(
+              key: const Key("suit-change-photo"),
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text(FursuitStrings.changePhoto),
+              enabled: !busy,
+              onTap: busy ? null : onChangePhoto,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _DeactivateDialog extends StatelessWidget {

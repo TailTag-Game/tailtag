@@ -9,6 +9,7 @@ import "package:tailtag_mobile/core/ui/generic_error.dart";
 import "package:tailtag_mobile/core/ui/tailtag_theme.dart";
 import "package:tailtag_mobile/core/ui/tokens.dart";
 import "package:tailtag_mobile/core/ui/ui_strings.dart";
+import "package:tailtag_mobile/core/ui/widgets/status_badge.dart";
 import "package:tailtag_mobile/core/ui/widgets/status_banner.dart";
 import "package:tailtag_mobile/core/ui/widgets/tailtag_button.dart";
 import "package:tailtag_mobile/features/fursuits/fursuit_strings.dart";
@@ -24,13 +25,22 @@ import "package:tailtag_mobile/features/fursuits/tag_controller.dart";
 /// The suit name and the catch session state come from the suit list.
 class TagScreen extends ConsumerStatefulWidget {
   /// Creates the screen for suit [fursuitId] at [convention].
-  const new({required this.convention, required this.fursuitId, super.key});
+  const new({
+    required this.convention,
+    required this.fursuitId,
+    this.onManageSuit,
+    super.key,
+  });
 
   /// The selected convention.
   final Convention convention;
 
   /// The suit's server ID.
   final int fursuitId;
+
+  /// Opens the suit detail screen when the player taps Manage suit from the
+  /// not-catchable warning banner.
+  final VoidCallback? onManageSuit;
 
   @override
   ConsumerState<TagScreen> createState() => _TagScreenState();
@@ -100,6 +110,40 @@ class _TagScreenState extends ConsumerState<TagScreen> {
     await _controller.share(() => captureTagBadge(_badgeKey), origin: origin);
   }
 
+  Future<void> _openMoreMenu() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      useSafeArea: true,
+      builder: (sheetContext) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(
+            TokenSpacing.sm,
+            0,
+            TokenSpacing.sm,
+            TokenSpacing.lg,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ListTile(
+                key: const Key("tag-replace"),
+                leading: const Icon(Icons.refresh_outlined),
+                title: const Text(FursuitStrings.replaceTag),
+                subtitle: const Text(FursuitStrings.replaceTagWarning),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  unawaited(_replace());
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(tagControllerProvider(widget.fursuitId));
@@ -107,6 +151,9 @@ class _TagScreenState extends ConsumerState<TagScreen> {
     final fursuit = suits.fursuit(widget.fursuitId);
     final tag = state.tag;
     final payload = tag?.payload;
+    final hasCurrentTag =
+        fursuit != null && tag != null && tag.state == TagState.current;
+    final busy = state.replacing || state.sharing;
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -114,6 +161,15 @@ class _TagScreenState extends ConsumerState<TagScreen> {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
+        actions: [
+          if (hasCurrentTag)
+            IconButton(
+              key: const Key("tag-more-menu"),
+              icon: Icon(Icons.adaptive.more),
+              tooltip: FursuitStrings.moreOptions,
+              onPressed: busy ? null : () => unawaited(_openMoreMenu()),
+            ),
+        ],
       ),
       body: SafeArea(
         child: Stack(
@@ -194,6 +250,7 @@ class _TagScreenState extends ConsumerState<TagScreen> {
     FursuitTag tag,
   ) {
     final textTheme = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
     final catchable =
         ref.watch(_suits).activations[fursuit.id]?.isCatchable ?? false;
     final convention = widget.convention.name;
@@ -202,56 +259,80 @@ class _TagScreenState extends ConsumerState<TagScreen> {
       Card(
         child: Padding(
           padding: const EdgeInsets.all(TokenSpacing.lg),
-          child: LayoutBuilder(
-            builder: (context, box) => Semantics(
-              key: const Key("tag-qr"),
-              label: FursuitStrings.qrLabel(fursuit.name),
-              image: true,
-              // In landscape the whole code must still fit on screen.
-              child: Center(
-                child: TagQr(
-                  payload: tag.payload!,
-                  size: math.min(
-                    box.maxWidth,
-                    MediaQuery.sizeOf(context).height * 0.6,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            spacing: TokenSpacing.md,
+            children: [
+              LayoutBuilder(
+                builder: (context, box) => Semantics(
+                  key: const Key("tag-qr"),
+                  label: FursuitStrings.qrLabel(fursuit.name),
+                  image: true,
+                  // In landscape the whole code must still fit on screen.
+                  child: Center(
+                    child: TagQr(
+                      payload: tag.payload!,
+                      size: math.min(
+                        box.maxWidth,
+                        MediaQuery.sizeOf(context).height * 0.5,
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
+              Text(
+                fursuit.name,
+                key: const Key("tag-name"),
+                textAlign: TextAlign.center,
+                style: textTheme.titleLarge,
+              ),
+              Text(
+                FursuitStrings.tagVersion(tag.version),
+                key: const Key("tag-version"),
+                textAlign: TextAlign.center,
+                style: textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              Align(
+                child: StatusBadge(
+                  key: const Key("tag-status"),
+                  tone: catchable ? StatusTone.success : StatusTone.warning,
+                  label: catchable
+                      ? FursuitStrings.badgeCatchable
+                      : FursuitStrings.notOutForCatchingBadge,
+                ),
+              ),
+              if (catchable)
+                Text(
+                  FursuitStrings.outForCatchingAt(convention),
+                  textAlign: TextAlign.center,
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+            ],
           ),
         ),
       ),
-      const SizedBox(height: TokenSpacing.lg),
-      Text(
-        fursuit.name,
-        key: const Key("tag-name"),
-        textAlign: TextAlign.center,
-        style: textTheme.titleLarge,
-      ),
-      Text(
-        FursuitStrings.tagVersion(tag.version),
-        key: const Key("tag-version"),
-        textAlign: TextAlign.center,
-        style: textTheme.bodyMedium,
-      ),
-      const SizedBox(height: TokenSpacing.lg),
-      Text(
-        FursuitStrings.tagExplain(fursuit.name),
-        key: const Key("tag-explain"),
-        style: textTheme.bodyLarge,
-      ),
-      const SizedBox(height: TokenSpacing.sm),
-      Text(
-        catchable
-            ? FursuitStrings.outForCatchingAt(convention)
-            : FursuitStrings.notOutForCatchingAt(convention),
-        key: const Key("tag-status"),
-        style: textTheme.bodyLarge,
-      ),
+      if (!catchable) ...[
+        const SizedBox(height: TokenSpacing.lg),
+        StatusBanner(
+          key: const Key("tag-not-catchable-banner"),
+          tone: StatusTone.warning,
+          message: FursuitStrings.notOutForCatchingAt(convention),
+          actionLabel: widget.onManageSuit == null
+              ? null
+              : FursuitStrings.manageSuit,
+          onAction: widget.onManageSuit,
+        ),
+      ],
       const SizedBox(height: TokenSpacing.xl),
       TailTagButton(
         key: _shareKey,
         label: FursuitStrings.shareTagImage,
+        icon: Icons.adaptive.share,
+        variant: TailTagButtonVariant.secondary,
         loading: state.sharing,
         onPressed: busy ? null : () => unawaited(_share()),
       ),
@@ -260,14 +341,7 @@ class _TagScreenState extends ConsumerState<TagScreen> {
         FursuitStrings.printActualSize,
         key: const Key("tag-print-size"),
         textAlign: TextAlign.center,
-        style: textTheme.bodyMedium,
-      ),
-      const SizedBox(height: TokenSpacing.lg),
-      TailTagButton(
-        key: const Key("tag-replace"),
-        label: FursuitStrings.replaceTag,
-        variant: TailTagButtonVariant.secondary,
-        onPressed: busy ? null : () => unawaited(_replace()),
+        style: textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
       ),
     ];
   }

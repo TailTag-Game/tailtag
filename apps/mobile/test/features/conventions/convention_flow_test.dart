@@ -212,7 +212,11 @@ void main() {
         ),
       );
       expect(app.path, AppPaths.identityFailed);
+      expect(_key("account-menu"), findsOneWidget);
+      await app.tap("account-menu");
       expect(_key(_passkeys), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await app.settle();
 
       await tester.tap(_tryAgain);
       await app.settle();
@@ -261,11 +265,10 @@ void main() {
             // The scan button is off because the review window is closed,
             // so focus skips it. The bar comes after the content.
             tab: [
+              "account-menu",
               _change,
               "convention-refresh",
-              _passkeys,
-              _signOut,
-              "entry-auth-proof",
+              "convention-show-tag",
               "nav-home",
               "nav-catches",
               "nav-requests",
@@ -273,33 +276,22 @@ void main() {
             ],
             spoken: [
               contains("Current Con"),
+              "Change convention",
               "Scan a TailTag",
               "Catching isn't open at Current Con right now.",
-              "Change convention",
-              "Refresh",
-              "Manage passkeys",
-              "Sign out",
+              ConventionStrings.showMyTag,
             ],
           ),
           (
             label: "the picker",
             open: _onPickerFromHome,
-            tab: [
-              _closeKey,
-              _action(1),
-              _action(2),
-              _passkeys,
-              _signOut,
-              "entry-auth-proof",
-            ],
+            tab: [_closeKey, "account-menu", _action(1), _action(2)],
             spoken: [
+              contains("Current Con"),
               contains("Fresh Con"),
               "Join and enter",
               contains("Joined Con"),
               "Enter convention",
-              contains("Current Con"),
-              "Manage passkeys",
-              "Sign out",
             ],
           ),
         ];
@@ -362,12 +354,10 @@ void main() {
       expect(_text(ConventionStrings.joined), findsOneWidget);
       expect(_text(ConventionStrings.selected), findsOneWidget);
       expect(_text("Paused Con"), findsNothing);
-      final top = tester.getTopLeft(_text("Fresh Con")).dy;
-      expect(top, lessThan(tester.getTopLeft(_text("Joined Con")).dy));
-      expect(
-        tester.getTopLeft(_text("Joined Con")).dy,
-        lessThan(tester.getTopLeft(_text("Current Con")).dy),
-      );
+      final currentTop = tester.getTopLeft(_text("Current Con")).dy;
+      final freshTop = tester.getTopLeft(_text("Fresh Con")).dy;
+      expect(currentTop, lessThan(freshTop));
+      expect(freshTop, lessThan(tester.getTopLeft(_text("Joined Con")).dy));
       expect(app.network.count(_getActive), 1, reason: "no separate read");
       expect(app.network.conventionWrites, isEmpty);
     });
@@ -401,8 +391,11 @@ void main() {
       final app = await _onFirstPicker(tester);
       expect(_text(ConventionStrings.emptyTitle), findsOneWidget);
       expect(_tryAgain, findsNothing);
+      await app.tap("account-menu");
       expect(_key(_passkeys), findsOneWidget);
       expect(_key(_signOut), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await app.settle();
       app.network.enqueueConventions(ConventionReply.list([_fresh]));
 
       await app.tap("conventions-refresh");
@@ -538,9 +531,15 @@ void main() {
 
     expect(app.network.conventionWrites, hasLength(1));
     expect(_enabled(tester, _action(2)), isFalse);
-    expect(_enabled(tester, _passkeys), isFalse);
-    expect(_enabled(tester, _signOut), isTrue);
     expect(tester.widget<IconButton>(_key(_closeKey)).onPressed, isNull);
+    await tester.tap(_key("account-menu"));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.widget<ListTile>(_key(_passkeys)).enabled, isFalse);
+    expect(tester.widget<ListTile>(_key(_signOut)).enabled, isTrue);
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.binding.handlePopRoute();
     await tester.pump();
     expect(app.path, AppPaths.conventionPicker);
@@ -951,8 +950,8 @@ void main() {
         );
         expect(_key(_change), findsOneWidget);
         expect(_key("convention-refresh"), findsOneWidget);
-        expect(_key(_passkeys), findsOneWidget);
-        expect(_key(_signOut), findsOneWidget);
+        expect(_key("convention-show-tag"), findsOneWidget);
+        expect(_key("account-menu"), findsOneWidget);
       });
     }
 
@@ -995,18 +994,65 @@ void main() {
       await tester.pump();
 
       expect(
-        tester.widget<TailTagButton>(_key("convention-refresh")).loading,
-        isTrue,
+        tester.widget<IconButton>(_key("convention-refresh")).onPressed,
+        isNull,
+      );
+      expect(
+        find.descendant(
+          of: _key("convention-refresh"),
+          matching: find.byType(CircularProgressIndicator),
+        ),
+        findsOneWidget,
       );
       await _drain(app);
     });
 
-    testWidgets("offers the debug entry in debug builds", (tester) async {
+    testWidgets(
+      "offers the debug entry and profile header in the account menu",
+      (tester) async {
+        final app = await _onHome(tester);
+
+        await app.tap("account-menu");
+        expect(_text("Finn"), findsOneWidget);
+        expect(_text("@finn_42"), findsOneWidget);
+        await app.tap("entry-auth-proof");
+
+        expect(find.byType(AuthProofScreen), findsOneWidget);
+      },
+    );
+
+    testWidgets("Show my TailTag sheet lists suits on demand without "
+        "pre-fetching tags", (tester) async {
       final app = await _onHome(tester);
+      const alphaSuit =
+          '{"id": 5, "tailtag_id": "00000000-0000-4000-8000-000000000005", '
+          '"name": "Alpha", "photo_url": "https://media.test/5.jpg", '
+          '"is_enabled": true, "catch_approval_mode": "manual"}';
+      const disabledSuit =
+          '{"id": 6, "tailtag_id": "00000000-0000-4000-8000-000000000006", '
+          '"name": "Disabled Suit", '
+          '"photo_url": "https://media.test/6.jpg", '
+          '"is_enabled": false, "catch_approval_mode": "manual"}';
+      app.network
+        ..enqueueSuit(
+          "GET /api/fursuits/",
+          ConventionReply.list([alphaSuit, disabledSuit]),
+        )
+        ..enqueueSuit(
+          "GET /api/conventions/3/fursuit-activations/",
+          ConventionReply.list(const []),
+        );
+      expect(app.network.suitRequests, isEmpty);
 
-      await app.tap("entry-auth-proof");
+      await app.tap("convention-show-tag");
 
-      expect(find.byType(AuthProofScreen), findsOneWidget);
+      expect(_key("show-tag-sheet"), findsOneWidget);
+      expect(_key("show-tag-suit-5"), findsOneWidget);
+      expect(tester.widget<ListTile>(_key("show-tag-suit-6")).enabled, isFalse);
+      expect(
+        app.network.suitRequests.where((r) => r.request.contains("/tag/")),
+        isEmpty,
+      );
     });
   });
 
@@ -1082,6 +1128,7 @@ void main() {
 
     testWidgets("does nothing on the passkey screen", (tester) async {
       final app = await _onHome(tester);
+      await app.tap("account-menu");
       await app.tap(_passkeys);
       final before = app.network.logWithoutReview.length;
 
@@ -1490,6 +1537,7 @@ void main() {
       tester,
     ) async {
       final app = await _onFirstPicker(tester);
+      await app.tap("account-menu");
       expect(_text(EntryStrings.managePasskeys), findsOneWidget);
       await app.tap(_passkeys);
       expect(app.path, AppPaths.passkeys);
@@ -1507,6 +1555,7 @@ void main() {
       tester,
     ) async {
       final app = await _onHome(tester);
+      await app.tap("account-menu");
       expect(_text(EntryStrings.managePasskeys), findsOneWidget);
       await app.tap(_passkeys);
       app.network.enqueue(200);
@@ -1554,6 +1603,7 @@ void main() {
       await tester.tap(_key(_action(1)));
       await tester.pump();
 
+      await app.tap("account-menu");
       await app.tap(_signOut);
 
       expect(app.path, AppPaths.access);
@@ -1567,6 +1617,7 @@ void main() {
     ) async {
       final app = await _onHome(tester);
 
+      await app.tap("account-menu");
       await app.tap(_signOut);
       await tester.binding.handlePopRoute();
       await app.settle();

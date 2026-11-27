@@ -128,6 +128,7 @@ Future<AppHarness> _openTag(
 }
 
 Future<void> _confirmReplace(AppHarness app) async {
+  await app.tap("tag-more-menu");
   await app.tap("tag-replace");
   expect(find.text(FursuitStrings.replaceTitle), findsOneWidget);
   await app.tap("replace-confirm");
@@ -139,7 +140,7 @@ void main() {
         "screen shows the code, the name, the version, and the session "
         "state", (tester) async {
       final app = await _openSuit(tester, later: [(_readTag, _tag(1))]);
-      expect(find.text(FursuitStrings.showTagHelp), findsOneWidget);
+      expect(_key("suit-show-tag"), findsOneWidget);
       expect(_count(app, _readTag), 0);
 
       await app.tap("suit-show-tag");
@@ -147,12 +148,42 @@ void main() {
       expect(_count(app, _readTag), 1);
       expect(_qrPayload(tester), fakePayload);
       expect(find.text(FursuitStrings.tagVersion(1)), findsWidgets);
-      expect(find.text(FursuitStrings.tagExplain("Alpha")), findsOneWidget);
+      expect(_key("tag-status"), findsOneWidget);
+      expect(find.text(FursuitStrings.notOutForCatchingBadge), findsOneWidget);
       expect(
         find.text(FursuitStrings.notOutForCatchingAt("Test Con")),
         findsOneWidget,
       );
+      expect(find.text(FursuitStrings.manageSuit), findsOneWidget);
       expect(find.text(FursuitStrings.printActualSize), findsOneWidget);
+    });
+
+    testWidgets("My Suits offers a direct QR shortcut without opening Suit "
+        "Detail first, and Manage suit returns to Suit Detail", (tester) async {
+      tester.view.physicalSize = const Size(1200, 7200);
+      addTearDown(tester.view.resetPhysicalSize);
+      final network = ScriptedNetwork([200]);
+      for (var i = 0; i < 6; i++) {
+        network
+          ..enqueueSuit(_list, ConventionReply.list([_fursuit()]))
+          ..enqueueSuit(_activations, ConventionReply.list([_activation()]));
+      }
+      network.enqueueSuit(_readTag, _tag(1));
+      final app = await pumpApp(
+        tester,
+        session: FakeAuthSession(initial: const AuthSignedIn()),
+        network: network,
+      );
+      await app.tap("nav-suits");
+      expect(_count(app, _readTag), 0);
+
+      await app.tap("suit-qr-5");
+      expect(_top(app), AppPaths.suitTag(5));
+      expect(_count(app, _readTag), 1);
+
+      await tester.tap(find.text(FursuitStrings.manageSuit));
+      await app.settle();
+      expect(_top(app), AppPaths.suit(5));
     });
 
     testWidgets("a catchable suit shows that it is out for catching", (
@@ -160,10 +191,12 @@ void main() {
     ) async {
       final app = await _openTag(tester, _tag(1), catchable: true);
 
+      expect(find.text(FursuitStrings.badgeCatchable), findsOneWidget);
       expect(
         find.text(FursuitStrings.outForCatchingAt("Test Con")),
         findsOneWidget,
       );
+      expect(_key("tag-not-catchable-banner"), findsNothing);
       // Disposing the container cancels the live session's expiry timer
       // before the test checks for pending timers.
       await tester.pumpWidget(const SizedBox());
@@ -175,14 +208,12 @@ void main() {
     ) async {
       final app = await _openSuit(tester, enabled: false);
 
-      final row = tester.widget<ListTile>(_key("suit-show-tag"));
-      expect(row.enabled, isFalse);
+      final button = tester.widget<TailTagButton>(_key("suit-show-tag"));
+      expect(button.onPressed, isNull);
+      expect(_key("suit-show-tag-disabled"), findsOneWidget);
       expect(
-        find.descendant(
-          of: _key("suit-show-tag"),
-          matching: find.text(FursuitStrings.suitDisabled),
-        ),
-        findsOneWidget,
+        tester.widget<Text>(_key("suit-show-tag-disabled")).data,
+        FursuitStrings.suitDisabled,
       );
       await app.tap("suit-show-tag");
       expect(_top(app), AppPaths.suit(5));
@@ -346,6 +377,7 @@ void main() {
     testWidgets("cancel in the dialog sends nothing", (tester) async {
       final app = await _openTag(tester, _tag(1));
 
+      await app.tap("tag-more-menu");
       await app.tap("tag-replace");
       await app.tap("replace-cancel");
 
@@ -416,8 +448,8 @@ void main() {
         expect(find.text(FursuitStrings.tagReplaced), findsNothing);
         if (c.banner case final banner?) {
           expect(find.text(banner), findsOneWidget);
-          final replace = tester.widget<TailTagButton>(_key("tag-replace"));
-          expect(replace.onPressed, isNotNull);
+          final more = tester.widget<IconButton>(_key("tag-more-menu"));
+          expect(more.onPressed, isNotNull);
         } else {
           expect(find.byKey(const Key("tag-banner")), findsNothing);
         }
@@ -541,11 +573,12 @@ void main() {
       expect(
         labels,
         containsAllInOrder([
-          contains(FursuitStrings.qrLabel("Alpha")),
-          contains(FursuitStrings.tagVersion(1)),
+          allOf(
+            contains(FursuitStrings.qrLabel("Alpha")),
+            contains(FursuitStrings.tagVersion(1)),
+          ),
           contains(FursuitStrings.notOutForCatchingAt("Test Con")),
           contains(FursuitStrings.shareTagImage),
-          contains(FursuitStrings.replaceTag),
         ]),
       );
       expect(labels.where((label) => label.contains("tailtag.app")), isEmpty);

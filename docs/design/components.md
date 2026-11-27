@@ -127,6 +127,8 @@ The V0 inventory has these components and no others.
 | [Status banner](#status-banner) | None | Yes | F1 to F11 |
 | [Top app bar](#top-app-bar) | `AppBar` | No | F1 to F11 |
 | [Bottom navigation bar](#bottom-navigation-bar) | `NavigationBar` | No | F3 to F11 |
+| [Segmented button](#segmented-button) | `SegmentedButton` | No | F10, F11 |
+| [Count badge](#count-badge) | `Badge` | No | F11 |
 
 ### Feature-owned parts
 
@@ -145,10 +147,9 @@ These parts are not shared components. The feature that uses them owns them, bec
 No V0 flow needs these parts. A later change can add one with the [change process](#source-of-truth-and-changes).
 
 - Skeletons. V0 uses the [loading indicator](#loading-indicator) only.
-- Segmented buttons and tabs.
+- Tabs. Use a [segmented button](#segmented-button) to switch views inside one section.
 - A floating action button. Use a primary [button](#button).
 - A navigation drawer.
-- The Material `Badge` count dot.
 - Checkboxes, radio buttons, sliders, date pickers, search bars, and carousels.
 
 ## Shared rules
@@ -1222,7 +1223,7 @@ Small only.
 
 #### Use
 
-Use a bottom navigation bar to move between the top-level sections of the app. The convention home stage has four sections, in this order: "Home", "Catches" (F9), "Requests" (F10), and "Suits" (F4 to F7, F11). The scanner (F8) and the tag screen (F7) open full screen above the bar. A change to the sections follows the [change process](#source-of-truth-and-changes).
+Use a bottom navigation bar to move between the top-level sections of the app. The convention home stage has four sections, in this order: "Home", "Catches" (F9), "Requests" (F10, F11), and "Suits" (F4 to F7, F11). The scanner (F8) and the tag screen (F7) open full screen above the bar. A change to the sections follows the [change process](#source-of-truth-and-changes).
 
 Flows: every flow that has a top-level section.
 
@@ -1272,3 +1273,100 @@ One.
 - `elevation.level2`
 - `typography.labelMedium`
 - `size.icon.medium`, `size.minTarget`
+
+### Segmented button
+
+#### Use
+
+Use a segmented button to switch between two closely related views inside one screen, such as "Received" and "Sent" on the Requests screen.
+
+Flows: F10, F11.
+
+#### Do not use
+
+- Do not use a segmented button for top-level navigation. Use the [bottom navigation bar](#bottom-navigation-bar).
+- Do not use a segmented button for multi-select filters. Use [chips](#chip).
+
+#### Flutter widget
+
+`SegmentedButton`, styled through `SegmentedButtonThemeData`.
+
+#### Content limits
+
+- Two or three segments with one-word labels (plus a short count when needed).
+- Hide the checkmark icon (`showSelectedIcon: false`) so labels fit cleanly at 200% text scale.
+
+#### Variants
+
+Single-selection pill segmented button.
+
+#### States
+
+| State | Look | Behavior |
+|-------|------|----------|
+| Normal | `color.scheme.surfaceContainerLowest` fill, `color.scheme.onSurfaceVariant` label, `color.scheme.outline` border | A tap selects that segment. |
+| Pressed | Pressed state layer on the segment | Not applicable |
+| Focused | Focus ring in `color.scheme.primary` | Enter or space selects the segment. |
+| Disabled | Material disabled colors | No tap |
+| Loading | Not applicable | Not applicable |
+| Error | Not applicable | Not applicable |
+| Selected | Solid `color.scheme.primary` fill with `color.scheme.onPrimary` label | The screen reader reads "selected". |
+
+#### Accessibility
+
+- Each segment reports its selected state to screen readers.
+- Touch target: at least `size.minTarget` high.
+- Focus: focus ring in `color.scheme.primary`.
+- 200% text scale: labels stay readable without clipping.
+
+#### Tokens
+
+- `color.scheme.primary`, `color.scheme.onPrimary`, `color.scheme.surfaceContainerLowest`, `color.scheme.onSurfaceVariant`, `color.scheme.outline`
+- `typography.labelLarge`
+- `size.minTarget`
+
+### Count badge
+
+#### Use
+
+Use a count badge on a navigation icon to show how many items wait for player action, such as pending incoming catch requests.
+
+Flows: F11.
+
+#### Do not use
+
+- Do not use a count badge for text status labels. Use a [badge](#badge).
+- Do not show a count badge when the count is zero.
+
+#### Flutter widget
+
+`Badge.count`, styled through `BadgeThemeData`.
+
+#### Content limits
+
+- Positive integer counts only, capped at `99+`.
+
+#### Variants
+
+Numeric count badge (`Badge.count`).
+
+#### States
+
+| State | Look | Behavior |
+|-------|------|----------|
+| Normal | `color.scheme.error` fill with `color.scheme.onError` numeral | Informational only |
+| Pressed | Not applicable | Not applicable |
+| Focused | Not applicable | Not applicable |
+| Disabled | Not applicable | Not applicable |
+| Loading | Not applicable | Not applicable |
+| Error | Not applicable | Not applicable |
+
+#### Accessibility
+
+- The count joins the surrounding destination semantics label.
+- Text contrast between `onError` and `error` is 6.46:1.
+
+#### Tokens
+
+- `color.scheme.error`, `color.scheme.onError`
+- `typography.labelSmall`

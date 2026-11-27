@@ -21,7 +21,7 @@ import "package:tailtag_mobile/features/reviews/review_strings.dart";
 
 /// The requests on the owner's suits in every open review window, grouped
 /// by convention with the selected convention first (#512 AC9 to AC33).
-class ReviewScreen extends ConsumerStatefulWidget {
+class ReviewScreen extends StatelessWidget {
   /// Creates the screen for the selected [convention]. A non-null
   /// [fursuitId] shows only that suit's requests.
   const new({
@@ -41,10 +41,49 @@ class ReviewScreen extends ConsumerStatefulWidget {
   final VoidCallback onReloadHome;
 
   @override
-  ConsumerState<ReviewScreen> createState() => _ReviewScreenState();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text(ReviewStrings.title)),
+      body: SafeArea(
+        child: ReviewListView(
+          convention: convention,
+          fursuitId: fursuitId,
+          onReloadHome: onReloadHome,
+        ),
+      ),
+    );
+  }
 }
 
-class _ReviewScreenState extends ConsumerState<ReviewScreen> {
+/// The scrollable incoming review list, reused by both [ReviewScreen] and the
+/// consolidated Requests hub.
+class ReviewListView extends ConsumerStatefulWidget {
+  /// Creates the list for [convention] and optional [fursuitId].
+  const new({
+    required this.convention,
+    required this.onReloadHome,
+    this.fursuitId,
+    this.header,
+    super.key,
+  });
+
+  /// The selected convention of the home.
+  final Convention convention;
+
+  /// The suit filter, or null for every suit.
+  final int? fursuitId;
+
+  /// Reads the home state again.
+  final VoidCallback onReloadHome;
+
+  /// Optional widget placed at the top of the scrollable list.
+  final Widget? header;
+
+  @override
+  ConsumerState<ReviewListView> createState() => _ReviewListViewState();
+}
+
+class _ReviewListViewState extends ConsumerState<ReviewListView> {
   ReviewController get _controller =>
       ref.read(reviewControllerProvider(widget.fursuitId).notifier);
 
@@ -144,87 +183,83 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
     final controller = _controller;
     final requests = state.requests;
     final newest = requests == null ? const <int>{} : _newestOfTrio(requests);
-    return Scaffold(
-      appBar: AppBar(title: const Text(ReviewStrings.title)),
-      body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: controller.read,
-          child: ListView(
-            key: const Key("review-list"),
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.symmetric(vertical: TokenSpacing.lg),
-            children: [
-              if (_banner(state, controller.read) case final banner?)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    TokenSpacing.xl,
-                    0,
-                    TokenSpacing.xl,
-                    TokenSpacing.lg,
+    return RefreshIndicator(
+      onRefresh: controller.read,
+      child: ListView(
+        key: const Key("review-list"),
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(vertical: TokenSpacing.lg),
+        children: [
+          ?widget.header,
+          if (_banner(state, controller.read) case final banner?)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                TokenSpacing.xl,
+                0,
+                TokenSpacing.xl,
+                TokenSpacing.lg,
+              ),
+              child: banner,
+            ),
+          if (requests == null && state.reading)
+            const DelayedVisibility(
+              child: Padding(
+                padding: EdgeInsets.all(TokenSpacing.xl),
+                child: Center(
+                  child: CircularProgressIndicator(
+                    semanticsLabel: UiStrings.loading,
                   ),
-                  child: banner,
                 ),
-              if (requests == null && state.reading)
-                const DelayedVisibility(
-                  child: Padding(
-                    padding: EdgeInsets.all(TokenSpacing.xl),
-                    child: Center(
-                      child: CircularProgressIndicator(
-                        semanticsLabel: UiStrings.loading,
-                      ),
+              ),
+            )
+          else if (requests != null && requests.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(TokenSpacing.xl),
+              child: EmptyState(
+                key: Key("review-empty"),
+                icon: Icons.inbox_outlined,
+                title: ReviewStrings.empty,
+                body: ReviewStrings.emptyBody,
+              ),
+            )
+          else if (requests != null)
+            for (final group in _groups(requests)) ...[
+              _GroupHeader(
+                conventionId: group.conventionId,
+                convention: state.conventions[group.conventionId],
+                deadlineAt: group.requests.first.reviewDeadlineAt,
+              ),
+              for (final (part, rows) in [
+                (
+                  ReviewStrings.toReviewPart,
+                  group.requests.where(_isPending).toList(),
+                ),
+                (
+                  ReviewStrings.decidedPart,
+                  group.requests
+                      .where((request) => !_isPending(request))
+                      .toList(),
+                ),
+              ])
+                if (rows.isNotEmpty) ...[
+                  _PartHeader(label: part),
+                  for (final request in rows)
+                    _ReviewRow(
+                      request: request,
+                      conventionName:
+                          state.conventions[request.conventionId]?.name ??
+                          CatchStrings.otherConvention,
+                      newest: newest.contains(request.id),
+                      acting: state.acting,
+                      onApprove: () => unawaited(_approve(request)),
+                      onDecline: (conventionName) =>
+                          unawaited(_decline(request, conventionName)),
+                      onRestore: () => unawaited(_restore(request)),
+                      onUnblock: () => unawaited(_unblock(request)),
                     ),
-                  ),
-                )
-              else if (requests != null && requests.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(TokenSpacing.xl),
-                  child: EmptyState(
-                    key: Key("review-empty"),
-                    icon: Icons.inbox_outlined,
-                    title: ReviewStrings.empty,
-                    body: ReviewStrings.emptyBody,
-                  ),
-                )
-              else if (requests != null)
-                for (final group in _groups(requests)) ...[
-                  _GroupHeader(
-                    conventionId: group.conventionId,
-                    convention: state.conventions[group.conventionId],
-                    deadlineAt: group.requests.first.reviewDeadlineAt,
-                  ),
-                  for (final (part, rows) in [
-                    (
-                      ReviewStrings.toReviewPart,
-                      group.requests.where(_isPending).toList(),
-                    ),
-                    (
-                      ReviewStrings.decidedPart,
-                      group.requests
-                          .where((request) => !_isPending(request))
-                          .toList(),
-                    ),
-                  ])
-                    if (rows.isNotEmpty) ...[
-                      _PartHeader(label: part),
-                      for (final request in rows)
-                        _ReviewRow(
-                          request: request,
-                          conventionName:
-                              state.conventions[request.conventionId]?.name ??
-                              CatchStrings.otherConvention,
-                          newest: newest.contains(request.id),
-                          acting: state.acting,
-                          onApprove: () => unawaited(_approve(request)),
-                          onDecline: (conventionName) =>
-                              unawaited(_decline(request, conventionName)),
-                          onRestore: () => unawaited(_restore(request)),
-                          onUnblock: () => unawaited(_unblock(request)),
-                        ),
-                    ],
                 ],
             ],
-          ),
-        ),
+        ],
       ),
     );
   }
@@ -557,77 +592,93 @@ class _ReviewRow extends StatelessWidget {
       if (paused) ReviewStrings.paused,
     ].join(", ");
 
-    return Column(
-      key: Key("review-row-${request.id}"),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Semantics(
-          container: true,
-          label: summary,
-          excludeSemantics: true,
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: TokenSpacing.xl,
-            ),
-            leading: TailTagAvatar(
-              name: request.fursuit.name,
-              kind: AvatarKind.fursuit,
-              imageUrl: request.fursuit.photoUrl.toString(),
-            ),
-            title: Text(name, maxLines: 2, overflow: TextOverflow.ellipsis),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              spacing: TokenSpacing.xs,
-              children: [
-                Text("$handle · ${request.fursuit.name}"),
-                Text(time),
-                if (declines != null) Text(declines),
-                Wrap(
-                  spacing: TokenSpacing.sm,
-                  runSpacing: TokenSpacing.xs,
-                  children: [
-                    StatusBadge(
-                      tone: switch (request.state) {
-                        CatchRequestState.approved => StatusTone.success,
-                        CatchRequestState.declined => StatusTone.warning,
-                        _ => StatusTone.neutral,
-                      },
-                      label: stateLabel,
-                    ),
-                    if (request.playerBlocked)
-                      StatusBadge(
-                        key: Key("review-blocked-${request.id}"),
-                        tone: StatusTone.warning,
-                        label: ReviewStrings.blocked,
-                      ),
-                  ],
-                ),
-                if (paused)
-                  Text(
-                    ReviewStrings.paused,
-                    key: Key("review-paused-${request.id}"),
-                    style: textTheme.bodyMedium,
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: TokenSpacing.xl,
+        vertical: TokenSpacing.xs,
+      ),
+      child: Card(
+        key: Key("review-row-${request.id}"),
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: TokenSpacing.xs),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Semantics(
+                container: true,
+                label: summary,
+                excludeSemantics: true,
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: TokenSpacing.lg,
                   ),
-              ],
-            ),
+                  leading: TailTagAvatar(
+                    name: request.fursuit.name,
+                    kind: AvatarKind.fursuit,
+                    imageUrl: request.fursuit.photoUrl.toString(),
+                  ),
+                  title: Text(
+                    name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    spacing: TokenSpacing.xs,
+                    children: [
+                      Text("$handle · ${request.fursuit.name}"),
+                      Text(time),
+                      if (declines != null) Text(declines),
+                      Wrap(
+                        spacing: TokenSpacing.sm,
+                        runSpacing: TokenSpacing.xs,
+                        children: [
+                          StatusBadge(
+                            tone: switch (request.state) {
+                              CatchRequestState.approved => StatusTone.success,
+                              CatchRequestState.declined => StatusTone.warning,
+                              _ => StatusTone.neutral,
+                            },
+                            label: stateLabel,
+                          ),
+                          if (request.playerBlocked)
+                            StatusBadge(
+                              key: Key("review-blocked-${request.id}"),
+                              tone: StatusTone.warning,
+                              label: ReviewStrings.blocked,
+                            ),
+                        ],
+                      ),
+                      if (paused)
+                        Text(
+                          ReviewStrings.paused,
+                          key: Key("review-paused-${request.id}"),
+                          style: textTheme.bodyMedium,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              if (buttons.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    TokenSpacing.lg,
+                    0,
+                    TokenSpacing.lg,
+                    TokenSpacing.sm,
+                  ),
+                  child: Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: TokenSpacing.sm,
+                    runSpacing: TokenSpacing.sm,
+                    children: buttons,
+                  ),
+                ),
+            ],
           ),
         ),
-        if (buttons.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              TokenSpacing.xl,
-              0,
-              TokenSpacing.xl,
-              TokenSpacing.md,
-            ),
-            child: Wrap(
-              alignment: WrapAlignment.end,
-              spacing: TokenSpacing.sm,
-              runSpacing: TokenSpacing.sm,
-              children: buttons,
-            ),
-          ),
-      ],
+      ),
     );
   }
 }

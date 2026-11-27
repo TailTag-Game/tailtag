@@ -1,6 +1,7 @@
 import "package:tailtag_mobile/core/api/api_failure.dart";
 import "package:tailtag_mobile/core/auth/auth_failure.dart";
 import "package:tailtag_mobile/core/conventions/convention.dart";
+import "package:tailtag_mobile/core/session/player_profile.dart";
 
 /// Where the player stands on the way into TailTag.
 ///
@@ -131,10 +132,13 @@ final class EntryAccountUnavailable extends EntryStage {
 final class EntryConventionPicker extends EntryStage {
   /// Creates the stage. [current] is the confirmed selection that the home
   /// showed, or null when the player has no selection.
-  const new({this.current}) : super();
+  const new({this.current, this.profile}) : super();
 
   /// The confirmed selection, which stays until the server accepts another.
   final ConventionEnrollment? current;
+
+  /// The player's profile from the last bootstrap read, or null.
+  final PlayerProfile? profile;
 
   @override
   String toString() => "EntryConventionPicker";
@@ -145,6 +149,7 @@ final class EntryConventionHome extends EntryStage {
   /// Creates the stage for [enrollment].
   const new(
     this.enrollment, {
+    this.profile,
     this.refreshing = false,
     this.refreshFailure,
     this.apiAccess = false,
@@ -152,6 +157,9 @@ final class EntryConventionHome extends EntryStage {
 
   /// The selected enrollment, as the server last confirmed it.
   final ConventionEnrollment enrollment;
+
+  /// The player's profile from the last bootstrap or reload read, or null.
+  final PlayerProfile? profile;
 
   /// Whether a silent reload is running.
   final bool refreshing;

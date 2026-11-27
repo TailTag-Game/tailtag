@@ -1,10 +1,12 @@
 import "dart:async";
+import "dart:math" as math;
 
 import "package:flutter/material.dart";
 import "package:flutter/semantics.dart";
 import "package:flutter/services.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 import "package:tailtag_mobile/core/catches/camera_permission.dart";
+import "package:tailtag_mobile/core/catches/catch_models.dart";
 import "package:tailtag_mobile/core/catches/catch_providers.dart";
 import "package:tailtag_mobile/core/catches/qr_scanner.dart";
 import "package:tailtag_mobile/core/conventions/convention.dart";
@@ -13,6 +15,7 @@ import "package:tailtag_mobile/core/ui/generic_error.dart";
 import "package:tailtag_mobile/core/ui/tailtag_theme.dart";
 import "package:tailtag_mobile/core/ui/tokens.dart";
 import "package:tailtag_mobile/core/ui/ui_strings.dart";
+import "package:tailtag_mobile/core/ui/widgets/status_badge.dart";
 import "package:tailtag_mobile/core/ui/widgets/status_banner.dart";
 import "package:tailtag_mobile/core/ui/widgets/tailtag_avatar.dart";
 import "package:tailtag_mobile/core/ui/widgets/tailtag_button.dart";
@@ -230,20 +233,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     final state = ref.watch(provider);
     final controller = ref.read(provider.notifier);
     return Scaffold(
-      appBar: AppBar(
-        title: const Text(CatchStrings.scanTag),
-        actions: [
-          if (state.phase == ScanPhase.scanning &&
-              _access == CameraAccess.granted &&
-              !_scannerFailed)
-            IconButton(
-              key: const Key("scan-torch"),
-              tooltip: _torchOn ? CatchStrings.torchOff : CatchStrings.torchOn,
-              icon: Icon(_torchOn ? Icons.flashlight_off : Icons.flashlight_on),
-              onPressed: _toggleTorch,
-            ),
-        ],
-      ),
+      appBar: AppBar(title: const Text(CatchStrings.scanTag)),
       body: SafeArea(
         child: switch (state.phase) {
           ScanPhase.scanning => _camera(state),
@@ -294,48 +284,190 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   }
 
   Widget _liveCamera(ScanState state) {
-    return Padding(
-      padding: const EdgeInsets.all(TokenSpacing.xl),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        spacing: TokenSpacing.lg,
-        children: [
-          const Text(CatchStrings.pointCamera),
-          if (_scannerFailed)
+    if (_scannerFailed) {
+      return Padding(
+        padding: const EdgeInsets.all(TokenSpacing.xl),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          spacing: TokenSpacing.lg,
+          children: [
             StatusBanner(
               key: const Key("scan-banner"),
               tone: StatusTone.warning,
               message: CatchStrings.scannerNotReady,
               actionLabel: UiStrings.tryAgain,
               onAction: _restartScanner,
-            )
-          else if (state.notATag)
-            const StatusBanner(
-              key: Key("scan-banner"),
-              tone: StatusTone.warning,
-              message: CatchStrings.notATag,
             ),
-          if (!_scannerFailed)
-            Expanded(
-              child: Semantics(
-                key: const Key("scan-viewfinder"),
-                label: CatchStrings.viewfinderLabel,
-                image: true,
-                child: ExcludeSemantics(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(TokenRadius.large),
-                    child: _session().buildView(
-                      onCode: _onCode,
-                      onError: _onScannerError,
+          ],
+        ),
+      );
+    }
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned.fill(
+          child: Semantics(
+            key: const Key("scan-viewfinder"),
+            label: CatchStrings.viewfinderLabel,
+            image: true,
+            child: ExcludeSemantics(
+              child: _session().buildView(
+                onCode: _onCode,
+                onError: _onScannerError,
+              ),
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: IgnorePointer(
+            child: ExcludeSemantics(
+              child: CustomPaint(
+                painter: _ReticlePainter(
+                  scrimColor: scheme.scrim.withValues(alpha: 0.35),
+                  bracketColor: scheme.onInverseSurface,
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          top: TokenSpacing.lg,
+          left: TokenSpacing.lg,
+          right: TokenSpacing.lg,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            spacing: TokenSpacing.sm,
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: scheme.inverseSurface,
+                  borderRadius: BorderRadius.circular(TokenRadius.large),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: TokenSpacing.lg,
+                    vertical: TokenSpacing.sm,
+                  ),
+                  child: Text(
+                    CatchStrings.pointCamera,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: scheme.onInverseSurface,
                     ),
                   ),
                 ),
               ),
+              if (state.notATag)
+                const StatusBanner(
+                  key: Key("scan-banner"),
+                  tone: StatusTone.warning,
+                  message: CatchStrings.notATag,
+                ),
+            ],
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: TokenSpacing.xl,
+          child: Center(
+            child: Material(
+              color: _torchOn ? scheme.primary : scheme.inverseSurface,
+              shape: const CircleBorder(),
+              elevation: TokenElevation.level2,
+              child: IconButton(
+                key: const Key("scan-torch"),
+                constraints: const BoxConstraints(
+                  minWidth: TokenSize.minTarget,
+                  minHeight: TokenSize.minTarget,
+                ),
+                tooltip: _torchOn
+                    ? CatchStrings.torchOff
+                    : CatchStrings.torchOn,
+                color: _torchOn ? scheme.onPrimary : scheme.onInverseSurface,
+                icon: Icon(
+                  _torchOn ? Icons.flashlight_off : Icons.flashlight_on,
+                ),
+                onPressed: _toggleTorch,
+              ),
             ),
-        ],
-      ),
+          ),
+        ),
+      ],
     );
   }
+}
+
+/// Paints a soft scrim around a centered square cutout with corner brackets.
+class _ReticlePainter extends CustomPainter {
+  const new({required this.scrimColor, required this.bracketColor});
+
+  final Color scrimColor;
+  final Color bracketColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final side = math.min(240, size.shortestSide * 0.65).toDouble();
+    final rect = Rect.fromCenter(
+      center: size.center(Offset.zero),
+      width: side,
+      height: side,
+    );
+    final cutout = RRect.fromRectAndRadius(
+      rect,
+      const Radius.circular(TokenRadius.large),
+    );
+    final scrimPath = Path()
+      ..addRect(Offset.zero & size)
+      ..addRRect(cutout)
+      ..fillType = PathFillType.evenOdd;
+    canvas.drawPath(scrimPath, Paint()..color = scrimColor);
+
+    final bracket = Paint()
+      ..color = bracketColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
+    const arm = 24.0;
+    const r = TokenRadius.large;
+    final corners = [
+      Path()
+        ..moveTo(rect.left, rect.top + arm)
+        ..lineTo(rect.left, rect.top + r)
+        ..quadraticBezierTo(rect.left, rect.top, rect.left + r, rect.top)
+        ..lineTo(rect.left + arm, rect.top),
+      Path()
+        ..moveTo(rect.right - arm, rect.top)
+        ..lineTo(rect.right - r, rect.top)
+        ..quadraticBezierTo(rect.right, rect.top, rect.right, rect.top + r)
+        ..lineTo(rect.right, rect.top + arm),
+      Path()
+        ..moveTo(rect.left, rect.bottom - arm)
+        ..lineTo(rect.left, rect.bottom - r)
+        ..quadraticBezierTo(rect.left, rect.bottom, rect.left + r, rect.bottom)
+        ..lineTo(rect.left + arm, rect.bottom),
+      Path()
+        ..moveTo(rect.right - arm, rect.bottom)
+        ..lineTo(rect.right - r, rect.bottom)
+        ..quadraticBezierTo(
+          rect.right,
+          rect.bottom,
+          rect.right,
+          rect.bottom - r,
+        )
+        ..lineTo(rect.right, rect.bottom - arm),
+    ];
+    for (final path in corners) {
+      canvas.drawPath(path, bracket);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ReticlePainter oldDelegate) =>
+      oldDelegate.scrimColor != scrimColor ||
+      oldDelegate.bracketColor != bracketColor;
 }
 
 class _Loading extends StatelessWidget {
@@ -452,10 +584,19 @@ class _PreviewView extends StatelessWidget {
 /// or a neutral outcome is the screen's main content, so it is a card: the
 /// status banner is never a success message.
 class _Outcome extends StatelessWidget {
-  const new({required this.tone, required this.message});
+  const new({
+    required this.tone,
+    required this.message,
+    this.fursuit,
+    this.badgeLabel,
+    this.badgeTone,
+  });
 
   final StatusTone tone;
   final String message;
+  final CatchFursuit? fursuit;
+  final String? badgeLabel;
+  final StatusTone? badgeTone;
 
   @override
   Widget build(BuildContext context) {
@@ -466,21 +607,41 @@ class _Outcome extends StatelessWidget {
         message: message,
       );
     }
+    final suit = fursuit;
+    final badge = badgeLabel;
     return Card(
-      key: const Key("scan-result"),
       margin: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(TokenSpacing.lg),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Column(
           spacing: TokenSpacing.md,
           children: [
-            ExcludeSemantics(child: Icon(context.statusStyle(tone).icon)),
-            Expanded(
-              child: Text(
-                message,
-                style: Theme.of(context).textTheme.bodyLarge,
+            if (suit != null)
+              TailTagAvatar(
+                name: suit.name,
+                kind: AvatarKind.fursuit,
+                imageUrl: suit.photoUrl.toString(),
+                size: AvatarSize.large,
               ),
+            if (badge != null)
+              StatusBadge(
+                key: const Key("scan-result-badge"),
+                tone: badgeTone ?? tone,
+                label: badge,
+              ),
+            Row(
+              key: const Key("scan-result"),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              spacing: TokenSpacing.md,
+              children: [
+                ExcludeSemantics(child: Icon(context.statusStyle(tone).icon)),
+                Expanded(
+                  child: Text(
+                    message,
+                    style: Theme.of(context).textTheme.bodyLarge,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -512,7 +673,8 @@ class _ResultView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final result = state.result ?? ScanResult.failed;
-    final name = state.preview?.fursuit.name ?? "";
+    final fursuit = state.preview?.fursuit;
+    final name = fursuit?.name ?? "";
     final (tone, message) = switch (result) {
       ScanResult.pending => (
         StatusTone.success,
@@ -554,28 +716,90 @@ class _ResultView extends StatelessWidget {
             .message,
       ),
     };
-    final primary = switch (result) {
-      ScanResult.pending || ScanResult.alreadyPending => TailTagButton(
-        key: const Key("scan-see-requests"),
-        label: CatchStrings.seeRequests,
-        onPressed: onOpenRequests,
+    final (badgeLabel, badgeTone) = switch (result) {
+      ScanResult.approved => (
+        CatchStrings.stateLabel(CatchRequestState.approved),
+        StatusTone.success,
       ),
-      ScanResult.approved || ScanResult.alreadyCaught => TailTagButton(
-        key: const Key("scan-see-catches"),
-        label: CatchStrings.seeCatches,
-        onPressed: onOpenCatches,
+      ScanResult.alreadyCaught => (
+        CatchStrings.stateLabel(CatchRequestState.approved),
+        StatusTone.neutral,
       ),
-      ScanResult.unknown => TailTagButton(
-        key: const Key("scan-retry"),
-        label: CatchStrings.checkAgain,
-        onPressed: onRetry,
+      ScanResult.pending || ScanResult.alreadyPending => (
+        CatchStrings.stateLabel(CatchRequestState.pending),
+        StatusTone.neutral,
       ),
-      ScanResult.wait || ScanResult.failed => TailTagButton(
-        key: const Key("scan-retry"),
-        label: UiStrings.tryAgain,
-        onPressed: state.waitSeconds > 0 ? null : onRetry,
-      ),
-      _ => null,
+      _ => (null, null),
+    };
+    final actions = switch (result) {
+      ScanResult.pending || ScanResult.alreadyPending => [
+        TailTagButton(
+          key: const Key("scan-again"),
+          label: CatchStrings.scanAgain,
+          onPressed: onScanAgain,
+        ),
+        TailTagButton(
+          key: const Key("scan-see-requests"),
+          label: CatchStrings.seeRequests,
+          variant: TailTagButtonVariant.secondary,
+          onPressed: onOpenRequests,
+        ),
+      ],
+      ScanResult.approved || ScanResult.alreadyCaught => [
+        TailTagButton(
+          key: const Key("scan-again"),
+          label: CatchStrings.scanAgain,
+          onPressed: onScanAgain,
+        ),
+        TailTagButton(
+          key: const Key("scan-see-catches"),
+          label: CatchStrings.seeCatches,
+          variant: TailTagButtonVariant.secondary,
+          onPressed: onOpenCatches,
+        ),
+      ],
+      ScanResult.unknown => [
+        TailTagButton(
+          key: const Key("scan-retry"),
+          label: CatchStrings.checkAgain,
+          onPressed: onRetry,
+        ),
+        TailTagButton(
+          key: const Key("scan-again"),
+          label: CatchStrings.scanAgain,
+          variant: TailTagButtonVariant.secondary,
+          onPressed: onScanAgain,
+        ),
+      ],
+      ScanResult.wait || ScanResult.failed => [
+        TailTagButton(
+          key: const Key("scan-retry"),
+          label: UiStrings.tryAgain,
+          onPressed: state.waitSeconds > 0 ? null : onRetry,
+        ),
+        TailTagButton(
+          key: const Key("scan-again"),
+          label: CatchStrings.scanAgain,
+          variant: TailTagButtonVariant.secondary,
+          onPressed: onScanAgain,
+        ),
+      ],
+      // After a convention change the scan belongs to the old convention, so
+      // the only way on is the updated home.
+      ScanResult.conventionChanged => [
+        TailTagButton(
+          key: const Key("scan-close"),
+          label: CatchStrings.backToHome,
+          onPressed: onClose,
+        ),
+      ],
+      _ => [
+        TailTagButton(
+          key: const Key("scan-again"),
+          label: CatchStrings.scanAgain,
+          onPressed: onScanAgain,
+        ),
+      ],
     };
     return SingleChildScrollView(
       padding: const EdgeInsets.all(TokenSpacing.xl),
@@ -587,26 +811,15 @@ class _ResultView extends StatelessWidget {
           // each countdown step.
           Semantics(
             liveRegion: true,
-            child: _Outcome(tone: tone, message: message),
-          ),
-          ?primary,
-          // After a convention change the scan belongs to the old
-          // convention, so the only way on is the updated home.
-          if (result == ScanResult.conventionChanged)
-            TailTagButton(
-              key: const Key("scan-close"),
-              label: CatchStrings.backToHome,
-              onPressed: onClose,
-            )
-          else
-            TailTagButton(
-              key: const Key("scan-again"),
-              label: CatchStrings.scanAgain,
-              variant: primary == null
-                  ? TailTagButtonVariant.primary
-                  : TailTagButtonVariant.secondary,
-              onPressed: onScanAgain,
+            child: _Outcome(
+              tone: tone,
+              message: message,
+              fursuit: fursuit,
+              badgeLabel: badgeLabel,
+              badgeTone: badgeTone,
             ),
+          ),
+          ...actions,
         ],
       ),
     );

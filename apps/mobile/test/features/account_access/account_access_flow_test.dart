@@ -255,6 +255,7 @@ void main() {
     await app.settle();
     expect(app.path, AppPaths.home);
 
+    await app.tap("account-menu");
     await app.tap("entry-sign-out");
     expect(app.path, AppPaths.access);
     expect(app.container.read(accessFlowProvider).email, isEmpty);

@@ -117,6 +117,9 @@ class _CodeEntryScreenState extends ConsumerState<CodeEntryScreen> {
                   enabled: !flow.isPending,
                   keyboardType: TextInputType.number,
                   textInputAction: TextInputAction.done,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.headlineSmall
+                      ?.copyWith(letterSpacing: 6),
                   autocorrect: false,
                   enableSuggestions: false,
                   autofillHints: const [AutofillHints.oneTimeCode],
@@ -139,14 +142,14 @@ class _CodeEntryScreenState extends ConsumerState<CodeEntryScreen> {
                 TailTagButton(
                   key: const Key("access-resend"),
                   label: AccountAccessStrings.resend,
-                  variant: TailTagButtonVariant.secondary,
+                  variant: TailTagButtonVariant.secondaryText,
                   loading: flow.pending == AccessAction.resend,
                   onPressed: flow.isPending ? null : notifier.resend,
                 ),
                 TailTagButton(
                   key: const Key("access-change-email"),
                   label: leaveLabel,
-                  variant: TailTagButtonVariant.secondary,
+                  variant: TailTagButtonVariant.secondaryText,
                   onPressed: flow.isPending ? null : _leave,
                 ),
               ],

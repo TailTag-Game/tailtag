@@ -91,8 +91,9 @@ final class EntryController extends Notifier<EntryStage> {
   /// Shows the home of [enrollment], which the picker confirmed with the
   /// server. A result from a closed [scope] or another stage is dropped.
   void acceptSelection(PlayerScope scope, ConventionEnrollment enrollment) {
-    if (_isCurrent(scope) && state is EntryConventionPicker) {
-      state = EntryConventionHome(enrollment);
+    final current = state;
+    if (_isCurrent(scope) && current is EntryConventionPicker) {
+      state = EntryConventionHome(enrollment, profile: current.profile);
     }
   }
 
@@ -111,7 +112,10 @@ final class EntryController extends Notifier<EntryStage> {
     final current = state;
     if (current is EntryConventionHome && !_signingOut) {
       _dropReload();
-      state = EntryConventionPicker(current: current.enrollment);
+      state = EntryConventionPicker(
+        current: current.enrollment,
+        profile: current.profile,
+      );
     }
   }
 
@@ -133,13 +137,13 @@ final class EntryController extends Notifier<EntryStage> {
       unawaited(_bootstrap());
       return;
     }
-    state = EntryConventionHome(selected);
+    state = EntryConventionHome(selected, profile: current.profile);
   }
 
   /// Reads the profile and the selection again from the home.
-  void refreshHome() {
+  Future<void> refreshHome() async {
     if (state is EntryConventionHome) {
-      unawaited(_reloadSilently());
+      await _reloadSilently();
     }
   }
 
@@ -290,7 +294,7 @@ final class EntryController extends Notifier<EntryStage> {
         .read(conventionRepositoryProvider)
         .readSelection(cancellation: scope.cancellation);
     if (_isCurrent(scope)) {
-      state = _stageForSelection(selection);
+      state = _stageForSelection(selection, profile: profile);
     }
   }
 
@@ -332,7 +336,11 @@ final class EntryController extends Notifier<EntryStage> {
 
     final shown = state;
     if (shown is EntryConventionHome) {
-      state = EntryConventionHome(shown.enrollment, refreshing: true);
+      state = EntryConventionHome(
+        shown.enrollment,
+        profile: shown.profile,
+        refreshing: true,
+      );
     }
     try {
       final profile = await ref
@@ -350,7 +358,7 @@ final class EntryController extends Notifier<EntryStage> {
           .read(conventionRepositoryProvider)
           .readSelection(cancellation: scope.cancellation);
       if (live()) {
-        state = _stageForSelection(selection);
+        state = _stageForSelection(selection, profile: profile);
       }
     } on ApiCancelledFailure {
       return;
@@ -381,6 +389,7 @@ final class EntryController extends Notifier<EntryStage> {
     if (current is EntryConventionHome) {
       state = EntryConventionHome(
         current.enrollment,
+        profile: current.profile,
         refreshFailure: failure,
         apiAccess: failure == null,
       );
@@ -407,10 +416,12 @@ final class EntryController extends Notifier<EntryStage> {
   }
 
   /// The app never selects a convention for the player.
-  static EntryStage _stageForSelection(ConventionEnrollment? selection) =>
-      selection == null
-      ? const EntryConventionPicker()
-      : EntryConventionHome(selection);
+  static EntryStage _stageForSelection(
+    ConventionEnrollment? selection, {
+    PlayerProfile? profile,
+  }) => selection == null
+      ? EntryConventionPicker(profile: profile)
+      : EntryConventionHome(selection, profile: profile);
 
   static EntryStage _stageWithoutSession(AuthState state) => switch (state) {
     AuthRestoring() => const EntryRestoring(),

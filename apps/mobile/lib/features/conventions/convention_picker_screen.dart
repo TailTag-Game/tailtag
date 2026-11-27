@@ -24,9 +24,7 @@ class ConventionPickerScreen extends ConsumerStatefulWidget {
     required this.onEntered,
     required this.onIneligible,
     required this.onClose,
-    required this.onManagePasskeys,
-    required this.onSignOut,
-    required this.onOpenAuthProof,
+    required this.accountMenuBuilder,
     super.key,
   });
 
@@ -40,14 +38,8 @@ class ConventionPickerScreen extends ConsumerStatefulWidget {
   /// Returns to the home, or null when the player has no selection.
   final void Function({required bool writesLocked})? onClose;
 
-  /// Opens the passkey screen.
-  final VoidCallback onManagePasskeys;
-
-  /// Signs out.
-  final VoidCallback onSignOut;
-
-  /// Opens the debug proof screen, or null outside debug builds.
-  final VoidCallback? onOpenAuthProof;
+  /// Builds the top app bar account menu, gating passkeys on `canLeave`.
+  final Widget Function({required bool canLeave}) accountMenuBuilder;
 
   @override
   ConsumerState<ConventionPickerScreen> createState() =>
@@ -106,6 +98,7 @@ class _ConventionPickerScreenState
                 ),
           automaticallyImplyLeading: false,
           title: const Text(ConventionStrings.pickerTitle),
+          actions: [widget.accountMenuBuilder(canLeave: state.canLeave)],
         ),
         body: SafeArea(
           child: RefreshIndicator(
@@ -135,7 +128,7 @@ class _ConventionPickerScreenState
                       ),
                     )
                   else if (rows != null)
-                    for (final row in rows)
+                    for (final row in _orderedRows(rows))
                       _ConventionCard(
                         key: Key("convention-card-${row.convention.id}"),
                         row: row,
@@ -144,25 +137,6 @@ class _ConventionPickerScreenState
                             ? () => unawaited(controller.enter(row))
                             : null,
                       ),
-                  TailTagButton(
-                    key: const Key("entry-manage-passkeys"),
-                    label: ConventionStrings.managePasskeys,
-                    variant: TailTagButtonVariant.secondary,
-                    onPressed: state.canLeave ? widget.onManagePasskeys : null,
-                  ),
-                  TailTagButton(
-                    key: const Key("entry-sign-out"),
-                    label: ConventionStrings.signOut,
-                    variant: TailTagButtonVariant.secondary,
-                    onPressed: widget.onSignOut,
-                  ),
-                  if (widget.onOpenAuthProof != null)
-                    TailTagButton(
-                      key: const Key("entry-auth-proof"),
-                      label: ConventionStrings.authProof,
-                      variant: TailTagButtonVariant.secondary,
-                      onPressed: widget.onOpenAuthProof,
-                    ),
                 ],
               ),
             ),
@@ -171,6 +145,15 @@ class _ConventionPickerScreenState
       ),
     );
   }
+
+  /// Pins the selected convention to the top while keeping server order for
+  /// every other row.
+  static List<ConventionRow> _orderedRows(List<ConventionRow> rows) => [
+    for (final row in rows)
+      if (row.kind == ConventionRowKind.selected) row,
+    for (final row in rows)
+      if (row.kind != ConventionRowKind.selected) row,
+  ];
 
   /// One banner at a time. A read failure replaces any other banner.
   static Widget? _banner(
@@ -253,14 +236,24 @@ class _ConventionCard extends StatelessWidget {
       ConventionRowKind.joined => ConventionStrings.enterConvention,
       ConventionRowKind.selected => null,
     };
+    final isSelected = row.kind == ConventionRowKind.selected;
+    final scheme = Theme.of(context).colorScheme;
     return Card(
       margin: EdgeInsets.zero,
+      shape: isSelected
+          ? RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(TokenRadius.large),
+              side: BorderSide(color: scheme.primary, width: 2),
+            )
+          : null,
       child: Padding(
         padding: const EdgeInsets.all(TokenSpacing.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           spacing: TokenSpacing.md,
           children: [
+            if (badge != null && isSelected)
+              Align(alignment: AlignmentDirectional.centerStart, child: badge),
             Text(
               convention.name,
               maxLines: 2,
@@ -271,7 +264,7 @@ class _ConventionCard extends StatelessWidget {
               ConventionStrings.dates(context, convention),
               style: textTheme.bodyMedium,
             ),
-            if (badge != null)
+            if (badge != null && !isSelected)
               Align(alignment: AlignmentDirectional.centerStart, child: badge),
             if (action != null)
               TailTagButton(

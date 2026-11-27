@@ -57,7 +57,9 @@ class AccountAccessScreen extends ConsumerWidget {
         ? AccountAccessStrings.providerFailureMessage(failedAction, failure)
         : null;
 
-    final textTheme = Theme.of(context).textTheme;
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+    final scheme = theme.colorScheme;
     return Scaffold(
       body: SafeArea(
         child: Center(
@@ -67,6 +69,19 @@ class AccountAccessScreen extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               spacing: TokenSpacing.lg,
               children: [
+                Center(
+                  child: CircleAvatar(
+                    radius: TokenSpacing.xxl,
+                    backgroundColor: scheme.primaryContainer,
+                    foregroundColor: scheme.onPrimaryContainer,
+                    child: const ExcludeSemantics(
+                      child: Icon(
+                        Icons.pets_outlined,
+                        size: TokenSize.iconMedium,
+                      ),
+                    ),
+                  ),
+                ),
                 Semantics(
                   header: true,
                   child: Text(

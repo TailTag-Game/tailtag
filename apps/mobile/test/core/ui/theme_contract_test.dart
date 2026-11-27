@@ -175,6 +175,33 @@ void main() {
       ),
       equals((_scheme.primary, StrokeCap.round)),
     ),
+    "segmented buttons are stadium pills with solid primary selection": (
+      () => (
+        _at(theme.segmentedButtonTheme.style?.shape),
+        _at(theme.segmentedButtonTheme.style?.padding),
+        _at(theme.segmentedButtonTheme.style?.backgroundColor, {
+          WidgetState.selected,
+        }),
+        _at(theme.segmentedButtonTheme.style?.foregroundColor, {
+          WidgetState.selected,
+        }),
+        _at(theme.segmentedButtonTheme.style?.side, {WidgetState.focused}),
+      ),
+      equals((
+        const StadiumBorder(),
+        const EdgeInsets.symmetric(
+          horizontal: TokenSpacing.lg,
+          vertical: TokenSpacing.lg,
+        ),
+        _scheme.primary,
+        _scheme.onPrimary,
+        focusRing,
+      )),
+    ),
+    "count badges use high-contrast error colors": (
+      () => (theme.badgeTheme.backgroundColor, theme.badgeTheme.textColor),
+      equals((_scheme.error, _scheme.onError)),
+    ),
   };
 
   for (final MapEntry(key: name, value: (actual, matcher)) in cases.entries) {
@@ -203,4 +230,37 @@ void main() {
       expect(find.byIcon(Icons.arrow_back_ios), findsOneWidget);
     },
   );
+
+  testWidgets("segmented button segments paint at least size.minTarget tall "
+      "and grow with text scale", (tester) async {
+    Future<double> measure(double scale) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildTailTagTheme(),
+          home: MediaQuery(
+            data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+            child: Scaffold(
+              body: Center(
+                child: SegmentedButton<String>(
+                  showSelectedIcon: false,
+                  segments: const [
+                    ButtonSegment(value: "received", label: Text("Received")),
+                    ButtonSegment(value: "sent", label: Text("Sent")),
+                  ],
+                  selected: const {"received"},
+                  onSelectionChanged: (_) {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      return tester.getSize(find.byType(TextButton).first).height;
+    }
+
+    final normalHeight = await measure(1);
+    final largeHeight = await measure(2);
+    expect(normalHeight, greaterThanOrEqualTo(TokenSize.minTarget));
+    expect(largeHeight, greaterThan(normalHeight));
+  });
 }

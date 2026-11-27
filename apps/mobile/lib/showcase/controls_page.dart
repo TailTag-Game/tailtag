@@ -22,6 +22,7 @@ class ControlsPage extends StatelessWidget {
         _TextFieldSection(),
         _SwitchSection(),
         _ChipSection(),
+        _SegmentedButtonSection(),
       ],
     );
   }
@@ -590,6 +591,62 @@ class _ChipSectionState extends State<_ChipSection> {
               FilterChip(label: Text("All"), selected: true, onSelected: null),
               FilterChip(label: Text("Lakeside Pawcon"), onSelected: null),
             ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SegmentedButtonSection extends StatefulWidget {
+  const new();
+
+  @override
+  State<_SegmentedButtonSection> createState() =>
+      _SegmentedButtonSectionState();
+}
+
+class _SegmentedButtonSectionState extends State<_SegmentedButtonSection> {
+  String _selected = "received";
+
+  @override
+  Widget build(BuildContext context) {
+    return ShowcaseSection(
+      title: "Segmented button",
+      children: [
+        ShowcaseExample(
+          label: "Live: switches between two views in one screen (F10, F11)",
+          child: SegmentedButton<String>(
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(value: "received", label: Text("Received (2)")),
+              ButtonSegment(value: "sent", label: Text("Sent")),
+            ],
+            selected: {_selected},
+            onSelectionChanged: (next) =>
+                setState(() => _selected = next.first),
+          ),
+        ),
+        ShowcaseExample(
+          label: "Disabled",
+          child: Semantics(
+            enabled: false,
+            child: SegmentedButton<String>(
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(
+                  value: "received",
+                  label: Text("Received"),
+                  enabled: false,
+                ),
+                ButtonSegment(
+                  value: "sent",
+                  label: Text("Sent"),
+                  enabled: false,
+                ),
+              ],
+              selected: const {"received"},
+            ),
           ),
         ),
       ],

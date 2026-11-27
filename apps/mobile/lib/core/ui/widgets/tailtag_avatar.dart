@@ -65,49 +65,62 @@ class TailTagAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final placeholder = _Placeholder(name: name, kind: kind, size: size);
-    final url = imageUrl;
-    final content = url == null
-        ? placeholder
-        : Image.network(
-            url,
-            fit: BoxFit.cover,
-            cacheWidth: _decodeWidth(context),
-            frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-              final loaded = wasSynchronouslyLoaded || frame != null;
-              return loaded ? child : placeholder;
-            },
-            errorBuilder: (context, error, stackTrace) => placeholder,
-          );
+    Widget contentFor(int? cacheWidth) {
+      final url = imageUrl;
+      if (url == null) {
+        return placeholder;
+      }
+      return Image.network(
+        url,
+        fit: BoxFit.cover,
+        cacheWidth: cacheWidth,
+        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+          final loaded = wasSynchronouslyLoaded || frame != null;
+          return loaded ? child : placeholder;
+        },
+        errorBuilder: (context, error, stackTrace) => placeholder,
+      );
+    }
+
     final shaped = switch (size) {
-      AvatarSize.small => _circle(content, TokenSize.avatarSmall),
-      AvatarSize.large => _circle(content, TokenSize.avatarLarge),
+      AvatarSize.small => _circle(
+        contentFor(_decodeWidth(context, TokenSize.avatarSmall)),
+        TokenSize.avatarSmall,
+      ),
+      AvatarSize.large => _circle(
+        contentFor(_decodeWidth(context, TokenSize.avatarLarge)),
+        TokenSize.avatarLarge,
+      ),
       AvatarSize.photo => AspectRatio(
         aspectRatio: 1,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(TokenRadius.small),
-          child: content,
+          child: imageUrl == null
+              ? placeholder
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    final width = constraints.maxWidth;
+                    return contentFor(
+                      width.isFinite && width > 0
+                          ? _decodeWidth(context, width)
+                          : null,
+                    );
+                  },
+                ),
         ),
       ),
     };
     return ExcludeSemantics(child: shaped);
   }
 
-  /// The width to decode a circle image at, or null for the photo variant.
+  /// The width to decode an image at for a square or circle of [logicalWidth].
   ///
-  /// The server stores the original photo, so a small circle must not
-  /// decode a full phone photo. The image covers the circle, so its shorter
-  /// side must reach the circle size. Twice the circle width keeps any
-  /// image up to a 2:1 landscape shape sharp.
-  int? _decodeWidth(BuildContext context) {
-    final diameter = switch (size) {
-      AvatarSize.small => TokenSize.avatarSmall,
-      AvatarSize.large => TokenSize.avatarLarge,
-      AvatarSize.photo => null,
-    };
-    if (diameter == null) {
-      return null;
-    }
-    return (diameter * 2 * MediaQuery.devicePixelRatioOf(context)).ceil();
+  /// The server stores the original photo, so an avatar must not decode a full
+  /// phone photo. The image covers the square or circle, so its shorter side
+  /// must reach the rendered size. Twice the rendered width keeps any image up
+  /// to a 2:1 landscape shape sharp.
+  int _decodeWidth(BuildContext context, double logicalWidth) {
+    return (logicalWidth * 2 * MediaQuery.devicePixelRatioOf(context)).ceil();
   }
 
   Widget _circle(Widget child, double diameter) {

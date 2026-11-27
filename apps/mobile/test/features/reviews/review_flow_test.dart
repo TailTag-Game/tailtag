@@ -104,7 +104,8 @@ Future<AppHarness> _openReview(
   expect(find.text(ReviewStrings.toReview(pending)), findsOneWidget);
   await onHome?.call(app);
   await app.tap("home-review");
-  expect(app.path, AppPaths.review);
+  expect(app.path, AppPaths.requests);
+  expect(find.byKey(const Key("requests-segment")), findsOneWidget);
   return app;
 }
 
@@ -221,8 +222,7 @@ void main() {
     await app.tap("review-approve-2");
     final summaries = app.network.catchCount(_summary);
 
-    await tester.pageBack();
-    await app.settle();
+    await app.tap("nav-home");
     app.network.releaseCatch(0, _approval(_owner(id: 2, state: "approved")));
     await app.settle();
 
@@ -541,7 +541,9 @@ void main() {
     expect(find.text(ReviewStrings.serviceOff), findsOneWidget);
   });
 
-  testWidgets("the home row hides when nothing waits", (tester) async {
+  testWidgets("the home row and nav badge hide when nothing waits", (
+    tester,
+  ) async {
     final app = await pumpApp(
       tester,
       session: FakeAuthSession(initial: const AuthSignedIn()),
@@ -549,6 +551,46 @@ void main() {
     );
     expect(app.network.catchCount(_summary), greaterThan(0));
     expect(_key("home-review"), findsNothing);
+    expect(
+      tester.widget<Badge>(_key("nav-requests-badge")).isLabelVisible,
+      isFalse,
+    );
+  });
+
+  testWidgets("the nav badge shows pending count and Requests defaults to "
+      "Received when pending reviews exist", (tester) async {
+    final convention = conventionJson(reviewOpen: true);
+    final network = ScriptedNetwork.withConventions(
+      [200],
+      const [],
+      selections: [
+        ConventionReply.selection(enrollmentJson(convention: convention)),
+      ],
+    );
+    for (var i = 0; i < 6; i++) {
+      network
+        ..enqueueEnrollments(
+          ConventionReply.list([enrollmentJson(convention: convention)]),
+        )
+        ..enqueueCatch(_summary, _count(3));
+    }
+    network.enqueueCatch(_list, _rows([_owner(id: 2)]));
+    final app = await pumpApp(
+      tester,
+      session: FakeAuthSession(initial: const AuthSignedIn()),
+      network: network,
+    );
+
+    final badge = tester.widget<Badge>(_key("nav-requests-badge"));
+    expect(badge.isLabelVisible, isTrue);
+    expect(find.text("3"), findsOneWidget);
+
+    await app.tap("nav-requests");
+    expect(find.text("Received (3)"), findsOneWidget);
+    expect(find.text("Sam"), findsOneWidget);
+
+    await app.tap("requests-tab-sent");
+    expect(_key("requests-list"), findsOneWidget);
   });
 
   testWidgets("an account change shows no request of the previous player, "
@@ -726,5 +768,31 @@ void main() {
       ]),
     );
     semantics.dispose();
+  });
+
+  testWidgets("reopening the Home review action reapplies Received after "
+      "switching to Sent", (tester) async {
+    final app = await _openReview(
+      tester,
+      [
+        _rows([_owner(id: 2)]),
+        _rows([_owner(id: 2)]),
+      ],
+      setUp: (network) => network.enqueueCatch(
+        "GET /api/catches/requests/",
+        const ConventionReply(body: '{"results": []}'),
+      ),
+    );
+
+    expect(_key("review-row-2"), findsOneWidget);
+
+    await app.tap("requests-tab-sent");
+    expect(_key("requests-empty"), findsOneWidget);
+
+    await app.tap("nav-home");
+    await app.tap("home-review");
+
+    expect(_key("review-row-2"), findsOneWidget);
+    expect(_key("requests-empty"), findsNothing);
   });
 }

@@ -254,10 +254,14 @@ void main() {
 
       expect(find.text(EntryStrings.accountUnavailable), findsOneWidget);
       expect(find.text(EntryStrings.refresh), findsOneWidget);
-      expect(find.byKey(const Key("entry-manage-passkeys")), findsOneWidget);
-      expect(find.byKey(const Key("entry-sign-out")), findsOneWidget);
+      expect(find.byKey(const Key("account-menu")), findsOneWidget);
+      expect(find.byKey(const Key("entry-sign-out-fallback")), findsOneWidget);
       expect(find.byType(TextField), findsNothing);
       expect(app.network.profilePuts, isEmpty);
+
+      await app.tap("account-menu");
+      expect(find.byKey(const Key("entry-manage-passkeys")), findsOneWidget);
+      expect(find.byKey(const Key("entry-sign-out")), findsOneWidget);
     });
 
     final refreshes = <({String label, ProfileReply read, String path})>[
@@ -296,6 +300,7 @@ void main() {
         "stage again", (tester) async {
       final app = await disabled(tester);
 
+      await app.tap("account-menu");
       await app.tap("entry-manage-passkeys");
       expect(app.path, AppPaths.passkeys);
 
@@ -574,6 +579,7 @@ void main() {
       final epoch = app.container.read(playerScopeProvider).epoch;
       app.session.gate = Completer<void>();
 
+      await app.tap("account-menu");
       final signOut = find.byKey(const Key("entry-sign-out"));
       await tester.ensureVisible(signOut);
       await tester.pump();
@@ -599,6 +605,7 @@ void main() {
       final app = await signedIn(tester);
       app.session.signOutFailure = const AuthConnectivityFailure();
 
+      await app.tap("account-menu");
       await app.tap("entry-sign-out");
       expect(app.path, AppPaths.signOutFailed);
       expect(_landing, findsNothing);
@@ -614,6 +621,7 @@ void main() {
     ) async {
       final app = await signedIn(tester);
       app.session.signOutFailure = const AuthConnectivityFailure();
+      await app.tap("account-menu");
       await app.tap("entry-sign-out");
       final epoch = app.container.read(playerScopeProvider).epoch;
       app.network.enqueue(200);
@@ -632,6 +640,7 @@ void main() {
         ..signOutFailure = const AuthConnectivityFailure()
         ..stateAfterFailedSignOut = const AuthSignedOut();
 
+      await app.tap("account-menu");
       await app.tap("entry-sign-out");
 
       expect(app.path, AppPaths.access);
