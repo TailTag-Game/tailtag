@@ -184,6 +184,30 @@ void main() {
     expect(find.byType(ClipRRect), findsOneWidget);
   });
 
+  testWidgets("a photo avatar decodes its image at twice its rendered pixel "
+      "width", (tester) async {
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      themed(
+        const Center(
+          child: SizedBox(
+            width: 160,
+            child: TailTagAvatar(
+              name: "Sable",
+              kind: AvatarKind.fursuit,
+              imageUrl: "https://media.example/sable.png",
+              size: AvatarSize.photo,
+            ),
+          ),
+        ),
+      ),
+    );
+    final image = tester.widget<Image>(find.byType(Image)).image;
+    expect(image, isA<ResizeImage>());
+    expect((image as ResizeImage).width, 160 * 2 * 3);
+  });
+
   testWidgets("the placeholder shows while the image loads, then the image", (
     tester,
   ) async {
