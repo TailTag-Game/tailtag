@@ -11,6 +11,7 @@ from accounts.views import CurrentUserView
 from health import views as health_views
 
 urlpatterns: list[URLPattern | URLResolver] = [
+    path("", health_views.api_health),
     path("admin/", admin.site.urls),
     path("api/me/", CurrentUserView.as_view(), name="current-user"),
     path("api/", include("profiles.urls")),
